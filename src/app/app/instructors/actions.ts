@@ -84,7 +84,7 @@ export async function createInstructorAction(
   formData: FormData
 ) {
   try {
-    const { supabase, studioId, user } = await requireInstructorManageAccess();
+    const { supabase, studioId } = await requireInstructorManageAccess();
 
     const firstName = getString(formData, "firstName");
     const lastName = getString(formData, "lastName");
@@ -139,7 +139,6 @@ export async function createInstructorAction(
       years_experience: yearsExperience,
       display_order: displayOrder,
       active: true,
-      created_by: user.id,
     });
 
     if (error) {
@@ -456,4 +455,3 @@ export async function deleteInstructorCredentialAction(formData: FormData) {
   revalidatePath("/platform/credentials");
   instructorCredentialRedirect(instructorId, "all");
 }
-
