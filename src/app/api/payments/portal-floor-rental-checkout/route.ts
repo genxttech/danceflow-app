@@ -54,7 +54,9 @@ export async function POST(request: NextRequest) {
 
     const { data: studio, error: studioError } = await supabase
       .from("studios")
-      .select("id, slug, name, public_name")
+      .select(
+        "id, slug, name, public_name, stripe_connected_account_id, stripe_connect_charges_enabled, stripe_connect_payouts_enabled, stripe_connect_onboarding_complete",
+      )
       .eq("slug", studioSlug)
       .single();
 
@@ -148,42 +150,45 @@ export async function POST(request: NextRequest) {
     const appointmentIds = payableRentals.map((rental) => rental.id);
     const stripe = getStripe();
     const appUrl = buildAppUrl(request);
+    const connectedAccountId = studio.stripe_connected_account_id;
 
-    const checkoutSession = await stripe.checkout.sessions.create({
-      mode: "payment",
-      customer_email: user.email ?? undefined,
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "usd",
-            unit_amount: Math.round(totalAmount * 100),
-            product_data: {
-              name: "Floor Rental Balance",
-              description: `${payableRentals.length} rental${payableRentals.length === 1 ? "" : "s"} at ${
-                studio.public_name?.trim() || studio.name
-              }`,
+    if (
+      !connectedAccountId ||
+      !studio.stripe_connect_onboarding_complete ||
+      !studio.stripe_connect_charges_enabled ||
+      !studio.stripe_connect_payouts_enabled
+    ) {
+      return redirectTo(
+        request,
+        `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&error=studio_payments_not_ready`
+      );
+    }
+
+    const checkoutSession = await stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        customer_email: user.email ?? undefined,
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "usd",
+              unit_amount: Math.round(totalAmount * 100),
+              product_data: {
+                name: "Floor Rental Balance",
+                description: `${payableRentals.length} rental${payableRentals.length === 1 ? "" : "s"} at ${
+                  studio.public_name?.trim() || studio.name
+                }`,
+              },
             },
           },
-        },
-      ],
-      success_url: `${appUrl}/portal/${encodeURIComponent(
-        studio.slug
-      )}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&success=balance_payment_submitted`,
-      cancel_url: `${appUrl}/portal/${encodeURIComponent(
-        studio.slug
-      )}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&error=checkout_cancelled`,
-      metadata: {
-        source: "portal_floor_rental_balance_payment",
-        studioId: studio.id,
-        clientId: client.id,
-        studioSlug: studio.slug,
-        appointmentIds: appointmentIds.join(","),
-        appointmentCount: String(appointmentIds.length),
-        paymentType: "floor_fee",
-reportingCategory: "floor_rental",
-      },
-      payment_intent_data: {
+        ],
+        success_url: `${appUrl}/portal/${encodeURIComponent(
+          studio.slug
+        )}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&success=balance_payment_submitted`,
+        cancel_url: `${appUrl}/portal/${encodeURIComponent(
+          studio.slug
+        )}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&error=checkout_cancelled`,
         metadata: {
           source: "portal_floor_rental_balance_payment",
           studioId: studio.id,
@@ -192,10 +197,29 @@ reportingCategory: "floor_rental",
           appointmentIds: appointmentIds.join(","),
           appointmentCount: String(appointmentIds.length),
           paymentType: "floor_fee",
-reportingCategory: "floor_rental",
+          reportingCategory: "floor_rental",
+          connectedAccountId,
+          chargeModel: "direct",
+        },
+        payment_intent_data: {
+          metadata: {
+            source: "portal_floor_rental_balance_payment",
+            studioId: studio.id,
+            clientId: client.id,
+            studioSlug: studio.slug,
+            appointmentIds: appointmentIds.join(","),
+            appointmentCount: String(appointmentIds.length),
+            paymentType: "floor_fee",
+            reportingCategory: "floor_rental",
+            connectedAccountId,
+            chargeModel: "direct",
+          },
         },
       },
-    });
+      {
+        stripeAccount: connectedAccountId,
+      },
+    );
 
     if (!checkoutSession.url) {
       return redirectTo(

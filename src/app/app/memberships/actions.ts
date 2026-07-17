@@ -4,9 +4,9 @@ import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { ensureStripeCustomer } from "@/lib/payments/customer";
+import { ensureConnectedStripeCustomer } from "@/lib/payments/customer";
 import { getStripe } from "@/lib/payments/stripe";
-import { ensureStripeRecurringPrice } from "@/lib/payments/subscriptions";
+import { ensureConnectedStripeRecurringPrice } from "@/lib/payments/subscriptions";
 
 type CreateState = {
   error: string;
@@ -608,13 +608,16 @@ export async function startMembershipPaymentMethodSetupAction(
       redirect(addQueryParam(returnTo, "error", "client_not_found"));
     }
 
+    const connectStatus =
+      await requireStudioConnectReadyForMemberships(studioId);
     const fullName = `${client.first_name} ${client.last_name}`.trim();
-    const stripeCustomerId = await ensureStripeCustomer({
+    const stripeCustomerId = await ensureConnectedStripeCustomer({
       supabase,
       studioId,
       clientId: client.id,
       email: client.email ?? null,
       name: fullName || null,
+      stripeAccountId: connectStatus.connectedAccountId,
     });
 
     const stripe = getStripe();
@@ -623,18 +626,25 @@ export async function startMembershipPaymentMethodSetupAction(
     const successUrl = `${appUrl}${addQueryParam(returnTo, "success", "membership_payment_method_saved")}`;
     const cancelUrl = `${appUrl}${returnTo}`;
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "setup",
-      currency: "usd",
-      customer: stripeCustomerId,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata: {
-        studioId,
-        clientId: client.id,
-        source: "membership_payment_method_setup",
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "setup",
+        currency: "usd",
+        customer: stripeCustomerId,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          studioId,
+          clientId: client.id,
+          source: "membership_payment_method_setup",
+          connectedAccountId: connectStatus.connectedAccountId,
+          chargeModel: "direct",
+        },
       },
-    });
+      {
+        stripeAccount: connectStatus.connectedAccountId,
+      },
+    );
 
     if (!session.url) {
       throw new Error(
@@ -752,23 +762,26 @@ export async function sellMembershipAction(formData: FormData) {
       redirect(addQueryParam(returnTo, "error", "invalid_start"));
     }
 
+    const connectStatus =
+      await requireStudioConnectReadyForMemberships(studioId);
     const fullName = `${client.first_name} ${client.last_name}`.trim();
-    const stripeCustomerId = await ensureStripeCustomer({
+    const stripeCustomerId = await ensureConnectedStripeCustomer({
       supabase,
       studioId,
       clientId: client.id,
       email: client.email ?? null,
       name: fullName || null,
+      stripeAccountId: connectStatus.connectedAccountId,
     });
 
-    const { stripePriceId } = await ensureStripeRecurringPrice({
+    const { stripePriceId } = await ensureConnectedStripeRecurringPrice({
       supabase,
+      studioId,
       membershipPlanId: plan.id,
       planName: plan.name,
       price: Number(plan.price ?? 0),
       billingInterval: plan.billing_interval,
-      stripeProductId: plan.stripe_product_id ?? null,
-      stripePriceId: plan.stripe_price_id ?? null,
+      stripeAccountId: connectStatus.connectedAccountId,
     });
 
     const { data: localMembership, error: membershipInsertError } =
@@ -804,24 +817,30 @@ export async function sellMembershipAction(formData: FormData) {
     const stripe = getStripe();
     const appUrl = getAppUrl();
     const anchor = getFutureAnchorOrNull(startsOn);
-    const connectStatus =
-      await requireStudioConnectReadyForMemberships(studioId);
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      customer: stripeCustomerId,
-      success_url: `${appUrl}/app/clients/${client.id}?success=membership_subscription_created`,
-      cancel_url: `${appUrl}${returnTo}`,
-      line_items: [
-        {
-          price: stripePriceId,
-          quantity: 1,
-        },
-      ],
-      subscription_data: {
-        ...(anchor ? { billing_cycle_anchor: anchor } : {}),
-        transfer_data: {
-          destination: connectStatus.connectedAccountId,
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "subscription",
+        customer: stripeCustomerId,
+        success_url: `${appUrl}/app/clients/${client.id}?success=membership_subscription_created`,
+        cancel_url: `${appUrl}${returnTo}`,
+        line_items: [
+          {
+            price: stripePriceId,
+            quantity: 1,
+          },
+        ],
+        subscription_data: {
+          ...(anchor ? { billing_cycle_anchor: anchor } : {}),
+          metadata: {
+            localMembershipId: localMembership.id,
+            studioId,
+            clientId: client.id,
+            membershipPlanId: plan.id,
+            source: "membership_sale",
+            connectedAccountId: connectStatus.connectedAccountId,
+            chargeModel: "direct",
+          },
         },
         metadata: {
           localMembershipId: localMembership.id,
@@ -829,17 +848,15 @@ export async function sellMembershipAction(formData: FormData) {
           clientId: client.id,
           membershipPlanId: plan.id,
           source: "membership_sale",
+          connectedAccountId: connectStatus.connectedAccountId,
+          chargeModel: "direct",
         },
+        client_reference_id: client.id,
       },
-      metadata: {
-        localMembershipId: localMembership.id,
-        studioId,
-        clientId: client.id,
-        membershipPlanId: plan.id,
-        source: "membership_sale",
+      {
+        stripeAccount: connectStatus.connectedAccountId,
       },
-      client_reference_id: client.id,
-    });
+    );
 
     if (!session.url) {
       throw new Error("Membership checkout session was created without a url.");
@@ -1284,14 +1301,17 @@ export async function collectReplacementPaymentMethodAction(
       redirect(addQueryParam(returnTo, "error", "client_not_found"));
     }
 
+    const connectStatus =
+      await requireStudioConnectReadyForMemberships(studioId);
     const fullName = `${client.first_name} ${client.last_name}`.trim();
 
-    const stripeCustomerId = await ensureStripeCustomer({
+    const stripeCustomerId = await ensureConnectedStripeCustomer({
       supabase,
       studioId,
       clientId: client.id,
       email: client.email ?? null,
       name: fullName || null,
+      stripeAccountId: connectStatus.connectedAccountId,
     });
 
     const stripe = getStripe();
@@ -1300,18 +1320,25 @@ export async function collectReplacementPaymentMethodAction(
     const successUrl = `${appUrl}/app/clients/${client.id}?success=membership_payment_method_updated`;
     const cancelUrl = `${appUrl}${returnTo}`;
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "setup",
-      currency: "usd",
-      customer: stripeCustomerId,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata: {
-        studioId,
-        clientId: client.id,
-        source: "delinquent_membership_payment_method_update",
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "setup",
+        currency: "usd",
+        customer: stripeCustomerId,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          studioId,
+          clientId: client.id,
+          source: "delinquent_membership_payment_method_update",
+          connectedAccountId: connectStatus.connectedAccountId,
+          chargeModel: "direct",
+        },
       },
-    });
+      {
+        stripeAccount: connectStatus.connectedAccountId,
+      },
+    );
 
     if (!session.url) {
       throw new Error(

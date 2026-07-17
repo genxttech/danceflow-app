@@ -128,6 +128,12 @@ export async function GET(request: NextRequest) {
       client_memberships:client_membership_id (
         id,
         name_snapshot
+      ),
+      studios:studio_id (
+        stripe_connected_account_id,
+        stripe_connect_charges_enabled,
+        stripe_connect_payouts_enabled,
+        stripe_connect_onboarding_complete
       )
     `,
     )
@@ -216,6 +222,23 @@ export async function GET(request: NextRequest) {
     packageRow?.name_snapshot || membershipRow?.name_snapshot || null,
   );
 
+  const studioRow = Array.isArray(payment.studios)
+    ? payment.studios[0]
+    : payment.studios;
+  const connectedAccountId = studioRow?.stripe_connected_account_id ?? null;
+
+  if (
+    !connectedAccountId ||
+    !studioRow?.stripe_connect_onboarding_complete ||
+    !studioRow?.stripe_connect_charges_enabled ||
+    !studioRow?.stripe_connect_payouts_enabled
+  ) {
+    return NextResponse.json(
+      { error: "This studio is not ready to accept online payments." },
+      { status: 409 },
+    );
+  }
+
   const successUrl = absoluteUrl(
     request,
     returnTo,
@@ -227,34 +250,54 @@ export async function GET(request: NextRequest) {
     returnTo || "/app/payments?error=payment_cancelled",
   );
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    customer_email: clientRow?.email || user.email || undefined,
-    success_url: successUrl,
-    cancel_url: cancelUrl,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency,
-          unit_amount: amountInCents,
-          product_data: {
-            name: lineItemName,
-            description: payment.notes || undefined,
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "payment",
+      customer_email: clientRow?.email || user.email || undefined,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency,
+            unit_amount: amountInCents,
+            product_data: {
+              name: lineItemName,
+              description: payment.notes || undefined,
+            },
           },
         },
+      ],
+      payment_intent_data: {
+        metadata: {
+          source: "client_payment_request",
+          paymentId: payment.id,
+          studioId: payment.studio_id,
+          clientId: payment.client_id,
+          clientPackageId: payment.client_package_id || "",
+          clientMembershipId: payment.client_membership_id || "",
+          paymentType: payment.payment_type || "general",
+          connectedAccountId,
+          chargeModel: "direct",
+        },
       },
-    ],
-    metadata: {
-      source: "client_payment_request",
-      paymentId: payment.id,
-      studioId: payment.studio_id,
-      clientId: payment.client_id,
-      clientPackageId: payment.client_package_id || "",
-      clientMembershipId: payment.client_membership_id || "",
-      paymentType: payment.payment_type || "general",
+      metadata: {
+        source: "client_payment_request",
+        paymentId: payment.id,
+        studioId: payment.studio_id,
+        clientId: payment.client_id,
+        clientPackageId: payment.client_package_id || "",
+        clientMembershipId: payment.client_membership_id || "",
+        paymentType: payment.payment_type || "general",
+        connectedAccountId,
+        chargeModel: "direct",
+      },
     },
-  });
+    {
+      stripeAccount: connectedAccountId,
+    },
+  );
 
   const { data: updatedPayment, error: updateError } = await supabase
     .from("payments")

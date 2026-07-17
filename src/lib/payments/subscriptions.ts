@@ -19,7 +19,6 @@ type CreateMembershipSubscriptionParams = {
   clientId: string;
   membershipPlanId: string;
   startsOn: string;
-  studioConnectedAccountId?: string | null;
 };
 
 type EnsureConnectedRecurringPriceParams = Omit<
@@ -160,7 +159,6 @@ export async function createStripeMembershipSubscription({
   clientId,
   membershipPlanId,
   startsOn,
-  studioConnectedAccountId,
 }: CreateMembershipSubscriptionParams) {
   const stripe = getStripe();
   const billingCycleAnchor = getFutureBillingCycleAnchor(startsOn);
@@ -176,13 +174,6 @@ export async function createStripeMembershipSubscription({
     default_payment_method: defaultPaymentMethodId,
     payment_behavior: "default_incomplete",
     ...(billingCycleAnchor ? { billing_cycle_anchor: billingCycleAnchor } : {}),
-    ...(studioConnectedAccountId
-      ? {
-          transfer_data: {
-            destination: studioConnectedAccountId,
-          },
-        }
-      : {}),
     metadata: {
       localMembershipId,
       studioId,
