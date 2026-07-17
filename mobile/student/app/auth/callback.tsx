@@ -26,17 +26,41 @@ function buildCallbackUrl(
     type?: string | string[];
   },
 ) {
-  if (baseUrl) return baseUrl;
+  const fallbackUrl = "danceflow://auth/callback";
+  let parsed: URL;
 
-  const params = new URLSearchParams();
+  try {
+    parsed = new URL(baseUrl || fallbackUrl);
+  } catch {
+    parsed = new URL(fallbackUrl);
+  }
+
+  const fragmentParams = new URLSearchParams(
+    parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash,
+  );
+
+  for (const [key, value] of fragmentParams.entries()) {
+    if (!parsed.searchParams.has(key)) {
+      parsed.searchParams.set(key, value);
+    }
+  }
 
   for (const [key, value] of Object.entries(routeParams)) {
     const cleaned = cleanParam(value);
-    if (cleaned) params.set(key, cleaned);
+    if (cleaned && !parsed.searchParams.has(key)) {
+      parsed.searchParams.set(key, cleaned);
+    }
   }
 
-  const query = params.toString();
-  return query ? `danceflow://auth/callback?${query}` : null;
+  parsed.hash = "";
+
+  const hasAuthData =
+    parsed.searchParams.has("code") ||
+    parsed.searchParams.has("token_hash") ||
+    (parsed.searchParams.has("access_token") &&
+      parsed.searchParams.has("refresh_token"));
+
+  return hasAuthData ? parsed.toString() : null;
 }
 
 async function waitForSession() {
@@ -64,6 +88,13 @@ export default function AuthCallbackScreen() {
   }>();
   const attemptedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [initialUrl, setInitialUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    Linking.getInitialURL()
+      .then((url) => setInitialUrl(url))
+      .catch(() => setInitialUrl(null));
+  }, []);
 
   useEffect(() => {
     if (session?.access_token) {
@@ -76,15 +107,22 @@ export default function AuthCallbackScreen() {
 
     async function completeSignIn() {
       if (attemptedRef.current) return;
+
+      const resolvedUrl = buildCallbackUrl(
+        callbackUrl || initialUrl,
+        routeParams,
+      );
+
+      if (!resolvedUrl) return;
+
       attemptedRef.current = true;
 
       try {
-        const initialUrl = callbackUrl || (await Linking.getInitialURL());
-        const resolvedUrl = buildCallbackUrl(initialUrl, routeParams);
-
-        if (!resolvedUrl) {
+        const routeError = cleanParam(routeParams.error);
+        if (routeError) {
           throw new Error(
-            "The sign-in link did not include the information DanceFlow needs. Request a new link and try again.",
+            cleanParam(routeParams.error_description) ||
+              "The secure sign-in link could not be completed.",
           );
         }
 
@@ -126,6 +164,7 @@ export default function AuthCallbackScreen() {
     };
   }, [
     callbackUrl,
+    initialUrl,
     handleAuthUrl,
     routeParams.access_token,
     routeParams.code,
