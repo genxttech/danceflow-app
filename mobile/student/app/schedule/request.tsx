@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -84,6 +84,7 @@ export default function ScheduleRequestScreen() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [submittingSlotKey, setSubmittingSlotKey] = useState<string | null>(null);
+  const [selectedSlotKey, setSelectedSlotKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session?.user.id) return;
@@ -139,6 +140,14 @@ export default function ScheduleRequestScreen() {
 
       if (selectedDate && !nextSlots.some((slot) => slot.date === selectedDate)) {
         setSelectedDate("");
+        setSelectedSlotKey(null);
+      } else if (
+        selectedSlotKey &&
+        !nextSlots.some(
+          (slot) => `${slot.startsAt}|${slot.endsAt}` === selectedSlotKey,
+        )
+      ) {
+        setSelectedSlotKey(null);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Lesson times could not be loaded.");
@@ -201,14 +210,25 @@ export default function ScheduleRequestScreen() {
     ? slots.filter((slot) => slot.date === selectedDate)
     : [];
   const instructorResolved = Boolean(selectedInstructorId) || instructors.length === 1;
+  const selectedSlot =
+    visibleSlots.find(
+      (slot) => `${slot.startsAt}|${slot.endsAt}` === selectedSlotKey,
+    ) ?? null;
 
   return (
     <Screen>
-      <AppText variant="eyebrow">Schedule</AppText>
-      <AppText variant="title">Book a private lesson</AppText>
-      <AppText variant="caption">
-        Choose your studio, instructor, day, and available time.
-      </AppText>
+      <View style={styles.bookingHero}>
+        <View style={styles.bookingHeroIcon}>
+          <AppText style={styles.bookingHeroIconText}>+</AppText>
+        </View>
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.bookingHeroEyebrow}>Private lessons</AppText>
+          <AppText style={styles.bookingHeroTitle}>Book your next lesson</AppText>
+          <AppText style={styles.bookingHeroDetail}>
+            Choose a studio, instructor, day, and available time.
+          </AppText>
+        </View>
+      </View>
 
       {message ? <FeatureCard title="Booking update" detail={message} /> : null}
 
@@ -223,6 +243,7 @@ export default function ScheduleRequestScreen() {
                 setSelectedStudioSlug(studio.studioSlug);
                 setSelectedInstructorId("");
                 setSelectedDate("");
+                setSelectedSlotKey(null);
                 setMonthKey("");
               }}
               variant={selectedStudioSlug === studio.studioSlug ? "primary" : "secondary"}
@@ -244,6 +265,7 @@ export default function ScheduleRequestScreen() {
                   onPress={() => {
                     setSelectedInstructorId(instructor.id);
                     setSelectedDate("");
+                    setSelectedSlotKey(null);
                     setMonthKey("");
                   }}
                   style={({ pressed }) => [
@@ -297,6 +319,7 @@ export default function ScheduleRequestScreen() {
               onPress={() => {
                 setMonthKey(shiftMonth(resolvedMonthKey, -1));
                 setSelectedDate("");
+                setSelectedSlotKey(null);
               }}
               style={({ pressed }) => [
                 styles.monthButton,
@@ -313,6 +336,7 @@ export default function ScheduleRequestScreen() {
               onPress={() => {
                 setMonthKey(shiftMonth(resolvedMonthKey, 1));
                 setSelectedDate("");
+                setSelectedSlotKey(null);
               }}
               style={({ pressed }) => [
                 styles.monthButton,
@@ -346,6 +370,7 @@ export default function ScheduleRequestScreen() {
                   onPress={() => {
                     if (!cell.available) return;
                     setSelectedDate(cell.key);
+                    setSelectedSlotKey(null);
                   }}
                   style={({ pressed }) => [
                     styles.dayCell,
@@ -379,19 +404,82 @@ export default function ScheduleRequestScreen() {
           <AppText variant="caption">
             {dayLabel(selectedDate)} · {selectedDate}
           </AppText>
-          {visibleSlots.map((slot) => {
-            const slotKey = `${slot.startsAt}|${slot.endsAt}`;
-            return (
-              <View key={slotKey} style={styles.slotCard}>
-                <AppText variant="subtitle">{formatScheduleDateTime(slot.startsAt)}</AppText>
-                <AppButton
-                  label={decision?.mode === "instant" ? "Book this time" : "Request this time"}
-                  loading={submittingSlotKey === slotKey}
-                  onPress={() => submitSlot(slot)}
-                />
-              </View>
-            );
-          })}
+
+          {visibleSlots.length > 0 ? (
+            <>
+              <ScrollView
+                horizontal
+                contentContainerStyle={styles.timeSlotRow}
+                showsHorizontalScrollIndicator={false}
+              >
+                {visibleSlots.map((slot) => {
+                  const slotKey = `${slot.startsAt}|${slot.endsAt}`;
+                  const selected = selectedSlotKey === slotKey;
+
+                  return (
+                    <Pressable
+                      key={slotKey}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      onPress={() => setSelectedSlotKey(slotKey)}
+                      style={({ pressed }) => [
+                        styles.timeSlotPill,
+                        selected && styles.timeSlotPillSelected,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <AppText
+                        style={[
+                          styles.timeSlotText,
+                          selected && styles.timeSlotTextSelected,
+                        ]}
+                      >
+                        {new Intl.DateTimeFormat("en-US", {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        }).format(new Date(slot.startsAt))}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              {selectedSlot ? (
+                <View style={styles.selectedTimeCard}>
+                  <View>
+                    <AppText style={styles.selectedTimeLabel}>
+                      Selected time
+                    </AppText>
+                    <AppText style={styles.selectedTimeValue}>
+                      {formatScheduleDateTime(selectedSlot.startsAt)}
+                    </AppText>
+                  </View>
+
+                  <AppButton
+                    label={
+                      decision?.mode === "instant"
+                        ? "Book selected time"
+                        : "Request selected time"
+                    }
+                    loading={
+                      submittingSlotKey ===
+                      `${selectedSlot.startsAt}|${selectedSlot.endsAt}`
+                    }
+                    onPress={() => submitSlot(selectedSlot)}
+                  />
+                </View>
+              ) : (
+                <AppText variant="caption">
+                  Swipe horizontally and tap a time to continue.
+                </AppText>
+              )}
+            </>
+          ) : (
+            <FeatureCard
+              title="No times on this day"
+              detail="Choose another available date."
+            />
+          )}
         </View>
       ) : null}
     </Screen>
@@ -400,6 +488,47 @@ export default function ScheduleRequestScreen() {
 
 function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   return StyleSheet.create({
+  bookingHero: {
+    alignItems: "center",
+    backgroundColor: "#17112B",
+    borderRadius: 26,
+    flexDirection: "row",
+    gap: 14,
+    padding: 20,
+  },
+  bookingHeroDetail: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+  },
+  bookingHeroEyebrow: {
+    color: "#C4B5FD",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  bookingHeroIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 18,
+    height: 52,
+    justifyContent: "center",
+    width: 52,
+  },
+  bookingHeroIconText: {
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "500",
+    lineHeight: 30,
+  },
+  bookingHeroTitle: {
+    color: "#fff",
+    fontSize: 23,
+    fontWeight: "900",
+    marginTop: 3,
+  },
   dayUnavailable: {
     opacity: 0.32,
   },
@@ -492,17 +621,57 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   section: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 12,
+    padding: 18,
+  },
+  selectedTimeCard: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
-    gap: 10,
-    padding: 16,
-  },
-  slotCard: {
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 8,
+    gap: 12,
     padding: 14,
+  },
+  selectedTimeLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  selectedTimeValue: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  timeSlotPill: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    minWidth: 92,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  timeSlotPillSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  timeSlotRow: {
+    gap: 10,
+    paddingRight: 12,
+  },
+  timeSlotText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  timeSlotTextSelected: {
+    color: "#fff",
   },
   weekLabel: {
     color: colors.muted,

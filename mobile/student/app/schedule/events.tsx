@@ -1,18 +1,16 @@
 import { Link, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess } from "@/lib/studentAccess";
 import {
   formatWalletDate,
   loadStudentWallet,
-  type StudentEventRegistration,
-  type StudentTicket,
   type StudentWallet
 } from "@/lib/studentWallet";
 
@@ -32,15 +30,22 @@ type EventScheduleItem = {
   state: string | null;
 };
 
-function eventDateTime(item: Pick<EventScheduleItem, "eventDate" | "eventTime">) {
-  if (!item.eventDate) return null;
-  return new Date(`${item.eventDate}T${item.eventTime || "12:00:00"}`);
+function eventDateKey(item: Pick<EventScheduleItem, "eventDate">) {
+  return item.eventDate?.slice(0, 10) ?? null;
+}
+
+function todayDateKey() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function isUpcomingEvent(item: EventScheduleItem) {
-  const date = eventDateTime(item);
-  if (!date || Number.isNaN(date.getTime())) return true;
-  return date.getTime() >= new Date().setHours(0, 0, 0, 0);
+  const dateKey = eventDateKey(item);
+  if (!dateKey) return true;
+  return dateKey >= todayDateKey();
 }
 
 function locationLine(item: EventScheduleItem) {
@@ -50,14 +55,20 @@ function locationLine(item: EventScheduleItem) {
 }
 
 function statusText(item: EventScheduleItem) {
-  if (item.paymentStatus && item.paymentStatus !== "paid") return item.paymentStatus.replaceAll("_", " ");
+  if (item.paymentStatus && item.paymentStatus !== "paid") {
+    return item.paymentStatus.replaceAll("_", " ");
+  }
+
   return item.status.replaceAll("_", " ");
 }
 
-function eventItemsFromWallet(wallet: StudentWallet | null): EventScheduleItem[] {
+function eventItemsFromWallet(
+  wallet: StudentWallet | null
+): EventScheduleItem[] {
   if (!wallet) return [];
 
   const ticketCountByRegistrationId = new Map<string, number>();
+
   wallet.tickets.forEach((ticket) => {
     ticketCountByRegistrationId.set(
       ticket.registrationId,
@@ -81,7 +92,10 @@ function eventItemsFromWallet(wallet: StudentWallet | null): EventScheduleItem[]
     state: registration.state
   }));
 
-  const registrationIds = new Set(registrationItems.map((item) => item.id));
+  const registrationIds = new Set(
+    registrationItems.map((item) => item.id)
+  );
+
   const ticketOnlyItems = wallet.tickets
     .filter((ticket) => !registrationIds.has(ticket.registrationId))
     .map((ticket) => ({
@@ -101,41 +115,111 @@ function eventItemsFromWallet(wallet: StudentWallet | null): EventScheduleItem[]
     }));
 
   return [...registrationItems, ...ticketOnlyItems].sort((a, b) => {
-    const aTime = eventDateTime(a)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const bTime = eventDateTime(b)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    return aTime - bTime;
+    const aDate = eventDateKey(a) ?? "9999-12-31";
+    const bDate = eventDateKey(b) ?? "9999-12-31";
+    return aDate.localeCompare(bDate);
   });
 }
 
-function EventCard({ item }: { item: EventScheduleItem }) {
+function SectionHeader({
+  eyebrow,
+  title,
+  count
+}: {
+  eyebrow: string;
+  title: string;
+  count: number;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <View>
+        <AppText style={styles.sectionEyebrow}>{eyebrow}</AppText>
+        <AppText style={styles.sectionTitle}>{title}</AppText>
+      </View>
+      <View style={styles.countBadge}>
+        <AppText style={styles.countBadgeText}>{count}</AppText>
+      </View>
+    </View>
+  );
+}
+
+function EventCard({
+  item,
+  muted = false
+}: {
+  item: EventScheduleItem;
+  muted?: boolean;
+}) {
   const router = useRouter();
   const location = locationLine(item);
 
   return (
-    <View style={styles.eventCard}>
-      <View style={styles.itemHeader}>
-        <AppText variant="eyebrow">{statusText(item)}</AppText>
-        <AppText variant="caption">{item.studioName}</AppText>
+    <Pressable
+      onPress={() => router.push(`/events/${item.eventId}`)}
+      style={({ pressed }) => [
+        styles.eventCard,
+        muted && styles.eventCardMuted,
+        pressed && styles.pressed
+      ]}
+    >
+      <View style={styles.eventAccent} />
+
+      <View style={styles.eventBody}>
+        <View style={styles.eventTopRow}>
+          <View style={styles.eventIcon}>
+            <Ionicons color="#C2410C" name="ticket-outline" size={18} />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <AppText style={styles.eventStatus}>
+              {statusText(item)}
+            </AppText>
+            <AppText style={styles.eventStudio}>{item.studioName}</AppText>
+          </View>
+
+          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+        </View>
+
+        <AppText style={styles.eventTitle}>{item.eventName}</AppText>
+
+        <View style={styles.metaRow}>
+          <Ionicons color="#64748B" name="calendar-outline" size={15} />
+          <AppText style={styles.metaText}>
+            {formatWalletDate(item.eventDate)}
+            {item.eventTime ? ` • ${item.eventTime}` : ""}
+          </AppText>
+        </View>
+
+        {location ? (
+          <View style={styles.metaRow}>
+            <Ionicons color="#64748B" name="location-outline" size={15} />
+            <AppText style={styles.metaText}>{location}</AppText>
+          </View>
+        ) : null}
+
+        <View style={styles.ticketRow}>
+          <View style={styles.ticketPill}>
+            <Ionicons color="#C2410C" name="qr-code-outline" size={14} />
+            <AppText style={styles.ticketPillText}>
+              {item.ticketCount > 0
+                ? `${item.ticketCount} ${
+                    item.ticketCount === 1 ? "ticket" : "tickets"
+                  }`
+                : "Registration"}
+            </AppText>
+          </View>
+
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              router.push("/wallet/event-tickets");
+            }}
+          >
+            <AppText style={styles.ticketLink}>Open tickets</AppText>
+          </Pressable>
+        </View>
       </View>
-      <AppText variant="subtitle">{item.eventName}</AppText>
-      <AppText variant="caption">
-        {formatWalletDate(item.eventDate)}{item.eventTime ? ` • ${item.eventTime}` : ""}
-      </AppText>
-      {location ? <AppText variant="caption">{location}</AppText> : null}
-      <AppText variant="caption">
-        {item.ticketCount > 0
-          ? `${item.ticketCount} ticket${item.ticketCount === 1 ? "" : "s"} ready or pending`
-          : "Registration found. Ticket codes will appear when issued."}
-      </AppText>
-      <View style={styles.actionRow}>
-        <AppButton label="Tickets" onPress={() => router.push("/wallet/event-tickets")} variant="secondary" />
-        <AppButton
-          label="Event details"
-          onPress={() => router.push(`/events/${item.eventId}`)}
-          variant="secondary"
-        />
-      </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -159,9 +243,16 @@ export default function ScheduleEventsScreen() {
 
     try {
       const access = await getStudentAccess(userId);
-      setWallet(await loadStudentWallet(access.linkedStudios, session?.user.email ?? null));
+      setWallet(
+        await loadStudentWallet(
+          access.linkedStudios,
+          session?.user.email ?? null
+        )
+      );
     } catch {
-      setErrorMessage("Events could not be loaded. Try again in a moment.");
+      setErrorMessage(
+        "Events could not be loaded. Try again in a moment."
+      );
       setWallet(null);
     } finally {
       setLoading(false);
@@ -173,81 +264,268 @@ export default function ScheduleEventsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user.email, session?.user.id]);
 
-  const eventItems = useMemo(() => eventItemsFromWallet(wallet), [wallet]);
+  const eventItems = useMemo(
+    () => eventItemsFromWallet(wallet),
+    [wallet]
+  );
   const upcomingEvents = eventItems.filter(isUpcomingEvent);
-  const pastEvents = eventItems.filter((item) => !isUpcomingEvent(item));
 
   return (
     <Screen>
-      <AppText variant="eyebrow">Schedule</AppText>
-      <AppText variant="title">Events</AppText>
-      <AppText variant="caption">Purchased and registered DanceFlow events from your account.</AppText>
-
-      {loading ? <FeatureCard title="Loading events..." detail="Checking your event registrations and tickets." /> : null}
-      {!loading && errorMessage ? <FeatureCard title="Events unavailable" detail={errorMessage} /> : null}
-      {!loading && !session ? (
-        <Link href="/(auth)/sign-in" asChild>
-          <AppButton label="Create or access your free account" />
-        </Link>
-      ) : null}
-
-      {!loading && session && upcomingEvents.length > 0 ? (
-        <View style={styles.section}>
-          <AppText variant="subtitle">Upcoming Events</AppText>
-          {upcomingEvents.slice(0, 12).map((item) => (
-            <EventCard key={item.id} item={item} />
-          ))}
+      <View style={styles.hero}>
+        <View style={styles.heroIcon}>
+          <Ionicons color="#FFFFFF" name="ticket-outline" size={24} />
         </View>
-      ) : null}
 
-      {!loading && session && upcomingEvents.length === 0 ? (
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.heroEyebrow}>Event activity</AppText>
+          <AppText style={styles.heroTitle}>Tickets & registrations</AppText>
+          <AppText style={styles.heroDetail}>
+            Purchased events, registrations, ticket status, and check-in
+            details.
+          </AppText>
+        </View>
+      </View>
+
+      {loading ? (
         <FeatureCard
-          title="No upcoming events"
-          detail="Events you register for or purchase with this account email will appear here."
+          title="Loading events"
+          detail="Checking registrations and tickets."
         />
       ) : null}
 
-      {!loading && pastEvents.length > 0 ? (
-        <View style={styles.section}>
-          <AppText variant="subtitle">Past Events</AppText>
-          {pastEvents.slice(0, 8).map((item) => (
-            <EventCard key={item.id} item={item} />
-          ))}
-        </View>
+      {!loading && errorMessage ? (
+        <FeatureCard title="Events unavailable" detail={errorMessage} />
       ) : null}
 
-      {session ? <AppButton label="Refresh events" onPress={loadEvents} variant="secondary" /> : null}
+      {!loading && !session ? (
+        <Link href="/(auth)/sign-in" asChild>
+          <AppButton label="Sign in to view events" />
+        </Link>
+      ) : null}
+
+      {!loading && session ? (
+        <>
+          <View style={styles.section}>
+            <SectionHeader
+              eyebrow="Coming up"
+              title="Upcoming events"
+              count={upcomingEvents.length}
+            />
+
+            {upcomingEvents.length > 0 ? (
+              <View style={styles.list}>
+                {upcomingEvents.slice(0, 12).map((item) => (
+                  <EventCard key={item.id} item={item} />
+                ))}
+              </View>
+            ) : (
+              <FeatureCard
+                title="No upcoming events"
+                detail="Events you register for or purchase with this account email will appear here."
+              />
+            )}
+          </View>
+
+        </>
+      ) : null}
+
+      {session ? (
+        <Pressable
+          onPress={loadEvents}
+          style={({ pressed }) => [
+            styles.refreshLink,
+            pressed && styles.pressed
+          ]}
+        >
+          <Ionicons color="#64748B" name="refresh-outline" size={16} />
+          <AppText style={styles.refreshLinkText}>Refresh events</AppText>
+        </Pressable>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  actionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  countBadge: {
+    alignItems: "center",
+    backgroundColor: "#FFF7ED",
+    borderRadius: 999,
+    minWidth: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  countBadgeText: {
+    color: "#C2410C",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  eventAccent: {
+    alignSelf: "stretch",
+    backgroundColor: "#C2410C",
+    borderBottomLeftRadius: 20,
+    borderTopLeftRadius: 20,
+    width: 5
+  },
+  eventBody: {
+    flex: 1,
     gap: 8,
-    marginTop: 6
+    padding: 16
   },
   eventCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    borderColor: "#FED7AA",
+    borderRadius: 20,
     borderWidth: 1,
-    elevation: 2,
-    gap: 7,
-    padding: 16,
-    shadowColor: colors.primaryDark,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 18
+    elevation: 1,
+    flexDirection: "row",
+    overflow: "hidden"
   },
-  itemHeader: {
+  eventCardMuted: {
+    borderColor: "#E2E8F0",
+    opacity: 0.78
+  },
+  eventIcon: {
+    alignItems: "center",
+    backgroundColor: "#FFF7ED",
+    borderRadius: 12,
+    height: 36,
+    justifyContent: "center",
+    width: 36
+  },
+  eventStatus: {
+    color: "#C2410C",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+    textTransform: "uppercase"
+  },
+  eventStudio: {
+    color: "#64748B",
+    fontSize: 12,
+    marginTop: 2
+  },
+  eventTitle: {
+    color: "#0F172A",
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  eventTopRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between"
+    gap: 10
+  },
+  hero: {
+    alignItems: "center",
+    backgroundColor: "#2B1A10",
+    borderRadius: 28,
+    flexDirection: "row",
+    gap: 14,
+    padding: 20
+  },
+  heroDetail: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6
+  },
+  heroEyebrow: {
+    color: "#FED7AA",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase"
+  },
+  heroIcon: {
+    alignItems: "center",
+    backgroundColor: "#C2410C",
+    borderRadius: 18,
+    height: 54,
+    justifyContent: "center",
+    width: 54
+  },
+  heroTitle: {
+    color: "#FFFFFF",
+    fontSize: 23,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  list: {
+    gap: 12
+  },
+  metaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7
+  },
+  metaText: {
+    color: "#64748B",
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19
+  },
+  pressed: {
+    opacity: 0.75
+  },
+  refreshLink: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 7,
+    paddingVertical: 8
+  },
+  refreshLinkText: {
+    color: "#64748B",
+    fontSize: 13,
+    fontWeight: "800"
   },
   section: {
-    gap: 10
+    gap: 12
+  },
+  sectionEyebrow: {
+    color: "#C2410C",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase"
+  },
+  sectionHeader: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  sectionTitle: {
+    color: "#0F172A",
+    fontSize: 21,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  ticketLink: {
+    color: "#C2410C",
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  ticketPill: {
+    alignItems: "center",
+    backgroundColor: "#FFF7ED",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  ticketPillText: {
+    color: "#C2410C",
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  ticketRow: {
+    alignItems: "center",
+    borderTopColor: "#F1F5F9",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+    paddingTop: 12
   }
 });

@@ -1,12 +1,12 @@
 import { Link, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -47,13 +47,15 @@ function LearnCategoryCard({
   detail,
   icon,
   onPress,
-  title
+  title,
+  styles,
 }: {
   countLabel: string;
   detail: string;
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   title: string;
+  styles: ReturnType<typeof createStyles>;
 }) {
   return (
     <Pressable
@@ -77,7 +79,13 @@ function LearnCategoryCard({
   );
 }
 
-function LearnValueCard({ signedIn }: { signedIn: boolean }) {
+function LearnValueCard({
+  signedIn,
+  styles,
+}: {
+  signedIn: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
   return (
     <>
       <View style={styles.lumiCard}>
@@ -146,6 +154,8 @@ function LearnValueCard({ signedIn }: { signedIn: boolean }) {
 
 export default function LearnScreen() {
   const { session } = useAuth();
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [overview, setOverview] = useState<StudentLearnOverview>(emptyOverview);
@@ -222,7 +232,7 @@ export default function LearnScreen() {
         <FeatureCard label="Needs review" title="Learning history unavailable" detail={errorMessage} />
       ) : null}
 
-      {!loading && !hasPortalAccess ? <LearnValueCard signedIn={isSignedIn} /> : null}
+      {!loading && !hasPortalAccess ? <LearnValueCard signedIn={isSignedIn} styles={styles} /> : null}
 
       {!loading && hasPortalAccess ? (
         <>
@@ -233,6 +243,7 @@ export default function LearnScreen() {
               icon="reader-outline"
               onPress={() => router.push("/learn/latest-recaps")}
               title="Latest Recaps"
+              styles={styles}
             />
             <LearnCategoryCard
               countLabel={`${syllabi.length}`}
@@ -240,6 +251,7 @@ export default function LearnScreen() {
               icon="list-outline"
               onPress={() => router.push("/learn/syllabus")}
               title="Syllabus"
+              styles={styles}
             />
             <LearnCategoryCard
               countLabel={`${practiceFocus.length}`}
@@ -247,6 +259,7 @@ export default function LearnScreen() {
               icon="sparkles-outline"
               onPress={() => router.push("/learn/practice-focus")}
               title="Practice Focus"
+              styles={styles}
             />
           </View>
         </>
@@ -255,7 +268,8 @@ export default function LearnScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   highlightCard: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: 18,
@@ -329,7 +343,9 @@ const styles = StyleSheet.create({
   lumiCard: {
     alignItems: "center",
     backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
     borderRadius: 18,
+    borderWidth: 1,
     flexDirection: "row",
     gap: 14,
     padding: 16
@@ -394,4 +410,5 @@ const styles = StyleSheet.create({
   valueList: {
     gap: 10
   }
-});
+  });
+}

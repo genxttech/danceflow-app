@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicEventDetailForMobile,
@@ -40,6 +40,8 @@ function remainingSpotsLabel(ticket: PublicEventDetail["ticketTypes"][number]) {
 }
 
 export default function EventDetailScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useAuth();
@@ -178,11 +180,12 @@ export default function EventDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   categoryBadge: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(244, 63, 142, 0.14)",
-    borderColor: "rgba(244, 63, 142, 0.28)",
+    backgroundColor: colors.surfaceGlow,
+    borderColor: colors.borderStrong,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 10,
@@ -201,7 +204,7 @@ const styles = StyleSheet.create({
   infoCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     gap: 8,
     padding: 16
@@ -251,4 +254,5 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingTop: 10
   }
-});
+  });
+}
