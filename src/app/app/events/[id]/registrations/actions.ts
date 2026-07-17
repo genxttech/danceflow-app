@@ -61,6 +61,11 @@ type RegistrationAttendeeCheckInRow = {
 type EventAccessRow = {
   id: string;
   event_type: string | null;
+  studio_id: string;
+  studios:
+    | { stripe_connected_account_id: string | null }
+    | { stripe_connected_account_id: string | null }[]
+    | null;
 };
 
 type EventSessionRow = {
@@ -157,7 +162,9 @@ async function validateEventAccess(
 ) {
   const { data: event, error } = await supabase
     .from("events")
-    .select("id, event_type")
+    .select(
+      "id, event_type, studio_id, studios:studio_id(stripe_connected_account_id)",
+    )
     .eq("id", eventId)
     .eq("studio_id", studioId)
     .maybeSingle<EventAccessRow>();
@@ -1598,7 +1605,7 @@ export async function markEventRegistrationAttendedAction(formData: FormData) {
 
   try {
     const { supabase, studioId } = await getStudioContext();
-    await validateEventAccess(supabase, eventId, studioId);
+    const event = await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
       supabase,
@@ -2083,7 +2090,7 @@ export async function refundEventRegistrationAction(formData: FormData) {
 
   try {
     const { supabase, studioId } = await getStudioContext();
-    await validateEventAccess(supabase, eventId, studioId);
+    const event = await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
       supabase,
@@ -2101,10 +2108,22 @@ export async function refundEventRegistrationAction(formData: FormData) {
     const currency = registration.currency ?? "USD";
 
     if (registration.stripe_payment_intent_id) {
+      const studio = singleRelation(event.studios);
+      const connectedAccountId = studio?.stripe_connected_account_id ?? null;
+
+      if (!connectedAccountId) {
+        throw new Error("The studio Stripe account could not be resolved for this refund.");
+      }
+
       const stripe = getStripe();
-      await stripe.refunds.create({
-        payment_intent: registration.stripe_payment_intent_id,
-      });
+      await stripe.refunds.create(
+        {
+          payment_intent: registration.stripe_payment_intent_id,
+        },
+        {
+          stripeAccount: connectedAccountId,
+        },
+      );
     }
 
     await markRegistrationPaymentStatus({

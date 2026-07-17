@@ -204,11 +204,55 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const studio = one(event.studios as any);
     if (!studio?.stripe_connected_account_id || !studio.stripe_connect_charges_enabled || !studio.stripe_connect_payouts_enabled || !studio.stripe_connect_onboarding_complete) throw new Error("Online payments are not enabled for this event.");
-    const feePercent = await platformFeePercent(supabase, event.studio_id);
+    const feePercent = event.organizer_id
+      ? await platformFeePercent(supabase, event.studio_id)
+      : 0;
+    if (event.organizer_id && feePercent <= 0) {
+      throw new Error("DanceFlow organizer checkout is not enabled for this listing.");
+    }
     const appFee = applicationFee(quote.total, feePercent);
     const stripe = getStripe();
     const stripeItems = [{ quantity: 1, price_data: { currency: quote.currency.toLowerCase(), unit_amount: Math.round(quote.total * 100), product_data: { name: `${event.name} — Competition registration (${draft.entries.length} entries)` } } }];
-    const session = await stripe.checkout.sessions.create({ mode: "payment", customer_email: draft.buyerEmail.trim().toLowerCase(), success_url: successUrl, cancel_url: absoluteUrl(request, `/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(slug)}`), line_items: stripeItems, payment_intent_data: { ...(appFee > 0 ? { application_fee_amount: appFee } : {}), transfer_data: { destination: studio.stripe_connected_account_id }, metadata: { source: "event_cart_order", studio_id: event.studio_id, event_id: event.id, event_slug: slug, order_id: order.id, registration_id: registration.id, registration_ids: registration.id, registration_cart_id: cart.id, connected_account_id: studio.stripe_connected_account_id } }, metadata: { source: "event_cart_order", studio_id: event.studio_id, event_id: event.id, event_slug: slug, order_id: order.id, registration_id: registration.id, registration_ids: registration.id, registration_cart_id: cart.id, buyer_email: draft.buyerEmail.trim().toLowerCase(), connected_account_id: studio.stripe_connected_account_id } });
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        customer_email: draft.buyerEmail.trim().toLowerCase(),
+        success_url: successUrl,
+        cancel_url: absoluteUrl(request, `/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(slug)}`),
+        line_items: stripeItems,
+        payment_intent_data: {
+          ...(appFee > 0 ? { application_fee_amount: appFee } : {}),
+          metadata: {
+            source: "event_cart_order",
+            studio_id: event.studio_id,
+            event_id: event.id,
+            event_slug: slug,
+            order_id: order.id,
+            registration_id: registration.id,
+            registration_ids: registration.id,
+            registration_cart_id: cart.id,
+            connected_account_id: studio.stripe_connected_account_id,
+            charge_model: "direct",
+          },
+        },
+        metadata: {
+          source: "event_cart_order",
+          studio_id: event.studio_id,
+          event_id: event.id,
+          event_slug: slug,
+          order_id: order.id,
+          registration_id: registration.id,
+          registration_ids: registration.id,
+          registration_cart_id: cart.id,
+          buyer_email: draft.buyerEmail.trim().toLowerCase(),
+          connected_account_id: studio.stripe_connected_account_id,
+          charge_model: "direct",
+        },
+      },
+      {
+        stripeAccount: studio.stripe_connected_account_id,
+      },
+    );
     if (!session.url) throw new Error("Stripe did not return a checkout URL.");
     await supabase.from("event_orders").update({ stripe_checkout_session_id: session.id }).eq("id", order.id);
     await supabase.from("event_registrations").update({ stripe_checkout_session_id: session.id }).eq("id", registration.id);

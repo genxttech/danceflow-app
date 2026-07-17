@@ -315,10 +315,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const feePercent = await getOrganizerPlatformFeePercent(
-    supabase,
-    slot.studio_id,
-  );
+  const feePercent = slot.organizer_id
+    ? await getOrganizerPlatformFeePercent(supabase, slot.studio_id)
+    : 0;
   const applicationFeeAmount = calculateApplicationFeeAmount(
     amount,
     feePercent,
@@ -368,6 +367,8 @@ export async function POST(request: NextRequest) {
             event_slug: eventSlug,
             slot_id: slot.id,
             coach_id: slot.coach_id,
+            connected_account_id: studio.stripe_connected_account_id,
+            charge_model: "direct",
           },
         },
         metadata: {
@@ -378,6 +379,8 @@ export async function POST(request: NextRequest) {
           slot_id: slot.id,
           coach_id: slot.coach_id,
           buyer_email: buyerEmail,
+          connected_account_id: studio.stripe_connected_account_id,
+          charge_model: "direct",
         },
       },
       {

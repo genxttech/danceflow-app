@@ -333,6 +333,7 @@ function calculateOrganizerApplicationFeeAmount(params: {
 
 async function createStripeCheckoutSession(params: {
   studioId: string;
+  organizerId: string | null;
   eventId: string;
   eventSlug: string;
   eventName: string;
@@ -350,9 +351,9 @@ async function createStripeCheckoutSession(params: {
 
   const appUrl = getAppUrl();
 
-  const organizerPlatformFeePercent = await getOrganizerPlatformFeePercent(
-    params.studioId
-  );
+  const organizerPlatformFeePercent = params.organizerId
+    ? await getOrganizerPlatformFeePercent(params.studioId)
+    : 0;
 
   const applicationFeeAmount = calculateOrganizerApplicationFeeAmount({
     unitPrice: params.unitPrice,
@@ -394,6 +395,8 @@ async function createStripeCheckoutSession(params: {
           event_slug: params.eventSlug,
           registration_id: params.registrationId,
           ticket_type_id: params.ticketTypeId,
+          connected_account_id: connectStatus.connectedAccountId!,
+          charge_model: "direct",
         },
       },
       metadata: {
@@ -403,6 +406,8 @@ async function createStripeCheckoutSession(params: {
         event_slug: params.eventSlug,
         registration_id: params.registrationId,
         ticket_type_id: params.ticketTypeId,
+        connected_account_id: connectStatus.connectedAccountId!,
+        charge_model: "direct",
       },
     },
     {
@@ -901,6 +906,7 @@ export async function createEventRegistrationAction(
 
       const session = await createStripeCheckoutSession({
         studioId: event.studio_id,
+        organizerId: event.organizer_id,
         eventId: event.id,
         eventSlug: event.slug,
         eventName: event.name,
@@ -1151,6 +1157,7 @@ export async function createEventRegistrationAction(
 
     const session = await createStripeCheckoutSession({
       studioId: event.studio_id,
+      organizerId: event.organizer_id,
       eventId: event.id,
       eventSlug: event.slug,
       eventName: event.name,
@@ -1313,6 +1320,7 @@ export async function retryEventRegistrationCheckoutAction(formData: FormData) {
 
   const session = await createStripeCheckoutSession({
     studioId: eventValue.studio_id,
+    organizerId: eventValue.organizer_id,
     eventId: eventValue.id,
     eventSlug: eventValue.slug,
     eventName: eventValue.name,

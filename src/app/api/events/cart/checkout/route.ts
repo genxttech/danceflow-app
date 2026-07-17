@@ -555,12 +555,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const organizerPlatformFeePercent = await getOrganizerPlatformFeePercent(
-    supabase,
-    event.studio_id,
-  );
+  const organizerPlatformFeePercent = event.organizer_id
+    ? await getOrganizerPlatformFeePercent(supabase, event.studio_id)
+    : 0;
 
-  if (organizerPlatformFeePercent <= 0) {
+  if (event.organizer_id && organizerPlatformFeePercent <= 0) {
     return NextResponse.redirect(
       absoluteEventUrl(request, eventSlug, "?error=organizer_suite_required"),
     );
@@ -1071,7 +1070,8 @@ export async function POST(request: NextRequest) {
 
     const connectedAccountId = studio.stripe_connected_account_id;
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripe.checkout.sessions.create(
+      {
       mode: "payment",
       customer_email: buyerEmail,
       success_url: absoluteEventUrl(
@@ -1088,9 +1088,6 @@ export async function POST(request: NextRequest) {
         ...(applicationFeeAmount > 0
           ? { application_fee_amount: applicationFeeAmount }
           : {}),
-        transfer_data: {
-          destination: connectedAccountId,
-        },
         metadata: {
           source: "event_cart_order",
           studio_id: event.studio_id,
@@ -1100,6 +1097,7 @@ export async function POST(request: NextRequest) {
           registration_id: registrationIds[0] ?? "",
           registration_ids: registrationIds.join(","),
           connected_account_id: connectedAccountId,
+          charge_model: "direct",
         },
       },
       metadata: {
@@ -1112,8 +1110,13 @@ export async function POST(request: NextRequest) {
         registration_ids: registrationIds.join(","),
         buyer_email: buyerEmail,
         connected_account_id: connectedAccountId,
+        charge_model: "direct",
       },
-    });
+    },
+    {
+      stripeAccount: connectedAccountId,
+    },
+    );
 
     const { error: sessionLinkError } = await supabase
       .from("event_orders")
