@@ -1,4 +1,4 @@
-"use server";
+"use client";
 
 import { cancelAppointmentAction } from "@/app/app/schedule/actions";
 
@@ -10,7 +10,7 @@ type AppointmentCancellationFormProps = {
   compact?: boolean;
 };
 
-export default async function AppointmentCancellationForm({
+export default function AppointmentCancellationForm({
   appointmentId,
   returnTo,
   isRecurring,

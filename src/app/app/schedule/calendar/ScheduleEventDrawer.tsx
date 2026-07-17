@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import {
-  cancelAppointmentAction,
   markAppointmentAttendedAction,
   markAppointmentNoShowAction,
 } from "@/app/app/schedule/actions";
+import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 
 export type DrawerAppointment = {
   id: string;
@@ -298,15 +298,13 @@ export default function ScheduleEventDrawer({
             <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <h4 className="text-sm font-semibold text-slate-900">Appointment Action</h4>
               <div className="mt-4">
-                <form action={cancelAppointmentAction}>
-                  <input type="hidden" name="appointmentId" value={appointment.id} />
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl border border-red-200 px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50"
-                  >
-                    {isFloorRental ? "Cancel Rental" : "Cancel Appointment"}
-                  </button>
-                </form>
+                <AppointmentCancellationForm
+                  appointmentId={appointment.id}
+                  returnTo="/app/schedule"
+                  isRecurring={Boolean(appointment.is_recurring)}
+                  isFloorRental={isFloorRental}
+                  compact
+                />
               </div>
             </section>
           ) : null}
