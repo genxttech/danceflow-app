@@ -54,11 +54,16 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
     saving,
     message,
     updatePreferences,
-    enableNotifications
+    setPushEnabled,
+    openNotificationSettings
   } = useNotificationPreferences(userId);
 
   function updatePreference(preferenceKey: keyof NotificationPreferences, value: boolean) {
     updatePreferences({ ...preferences, [preferenceKey]: value });
+  }
+
+  function togglePushNotifications(value: boolean) {
+    void setPushEnabled(value);
   }
 
   return (
@@ -71,15 +76,19 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
             {loading
               ? "Loading notification settings..."
               : permissionStatus === "granted"
-                ? "Push notifications are enabled on this device."
-                : "Choose your categories, then enable push notifications when ready."}
+                ? "Push notifications are available on this device."
+                : permissionStatus === "denied"
+                  ? "Push notifications are blocked in your device settings."
+                  : permissionStatus === "development_build_required"
+                    ? "Push notifications require the DanceFlow preview app."
+                    : "Turn on Push Notifications to allow alerts from DanceFlow."}
           </AppText>
         </View>
         {message ? <AppText style={styles.saved}>{message}</AppText> : null}
       </View>
 
       <Pressable
-        onPress={() => updatePreference("pushEnabled", !preferences.pushEnabled)}
+        onPress={() => togglePushNotifications(!preferences.pushEnabled)}
         style={({ pressed }) => [styles.masterOption, pressed && styles.optionPressed]}
       >
         <View style={{ flex: 1 }}>
@@ -88,7 +97,7 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
         </View>
         <Switch
           disabled={saving || loading}
-          onValueChange={(value) => updatePreference("pushEnabled", value)}
+          onValueChange={togglePushNotifications}
           thumbColor="#fff"
           trackColor={{ false: colors.border, true: colors.primary }}
           value={preferences.pushEnabled}
@@ -99,8 +108,13 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
         {preferenceOptions.map((option) => (
           <Pressable
             key={option.key}
+            disabled={saving || loading || !preferences.pushEnabled}
             onPress={() => updatePreference(option.key, !preferences[option.key])}
-            style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+            style={({ pressed }) => [
+              styles.option,
+              !preferences.pushEnabled && styles.optionDisabled,
+              pressed && styles.optionPressed,
+            ]}
           >
             <View style={{ flex: 1 }}>
               <AppText style={styles.optionTitle}>{option.title}</AppText>
@@ -117,10 +131,10 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
         ))}
       </View>
 
-      {permissionStatus !== "granted" ? (
+      {permissionStatus === "denied" ? (
         <AppButton
-          label={saving ? "Updating..." : "Enable Push Notifications"}
-          onPress={enableNotifications}
+          label="Open Device Settings"
+          onPress={openNotificationSettings}
           variant="secondary"
         />
       ) : null}
@@ -159,6 +173,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     paddingVertical: 14
+  },
+  optionDisabled: {
+    opacity: 0.5
   },
   optionPressed: {
     opacity: 0.78

@@ -223,11 +223,11 @@ export default function SettingsScreen() {
         <AppText variant="eyebrow">Your Data</AppText>
         <AppText variant="subtitle">Download My Data</AppText>
         <AppText variant="caption">
-          Create a copy of your DanceFlow profile, preferences, favorites,
+          Download a copy of your DanceFlow profile, preferences, favorites,
           registrations, and account relationship history.
         </AppText>
         <AppButton
-          label={securityBusy ? "Preparing..." : "Share My Data"}
+          label={securityBusy ? "Preparing..." : "Download My Data"}
           onPress={shareAccountData}
           variant="secondary"
         />

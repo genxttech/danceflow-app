@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { router } from "expo-router";
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 import Constants from "expo-constants";
 import { supabase } from "@/lib/supabase";
 
@@ -139,6 +139,11 @@ export async function requestNotificationPermission() {
 
   const next = await Notifications.requestPermissionsAsync();
   return next.granted;
+}
+
+
+export async function openNotificationSettings() {
+  await Linking.openSettings();
 }
 
 export async function registerPushToken(userId: string, askPermission = false) {
@@ -323,35 +328,51 @@ export function useNotificationPreferences(userId: string | null | undefined) {
     [userId]
   );
 
-  const enableNotifications = useCallback(async () => {
-    if (!userId) return;
+  const setPushEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!userId) return;
 
-    setSaving(true);
-    setMessage(null);
+      setSaving(true);
+      setMessage(null);
 
-    try {
-      if (isExpoGo()) {
-        setPermissionStatus("development_build_required");
-        setMessage("Push notifications require a DanceFlow development build.");
-        return;
-      }
+      try {
+        if (!enabled) {
+          const nextPreferences = { ...preferences, pushEnabled: false };
+          await saveNotificationPreferences(userId, nextPreferences);
+          setPreferences(nextPreferences);
+          setMessage("Push notifications turned off.");
+          return;
+        }
 
-      const token = await registerPushToken(userId, true);
-      const status = await getNotificationPermissionStatus();
-      setPermissionStatus(status);
+        if (isExpoGo()) {
+          setPermissionStatus("development_build_required");
+          setMessage("Push notifications require the DanceFlow preview app.");
+          return;
+        }
 
-      if (token) {
+        const token = await registerPushToken(userId, true);
+        const status = await getNotificationPermissionStatus();
+        setPermissionStatus(status);
+
+        if (!token) {
+          setMessage(
+            status === "denied"
+              ? "Push notifications are blocked in your device settings."
+              : "Push notifications were not enabled.",
+          );
+          return;
+        }
+
         const nextPreferences = { ...preferences, pushEnabled: true };
         await saveNotificationPreferences(userId, nextPreferences);
         setPreferences(nextPreferences);
-        setMessage("Notifications are ready.");
-      } else {
-        setMessage("Notifications were not enabled. You can try again later.");
+        setMessage("Push notifications are on.");
+      } finally {
+        setSaving(false);
       }
-    } finally {
-      setSaving(false);
-    }
-  }, [preferences, userId]);
+    },
+    [preferences, userId],
+  );
 
   return {
     preferences,
@@ -361,6 +382,7 @@ export function useNotificationPreferences(userId: string | null | undefined) {
     message,
     refresh,
     updatePreferences,
-    enableNotifications
+    setPushEnabled,
+    openNotificationSettings
   };
 }
