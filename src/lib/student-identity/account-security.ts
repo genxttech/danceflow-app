@@ -83,6 +83,10 @@ export async function deactivateDanceFlowAccount(params: {
 export async function reactivateDanceFlowAccount(user: User) {
   const current = await getDanceFlowAccountStatus(user.id);
 
+  if (current.status === "pending_deletion") {
+    throw new Error("Account deletion is in progress.");
+  }
+
   if (current.status === "active") {
     return {
       active: true as const,

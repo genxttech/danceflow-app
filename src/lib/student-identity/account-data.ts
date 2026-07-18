@@ -31,7 +31,26 @@ async function loadRows(table: ExportTable, userId: string) {
     throw new Error(`Data export failed for ${table}: ${error.message}`);
   }
 
-  return data ?? [];
+  const rows = data ?? [];
+
+  if (table === "mobile_push_tokens") {
+    return rows.map(({ expo_push_token: _token, ...row }) => ({
+      ...row,
+      expo_push_token: "[redacted]",
+    }));
+  }
+
+  if (table === "mobile_notification_log") {
+    return rows.map(
+      ({
+        provider_message_id: _providerMessageId,
+        error_message: _errorMessage,
+        ...row
+      }) => row,
+    );
+  }
+
+  return rows;
 }
 
 export async function buildDanceFlowAccountExport(user: User) {
@@ -53,6 +72,7 @@ export async function buildDanceFlowAccountExport(user: User) {
     notes: [
       "Studio-owned client records, financial records, attendance, documents, and internal notes are not included because they belong to the studio.",
       "Event registrations and studio relationship history may be retained after account deletion for business, fraud-prevention, and legal-record purposes, with the DanceFlow auth identity removed.",
+      "Push notification tokens and provider delivery identifiers are redacted from this export for account security.",
     ],
   };
 }

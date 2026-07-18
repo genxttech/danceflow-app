@@ -13,6 +13,13 @@ export async function POST(request: Request) {
     const result = await reactivateDanceFlowAccount(user);
     return NextResponse.json(result);
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Account reactivation failed.";
+
+    if (message === "Account deletion is in progress.") {
+      return studentApiJsonError(message, 409);
+    }
+
     console.error("Student account reactivation failed", error);
     return studentApiJsonError(
       "Your account could not be reactivated.",

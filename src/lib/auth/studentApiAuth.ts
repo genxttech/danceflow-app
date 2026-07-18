@@ -2,7 +2,6 @@ import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { reactivateDanceFlowAccount } from "@/lib/student-identity/account-security";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -56,7 +55,6 @@ export async function getStudentApiUser(request: Request) {
       return null;
     }
 
-    await reactivateDanceFlowAccount(bearerUser);
     return bearerUser;
   }
 
@@ -77,7 +75,6 @@ export async function getStudentApiUser(request: Request) {
     return null;
   }
 
-  await reactivateDanceFlowAccount(user);
   return user;
 }
 

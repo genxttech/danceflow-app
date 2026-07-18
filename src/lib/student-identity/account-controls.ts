@@ -91,6 +91,23 @@ export async function deleteDanceFlowAccount(user: User) {
 
   const linkedRows = links ?? [];
 
+  const { error: pendingDeletionError } = await admin
+    .from("user_account_status")
+    .upsert(
+      {
+        user_id: user.id,
+        status: "pending_deletion",
+        updated_at: now,
+      },
+      { onConflict: "user_id" },
+    );
+
+  if (pendingDeletionError) {
+    throw new Error(
+      `Account deletion status update failed: ${pendingDeletionError.message}`,
+    );
+  }
+
   if (linkedRows.length > 0) {
     const { error: relationshipError } = await admin
       .from("client_account_links")
@@ -147,7 +164,6 @@ export async function deleteDanceFlowAccount(user: User) {
     "user_favorites",
     "dancer_partner_profiles",
     "dancer_profiles",
-    "user_account_status",
   ]) {
     await deleteUserRows(table, "user_id", user.id);
   }

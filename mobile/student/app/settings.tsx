@@ -133,19 +133,32 @@ export default function SettingsScreen() {
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete Account",
+          text: "Continue",
           style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteDanceFlowAccount();
-              await signOut();
-            } catch {
-              Alert.alert(
-                "Account deletion failed",
-                "Your account was not deleted. Try again or contact DanceFlow support."
-              );
-            }
-          }
+          onPress: () => {
+            Alert.alert(
+              "Final confirmation",
+              "This cannot be undone. Your DanceFlow login and account-owned data will be permanently removed.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Permanently Delete",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      await deleteDanceFlowAccount();
+                      await signOut();
+                    } catch {
+                      Alert.alert(
+                        "Account deletion failed",
+                        "Your account was not deleted. Try again or contact DanceFlow support.",
+                      );
+                    }
+                  },
+                },
+              ],
+            );
+          },
         }
       ]
     );

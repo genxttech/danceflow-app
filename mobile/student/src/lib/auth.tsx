@@ -148,12 +148,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        await reactivateDanceFlowAccount().catch((error: unknown) => {
-          console.warn(
-            "DanceFlow account reactivation check failed:",
-            error instanceof Error ? error.message : error,
-          );
-        });
+        try {
+          await reactivateDanceFlowAccount();
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Reactivation failed.";
+
+          if (message === "Account deletion is in progress.") {
+            await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
+            await clearPersistedSupabaseSessions().catch(() => undefined);
+            setSession(null);
+            return;
+          }
+
+          console.warn("DanceFlow account reactivation check failed:", message);
+        }
 
         setSession(data.session);
       } finally {
@@ -165,12 +174,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (nextSession?.access_token) {
-        void reactivateDanceFlowAccount().catch((error: unknown) => {
-          console.warn(
-            "DanceFlow account reactivation check failed:",
-            error instanceof Error ? error.message : error,
-          );
-        });
+        void reactivateDanceFlowAccount()
+          .then(() => {
+            setSession(nextSession);
+            setLoading(false);
+          })
+          .catch(async (error: unknown) => {
+            const message =
+              error instanceof Error ? error.message : "Reactivation failed.";
+
+            if (message === "Account deletion is in progress.") {
+              await supabase.auth
+                .signOut({ scope: "local" })
+                .catch(() => undefined);
+              await clearPersistedSupabaseSessions().catch(() => undefined);
+              setSession(null);
+              setLoading(false);
+              return;
+            }
+
+            console.warn("DanceFlow account reactivation check failed:", message);
+            setSession(nextSession);
+            setLoading(false);
+          });
+        return;
       }
 
       setSession(nextSession);
