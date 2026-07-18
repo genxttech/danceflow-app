@@ -1336,6 +1336,26 @@ export default async function AccountPage({
             </div>
           </section>
 
+          <section className="rounded-[32px] border border-sky-200 bg-white p-6 shadow-sm sm:p-7">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Your Data
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              Download My Data
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+              Download a JSON copy of your DanceFlow account, dancer profile,
+              preferences, favorites, registrations, and account relationship history.
+              Studio-owned client records and internal business records are not included.
+            </p>
+            <a
+              href="/api/student/account/export"
+              className="mt-5 inline-flex rounded-xl bg-sky-700 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-800"
+            >
+              Download My Data
+            </a>
+          </section>
+
           <section className="rounded-[32px] border border-rose-200 bg-white p-6 shadow-sm sm:p-7">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-rose-600">
               Account Controls

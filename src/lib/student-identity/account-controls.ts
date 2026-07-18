@@ -17,7 +17,7 @@ export async function leaveStudioRelationship(params: {
 
   const { data: link, error: linkError } = await admin
     .from("client_account_links")
-    .select("id, client_id, studio_id, status, relationship_type")
+    .select("id, client_id, studio_id, status")
     .eq("id", params.linkId)
     .eq("user_id", params.user.id)
     .eq("studio_id", params.studioId)
@@ -29,14 +29,14 @@ export async function leaveStudioRelationship(params: {
   }
 
   if (!link) {
-    throw new Error("This studio relationship is not currently connected to your account.");
+    throw new Error("This studio relationship is not currently connected.");
   }
 
   const reason =
     params.reason?.trim().slice(0, 500) ||
-    "Dancer left this studio relationship from account settings.";
+    "Dancer left the studio from account settings.";
 
-  const { data: disconnectedLink, error: linkUpdateError } = await admin
+  const { error: linkUpdateError } = await admin
     .from("client_account_links")
     .update({
       status: "disconnected",
@@ -48,25 +48,30 @@ export async function leaveStudioRelationship(params: {
     })
     .eq("id", link.id)
     .eq("user_id", params.user.id)
-    .eq("studio_id", params.studioId)
-    .eq("status", "linked")
-    .select("id")
-    .maybeSingle();
+    .eq("status", "linked");
 
   if (linkUpdateError) {
     throw new Error(`Studio relationship update failed: ${linkUpdateError.message}`);
   }
 
-  if (!disconnectedLink) {
-    throw new Error("This studio relationship changed before it could be removed.");
-  }
-
   return {
-    linkId: link.id,
+    linkId: String(link.id),
     clientId: String(link.client_id),
     studioId: params.studioId,
-    relationshipType: String(link.relationship_type ?? "self"),
   };
+}
+
+async function deleteUserRows(
+  table: string,
+  column: string,
+  userId: string,
+) {
+  const admin = createAdminClient();
+  const { error } = await admin.from(table).delete().eq(column, userId);
+
+  if (error) {
+    throw new Error(`Account cleanup failed for ${table}: ${error.message}`);
+  }
 }
 
 export async function deleteDanceFlowAccount(user: User) {
@@ -86,32 +91,77 @@ export async function deleteDanceFlowAccount(user: User) {
 
   const linkedRows = links ?? [];
 
-
   if (linkedRows.length > 0) {
     const { error: relationshipError } = await admin
       .from("client_account_links")
       .update({
+        user_id: null,
         status: "disconnected",
         deleted_user_reference_hash: userReferenceHash,
         account_deleted_at: now,
         disconnected_at: now,
-        disconnected_by: user.id,
+        disconnected_by: null,
         disconnect_reason: "DanceFlow account deleted by the account owner.",
         updated_at: now,
       })
       .eq("user_id", user.id);
 
     if (relationshipError) {
-      throw new Error(`Relationship history preservation failed: ${relationshipError.message}`);
+      throw new Error(
+        `Relationship history preservation failed: ${relationshipError.message}`,
+      );
     }
   }
 
-  const { error: auditError } = await admin.from("account_deletion_audit").insert({
-    user_reference_hash: userReferenceHash,
-    requested_email_hash: emailHash,
-    linked_relationship_count: linkedRows.length,
-    deleted_at: now,
-  });
+  const { error: registrationError } = await admin
+    .from("event_registrations")
+    .update({ user_id: null })
+    .eq("user_id", user.id);
+
+  if (registrationError) {
+    throw new Error(
+      `Event registration history preservation failed: ${registrationError.message}`,
+    );
+  }
+
+  const { error: legalError } = await admin
+    .from("legal_agreement_acceptances")
+    .update({
+      user_id: null,
+      user_reference_hash: userReferenceHash,
+      ip_address: null,
+      user_agent: null,
+    })
+    .eq("user_id", user.id);
+
+  if (legalError) {
+    throw new Error(
+      `Legal acceptance anonymization failed: ${legalError.message}`,
+    );
+  }
+
+  for (const table of [
+    "mobile_push_tokens",
+    "mobile_notification_log",
+    "mobile_notification_preferences",
+    "user_favorites",
+    "dancer_partner_profiles",
+    "dancer_profiles",
+    "user_account_status",
+  ]) {
+    await deleteUserRows(table, "user_id", user.id);
+  }
+
+  await deleteUserRows("profiles", "id", user.id);
+
+  const { error: auditError } = await admin
+    .from("account_deletion_audit")
+    .insert({
+      user_reference_hash: userReferenceHash,
+      requested_email_hash: emailHash,
+      linked_relationship_count: linkedRows.length,
+      deleted_at: now,
+    });
 
   if (auditError) {
     throw new Error(`Account deletion audit failed: ${auditError.message}`);
@@ -124,7 +174,7 @@ export async function deleteDanceFlowAccount(user: User) {
   }
 
   return {
-    deleted: true,
+    deleted: true as const,
     preservedStudioRelationshipCount: linkedRows.length,
   };
 }

@@ -23,7 +23,7 @@ export async function DELETE(request: Request) {
   } catch (error) {
     console.error("Student account deletion failed", error);
     return studentApiJsonError(
-      error instanceof Error ? error.message : "Account deletion failed.",
+      "Your DanceFlow account could not be deleted.",
       500,
     );
   }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, TextInput, useColorScheme, View } from "react-native";
+import { Alert, Share, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -11,6 +11,7 @@ import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   deactivateDanceFlowAccount,
   deleteDanceFlowAccount,
+  downloadDanceFlowAccountData,
   requestLoginEmailChange,
 } from "@/lib/accountControls";
 
@@ -107,6 +108,24 @@ export default function SettingsScreen() {
     );
   }
 
+  async function shareAccountData() {
+    setSecurityBusy(true);
+    try {
+      const data = await downloadDanceFlowAccountData();
+      await Share.share({
+        title: "DanceFlow Account Data",
+        message: JSON.stringify(data, null, 2),
+      });
+    } catch (error) {
+      Alert.alert(
+        "Data export failed",
+        error instanceof Error ? error.message : "Try again in a moment.",
+      );
+    } finally {
+      setSecurityBusy(false);
+    }
+  }
+
   function confirmDeleteAccount() {
     Alert.alert(
       "Delete DanceFlow account?",
@@ -183,6 +202,20 @@ export default function SettingsScreen() {
         <AppButton
           label="Deactivate Account"
           onPress={confirmDeactivateAccount}
+          variant="secondary"
+        />
+      </View>
+
+      <View style={styles.securityCard}>
+        <AppText variant="eyebrow">Your Data</AppText>
+        <AppText variant="subtitle">Download My Data</AppText>
+        <AppText variant="caption">
+          Create a copy of your DanceFlow profile, preferences, favorites,
+          registrations, and account relationship history.
+        </AppText>
+        <AppButton
+          label={securityBusy ? "Preparing..." : "Share My Data"}
+          onPress={shareAccountData}
           variant="secondary"
         />
       </View>
