@@ -8,32 +8,35 @@ function hash(value: string) {
 
 export async function leaveStudioRelationship(params: {
   user: User;
+  linkId: string;
   studioId: string;
   reason?: string;
 }) {
   const admin = createAdminClient();
   const now = new Date().toISOString();
 
-  const { data: links, error: linkError } = await admin
+  const { data: link, error: linkError } = await admin
     .from("client_account_links")
-    .select("id, client_id, studio_id, status")
+    .select("id, client_id, studio_id, status, relationship_type")
+    .eq("id", params.linkId)
     .eq("user_id", params.user.id)
     .eq("studio_id", params.studioId)
-    .eq("status", "linked");
+    .eq("status", "linked")
+    .maybeSingle();
 
   if (linkError) {
     throw new Error(`Studio relationship lookup failed: ${linkError.message}`);
   }
 
-  if (!links?.length) {
-    throw new Error("This studio is not currently connected to your account.");
+  if (!link) {
+    throw new Error("This studio relationship is not currently connected to your account.");
   }
 
   const reason =
     params.reason?.trim().slice(0, 500) ||
-    "Dancer left the studio from account settings.";
+    "Dancer left this studio relationship from account settings.";
 
-  const { error: linkUpdateError } = await admin
+  const { data: disconnectedLink, error: linkUpdateError } = await admin
     .from("client_account_links")
     .update({
       status: "disconnected",
@@ -43,17 +46,26 @@ export async function leaveStudioRelationship(params: {
       left_by_user_at: now,
       updated_at: now,
     })
+    .eq("id", link.id)
     .eq("user_id", params.user.id)
     .eq("studio_id", params.studioId)
-    .eq("status", "linked");
+    .eq("status", "linked")
+    .select("id")
+    .maybeSingle();
 
   if (linkUpdateError) {
     throw new Error(`Studio relationship update failed: ${linkUpdateError.message}`);
   }
 
+  if (!disconnectedLink) {
+    throw new Error("This studio relationship changed before it could be removed.");
+  }
+
   return {
-    clientIds: links.map((link) => String(link.client_id)),
+    linkId: link.id,
+    clientId: String(link.client_id),
     studioId: params.studioId,
+    relationshipType: String(link.relationship_type ?? "self"),
   };
 }
 

@@ -11,22 +11,29 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
+      linkId?: unknown;
       studioId?: unknown;
       confirmation?: unknown;
       reason?: unknown;
     };
 
+    const linkId = typeof body.linkId === "string" ? body.linkId.trim() : "";
     const studioId = typeof body.studioId === "string" ? body.studioId.trim() : "";
     const confirmation =
       typeof body.confirmation === "string" ? body.confirmation.trim() : "";
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";
 
-    if (!studioId || confirmation !== "LEAVE") {
+    if (!linkId || !studioId || confirmation !== "LEAVE") {
       return studentApiJsonError("Type LEAVE to confirm.", 400);
     }
 
-    await leaveStudioRelationship({ user, studioId, reason });
-    return NextResponse.json({ ok: true });
+    const result = await leaveStudioRelationship({
+      user,
+      linkId,
+      studioId,
+      reason,
+    });
+    return NextResponse.json({ ok: true, disconnected: result });
   } catch (error) {
     console.error("Student leave-studio failed", error);
     return studentApiJsonError(

@@ -36,6 +36,7 @@ type EventRow = {
 };
 
 type PortalLinkRow = {
+  id: string;
   client_id: string;
   relationship_type: string;
   clients:
@@ -111,6 +112,7 @@ type AccountRelationshipHistoryItem = {
 };
 
 type LinkedPortalItem = {
+  linkId: string;
   clientId: string;
   studioId: string;
   studioSlug: string;
@@ -546,10 +548,12 @@ function PortalCards({ linkedPortals }: { linkedPortals: LinkedPortalItem[] }) {
               Leave this studio
             </summary>
             <form action={leaveStudioAction} className="mt-4 space-y-3">
+              <input type="hidden" name="linkId" value={portal.linkId} />
               <input type="hidden" name="studioId" value={portal.studioId} />
               <p className="text-xs leading-5 text-slate-600">
-                This removes your portal access. The studio keeps its client, billing,
-                attendance, document, and communication history.
+                This removes access only for {portal.clientName}. Any other dancers
+                you manage at this studio remain connected. The studio keeps its client,
+                billing, attendance, document, and communication history.
               </p>
               <input
                 name="reason"
@@ -741,6 +745,7 @@ export default async function AccountPage({
     supabase
       .from("client_account_links")
       .select(`
+        id,
         client_id,
         relationship_type,
         clients (
@@ -910,6 +915,7 @@ export default async function AccountPage({
       if (!studio?.slug) return null;
 
       return {
+        linkId: row.id,
         clientId: client.id,
         studioId: studio.id,
         studioSlug: studio.slug,

@@ -153,7 +153,10 @@ export default function WalletProfileScreen() {
 
     Alert.alert(
       `Leave ${studioName}?`,
-      "This removes portal access from your account. The studio will keep its client, billing, attendance, document, and communication history.",
+      `This removes access only for ${[studio.clientFirstName, studio.clientLastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || "this dancer"}. Any other dancers you manage at ${studioName} remain connected. The studio will keep its client, billing, attendance, document, and communication history.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -161,9 +164,16 @@ export default function WalletProfileScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await leaveConnectedStudio({ studioId: studio.studioId });
+              if (!studio.linkId) {
+                throw new Error("Studio relationship identifier is missing.");
+              }
+
+              await leaveConnectedStudio({
+                linkId: studio.linkId,
+                studioId: studio.studioId,
+              });
               setLinkedStudios((current) =>
-                current.filter((item) => item.studioId !== studio.studioId)
+                current.filter((item) => item.linkId !== studio.linkId)
               );
             } catch {
               Alert.alert("Could not leave studio", "Try again or contact DanceFlow support.");
