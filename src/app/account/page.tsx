@@ -2,7 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { createClient } from "@/lib/supabase/server";
-import { deleteAccountAction, leaveStudioAction } from "./actions";
+import {
+  deactivateAccountAction,
+  deleteAccountAction,
+  leaveStudioAction,
+  requestLoginEmailChangeAction,
+} from "./actions";
 
 type FavoriteRow = {
   studio_id: string | null;
@@ -36,7 +41,6 @@ type EventRow = {
 };
 
 type PortalLinkRow = {
-  id: string;
   client_id: string;
   relationship_type: string;
   clients:
@@ -112,7 +116,6 @@ type AccountRelationshipHistoryItem = {
 };
 
 type LinkedPortalItem = {
-  linkId: string;
   clientId: string;
   studioId: string;
   studioSlug: string;
@@ -548,12 +551,10 @@ function PortalCards({ linkedPortals }: { linkedPortals: LinkedPortalItem[] }) {
               Leave this studio
             </summary>
             <form action={leaveStudioAction} className="mt-4 space-y-3">
-              <input type="hidden" name="linkId" value={portal.linkId} />
               <input type="hidden" name="studioId" value={portal.studioId} />
               <p className="text-xs leading-5 text-slate-600">
-                This removes access only for {portal.clientName}. Any other dancers
-                you manage at this studio remain connected. The studio keeps its client,
-                billing, attendance, document, and communication history.
+                This removes your portal access. The studio keeps its client, billing,
+                attendance, document, and communication history.
               </p>
               <input
                 name="reason"
@@ -745,7 +746,6 @@ export default async function AccountPage({
     supabase
       .from("client_account_links")
       .select(`
-        id,
         client_id,
         relationship_type,
         clients (
@@ -915,7 +915,6 @@ export default async function AccountPage({
       if (!studio?.slug) return null;
 
       return {
-        linkId: row.id,
         clientId: client.id,
         studioId: studio.id,
         studioSlug: studio.slug,
@@ -1026,6 +1025,18 @@ export default async function AccountPage({
       <PublicSiteHeader currentPath="account" isAuthenticated />
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {search.success === "email_change_requested" ? (
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+            Email change requested. Complete the confirmation steps sent by email.
+          </div>
+        ) : null}
+
+        {search.success === "email_change_confirmed" ? (
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+            Your login email confirmation was completed.
+          </div>
+        ) : null}
+
         {search.success === "studio_left" ? (
           <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
             Studio access was removed. The studio still retains its historical client records.
@@ -1040,7 +1051,17 @@ export default async function AccountPage({
                 ? "Type DELETE to confirm account deletion."
                 : search.error === "leave_studio_failed"
                   ? "Studio access could not be removed."
-                  : "Your DanceFlow account could not be deleted."}
+                  : search.error === "invalid_login_email"
+                    ? "Enter a valid login email address."
+                    : search.error === "login_email_unchanged"
+                      ? "That is already your login email."
+                      : search.error === "login_email_change_failed"
+                        ? "The login email change could not be requested."
+                        : search.error === "deactivate_confirmation_required"
+                          ? "Type DEACTIVATE to confirm account deactivation."
+                          : search.error === "account_deactivate_failed"
+                            ? "Your account could not be deactivated."
+                            : "Your DanceFlow account could not be deleted."}
           </div>
         ) : null}
         <section className="overflow-hidden rounded-[36px] border border-orange-100 bg-white shadow-sm">
@@ -1249,6 +1270,68 @@ export default async function AccountPage({
               </div>
             </section>
           ) : null}
+
+          <section className="rounded-[32px] border border-violet-200 bg-white p-6 shadow-sm sm:p-7">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-600">
+              Account &amp; Security
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              Login and account access
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+              Your login email is separate from studio contact records. Secure email
+              changes may require confirmation from both your current and new address.
+            </p>
+
+            <div className="mt-6 grid gap-5 lg:grid-cols-2">
+              <form
+                action={requestLoginEmailChangeAction}
+                className="rounded-2xl border border-violet-100 bg-violet-50 p-5"
+              >
+                <p className="font-semibold text-slate-950">Change login email</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Current login: {user.email}
+                </p>
+                <input
+                  name="email"
+                  type="email"
+                  placeholder="New login email"
+                  className="mt-4 w-full rounded-xl border border-violet-200 bg-white px-3 py-3 text-sm"
+                  required
+                />
+                <button className="mt-3 rounded-xl bg-violet-700 px-5 py-3 text-sm font-semibold text-white">
+                  Request Email Change
+                </button>
+              </form>
+
+              <details className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                <summary className="cursor-pointer font-semibold text-amber-950">
+                  Temporarily deactivate account
+                </summary>
+                <form action={deactivateAccountAction} className="mt-4 space-y-3">
+                  <p className="text-sm leading-6 text-amber-900">
+                    This signs you out and makes your dancer profile private. Studio
+                    business records and relationships remain intact. Signing in again
+                    allows the account to be reactivated.
+                  </p>
+                  <input
+                    name="reason"
+                    placeholder="Optional reason"
+                    className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    name="confirmation"
+                    placeholder="Type DEACTIVATE"
+                    className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm"
+                    required
+                  />
+                  <button className="rounded-xl bg-amber-700 px-5 py-3 text-sm font-semibold text-white">
+                    Deactivate Account
+                  </button>
+                </form>
+              </details>
+            </div>
+          </section>
 
           <section className="rounded-[32px] border border-rose-200 bg-white p-6 shadow-sm sm:p-7">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-rose-600">

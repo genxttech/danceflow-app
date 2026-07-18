@@ -6,6 +6,10 @@ import {
   deleteDanceFlowAccount,
   leaveStudioRelationship,
 } from "@/lib/student-identity/account-controls";
+import {
+  deactivateDanceFlowAccount,
+  normalizeAccountEmail,
+} from "@/lib/student-identity/account-security";
 
 function value(formData: FormData, key: string) {
   const item = formData.get(key);
@@ -61,4 +65,69 @@ export async function deleteAccountAction(formData: FormData) {
   }
 
   redirect("/?account=deleted");
+}
+
+
+export async function requestLoginEmailChangeAction(formData: FormData) {
+  const requestedEmail = value(formData, "email");
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+
+  let email: string;
+  try {
+    email = normalizeAccountEmail(requestedEmail);
+  } catch {
+    redirect("/account?error=invalid_login_email");
+  }
+
+  if (email === user.email?.trim().toLowerCase()) {
+    redirect("/account?error=login_email_unchanged");
+  }
+
+  const redirectTo = `${
+    process.env.NEXT_PUBLIC_APP_URL ?? "https://idanceflow.com"
+  }/account?success=email_change_confirmed`;
+
+  const { error } = await supabase.auth.updateUser(
+    { email },
+    { emailRedirectTo: redirectTo },
+  );
+
+  if (error) {
+    console.error("Web login email change request failed", error.message);
+    redirect("/account?error=login_email_change_failed");
+  }
+
+  redirect("/account?success=email_change_requested");
+}
+
+export async function deactivateAccountAction(formData: FormData) {
+  const confirmation = value(formData, "confirmation");
+  const reason = value(formData, "reason");
+
+  if (confirmation !== "DEACTIVATE") {
+    redirect("/account?error=deactivate_confirmation_required");
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+
+  try {
+    await deactivateDanceFlowAccount({ user, reason });
+    await supabase.auth.signOut();
+  } catch (error) {
+    console.error("Account deactivation failed", error);
+    redirect("/account?error=account_deactivate_failed");
+  }
+
+  redirect("/login?account=deactivated");
 }

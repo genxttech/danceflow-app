@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, useColorScheme, View } from "react-native";
+import { Alert, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -8,7 +8,11 @@ import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
-import { deleteDanceFlowAccount } from "@/lib/accountControls";
+import {
+  deactivateDanceFlowAccount,
+  deleteDanceFlowAccount,
+  requestLoginEmailChange,
+} from "@/lib/accountControls";
 
 export default function SettingsScreen() {
   const { session, signOut } = useAuth();
@@ -17,6 +21,8 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [newLoginEmail, setNewLoginEmail] = useState("");
+  const [securityBusy, setSecurityBusy] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -50,6 +56,56 @@ export default function SettingsScreen() {
       mounted = false;
     };
   }, [session?.user.id]);
+
+  async function submitEmailChange() {
+    const email = newLoginEmail.trim().toLowerCase();
+
+    if (!email || !email.includes("@")) {
+      Alert.alert("Valid email required", "Enter the new login email address.");
+      return;
+    }
+
+    setSecurityBusy(true);
+    try {
+      const result = await requestLoginEmailChange(email);
+      setNewLoginEmail("");
+      Alert.alert("Check your email", result.message);
+    } catch (error) {
+      Alert.alert(
+        "Email change failed",
+        error instanceof Error ? error.message : "Try again in a moment.",
+      );
+    } finally {
+      setSecurityBusy(false);
+    }
+  }
+
+  function confirmDeactivateAccount() {
+    Alert.alert(
+      "Deactivate DanceFlow account?",
+      "This signs you out and makes your dancer profile private. Studio records and relationships remain intact.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Deactivate",
+          style: "destructive",
+          onPress: async () => {
+            setSecurityBusy(true);
+            try {
+              await deactivateDanceFlowAccount();
+              await signOut();
+            } catch (error) {
+              Alert.alert(
+                "Account deactivation failed",
+                error instanceof Error ? error.message : "Try again in a moment.",
+              );
+              setSecurityBusy(false);
+            }
+          }
+        }
+      ]
+    );
+  }
 
   function confirmDeleteAccount() {
     Alert.alert(
@@ -102,6 +158,35 @@ export default function SettingsScreen() {
 
       {errorMessage ? <FeatureCard title="Settings update" detail={errorMessage} /> : null}
 
+      <View style={styles.securityCard}>
+        <AppText variant="eyebrow">Account &amp; Security</AppText>
+        <AppText variant="subtitle">Login email</AppText>
+        <AppText variant="caption">
+          Current login: {session?.user.email ?? "DanceFlow account"}
+        </AppText>
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!securityBusy}
+          keyboardType="email-address"
+          onChangeText={setNewLoginEmail}
+          placeholder="New login email"
+          placeholderTextColor={colors.muted}
+          style={styles.input}
+          value={newLoginEmail}
+        />
+        <AppButton
+          label={securityBusy ? "Please wait..." : "Request Email Change"}
+          onPress={submitEmailChange}
+          variant="secondary"
+        />
+        <AppButton
+          label="Deactivate Account"
+          onPress={confirmDeactivateAccount}
+          variant="secondary"
+        />
+      </View>
+
       <View style={styles.dangerCard}>
         <AppText variant="eyebrow">Account Controls</AppText>
         <AppText variant="subtitle">Delete DanceFlow account</AppText>
@@ -127,6 +212,24 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     gap: 8,
     padding: 16
     },
+  input: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 11
+  },
+  securityCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 10,
+    padding: 16
+  },
   dangerCard: {
     backgroundColor: colors.surface,
     borderColor: "#fecaca",
