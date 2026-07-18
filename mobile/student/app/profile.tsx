@@ -61,6 +61,44 @@ const appearanceOptions: Array<{ label: string; value: AppearanceMode }> = [
   { label: "Dark", value: "dark" }
 ];
 
+const skillLevelOptions = [
+  { label: "Not set", value: "" },
+  { label: "Newcomer", value: "newcomer" },
+  { label: "Beginner", value: "beginner" },
+  { label: "Social dancer", value: "social" },
+  { label: "Intermediate", value: "intermediate" },
+  { label: "Advanced", value: "advanced" },
+  { label: "Competitive", value: "competitive" },
+  { label: "Professional", value: "professional" }
+] as const;
+
+const profileVisibilityOptions = [
+  {
+    label: "Private",
+    value: "private",
+    detail: "Visible only to you."
+  },
+  {
+    label: "Connected studios",
+    value: "connected_studios",
+    detail: "Available to studios connected to your account."
+  },
+  {
+    label: "Public features",
+    value: "public",
+    detail: "Available for DanceFlow public profile features."
+  }
+] as const;
+
+function validBirthday(value: string) {
+  if (!value) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value;
+}
+
 export default function ProfileScreen() {
   const { session, signOut } = useAuth();
   const router = useRouter();
@@ -114,6 +152,12 @@ export default function ProfileScreen() {
 
   async function saveProfile() {
     if (!selectedProfile) return;
+
+    if (!validBirthday(selectedProfile.birthday)) {
+      setMessage(null);
+      setErrorMessage("Enter birthday in YYYY-MM-DD format.");
+      return;
+    }
 
     setSaving(true);
     setMessage(null);
@@ -262,6 +306,9 @@ export default function ProfileScreen() {
             placeholder="YYYY-MM-DD"
             value={selectedProfile.birthday}
           />
+          <AppText variant="caption">
+            Use YYYY-MM-DD, matching the web profile.
+          </AppText>
 
           <Field
             label="Address line 1"
@@ -321,12 +368,41 @@ export default function ProfileScreen() {
             value={(selectedProfile.danceGoals ?? []).join(", ")}
           />
 
-          <Field
-            label="Skill level"
-            onChangeText={(value) => updateSelected((profile) => ({ ...profile, skillLevel: value }))}
-            placeholder="beginner, intermediate, competitive..."
-            value={selectedProfile.skillLevel ?? ""}
-          />
+          <View style={styles.choiceSection}>
+            <AppText variant="eyebrow">Skill level</AppText>
+            <View style={styles.choiceGrid}>
+              {skillLevelOptions.map((option) => {
+                const active = (selectedProfile.skillLevel ?? "") === option.value;
+
+                return (
+                  <Pressable
+                    key={option.value || "unset"}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                    onPress={() =>
+                      updateSelected((profile) => ({
+                        ...profile,
+                        skillLevel: option.value
+                      }))
+                    }
+                    style={[
+                      styles.choicePill,
+                      active && styles.choicePillActive
+                    ]}
+                  >
+                    <AppText
+                      style={[
+                        styles.choicePillText,
+                        active && styles.choicePillTextActive
+                      ]}
+                    >
+                      {option.label}
+                    </AppText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
 
           <Field
             label="About my dance journey"
@@ -335,6 +411,49 @@ export default function ProfileScreen() {
             placeholder="Share what you are learning and where you want to go."
             value={selectedProfile.bio ?? ""}
           />
+
+          <View style={styles.choiceSection}>
+            <AppText variant="eyebrow">Profile visibility</AppText>
+            <AppText variant="caption">
+              Choose who can use your dancer-owned profile information.
+            </AppText>
+            <View style={styles.visibilityList}>
+              {profileVisibilityOptions.map((option) => {
+                const active =
+                  (selectedProfile.profileVisibility ?? "private") ===
+                  option.value;
+
+                return (
+                  <Pressable
+                    key={option.value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                    onPress={() =>
+                      updateSelected((profile) => ({
+                        ...profile,
+                        profileVisibility: option.value
+                      }))
+                    }
+                    style={[
+                      styles.visibilityCard,
+                      active && styles.visibilityCardActive
+                    ]}
+                  >
+                    <View style={styles.visibilityHeader}>
+                      <AppText variant="subtitle">{option.label}</AppText>
+                      <View
+                        style={[
+                          styles.radioDot,
+                          active && styles.radioDotActive
+                        ]}
+                      />
+                    </View>
+                    <AppText variant="caption">{option.detail}</AppText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
 
           <FeatureCard
             title="Profile ownership"
@@ -389,6 +508,34 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   cardPressed: {
     opacity: 0.78
   },
+  choiceGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  choicePill: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9
+  },
+  choicePillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  choicePillText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  choicePillTextActive: {
+    color: "#fff"
+  },
+  choiceSection: {
+    gap: 10
+  },
   input: {
     backgroundColor: colors.surfaceAlt,
     borderColor: colors.border,
@@ -403,9 +550,39 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     minHeight: 92,
     textAlignVertical: "top"
   },
+  radioDot: {
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 18,
+    width: 18
+  },
+  radioDotActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
   row: {
     flexDirection: "row",
     gap: 12
+  },
+  visibilityCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 6,
+    padding: 14
+  },
+  visibilityCardActive: {
+    borderColor: colors.primary
+  },
+  visibilityHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  visibilityList: {
+    gap: 8
   },
   partnerCard: {
     alignItems: "center",
