@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeUuidToken } from "@/lib/security/tokens";
+import { reactivateDanceFlowAccount } from "@/lib/student-identity/account-security";
 
 const GROUP_RECAP_TOKEN_PATH_PATTERN =
   /^\/recaps\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:[/?#]|$)/i;
@@ -169,6 +170,17 @@ export async function ensurePortalProfileAndClientLinks({
   const admin = createAdminClient();
   const now = new Date().toISOString();
   const names = splitFullName(fullName);
+
+  const {
+    data: { user },
+    error: userLookupError,
+  } = await admin.auth.admin.getUserById(userId);
+
+  if (userLookupError || !user) {
+    throw new Error("DanceFlow account could not be loaded.");
+  }
+
+  await reactivateDanceFlowAccount(user);
 
   const { error: profileError } = await admin.from("profiles").upsert(
     {

@@ -81,6 +81,16 @@ export async function deactivateDanceFlowAccount(params: {
 }
 
 export async function reactivateDanceFlowAccount(user: User) {
+  const current = await getDanceFlowAccountStatus(user.id);
+
+  if (current.status === "active") {
+    return {
+      active: true as const,
+      reactivatedAt: current.reactivatedAt,
+      changed: false as const,
+    };
+  }
+
   const admin = createAdminClient();
   const now = new Date().toISOString();
 
@@ -99,5 +109,9 @@ export async function reactivateDanceFlowAccount(user: User) {
     throw new Error(`Account reactivation failed: ${error.message}`);
   }
 
-  return { active: true as const, reactivatedAt: now };
+  return {
+    active: true as const,
+    reactivatedAt: now,
+    changed: true as const,
+  };
 }

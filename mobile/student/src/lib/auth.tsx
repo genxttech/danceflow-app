@@ -12,6 +12,7 @@ import * as Linking from "expo-linking";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { reactivateDanceFlowAccount } from "@/lib/accountControls";
 
 type AuthContextValue = {
   session: Session | null;
@@ -147,6 +148,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        await reactivateDanceFlowAccount().catch((error: unknown) => {
+          console.warn(
+            "DanceFlow account reactivation check failed:",
+            error instanceof Error ? error.message : error,
+          );
+        });
+
         setSession(data.session);
       } finally {
         if (mounted) setLoading(false);
@@ -156,6 +164,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void bootstrap();
 
     const authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (nextSession?.access_token) {
+        void reactivateDanceFlowAccount().catch((error: unknown) => {
+          console.warn(
+            "DanceFlow account reactivation check failed:",
+            error instanceof Error ? error.message : error,
+          );
+        });
+      }
+
       setSession(nextSession);
       setLoading(false);
     }).data.subscription;

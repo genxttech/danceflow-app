@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { createClient } from "@/lib/supabase/server";
+import { reactivateDanceFlowAccount } from "@/lib/student-identity/account-security";
 import {
   deactivateAccountAction,
   deleteAccountAction,
@@ -705,6 +706,8 @@ export default async function AccountPage({
   if (!user) {
     redirect("/login");
   }
+
+  await reactivateDanceFlowAccount(user);
 
   const { data: legalAcceptances, error: legalAcceptancesError } =
     await supabase
