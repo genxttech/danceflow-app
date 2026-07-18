@@ -156,6 +156,11 @@ type AriaDigestRunRow = {
   recipient_email: string | null;
   status: string | null;
   summary: Record<string, unknown> | null;
+  retry_count: number | null;
+  last_attempt_at: string | null;
+  next_attempt_at: string | null;
+  sent_at: string | null;
+  error_message: string | null;
   processed_at: string | null;
   created_at: string;
 };
@@ -316,6 +321,64 @@ function ariaDigestStatusLabel(value: string | null | undefined) {
   if (value === "failed") return "Failed";
   if (value === "processing") return "Processing";
   return value || "Pending";
+}
+
+function ariaDigestStatusClass(value: string | null | undefined) {
+  if (value === "sent") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (value === "failed") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+
+  if (value === "queued" || value === "processing") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  if (value === "skipped") {
+    return "border-slate-200 bg-slate-100 text-slate-600";
+  }
+
+  return "border-violet-200 bg-violet-50 text-violet-700";
+}
+
+function ariaDigestDeliveryDetail(run: AriaDigestRunRow) {
+  if (run.status === "sent") {
+    return run.sent_at
+      ? `Delivered ${formatDateTime(run.sent_at)}`
+      : "Delivered successfully";
+  }
+
+  if (run.status === "failed") {
+    const retryCount = Number(run.retry_count ?? 0);
+
+    if (retryCount >= 3 || !run.next_attempt_at) {
+      return `Delivery failed after ${retryCount} ${retryCount === 1 ? "retry" : "retries"}. No further automatic attempts are scheduled.`;
+    }
+
+    return `Delivery failed. Retry ${retryCount + 1} of 3 is scheduled for ${formatDateTime(run.next_attempt_at)}.`;
+  }
+
+  if (run.status === "queued") {
+    return run.retry_count
+      ? `Queued for retry ${Number(run.retry_count) + 1} of 3.`
+      : "Queued for delivery.";
+  }
+
+  if (run.status === "processing") {
+    return "ARIA is preparing this briefing.";
+  }
+
+  if (run.status === "prepared") {
+    return "The in-app briefing was prepared successfully.";
+  }
+
+  if (run.status === "skipped") {
+    return "Delivery was skipped because a usable recipient was not available.";
+  }
+
+  return "Delivery status is pending.";
 }
 
 async function getAssignableTeamMembers(params: {
@@ -1728,26 +1791,65 @@ function AriaDigestPreferencesPanel({
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
               Recent digest delivery runs
             </p>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 space-y-3">
               {recentRuns.length ? (
                 recentRuns.slice(0, 4).map((run) => (
                   <div
                     key={run.id}
-                    className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200"
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-600"
                   >
-                    <span className="font-semibold text-slate-900">
-                      {ariaDigestTypeLabel(run.digest_type)} •{" "}
-                      {ariaDigestStatusLabel(run.status)}
-                    </span>
-                    <span className="mt-1 block">
-                      {run.digest_date ?? "No date"} •{" "}
-                      {run.delivery_channel === "email" ? "email" : "in-app"}
-                      {run.recipient_email ? ` • ${run.recipient_email}` : ""}
-                    </span>
-                    <span className="mt-1 block">
-                      Processed{" "}
-                      {formatDateTime(run.processed_at ?? run.created_at)}
-                    </span>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <span className="font-semibold text-slate-900">
+                          {ariaDigestTypeLabel(run.digest_type)}
+                        </span>
+                        <span className="mt-1 block">
+                          {run.digest_date ?? "No date"} •{" "}
+                          {run.delivery_channel === "email"
+                            ? "email"
+                            : "in-app"}
+                          {run.recipient_email
+                            ? ` • ${run.recipient_email}`
+                            : ""}
+                        </span>
+                      </div>
+                      <span
+                        className={`w-fit rounded-full border px-2.5 py-1 font-semibold ${ariaDigestStatusClass(run.status)}`}
+                      >
+                        {ariaDigestStatusLabel(run.status)}
+                      </span>
+                    </div>
+
+                    <p className="mt-3 leading-5 text-slate-700">
+                      {ariaDigestDeliveryDetail(run)}
+                    </p>
+
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                      <span>
+                        Created {formatDateTime(run.created_at)}
+                      </span>
+                      {run.last_attempt_at ? (
+                        <span>
+                          Last attempt {formatDateTime(run.last_attempt_at)}
+                        </span>
+                      ) : null}
+                      {run.status === "failed" ? (
+                        <span>
+                          Retries used: {Number(run.retry_count ?? 0)} of 3
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {run.error_message ? (
+                      <details className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+                        <summary className="cursor-pointer font-semibold">
+                          Delivery error details
+                        </summary>
+                        <p className="mt-2 break-words leading-5">
+                          {run.error_message}
+                        </p>
+                      </details>
+                    ) : null}
                   </div>
                 ))
               ) : (
@@ -2235,7 +2337,7 @@ export default async function AriaOperationsCenterPage() {
     supabase
       .from("aria_digest_runs")
       .select(
-        "id, digest_type, digest_date, delivery_channel, recipient_email, status, summary, processed_at, created_at",
+        "id, digest_type, digest_date, delivery_channel, recipient_email, status, summary, retry_count, last_attempt_at, next_attempt_at, sent_at, error_message, processed_at, created_at",
       )
       .eq("studio_id", studioId)
       .order("created_at", { ascending: false })
