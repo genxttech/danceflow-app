@@ -9,6 +9,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getOptionalUploadFile, PDF_UPLOAD_MIME_TYPES, safeOriginalFileName, validateUploadFile } from "@/lib/security/uploads";
 import { createSigningToken, DOCUMENT_FILES_BUCKET, hashSigningToken, sourceStoragePath } from "@/lib/documents/signing";
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
+import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 
 type FieldType = "signature" | "initials" | "printed_name" | "date" | "text" | "checkbox";
 type FieldDraft = { field_type: FieldType; page_number: number; x: number; y: number; width: number; height: number; label: string; required: boolean; placeholder_text?: string | null; default_value?: string | null };
@@ -36,6 +37,9 @@ async function requireStudioEnvelope(envelopeId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const context = await getCurrentStudioContext();
+  if (!canManageDocumentsRole(context.studioRole)) {
+    redirect("/app");
+  }
   const admin = createAdminClient();
   const { data: envelope } = await admin.from("document_sign_envelopes")
     .select("*").eq("id", envelopeId).eq("studio_id", context.studioId).maybeSingle();
@@ -53,6 +57,9 @@ export async function createSignEnvelopeAction(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const context = await getCurrentStudioContext();
+  if (!canManageDocumentsRole(context.studioRole)) {
+    redirect("/app");
+  }
   const title = text(formData, "title", 180);
   const signerName = text(formData, "signerName", 160);
   const signerEmail = text(formData, "signerEmail", 320).toLowerCase();

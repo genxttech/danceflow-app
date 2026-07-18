@@ -213,22 +213,23 @@ export async function GET(
     return studentApiJsonError(fieldsError.message, 400);
   }
 
-  let sourceUrl: string | null = null;
-  let signedUrl: string | null = null;
+  const sourceUrl =
+    envelope.source_bucket && envelope.source_path
+      ? new URL(
+          `/api/student/documents/${encodeURIComponent(assignment.id)}/source`,
+          request.url,
+        ).toString()
+      : null;
 
-  if (envelope.source_bucket && envelope.source_path) {
-    const { data: signedSource } = await admin.storage
-      .from(envelope.source_bucket)
-      .createSignedUrl(envelope.source_path, 5 * 60);
-    sourceUrl = signedSource?.signedUrl ?? null;
-  }
-
-  if (envelope.signed_bucket && envelope.signed_path) {
-    const { data: signedDocument } = await admin.storage
-      .from(envelope.signed_bucket)
-      .createSignedUrl(envelope.signed_path, 5 * 60);
-    signedUrl = signedDocument?.signedUrl ?? null;
-  }
+  const signedUrl =
+    envelope.status === "completed" &&
+    envelope.signed_bucket &&
+    envelope.signed_path
+      ? new URL(
+          `/api/student/documents/${encodeURIComponent(assignment.id)}/signed`,
+          request.url,
+        ).toString()
+      : null;
 
   const completed =
     envelope.status === "completed" ||

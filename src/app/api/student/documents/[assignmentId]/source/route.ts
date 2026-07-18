@@ -100,7 +100,11 @@ export async function GET(
       "Content-Type": "application/pdf",
       "Content-Disposition": 'inline; filename="danceflow-document.pdf"',
       "Cache-Control": "private, no-store, max-age=0",
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'self'",
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "SAMEORIGIN",
       "Content-Length": String(bytes.byteLength),
     },
   });

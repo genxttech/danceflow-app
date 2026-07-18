@@ -125,7 +125,18 @@ export async function completeSigningAction(formData: FormData) {
       signature_data_url: signature?.method === "drawn" ? signature.value : null,
     };
   });
-  await admin.from("document_sign_values").upsert(valueRows, { onConflict: "envelope_id,field_id" });
+  const { error: valuesError } = await admin
+    .from("document_sign_values")
+    .upsert(valueRows, { onConflict: "envelope_id,field_id" });
+
+  if (valuesError) {
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([signedPath]);
+    console.error("Document signing values could not be saved", {
+      envelopeId: envelope.id,
+      message: valuesError.message,
+    });
+    redirect(`/sign/${encodeURIComponent(token)}?error=completion_failed`);
+  }
 
   const method = signatureMethods.size === 1 ? Array.from(signatureMethods)[0] : signatureMethods.size > 1 ? "mixed" : null;
   const { data: completedEnvelope, error: updateError } = await admin.from("document_sign_envelopes").update({

@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageDocumentsRole } from "@/lib/documents/studio-access";
+import { redirect } from "next/navigation";
 import { resendSignEnvelopeAction, revokeSignEnvelopeAction } from "../actions";
 
 function fmt(value: string | null) { if (!value) return "—"; const d = new Date(value); return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(); }
 export default async function SignEnvelopeDetailPage({ params }: { params: Promise<{ envelopeId: string }> }) {
   const { envelopeId } = await params;
-  const context = await getCurrentStudioContext(); const admin = createAdminClient();
+  const context = await getCurrentStudioContext();
+  if (!canManageDocumentsRole(context.studioRole)) redirect("/app");
+  const admin = createAdminClient();
   const { data: envelope } = await admin.from("document_sign_envelopes").select("*").eq("id", envelopeId).eq("studio_id", context.studioId).maybeSingle();
   if (!envelope) return <main className="p-8">Signing request not found.</main>;
   const { data: events } = await admin.from("document_sign_events").select("id,event_type,actor_email,ip_address,user_agent,summary,created_at").eq("envelope_id", envelopeId).order("created_at", { ascending: false });

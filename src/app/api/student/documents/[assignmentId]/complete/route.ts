@@ -10,6 +10,10 @@ import {
   signedStoragePath,
 } from "@/lib/documents/signing";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  consumePublicSigningRateLimit,
+  requestIp,
+} from "@/lib/documents/public-signing-security";
 
 type Params = Promise<{ assignmentId: string }>;
 
@@ -115,6 +119,20 @@ export async function POST(
 
   if (relationshipError || !relationship) {
     return studentApiJsonError("Document access is not available.", 403);
+  }
+
+  const ip = requestIp(request);
+  const rateLimit = await consumePublicSigningRateLimit(admin, {
+    action: "complete",
+    tokenHash: `student:${auth.user.id}:${assignment.id}`,
+    ip,
+  });
+
+  if (!rateLimit.allowed) {
+    return studentApiJsonError(
+      "Too many signing attempts were made. Wait a few minutes and try again.",
+      429,
+    );
   }
 
   const { data: envelope, error: envelopeError } = await admin
@@ -385,10 +403,7 @@ export async function POST(
     event_type: "completed",
     actor_user_id: auth.user.id,
     actor_email: auth.user.email ?? envelope.signer_email,
-    ip_address:
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("x-real-ip") ||
-      null,
+    ip_address: ip === "unknown" ? null : ip,
     user_agent: request.headers.get("user-agent"),
     summary: "Signer completed the document in the DanceFlow student app.",
     metadata: {

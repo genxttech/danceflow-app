@@ -11,6 +11,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signing";
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
+import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 
 export type DocumentActionState = {
   error?: string;
@@ -50,20 +51,6 @@ async function getCurrentUserId() {
   return { supabase, userId: user.id };
 }
 
-function canManageDocuments(role: string | null | undefined) {
-  const value = (role ?? "").toLowerCase();
-
-  return [
-    "studio_owner",
-    "studio_admin",
-    "owner",
-    "admin",
-    "front_desk",
-    "organizer_owner",
-    "organizer_admin",
-    "organizer_staff",
-  ].includes(value);
-}
 
 async function getOrganizerOptions(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
@@ -110,7 +97,7 @@ async function resolveOwnerContext(formData: FormData) {
   const studioId = context.studioId;
   const studioRole = context.studioRole ?? "";
 
-  if (!canManageDocuments(studioRole)) {
+  if (!canManageDocumentsRole(studioRole)) {
     return {
       error: "You do not have permission to manage documents.",
     } as const;
@@ -1033,24 +1020,35 @@ export async function waiveDocumentAssignmentAction(formData: FormData) {
   }
 
   const now = new Date().toISOString();
-  const { error } = await result.owner.supabase
+  const { data: waivedAssignment, error } = await result.owner.supabase
     .from("document_assignments")
     .update({ status: "waived", completed_at: now })
     .eq("id", result.assignment.id)
     .eq("studio_id", result.owner.studioId)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
   }
 
+  if (!waivedAssignment) {
+    redirect("/app/documents?error=Only pending documents can be waived.");
+  }
+
   if (result.assignment.sign_envelope_id) {
     await createAdminClient()
       .from("document_sign_envelopes")
-      .update({ status: "void", voided_at: now })
+      .update({
+        status: "void",
+        token_hash: null,
+        voided_at: now,
+        updated_at: now,
+      })
       .eq("id", result.assignment.sign_envelope_id)
       .eq("studio_id", result.owner.studioId)
-      .eq("status", "draft");
+      .in("status", ["draft", "sent", "viewed", "started"]);
   }
 
   await createAdminClient().from("document_operation_events").insert({
@@ -1077,24 +1075,35 @@ export async function voidDocumentAssignmentAction(formData: FormData) {
   const reason =
     cleanText(getString(formData, "reason"), 500) || "Voided by studio staff.";
   const now = new Date().toISOString();
-  const { error } = await result.owner.supabase
+  const { data: voidedAssignment, error } = await result.owner.supabase
     .from("document_assignments")
     .update({ status: "void", voided_at: now, void_reason: reason })
     .eq("id", result.assignment.id)
     .eq("studio_id", result.owner.studioId)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
   }
 
+  if (!voidedAssignment) {
+    redirect("/app/documents?error=Only pending documents can be voided.");
+  }
+
   if (result.assignment.sign_envelope_id) {
     await createAdminClient()
       .from("document_sign_envelopes")
-      .update({ status: "void", voided_at: now })
+      .update({
+        status: "void",
+        token_hash: null,
+        voided_at: now,
+        updated_at: now,
+      })
       .eq("id", result.assignment.sign_envelope_id)
       .eq("studio_id", result.owner.studioId)
-      .in("status", ["draft", "sent", "viewed"]);
+      .in("status", ["draft", "sent", "viewed", "started"]);
   }
 
   await createAdminClient().from("document_operation_events").insert({
