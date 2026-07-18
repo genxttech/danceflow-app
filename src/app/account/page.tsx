@@ -1348,12 +1348,20 @@ export default async function AccountPage({
               preferences, favorites, registrations, and account relationship history.
               Studio-owned client records and internal business records are not included.
             </p>
-            <a
-              href="/api/student/account/export"
-              className="mt-5 inline-flex rounded-xl bg-sky-700 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-800"
-            >
-              Download My Data
-            </a>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <a
+                href="/api/student/account/export"
+                className="inline-flex rounded-xl bg-sky-700 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-800"
+              >
+                Download My Data
+              </a>
+              <a
+                href="/api/student/account/export?format=json"
+                className="inline-flex rounded-xl border border-sky-200 bg-white px-5 py-3 text-sm font-semibold text-sky-800 hover:bg-sky-50"
+              >
+                Download Technical Data (JSON)
+              </a>
+            </div>
           </section>
 
           <section className="rounded-[32px] border border-rose-200 bg-white p-6 shadow-sm sm:p-7">

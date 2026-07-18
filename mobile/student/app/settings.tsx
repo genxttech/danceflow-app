@@ -114,7 +114,7 @@ export default function SettingsScreen() {
       const data = await downloadDanceFlowAccountData();
       await Share.share({
         title: "DanceFlow Account Data",
-        message: JSON.stringify(data, null, 2),
+        message: data.report,
       });
     } catch (error) {
       Alert.alert(

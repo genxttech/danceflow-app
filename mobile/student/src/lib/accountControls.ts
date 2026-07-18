@@ -63,8 +63,11 @@ export async function reactivateDanceFlowAccount() {
 
 
 export async function downloadDanceFlowAccountData() {
-  return danceflowApiFetch<Record<string, unknown>>(
+  return danceflowApiFetch<{ report: string }>(
     "/api/student/account/export",
-    { method: "GET" },
+    {
+      method: "GET",
+      params: { format: "summary" },
+    },
   );
 }
