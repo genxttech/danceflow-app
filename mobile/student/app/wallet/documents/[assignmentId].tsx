@@ -527,7 +527,7 @@ export default function StudentDocumentDetailScreen() {
               ? "The signed PDF is not available yet."
               : pdfUrl
                 ? "The document is ready, but the app could not prepare the preview."
-                : "Your studio is still preparing the signing fields."
+                : "The sender is still preparing the signing fields."
           }
         />
       )}
@@ -540,7 +540,7 @@ export default function StudentDocumentDetailScreen() {
       ) : unavailable ? (
         <FeatureCard
           title="Signing request unavailable"
-          detail="This request is still being prepared, expired, was declined, or was withdrawn. Contact the studio for help."
+          detail="This request is still being prepared, expired, was declined, or was withdrawn. Contact the studio or event organizer for help."
         />
       ) : (
         <>

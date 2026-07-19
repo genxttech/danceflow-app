@@ -155,7 +155,7 @@ export async function GET(request: Request) {
       id: row.id,
       studioId: row.studio_id,
       clientId: row.client_id,
-      studioName: studio?.public_name || studio?.name || "Studio",
+      studioName: studio?.public_name || studio?.name || "Document sender",
       studioSlug: studio?.slug || null,
       title: template?.title || "Document",
       description: template?.description || null,

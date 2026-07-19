@@ -20,6 +20,7 @@ type EventScheduleItem = {
   eventName: string;
   eventSlug: string | null;
   studioName: string;
+  hostName: string;
   status: string;
   paymentStatus: string | null;
   ticketCount: number;
@@ -82,6 +83,7 @@ function eventItemsFromWallet(
     eventName: registration.eventName,
     eventSlug: registration.eventSlug,
     studioName: registration.studioName,
+    hostName: registration.hostName,
     status: registration.status,
     paymentStatus: registration.paymentStatus,
     ticketCount: ticketCountByRegistrationId.get(registration.id) ?? 0,
@@ -104,6 +106,7 @@ function eventItemsFromWallet(
       eventName: ticket.eventName,
       eventSlug: ticket.eventSlug,
       studioName: ticket.studioName,
+      hostName: ticket.hostName,
       status: ticket.checkedInAt ? "checked_in" : "confirmed",
       paymentStatus: null,
       ticketCount: 1,
@@ -174,7 +177,7 @@ function EventCard({
             <AppText style={styles.eventStatus}>
               {statusText(item)}
             </AppText>
-            <AppText style={styles.eventStudio}>{item.studioName}</AppText>
+            <AppText style={styles.eventStudio}>{item.hostName}</AppText>
           </View>
 
           <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
@@ -322,7 +325,7 @@ export default function ScheduleEventsScreen() {
             ) : (
               <FeatureCard
                 title="No upcoming events"
-                detail="Events you register for or purchase with this account email will appear here."
+                detail="Events you register for or purchase with this account email will appear here, including organizer-hosted events."
               />
             )}
           </View>

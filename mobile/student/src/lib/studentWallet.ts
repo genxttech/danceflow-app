@@ -60,6 +60,7 @@ export type StudentTicket = {
   eventId: string;
   studioId: string;
   studioName: string;
+  hostName: string;
   eventName: string;
   eventSlug: string | null;
   ticketName: string;
@@ -79,6 +80,7 @@ export type StudentEventRegistration = {
   eventId: string;
   studioId: string;
   studioName: string;
+  hostName: string;
   eventName: string;
   eventSlug: string | null;
   status: string;
@@ -172,6 +174,12 @@ type EventRegistrationRow = {
     venue_name: string | null;
     city: string | null;
     state: string | null;
+    organizer_id: string | null;
+    organizers: Joined<{ name: string | null }>;
+    studios: Joined<{
+      name: string | null;
+      public_name: string | null;
+    }>;
   }>;
 };
 
@@ -271,18 +279,39 @@ function registrationSelect() {
       start_time,
       venue_name,
       city,
-      state
+      state,
+      organizer_id,
+      organizers:organizer_id (
+        name
+      ),
+      studios:studio_id (
+        name,
+        public_name
+      )
     )
   `;
 }
 
-function registrationToWallet(row: EventRegistrationRow, linkedStudios: LinkedStudioAccess[]): StudentEventRegistration {
+function registrationToWallet(
+  row: EventRegistrationRow,
+  linkedStudios: LinkedStudioAccess[],
+): StudentEventRegistration {
   const event = firstJoin(row.events);
+  const organizer = firstJoin(event?.organizers);
+  const eventStudio = firstJoin(event?.studios);
+  const studioName = studioNameFor(row.studio_id, linkedStudios);
+  const hostName =
+    organizer?.name ||
+    eventStudio?.public_name ||
+    eventStudio?.name ||
+    studioName;
+
   return {
     id: row.id,
     eventId: row.event_id,
     studioId: row.studio_id,
-    studioName: studioNameFor(row.studio_id, linkedStudios),
+    studioName,
+    hostName,
     eventName: event?.name ?? "Event",
     eventSlug: event?.slug ?? null,
     status: row.status ?? "confirmed",
@@ -508,6 +537,10 @@ export async function loadStudentWallet(
         eventId: row.event_id,
         studioId: registration?.studioId ?? "",
         studioName: registration?.studioName ?? "Event",
+        hostName:
+          registration?.hostName ??
+          registration?.studioName ??
+          "Event organizer",
         eventName: registration?.eventName ?? "Event",
         eventSlug: registration?.eventSlug ?? null,
         ticketName: attendeeName(row),

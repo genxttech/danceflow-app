@@ -28,6 +28,7 @@ function TicketCard({ ticket }: { ticket: StudentTicket }) {
       <View style={styles.ticketMain}>
         <AppText variant="eyebrow">{checkedIn ? "Checked in" : "Ticket"}</AppText>
         <AppText variant="subtitle">{ticket.eventName}</AppText>
+        <AppText variant="caption">Hosted by {ticket.hostName}</AppText>
         <AppText variant="caption">{ticket.ticketName}</AppText>
         <AppText variant="caption">
           {formatWalletDate(ticket.eventDate)}{ticket.eventTime ? ` • ${ticket.eventTime}` : ""}

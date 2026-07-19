@@ -36,7 +36,9 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
 
 let notificationHandlerConfigured = false;
 
-function routeFromNotificationData(data: Record<string, unknown> | null | undefined) {
+function routeFromNotificationData(
+  data: Record<string, unknown> | null | undefined,
+) {
   if (!data) return;
 
   const screen = typeof data.screen === "string" ? data.screen : "";
@@ -44,17 +46,54 @@ function routeFromNotificationData(data: Record<string, unknown> | null | undefi
     typeof data.appointmentId === "string" ? data.appointmentId : "";
   const documentId =
     typeof data.documentId === "string" ? data.documentId : "";
+  const assignmentId =
+    typeof data.assignmentId === "string" ? data.assignmentId : documentId;
+  const eventId =
+    typeof data.eventId === "string" ? data.eventId : "";
+  const orderId =
+    typeof data.orderId === "string" ? data.orderId : "";
 
   if (screen === "appointment" && appointmentId) {
-    router.push({ pathname: "/appointments/[id]", params: { id: appointmentId } });
+    router.push({
+      pathname: "/appointments/[id]",
+      params: { id: appointmentId },
+    });
     return;
   }
 
-  if (screen === "documents" || documentId) {
+  if (assignmentId) {
+    router.push({
+      pathname: "/wallet/documents/[assignmentId]",
+      params: { assignmentId },
+    } as never);
+    return;
+  }
+
+  if (screen === "documents") {
     router.push("/wallet/documents" as never);
+    return;
+  }
+
+  if (orderId) {
+    router.push({
+      pathname: "/events/orders/[orderId]",
+      params: { orderId },
+    } as never);
+    return;
+  }
+
+  if (eventId) {
+    router.push({
+      pathname: "/events/[id]",
+      params: { id: eventId },
+    } as never);
+    return;
+  }
+
+  if (screen === "event_tickets" || screen === "tickets") {
+    router.push("/wallet/event-tickets" as never);
   }
 }
-
 
 function isExpoGo() {
   return Constants.appOwnership === "expo";

@@ -86,11 +86,7 @@ export default function EventRegisterScreen() {
   const [buyerPhone, setBuyerPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [additionalAttendeeNames, setAdditionalAttendeeNames] = useState<string[]>([]);
-  const [documentSignatureName, setDocumentSignatureName] = useState("");
-  const [documentConsentAccepted, setDocumentConsentAccepted] = useState(false);
-  const [signedDocumentIds, setSignedDocumentIds] = useState<string[]>([]);
-  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
-  const [documentSignedMessage, setDocumentSignedMessage] = useState<string | null>(null);
+  const [signingOrderId, setSigningOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -136,22 +132,6 @@ export default function EventRegisterScreen() {
     0
   );
   const currency = selectedTickets[0]?.ticket.currency ?? "USD";
-  const activeDocument = event?.requiredDocuments.find((document) => document.id === activeDocumentId) ?? null;
-  const documentsSigned =
-    event?.requiredDocuments.length
-      ? event.requiredDocuments.every((document) => signedDocumentIds.includes(document.id))
-      : true;
-
-  useEffect(() => {
-    if (!activeDocumentId || !documentSignedMessage) return;
-
-    const timer = setTimeout(() => {
-      setActiveDocumentId(null);
-    }, 900);
-
-    return () => clearTimeout(timer);
-  }, [activeDocumentId, documentSignedMessage]);
-
   function setQuantity(ticketId: string, value: string) {
     const parsed = Number.parseInt(value, 10);
     setQuantities((current) => ({
@@ -166,26 +146,6 @@ export default function EventRegisterScreen() {
       next[index] = value;
       return next;
     });
-  }
-
-  function signActiveDocument() {
-    if (!activeDocument || documentSignatureName.trim().length < 2) return;
-
-    setSignedDocumentIds((current) => {
-      if (current.includes(activeDocument.id)) return current;
-
-      const next = [...current, activeDocument.id];
-      if (event?.requiredDocuments.every((document) => next.includes(document.id))) {
-        setDocumentConsentAccepted(true);
-      }
-      return next;
-    });
-    setDocumentSignedMessage(`${activeDocument.title} signed successfully.`);
-  }
-
-  function openDocument(documentId: string) {
-    setActiveDocumentId(documentId);
-    setDocumentSignedMessage(null);
   }
 
   async function submitCheckout() {
@@ -212,12 +172,6 @@ export default function EventRegisterScreen() {
         throw new Error("Add all additional attendee names.");
       }
 
-      if (event.requiredDocuments.length > 0) {
-        if (!documentsSigned || documentSignatureName.trim().length < 2) {
-          throw new Error("Review and sign the required event documents.");
-        }
-      }
-
       const returnUrl = eventCheckoutReturnUrl();
 
       const checkoutInput = {
@@ -225,9 +179,6 @@ export default function EventRegisterScreen() {
         buyerFirstName: buyerFirstName.trim(),
         buyerLastName: buyerLastName.trim(),
         buyerPhone: buyerPhone.trim(),
-        documentConsentAccepted: documentsSigned && documentConsentAccepted,
-        documentRequirementIds: event.requiredDocuments.map((document) => document.id),
-        documentSignatureName: documentSignatureName.trim(),
         eventId: event.id,
         notes: notes.trim(),
         returnUrl,
@@ -244,6 +195,15 @@ export default function EventRegisterScreen() {
 
       if (result.completed) {
         router.replace(walletCheckoutPath(result.orderId));
+        return;
+      }
+
+      if (result.requiresSignature && result.signingUrl) {
+        setSigningOrderId(result.orderId);
+        setCheckoutStatusMessage(
+          "Opening secure document signing. Return to DanceFlow after the final document.",
+        );
+        await Linking.openURL(result.signingUrl);
         return;
       }
 
@@ -346,59 +306,6 @@ export default function EventRegisterScreen() {
     );
   }
 
-  if (activeDocument) {
-    const isSigned = signedDocumentIds.includes(activeDocument.id);
-
-    return (
-      <Screen>
-        <AppText variant="eyebrow">Required Document</AppText>
-        <AppText variant="title">{activeDocument.title}</AppText>
-        {activeDocument.description ? <AppText variant="caption">{activeDocument.description}</AppText> : null}
-
-        {documentSignedMessage ? (
-          <View style={styles.signedCard}>
-            <AppText variant="subtitle">Signed successfully</AppText>
-            <AppText variant="caption">{documentSignedMessage}</AppText>
-          </View>
-        ) : null}
-
-        <View style={styles.fullDocumentCard}>
-          <AppText style={styles.fullDocumentBody}>{activeDocument.body}</AppText>
-        </View>
-
-        <View style={styles.section}>
-          <AppText variant="subtitle">{isSigned ? "Signature complete" : "Electronic signature"}</AppText>
-          <AppText variant="caption">
-            {isSigned
-              ? "Returning to registration now. You can also continue manually."
-              : "Type your full legal name below to acknowledge and electronically sign this document."}
-          </AppText>
-          {!isSigned ? (
-            <>
-              <TextInput
-                autoCapitalize="words"
-                onChangeText={setDocumentSignatureName}
-                placeholder="Type your full name to sign"
-                style={styles.input}
-                value={documentSignatureName}
-              />
-              <AppButton
-                disabled={documentSignatureName.trim().length < 2}
-                label="Sign this document"
-                onPress={signActiveDocument}
-                variant="secondary"
-              />
-            </>
-          ) : null}
-          <AppButton
-            label={isSigned ? "Continue registration" : "Back to registration"}
-            onPress={() => setActiveDocumentId(null)}
-            variant={isSigned ? "primary" : "secondary"}
-          />
-        </View>
-      </Screen>
-    );
-  }
 
   return (
     <Screen>
@@ -510,34 +417,27 @@ export default function EventRegisterScreen() {
       {event.requiredDocuments.length > 0 ? (
         <View style={styles.section}>
           <AppText variant="subtitle">Required documents</AppText>
-          {documentsSigned ? (
-            <View style={styles.signedCard}>
-              <AppText variant="subtitle">Documents signed</AppText>
-              <AppText variant="caption">All required documents are complete. You can continue to checkout.</AppText>
-            </View>
-          ) : (
-            <AppText variant="caption">
-              Review each required document on its own screen before continuing to checkout.
-            </AppText>
-          )}
-          {event.requiredDocuments.map((document) => (
+          <AppText variant="caption">
+            After you choose tickets and enter attendee details, DanceFlow will
+            open each required document in the secure signing flow. Your ticket
+            hold stays attached to this checkout while you sign.
+          </AppText>
+          {event.requiredDocuments.map((document, index) => (
             <View key={document.id} style={styles.documentCard}>
-              <View style={styles.documentHeader}>
-                <View style={{ flex: 1 }}>
-                  <AppText style={styles.ticketName}>{document.title}</AppText>
-                  <AppText style={signedDocumentIds.includes(document.id) ? styles.signedText : styles.needsSignatureText}>
-                    {signedDocumentIds.includes(document.id) ? "Signed" : "Needs signature"}
-                  </AppText>
-                </View>
-                <AppButton
-                  label={signedDocumentIds.includes(document.id) ? "Review" : "Review and sign"}
-                  onPress={() => openDocument(document.id)}
-                  variant={signedDocumentIds.includes(document.id) ? "secondary" : "primary"}
-                />
-              </View>
-              {document.description ? <AppText variant="caption">{document.description}</AppText> : null}
+              <AppText style={styles.ticketName}>
+                {index + 1}. {document.title}
+              </AppText>
+              {document.description ? (
+                <AppText variant="caption">{document.description}</AppText>
+              ) : null}
             </View>
           ))}
+          {signingOrderId ? (
+            <FeatureCard
+              title="Signing checkout started"
+              detail="Complete the secure documents, then return to DanceFlow to continue payment."
+            />
+          ) : null}
         </View>
       ) : null}
 
@@ -562,7 +462,13 @@ export default function EventRegisterScreen() {
 
       <AppButton
         disabled={selectedTickets.length === 0 || Boolean(checkoutStatusMessage)}
-        label={checkoutStatusMessage ? "Finishing checkout..." : "Continue to secure checkout"}
+        label={
+          checkoutStatusMessage
+            ? "Opening secure checkout..."
+            : event.requiredDocuments.length > 0
+              ? "Continue to documents"
+              : "Continue to secure checkout"
+        }
         loading={submitting}
         onPress={submitCheckout}
       />
@@ -576,24 +482,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 6,
     padding: 12
-  },
-  documentHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10
-  },
-  fullDocumentBody: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 23
-  },
-  fullDocumentCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16
   },
   input: {
     backgroundColor: colors.surface,
@@ -609,12 +497,6 @@ const styles = StyleSheet.create({
   notes: {
     minHeight: 92,
     textAlignVertical: "top"
-  },
-  needsSignatureText: {
-    color: colors.danger,
-    fontSize: 12,
-    fontWeight: "800",
-    marginTop: 4
   },
   price: {
     color: colors.primary,
@@ -665,20 +547,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     padding: 14
-  },
-  signedCard: {
-    backgroundColor: "#ecfdf5",
-    borderColor: "#86efac",
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 6,
-    padding: 14
-  },
-  signedText: {
-    color: colors.success,
-    fontSize: 12,
-    fontWeight: "800",
-    marginTop: 4
   },
   ticketCard: {
     borderColor: colors.border,

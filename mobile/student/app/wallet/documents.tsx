@@ -29,7 +29,7 @@ function isCompleted(document: StudentDocument) {
 
 function statusLabel(document: StudentDocument) {
   if (isCompleted(document)) return "Signed";
-  if (document.envelopeStatus === "draft") return "Studio preparing";
+  if (document.envelopeStatus === "draft") return "Sender preparing";
   if (document.status === "expired" || document.envelopeStatus === "expired") {
     return "Expired";
   }
@@ -118,13 +118,13 @@ export default function StudentDocumentsScreen() {
       <AppText variant="eyebrow">Wallet</AppText>
       <AppText variant="title">Documents</AppText>
       <AppText variant="caption">
-        Review and sign studio documents without leaving the DanceFlow app.
+        Review and sign documents from your studios and event organizers without leaving DanceFlow.
       </AppText>
 
       {loading ? (
         <FeatureCard
           title="Loading documents"
-          detail="Checking your connected studios."
+          detail="Checking your studios and event organizers."
         />
       ) : null}
       {error ? <FeatureCard title="Documents unavailable" detail={error} /> : null}
@@ -132,7 +132,7 @@ export default function StudentDocumentsScreen() {
       {!loading && !error && documents.length === 0 ? (
         <FeatureCard
           title="No documents yet"
-          detail="Waivers, policies, agreements, and other studio documents will appear here."
+          detail="Waivers, policies, agreements, and event documents will appear here."
         />
       ) : null}
 

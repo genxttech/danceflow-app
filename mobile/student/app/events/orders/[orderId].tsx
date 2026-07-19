@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -8,6 +9,8 @@ import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import {
   getStudentEventOrderStatus,
+  resumeStudentEventCheckout,
+  type CreateEventCheckoutResult,
   type StudentEventOrderStatus
 } from "@/lib/eventCheckout";
 
@@ -58,14 +61,23 @@ function statusText(order: StudentEventOrderStatus | null) {
 }
 
 export default function EventOrderStatusScreen() {
-  const { orderId: orderIdParam } = useLocalSearchParams<{ orderId: string }>();
+  const {
+    orderId: orderIdParam,
+    signing,
+  } = useLocalSearchParams<{
+    orderId: string;
+    signing?: string;
+  }>();
   const orderId = normalizeParam(orderIdParam);
   const router = useRouter();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const [order, setOrder] = useState<StudentEventOrderStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pollCount, setPollCount] = useState(0);
+  const [resumingPayment, setResumingPayment] = useState(false);
+  const [resumeAttempted, setResumeAttempted] = useState(false);
 
   const copy = useMemo(() => statusText(order), [order]);
   const shouldPoll =
@@ -108,6 +120,81 @@ export default function EventOrderStatusScreen() {
     loadOrder();
   }, [loadOrder]);
 
+  const continueResumedCheckout = useCallback(
+    async (result: CreateEventCheckoutResult) => {
+      if (result.completed) {
+        await loadOrder(true);
+        return;
+      }
+
+      if (result.clientSecret) {
+        const initialized = await initPaymentSheet({
+          merchantDisplayName: "DanceFlow",
+          paymentIntentClientSecret: result.clientSecret,
+          returnURL: `danceflow://events/orders/${orderId}?checkout=event`,
+        });
+
+        if (initialized.error) {
+          throw new Error(
+            initialized.error.message || "Payment could not be prepared.",
+          );
+        }
+
+        const payment = await presentPaymentSheet();
+        if (payment.error) {
+          throw new Error(
+            payment.error.message || "Payment was not completed.",
+          );
+        }
+
+        await loadOrder(true);
+        return;
+      }
+
+      if (result.checkoutUrl) {
+        await Linking.openURL(result.checkoutUrl);
+        return;
+      }
+
+      throw new Error("Payment could not be resumed.");
+    },
+    [initPaymentSheet, loadOrder, orderId, presentPaymentSheet],
+  );
+
+  useEffect(() => {
+    if (
+      signing !== "completed" ||
+      !orderId ||
+      orderId === "pending" ||
+      resumeAttempted
+    ) {
+      return;
+    }
+
+    setResumeAttempted(true);
+    setResumingPayment(true);
+    setErrorMessage(null);
+
+    resumeStudentEventCheckout(orderId)
+      .then(continueResumedCheckout)
+      .catch((error) => {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Checkout could not be resumed.",
+        );
+      })
+      .finally(() => {
+        setResumingPayment(false);
+      });
+  }, [
+    continueResumedCheckout,
+    orderId,
+    resumeAttempted,
+    signing,
+  ]);
+
+
   useFocusEffect(
     useCallback(() => {
       loadOrder(true);
@@ -131,9 +218,17 @@ export default function EventOrderStatusScreen() {
       <AppText variant="title">{order?.eventName ?? "Ticket purchase"}</AppText>
 
       <View style={styles.statusCard}>
-        {loading ? <ActivityIndicator color={colors.primary} /> : null}
-        <AppText variant="subtitle">{copy.title}</AppText>
-        <AppText variant="caption">{copy.detail}</AppText>
+        {loading || resumingPayment ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : null}
+        <AppText variant="subtitle">
+          {resumingPayment ? "Preparing payment" : copy.title}
+        </AppText>
+        <AppText variant="caption">
+          {resumingPayment
+            ? "Your required documents are complete. DanceFlow is resuming the same held order."
+            : copy.detail}
+        </AppText>
 
         {order ? (
           <View style={styles.summaryGrid}>
