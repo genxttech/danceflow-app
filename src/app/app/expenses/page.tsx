@@ -16,7 +16,10 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { canManageOrganizerExpenses } from "@/lib/auth/permissions";
+import {
+  canManageOrganizerExpenses,
+  isOrganizerWorkspaceRole,
+} from "@/lib/auth/permissions";
 import {
   createExpenseAction,
   recordRecurringExpenseAction,
@@ -61,7 +64,7 @@ type EventOptionRow = {
   start_date: string | null;
 };
 
-const expenseCategories = [
+const studioExpenseCategories = [
   { value: "floor_fee", label: "Floor Rental / Floor Fee" },
   { value: "rent", label: "Rent" },
   { value: "instructor_pay", label: "Instructor Pay" },
@@ -78,6 +81,33 @@ const expenseCategories = [
   { value: "other", label: "Other" },
 ];
 
+const organizerExpenseCategories = [
+  { value: "venue", label: "Venue" },
+  { value: "judges", label: "Judges" },
+  { value: "event_staff", label: "Event Staff" },
+  { value: "contractors", label: "Contractors" },
+  { value: "travel", label: "Travel" },
+  { value: "lodging", label: "Lodging" },
+  { value: "awards_prizes", label: "Awards and Prizes" },
+  { value: "security", label: "Security" },
+  { value: "insurance", label: "Insurance" },
+  { value: "marketing", label: "Marketing" },
+  { value: "equipment", label: "Equipment" },
+  { value: "catering", label: "Catering" },
+  { value: "vendor_services", label: "Vendor Services" },
+  { value: "technology", label: "Technology" },
+  { value: "event_expense", label: "Other Event Expense" },
+  { value: "other", label: "Other" },
+];
+
+const allExpenseCategories = Array.from(
+  new Map(
+    [...organizerExpenseCategories, ...studioExpenseCategories].map(
+      (category) => [category.value, category],
+    ),
+  ).values(),
+);
+
 const paymentMethods = [
   { value: "cash", label: "Cash" },
   { value: "check", label: "Check" },
@@ -90,7 +120,7 @@ const paymentMethods = [
 ];
 
 function categoryLabel(value: string) {
-  return expenseCategories.find((category) => category.value === value)?.label ?? "Other";
+  return allExpenseCategories.find((category) => category.value === value)?.label ?? "Other";
 }
 
 function paymentMethodLabel(value: string) {
@@ -172,6 +202,11 @@ export default async function ExpensesPage() {
   if (!context?.studioId) {
     redirect("/app");
   }
+
+  const isOrganizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+  const expenseCategories = isOrganizerWorkspace
+    ? organizerExpenseCategories
+    : studioExpenseCategories;
 
   const allowManage = Boolean(context.isPlatformAdmin) ||
     canManageOrganizerExpenses(context.studioRole) ||
@@ -286,11 +321,11 @@ export default async function ExpensesPage() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow Expenses
+                {isOrganizerWorkspace ? "Organizer Accounting" : "DanceFlow Expenses"}
               </p>
 
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Expenses
+                {isOrganizerWorkspace ? "Event Expenses" : "Expenses"}
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
@@ -327,7 +362,7 @@ export default async function ExpensesPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Total Expenses"
+          label={isOrganizerWorkspace ? "Event Expenses" : "Total Expenses"}
           value={formatCurrency(totalExpenses)}
           helper="From the most recent 100 expenses"
           icon={DollarSign}
@@ -386,13 +421,17 @@ export default async function ExpensesPage() {
 
             <div>
               <label className="text-sm font-medium text-slate-700">
-                Vendor / Studio Name *
+                {isOrganizerWorkspace ? "Vendor / Payee Name *" : "Vendor / Studio Name *"}
               </label>
               <input
                 type="text"
                 name="vendor_name"
                 maxLength={160}
-                placeholder="Example: Confidance Studio"
+                placeholder={
+                  isOrganizerWorkspace
+                    ? "Example: Downtown Convention Center"
+                    : "Example: Confidance Studio"
+                }
                 required
                 className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/20"
               />
@@ -673,7 +712,7 @@ export default async function ExpensesPage() {
       <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">
-            Recent Expenses
+            {isOrganizerWorkspace ? "Recent Event Expenses" : "Recent Expenses"}
           </h2>
           <p className="mt-1 text-sm text-slate-500">
             Review the most recent expense records for this workspace.

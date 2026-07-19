@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { canViewReports } from "@/lib/auth/permissions";
+import {
+  canViewReports,
+  isOrganizerWorkspaceRole,
+} from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import ReportInsightsCard from "./ReportInsightsCard";
@@ -2431,6 +2434,9 @@ export default async function ReportsPage({
     tone: "good" | "neutral" | "warning";
   }>;
 
+
+  const isOrganizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+
   const reportInsightsMetrics = {
     range: rangeLabel(range),
     plan: studioPlanCode ?? "starter",
@@ -2528,6 +2534,362 @@ export default async function ReportsPage({
         }
       : null,
   };
+
+  if (isOrganizerWorkspace) {
+    const organizerNetRevenue =
+      eventNetRevenueTotal ||
+      Math.max(0, organizerRevenueTotal - eventRefundedTotal - eventFeesTotal);
+    const organizerProfit =
+      eventProfitLossTotal ||
+      organizerNetRevenue - eventLinkedExpensesTotal;
+    const organizerMargin =
+      organizerNetRevenue > 0
+        ? Math.round((organizerProfit / organizerNetRevenue) * 100)
+        : 0;
+    const organizerRegistrations =
+      paidEventRegistrations.length || paidOrganizerRegistrations.length;
+    const organizerCheckedIn =
+      checkedInEventRegistrations.length ||
+      organizerCheckedInRegistrations.length;
+    const organizerNoShows =
+      eventNoShowCount || organizerNoShowCount;
+    const organizerAttendance =
+      organizerRegistrations > 0
+        ? percentage(organizerCheckedIn, organizerRegistrations)
+        : "0%";
+
+    return (
+      <div className="space-y-8">
+        <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-purple-200">
+                Organizer Intelligence
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Event Reports
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200 md:text-base">
+                Track event revenue, costs, attendance, registrant growth, and
+                campaign performance without studio-only lesson, package, or
+                membership reporting.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {[
+                ["30d", "30 Days"],
+                ["90d", "90 Days"],
+                ["ytd", "Year to Date"],
+                ["all", "All Time"],
+              ].map(([value, label]) => (
+                <Link
+                  key={value}
+                  href={`/app/reports?range=${value}`}
+                  className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                    range === value
+                      ? "bg-white text-slate-950"
+                      : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              ["Gross event revenue", fmtCurrency(eventRevenueTotal || organizerRevenueTotal)],
+              ["Net event revenue", fmtCurrency(organizerNetRevenue)],
+              ["Event profit / loss", fmtCurrency(organizerProfit)],
+              ["Profit margin", `${organizerMargin}%`],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur"
+              >
+                <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-300">
+                  {label}
+                </p>
+                <p className="mt-2 text-2xl font-semibold">{value}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ["Paid registrations", fmtNumber(organizerRegistrations), "Confirmed event registrations"],
+            ["Checked in", fmtNumber(organizerCheckedIn), organizerAttendance],
+            ["No-shows", fmtNumber(organizerNoShows), "Paid registrations not checked in"],
+            ["Organizer contacts", fmtNumber(typedOrganizerContacts.length), "Reusable event audience"],
+          ].map(([label, value, helper]) => (
+            <div
+              key={label}
+              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
+              <p className="text-sm text-slate-500">{label}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
+              <p className="mt-1 text-xs text-slate-500">{helper}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-700">
+                  Event Performance
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Profitability by Event
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Compare event revenue, costs, profit, registration volume, and
+                  attendance for {rangeLabel(range).toLowerCase()}.
+                </p>
+              </div>
+              <a
+                href={exportHref("/app/reports/export/event-profitability", range)}
+                className="inline-flex w-fit rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-800 hover:bg-purple-100"
+              >
+                Export Event Profitability
+              </a>
+            </div>
+
+            {topEventSummaries.length === 0 ? (
+              <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+                Event profitability will appear after registrations, payments,
+                fees, or event expenses are recorded.
+              </div>
+            ) : (
+              <div className="mt-6 overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.12em] text-slate-500">
+                      <th className="px-3 py-3 font-semibold">Event</th>
+                      <th className="px-3 py-3 font-semibold">Registrations</th>
+                      <th className="px-3 py-3 font-semibold">Revenue</th>
+                      <th className="px-3 py-3 font-semibold">Costs</th>
+                      <th className="px-3 py-3 font-semibold">Profit</th>
+                      <th className="px-3 py-3 font-semibold">Margin</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topEventSummaries.map((event) => (
+                      <tr
+                        key={event.eventId}
+                        className="border-b border-slate-100 last:border-0"
+                      >
+                        <td className="px-3 py-4">
+                          <p className="font-semibold text-slate-950">{event.name}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {event.type}
+                          </p>
+                        </td>
+                        <td className="px-3 py-4 text-slate-700">
+                          {fmtNumber(event.registrations)}
+                        </td>
+                        <td className="px-3 py-4 text-slate-700">
+                          {fmtCurrency(event.netRevenue || event.revenue)}
+                        </td>
+                        <td className="px-3 py-4 text-slate-700">
+                          {fmtCurrency(event.expenses)}
+                        </td>
+                        <td
+                          className={`px-3 py-4 font-semibold ${
+                            event.profitLoss >= 0
+                              ? "text-emerald-700"
+                              : "text-rose-700"
+                          }`}
+                        >
+                          {fmtCurrency(event.profitLoss)}
+                        </td>
+                        <td className="px-3 py-4 text-slate-700">
+                          {event.marginPercent == null
+                            ? "—"
+                            : `${Math.round(event.marginPercent * 100)}%`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-6">
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-700">
+                Cost Control
+              </p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                Event P&amp;L
+              </h2>
+
+              <div className="mt-5 space-y-3">
+                {[
+                  ["Gross revenue", eventRevenueTotal || organizerRevenueTotal],
+                  ["Refunds", -eventRefundedTotal],
+                  ["Processing and platform fees", -eventFeesTotal],
+                  ["Event expenses and labor", -eventLinkedExpensesTotal],
+                  ["Profit / loss", organizerProfit],
+                ].map(([label, amount], index) => (
+                  <div
+                    key={String(label)}
+                    className={`flex items-center justify-between rounded-2xl px-4 py-3 ${
+                      index === 4
+                        ? "border border-purple-200 bg-purple-50"
+                        : "bg-slate-50"
+                    }`}
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {label}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtCurrency(Number(amount))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Link
+                  href="/app/expenses"
+                  className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Manage Event Expenses
+                </Link>
+                <a
+                  href={exportHref("/app/events/export/financial-summary", range)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Export Financial Summary
+                </a>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-700">
+                Marketing Reach
+              </p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                Campaign Performance
+              </h2>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                {[
+                  ["Campaigns sent", organizerCampaignsSent.length],
+                  ["Delivered", organizerCampaignRecipientsSent.length],
+                  ["Failed", organizerCampaignRecipientsFailed.length],
+                  ["Suppressed", organizerCampaignRecipientsSuppressed.length],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs text-slate-500">{label}</p>
+                    <p className="mt-1 text-xl font-semibold text-slate-950">
+                      {fmtNumber(Number(value))}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <Link
+                href="/app/organizer-campaigns"
+                className="mt-5 inline-flex rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-800 hover:bg-purple-100"
+              >
+                Open Campaigns
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-700">
+              Ticket Mix
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Top Ticket Types
+            </h2>
+
+            {topTicketSummaries.length === 0 ? (
+              <p className="mt-5 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">
+                Ticket performance will appear after paid registrations.
+              </p>
+            ) : (
+              <div className="mt-5 space-y-3">
+                {topTicketSummaries.map((ticket) => (
+                  <div
+                    key={ticket.key}
+                    className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4"
+                  >
+                    <div>
+                      <p className="font-semibold text-slate-950">{ticket.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {fmtNumber(ticket.quantity)} tickets · {ticket.kind}
+                      </p>
+                    </div>
+                    <p className="font-semibold text-slate-950">
+                      {fmtCurrency(ticket.revenue)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-700">
+              Audience Growth
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Recent Organizer Contacts
+            </h2>
+
+            {recentOrganizerContacts.length === 0 ? (
+              <p className="mt-5 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">
+                Contacts will appear after registrations are added to the
+                organizer audience.
+              </p>
+            ) : (
+              <div className="mt-5 space-y-3">
+                {recentOrganizerContacts.map((contact) => (
+                  <div
+                    key={contact.id}
+                    className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-950">
+                        {organizerContactName(contact)}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">
+                        {contact.email}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-slate-950">
+                        {fmtCurrency(Number(contact.total_spend ?? 0))}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {fmtNumber(Number(contact.total_paid_registrations ?? 0))} paid
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <Link
+              href="/app/organizer-contacts"
+              className="mt-5 inline-flex rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Open Organizer Contacts
+            </Link>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
