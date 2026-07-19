@@ -4,6 +4,35 @@ const CHECKOUT_CREATE_TIMEOUT_MS = 25000;
 const CHECKOUT_CONFIRM_TIMEOUT_MS = 15000;
 const CHECKOUT_STATUS_TIMEOUT_MS = 12000;
 
+
+export function assertSafeEventCheckoutUrl(
+  value: string,
+  options?: { allowDanceFlowScheme?: boolean },
+) {
+  const trimmed = value.trim();
+
+  if (
+    options?.allowDanceFlowScheme &&
+    trimmed.toLowerCase().startsWith("danceflow://")
+  ) {
+    return trimmed;
+  }
+
+  let parsed: URL;
+
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("The secure checkout link was invalid.");
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("The secure checkout link was blocked.");
+  }
+
+  return parsed.toString();
+}
+
 async function withTimeout<T>(
   timeoutMs: number,
   errorMessage: string,

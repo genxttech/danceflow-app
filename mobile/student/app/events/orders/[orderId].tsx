@@ -8,6 +8,7 @@ import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import {
+  assertSafeEventCheckoutUrl,
   getStudentEventOrderStatus,
   resumeStudentEventCheckout,
   type CreateEventCheckoutResult,
@@ -152,7 +153,9 @@ export default function EventOrderStatusScreen() {
       }
 
       if (result.checkoutUrl) {
-        await Linking.openURL(result.checkoutUrl);
+        await Linking.openURL(
+          assertSafeEventCheckoutUrl(result.checkoutUrl),
+        );
         return;
       }
 
@@ -160,6 +163,30 @@ export default function EventOrderStatusScreen() {
     },
     [initPaymentSheet, loadOrder, orderId, presentPaymentSheet],
   );
+
+  const resumePayment = useCallback(async () => {
+    if (!orderId || orderId === "pending" || resumingPayment) return;
+
+    setResumingPayment(true);
+    setErrorMessage(null);
+
+    try {
+      const result = await resumeStudentEventCheckout(orderId);
+      await continueResumedCheckout(result);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Checkout could not be resumed.",
+      );
+    } finally {
+      setResumingPayment(false);
+    }
+  }, [
+    continueResumedCheckout,
+    orderId,
+    resumingPayment,
+  ]);
 
   useEffect(() => {
     if (
@@ -172,25 +199,11 @@ export default function EventOrderStatusScreen() {
     }
 
     setResumeAttempted(true);
-    setResumingPayment(true);
-    setErrorMessage(null);
-
-    resumeStudentEventCheckout(orderId)
-      .then(continueResumedCheckout)
-      .catch((error) => {
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Checkout could not be resumed.",
-        );
-      })
-      .finally(() => {
-        setResumingPayment(false);
-      });
+    void resumePayment();
   }, [
-    continueResumedCheckout,
     orderId,
     resumeAttempted,
+    resumePayment,
     signing,
   ]);
 
@@ -250,6 +263,13 @@ export default function EventOrderStatusScreen() {
 
       <View style={styles.actions}>
         <AppButton label="Open Wallet" onPress={() => router.replace("/wallet")} />
+        {signing === "completed" && errorMessage ? (
+          <AppButton
+            disabled={resumingPayment}
+            label={resumingPayment ? "Preparing payment..." : "Retry payment"}
+            onPress={resumePayment}
+          />
+        ) : null}
         <AppButton
           label={refreshing ? "Refreshing..." : "Refresh status"}
           onPress={() => loadOrder(true)}

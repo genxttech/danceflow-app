@@ -8,6 +8,7 @@ import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import {
+  assertSafeEventCheckoutUrl,
   confirmStudentEventOrder,
   createStudentEventCheckout,
   getStudentEventOrderStatus
@@ -203,7 +204,9 @@ export default function EventRegisterScreen() {
         setCheckoutStatusMessage(
           "Opening secure document signing. Return to DanceFlow after the final document.",
         );
-        await Linking.openURL(result.signingUrl);
+        await Linking.openURL(
+          assertSafeEventCheckoutUrl(result.signingUrl),
+        );
         return;
       }
 
@@ -228,7 +231,9 @@ export default function EventRegisterScreen() {
             throw new Error(initialized.error.message || "Native checkout could not be started.");
           }
 
-          await Linking.openURL(fallback.checkoutUrl);
+          await Linking.openURL(
+            assertSafeEventCheckoutUrl(fallback.checkoutUrl),
+          );
           return;
         }
 
@@ -269,7 +274,9 @@ export default function EventRegisterScreen() {
         throw new Error("Checkout could not be started.");
       }
 
-      await Linking.openURL(result.checkoutUrl);
+      await Linking.openURL(
+        assertSafeEventCheckoutUrl(result.checkoutUrl),
+      );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Checkout could not be started.");
       setCheckoutStatusMessage(null);
