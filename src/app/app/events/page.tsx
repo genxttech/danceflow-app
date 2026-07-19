@@ -16,6 +16,11 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  canManageEvents,
+  canManageOrganizerProfile,
+  isOrganizerWorkspaceRole,
+} from "@/lib/auth/permissions";
 import { planHasBasicEventListings } from "@/lib/billing/plans";
 import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
@@ -159,10 +164,6 @@ type SubscriptionPlanRow = {
   code: string | null;
 };
 
-function isOrganizerWorkspaceRole(role: string | null | undefined) {
-  return role === "organizer_owner" || role === "organizer_admin";
-}
-
 async function runOptionalReportingQuery<T>(
   label: string,
   queryFactory: (signal: AbortSignal) => PromiseLike<ReportingQueryResult<T>>,
@@ -190,28 +191,6 @@ async function runOptionalReportingQuery<T>(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function canManageEvents(
-  role: string | null | undefined,
-  isPlatformAdminRole: boolean,
-) {
-  if (isPlatformAdminRole) return true;
-
-  return (
-    role === "studio_owner" ||
-    role === "studio_admin" ||
-    role === "organizer_owner" ||
-    role === "organizer_admin"
-  );
-}
-
-function canManageOrganizerProfile(
-  role: string | null | undefined,
-  isPlatformAdminRole: boolean,
-) {
-  if (isPlatformAdminRole) return true;
-  return role === "organizer_owner" || role === "organizer_admin";
 }
 
 function canManageBilling(

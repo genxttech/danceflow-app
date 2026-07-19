@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canExportOrganizerFinancials } from "@/lib/auth/permissions";
 
 type EventRow = {
   id: string;
@@ -65,20 +66,6 @@ type EventSummaryRow = {
   isCompletedOrPast: boolean;
 };
 
-function canViewOrganizerEventExports(
-  role: string | null | undefined,
-  isPlatformAdmin: boolean,
-) {
-  if (isPlatformAdmin) return true;
-
-  return (
-    role === "studio_owner" ||
-    role === "studio_admin" ||
-    role === "organizer_owner" ||
-    role === "organizer_admin"
-  );
-}
-
 function csvEscape(value: unknown) {
   if (value === null || value === undefined) return "";
   const text = String(value);
@@ -130,7 +117,13 @@ async function loadEventSummaryRows() {
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
 
-  if (!context.studioId || !canViewOrganizerEventExports(context.studioRole, context.isPlatformAdmin)) {
+  if (
+    !context.studioId ||
+    !canExportOrganizerFinancials(
+      context.studioRole,
+      Boolean(context.isPlatformAdmin),
+    )
+  ) {
     return {
       errorResponse: new NextResponse("Unauthorized", { status: 401 }),
       rows: [] as EventSummaryRow[],

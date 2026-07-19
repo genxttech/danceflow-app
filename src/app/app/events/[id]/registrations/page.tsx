@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
 import {
   resendEventTicketConfirmationAction,
   updateEventRegistrationAttendeeAction,
@@ -136,18 +137,6 @@ type DocumentSignatureRow = {
   signer_email: string | null;
   signed_at: string;
 };
-
-function isOrganizerWorkspaceName(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
-
-  if (!normalized) return false;
-
-  return (
-    normalized.endsWith(" organizer") ||
-    normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
-  );
-}
 
 function getOrganizer(
   value:
@@ -894,7 +883,7 @@ export default async function EventRegistrationsPage({
       attendeesByRegistrationId.get(registration.id) ?? [],
   }));
   const organizer = getOrganizer(typedEvent.organizers);
-  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
 
   const attendanceByRegistrationId = new Map(
     typedAttendanceRows.map((row) => [row.event_registration_id, row]),

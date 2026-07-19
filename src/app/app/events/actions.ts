@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
 import {
   planHasBasicEventListings,
   planHasOrganizerSuite,
@@ -53,10 +54,6 @@ type OrganizerRow = {
   slug: string;
   active: boolean;
 };
-
-function isOrganizerWorkspaceRole(role: string | null | undefined) {
-  return (role ?? "").trim().toLowerCase().startsWith("organizer_");
-}
 
 type EventLocationSessionPayload = {
   sessionDate: string;
@@ -408,18 +405,6 @@ function applyBasicEventListingRestrictions<T extends ReturnType<typeof buildEve
     waitlistEnabled: false,
     guestCoaches: [],
   };
-}
-
-function isOrganizerWorkspaceName(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
-
-  if (!normalized) return false;
-
-  return (
-    normalized.endsWith(" organizer") ||
-    normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
-  );
 }
 
 async function getStudioContext() {
@@ -1081,8 +1066,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
   );
   const organizerWorkspace =
     isOrganizerWorkspaceRole(currentRole) ||
-    effectiveBillingPlan === "organizer" ||
-    isOrganizerWorkspaceName(workspace?.name);
+    effectiveBillingPlan === "organizer";
   const studioHostedEvents =
     !organizerWorkspace &&
     isBasicEventListingStudioWorkspace({

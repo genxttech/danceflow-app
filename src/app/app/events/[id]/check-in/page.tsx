@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
 import {
   checkInEventRegistrationAction,
   checkInEventTicketCodeAction,
@@ -143,18 +144,6 @@ type GroupLessonRecapRow = {
   published_at: string | null;
   updated_at: string | null;
 };
-
-function isOrganizerWorkspaceName(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
-
-  if (!normalized) return false;
-
-  return (
-    normalized.endsWith(" organizer") ||
-    normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
-  );
-}
 
 function getOrganizer(
   value:
@@ -655,7 +644,7 @@ export default async function EventCheckInPage({
     : null;
   const selectedSessionId = selectedSession?.id ?? "";
   const organizer = getOrganizer(typedEvent.organizers);
-  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
   const currentCheckInHref = buildCheckInHref({
     eventId: typedEvent.id,
     q: query.q ?? "",

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canExportOrganizerFinancials } from "@/lib/auth/permissions";
 
 type EventRow = {
   id: string;
@@ -279,27 +280,6 @@ function buildSettlementPdf(params: {
   return Buffer.from(pdf, "latin1");
 }
 
-function canExportEventSettlement(params: {
-  isPlatformAdmin: boolean;
-  organizerUserRole: string | null;
-  studioRole: string | null;
-  isStudioHosted: boolean;
-}) {
-  const { isPlatformAdmin, organizerUserRole, studioRole, isStudioHosted } = params;
-
-  if (isPlatformAdmin) return true;
-
-  if (["organizer_owner", "organizer_admin", "organizer_staff"].includes(organizerUserRole ?? "")) {
-    return true;
-  }
-
-  if (isStudioHosted && ["studio_owner", "studio_admin"].includes(studioRole ?? "")) {
-    return true;
-  }
-
-  return false;
-}
-
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -358,12 +338,13 @@ export async function GET(
     organizerUserRole = organizerUser?.role ?? null;
   }
 
-  const canExport = canExportEventSettlement({
-    isPlatformAdmin: Boolean(context.isPlatformAdmin),
-    organizerUserRole,
-    studioRole: context.studioRole ?? null,
-    isStudioHosted,
-  });
+  const effectiveRole = isStudioHosted
+    ? context.studioRole ?? null
+    : organizerUserRole;
+  const canExport = canExportOrganizerFinancials(
+    effectiveRole,
+    Boolean(context.isPlatformAdmin),
+  );
 
   if (!canExport) {
     return new NextResponse("Forbidden", { status: 403 });
