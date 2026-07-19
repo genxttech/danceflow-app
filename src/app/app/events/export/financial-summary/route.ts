@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canExportOrganizerFinancials } from "@/lib/auth/permissions";
+import {
+  buildEventFinancialSummary,
+  eventFinancialNumber,
+} from "@/lib/events/financial-summary";
 
 type EventRow = {
   id: string;
@@ -91,13 +95,7 @@ function csvResponse(csv: string, filename: string) {
 }
 
 function safeNumber(value: number | string | null | undefined) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
+  return eventFinancialNumber(value);
 }
 
 function percent(value: number | null) {
@@ -259,15 +257,22 @@ async function loadEventSummaryRows() {
     const settlement = settlementByEventId.get(event.id);
     const registrations = registrationsByEventId.get(event.id) ?? [];
     const ticketRowsForEvent = ticketsByEventId.get(event.id) ?? [];
-
-    const netTicketRevenue = safeNumber(profitability?.net_ticket_revenue);
-    const eventProfitLoss = safeNumber(profitability?.event_profit_loss);
-    const ticketsIssued =
-      ticketRowsForEvent.length > 0
-        ? ticketRowsForEvent.length
-        : registrations.reduce((sum, row) => sum + Number(row.quantity ?? 1), 0);
-    const ticketsCheckedIn = ticketRowsForEvent.filter((row) => row.checked_in_at).length;
-    const eventStartDate = event.start_date ? new Date(`${event.start_date}T00:00:00`) : null;
+    const fallbackTicketsIssued = registrations.reduce(
+      (sum, row) => sum + Number(row.quantity ?? 1),
+      0,
+    );
+    const summary = buildEventFinancialSummary({
+      profitability,
+      registrations,
+      attendees: ticketRowsForEvent,
+      ticketsIssuedOverride:
+        ticketRowsForEvent.length > 0
+          ? ticketRowsForEvent.length
+          : fallbackTicketsIssued,
+    });
+    const eventStartDate = event.start_date
+      ? new Date(`${event.start_date}T00:00:00`)
+      : null;
     const isPastEvent =
       Boolean(eventStartDate) &&
       !Number.isNaN(eventStartDate?.getTime()) &&
@@ -275,28 +280,25 @@ async function loadEventSummaryRows() {
 
     return {
       event,
-      grossTicketRevenue: safeNumber(profitability?.gross_ticket_revenue),
-      refunds: safeNumber(profitability?.refunds),
-      fees: safeNumber(profitability?.processing_and_platform_fees),
-      netTicketRevenue,
-      eventExpenses: safeNumber(profitability?.event_expenses),
-      eventLaborCosts: safeNumber(profitability?.event_labor_costs),
-      totalEventCosts: safeNumber(profitability?.total_event_costs),
-      eventProfitLoss,
-      marginPercent: netTicketRevenue ? (eventProfitLoss / netTicketRevenue) * 100 : null,
-      registrations: registrations.length,
-      paidRegistrations: registrations.filter((row) => row.payment_status === "paid").length,
-      unpaidRegistrations: registrations.filter((row) => row.payment_status === "unpaid").length,
-      pendingRegistrations: registrations.filter((row) => row.payment_status === "pending").length,
-      refundedRegistrations: registrations.filter(
-        (row) =>
-          row.payment_status === "refunded" ||
-          row.status === "refunded" ||
-          row.status === "cancelled",
-      ).length,
-      ticketsIssued,
-      ticketsCheckedIn,
-      checkInRate: ticketsIssued ? (ticketsCheckedIn / ticketsIssued) * 100 : null,
+      grossTicketRevenue: summary.grossTicketRevenue,
+      refunds: summary.refunds,
+      fees: summary.processingAndPlatformFees,
+      netTicketRevenue: summary.netTicketRevenue,
+      eventExpenses: summary.eventExpenses,
+      eventLaborCosts: summary.eventLaborCosts,
+      totalEventCosts: summary.totalEventCosts,
+      eventProfitLoss: summary.eventProfitLoss,
+      marginPercent:
+        summary.margin == null ? null : summary.margin * 100,
+      registrations: summary.registrations,
+      paidRegistrations: summary.paidRegistrations,
+      unpaidRegistrations: summary.unpaidRegistrations,
+      pendingRegistrations: summary.pendingRegistrations,
+      refundedRegistrations: summary.refundedRegistrations,
+      ticketsIssued: summary.ticketsIssued,
+      ticketsCheckedIn: summary.ticketsCheckedIn,
+      checkInRate:
+        summary.checkInRate == null ? null : summary.checkInRate * 100,
       settlementStatus: settlement?.status ?? "open",
       settledAt: settlement?.settled_at ?? null,
       hasSettlementRecord: Boolean(settlement),

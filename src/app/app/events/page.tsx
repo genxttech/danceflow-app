@@ -22,6 +22,10 @@ import {
   isOrganizerWorkspaceRole,
 } from "@/lib/auth/permissions";
 import { planHasBasicEventListings } from "@/lib/billing/plans";
+import {
+  buildEventFinancialSummary,
+  eventFinancialNumber,
+} from "@/lib/events/financial-summary";
 import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { duplicateEventAction } from "./actions";
@@ -512,12 +516,7 @@ function fmtCurrency(value: number, currency = "USD") {
 }
 
 function safeNumber(value: number | string | null | undefined) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
+  return eventFinancialNumber(value);
 }
 
 function fmtPercent(value: number | null | undefined) {
@@ -995,19 +994,21 @@ export default async function EventsPage() {
           attendance?.status === "attended"
         );
       }).length;
-      const ticketsIssued =
-        ticketRows.length > 0
-          ? ticketRows.length
-          : registrations.reduce(
-              (sum, row) => sum + Number(row.quantity ?? 1),
-              0,
-            );
-      const ticketsCheckedIn =
-        ticketRows.length > 0 ? checkedInTickets : legacyCheckedIn;
+      const fallbackTicketsIssued = registrations.reduce(
+        (sum, row) => sum + Number(row.quantity ?? 1),
+        0,
+      );
       const profitability = profitabilityByEventId.get(event.id);
       const settlement = settlementByEventId.get(event.id);
-      const netTicketRevenue = safeNumber(profitability?.net_ticket_revenue);
-      const eventProfitLoss = safeNumber(profitability?.event_profit_loss);
+      const summary = buildEventFinancialSummary({
+        profitability,
+        registrations,
+        attendees: ticketRows,
+        ticketsIssuedOverride:
+          ticketRows.length > 0 ? ticketRows.length : fallbackTicketsIssued,
+        ticketsCheckedInOverride:
+          ticketRows.length > 0 ? checkedInTickets : legacyCheckedIn,
+      });
       const eventStartDate = new Date(`${event.start_date}T00:00:00`);
       const isPastEvent =
         !Number.isNaN(eventStartDate.getTime()) && eventStartDate < todayStart;
@@ -1015,38 +1016,25 @@ export default async function EventsPage() {
 
       return {
         event,
-        grossTicketRevenue: safeNumber(profitability?.gross_ticket_revenue),
-        refunds: safeNumber(profitability?.refunds),
-        fees: safeNumber(profitability?.processing_and_platform_fees),
-        netTicketRevenue,
-        eventExpenses: safeNumber(profitability?.event_expenses),
-        eventLaborCosts: safeNumber(profitability?.event_labor_costs),
-        totalEventCosts: safeNumber(profitability?.total_event_costs),
-        eventProfitLoss,
-        marginPercent: netTicketRevenue
-          ? (eventProfitLoss / netTicketRevenue) * 100
-          : null,
-        registrations: registrations.length,
-        paidRegistrations: registrations.filter(
-          (row) => row.payment_status === "paid",
-        ).length,
-        unpaidRegistrations: registrations.filter(
-          (row) => row.payment_status === "unpaid",
-        ).length,
-        pendingRegistrations: registrations.filter(
-          (row) => row.payment_status === "pending",
-        ).length,
-        refundedRegistrations: registrations.filter(
-          (row) =>
-            row.payment_status === "refunded" ||
-            row.status === "refunded" ||
-            row.status === "cancelled",
-        ).length,
-        ticketsIssued,
-        ticketsCheckedIn,
-        checkInRate: ticketsIssued
-          ? (ticketsCheckedIn / ticketsIssued) * 100
-          : null,
+        grossTicketRevenue: summary.grossTicketRevenue,
+        refunds: summary.refunds,
+        fees: summary.processingAndPlatformFees,
+        netTicketRevenue: summary.netTicketRevenue,
+        eventExpenses: summary.eventExpenses,
+        eventLaborCosts: summary.eventLaborCosts,
+        totalEventCosts: summary.totalEventCosts,
+        eventProfitLoss: summary.eventProfitLoss,
+        marginPercent:
+          summary.margin == null ? null : summary.margin * 100,
+        registrations: summary.registrations,
+        paidRegistrations: summary.paidRegistrations,
+        unpaidRegistrations: summary.unpaidRegistrations,
+        pendingRegistrations: summary.pendingRegistrations,
+        refundedRegistrations: summary.refundedRegistrations,
+        ticketsIssued: summary.ticketsIssued,
+        ticketsCheckedIn: summary.ticketsCheckedIn,
+        checkInRate:
+          summary.checkInRate == null ? null : summary.checkInRate * 100,
         settlementStatus: settlement?.status ?? "open",
         settledAt: settlement?.settled_at ?? null,
         hasSettlementRecord: Boolean(settlement),

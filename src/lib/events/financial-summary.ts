@@ -78,6 +78,8 @@ export function buildEventFinancialSummary(params: {
   profitability?: EventProfitabilityInput | null;
   registrations?: EventRegistrationFinancialInput[] | null;
   attendees?: EventTicketAttendanceInput[] | null;
+  ticketsIssuedOverride?: number | null;
+  ticketsCheckedInOverride?: number | null;
 }): EventFinancialSummary {
   const profitability = params.profitability ?? {};
   const registrations = params.registrations ?? [];
@@ -137,10 +139,18 @@ export function buildEventFinancialSummary(params: {
     }
   }
 
-  const ticketsIssued = attendees.length;
-  const ticketsCheckedIn = attendees.filter((attendee) =>
+  const attendeeTicketsIssued = attendees.length;
+  const attendeeTicketsCheckedIn = attendees.filter((attendee) =>
     Boolean(attendee.checked_in_at),
   ).length;
+  const ticketsIssued =
+    params.ticketsIssuedOverride != null
+      ? Math.max(0, params.ticketsIssuedOverride)
+      : attendeeTicketsIssued;
+  const ticketsCheckedIn =
+    params.ticketsCheckedInOverride != null
+      ? Math.max(0, params.ticketsCheckedInOverride)
+      : attendeeTicketsCheckedIn;
   const checkInRate =
     ticketsIssued > 0 ? ticketsCheckedIn / ticketsIssued : null;
 
