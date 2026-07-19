@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
+import { buildEventFinancialSummary } from "@/lib/events/financial-summary";
 import {
   canManageEventSettlement,
   canReopenEventSettlement,
@@ -18,11 +19,6 @@ function cleanText(value: FormDataEntryValue | null) {
 function cleanOptionalText(value: FormDataEntryValue | null) {
   const cleaned = cleanText(value);
   return cleaned.length > 0 ? cleaned : null;
-}
-
-function toNumber(value: number | string | null | undefined) {
-  const amount = typeof value === "number" ? value : Number(value ?? 0);
-  return Number.isFinite(amount) ? amount : 0;
 }
 
 export async function updateEventSettlementAction(formData: FormData) {
@@ -165,32 +161,28 @@ export async function updateEventSettlementAction(formData: FormData) {
   const registrations = registrationsResult.data ?? [];
   const attendees = attendeesResult.data ?? [];
 
-  const grossTicketRevenue = toNumber(profitability.gross_ticket_revenue);
-  const refunds = toNumber(profitability.refunds);
-  const processingAndPlatformFees = toNumber(profitability.processing_and_platform_fees);
-  const netTicketRevenue = toNumber(profitability.net_ticket_revenue);
-  const eventExpenses = toNumber(profitability.event_expenses);
-  const eventLaborCosts = toNumber(profitability.event_labor_costs);
-  const totalEventCosts = toNumber(profitability.total_event_costs) || eventExpenses + eventLaborCosts;
-  const eventProfitLoss = toNumber(profitability.event_profit_loss);
-  const margin = netTicketRevenue > 0 ? eventProfitLoss / netTicketRevenue : null;
+  const {
+    grossTicketRevenue,
+    refunds,
+    processingAndPlatformFees,
+    netTicketRevenue,
+    eventExpenses,
+    eventLaborCosts,
+    totalEventCosts,
+    eventProfitLoss,
+    margin,
+    paidRegistrations,
+    unpaidRegistrations,
+    pendingRegistrations,
+    refundedRegistrations,
+    ticketsIssued,
+    ticketsCheckedIn,
+  } = buildEventFinancialSummary({
+    profitability,
+    registrations,
+    attendees,
+  });
 
-  const paidRegistrations = registrations.filter((registration) =>
-    ["paid", "partial", "comped", "free"].includes((registration.payment_status ?? "").toLowerCase()),
-  ).length;
-  const unpaidRegistrations = registrations.filter((registration) =>
-    ["unpaid", "failed", "requires_payment"].includes((registration.payment_status ?? "").toLowerCase()),
-  ).length;
-  const pendingRegistrations = registrations.filter((registration) =>
-    ["pending", "processing", "requires_action"].includes((registration.payment_status ?? "").toLowerCase()),
-  ).length;
-  const refundedRegistrations = registrations.filter((registration) => {
-    const paymentStatus = (registration.payment_status ?? "").toLowerCase();
-    const registrationStatus = (registration.status ?? "").toLowerCase();
-    return paymentStatus.includes("refund") || registrationStatus.includes("refund");
-  }).length;
-  const ticketsIssued = attendees.length;
-  const ticketsCheckedIn = attendees.filter((attendee) => attendee.checked_in_at).length;
   const nowIso = new Date().toISOString();
 
   const { error } = await (supabase as any)

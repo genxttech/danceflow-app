@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  buildEventFinancialSummary,
+  eventFinancialNumber,
+} from "@/lib/events/financial-summary";
 import { canExportOrganizerFinancials } from "@/lib/auth/permissions";
 
 type EventRow = {
@@ -67,12 +71,7 @@ type PdfSection = {
 };
 
 function safeNumber(value: number | string | null | undefined) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
+  return eventFinancialNumber(value);
 }
 
 function formatMoney(value: number) {
@@ -396,34 +395,28 @@ export async function GET(
   const registrations = (registrationsResult.data ?? []) as RegistrationRow[];
   const attendees = attendeesResult.error ? [] : ((attendeesResult.data ?? []) as AttendeeRow[]);
 
-  const grossTicketRevenue = safeNumber(profitability?.gross_ticket_revenue);
-  const refunds = safeNumber(profitability?.refunds);
-  const processingAndPlatformFees = safeNumber(profitability?.processing_and_platform_fees);
-  const netTicketRevenue = safeNumber(profitability?.net_ticket_revenue);
-  const eventExpenses = safeNumber(profitability?.event_expenses);
-  const eventLaborCosts = safeNumber(profitability?.event_labor_costs);
-  const totalEventCosts = safeNumber(profitability?.total_event_costs) || eventExpenses + eventLaborCosts;
-  const eventProfitLoss = safeNumber(profitability?.event_profit_loss);
-  const margin = netTicketRevenue > 0 ? eventProfitLoss / netTicketRevenue : null;
-
-  const paidRegistrations = registrations.filter((registration) =>
-    ["paid", "partial", "comped", "free"].includes((registration.payment_status ?? "").toLowerCase()),
-  ).length;
-  const unpaidRegistrations = registrations.filter((registration) =>
-    ["unpaid", "failed", "requires_payment"].includes((registration.payment_status ?? "").toLowerCase()),
-  ).length;
-  const pendingRegistrations = registrations.filter((registration) =>
-    ["pending", "processing", "requires_action"].includes((registration.payment_status ?? "").toLowerCase()),
-  ).length;
-  const refundedRegistrations = registrations.filter((registration) => {
-    const paymentStatus = (registration.payment_status ?? "").toLowerCase();
-    const registrationStatus = (registration.status ?? "").toLowerCase();
-    return paymentStatus.includes("refund") || registrationStatus.includes("refund");
-  }).length;
-
-  const ticketsIssued = attendees.length;
-  const ticketsCheckedIn = attendees.filter((attendee) => attendee.checked_in_at).length;
-  const checkInRate = ticketsIssued > 0 ? ticketsCheckedIn / ticketsIssued : null;
+  const {
+    grossTicketRevenue,
+    refunds,
+    processingAndPlatformFees,
+    netTicketRevenue,
+    eventExpenses,
+    eventLaborCosts,
+    totalEventCosts,
+    eventProfitLoss,
+    margin,
+    paidRegistrations,
+    unpaidRegistrations,
+    pendingRegistrations,
+    refundedRegistrations,
+    ticketsIssued,
+    ticketsCheckedIn,
+    checkInRate,
+  } = buildEventFinancialSummary({
+    profitability,
+    registrations,
+    attendees,
+  });
   const settlementStatus = settlement?.status ?? "open";
   const eventName = typedEvent.name ?? "Untitled event";
 
