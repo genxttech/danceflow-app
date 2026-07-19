@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getStudioContextForStudio } from "@/lib/auth/studio";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
+import { canManageEventTickets } from "@/lib/auth/permissions";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -83,40 +84,6 @@ type EventAccess = {
   userId: string;
 };
 
-function canManageTickets(params: {
-  isPlatformAdmin: boolean;
-  studioRole: string | null | undefined;
-  organizerUserRole: string | null | undefined;
-  isStudioHostedEvent: boolean;
-}) {
-  const normalizedStudioRole = (params.studioRole ?? "").trim().toLowerCase();
-  const normalizedOrganizerRole = (params.organizerUserRole ?? "")
-    .trim()
-    .toLowerCase();
-
-  if (params.isPlatformAdmin) return true;
-
-  if (
-    normalizedOrganizerRole === "organizer_owner" ||
-    normalizedOrganizerRole === "organizer_admin" ||
-    normalizedOrganizerRole === "organizer_staff"
-  ) {
-    return true;
-  }
-
-  if (
-    params.isStudioHostedEvent &&
-    (normalizedStudioRole === "studio_owner" ||
-      normalizedStudioRole === "studio_admin" ||
-      normalizedStudioRole === "organizer_owner" ||
-      normalizedStudioRole === "organizer_admin")
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 async function getTicketEventAccess(eventId: string): Promise<{
   supabase: Awaited<ReturnType<typeof createClient>>;
   access: EventAccess;
@@ -171,13 +138,13 @@ async function getTicketEventAccess(eventId: string): Promise<{
     userId: user.id,
   };
 
+  const effectiveRole = access.event.organizer_id
+    ? access.organizerUserRole
+    : access.studioRole;
+
   if (
-    !canManageTickets({
-      isPlatformAdmin: access.isPlatformAdmin,
-      studioRole: access.studioRole,
-      organizerUserRole: access.organizerUserRole,
-      isStudioHostedEvent: !access.event.organizer_id,
-    })
+    !access.isPlatformAdmin &&
+    !canManageEventTickets(effectiveRole)
   ) {
     throw new Error(
       `You do not have permission to manage tickets. Role: ${

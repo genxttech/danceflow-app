@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageOrganizerExpenses } from "@/lib/auth/permissions";
 import {
   createExpenseAction,
   recordRecurringExpenseAction,
@@ -128,18 +129,6 @@ function formatCurrency(value: number, currency = "USD") {
   }).format(Number(value ?? 0));
 }
 
-function canManageExpenses(role: string | null | undefined, isPlatformAdmin: boolean) {
-  if (isPlatformAdmin) return true;
-
-  return (
-    role === "studio_owner" ||
-    role === "studio_admin" ||
-    role === "organizer_owner" ||
-    role === "organizer_admin" ||
-    role === "independent_instructor"
-  );
-}
-
 function StatCard({
   label,
   value,
@@ -184,10 +173,11 @@ export default async function ExpensesPage() {
     redirect("/app");
   }
 
-  const allowManage = canManageExpenses(
-    context.studioRole,
-    context.isPlatformAdmin
-  );
+  const allowManage = Boolean(context.isPlatformAdmin) ||
+    canManageOrganizerExpenses(context.studioRole) ||
+    ["studio_owner", "studio_admin", "independent_instructor"].includes(
+      context.studioRole ?? "",
+    );
 
   const [
     { data: expenses, error: expensesError },

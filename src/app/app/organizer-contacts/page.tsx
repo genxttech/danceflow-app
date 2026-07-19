@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageOrganizerContacts } from "@/lib/auth/permissions";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 
 type SearchParams = Promise<{
@@ -105,22 +106,6 @@ function OrganizerSuiteUpgradeCard() {
   );
 }
 
-function canViewOrganizerContacts(
-  role: string | null | undefined,
-  isPlatformAdminRole: boolean,
-) {
-  if (isPlatformAdminRole) return true;
-
-  return [
-    "studio_owner",
-    "studio_admin",
-    "front_desk",
-    "organizer_owner",
-    "organizer_admin",
-    "organizer_staff",
-  ].includes(role ?? "");
-}
-
 function formatDate(value: string | null | undefined) {
   if (!value) return "Never";
 
@@ -210,7 +195,7 @@ export default async function OrganizerContactsPage({
 
   const context = await getCurrentStudioContext();
 
-  if (!canViewOrganizerContacts(context.studioRole, context.isPlatformAdmin)) {
+  if (!canManageOrganizerContacts(context.studioRole, context.isPlatformAdmin)) {
     redirect("/app");
   }
 

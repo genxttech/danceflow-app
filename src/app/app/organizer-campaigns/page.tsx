@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageOrganizerCampaigns } from "@/lib/auth/permissions";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import { createOrganizerCampaignDraftAction } from "./actions";
 import CampaignAIAssistant from "../marketing/campaigns/CampaignAIAssistant";
@@ -253,19 +254,6 @@ function isOrganizerWorkspaceRole(role: string | null | undefined) {
     normalized === "organizer_admin" ||
     normalized === "organizer_staff"
   );
-}
-
-function canViewOrganizerCampaigns(role: string | null | undefined, isPlatformAdminRole: boolean) {
-  if (isPlatformAdminRole) return true;
-
-  return [
-    "studio_owner",
-    "studio_admin",
-    "front_desk",
-    "organizer_owner",
-    "organizer_admin",
-    "organizer_staff",
-  ].includes(role ?? "");
 }
 
 function formatDate(value: string | null | undefined) {
@@ -534,7 +522,7 @@ export default async function OrganizerCampaignsPage({
 
   const context = await getCurrentStudioContext();
 
-  if (!canViewOrganizerCampaigns(context.studioRole, context.isPlatformAdmin)) {
+  if (!canManageOrganizerCampaigns(context.studioRole, context.isPlatformAdmin)) {
     redirect("/app");
   }
 

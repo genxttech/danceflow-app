@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageOrganizerExpenses } from "@/lib/auth/permissions";
 import {
   cleanTextValue,
   getValidationError,
@@ -47,18 +48,6 @@ const allowedRecurringFrequencies = [
   "quarterly",
   "annually",
 ] as const;
-
-function canManageExpenses(role: string | null | undefined, isPlatformAdmin: boolean) {
-  if (isPlatformAdmin) return true;
-
-  return (
-    role === "studio_owner" ||
-    role === "studio_admin" ||
-    role === "organizer_owner" ||
-    role === "organizer_admin" ||
-    role === "independent_instructor"
-  );
-}
 
 function expenseAccountingCategory(category: (typeof allowedCategories)[number]) {
   const categories: Record<(typeof allowedCategories)[number], string> = {
@@ -149,7 +138,13 @@ async function requireExpenseManager() {
     throw new Error("No active workspace was found.");
   }
 
-  if (!canManageExpenses(context.studioRole, context.isPlatformAdmin)) {
+  const canManage = Boolean(context.isPlatformAdmin) ||
+    canManageOrganizerExpenses(context.studioRole) ||
+    ["studio_owner", "studio_admin", "independent_instructor"].includes(
+      context.studioRole ?? "",
+    );
+
+  if (!canManage) {
     throw new Error("You do not have permission to manage expenses.");
   }
 
@@ -318,7 +313,13 @@ export async function voidExpenseAction(formData: FormData) {
     throw new Error("No active workspace was found.");
   }
 
-  if (!canManageExpenses(context.studioRole, context.isPlatformAdmin)) {
+  const canManage = Boolean(context.isPlatformAdmin) ||
+    canManageOrganizerExpenses(context.studioRole) ||
+    ["studio_owner", "studio_admin", "independent_instructor"].includes(
+      context.studioRole ?? "",
+    );
+
+  if (!canManage) {
     throw new Error("You do not have permission to void expenses.");
   }
 

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageOrganizerCampaigns } from "@/lib/auth/permissions";
 
 const AUDIENCE_TYPES = new Set([
   "all_organizer_contacts",
@@ -38,18 +39,6 @@ function normalizeUrl(url: string) {
 function appendQuery(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
-}
-
-function canManageOrganizerMarketing(role: string | null | undefined, isPlatformAdminRole: boolean) {
-  if (isPlatformAdminRole) return true;
-  return [
-    "studio_owner",
-    "studio_admin",
-    "front_desk",
-    "organizer_owner",
-    "organizer_admin",
-    "organizer_staff",
-  ].includes(role ?? "");
 }
 
 async function requireOrganizerAccess(organizerId: string) {
@@ -96,7 +85,7 @@ async function requireOrganizerAccess(organizerId: string) {
 
   const hasStudioScopedAccess =
     organizer.studio_id === context.studioId &&
-    canManageOrganizerMarketing(context.studioRole, context.isPlatformAdmin);
+    canManageOrganizerCampaigns(context.studioRole, context.isPlatformAdmin);
 
   if (!organizerUser && !platformAdmin && !hasStudioScopedAccess) {
     redirect("/app/organizer-campaigns?campaign_error=not_allowed");

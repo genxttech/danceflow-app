@@ -6,7 +6,8 @@ export type AppRole =
   | "instructor"
   | "independent_instructor"
   | "organizer_owner"
-  | "organizer_admin";
+  | "organizer_admin"
+  | "organizer_staff";
 
 export type ExportPermissionKey =
   | "export_clients"
@@ -35,6 +36,10 @@ export function isOrganizerAdmin(role: string | null | undefined) {
   return role === "organizer_admin";
 }
 
+export function isOrganizerStaff(role: string | null | undefined) {
+  return role === "organizer_staff";
+}
+
 export function isFrontDesk(role: string | null | undefined) {
   return role === "front_desk";
 }
@@ -59,7 +64,12 @@ export function isStudioWorkspaceRole(role: string | null | undefined) {
 }
 
 export function isOrganizerWorkspaceRole(role: string | null | undefined) {
-  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(role ?? "");
+  return [
+    "platform_admin",
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ].includes(role ?? "");
 }
 
 export function canManageSettings(role: string | null | undefined) {
@@ -183,20 +193,157 @@ export function canViewReports(role: string | null | undefined) {
   ].includes(role ?? "");
 }
 
-export function canManageOrganizers(role: string | null | undefined) {
-  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(role ?? "");
+export function canViewOrganizerWorkspace(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return [
+    "platform_admin",
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ].includes(role ?? "");
 }
 
-export function canManageEvents(role: string | null | undefined) {
-  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(role ?? "");
+export function canManageOrganizerProfile(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(
+    role ?? "",
+  );
 }
 
-export function canManageEventRegistrations(role: string | null | undefined) {
-  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(role ?? "");
+export function canManageOrganizerTeam(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return ["platform_admin", "organizer_owner"].includes(role ?? "");
 }
 
-export function canCheckInEventAttendees(role: string | null | undefined) {
-  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(role ?? "");
+export function canManageOrganizers(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return canManageOrganizerProfile(role, isPlatformAdmin);
+}
+
+export function canManageEvents(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(
+    role ?? "",
+  );
+}
+
+export function canManageEventTickets(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return [
+    "platform_admin",
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ].includes(role ?? "");
+}
+
+export function canManageEventRegistrations(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return canManageEventTickets(role, isPlatformAdmin);
+}
+
+export function canCheckInEventAttendees(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return canManageEventTickets(role, isPlatformAdmin);
+}
+
+export function canManageOrganizerContacts(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return canManageEventTickets(role, isPlatformAdmin);
+}
+
+export function canManageOrganizerCampaigns(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return canManageEventTickets(role, isPlatformAdmin);
+}
+
+export function canManageEventDocuments(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return canManageEventTickets(role, isPlatformAdmin);
+}
+
+export function canViewOrganizerFinancials(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return [
+    "platform_admin",
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ].includes(role ?? "");
+}
+
+export function canExportOrganizerFinancials(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(
+    role ?? "",
+  );
+}
+
+export function canManageEventSettlement(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return canManageEventTickets(role, isPlatformAdmin);
+}
+
+export function canReopenEventSettlement(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(
+    role ?? "",
+  );
+}
+
+export function canManageOrganizerExpenses(
+  role: string | null | undefined,
+  isPlatformAdmin = false,
+) {
+  if (isPlatformAdmin) return true;
+  return ["platform_admin", "organizer_owner", "organizer_admin"].includes(
+    role ?? "",
+  );
 }
 
 export function canAssignRoles(role: string | null | undefined) {
@@ -266,7 +413,11 @@ export function canAssignTargetRole(args: {
   }
 
   if (actorRole === "organizer_owner") {
-    return ["organizer_admin"].includes(targetRole);
+    return ["organizer_admin", "organizer_staff"].includes(targetRole);
+  }
+
+  if (actorRole === "organizer_admin") {
+    return targetRole === "organizer_staff";
   }
 
   return false;

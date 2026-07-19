@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
+import {
+  canManageEventSettlement,
+  canReopenEventSettlement,
+} from "@/lib/auth/permissions";
 
 const allowedStatuses = new Set(["open", "ready_to_settle", "settled", "reopened"]);
 
@@ -19,27 +23,6 @@ function cleanOptionalText(value: FormDataEntryValue | null) {
 function toNumber(value: number | string | null | undefined) {
   const amount = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(amount) ? amount : 0;
-}
-
-function canManageEventSettlement(params: {
-  isPlatformAdmin: boolean;
-  organizerUserRole: string | null;
-  studioRole: string | null;
-  isStudioHosted: boolean;
-}) {
-  const { isPlatformAdmin, organizerUserRole, studioRole, isStudioHosted } = params;
-
-  if (isPlatformAdmin) return true;
-
-  if (["organizer_owner", "organizer_admin", "organizer_staff"].includes(organizerUserRole ?? "")) {
-    return true;
-  }
-
-  if (isStudioHosted && ["studio_owner", "studio_admin"].includes(studioRole ?? "")) {
-    return true;
-  }
-
-  return false;
 }
 
 export async function updateEventSettlementAction(formData: FormData) {
@@ -111,12 +94,11 @@ export async function updateEventSettlementAction(formData: FormData) {
     organizerUserRole = organizerUser?.role ?? null;
   }
 
-  const canManage = canManageEventSettlement({
-    isPlatformAdmin: Boolean(context.isPlatformAdmin),
-    organizerUserRole,
-    studioRole: context.studioRole ?? null,
-    isStudioHosted: !event.organizer_id,
-  });
+  const effectiveRole = event.organizer_id
+    ? organizerUserRole
+    : context.studioRole ?? null;
+  const canManage = Boolean(context.isPlatformAdmin) ||
+    canManageEventSettlement(effectiveRole);
 
   if (!canManage) {
     throw new Error("You do not have permission to update event settlement.");
@@ -136,6 +118,15 @@ export async function updateEventSettlementAction(formData: FormData) {
 
   if (existingStatus === "settled" && status !== "reopened") {
     throw new Error("This event has already been settled. Reopen the settlement before making closeout changes.");
+  }
+
+  if (
+    existingStatus === "settled" &&
+    status === "reopened" &&
+    !context.isPlatformAdmin &&
+    !canReopenEventSettlement(effectiveRole)
+  ) {
+    throw new Error("You do not have permission to reopen a settled event.");
   }
 
   if (existingStatus === "settled" && status === "reopened" && (!notes || notes.length < 8)) {

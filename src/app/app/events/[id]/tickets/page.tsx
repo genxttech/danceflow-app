@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
+import { canManageEventTickets } from "@/lib/auth/permissions";
 import { createTicketTypeAction, updateTicketTypeAction } from "./actions";
 import TimezoneFormatter from "./TimezoneFormatter";
 
@@ -33,27 +34,6 @@ type EventRow = {
   status: string;
   visibility: string;
 };
-
-function canManageTickets(params: {
-  isPlatformAdmin: boolean;
-  organizerUserRole: string | null;
-  studioRole: string | null;
-  isStudioHosted: boolean;
-}) {
-  const { isPlatformAdmin, organizerUserRole, studioRole, isStudioHosted } = params;
-
-  if (isPlatformAdmin) return true;
-
-  if (["organizer_owner", "organizer_admin", "organizer_staff"].includes(organizerUserRole ?? "")) {
-    return true;
-  }
-
-  if (isStudioHosted && ["studio_owner", "studio_admin"].includes(studioRole ?? "")) {
-    return true;
-  }
-
-  return false;
-}
 
 function formatPrice(value: number | string, currency: string) {
   const amount = typeof value === "number" ? value : Number(value ?? 0);
@@ -220,12 +200,10 @@ export default async function EventTicketsPage({
     organizerUserRole = organizerUser?.role ?? null;
   }
 
-  const canManage = canManageTickets({
-    isPlatformAdmin: Boolean(isPlatformAdmin),
-    organizerUserRole,
-    studioRole: studioRole ?? null,
-    isStudioHosted,
-  });
+  const canManage = Boolean(isPlatformAdmin) ||
+    canManageEventTickets(
+      isStudioHosted ? studioRole ?? null : organizerUserRole,
+    );
 
   const { data: tickets, error: ticketsError } = await supabase
     .from("event_ticket_types")
