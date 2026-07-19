@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Clock3, FileSignature, History, Plus, Send, ShieldCheck, Upload, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
 import { requireStudioFeature } from "@/lib/billing/access";
 import {
   assignDocumentToClientAction,
@@ -298,8 +299,10 @@ async function getEventRequirements(
 
 function DocumentTemplateForm({
   organizers,
+  isOrganizerWorkspace,
 }: {
   organizers: OrganizerOption[];
+  isOrganizerWorkspace: boolean;
 }) {
   return (
     <form
@@ -328,7 +331,11 @@ function DocumentTemplateForm({
             name="title"
             required
             className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm"
-            placeholder="Studio liability waiver"
+            placeholder={
+              isOrganizerWorkspace
+                ? "Event participant liability waiver"
+                : "Studio liability waiver"
+            }
           />
         </label>
 
@@ -346,34 +353,56 @@ function DocumentTemplateForm({
           </select>
         </label>
 
-        <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
-          Owner
-          <select
-            name="scope"
-            className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm"
-          >
-            <option value="studio">Studio document</option>
-            {organizers.length ? (
-              <option value="organizer">Organizer document</option>
-            ) : null}
-          </select>
-        </label>
+        {isOrganizerWorkspace ? (
+          <>
+            <input type="hidden" name="scope" value="organizer" />
+            <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
+              Organizer
+              <select
+                name="organizerId"
+                required
+                className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm"
+              >
+                {organizers.map((organizer) => (
+                  <option key={organizer.id} value={organizer.id}>
+                    {organizer.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : (
+          <>
+            <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
+              Owner
+              <select
+                name="scope"
+                className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm"
+              >
+                <option value="studio">Studio document</option>
+                {organizers.length ? (
+                  <option value="organizer">Organizer document</option>
+                ) : null}
+              </select>
+            </label>
 
-        {organizers.length ? (
-          <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
-            Organizer
-            <select
-              name="organizerId"
-              className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm"
-            >
-              {organizers.map((organizer) => (
-                <option key={organizer.id} value={organizer.id}>
-                  {organizer.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+            {organizers.length ? (
+              <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
+                Organizer
+                <select
+                  name="organizerId"
+                  className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm"
+                >
+                  {organizers.map((organizer) => (
+                    <option key={organizer.id} value={organizer.id}>
+                      {organizer.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </>
+        )}
 
         <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)] lg:col-span-2">
           Short description
@@ -469,6 +498,7 @@ function TemplateCard({
   eventRequirements,
   pendingAssignmentCount,
   signedRecordCount,
+  isOrganizerWorkspace,
 }: {
   template: DocumentTemplate;
   organizers: OrganizerOption[];
@@ -477,6 +507,7 @@ function TemplateCard({
   eventRequirements: EventRequirement[];
   pendingAssignmentCount: number;
   signedRecordCount: number;
+  isOrganizerWorkspace: boolean;
 }) {
   const organizerName = organizers.find(
     (organizer) => organizer.id === template.organizer_id,
@@ -562,7 +593,9 @@ function TemplateCard({
         </div>
       </summary>
 
-      {template.scope === "studio" && template.is_active ? (
+      {!isOrganizerWorkspace &&
+      template.scope === "studio" &&
+      template.is_active ? (
         <div className="mt-5 rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
           <div className="flex items-start gap-3">
             <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-2 text-[var(--brand-primary)]">
@@ -914,6 +947,7 @@ export default async function DocumentsPage({
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
+  const isOrganizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
   const organizers = await getOrganizerOptions(supabase, studioId);
   const organizerIds = organizers.map((organizer) => organizer.id);
 
@@ -949,7 +983,15 @@ export default async function DocumentsPage({
     )
     .order("updated_at", { ascending: false });
 
-  if (organizerIds.length) {
+  if (isOrganizerWorkspace) {
+    if (organizerIds.length) {
+      templateQuery = templateQuery
+        .eq("scope", "organizer")
+        .in("organizer_id", organizerIds);
+    } else {
+      templateQuery = templateQuery.eq("scope", "organizer").is("organizer_id", null);
+    }
+  } else if (organizerIds.length) {
     templateQuery = templateQuery.or(
       `studio_id.eq.${studioId},organizer_id.in.(${organizerIds.join(",")})`,
     );
@@ -1049,13 +1091,15 @@ export default async function DocumentsPage({
     organizerIds,
   );
 
-  const { data: clients, error: clientsError } = await supabase
-    .from("clients")
-    .select("id, first_name, last_name, email, status")
-    .eq("studio_id", studioId)
-    .in("status", ["active", "lead"])
-    .order("first_name", { ascending: true })
-    .order("last_name", { ascending: true });
+  const { data: clients, error: clientsError } = isOrganizerWorkspace
+    ? { data: [] as ClientOption[], error: null }
+    : await supabase
+        .from("clients")
+        .select("id, first_name, last_name, email, status")
+        .eq("studio_id", studioId)
+        .in("status", ["active", "lead"])
+        .order("first_name", { ascending: true })
+        .order("last_name", { ascending: true });
 
 
   const one = <T,>(value: T | T[] | null): T | null => Array.isArray(value) ? value[0] ?? null : value;
@@ -1144,7 +1188,7 @@ export default async function DocumentsPage({
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--brand-primary)]">Create document</p>
           <h2 className="mt-2 text-2xl font-bold text-[var(--brand-text)]">Choose how to start</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--brand-muted)]">
-            Both options create a document workflow. Use a reusable template for standard studio forms, or upload a PDF when the layout already exists.
+            Both options create a document workflow. Use a reusable template for standard {isOrganizerWorkspace ? "event participant forms" : "studio forms"}, or upload a PDF when the layout already exists.
           </p>
         </div>
 
@@ -1158,13 +1202,16 @@ export default async function DocumentsPage({
                 <div>
                   <h3 className="font-bold text-[var(--brand-text)]">Create from template</h3>
                   <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                    Build a reusable waiver, policy, agreement, release, or membership form.
+                    Build a reusable waiver, policy, agreement, release, or {isOrganizerWorkspace ? "participant form" : "membership form"}.
                   </p>
                 </div>
               </div>
             </summary>
             <div className="mt-5">
-              <DocumentTemplateForm organizers={organizers} />
+              <DocumentTemplateForm
+                organizers={organizers}
+                isOrganizerWorkspace={isOrganizerWorkspace}
+              />
             </div>
           </details>
 
@@ -1401,7 +1448,7 @@ export default async function DocumentsPage({
 
       <details className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
         <summary className="cursor-pointer list-none">
-          <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[var(--brand-text)]">Template library</h2><p className="mt-1 text-sm text-[var(--brand-muted)]">Manage reusable templates, client assignment, event requirements, and version history.</p></div><span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">{(templates ?? []).filter((template) => template.is_active).length} active</span></div>
+          <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[var(--brand-text)]">Template library</h2><p className="mt-1 text-sm text-[var(--brand-muted)]">{isOrganizerWorkspace ? "Manage reusable event documents, registration requirements, and version history." : "Manage reusable templates, client assignment, event requirements, and version history."}</p></div><span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">{(templates ?? []).filter((template) => template.is_active).length} active</span></div>
         </summary>
         <div className="mt-6 space-y-6">
       <section className="space-y-4">
@@ -1435,6 +1482,7 @@ export default async function DocumentsPage({
                 eventRequirements={eventRequirements}
                 pendingAssignmentCount={pendingCountByTemplateId.get(template.id) ?? 0}
                 signedRecordCount={signedCountByTemplateId.get(template.id) ?? 0}
+                isOrganizerWorkspace={isOrganizerWorkspace}
               />
             ))}
           </div>
@@ -1445,7 +1493,7 @@ export default async function DocumentsPage({
               No document templates yet
             </h3>
             <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[var(--brand-muted)]">
-              Start with a waiver, policy, or agreement. DanceFlow can then assign it, track signatures, and surface exceptions that need attention.
+              Start with a waiver, policy, or agreement. DanceFlow can then {isOrganizerWorkspace ? "attach it to event registration" : "assign it"}, track signatures, and surface exceptions that need attention.
             </p>
           </div>
         )}
