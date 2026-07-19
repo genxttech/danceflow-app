@@ -174,3 +174,96 @@ export function buildEventFinancialSummary(params: {
     checkInRate,
   };
 }
+
+
+export type EventAccountingFinancialInput = {
+  eventId?: string | null;
+  event_id?: string | null;
+  sourceTable?: string | null;
+  source_table?: string | null;
+  category?: string | null;
+  grossAmount?: number | string | null;
+  gross_amount?: number | string | null;
+  feeAmount?: number | string | null;
+  fee_amount?: number | string | null;
+  refundAmount?: number | string | null;
+  refund_amount?: number | string | null;
+  netAmount?: number | string | null;
+  net_amount?: number | string | null;
+};
+
+export function buildEventProfitabilityByEventId(
+  entries: EventAccountingFinancialInput[],
+) {
+  const grouped = new Map<string, EventProfitabilityInput>();
+
+  for (const entry of entries) {
+    const eventId = entry.eventId ?? entry.event_id;
+    if (!eventId) continue;
+
+    const sourceTable = entry.sourceTable ?? entry.source_table ?? "";
+    const category = entry.category ?? "";
+    const current = grouped.get(eventId) ?? {
+      gross_ticket_revenue: 0,
+      refunds: 0,
+      processing_and_platform_fees: 0,
+      net_ticket_revenue: 0,
+      event_expenses: 0,
+      event_labor_costs: 0,
+      total_event_costs: 0,
+      event_profit_loss: 0,
+    };
+
+    if (
+      sourceTable === "event_payments" &&
+      category === "event_ticket_revenue"
+    ) {
+      current.gross_ticket_revenue =
+        eventFinancialNumber(current.gross_ticket_revenue) +
+        eventFinancialNumber(entry.grossAmount ?? entry.gross_amount);
+      current.refunds =
+        eventFinancialNumber(current.refunds) +
+        Math.abs(
+          eventFinancialNumber(entry.refundAmount ?? entry.refund_amount),
+        );
+      current.processing_and_platform_fees =
+        eventFinancialNumber(current.processing_and_platform_fees) +
+        Math.abs(eventFinancialNumber(entry.feeAmount ?? entry.fee_amount));
+      current.net_ticket_revenue =
+        eventFinancialNumber(current.net_ticket_revenue) +
+        eventFinancialNumber(entry.netAmount ?? entry.net_amount);
+    } else if (
+      sourceTable === "event_labor_costs" &&
+      category === "event_labor_expense"
+    ) {
+      current.event_labor_costs =
+        eventFinancialNumber(current.event_labor_costs) +
+        Math.abs(eventFinancialNumber(entry.netAmount ?? entry.net_amount));
+    } else if (sourceTable === "expenses") {
+      current.event_expenses =
+        eventFinancialNumber(current.event_expenses) +
+        Math.abs(eventFinancialNumber(entry.netAmount ?? entry.net_amount));
+    }
+
+    grouped.set(eventId, current);
+  }
+
+  for (const profitability of grouped.values()) {
+    const eventExpenses = eventFinancialNumber(
+      profitability.event_expenses,
+    );
+    const eventLaborCosts = eventFinancialNumber(
+      profitability.event_labor_costs,
+    );
+    const totalEventCosts = eventExpenses + eventLaborCosts;
+    const netTicketRevenue = eventFinancialNumber(
+      profitability.net_ticket_revenue,
+    );
+
+    profitability.total_event_costs = totalEventCosts;
+    profitability.event_profit_loss =
+      netTicketRevenue - totalEventCosts;
+  }
+
+  return grouped;
+}

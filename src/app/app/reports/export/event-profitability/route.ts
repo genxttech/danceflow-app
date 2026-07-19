@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  buildEventFinancialSummary,
+  buildEventProfitabilityByEventId,
+} from "@/lib/events/financial-summary";
 
 type EventLookupRow = {
   id: string;
@@ -100,20 +104,6 @@ function csvResponse(csv: string, filename: string) {
   });
 }
 
-function safeNumber(value: number | string | null | undefined) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
-function marginPercent(profitLoss: number, netTicketRevenue: number) {
-  if (!netTicketRevenue) return "";
-  return ((profitLoss / netTicketRevenue) * 100).toFixed(2);
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const range = url.searchParams.get("range") ?? "month";
@@ -149,50 +139,27 @@ export async function GET(request: Request) {
     );
   }
 
+  const profitabilityByEventId =
+    buildEventProfitabilityByEventId(
+      (accountingRows ?? []) as EventAccountingRow[],
+    );
   const summariesByEventId = new Map<string, EventExportSummary>();
 
-  function ensureSummary(eventId: string) {
-    const existing = summariesByEventId.get(eventId);
-    if (existing) return existing;
+  for (const [eventId, profitability] of profitabilityByEventId.entries()) {
+    const summary = buildEventFinancialSummary({ profitability });
 
-    const created: EventExportSummary = {
+    summariesByEventId.set(eventId, {
       eventId,
-      grossTicketRevenue: 0,
-      refunds: 0,
-      processingAndPlatformFees: 0,
-      netTicketRevenue: 0,
-      eventExpenses: 0,
-      eventLaborCosts: 0,
-      totalEventCosts: 0,
-      eventProfitLoss: 0,
-    };
-
-    summariesByEventId.set(eventId, created);
-    return created;
-  }
-
-  for (const row of (accountingRows ?? []) as EventAccountingRow[]) {
-    if (!row.event_id) continue;
-
-    const summary = ensureSummary(row.event_id);
-    const sourceTable = row.source_table ?? "";
-    const category = row.category ?? "";
-
-    if (sourceTable === "event_payments" && category === "event_ticket_revenue") {
-      summary.grossTicketRevenue += safeNumber(row.gross_amount);
-      summary.refunds += Math.abs(safeNumber(row.refund_amount));
-      summary.processingAndPlatformFees += Math.abs(safeNumber(row.fee_amount));
-      summary.netTicketRevenue += safeNumber(row.net_amount);
-    } else if (sourceTable === "event_labor_costs" && category === "event_labor_expense") {
-      summary.eventLaborCosts += Math.abs(safeNumber(row.net_amount));
-    } else if (sourceTable === "expenses") {
-      summary.eventExpenses += Math.abs(safeNumber(row.net_amount));
-    }
-  }
-
-  for (const summary of summariesByEventId.values()) {
-    summary.totalEventCosts = summary.eventExpenses + summary.eventLaborCosts;
-    summary.eventProfitLoss = summary.netTicketRevenue - summary.totalEventCosts;
+      grossTicketRevenue: summary.grossTicketRevenue,
+      refunds: summary.refunds,
+      processingAndPlatformFees:
+        summary.processingAndPlatformFees,
+      netTicketRevenue: summary.netTicketRevenue,
+      eventExpenses: summary.eventExpenses,
+      eventLaborCosts: summary.eventLaborCosts,
+      totalEventCosts: summary.totalEventCosts,
+      eventProfitLoss: summary.eventProfitLoss,
+    });
   }
 
   const eventIds = Array.from(summariesByEventId.keys());
@@ -234,7 +201,12 @@ export async function GET(request: Request) {
         summary.eventLaborCosts,
         summary.totalEventCosts,
         summary.eventProfitLoss,
-        marginPercent(summary.eventProfitLoss, summary.netTicketRevenue),
+        summary.netTicketRevenue
+          ? (
+              (summary.eventProfitLoss / summary.netTicketRevenue) *
+              100
+            ).toFixed(2)
+          : "",
         summary.eventId,
       ];
     });

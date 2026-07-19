@@ -13,6 +13,10 @@ import {
   getStudioAccountingEntries,
   summarizeAccountingEntries,
 } from "@/lib/accounting/entries";
+import {
+  buildEventFinancialSummary,
+  buildEventProfitabilityByEventId,
+} from "@/lib/events/financial-summary";
 
 type SearchParams = Promise<{
   range?: string;
@@ -1478,62 +1482,41 @@ export default async function ReportsPage({
       item.payment_status === "paid" || item.payment_status === "partial",
   );
 
-  const eventRevenueTotal = eventTicketAccountingEntries.reduce(
-    (sum, entry) => sum + entry.grossAmount,
+  const eventProfitabilityByEventId =
+    buildEventProfitabilityByEventId(accountingEntries);
+
+  const eventFinancialSummaries = Array.from(
+    eventProfitabilityByEventId.values(),
+  ).map((profitability) =>
+    buildEventFinancialSummary({ profitability }),
+  );
+
+  const eventRevenueTotal = eventFinancialSummaries.reduce(
+    (sum, summary) => sum + summary.grossTicketRevenue,
+    0,
+  );
+  const eventRefundedTotal = eventFinancialSummaries.reduce(
+    (sum, summary) => sum + summary.refunds,
+    0,
+  );
+  const eventFeesTotal = eventFinancialSummaries.reduce(
+    (sum, summary) => sum + summary.processingAndPlatformFees,
+    0,
+  );
+  const eventNetRevenueTotal = eventFinancialSummaries.reduce(
+    (sum, summary) => sum + summary.netTicketRevenue,
+    0,
+  );
+  const eventLinkedExpensesTotal = eventFinancialSummaries.reduce(
+    (sum, summary) =>
+      sum + summary.eventExpenses + summary.eventLaborCosts,
+    0,
+  );
+  const eventProfitLossTotal = eventFinancialSummaries.reduce(
+    (sum, summary) => sum + summary.eventProfitLoss,
     0,
   );
 
-  const eventRefundedTotal = eventTicketAccountingEntries.reduce(
-    (sum, entry) => sum + Math.abs(entry.refundAmount),
-    0,
-  );
-
-  const eventFeesTotal = eventTicketAccountingEntries.reduce(
-    (sum, entry) => sum + Math.abs(entry.feeAmount),
-    0,
-  );
-
-  const eventNetRevenueTotal = eventTicketAccountingEntries.reduce(
-    (sum, entry) => sum + entry.netAmount,
-    0,
-  );
-
-  const eventLinkedExpensesByEventId = typedExpenses.reduce((map, expense) => {
-    const eventId = expense.related_event_id;
-
-    if (!eventId) return map;
-
-    map.set(eventId, (map.get(eventId) ?? 0) + Number(expense.amount ?? 0));
-
-    return map;
-  }, new Map<string, number>());
-
-  const eventLinkedExpensesTotal = Array.from(
-    eventLinkedExpensesByEventId.values(),
-  ).reduce((sum, amount) => sum + amount, 0);
-
-  const eventProfitLossTotal = eventNetRevenueTotal - eventLinkedExpensesTotal;
-
-  const eventFinanceByEventId = eventTicketAccountingEntries.reduce(
-    (map, entry) => {
-      const eventId = entry.eventId ?? "unknown";
-      const existing = map.get(eventId) ?? {
-        gross: 0,
-        refunds: 0,
-        fees: 0,
-        net: 0,
-      };
-
-      existing.gross += entry.grossAmount;
-      existing.refunds += Math.abs(entry.refundAmount);
-      existing.fees += Math.abs(entry.feeAmount);
-      existing.net += entry.netAmount;
-      map.set(eventId, existing);
-
-      return map;
-    },
-    new Map<string, { gross: number; refunds: number; fees: number; net: number }>(),
-  );
 
   const eventRevenueByEventId = eventTicketAccountingEntries.reduce(
     (map, entry) => {
@@ -1652,15 +1635,24 @@ export default async function ReportsPage({
   }
 
   for (const [eventId, eventSummary] of eventSummariesById.entries()) {
-    const finance = eventFinanceByEventId.get(eventId);
-    const expenses = eventLinkedExpensesByEventId.get(eventId) ?? 0;
+    const profitability = eventProfitabilityByEventId.get(eventId);
+    const summary = buildEventFinancialSummary({
+      profitability,
+    });
 
-    eventSummary.revenue = finance?.gross ?? eventSummary.revenue;
-    eventSummary.refunds = finance?.refunds ?? 0;
-    eventSummary.fees = finance?.fees ?? 0;
-    eventSummary.netRevenue = finance?.net ?? eventSummary.revenue;
-    eventSummary.expenses = expenses;
-    eventSummary.profitLoss = eventSummary.netRevenue - expenses;
+    eventSummary.revenue =
+      summary.grossTicketRevenue || eventSummary.revenue;
+    eventSummary.refunds = summary.refunds;
+    eventSummary.fees = summary.processingAndPlatformFees;
+    eventSummary.netRevenue =
+      summary.netTicketRevenue || eventSummary.revenue;
+    eventSummary.expenses =
+      summary.eventExpenses + summary.eventLaborCosts;
+    eventSummary.profitLoss =
+      summary.netTicketRevenue !== 0 ||
+      summary.totalEventCosts !== 0
+        ? summary.eventProfitLoss
+        : eventSummary.netRevenue - eventSummary.expenses;
     eventSummary.marginPercent =
       eventSummary.netRevenue > 0
         ? eventSummary.profitLoss / eventSummary.netRevenue
