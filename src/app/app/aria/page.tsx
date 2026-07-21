@@ -21,6 +21,8 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { getDanceGoalIntelligence } from "@/lib/aria/danceGoalInsights";
+import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
+import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
 
 type ClientPackageRow = {
   id: string;
@@ -1477,6 +1479,11 @@ export default async function AriaOpportunityHubPage() {
               metric: "Stable",
             };
 
+  const commerceIntelligence = await getCommerceIntelligence({
+    supabase,
+    studioId,
+  });
+
   return (
     <main className="space-y-8 p-6 md:p-8">
       <section className="overflow-hidden rounded-[36px] border border-[#F9A8D4] bg-white shadow-sm">
@@ -1565,6 +1572,11 @@ export default async function AriaOpportunityHubPage() {
           </div>
         </div>
       </section>
+
+      <CommerceIntelligenceSection
+        data={commerceIntelligence}
+        title="Sales, inventory, and digital learning signals"
+      />
 
       <AriaInsightCard
         eyebrow="ARIA's Next Best Move"

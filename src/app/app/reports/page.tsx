@@ -10,6 +10,8 @@ import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import ReportInsightsCard from "./ReportInsightsCard";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import AriaAccountingInsightsSection from "@/components/app/reports/AriaAccountingInsightsSection";
+import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
+import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import ReportReadinessCard from "@/components/app/reports/ReportReadinessCard";
 import {
   accountingCategoryLabel,
@@ -2819,6 +2821,12 @@ export default async function ReportsPage({
       : null,
   };
 
+  const commerceIntelligence = await getCommerceIntelligence({
+    supabase,
+    studioId,
+    rangeStart,
+  });
+
   if (isOrganizerWorkspace) {
     const organizerNetRevenue =
       eventNetRevenueTotal ||
@@ -3216,6 +3224,11 @@ export default async function ReportsPage({
           </div>
         </div>
       </section>
+
+      <CommerceIntelligenceSection
+        data={commerceIntelligence}
+        title={`Commerce reporting · ${rangeLabel(range)}`}
+      />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">

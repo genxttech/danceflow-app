@@ -16,6 +16,8 @@ import {
 import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
+import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
 
 type SearchParams = Promise<{
   range?: string;
@@ -742,6 +744,12 @@ export default async function AnalyticsPage({
     },
   ];
 
+  const commerceIntelligence = await getCommerceIntelligence({
+    supabase,
+    studioId,
+    rangeStart: rangeStartIso,
+  });
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 shadow-sm">
@@ -791,6 +799,11 @@ export default async function AnalyticsPage({
         intro. Retention means a second package or membership purchase within{" "}
         {RETENTION_WINDOW_DAYS} days of the first purchase.
       </section>
+
+      <CommerceIntelligenceSection
+        data={commerceIntelligence}
+        title={`Commerce performance · ${rangeLabel}`}
+      />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <Link
