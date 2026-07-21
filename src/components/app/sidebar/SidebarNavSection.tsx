@@ -14,6 +14,9 @@ import {
   LayoutDashboard,
   Megaphone,
   Package,
+  ShoppingBag,
+  Store,
+  ListOrdered,
   Search,
   Settings,
   Sparkles,
@@ -42,6 +45,9 @@ function getIcon(icon: string) {
   if (icon === "instructors") return GraduationCap;
   if (icon === "rooms") return DoorOpen;
   if (icon === "packages") return Package;
+  if (icon === "sell") return ShoppingBag;
+  if (icon === "catalog") return Store;
+  if (icon === "orders") return ListOrdered;
   if (icon === "memberships") return CreditCard;
   if (icon === "balances") return Wallet;
   if (icon === "payments") return CreditCard;

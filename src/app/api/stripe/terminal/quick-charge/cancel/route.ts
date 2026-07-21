@@ -136,11 +136,33 @@ export async function POST(request: NextRequest) {
       .update({ status: "canceled", updated_at: nowIso, completed_at: nowIso })
       .eq("id", session.id);
 
+    const { data: paymentRow } = await supabase
+      .from("payments")
+      .select("commerce_order_id")
+      .eq("id", paymentId)
+      .eq("studio_id", context.studioId)
+      .maybeSingle<{ commerce_order_id: string | null }>();
+
     await supabase
       .from("payments")
       .update({ status: "failed" })
       .eq("id", paymentId)
       .eq("studio_id", context.studioId);
+
+    if (paymentRow?.commerce_order_id) {
+      await supabase
+        .from("commerce_orders")
+        .update({
+          status: "cancelled",
+          payment_status: "failed",
+          fulfillment_status: "cancelled",
+          cancelled_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq("id", paymentRow.commerce_order_id)
+        .eq("studio_id", context.studioId)
+        .eq("status", "open");
+    }
 
     return NextResponse.json({ ok: true, status: "canceled" });
   } catch (error) {

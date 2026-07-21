@@ -30,7 +30,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.supabase.co https://api.stripe.com https://checkout.stripe.com https://*.vercel-insights.com https://*.vercel-scripts.com wss://*.supabase.co",
+      "connect-src 'self' https://*.supabase.co https://api.stripe.com https://checkout.stripe.com https://*.vercel-insights.com https://*.vercel-scripts.com https://*.mux.com wss://*.supabase.co",
       "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
       "media-src 'self' data: blob: https:",
       "worker-src 'self' blob:",

@@ -293,6 +293,65 @@ type OrganizerEventSummary = {
 };
 
 
+type RetailOrderRow = {
+  id: string;
+  order_number: string;
+  payment_status: string;
+  status: string;
+  subtotal: number | string | null;
+  discount_total: number | string | null;
+  tax_total: number | string | null;
+  refund_total: number | string | null;
+  total: number | string | null;
+  created_at: string;
+  commerce_order_items:
+    | {
+        id: string;
+        catalog_item_id: string | null;
+        variant_id: string | null;
+        name_snapshot: string;
+        sku_snapshot: string | null;
+        quantity: number;
+        unit_price: number | string | null;
+        discount_total: number | string | null;
+        line_total: number | string | null;
+        cogs_total: number | string | null;
+      }[]
+    | {
+        id: string;
+        catalog_item_id: string | null;
+        variant_id: string | null;
+        name_snapshot: string;
+        sku_snapshot: string | null;
+        quantity: number;
+        unit_price: number | string | null;
+        discount_total: number | string | null;
+        line_total: number | string | null;
+        cogs_total: number | string | null;
+      }
+    | null;
+  payments:
+    | { payment_method: string | null; payment_channel: string | null }
+    | { payment_method: string | null; payment_channel: string | null }[]
+    | null;
+};
+
+type RetailInventoryRow = {
+  id: string;
+  catalog_item_id: string;
+  name: string;
+  sku: string | null;
+  quantity_on_hand: number | null;
+  reorder_threshold: number | null;
+  unit_cost: number | string | null;
+  active: boolean;
+  commerce_catalog_items:
+    | { name: string; active: boolean }
+    | { name: string; active: boolean }[]
+    | null;
+};
+
+
 type StripePayoutRow = {
   id: string;
   studio_id: string | null;
@@ -779,6 +838,8 @@ export default async function ReportsPage({
     { data: instructors, error: instructorsError },
     { data: instructorEarnings, error: instructorEarningsError },
     { count: activeStudentsCount, error: activeStudentsError },
+    { data: retailOrders, error: retailOrdersError },
+    { data: retailInventory, error: retailInventoryError },
   ] = await Promise.all([
     supabase
       .from("payments")
@@ -924,6 +985,65 @@ export default async function ReportsPage({
       .select("id", { count: "exact", head: true })
       .eq("studio_id", studioId)
       .eq("status", "active"),
+
+    supabase
+      .from("commerce_orders")
+      .select(
+        `
+          id,
+          order_number,
+          payment_status,
+          status,
+          subtotal,
+          discount_total,
+          tax_total,
+          refund_total,
+          total,
+          created_at,
+          commerce_order_items (
+            id,
+            catalog_item_id,
+            variant_id,
+            name_snapshot,
+            sku_snapshot,
+            quantity,
+            unit_price,
+            discount_total,
+            line_total,
+            cogs_total
+          ),
+          payments (
+            payment_method,
+            payment_channel
+          )
+        `,
+      )
+      .eq("studio_id", studioId)
+      .gte("created_at", rangeStart)
+      .order("created_at", { ascending: false })
+      .limit(1000),
+
+    supabase
+      .from("commerce_product_variant_inventory")
+      .select(
+        `
+          id,
+          catalog_item_id,
+          name,
+          sku,
+          quantity_on_hand,
+          reorder_threshold,
+          unit_cost,
+          active,
+          commerce_catalog_items (
+            name,
+            active
+          )
+        `,
+      )
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .limit(5000),
   ]);
 
   if (paymentsError) {
@@ -982,6 +1102,18 @@ export default async function ReportsPage({
   if (activeStudentsError) {
     throw new Error(
       `Failed to load active students count: ${activeStudentsError.message}`,
+    );
+  }
+
+  if (retailOrdersError) {
+    throw new Error(
+      `Failed to load retail order report data: ${retailOrdersError.message}`,
+    );
+  }
+
+  if (retailInventoryError) {
+    throw new Error(
+      `Failed to load retail inventory report data: ${retailInventoryError.message}`,
     );
   }
 
@@ -1451,6 +1583,129 @@ export default async function ReportsPage({
     []) as OrganizerEventReportRow[];
   const typedOrganizerCampaignRecipients = (organizerCampaignRecipients ??
     []) as OrganizerCampaignRecipientReportRow[];
+
+  const typedRetailOrders = (retailOrders ?? []) as RetailOrderRow[];
+  const typedRetailInventory = (retailInventory ?? []) as RetailInventoryRow[];
+
+  const completedRetailOrders = typedRetailOrders.filter(
+    (order) =>
+      order.status === "completed" &&
+      ["paid", "partially_refunded", "refunded"].includes(order.payment_status),
+  );
+
+  const retailOrderItems = completedRetailOrders.flatMap((order) => {
+    const items = Array.isArray(order.commerce_order_items)
+      ? order.commerce_order_items
+      : order.commerce_order_items
+        ? [order.commerce_order_items]
+        : [];
+
+    return items.map((item) => ({ order, item }));
+  });
+
+  const retailGrossRevenue = completedRetailOrders.reduce(
+    (sum, order) => sum + moneyValue(order.subtotal),
+    0,
+  );
+  const retailDiscounts = completedRetailOrders.reduce(
+    (sum, order) => sum + moneyValue(order.discount_total),
+    0,
+  );
+  const retailRefunds = completedRetailOrders.reduce(
+    (sum, order) => sum + moneyValue(order.refund_total),
+    0,
+  );
+  const retailNetRevenue = completedRetailOrders.reduce(
+    (sum, order) => sum + moneyValue(order.total) - moneyValue(order.refund_total),
+    0,
+  );
+  const retailCogs = retailOrderItems.reduce(
+    (sum, row) => sum + moneyValue(row.item.cogs_total),
+    0,
+  );
+  const retailGrossProfit = retailNetRevenue - retailCogs;
+  const retailGrossMargin =
+    retailNetRevenue > 0
+      ? Math.round((retailGrossProfit / retailNetRevenue) * 100)
+      : 0;
+  const retailUnitsSold = retailOrderItems.reduce(
+    (sum, row) => sum + Number(row.item.quantity ?? 0),
+    0,
+  );
+
+  const retailProductSummaries = Array.from(
+    retailOrderItems
+      .reduce((map, row) => {
+        const key = row.item.catalog_item_id ?? row.item.name_snapshot;
+        const existing = map.get(key) ?? {
+          key,
+          name: row.item.name_snapshot,
+          quantity: 0,
+          revenue: 0,
+          cogs: 0,
+          grossProfit: 0,
+        };
+
+        existing.quantity += Number(row.item.quantity ?? 0);
+        existing.revenue += moneyValue(row.item.line_total);
+        existing.cogs += moneyValue(row.item.cogs_total);
+        existing.grossProfit = existing.revenue - existing.cogs;
+        map.set(key, existing);
+
+        return map;
+      }, new Map<string, {
+        key: string;
+        name: string;
+        quantity: number;
+        revenue: number;
+        cogs: number;
+        grossProfit: number;
+      }>())
+      .values(),
+  )
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 8);
+
+  const retailPaymentMethodSummaries = Array.from(
+    completedRetailOrders
+      .reduce((map, order) => {
+        const payment = Array.isArray(order.payments)
+          ? order.payments[0]
+          : order.payments;
+        const key = payment?.payment_method ?? "unknown";
+        const existing = map.get(key) ?? { key, count: 0, total: 0 };
+
+        existing.count += 1;
+        existing.total += moneyValue(order.total) - moneyValue(order.refund_total);
+        map.set(key, existing);
+
+        return map;
+      }, new Map<string, { key: string; count: number; total: number }>())
+      .values(),
+  ).sort((a, b) => b.total - a.total);
+
+  const activeRetailInventory = typedRetailInventory.filter((variant) => {
+    const catalogItem = Array.isArray(variant.commerce_catalog_items)
+      ? variant.commerce_catalog_items[0]
+      : variant.commerce_catalog_items;
+    return variant.active && catalogItem?.active !== false;
+  });
+  const retailInventoryUnits = activeRetailInventory.reduce(
+    (sum, variant) => sum + Number(variant.quantity_on_hand ?? 0),
+    0,
+  );
+  const retailInventoryValue = activeRetailInventory.reduce(
+    (sum, variant) =>
+      sum +
+      Number(variant.quantity_on_hand ?? 0) *
+        moneyValue(variant.unit_cost),
+    0,
+  );
+  const lowStockRetailVariants = activeRetailInventory.filter(
+    (variant) =>
+      Number(variant.quantity_on_hand ?? 0) <=
+      Number(variant.reorder_threshold ?? 0),
+  );
 
   const paidPayments = typedPayments.filter((item) => item.status === "paid");
   const pendingPayments = typedPayments.filter(
@@ -2417,6 +2672,20 @@ export default async function ReportsPage({
           : "neutral",
     },
     {
+      title: "Retail gross margin",
+      metric: `${retailGrossMargin}%`,
+      detail:
+        completedRetailOrders.length > 0
+          ? `${fmtCurrency(retailNetRevenue)} in net retail revenue produced ${fmtCurrency(retailGrossProfit)} in gross profit after ${fmtCurrency(retailCogs)} in product cost. ${lowStockRetailVariants.length > 0 ? `${fmtNumber(lowStockRetailVariants.length)} variants are at or below their reorder threshold.` : "No variants are currently below their reorder threshold."}`
+          : "Retail margin will appear after physical product orders are completed.",
+      tone:
+        completedRetailOrders.length > 0 && retailGrossMargin < 35
+          ? "warning"
+          : completedRetailOrders.length > 0
+            ? "good"
+            : "neutral",
+    },
+    {
       title: "Instructor pay readiness",
       metric: fmtCurrency(instructorPayOutstandingTotal),
       detail:
@@ -2458,6 +2727,21 @@ export default async function ReportsPage({
       estimatedNetIncome,
       instructorCompensation: instructorCompensationExpense,
       netAfterInstructorCompensation: profitAfterInstructorCompensation,
+    },
+    commerce: {
+      orders: completedRetailOrders.length,
+      unitsSold: retailUnitsSold,
+      grossRevenue: retailGrossRevenue,
+      discounts: retailDiscounts,
+      refunds: retailRefunds,
+      netRevenue: retailNetRevenue,
+      cogs: retailCogs,
+      grossProfit: retailGrossProfit,
+      grossMarginPercent: retailGrossMargin,
+      inventoryUnits: retailInventoryUnits,
+      inventoryValue: retailInventoryValue,
+      lowStockVariants: lowStockRetailVariants.length,
+      topProducts: retailProductSummaries.slice(0, 5),
     },
     attendance: {
       rate: attendanceRate,
@@ -3425,6 +3709,166 @@ export default async function ReportsPage({
             requiredPlan="Growth"
           />
         )}
+      </section>
+
+      <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+              Commerce Performance
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Retail Revenue &amp; Inventory
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Review physical product sales, product cost, gross margin,
+              inventory value, discounts, and low-stock exposure without
+              leaving the existing Reports workspace.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/app/catalog"
+              className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+            >
+              Open Catalog
+            </Link>
+            <Link
+              href="/app/orders"
+              className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+            >
+              Open Orders
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+          {[
+            ["Net retail revenue", fmtCurrency(retailNetRevenue)],
+            ["Product cost", fmtCurrency(retailCogs)],
+            ["Gross profit", fmtCurrency(retailGrossProfit)],
+            ["Gross margin", `${retailGrossMargin}%`],
+            ["Inventory value", fmtCurrency(retailInventoryValue)],
+            ["Low-stock variants", fmtNumber(lowStockRetailVariants.length)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">{label}</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Product performance
+            </h3>
+            <div className="mt-3 space-y-3">
+              {retailProductSummaries.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-600">
+                  Product performance will appear after physical orders are completed.
+                </div>
+              ) : (
+                retailProductSummaries.map((product) => (
+                  <div
+                    key={product.key}
+                    className="grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-[1fr_auto_auto_auto]"
+                  >
+                    <div>
+                      <p className="font-semibold text-slate-950">{product.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {fmtNumber(product.quantity)} units sold
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500">Revenue</p>
+                      <p className="font-semibold text-slate-950">
+                        {fmtCurrency(product.revenue)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500">COGS</p>
+                      <p className="font-semibold text-slate-950">
+                        {fmtCurrency(product.cogs)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500">Gross profit</p>
+                      <p className={`font-semibold ${
+                        product.grossProfit >= 0
+                          ? "text-emerald-700"
+                          : "text-rose-700"
+                      }`}>
+                        {fmtCurrency(product.grossProfit)}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Retail controls
+            </h3>
+            <div className="mt-3 space-y-3">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Completed orders</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(completedRetailOrders.length)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Units sold</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(retailUnitsSold)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Discounts</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                  {fmtCurrency(retailDiscounts)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Refunds</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                  {fmtCurrency(retailRefunds)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm text-amber-800">Inventory on hand</p>
+                <p className="mt-1 text-2xl font-semibold text-amber-950">
+                  {fmtNumber(retailInventoryUnits)}
+                </p>
+              </div>
+            </div>
+
+            <h3 className="mt-6 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Payment methods
+            </h3>
+            <div className="mt-3 space-y-3">
+              {retailPaymentMethodSummaries.length === 0 ? (
+                <p className="text-sm text-slate-500">No retail payments yet.</p>
+              ) : (
+                retailPaymentMethodSummaries.slice(0, 6).map((method) => (
+                  <div
+                    key={method.key}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                  >
+                    <span className="text-sm font-medium capitalize text-slate-700">
+                      {method.key.replaceAll("_", " ")}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtCurrency(method.total)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-3xl border border-[#C4B5FD] bg-white p-6 shadow-sm">

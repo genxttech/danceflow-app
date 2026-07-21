@@ -114,6 +114,19 @@ export function canTakePayments(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
 }
 
+
+export function canManageCommerce(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin"].includes(role ?? "");
+}
+
+export function canSellCommerce(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+}
+
+export function canViewCommerceOrders(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+}
+
 export function canManageInstructors(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin"].includes(role ?? "");
 }

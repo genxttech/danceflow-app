@@ -38,6 +38,7 @@ export const ACCOUNTING_CATEGORIES = [
   { key: "package_revenue", label: "Package Revenue", entryClass: "revenue", statementSection: "income", normalDirection: "credit", allowedExternalAccountTypes: ["INCOME", "REVENUE", "LIABILITY"], blocksAutoPostWhenUnmapped: true },
   { key: "membership_revenue", label: "Membership Revenue", entryClass: "revenue", statementSection: "income", normalDirection: "credit", allowedExternalAccountTypes: ["INCOME", "REVENUE", "LIABILITY"], blocksAutoPostWhenUnmapped: true },
   { key: "event_ticket_revenue", label: "Event Ticket Revenue", entryClass: "revenue", statementSection: "income", normalDirection: "credit", allowedExternalAccountTypes: ["INCOME", "REVENUE", "LIABILITY"], blocksAutoPostWhenUnmapped: true },
+  { key: "retail_revenue", label: "Retail Product Revenue", entryClass: "revenue", statementSection: "income", normalDirection: "credit", allowedExternalAccountTypes: ["INCOME", "REVENUE"], blocksAutoPostWhenUnmapped: true },
   { key: "coach_private_lesson_revenue", label: "Coach Private Lesson Revenue", entryClass: "revenue", statementSection: "income", normalDirection: "credit", allowedExternalAccountTypes: ["INCOME", "REVENUE"], blocksAutoPostWhenUnmapped: true },
   { key: "floor_rental_revenue", label: "Floor Rental Revenue", entryClass: "revenue", statementSection: "income", normalDirection: "credit", allowedExternalAccountTypes: ["INCOME", "REVENUE"], blocksAutoPostWhenUnmapped: true },
   { key: "practice_party_revenue", label: "Practice Party Revenue", entryClass: "revenue", statementSection: "income", normalDirection: "credit", allowedExternalAccountTypes: ["INCOME", "REVENUE"], blocksAutoPostWhenUnmapped: true },
@@ -49,12 +50,14 @@ export const ACCOUNTING_CATEGORIES = [
   { key: "membership_refund", label: "Membership Refund", entryClass: "refund", statementSection: "contra_income", normalDirection: "debit", allowedExternalAccountTypes: ["INCOME", "REVENUE", "EXPENSE"], blocksAutoPostWhenUnmapped: true },
   { key: "floor_rental_refund", label: "Floor Rental Refund", entryClass: "refund", statementSection: "contra_income", normalDirection: "debit", allowedExternalAccountTypes: ["INCOME", "REVENUE", "EXPENSE"], blocksAutoPostWhenUnmapped: true },
   { key: "event_ticket_refund", label: "Event Ticket Refund", entryClass: "refund", statementSection: "contra_income", normalDirection: "debit", allowedExternalAccountTypes: ["INCOME", "REVENUE", "EXPENSE"], blocksAutoPostWhenUnmapped: true },
+  { key: "retail_refund", label: "Retail Product Refund", entryClass: "refund", statementSection: "contra_income", normalDirection: "debit", allowedExternalAccountTypes: ["INCOME", "REVENUE", "EXPENSE"], blocksAutoPostWhenUnmapped: true },
   { key: "other_refund", label: "Other Refund", entryClass: "refund", statementSection: "contra_income", normalDirection: "debit", allowedExternalAccountTypes: ["INCOME", "REVENUE", "EXPENSE"], blocksAutoPostWhenUnmapped: true },
 
   { key: "stripe_processing_fee", label: "Stripe Processing Fee", entryClass: "fee", statementSection: "expense", normalDirection: "debit", allowedExternalAccountTypes: ["EXPENSE"], blocksAutoPostWhenUnmapped: true },
   { key: "danceflow_platform_fee", label: "DanceFlow Platform Fee", entryClass: "fee", statementSection: "expense", normalDirection: "debit", allowedExternalAccountTypes: ["EXPENSE"], blocksAutoPostWhenUnmapped: true },
   { key: "organizer_platform_fee", label: "Organizer Platform Fee", entryClass: "fee", statementSection: "expense", normalDirection: "debit", allowedExternalAccountTypes: ["EXPENSE"], blocksAutoPostWhenUnmapped: true },
 
+  { key: "retail_cogs", label: "Retail Cost of Goods Sold", entryClass: "expense", statementSection: "cost_of_sales", normalDirection: "debit", allowedExternalAccountTypes: ["EXPENSE", "COST_OF_GOODS_SOLD"], blocksAutoPostWhenUnmapped: true },
   { key: "floor_fee_expense", label: "Floor Fee Expense", entryClass: "expense", statementSection: "expense", normalDirection: "debit", allowedExternalAccountTypes: ["EXPENSE"], blocksAutoPostWhenUnmapped: true },
   { key: "rent_expense", label: "Rent Expense", entryClass: "expense", statementSection: "expense", normalDirection: "debit", allowedExternalAccountTypes: ["EXPENSE"], blocksAutoPostWhenUnmapped: true },
   { key: "instructor_pay_expense", label: "Instructor Pay Expense", entryClass: "expense", statementSection: "expense", normalDirection: "debit", allowedExternalAccountTypes: ["EXPENSE"], blocksAutoPostWhenUnmapped: true },

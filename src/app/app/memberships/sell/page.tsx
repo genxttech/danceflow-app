@@ -20,5 +20,5 @@ export default async function SellMembershipRedirectPage({
     }
   }
 
-  redirect(`/app/sales/new?${query.toString()}`);
+  redirect(`/app/sell?${query.toString()}`);
 }

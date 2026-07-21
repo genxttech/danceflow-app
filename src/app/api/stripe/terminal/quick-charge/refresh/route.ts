@@ -71,10 +71,15 @@ export async function POST(request: NextRequest) {
 
     const { data: existingPayment, error: existingPaymentError } = await supabase
       .from("payments")
-      .select("id, status, paid_at")
+      .select("id, status, paid_at, commerce_order_id")
       .eq("id", paymentId)
       .eq("studio_id", context.studioId)
-      .maybeSingle<{ id: string; status: string | null; paid_at: string | null }>();
+      .maybeSingle<{
+        id: string;
+        status: string | null;
+        paid_at: string | null;
+        commerce_order_id: string | null;
+      }>();
 
     if (existingPaymentError) {
       return jsonError(`Payment lookup failed: ${existingPaymentError.message}`);
@@ -118,6 +123,25 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", paymentId)
         .eq("studio_id", context.studioId);
+
+      if (existingPayment.commerce_order_id) {
+        const { error: orderCompletionError } = await supabase.rpc(
+          "commerce_complete_terminal_order",
+          {
+            p_studio_id: context.studioId,
+            p_order_id: existingPayment.commerce_order_id,
+            p_payment_id: paymentId,
+            p_actor_user_id: user.id,
+          },
+        );
+
+        if (orderCompletionError) {
+          return jsonError(
+            `Payment succeeded, but order fulfillment needs attention: ${orderCompletionError.message}`,
+            409,
+          );
+        }
+      }
     } else if (["canceled", "requires_payment_method"].includes(status)) {
       if (existingPayment?.status !== "paid") {
         await supabase
@@ -125,6 +149,18 @@ export async function POST(request: NextRequest) {
           .update({ status: "failed" })
           .eq("id", paymentId)
           .eq("studio_id", context.studioId);
+
+        if (existingPayment.commerce_order_id) {
+          await supabase
+            .from("commerce_orders")
+            .update({
+              payment_status: "failed",
+              updated_at: nowIso,
+            })
+            .eq("id", existingPayment.commerce_order_id)
+            .eq("studio_id", context.studioId)
+            .eq("status", "open");
+        }
       }
     }
 

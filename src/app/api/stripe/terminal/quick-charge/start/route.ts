@@ -93,17 +93,88 @@ export async function POST(request: NextRequest) {
     const guestName = clean(body.guestName, 120) || null;
     const notes = clean(body.notes, 500) || null;
     const requestedReaderId = clean(body.readerId, 36);
+    const existingPaymentId = clean(body.existingPaymentId, 36);
+    const commerceOrderId = clean(body.commerceOrderId, 36);
 
     if (requestedReaderId && !isUuid(requestedReaderId)) {
       return jsonError("Select a valid Stripe reader.");
     }
 
-    if (!Object.keys(CATEGORY_LABELS).includes(category)) {
-      return jsonError("Choose a valid quick charge category.");
+    if (
+      (existingPaymentId && !isUuid(existingPaymentId)) ||
+      (commerceOrderId && !isUuid(commerceOrderId))
+    ) {
+      return jsonError("The prepared commerce order is invalid.");
     }
 
-    if (amount == null || amount <= 0) {
-      return jsonError("Enter a valid payment amount.");
+    if (Boolean(existingPaymentId) !== Boolean(commerceOrderId)) {
+      return jsonError(
+        "Commerce order and payment must be supplied together.",
+      );
+    }
+
+    let preparedPayment:
+      | {
+          id: string;
+          amount: number | string;
+          status: string | null;
+          notes: string | null;
+        }
+      | null = null;
+    let preparedOrder:
+      | {
+          id: string;
+          total: number | string;
+          status: string;
+          payment_status: string;
+        }
+      | null = null;
+
+    if (existingPaymentId && commerceOrderId) {
+      const [
+        { data: paymentRow, error: paymentLookupError },
+        { data: orderRow, error: orderLookupError },
+      ] = await Promise.all([
+        supabase
+          .from("payments")
+          .select("id, amount, status, notes")
+          .eq("id", existingPaymentId)
+          .eq("studio_id", context.studioId)
+          .maybeSingle(),
+        supabase
+          .from("commerce_orders")
+          .select("id, total, status, payment_status")
+          .eq("id", commerceOrderId)
+          .eq("studio_id", context.studioId)
+          .eq("payment_id", existingPaymentId)
+          .maybeSingle(),
+      ]);
+
+      if (paymentLookupError || orderLookupError || !paymentRow || !orderRow) {
+        return jsonError("Prepared commerce order was not found.", 404);
+      }
+
+      if (
+        paymentRow.status !== "pending" ||
+        orderRow.status !== "open" ||
+        orderRow.payment_status !== "pending"
+      ) {
+        return jsonError(
+          "This commerce order is no longer waiting for a card payment.",
+          409,
+        );
+      }
+
+      preparedPayment = paymentRow;
+      preparedOrder = orderRow;
+    } else {
+      if (!Object.keys(CATEGORY_LABELS).includes(category)) {
+        return jsonError("Choose a valid quick charge category.");
+      }
+
+      if (amount == null || amount <= 0) {
+        return jsonError("Enter a valid payment amount.");
+      }
     }
 
     const { data: studio, error: studioError } = await supabase
@@ -162,38 +233,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const amountCents = Math.round(amount * 100);
-    const noteParts = [
-      `Quick Charge: ${categoryLabel}`,
-      guestName ? `Guest: ${guestName}` : null,
-      notes,
-    ].filter(Boolean);
+    const resolvedAmount = preparedOrder
+      ? Number(preparedOrder.total ?? 0)
+      : Number(amount ?? 0);
+    const amountCents = Math.round(resolvedAmount * 100);
+    const noteParts = preparedOrder
+      ? [preparedPayment?.notes || "Commerce retail order"]
+      : [
+          `Quick Charge: ${categoryLabel}`,
+          guestName ? `Guest: ${guestName}` : null,
+          notes,
+        ].filter(Boolean);
 
-    const { data: payment, error: paymentInsertError } = await supabase
-      .from("payments")
-      .insert({
-        studio_id: studio.id,
-        client_id: null,
-        amount,
-        payment_method: "card",
-        status: "pending",
-        notes: noteParts.join(" | ") || null,
-        paid_at: null,
-        created_by: user.id,
-        payment_type: "other",
-        source: "stripe",
-        payment_channel: "terminal",
-        currency: "usd",
-        quick_charge_category: category,
-        guest_name: guestName,
-      })
-      .select("id")
-      .single();
+    const payment = preparedPayment
+      ? { id: preparedPayment.id }
+      : (
+          await supabase
+            .from("payments")
+            .insert({
+              studio_id: studio.id,
+              client_id: null,
+              amount: resolvedAmount,
+              payment_method: "card",
+              status: "pending",
+              notes: noteParts.join(" | ") || null,
+              paid_at: null,
+              created_by: user.id,
+              payment_type: "other",
+              source: "stripe",
+              payment_channel: "terminal",
+              currency: "usd",
+              quick_charge_category: category,
+              guest_name: guestName,
+            })
+            .select("id")
+            .single()
+        ).data;
 
-    if (paymentInsertError || !payment) {
-      return jsonError(
-        `Payment record could not be created: ${paymentInsertError?.message ?? "Unknown error"}`,
-      );
+    if (!payment) {
+      return jsonError("Payment record could not be created.");
     }
 
     const paymentIntent = await stripe.paymentIntents.create(
@@ -206,8 +284,9 @@ export async function POST(request: NextRequest) {
           source: "danceflow_terminal_quick_charge",
           studioId: studio.id,
           paymentId: payment.id,
-          quickChargeCategory: category,
+          quickChargeCategory: preparedOrder ? "" : category,
           guestName: guestName ?? "",
+          commerceOrderId: preparedOrder?.id ?? "",
         },
       },
       { stripeAccount: connectedAccountId },
@@ -221,8 +300,8 @@ export async function POST(request: NextRequest) {
         payment_id: payment.id,
         terminal_reader_id: reader.id,
         terminal_location_id: reader.terminal_location_id,
-        source_type: "quick_charge",
-        source_id: payment.id,
+        source_type: preparedOrder ? "commerce_order" : "quick_charge",
+        source_id: preparedOrder?.id ?? payment.id,
         amount_cents: amountCents,
         currency: "usd",
         stripe_account_id: connectedAccountId,
@@ -230,8 +309,9 @@ export async function POST(request: NextRequest) {
         status: paymentIntent.status ?? "created",
         metadata: {
           reader_label: reader.label ?? null,
-          quick_charge_category: category,
+          quick_charge_category: preparedOrder ? null : category,
           guest_name: guestName,
+          commerce_order_id: preparedOrder?.id ?? null,
         },
         created_by: user.id,
       })
@@ -312,9 +392,9 @@ export async function POST(request: NextRequest) {
       paymentId: payment.id,
       sessionId: session.id,
       status: "processing",
-      amount,
-      category,
-      categoryLabel,
+      amount: resolvedAmount,
+      category: preparedOrder ? "commerce_order" : category,
+      categoryLabel: preparedOrder ? "Retail order" : categoryLabel,
       readerLabel: reader.label ?? "Stripe reader",
     });
   } catch (error) {

@@ -106,7 +106,20 @@ export type StudentPaymentRequest = {
   checkoutUrl: string;
 };
 
+export type StudentDigitalEntitlement = {
+  id: string;
+  studioId: string;
+  studioName: string;
+  catalogItemId: string;
+  name: string;
+  itemType: string;
+  grantedAt: string;
+  expiresAt: string | null;
+  status: string;
+};
+
 export type StudentWallet = {
+  digitalEntitlements: StudentDigitalEntitlement[];
   memberships: StudentMembership[];
   packages: StudentPackage[];
   paymentRequests: StudentPaymentRequest[];
@@ -174,12 +187,6 @@ type EventRegistrationRow = {
     venue_name: string | null;
     city: string | null;
     state: string | null;
-    organizer_id: string | null;
-    organizers: Joined<{ name: string | null }>;
-    studios: Joined<{
-      name: string | null;
-      public_name: string | null;
-    }>;
   }>;
 };
 
@@ -279,39 +286,19 @@ function registrationSelect() {
       start_time,
       venue_name,
       city,
-      state,
-      organizer_id,
-      organizers:organizer_id (
-        name
-      ),
-      studios:studio_id (
-        name,
-        public_name
-      )
+      state
     )
   `;
 }
 
-function registrationToWallet(
-  row: EventRegistrationRow,
-  linkedStudios: LinkedStudioAccess[],
-): StudentEventRegistration {
+function registrationToWallet(row: EventRegistrationRow, linkedStudios: LinkedStudioAccess[]): StudentEventRegistration {
   const event = firstJoin(row.events);
-  const organizer = firstJoin(event?.organizers);
-  const eventStudio = firstJoin(event?.studios);
-  const studioName = studioNameFor(row.studio_id, linkedStudios);
-  const hostName =
-    organizer?.name ||
-    eventStudio?.public_name ||
-    eventStudio?.name ||
-    studioName;
-
   return {
     id: row.id,
     eventId: row.event_id,
     studioId: row.studio_id,
-    studioName,
-    hostName,
+    studioName: studioNameFor(row.studio_id, linkedStudios),
+    hostName: studioNameFor(row.studio_id, linkedStudios),
     eventName: event?.name ?? "Event",
     eventSlug: event?.slug ?? null,
     status: row.status ?? "confirmed",
@@ -537,10 +524,7 @@ export async function loadStudentWallet(
         eventId: row.event_id,
         studioId: registration?.studioId ?? "",
         studioName: registration?.studioName ?? "Event",
-        hostName:
-          registration?.hostName ??
-          registration?.studioName ??
-          "Event organizer",
+        hostName: registration?.hostName ?? registration?.studioName ?? "Event",
         eventName: registration?.eventName ?? "Event",
         eventSlug: registration?.eventSlug ?? null,
         ticketName: attendeeName(row),
@@ -557,7 +541,46 @@ export async function loadStudentWallet(
     });
   }
 
-  const wallet = { memberships, packages, paymentRequests, registrations, tickets };
+  const { data: authData } = await supabase.auth.getUser();
+  const userId = authData.user?.id ?? null;
+  let digitalEntitlements: StudentDigitalEntitlement[] = [];
+
+  if (userId) {
+    const { data: entitlementRows, error: entitlementsError } = await supabase
+      .from("commerce_entitlements")
+      .select(
+        "id, studio_id, catalog_item_id, granted_at, expires_at, status, commerce_catalog_items(name, item_type)"
+      )
+      .eq("user_id", userId)
+      .in("status", ["active", "refunded_access_retained"])
+      .order("granted_at", { ascending: false });
+
+    if (entitlementsError) throw entitlementsError;
+
+    digitalEntitlements = (entitlementRows ?? []).map((row: any) => {
+      const item = firstJoin(row.commerce_catalog_items);
+      return {
+        id: String(row.id),
+        studioId: String(row.studio_id),
+        studioName: studioNameFor(String(row.studio_id), linkedStudios),
+        catalogItemId: String(row.catalog_item_id),
+        name: item?.name ?? "Digital content",
+        itemType: item?.item_type ?? "digital_video",
+        grantedAt: String(row.granted_at),
+        expiresAt: row.expires_at ? String(row.expires_at) : null,
+        status: String(row.status ?? "active")
+      };
+    });
+  }
+
+  const wallet = {
+    digitalEntitlements,
+    memberships,
+    packages,
+    paymentRequests,
+    registrations,
+    tickets
+  };
   walletCache.set(cacheKey, { expiresAt: Date.now() + WALLET_CACHE_TTL_MS, wallet });
 
   return wallet;

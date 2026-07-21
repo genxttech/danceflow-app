@@ -18,5 +18,5 @@ export default async function ConfirmMembershipSalePage({
   if (params.membershipPlanId) query.set("plan", params.membershipPlanId);
   query.set("error", "membership_confirm_removed_use_single_page_sale");
 
-  redirect(`/app/sales/new?${query.toString()}`);
+  redirect(`/app/sell?${query.toString()}`);
 }

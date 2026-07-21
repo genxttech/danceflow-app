@@ -75,13 +75,13 @@ function orderTicketToWalletTicket(ticket: StudentEventOrderTicket): StudentTick
     eventName: ticket.eventName,
     eventSlug: ticket.eventSlug,
     eventTime: ticket.eventTime,
+    hostName: "Event",
     id: ticket.id,
     qrImageUrl: ticket.qrImageUrl,
     registrationId: ticket.registrationId,
     state: ticket.state,
     studioId: "",
     studioName: "Event",
-    hostName: "Event organizer",
     ticketCode: ticket.ticketCode,
     ticketName: ticket.ticketName,
     venue: ticket.venue,
@@ -245,7 +245,7 @@ function TicketCard({ ticket }: { ticket: StudentTicket }) {
       <View style={styles.ticketMain}>
         <View style={styles.itemHeader}>
           <AppText variant="eyebrow">{checkedIn ? "Checked in" : "Ticket"}</AppText>
-          <AppText variant="caption">{ticket.hostName}</AppText>
+          <AppText variant="caption">{ticket.studioName}</AppText>
         </View>
         <AppText variant="subtitle">{ticket.eventName}</AppText>
         <AppText variant="caption">{ticket.ticketName}</AppText>

@@ -99,6 +99,19 @@ function normalizeNavLabel(item: NavItem) {
     return "Payment Ledger";
   }
 
+
+  if (item.href === "/app/sell" || item.href === "/app/sales/new") {
+    return "Sell";
+  }
+
+  if (item.href === "/app/catalog") {
+    return "Catalog";
+  }
+
+  if (item.href === "/app/orders") {
+    return "Orders";
+  }
+
   if (item.href === "/app/payments/take") {
     return "Take Payment";
   }
@@ -1003,6 +1016,59 @@ function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
 
 
 
+function injectCommerceLinks(sections: NavSectionType[]): NavSectionType[] {
+  const commerceHrefs = new Set(["/app/sell", "/app/catalog", "/app/orders"]);
+  const cleaned = sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) =>
+          !commerceHrefs.has(item.href) &&
+          item.href !== "/app/sales/new" &&
+          item.href !== "/app/payments/quick-charge",
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
+
+  const flatItems = cleaned.flatMap((section) => section.items);
+  const hasSalesAccess = flatItems.some(
+    (item) =>
+      item.href === "/app/payments" ||
+      item.href.startsWith("/app/packages") ||
+      item.href.startsWith("/app/memberships"),
+  );
+
+  if (!hasSalesAccess) return cleaned;
+
+  const commerceSection: NavSectionType = {
+    title: "Commerce",
+    items: [
+      { label: "Sell", href: "/app/sell", icon: "sell" },
+      { label: "Catalog", href: "/app/catalog", icon: "catalog" },
+      { label: "Orders", href: "/app/orders", icon: "orders" },
+    ],
+  };
+
+  const salesIndex = cleaned.findIndex((section) =>
+    section.items.some(
+      (item) =>
+        item.href === "/app/payments" ||
+        item.href.startsWith("/app/packages") ||
+        item.href.startsWith("/app/memberships"),
+    ),
+  );
+
+  if (salesIndex >= 0) {
+    return [
+      ...cleaned.slice(0, salesIndex),
+      commerceSection,
+      ...cleaned.slice(salesIndex),
+    ];
+  }
+
+  return [commerceSection, ...cleaned];
+}
+
 function injectPaymentWorkflowLinks(sections: NavSectionType[]): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
   const hasPayments = flatItems.some((item) => item.href === "/app/payments");
@@ -1561,7 +1627,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
   const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink);
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
   const withAutomationsLink = injectAutomationsLink(withDocumentsLink);
-  const withPaymentWorkflowLinks = injectPaymentWorkflowLinks(withAutomationsLink);
+  const withCommerceLinks = injectCommerceLinks(withAutomationsLink);
+  const withPaymentWorkflowLinks = injectPaymentWorkflowLinks(withCommerceLinks);
   const withInstructorPayLink = injectInstructorPayLink(withPaymentWorkflowLinks);
   const withDanceGoalAnalyticsLink = injectDanceGoalAnalyticsLink(withInstructorPayLink);
   const withBookingRequestsLink = injectBookingRequestsLink(withDanceGoalAnalyticsLink);
