@@ -155,6 +155,14 @@ export default function DiscoverScreen() {
           title="Jobs"
           width={cardWidth}
         />
+        <DiscoverCard
+          countLabel="Browse"
+          detail="Shop secure videos and series from DanceFlow studios."
+          icon="play-circle-outline"
+          onPress={() => router.push("/discover/marketplace" as unknown as RouterPushTarget)}
+          title="Marketplace"
+          width={cardWidth}
+        />
       </View>
     </Screen>
   );

@@ -13,6 +13,7 @@ import {
   buildEventConfirmedEmailTemplate,
   buildEventConfirmedSmsTemplate,
 } from "@/lib/notifications/templates";
+import { finalizeStudentMarketplacePayment } from "@/lib/commerce/studentMarketplace";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -115,6 +116,33 @@ async function assertEventOrderPaymentMatches(params: {
   }
 
   return order;
+}
+
+async function handleStudentMarketplacePaymentIntentSucceeded(
+  supabase: SupabaseClient,
+  paymentIntent: Stripe.PaymentIntent,
+) {
+  if (getString(paymentIntent.metadata?.source) !== "commerce_digital_marketplace") {
+    return false;
+  }
+
+  const orderId = getString(paymentIntent.metadata?.order_id);
+  if (!orderId) {
+    throw new Error("Marketplace PaymentIntent is missing order_id metadata.");
+  }
+
+  const amount =
+    Number(paymentIntent.amount_received ?? paymentIntent.amount ?? 0) / 100;
+
+  await finalizeStudentMarketplacePayment({
+    supabase,
+    orderId,
+    paymentIntentId: paymentIntent.id,
+    amount,
+    currency: paymentIntent.currency,
+  });
+
+  return true;
 }
 
 async function handleTerminalPaymentIntentSucceeded(
@@ -3957,11 +3985,18 @@ export async function POST(request: Request) {
 
       case "payment_intent.succeeded": {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        const handledTerminal = await handleTerminalPaymentIntentSucceeded(
-          supabase,
-          paymentIntent,
-        );
-        const handledEventCart = handledTerminal
+        const handledMarketplace =
+          await handleStudentMarketplacePaymentIntentSucceeded(
+            supabase,
+            paymentIntent,
+          );
+        const handledTerminal = handledMarketplace
+          ? false
+          : await handleTerminalPaymentIntentSucceeded(
+              supabase,
+              paymentIntent,
+            );
+        const handledEventCart = handledMarketplace || handledTerminal
           ? false
           : await handleEventCartOrderPaymentIntentSucceeded(
               supabase,
@@ -3969,7 +4004,7 @@ export async function POST(request: Request) {
               paymentIntent,
               event.account,
             );
-        if (!handledTerminal && !handledEventCart) {
+        if (!handledMarketplace && !handledTerminal && !handledEventCart) {
           await syncFeeDetailsForPaymentIntent(
             supabase,
             stripe,
