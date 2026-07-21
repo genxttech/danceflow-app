@@ -85,6 +85,30 @@ function one<T>(value: T | T[] | null) {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+
+function safeTimeZone(value: string | null | undefined) {
+  const timeZone = value?.trim() || "America/New_York";
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "America/New_York";
+  }
+}
+
+function formatOrderDateTime(value: string, timeZone: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(value));
+}
+
 export default async function OrderDetailPage({
   params,
   searchParams,
@@ -104,7 +128,8 @@ export default async function OrderDetailPage({
     redirect("/app");
   }
 
-  const { data, error } = await supabase
+  const [{ data, error }, { data: studioSettings }] = await Promise.all([
+    supabase
     .from("commerce_orders")
     .select(
       `
@@ -138,17 +163,18 @@ export default async function OrderDetailPage({
           fulfillment_status,
           unit_cost_snapshot
         ),
-        payments!commerce_orders_payment_id_fkey(
-          payment_method,
-          status,
-          external_reference,
-          paid_at
-        )
+        payments(payment_method, status, external_reference, paid_at)
       `,
     )
     .eq("id", id)
     .eq("studio_id", context.studioId)
-    .maybeSingle();
+    .maybeSingle(),
+    supabase
+      .from("studios")
+      .select("timezone")
+      .eq("id", context.studioId)
+      .maybeSingle(),
+  ]);
 
   if (error) {
     throw new Error(`Order failed to load: ${error.message}`);
@@ -157,6 +183,7 @@ export default async function OrderDetailPage({
   if (!data) notFound();
 
   const order = data as OrderRow;
+  const studioTimeZone = safeTimeZone(studioSettings?.timezone);
   const client = one(order.clients);
   const payment = one(order.payments);
   const items = Array.isArray(order.commerce_order_items)
@@ -191,7 +218,7 @@ export default async function OrderDetailPage({
               {order.order_number}
             </h1>
             <p className="mt-3 text-sm text-white/80">
-              {new Date(order.created_at).toLocaleString()}
+              {formatOrderDateTime(order.created_at, studioTimeZone)}
             </p>
           </div>
 
