@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -87,6 +87,19 @@ export default function MarketplaceScreen() {
             }
             style={({ pressed }) => [styles.card, pressed && styles.pressed]}
           >
+            {item.imageUrl ? (
+              <Image
+                accessibilityIgnoresInvertColors
+                resizeMode="cover"
+                source={{ uri: item.imageUrl }}
+                style={styles.cover}
+              />
+            ) : (
+              <View style={styles.coverFallback}>
+                <AppText style={styles.coverFallbackText}>DanceFlow Learning</AppText>
+              </View>
+            )}
+            <View style={styles.cardBody}>
             <View style={styles.header}>
               <AppText variant="eyebrow">
                 {item.itemType === "video_series" ? "Video Series" : "Video"}
@@ -98,6 +111,7 @@ export default function MarketplaceScreen() {
             <View style={styles.footer}>
               <AppText variant="subtitle">{money(item.price, item.currency)}</AppText>
               <AppText variant="caption">{item.owned ? "Owned" : "View details"}</AppText>
+            </View>
             </View>
           </Pressable>
         ))}
@@ -113,8 +127,26 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
       borderColor: colors.border,
       borderRadius: 20,
       borderWidth: 1,
+      overflow: "hidden"
+    },
+    cardBody: {
       gap: 8,
       padding: 16
+    },
+    cover: {
+      aspectRatio: 16 / 9,
+      width: "100%"
+    },
+    coverFallback: {
+      alignItems: "center",
+      aspectRatio: 16 / 9,
+      backgroundColor: colors.surfaceAlt,
+      justifyContent: "center",
+      width: "100%"
+    },
+    coverFallbackText: {
+      color: colors.primary,
+      fontWeight: "900"
     },
     footer: {
       alignItems: "center",

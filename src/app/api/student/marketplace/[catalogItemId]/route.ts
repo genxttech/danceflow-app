@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStudentApiUser, normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
+import { resolveCommerceThumbnail } from "@/lib/commerce/thumbnail";
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -52,7 +53,8 @@ export async function GET(request: NextRequest, { params }: Params) {
         duration_seconds,
         status,
         release_at,
-        mux_upload_status
+        mux_upload_status,
+        mux_playback_id
       )
     `)
     .eq("id", id)
@@ -77,6 +79,16 @@ export async function GET(request: NextRequest, { params }: Params) {
     return jsonError("Marketplace item was not found.", 404);
   }
 
+  const thumbnail = await resolveCommerceThumbnail({
+    supabase: admin,
+    item: {
+      id: data.id,
+      item_type: data.item_type,
+      image_url: data.image_url,
+      commerce_digital_content: content,
+    },
+  });
+
   let owned = false;
   if (user?.id) {
     const { data: entitlement } = await admin
@@ -98,7 +110,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     itemType: data.item_type,
     price: Number(data.price ?? 0),
     currency: String(data.currency ?? "usd").toUpperCase(),
-    imageUrl: data.image_url,
+    imageUrl: thumbnail.imageUrl,
     instructorName: content?.instructor_name ?? null,
     skillLevel: content?.skill_level ?? null,
     danceStyle: content?.dance_style ?? null,

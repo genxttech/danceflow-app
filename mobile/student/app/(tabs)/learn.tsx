@@ -265,6 +265,21 @@ export default function LearnScreen() {
                 pressed && styles.cardPressed
               ]}
             >
+              {item.imageUrl ? (
+                <Image
+                  accessibilityIgnoresInvertColors
+                  resizeMode="cover"
+                  source={{ uri: item.imageUrl }}
+                  style={styles.digitalCover}
+                />
+              ) : (
+                <View style={styles.digitalCoverFallback}>
+                  <AppText style={styles.digitalCoverFallbackText}>
+                    DanceFlow Learning
+                  </AppText>
+                </View>
+              )}
+              <View style={styles.digitalCardBody}>
               <View style={styles.cardHeader}>
                 <View style={{ flex: 1 }}>
                   <AppText variant="subtitle">{item.name}</AppText>
@@ -294,6 +309,7 @@ export default function LearnScreen() {
                     : "Resume where you stopped"
                   : "Start watching"}
               </AppText>
+              </View>
             </Pressable>
           ))}
         </View>
@@ -346,8 +362,26 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     borderColor: colors.border,
     borderRadius: 16,
     borderWidth: 1,
+    overflow: "hidden"
+  },
+  digitalCardBody: {
     gap: 6,
     padding: 14
+  },
+  digitalCover: {
+    aspectRatio: 16 / 9,
+    width: "100%"
+  },
+  digitalCoverFallback: {
+    alignItems: "center",
+    aspectRatio: 16 / 9,
+    backgroundColor: colors.surfaceAlt,
+    justifyContent: "center",
+    width: "100%"
+  },
+  digitalCoverFallbackText: {
+    color: colors.primary,
+    fontWeight: "900"
   },
   cardHeader: {
     alignItems: "center",

@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { type LinkedStudioAccess } from "@/lib/studentAccess";
+import { loadStudentDigitalLibrary } from "@/lib/studentDigitalContent";
 
 const DEFAULT_WEB_BASE_URL = "https://idanceflow.com";
 const WALLET_CACHE_TTL_MS = 15000;
@@ -116,6 +117,7 @@ export type StudentDigitalEntitlement = {
   grantedAt: string;
   expiresAt: string | null;
   status: string;
+  imageUrl: string | null;
 };
 
 export type StudentWallet = {
@@ -568,9 +570,23 @@ export async function loadStudentWallet(
         itemType: item?.item_type ?? "digital_video",
         grantedAt: String(row.granted_at),
         expiresAt: row.expires_at ? String(row.expires_at) : null,
-        status: String(row.status ?? "active")
+        status: String(row.status ?? "active"),
+        imageUrl: null
       };
     });
+
+    try {
+      const library = await loadStudentDigitalLibrary();
+      const imageByCatalogItemId = new Map(
+        library.map((item) => [item.catalogItemId, item.imageUrl]),
+      );
+      digitalEntitlements = digitalEntitlements.map((item) => ({
+        ...item,
+        imageUrl: imageByCatalogItemId.get(item.catalogItemId) ?? null,
+      }));
+    } catch {
+      // Wallet remains usable when thumbnail enrichment is temporarily unavailable.
+    }
   }
 
   const wallet = {

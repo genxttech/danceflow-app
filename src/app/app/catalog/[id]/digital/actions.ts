@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageCommerce } from "@/lib/auth/permissions";
 
@@ -90,6 +91,115 @@ async function requireDigitalManager(itemId: string) {
 
 function contentPath(itemId: string, suffix = "") {
   return `/app/catalog/${itemId}/digital${suffix}`;
+}
+
+
+const COVER_BUCKET = "commerce-covers";
+const COVER_MIME_TYPES = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"],
+]);
+const MAX_COVER_BYTES = 5 * 1024 * 1024;
+
+export async function saveDigitalCoverImageAction(formData: FormData) {
+  const itemId = clean(formData.get("catalogItemId"), 60);
+  const { context } = await requireDigitalManager(itemId);
+  const file = formData.get("coverImage");
+
+  if (
+    !(file instanceof File) ||
+    file.size <= 0 ||
+    file.size > MAX_COVER_BYTES ||
+    !COVER_MIME_TYPES.has(file.type)
+  ) {
+    redirect(contentPath(itemId, "?error=invalid_cover_image"));
+  }
+
+  const extension = COVER_MIME_TYPES.get(file.type) ?? "jpg";
+  const objectPath = `${context.studioId}/${itemId}/cover.${extension}`;
+  const admin = createAdminClient();
+  const bytes = Buffer.from(await file.arrayBuffer());
+
+  const { error: uploadError } = await admin.storage
+    .from(COVER_BUCKET)
+    .upload(objectPath, bytes, {
+      contentType: file.type,
+      cacheControl: "3600",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    redirect(
+      contentPath(
+        itemId,
+        `?error=${encodeURIComponent(uploadError.message)}`,
+      ),
+    );
+  }
+
+  const { data: publicUrlData } = admin.storage
+    .from(COVER_BUCKET)
+    .getPublicUrl(objectPath);
+
+  const { error: updateError } = await admin
+    .from("commerce_catalog_items")
+    .update({
+      image_url: `${publicUrlData.publicUrl}?v=${Date.now()}`,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", itemId)
+    .eq("studio_id", context.studioId);
+
+  if (updateError) {
+    await admin.storage.from(COVER_BUCKET).remove([objectPath]);
+    redirect(
+      contentPath(
+        itemId,
+        `?error=${encodeURIComponent(updateError.message)}`,
+      ),
+    );
+  }
+
+  revalidatePath("/app/catalog");
+  revalidatePath(contentPath(itemId));
+  revalidatePath("/marketplace");
+  redirect(contentPath(itemId, "?success=cover_uploaded"));
+}
+
+export async function removeDigitalCoverImageAction(formData: FormData) {
+  const itemId = clean(formData.get("catalogItemId"), 60);
+  const { context } = await requireDigitalManager(itemId);
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("commerce_catalog_items")
+    .update({
+      image_url: null,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", itemId)
+    .eq("studio_id", context.studioId);
+
+  if (error) {
+    redirect(
+      contentPath(itemId, `?error=${encodeURIComponent(error.message)}`),
+    );
+  }
+
+  const prefix = `${context.studioId}/${itemId}`;
+  const { data: objects } = await admin.storage.from(COVER_BUCKET).list(prefix);
+  const paths = (objects ?? []).map((object) => `${prefix}/${object.name}`);
+  if (paths.length) {
+    await admin.storage.from(COVER_BUCKET).remove(paths);
+  }
+
+  revalidatePath("/app/catalog");
+  revalidatePath(contentPath(itemId));
+  revalidatePath("/marketplace");
+  redirect(contentPath(itemId, "?success=cover_removed"));
 }
 
 export async function saveDigitalContentAction(formData: FormData) {

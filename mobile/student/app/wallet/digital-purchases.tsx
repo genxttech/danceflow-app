@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -119,6 +119,19 @@ export default function DigitalPurchasesPage() {
                   !playable && styles.cardDisabled
                 ]}
               >
+                {item.imageUrl ? (
+                  <Image
+                    accessibilityIgnoresInvertColors
+                    resizeMode="cover"
+                    source={{ uri: item.imageUrl }}
+                    style={styles.cover}
+                  />
+                ) : (
+                  <View style={styles.coverFallback}>
+                    <AppText style={styles.coverFallbackText}>DanceFlow Learning</AppText>
+                  </View>
+                )}
+                <View style={styles.cardBody}>
                 <View style={styles.header}>
                   <AppText variant="eyebrow">
                     {itemTypeLabel(item.itemType)}
@@ -137,6 +150,7 @@ export default function DigitalPurchasesPage() {
                 <AppText variant="caption">
                   {playable ? "Tap to watch" : "Download access coming next"}
                 </AppText>
+                </View>
               </Pressable>
             );
           })}
@@ -153,8 +167,26 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
       borderColor: colors.border,
       borderRadius: 18,
       borderWidth: 1,
+      overflow: "hidden"
+    },
+    cardBody: {
       gap: 6,
       padding: 18
+    },
+    cover: {
+      aspectRatio: 16 / 9,
+      width: "100%"
+    },
+    coverFallback: {
+      alignItems: "center",
+      aspectRatio: 16 / 9,
+      backgroundColor: colors.surfaceAlt,
+      justifyContent: "center",
+      width: "100%"
+    },
+    coverFallbackText: {
+      color: colors.primary,
+      fontWeight: "900"
     },
     cardDisabled: {
       opacity: 0.65

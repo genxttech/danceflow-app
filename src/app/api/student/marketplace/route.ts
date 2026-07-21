@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getStudentApiUser, normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
+import { getStudentApiUser } from "@/lib/auth/studentApiAuth";
+import { resolveCommerceThumbnails } from "@/lib/commerce/thumbnail";
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -42,7 +43,8 @@ export async function GET(request: NextRequest) {
         content_kind,
         status,
         release_at,
-        mux_upload_status
+        mux_upload_status,
+        mux_playback_id
       )
     `)
     .eq("active", true)
@@ -64,6 +66,16 @@ export async function GET(request: NextRequest) {
       (!content.release_at || new Date(content.release_at).getTime() <= Date.now()) &&
       (row.item_type === "video_series" || content.mux_upload_status === "ready")
     );
+  });
+
+  const thumbnails = await resolveCommerceThumbnails({
+    supabase: admin,
+    items: rows.map((row: any) => ({
+      id: row.id,
+      item_type: row.item_type,
+      image_url: row.image_url,
+      commerce_digital_content: one(row.commerce_digital_content),
+    })),
   });
 
   let ownedIds = new Set<string>();
@@ -91,7 +103,7 @@ export async function GET(request: NextRequest) {
         itemType: row.item_type,
         price: Number(row.price ?? 0),
         currency: String(row.currency ?? "usd").toUpperCase(),
-        imageUrl: row.image_url,
+        imageUrl: thumbnails.get(row.id)?.imageUrl ?? null,
         instructorName: content?.instructor_name ?? null,
         skillLevel: content?.skill_level ?? null,
         danceStyle: content?.dance_style ?? null,

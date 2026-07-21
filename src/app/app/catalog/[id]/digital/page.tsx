@@ -16,6 +16,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageCommerce } from "@/lib/auth/permissions";
 import MuxVideoUploader from "./MuxVideoUploader";
+import DigitalCoverImageForm from "./DigitalCoverImageForm";
+import { resolveCommerceThumbnail } from "@/lib/commerce/thumbnail";
 import {
   addSeriesItemAction,
   removeSeriesItemAction,
@@ -36,6 +38,7 @@ type CatalogItem = {
   active: boolean;
   published: boolean;
   marketplace_visible: boolean;
+  image_url: string | null;
 };
 
 type DigitalContent = {
@@ -154,7 +157,7 @@ export default async function DigitalContentPage({
     supabase
       .from("commerce_catalog_items")
       .select(
-        "id, name, description, item_type, price, currency, active, published, marketplace_visible",
+        "id, name, description, item_type, price, currency, active, published, marketplace_visible, image_url",
       )
       .eq("id", id)
       .eq("studio_id", context.studioId)
@@ -228,6 +231,18 @@ export default async function DigitalContentPage({
           digitalContent?.download_bucket && digitalContent?.download_path,
         )
       : seriesItems.length > 0;
+
+  const thumbnail = await resolveCommerceThumbnail({
+    supabase,
+    item: {
+      id: catalogItem.id,
+      item_type: catalogItem.item_type,
+      image_url: catalogItem.image_url,
+      commerce_digital_content: digitalContent
+        ? { mux_playback_id: digitalContent.mux_playback_id }
+        : null,
+    },
+  });
 
   return (
     <div className="space-y-6 p-1">
@@ -325,6 +340,13 @@ export default async function DigitalContentPage({
           );
         })}
       </section>
+
+      <DigitalCoverImageForm
+        catalogItemId={catalogItem.id}
+        currentImageUrl={catalogItem.image_url}
+        resolvedImageUrl={thumbnail.imageUrl}
+        resolvedSource={thumbnail.source}
+      />
 
       {isVideo ? (
         <MuxVideoUploader

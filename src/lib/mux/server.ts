@@ -137,8 +137,9 @@ function base64Url(value: string | Buffer) {
     .replace(/\//g, "_");
 }
 
-export function createMuxPlaybackToken(input: {
+function createMuxSignedToken(input: {
   playbackId: string;
+  audience: "v" | "t";
   expiresInSeconds?: number;
 }) {
   const now = Math.floor(Date.now() / 1000);
@@ -155,7 +156,7 @@ export function createMuxPlaybackToken(input: {
 
   const payload = {
     sub: input.playbackId,
-    aud: "v",
+    aud: input.audience,
     iat: now,
     exp: now + expiresInSeconds,
   };
@@ -173,6 +174,52 @@ export function createMuxPlaybackToken(input: {
   return {
     expiresAt: new Date((now + expiresInSeconds) * 1000).toISOString(),
     token: `${unsignedToken}.${base64Url(signature)}`,
+  };
+}
+
+export function createMuxPlaybackToken(input: {
+  playbackId: string;
+  expiresInSeconds?: number;
+}) {
+  return createMuxSignedToken({
+    playbackId: input.playbackId,
+    audience: "v",
+    expiresInSeconds: input.expiresInSeconds,
+  });
+}
+
+export function createMuxThumbnailToken(input: {
+  playbackId: string;
+  expiresInSeconds?: number;
+}) {
+  return createMuxSignedToken({
+    playbackId: input.playbackId,
+    audience: "t",
+    expiresInSeconds: input.expiresInSeconds,
+  });
+}
+
+export function createSignedMuxThumbnailUrl(input: {
+  playbackId: string;
+  expiresInSeconds?: number;
+  timeSeconds?: number;
+  width?: number;
+}) {
+  const signed = createMuxThumbnailToken(input);
+  const timeSeconds = Math.max(0, Math.min(input.timeSeconds ?? 4, 86400));
+  const width = Math.max(320, Math.min(input.width ?? 1280, 1920));
+  const query = new URLSearchParams({
+    token: signed.token,
+    time: String(timeSeconds),
+    width: String(width),
+    fit_mode: "preserve",
+  });
+
+  return {
+    expiresAt: signed.expiresAt,
+    url: `https://image.mux.com/${encodeURIComponent(
+      input.playbackId,
+    )}/thumbnail.jpg?${query.toString()}`,
   };
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, useColorScheme, View } from "react-native";
+import { Image, StyleSheet, useColorScheme, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
@@ -123,6 +123,19 @@ export default function MarketplaceDetailScreen() {
 
   return (
     <Screen>
+      {item.imageUrl ? (
+        <Image
+          accessibilityIgnoresInvertColors
+          resizeMode="cover"
+          source={{ uri: item.imageUrl }}
+          style={styles.cover}
+        />
+      ) : (
+        <View style={styles.coverFallback}>
+          <AppText style={styles.coverFallbackText}>DanceFlow Learning</AppText>
+        </View>
+      )}
+
       <AppText variant="eyebrow">
         {item.itemType === "video_series" ? "Video Series" : "Digital Video"}
       </AppText>
@@ -167,6 +180,23 @@ export default function MarketplaceDetailScreen() {
 
 function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   return StyleSheet.create({
+    cover: {
+      aspectRatio: 16 / 9,
+      borderRadius: 20,
+      width: "100%"
+    },
+    coverFallback: {
+      alignItems: "center",
+      aspectRatio: 16 / 9,
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 20,
+      justifyContent: "center",
+      width: "100%"
+    },
+    coverFallbackText: {
+      color: colors.primary,
+      fontWeight: "900"
+    },
     card: {
       backgroundColor: colors.surface,
       borderColor: colors.border,

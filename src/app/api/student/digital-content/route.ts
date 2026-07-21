@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStudentApiUser } from "@/lib/auth/studentApiAuth";
+import { resolveCommerceThumbnails } from "@/lib/commerce/thumbnail";
 
 function one<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -31,7 +32,10 @@ export async function GET(request: NextRequest) {
         item_type,
         image_url,
         active,
-        published
+        published,
+        commerce_digital_content (
+          mux_playback_id
+        )
       ),
       studios:studio_id (
         name,
@@ -75,6 +79,25 @@ export async function GET(request: NextRequest) {
     progressByEntitlement.set(progress.entitlement_id, current);
   }
 
+  const thumbnailItems = (data ?? [])
+    .map((row: any) => {
+      const catalog = one(row.commerce_catalog_items);
+      return catalog
+        ? {
+            id: row.catalog_item_id,
+            item_type: catalog.item_type,
+            image_url: catalog.image_url,
+            commerce_digital_content: one(catalog.commerce_digital_content),
+          }
+        : null;
+    })
+    .filter(Boolean);
+
+  const thumbnails = await resolveCommerceThumbnails({
+    supabase: admin,
+    items: thumbnailItems as any[],
+  });
+
   const items = (data ?? [])
     .map((row: any) => {
       const catalog = one(row.commerce_catalog_items);
@@ -110,7 +133,7 @@ export async function GET(request: NextRequest) {
         name: catalog.name,
         description: catalog.description,
         itemType: catalog.item_type,
-        imageUrl: catalog.image_url,
+        imageUrl: thumbnails.get(row.catalog_item_id)?.imageUrl ?? null,
         percentComplete: Number(averagePercent.toFixed(2)),
         completed: progress.length > 0 && completedCount === progress.length,
         lastWatchedAt: mostRecent?.last_watched_at ?? null,
