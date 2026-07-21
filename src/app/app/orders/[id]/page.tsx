@@ -130,7 +130,7 @@ export default async function OrderDetailPage({
 
   const [{ data, error }, { data: studioSettings }] = await Promise.all([
     supabase
-    .from("commerce_orders")
+      .from("commerce_orders")
     .select(
       `
         id,
@@ -163,12 +163,17 @@ export default async function OrderDetailPage({
           fulfillment_status,
           unit_cost_snapshot
         ),
-        payments(payment_method, status, external_reference, paid_at)
+        payments!commerce_orders_payment_id_fkey(
+          payment_method,
+          status,
+          external_reference,
+          paid_at
+        )
       `,
     )
-    .eq("id", id)
-    .eq("studio_id", context.studioId)
-    .maybeSingle(),
+      .eq("id", id)
+      .eq("studio_id", context.studioId)
+      .maybeSingle(),
     supabase
       .from("studios")
       .select("timezone")
