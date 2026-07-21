@@ -17,7 +17,9 @@ import {
 } from "./actions";
 import {
   createSignEnvelopeAction,
+  duplicateCompletedSignEnvelopeAction,
   resendSignEnvelopeAction,
+  reviseSignEnvelopeAction,
   revokeSignEnvelopeAction,
 } from "./sign/actions";
 
@@ -97,6 +99,11 @@ type SigningEnvelopeRow = {
   last_reminded_at: string | null;
   reminder_count: number | null;
   assignment_id: string | null;
+  revision_of_envelope_id: string | null;
+  revision_kind: string | null;
+  revision_reason: string | null;
+  revision_number: number | null;
+  superseded_by_envelope_id: string | null;
   document_sign_fields: { id: string }[] | null;
 };
 
@@ -183,6 +190,10 @@ function signingStatusMessage(searchParams: SearchParams) {
   if (searchParams.success === "sent") return "Signing request queued successfully.";
   if (searchParams.success === "resent") return "A new secure signing link was emailed.";
   if (searchParams.success === "revoked") return "The signing request was revoked.";
+  if (searchParams.success === "revision_created")
+    return "Protected revision created. Review the copied field layout before sending.";
+  if (searchParams.success === "duplicate_created")
+    return "New draft created from the completed request.";
   return null;
 }
 
@@ -1039,7 +1050,7 @@ export default async function DocumentsPage({
   const { data: allEnvelopeRows, error: allEnvelopesError } = await supabase
     .from("document_sign_envelopes")
     .select(
-      "id,title,signer_name,signer_email,status,expires_at,sent_at,viewed_at,started_at,completed_at,created_at,last_reminded_at,reminder_count,assignment_id,document_sign_fields(id)",
+      "id,title,signer_name,signer_email,status,expires_at,sent_at,viewed_at,started_at,completed_at,created_at,last_reminded_at,reminder_count,assignment_id,revision_of_envelope_id,revision_kind,revision_reason,revision_number,superseded_by_envelope_id,document_sign_fields(id)",
     )
     .eq("studio_id", studioId)
     .order("created_at", { ascending: false })
@@ -1385,6 +1396,18 @@ export default async function DocumentsPage({
                         {item.title}
                       </Link>
                       <div className="mt-1 text-xs text-slate-500">Created {formatDateTime(item.created_at)}</div>
+                      {item.revision_of_envelope_id ? (
+                        <div className="mt-1 text-xs font-semibold text-violet-700">
+                          {item.revision_kind === "duplicate"
+                            ? "Copied from completed request"
+                            : `Revision ${item.revision_number ?? ""}`}
+                        </div>
+                      ) : null}
+                      {item.superseded_by_envelope_id ? (
+                        <div className="mt-1 text-xs font-semibold text-amber-700">
+                          Superseded by a newer request
+                        </div>
+                      ) : null}
                     </td>
                     <td className="py-4 pr-4">
                       <div>{item.signer_name}</div>
@@ -1416,6 +1439,56 @@ export default async function DocumentsPage({
                           <form action={resendSignEnvelopeAction}>
                             <input type="hidden" name="envelopeId" value={item.id} />
                             <button className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-semibold text-white">Resend</button>
+                          </form>
+                        ) : null}
+                        {["sent", "viewed", "started", "expired", "declined", "void"].includes(item.status) &&
+                        !item.superseded_by_envelope_id ? (
+                          <details className="relative">
+                            <summary className="cursor-pointer list-none rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700">
+                              Revise
+                            </summary>
+                            <form
+                              action={reviseSignEnvelopeAction}
+                              className="absolute right-0 z-20 mt-2 w-80 space-y-2 rounded-2xl border border-violet-200 bg-white p-3 shadow-xl"
+                            >
+                              <input type="hidden" name="envelopeId" value={item.id} />
+                              <p className="text-xs font-bold text-slate-900">Revise and resend</p>
+                              <input
+                                name="reason"
+                                required
+                                minLength={5}
+                                maxLength={500}
+                                placeholder="Reason for revision"
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                              />
+                              <select
+                                name="expiresInDays"
+                                defaultValue="7"
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                              >
+                                <option value="3">3-day link</option>
+                                <option value="7">7-day link</option>
+                                <option value="14">14-day link</option>
+                                <option value="30">30-day link</option>
+                              </select>
+                              <button className="w-full rounded-lg bg-violet-700 px-3 py-2 text-xs font-semibold text-white">
+                                Create protected revision
+                              </button>
+                            </form>
+                          </details>
+                        ) : null}
+                        {item.status === "completed" ? (
+                          <form action={duplicateCompletedSignEnvelopeAction}>
+                            <input type="hidden" name="envelopeId" value={item.id} />
+                            <input
+                              type="hidden"
+                              name="reason"
+                              value="Duplicated from Documents Center."
+                            />
+                            <input type="hidden" name="expiresInDays" value="7" />
+                            <button className="rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700">
+                              Duplicate
+                            </button>
                           </form>
                         ) : null}
                         {["draft", "sent", "viewed", "started"].includes(item.status) ? (

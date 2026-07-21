@@ -177,6 +177,320 @@ export async function resendSignEnvelopeAction(formData: FormData) {
   redirect(signPath(deliveryError ? "error" : "success", deliveryError ? "delivery_failed" : "resent"));
 }
 
+
+async function createEnvelopeCopy(params: {
+  admin: ReturnType<typeof createAdminClient>;
+  envelope: any;
+  studioId: string;
+  userId: string;
+  userEmail: string | null;
+  reason: string;
+  kind: "revision" | "duplicate";
+  expiresInDays: number;
+}) {
+  const {
+    admin,
+    envelope,
+    studioId,
+    userId,
+    userEmail,
+    reason,
+    kind,
+    expiresInDays,
+  } = params;
+
+  if (!envelope.source_bucket || !envelope.source_path) {
+    throw new Error("The source PDF is unavailable.");
+  }
+
+  const { data: sourceBlob, error: downloadError } = await admin.storage
+    .from(envelope.source_bucket)
+    .download(envelope.source_path);
+
+  if (downloadError || !sourceBlob) {
+    throw new Error(downloadError?.message ?? "The source PDF could not be loaded.");
+  }
+
+  const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
+  const newEnvelopeId = randomUUID();
+  const newSourcePath = sourceStoragePath(studioId, newEnvelopeId);
+  const nextRevisionNumber = Math.max(1, Number(envelope.revision_number ?? 1)) + 1;
+  const now = new Date().toISOString();
+
+  const { error: uploadError } = await admin.storage
+    .from(DOCUMENT_FILES_BUCKET)
+    .upload(newSourcePath, sourceBytes, {
+      contentType: "application/pdf",
+      upsert: false,
+      cacheControl: "0",
+    });
+
+  if (uploadError) {
+    throw new Error(uploadError.message);
+  }
+
+  try {
+    const { error: insertError } = await admin
+      .from("document_sign_envelopes")
+      .insert({
+        id: newEnvelopeId,
+        studio_id: studioId,
+        assignment_id: kind === "revision" ? envelope.assignment_id ?? null : null,
+        title: envelope.title,
+        signer_name: envelope.signer_name,
+        signer_email: envelope.signer_email,
+        status: "draft",
+        token_hash: null,
+        source_bucket: DOCUMENT_FILES_BUCKET,
+        source_path: newSourcePath,
+        source_sha256: envelope.source_sha256 || sha256Hex(sourceBytes),
+        page_count: envelope.page_count,
+        page_sizes: envelope.page_sizes,
+        expires_at: new Date(
+          Date.now() + expiresInDays * 86400000,
+        ).toISOString(),
+        created_by: userId,
+        revision_of_envelope_id: envelope.id,
+        revision_kind: kind,
+        revision_reason: reason,
+        revision_number: nextRevisionNumber,
+      });
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    const { data: sourceFields, error: fieldsError } = await admin
+      .from("document_sign_fields")
+      .select(
+        "field_type,page_number,x,y,width,height,label,required,placeholder_text,default_value,sort_order",
+      )
+      .eq("envelope_id", envelope.id)
+      .order("sort_order");
+
+    if (fieldsError) {
+      throw new Error(fieldsError.message);
+    }
+
+    if (sourceFields?.length) {
+      const { error: copyFieldsError } = await admin
+        .from("document_sign_fields")
+        .insert(
+          sourceFields.map((field) => ({
+            envelope_id: newEnvelopeId,
+            field_type: field.field_type,
+            page_number: field.page_number,
+            x: field.x,
+            y: field.y,
+            width: field.width,
+            height: field.height,
+            label: field.label,
+            required: field.required,
+            placeholder_text: field.placeholder_text,
+            default_value: field.default_value,
+            sort_order: field.sort_order,
+          })),
+        );
+
+      if (copyFieldsError) {
+        throw new Error(copyFieldsError.message);
+      }
+    }
+
+    const { error: newEventError } = await admin
+      .from("document_sign_events")
+      .insert({
+        envelope_id: newEnvelopeId,
+        event_type: "created",
+        actor_user_id: userId,
+        actor_email: userEmail,
+        summary:
+          kind === "revision"
+            ? `Protected revision created from request ${envelope.id}. Reason: ${reason}`
+            : `New request duplicated from completed request ${envelope.id}. Reason: ${reason}`,
+        metadata: {
+          source_envelope_id: envelope.id,
+          revision_kind: kind,
+          revision_number: nextRevisionNumber,
+        },
+      });
+
+    if (newEventError) {
+      throw new Error(newEventError.message);
+    }
+
+    return { newEnvelopeId, now };
+  } catch (error) {
+    await admin.from("document_sign_fields").delete().eq("envelope_id", newEnvelopeId);
+    await admin.from("document_sign_envelopes").delete().eq("id", newEnvelopeId);
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([newSourcePath]);
+    throw error;
+  }
+}
+
+export async function reviseSignEnvelopeAction(formData: FormData) {
+  const envelopeId = text(formData, "envelopeId", 36);
+  const reason = text(formData, "reason", 500);
+  const expiresInDays = Math.min(
+    30,
+    Math.max(1, Number(text(formData, "expiresInDays", 2)) || 7),
+  );
+
+  if (!reason || reason.length < 5) {
+    redirect(`/app/documents/sign/${envelopeId}?error=revision_reason_required`);
+  }
+
+  const { admin, envelope, user, studioId } =
+    await requireStudioEnvelope(envelopeId);
+
+  if (!["sent", "viewed", "started", "expired", "declined", "void"].includes(envelope.status)) {
+    redirect(signPath("error", "request_not_revisable"));
+  }
+
+  if (envelope.status === "completed") {
+    redirect(signPath("error", "completed_requires_duplicate"));
+  }
+
+  if (envelope.superseded_by_envelope_id) {
+    redirect(`/app/documents/sign/${envelopeId}?error=already_superseded`);
+  }
+
+  let copyResult: { newEnvelopeId: string; now: string };
+  try {
+    copyResult = await createEnvelopeCopy({
+      admin,
+      envelope,
+      studioId,
+      userId: user.id,
+      userEmail: user.email ?? null,
+      reason,
+      kind: "revision",
+      expiresInDays,
+    });
+  } catch (error) {
+    console.error("Could not create signing-request revision.", error);
+    redirect(`/app/documents/sign/${envelopeId}?error=revision_create_failed`);
+  }
+
+  const { newEnvelopeId, now } = copyResult!;
+
+  const { error: supersedeError } = await admin
+    .from("document_sign_envelopes")
+    .update({
+      status: "void",
+      token_hash: null,
+      voided_at: now,
+      revoked_reason: `Superseded by protected revision ${newEnvelopeId}. ${reason}`,
+      superseded_by_envelope_id: newEnvelopeId,
+      superseded_at: now,
+      superseded_by: user.id,
+      updated_at: now,
+    })
+    .eq("id", envelopeId)
+    .eq("studio_id", studioId)
+    .is("superseded_by_envelope_id", null);
+
+  if (supersedeError) {
+    await admin.from("document_sign_fields").delete().eq("envelope_id", newEnvelopeId);
+    await admin.from("document_sign_envelopes").delete().eq("id", newEnvelopeId);
+    await admin.storage
+      .from(DOCUMENT_FILES_BUCKET)
+      .remove([sourceStoragePath(studioId, newEnvelopeId)]);
+    redirect(`/app/documents/sign/${envelopeId}?error=revision_supersede_failed`);
+  }
+
+  await admin.from("document_sign_events").insert({
+    envelope_id: envelopeId,
+    event_type: "revoked",
+    actor_user_id: user.id,
+    actor_email: user.email ?? null,
+    summary: `Superseded by protected revision ${newEnvelopeId}. Reason: ${reason}`,
+    metadata: {
+      superseded_by_envelope_id: newEnvelopeId,
+      revision_reason: reason,
+    },
+  });
+
+  if (envelope.assignment_id) {
+    const { error: assignmentError } = await admin
+      .from("document_assignments")
+      .update({
+        sign_envelope_id: newEnvelopeId,
+        status: "pending",
+      })
+      .eq("id", envelope.assignment_id)
+      .eq("studio_id", studioId)
+      .neq("status", "signed");
+
+    if (assignmentError) {
+      console.error(
+        "Revision created, but assignment relinking failed:",
+        assignmentError.message,
+      );
+    }
+  }
+
+  revalidatePath("/app/documents");
+  revalidatePath(`/app/documents/sign/${envelopeId}`);
+  redirect(`/app/documents/sign/${newEnvelopeId}/edit?success=revision_created`);
+}
+
+export async function duplicateCompletedSignEnvelopeAction(
+  formData: FormData,
+) {
+  const envelopeId = text(formData, "envelopeId", 36);
+  const reason =
+    text(formData, "reason", 500) ||
+    "Created as a new signing request from a completed record.";
+  const expiresInDays = Math.min(
+    30,
+    Math.max(1, Number(text(formData, "expiresInDays", 2)) || 7),
+  );
+
+  const { admin, envelope, user, studioId } =
+    await requireStudioEnvelope(envelopeId);
+
+  if (envelope.status !== "completed") {
+    redirect(signPath("error", "only_completed_can_duplicate"));
+  }
+
+  let copyResult: { newEnvelopeId: string; now: string };
+  try {
+    copyResult = await createEnvelopeCopy({
+      admin,
+      envelope,
+      studioId,
+      userId: user.id,
+      userEmail: user.email ?? null,
+      reason,
+      kind: "duplicate",
+      expiresInDays,
+    });
+  } catch (error) {
+    console.error("Could not duplicate completed signing request.", error);
+    redirect(`/app/documents/sign/${envelopeId}?error=duplicate_create_failed`);
+  }
+
+  const { newEnvelopeId } = copyResult!;
+
+  await admin.from("document_sign_events").insert({
+    envelope_id: envelopeId,
+    event_type: "created",
+    actor_user_id: user.id,
+    actor_email: user.email ?? null,
+    summary: `A new draft ${newEnvelopeId} was duplicated from this completed request. Reason: ${reason}`,
+    metadata: {
+      duplicated_envelope_id: newEnvelopeId,
+      revision_kind: "duplicate",
+    },
+  });
+
+  revalidatePath("/app/documents");
+  revalidatePath(`/app/documents/sign/${envelopeId}`);
+  redirect(`/app/documents/sign/${newEnvelopeId}/edit?success=duplicate_created`);
+}
+
+
 export async function revokeSignEnvelopeAction(formData: FormData) {
   const envelopeId = text(formData, "envelopeId", 36); const reason = text(formData, "reason", 500) || "Revoked by studio staff.";
   const { admin, envelope, user, studioId } = await requireStudioEnvelope(envelopeId);
