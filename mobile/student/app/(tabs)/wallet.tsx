@@ -548,6 +548,14 @@ export default function WalletScreen() {
               onPress={() => router.push("/wallet/memberships")}
               title="Memberships"
             />
+            <WalletCategoryCard
+              active={false}
+              countLabel="Open"
+              detail="Purchased videos, series, downloads, and secure digital access."
+              icon="play-circle-outline"
+              onPress={() => router.push("/wallet/digital-purchases" as never)}
+              title="Digital Purchases"
+            />
           </View>
         </>
       ) : null}

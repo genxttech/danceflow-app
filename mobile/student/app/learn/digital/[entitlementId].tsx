@@ -116,7 +116,7 @@ export default function DigitalContentPlaybackScreen() {
         />
         <AppButton
           label="Back to purchases"
-          onPress={() => router.replace("/wallet/digital-purchases")}
+          onPress={() => router.replace("/wallet/digital-purchases" as never)}
         />
       </Screen>
     );
@@ -206,8 +206,7 @@ export default function DigitalContentPlaybackScreen() {
 
       <AppButton
         label="Back to purchases"
-        onPress={() => router.replace("/wallet/digital-purchases")}
-        variant="secondary"
+        onPress={() => router.replace("/wallet/digital-purchases" as never)}
       />
     </Screen>
   );
