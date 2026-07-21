@@ -3394,30 +3394,65 @@ async function handleInvoicePaid(
     ? `Stripe invoice ${invoiceNumber}`
     : "Stripe invoice payment";
 
-  const { error: paymentInsertError } = await supabase.from("payments").insert({
-    studio_id: resolvedStudioId,
-    client_id: resolvedClientId,
-    client_membership_id: resolvedClientMembershipId,
-    amount: amountPaid,
-    payment_method: "card",
-    status: "paid",
-    notes,
-    source: "stripe",
-    payment_type: "membership",
-    stripe_payment_intent_id: paymentIntentId,
-    stripe_invoice_id: stripeInvoiceId,
-    stripe_charge_id: chargeId,
-    currency,
-  });
+  const { data: insertedPayment, error: paymentInsertError } = await supabase
+    .from("payments")
+    .insert({
+      studio_id: resolvedStudioId,
+      client_id: resolvedClientId,
+      client_membership_id: resolvedClientMembershipId,
+      amount: amountPaid,
+      payment_method: "card",
+      status: "paid",
+      paid_at: new Date().toISOString(),
+      notes,
+      source: "stripe",
+      payment_channel: "online",
+      payment_type: "membership",
+      stripe_payment_intent_id: paymentIntentId,
+      stripe_invoice_id: stripeInvoiceId,
+      stripe_charge_id: chargeId,
+      currency,
+    })
+    .select("id")
+    .single();
 
-  if (paymentInsertError) {
-    throw new Error(paymentInsertError.message);
+  if (paymentInsertError || !insertedPayment) {
+    throw new Error(paymentInsertError?.message ?? "Membership payment was not created.");
   }
 
   if (resolvedClientMembershipId) {
+    const currentPeriodStartUnix = getNumber(
+      invoice.lines?.data?.[0]?.period?.start ?? null,
+    );
     const currentPeriodEndUnix = getNumber(
       invoice.lines?.data?.[0]?.period?.end ?? null,
     );
+    const periodStart = toDateOnlyOrNull(currentPeriodStartUnix);
+    const periodEnd = toDateOnlyOrNull(currentPeriodEndUnix);
+
+    if (periodStart && periodEnd) {
+      const { error: periodError } = await supabase
+        .from("client_membership_periods")
+        .upsert(
+          {
+            studio_id: resolvedStudioId,
+            client_id: resolvedClientId,
+            client_membership_id: resolvedClientMembershipId,
+            period_start: periodStart,
+            period_end: periodEnd,
+            amount_due: amountPaid,
+            amount_paid: amountPaid,
+            currency,
+            payment_status: "paid",
+            payment_id: insertedPayment.id,
+            payment_due_at: toIsoOrNull(currentPeriodStartUnix),
+            paid_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "client_membership_id,period_start,period_end" },
+        );
+      if (periodError) throw new Error(periodError.message);
+    }
 
     const { error: membershipUpdateError } = await supabase
       .from("client_memberships")
@@ -3474,6 +3509,34 @@ async function handleInvoicePaymentFailed(
     !stripeSubscription?.client_membership_id
   ) {
     return;
+  }
+
+  const periodStart = toDateOnlyOrNull(
+    getNumber(invoice.lines?.data?.[0]?.period?.start ?? null),
+  );
+  const periodEnd = toDateOnlyOrNull(
+    getNumber(invoice.lines?.data?.[0]?.period?.end ?? null),
+  );
+  if (periodStart && periodEnd && stripeSubscription.client_id) {
+    const { error: periodError } = await supabase
+      .from("client_membership_periods")
+      .upsert(
+        {
+          studio_id: stripeSubscription.studio_id,
+          client_id: stripeSubscription.client_id,
+          client_membership_id: stripeSubscription.client_membership_id,
+          period_start: periodStart,
+          period_end: periodEnd,
+          amount_due: Number(invoice.amount_due ?? 0) / 100,
+          amount_paid: Number(invoice.amount_paid ?? 0) / 100,
+          currency: (invoice.currency ?? "usd").toLowerCase(),
+          payment_status: "past_due",
+          payment_due_at: toIsoOrNull(getNumber(invoice.due_date)),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "client_membership_id,period_start,period_end" },
+      );
+    if (periodError) throw new Error(periodError.message);
   }
 
   const { error: membershipUpdateError } = await supabase

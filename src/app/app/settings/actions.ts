@@ -131,6 +131,10 @@ export async function updateStudioSettingsAction(
             getString(formData, "allowNegativeBalance") === "true",
           block_depleted_package_booking:
             getString(formData, "blockDepletedPackageBooking") === "true",
+          block_depleted_membership_booking:
+            getString(formData, "blockDepletedMembershipBooking") === "true",
+          block_unpaid_membership_booking:
+            getString(formData, "blockUnpaidMembershipBooking") === "true",
           warn_low_package_balance:
             getString(formData, "warnLowPackageBalance") === "true",
           portal_self_scheduling_enabled: portalEnabled,

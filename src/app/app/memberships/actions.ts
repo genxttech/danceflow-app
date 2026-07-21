@@ -1616,3 +1616,247 @@ export async function deleteMembershipPlanAction(formData: FormData) {
 
   redirect("/app/memberships");
 }
+const EXTERNAL_MEMBERSHIP_PAYMENT_METHODS = new Set([
+  "cash",
+  "check",
+  "ach",
+  "venmo",
+  "zelle",
+  "card",
+  "other",
+]);
+
+export async function recordExternalMembershipPaymentAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const clientMembershipId = getString(formData, "clientMembershipId");
+  const amount = getNumberOrNull(getString(formData, "amount"));
+  const paymentMethod = getString(formData, "paymentMethod", 40).toLowerCase();
+  const externalReference = getString(formData, "externalReference", 180) || null;
+  const notes = getString(formData, "notes", 500) || null;
+  const returnTo = safeReturnTo(
+    getString(formData, "returnTo"),
+    clientId ? `/app/clients/${clientId}` : "/app/clients",
+  );
+
+  try {
+    const supabase = await createClient();
+    const context = await getCurrentStudioContext();
+    const studioId = context.studioId;
+    const role = context.studioRole ?? "";
+    const userId = context.userId;
+
+    if (!["studio_owner", "studio_admin", "front_desk"].includes(role)) {
+      redirect(addQueryParam(returnTo, "error", "membership_payment_unauthorized"));
+    }
+
+    if (!isUuid(clientId) || !isUuid(clientMembershipId)) {
+      redirect(addQueryParam(returnTo, "error", "membership_not_found"));
+    }
+
+    if (amount == null || amount <= 0) {
+      redirect(addQueryParam(returnTo, "error", "membership_payment_invalid_amount"));
+    }
+
+    if (!EXTERNAL_MEMBERSHIP_PAYMENT_METHODS.has(paymentMethod)) {
+      redirect(addQueryParam(returnTo, "error", "membership_payment_invalid_method"));
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from("client_memberships")
+      .select(
+        "id, studio_id, client_id, status, current_period_start, current_period_end, price_snapshot, name_snapshot",
+      )
+      .eq("id", clientMembershipId)
+      .eq("studio_id", studioId)
+      .eq("client_id", clientId)
+      .single();
+
+    if (membershipError || !membership) {
+      redirect(addQueryParam(returnTo, "error", "membership_not_found"));
+    }
+
+    if (externalReference) {
+      const { data: duplicate, error: duplicateError } = await supabase
+        .from("payments")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("external_reference", externalReference)
+        .eq("payment_channel", "manual")
+        .limit(1)
+        .maybeSingle();
+
+      if (duplicateError) throw new Error(duplicateError.message);
+      if (duplicate) {
+        redirect(addQueryParam(returnTo, "error", "membership_payment_duplicate_reference"));
+      }
+    }
+
+    const { data: existingPeriod, error: existingPeriodError } = await supabase
+      .from("client_membership_periods")
+      .select("id, amount_due, amount_paid, payment_status")
+      .eq("client_membership_id", membership.id)
+      .eq("period_start", membership.current_period_start)
+      .eq("period_end", membership.current_period_end)
+      .maybeSingle();
+
+    if (existingPeriodError) throw new Error(existingPeriodError.message);
+    if (existingPeriod?.payment_status === "paid" || existingPeriod?.payment_status === "waived") {
+      redirect(addQueryParam(returnTo, "error", "membership_period_already_reconciled"));
+    }
+
+    const amountDue = Number(existingPeriod?.amount_due ?? membership.price_snapshot ?? 0);
+    const priorPaid = Number(existingPeriod?.amount_paid ?? 0);
+    const nextPaid = Math.round((priorPaid + amount) * 100) / 100;
+    if (amountDue > 0 && nextPaid > amountDue) {
+      redirect(addQueryParam(returnTo, "error", "membership_payment_exceeds_period_due"));
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data: payment, error: paymentError } = await supabase
+      .from("payments")
+      .insert({
+        studio_id: studioId,
+        client_id: clientId,
+        client_membership_id: membership.id,
+        amount,
+        payment_method: paymentMethod,
+        status: "paid",
+        paid_at: nowIso,
+        created_by: userId,
+        payment_type: "membership",
+        source: "manual",
+        payment_channel: "manual",
+        currency: "usd",
+        external_reference: externalReference,
+        notes:
+          notes ||
+          `External membership payment for ${membership.name_snapshot}, ${membership.current_period_start} through ${membership.current_period_end}.`,
+      })
+      .select("id")
+      .single();
+
+    if (paymentError || !payment) {
+      throw new Error(paymentError?.message ?? "Membership payment could not be recorded.");
+    }
+
+    const nextStatus = amountDue <= 0 || nextPaid >= amountDue ? "paid" : "partial";
+    const periodPayload = {
+      studio_id: studioId,
+      client_id: clientId,
+      client_membership_id: membership.id,
+      period_start: membership.current_period_start,
+      period_end: membership.current_period_end,
+      amount_due: amountDue,
+      amount_paid: nextPaid,
+      currency: "usd",
+      payment_status: nextStatus,
+      payment_id: payment.id,
+      payment_due_at: `${membership.current_period_start}T00:00:00.000Z`,
+      paid_at: nextStatus === "paid" ? nowIso : null,
+      created_by: userId,
+      updated_at: nowIso,
+    };
+
+    const { error: periodSaveError } = existingPeriod
+      ? await supabase
+          .from("client_membership_periods")
+          .update(periodPayload)
+          .eq("id", existingPeriod.id)
+      : await supabase.from("client_membership_periods").insert(periodPayload);
+
+    if (periodSaveError) {
+      await supabase.from("payments").delete().eq("id", payment.id);
+      throw new Error(periodSaveError.message);
+    }
+
+    if (nextStatus === "paid") {
+      const { error: membershipUpdateError } = await supabase
+        .from("client_memberships")
+        .update({ status: "active", updated_at: nowIso })
+        .eq("id", membership.id)
+        .eq("studio_id", studioId);
+      if (membershipUpdateError) throw new Error(membershipUpdateError.message);
+    }
+
+    redirect(addQueryParam(returnTo, "success", "membership_external_payment_recorded"));
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    redirect(
+      addQueryParam(
+        returnTo,
+        "error",
+        error instanceof Error ? error.message : "membership_payment_failed",
+      ),
+    );
+  }
+}
+
+export async function waiveMembershipPeriodAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const clientMembershipId = getString(formData, "clientMembershipId");
+  const reason = getString(formData, "reason", 500);
+  const returnTo = safeReturnTo(
+    getString(formData, "returnTo"),
+    clientId ? `/app/clients/${clientId}` : "/app/clients",
+  );
+
+  try {
+    const supabase = await createClient();
+    const context = await getCurrentStudioContext();
+    const studioId = context.studioId;
+    const role = context.studioRole ?? "";
+
+    if (!["studio_owner", "studio_admin"].includes(role)) {
+      redirect(addQueryParam(returnTo, "error", "membership_waiver_unauthorized"));
+    }
+    if (!reason || !isUuid(clientId) || !isUuid(clientMembershipId)) {
+      redirect(addQueryParam(returnTo, "error", "membership_waiver_missing_fields"));
+    }
+
+    const { data: membership, error } = await supabase
+      .from("client_memberships")
+      .select("id, client_id, current_period_start, current_period_end, price_snapshot")
+      .eq("id", clientMembershipId)
+      .eq("studio_id", studioId)
+      .eq("client_id", clientId)
+      .single();
+    if (error || !membership) {
+      redirect(addQueryParam(returnTo, "error", "membership_not_found"));
+    }
+
+    const nowIso = new Date().toISOString();
+    const { error: periodError } = await supabase
+      .from("client_membership_periods")
+      .upsert(
+        {
+          studio_id: studioId,
+          client_id: clientId,
+          client_membership_id: membership.id,
+          period_start: membership.current_period_start,
+          period_end: membership.current_period_end,
+          amount_due: Number(membership.price_snapshot ?? 0),
+          amount_paid: 0,
+          currency: "usd",
+          payment_status: "waived",
+          waived_at: nowIso,
+          waived_by: context.userId,
+          waiver_reason: reason,
+          created_by: context.userId,
+          updated_at: nowIso,
+        },
+        { onConflict: "client_membership_id,period_start,period_end" },
+      );
+    if (periodError) throw new Error(periodError.message);
+
+    await supabase
+      .from("client_memberships")
+      .update({ status: "active", updated_at: nowIso })
+      .eq("id", membership.id)
+      .eq("studio_id", studioId);
+
+    redirect(addQueryParam(returnTo, "success", "membership_period_waived"));
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    redirect(addQueryParam(returnTo, "error", "membership_waiver_failed"));
+  }
+}

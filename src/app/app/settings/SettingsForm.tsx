@@ -13,6 +13,7 @@ type Props = {
     cancellation_window_hours: number | null; booking_lead_time_hours: number | null;
     no_show_deducts_lesson: boolean | null; allow_negative_balance: boolean | null;
     block_depleted_package_booking: boolean | null; warn_low_package_balance: boolean | null;
+    block_depleted_membership_booking: boolean | null; block_unpaid_membership_booking: boolean | null;
     portal_self_scheduling_enabled: boolean | null; portal_self_scheduling_mode: string | null;
     portal_self_scheduling_reschedule_mode: string | null; portal_self_scheduling_cancellation_mode: string | null;
     portal_self_scheduling_window_days: number | null; portal_self_scheduling_min_notice_hours: number | null;
@@ -62,6 +63,8 @@ export default function SettingsForm({ studio, settings, notificationSettings, i
         <label className="text-sm font-medium">No-show handling<select name="noShowDeductsLesson" defaultValue={settings.no_show_deducts_lesson ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="true">Deduct lesson</option><option value="false">Do not deduct</option></select></label>
         <label className="text-sm font-medium">Negative balances<select name="allowNegativeBalance" defaultValue={settings.allow_negative_balance ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="false">Prevent</option><option value="true">Allow</option></select></label>
         <label className="text-sm font-medium">Depleted packages<select name="blockDepletedPackageBooking" defaultValue={settings.block_depleted_package_booking ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="true">Block booking</option><option value="false">Warn only</option></select></label>
+        <label className="text-sm font-medium">Depleted membership benefits<select name="blockDepletedMembershipBooking" defaultValue={settings.block_depleted_membership_booking ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="true">Block booking</option><option value="false">Warn only</option></select></label>
+        <label className="text-sm font-medium">Unpaid membership renewals<select name="blockUnpaidMembershipBooking" defaultValue={settings.block_unpaid_membership_booking ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="true">Block booking</option><option value="false">Warn only</option></select></label>
         <label className="text-sm font-medium">Low balance warning<select name="warnLowPackageBalance" defaultValue={settings.warn_low_package_balance ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="true">Show warning</option><option value="false">Do not warn</option></select></label>
       </div></section>
 

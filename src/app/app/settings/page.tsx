@@ -43,6 +43,8 @@ type StudioSettingsRow = {
   no_show_deducts_lesson: boolean | null;
   allow_negative_balance: boolean | null;
   block_depleted_package_booking: boolean | null;
+  block_depleted_membership_booking: boolean | null;
+  block_unpaid_membership_booking: boolean | null;
   warn_low_package_balance: boolean | null;
   public_intro_booking_enabled: boolean | null;
   portal_self_scheduling_enabled: boolean | null;
@@ -172,6 +174,8 @@ export default async function SettingsPage() {
         no_show_deducts_lesson,
         allow_negative_balance,
         block_depleted_package_booking,
+        block_depleted_membership_booking,
+        block_unpaid_membership_booking,
         warn_low_package_balance,
         public_intro_booking_enabled,
         portal_self_scheduling_enabled,

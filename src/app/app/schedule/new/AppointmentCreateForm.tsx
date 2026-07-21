@@ -1278,6 +1278,11 @@ export default function AppointmentCreateForm({
                       <option value="pay_as_you_go">Pay-as-you-go</option>
                       <option value="free_comped">Free / Comped</option>
                     </select>
+                    <input
+                      type="hidden"
+                      name="clientMembershipId"
+                      value={billingType === "membership" ? selectedMembership?.id ?? "" : ""}
+                    />
                   </div>
 
                   <div>

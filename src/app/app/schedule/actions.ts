@@ -7,6 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
 import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
 import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
+import { validateMembershipEntitlement } from "@/lib/memberships/entitlements";
 import { sendAppointmentSchedulePush } from "@/lib/notifications/schedulePush";
 import {
   requireAppointmentCreateAccess,
@@ -904,6 +905,7 @@ async function syncMembershipUsageForAppointment(params: {
   appointmentType: string;
   status: string;
   startsAtIso: string;
+  clientMembershipId?: string | null;
 }) {
   const {
     supabase,
@@ -913,6 +915,7 @@ async function syncMembershipUsageForAppointment(params: {
     appointmentType,
     status,
     startsAtIso,
+    clientMembershipId = null,
   } = params;
 
   await clearMembershipUsageForAppointment({
@@ -932,7 +935,7 @@ async function syncMembershipUsageForAppointment(params: {
     .select("id, membership_plan_id, current_period_start, current_period_end")
     .eq("studio_id", studioId)
     .eq("client_id", clientId)
-    .in("status", ["active", "trialing"]);
+    .in("status", ["active", "trialing", "past_due", "unpaid"]);
 
   if (membershipsError) {
     throw new Error(
@@ -941,6 +944,7 @@ async function syncMembershipUsageForAppointment(params: {
   }
 
   const matchingMembership = (activeMemberships ?? []).find((membership) => {
+    if (clientMembershipId && membership.id !== clientMembershipId) return false;
     const startsOk =
       !membership.current_period_start ||
       membership.current_period_start <= usageDate;
@@ -975,10 +979,28 @@ async function syncMembershipUsageForAppointment(params: {
   );
   if (!benefit) return;
 
+  const { data: membershipPeriod, error: periodError } = await supabase
+    .from("client_membership_periods")
+    .select("id, payment_status")
+    .eq("client_membership_id", matchingMembership.id)
+    .lte("period_start", usageDate)
+    .gte("period_end", usageDate)
+    .limit(1)
+    .maybeSingle();
+
+  if (periodError) {
+    throw new Error(`Could not load membership period: ${periodError.message}`);
+  }
+
+  if (!membershipPeriod || !["paid", "waived"].includes(membershipPeriod.payment_status)) {
+    throw new Error("Membership usage cannot be recorded against an unpaid renewal period.");
+  }
+
   const { error: usageInsertError } = await supabase
     .from("client_membership_usage")
     .insert({
       client_membership_id: matchingMembership.id,
+      client_membership_period_id: membershipPeriod.id,
       membership_plan_benefit_id: benefit.id,
       usage_date: usageDate,
       quantity_used: 1,
@@ -1384,6 +1406,7 @@ export async function createAppointmentAction(
     const instructorId = getNullableString(formData, "instructorId");
     const roomId = getNullableString(formData, "roomId");
     const clientPackageId = getNullableString(formData, "clientPackageId");
+    const submittedClientMembershipId = getNullableString(formData, "clientMembershipId");
     const billingType = normalizeLessonBillingType(
       getNullableString(formData, "billingType"),
       appointmentType,
@@ -1549,6 +1572,22 @@ export async function createAppointmentAction(
       return { error: "Appointment must end after it starts." };
     }
 
+    let resolvedClientMembershipId: string | null = null;
+    if (billingType === "membership") {
+      const membershipValidation = await validateMembershipEntitlement({
+        supabase,
+        studioId,
+        clientId,
+        appointmentType,
+        startsAtIso: startsAt,
+        clientMembershipId: submittedClientMembershipId,
+      });
+      if (!membershipValidation.ok) {
+        return { error: membershipValidation.error ?? "Membership cannot be used." };
+      }
+      resolvedClientMembershipId = membershipValidation.membershipId ?? null;
+    }
+
     const isRecurring = getBoolean(formData, "isRecurring");
     const recurrenceFrequency =
       getString(formData, "recurrenceFrequency") || "weekly";
@@ -1594,6 +1633,7 @@ export async function createAppointmentAction(
           notes: notes || null,
           location_name: locationName,
           billing_type: billingType,
+          client_membership_id: billingType === "membership" ? resolvedClientMembershipId : null,
           billing_note: billingNote,
           created_by: user.id,
           ...relations,
@@ -1689,6 +1729,8 @@ export async function createAppointmentAction(
         notes: notes || null,
         location_name: locationName,
         billing_type: billingType,
+        client_membership_id:
+          billingType === "membership" ? resolvedClientMembershipId : null,
         billing_note: billingNote,
         created_by: user.id,
         recurrence_series_id: recurrenceSeriesId,
@@ -1765,6 +1807,7 @@ export async function updateAppointmentAction(
     const instructorId = getNullableString(formData, "instructorId");
     const roomId = getNullableString(formData, "roomId");
     const clientPackageId = getNullableString(formData, "clientPackageId");
+    const submittedClientMembershipId = getNullableString(formData, "clientMembershipId");
     const billingType = normalizeLessonBillingType(
       getNullableString(formData, "billingType"),
       appointmentType,
@@ -1813,6 +1856,23 @@ export async function updateAppointmentAction(
 
     if (new Date(endsAt) <= new Date(startsAt)) {
       return { error: "Appointment must end after it starts." };
+    }
+
+    let resolvedClientMembershipId: string | null = null;
+    if (billingType === "membership") {
+      const membershipValidation = await validateMembershipEntitlement({
+        supabase,
+        studioId,
+        clientId,
+        appointmentType,
+        startsAtIso: startsAt,
+        clientMembershipId: submittedClientMembershipId,
+        excludeAppointmentId: appointmentId,
+      });
+      if (!membershipValidation.ok) {
+        return { error: membershipValidation.error ?? "Membership cannot be used." };
+      }
+      resolvedClientMembershipId = membershipValidation.membershipId ?? null;
     }
 
     if (isFloorSpaceRental(appointmentType)) {
@@ -1897,6 +1957,10 @@ export async function updateAppointmentAction(
       billing_type: isFloorSpaceRental(appointmentType)
         ? "package_credit"
         : billingType,
+      client_membership_id:
+        !isFloorSpaceRental(appointmentType) && billingType === "membership"
+          ? resolvedClientMembershipId
+          : null,
       billing_note: isFloorSpaceRental(appointmentType) ? null : billingNote,
       price_amount: isFloorSpaceRental(appointmentType) ? priceAmount : null,
       payment_status: isFloorSpaceRental(appointmentType)
@@ -1947,6 +2011,8 @@ export async function updateAppointmentAction(
           appointmentType,
           status,
           startsAtIso: String(row.starts_at),
+          clientMembershipId:
+            billingType === "membership" ? resolvedClientMembershipId : null,
         });
 
         await promoteLeadClientAfterBookedAppointment({
@@ -1981,6 +2047,8 @@ export async function updateAppointmentAction(
         appointmentType,
         status,
         startsAtIso: startsAt,
+        clientMembershipId:
+          billingType === "membership" ? resolvedClientMembershipId : null,
       });
 
       await promoteLeadClientAfterBookedAppointment({
@@ -2168,6 +2236,7 @@ async function applyMissedAppointmentCharge(params: {
     starts_at: string;
     client_package_id: string | null;
     billing_type: string | null;
+    client_membership_id?: string | null;
   };
   chargeSource: string;
 }) {
@@ -2205,6 +2274,7 @@ async function applyMissedAppointmentCharge(params: {
       appointmentType: appointment.appointment_type,
       status: "attended",
       startsAtIso: appointment.starts_at,
+      clientMembershipId: appointment.client_membership_id ?? null,
     });
 
     const { data: usageRows, error: usageLookupError } = await supabase
@@ -2275,7 +2345,7 @@ export async function cancelAppointmentAction(formData: FormData) {
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
       .select(
-        "id, client_id, recurrence_series_id, starts_at, title, appointment_type, client_package_id, billing_type",
+        "id, client_id, recurrence_series_id, starts_at, title, appointment_type, client_package_id, client_membership_id, billing_type",
       )
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
@@ -2371,6 +2441,7 @@ export async function cancelAppointmentAction(formData: FormData) {
           starts_at: appointment.starts_at,
           client_package_id: appointment.client_package_id,
           billing_type: appointment.billing_type,
+          client_membership_id: appointment.client_membership_id ?? null,
         },
         chargeSource: missedAppointmentCharge,
       });
@@ -2436,71 +2507,6 @@ export async function cancelAppointmentAction(formData: FormData) {
   }
 }
 
-async function hasMembershipCoverageForAttendance(params: {
-  supabase: Awaited<ReturnType<typeof requireAttendanceAccess>>["supabase"];
-  studioId: string;
-  clientId: string | null;
-  appointmentType: string;
-  startsAtIso: string;
-}) {
-  const { supabase, studioId, clientId, appointmentType, startsAtIso } = params;
-
-  if (!clientId) return false;
-
-  const usageType = getPackageUsageTypeForAppointmentType(appointmentType);
-  if (!usageType) return false;
-
-  const usageDate = datePart(startsAtIso);
-
-  const { data: activeMemberships, error: membershipsError } = await supabase
-    .from("client_memberships")
-    .select("id, membership_plan_id, current_period_start, current_period_end")
-    .eq("studio_id", studioId)
-    .eq("client_id", clientId)
-    .in("status", ["active", "trialing"]);
-
-  if (membershipsError) {
-    throw new Error(
-      `Could not load membership coverage: ${membershipsError.message}`,
-    );
-  }
-
-  const matchingMembership = (activeMemberships ?? []).find((membership) => {
-    const startsInRange =
-      !membership.current_period_start ||
-      membership.current_period_start <= usageDate;
-    const endsInRange =
-      !membership.current_period_end ||
-      membership.current_period_end >= usageDate;
-
-    return startsInRange && endsInRange;
-  });
-
-  if (!matchingMembership) return false;
-
-  const membershipBenefitTypes = getMembershipBenefitTypesForAppointmentType(
-    appointmentType,
-  );
-
-  if (membershipBenefitTypes.length === 0) return false;
-
-  const { data: benefits, error: benefitError } = await supabase
-    .from("membership_plan_benefits")
-    .select("id, benefit_type, applies_to")
-    .eq("membership_plan_id", matchingMembership.membership_plan_id)
-    .in("benefit_type", membershipBenefitTypes);
-
-  if (benefitError) {
-    throw new Error(
-      `Could not load membership benefit: ${benefitError.message}`,
-    );
-  }
-
-  return (benefits ?? []).some((benefit) =>
-    membershipBenefitAppliesToAppointmentType(benefit, appointmentType),
-  );
-}
-
 async function packageHasAvailableCreditForAttendance(params: {
   supabase: Awaited<ReturnType<typeof requireAttendanceAccess>>["supabase"];
   studioId: string;
@@ -2560,6 +2566,7 @@ async function canMarkAppointmentAttendedWithoutPaymentWarning(params: {
     appointment_type: string;
     starts_at: string;
     client_package_id: string | null;
+    client_membership_id: string | null;
     price_amount: number | string | null;
     payment_status: string | null;
     billing_type: string | null;
@@ -2587,13 +2594,17 @@ async function canMarkAppointmentAttendedWithoutPaymentWarning(params: {
   }
 
   if (billingType === "membership") {
-    return hasMembershipCoverageForAttendance({
+    const validation = await validateMembershipEntitlement({
       supabase,
       studioId,
-      clientId: appointment.client_id,
+      clientId: appointment.client_id ?? "",
       appointmentType: appointment.appointment_type,
       startsAtIso: appointment.starts_at,
+      clientMembershipId: appointment.client_membership_id ?? null,
+      excludeAppointmentId: appointment.id,
+      includeFutureReservations: false,
     });
+    return validation.ok;
   }
 
   return packageHasAvailableCreditForAttendance({
@@ -2619,7 +2630,7 @@ export async function markAppointmentAttendedAction(formData: FormData) {
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
       .select(
-        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, price_amount, payment_status, billing_type",
+        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, client_membership_id, price_amount, payment_status, billing_type",
       )
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
@@ -2671,6 +2682,7 @@ export async function markAppointmentAttendedAction(formData: FormData) {
           appointmentType: appointment.appointment_type,
           status: "attended",
           startsAtIso: appointment.starts_at,
+          clientMembershipId: appointment.client_membership_id ?? null,
         });
       }
 
@@ -2726,7 +2738,7 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
     const { data: appointments, error: appointmentsError } = await supabase
       .from("appointments")
       .select(
-        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, price_amount, payment_status, billing_type, status",
+        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, client_membership_id, price_amount, payment_status, billing_type, status",
       )
       .eq("studio_id", studioId)
 .gte("starts_at", startsAtMin)
@@ -2801,6 +2813,7 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
               appointmentType: appointment.appointment_type,
               status: "attended",
               startsAtIso: appointment.starts_at,
+              clientMembershipId: appointment.client_membership_id ?? null,
             });
           }
 
@@ -2888,7 +2901,7 @@ export async function markAppointmentNoShowAction(formData: FormData) {
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
       .select(
-        "id, client_id, appointment_type, starts_at, title, client_package_id, billing_type",
+        "id, client_id, appointment_type, starts_at, title, client_package_id, client_membership_id, billing_type",
       )
       .eq("id", appointmentId)
       .eq("studio_id", studioId)

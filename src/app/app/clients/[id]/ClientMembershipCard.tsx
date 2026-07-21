@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { recordExternalMembershipPaymentAction, waiveMembershipPeriodAction } from "@/app/app/memberships/actions";
 
 type MembershipPlanOption = {
   id: string;
@@ -303,6 +304,33 @@ export default function ClientMembershipCard({
                   {activeMembership.status.replaceAll("_", " ")}
                 </p>
               </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 border-t border-slate-200 pt-5 lg:grid-cols-2">
+              <form action={recordExternalMembershipPaymentAction} className="rounded-2xl border border-slate-200 bg-white p-4">
+                <input type="hidden" name="clientId" value={clientId} />
+                <input type="hidden" name="clientMembershipId" value={activeMembership.id} />
+                <input type="hidden" name="returnTo" value={`/app/clients/${clientId}`} />
+                <h4 className="font-semibold text-slate-900">Record outside payment</h4>
+                <p className="mt-1 text-xs text-slate-500">Apply a cash, check, bank, or externally processed payment to this exact renewal period.</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-medium text-slate-700">Amount<input required name="amount" inputMode="decimal" defaultValue={Number(activeMembership.price_snapshot ?? 0).toFixed(2)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></label>
+                  <label className="text-xs font-medium text-slate-700">Method<select name="paymentMethod" defaultValue="cash" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"><option value="cash">Cash</option><option value="check">Check</option><option value="ach">ACH / bank</option><option value="venmo">Venmo</option><option value="zelle">Zelle</option><option value="card">External card</option><option value="other">Other</option></select></label>
+                </div>
+                <input name="externalReference" placeholder="Receipt, check, or transaction reference" className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                <input name="notes" placeholder="Optional note" className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+                <button className="mt-3 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white">Record payment</button>
+              </form>
+
+              <form action={waiveMembershipPeriodAction} className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <input type="hidden" name="clientId" value={clientId} />
+                <input type="hidden" name="clientMembershipId" value={activeMembership.id} />
+                <input type="hidden" name="returnTo" value={`/app/clients/${clientId}`} />
+                <h4 className="font-semibold text-amber-950">Waive this renewal</h4>
+                <p className="mt-1 text-xs text-amber-800">Owner or administrator approval is required. The reason is retained for audit review.</p>
+                <textarea required name="reason" rows={2} placeholder="Reason for waiver" className="mt-3 w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm" />
+                <button className="mt-3 rounded-xl border border-amber-400 bg-white px-4 py-2 text-sm font-semibold text-amber-900">Waive period</button>
+              </form>
             </div>
 
             {membershipAlert ? (
