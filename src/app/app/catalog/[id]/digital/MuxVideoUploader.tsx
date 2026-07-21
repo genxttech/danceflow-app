@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -48,6 +48,30 @@ export default function MuxVideoUploader({
   const interruptedServerUpload = ["waiting", "uploading"].includes(
     muxStatus ?? "",
   );
+
+
+  useEffect(() => {
+    if (muxStatus === "ready") {
+      setState("idle");
+      setProgress(100);
+      setFile(null);
+      setError(null);
+      return;
+    }
+
+    if (["asset_created", "processing"].includes(muxStatus ?? "")) {
+      setState("processing");
+      return;
+    }
+
+    if (
+      muxStatus === "errored" ||
+      muxStatus === "cancelled" ||
+      muxStatus === "timed_out"
+    ) {
+      setState("failed");
+    }
+  }, [muxStatus]);
 
   async function resetAbandonedUpload() {
     try {
@@ -239,7 +263,7 @@ export default function MuxVideoUploader({
         </div>
       ) : null}
 
-      {processing || state === "processing" ? (
+      {muxStatus !== "ready" && (processing || state === "processing") ? (
         <div className="mt-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
           <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin" />
           <div>
@@ -252,7 +276,7 @@ export default function MuxVideoUploader({
         </div>
       ) : null}
 
-      {!processing && state !== "processing" ? (
+      {muxStatus !== "ready" && !processing && state !== "processing" ? (
         <div className="mt-5 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5">
           <label className="block cursor-pointer">
             <input
@@ -312,7 +336,8 @@ export default function MuxVideoUploader({
             !file ||
             state === "preparing" ||
             state === "uploading" ||
-            processing
+            processing ||
+            muxStatus === "ready"
           }
           className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
         >
@@ -340,7 +365,7 @@ export default function MuxVideoUploader({
           </button>
         ) : null}
 
-        {(processing || state === "processing") ? (
+        {muxStatus !== "ready" && (processing || state === "processing") ? (
           <button
             type="button"
             onClick={() => router.refresh()}
