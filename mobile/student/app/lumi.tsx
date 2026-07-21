@@ -21,6 +21,7 @@ const emptyOverview: StudentLearnOverview = {
   groupLessonRecaps: [],
   practiceFocus: [],
   syllabi: [],
+  digitalContent: [],
   lumiPrompts: [
     "What should I practice this week?",
     "Turn my recent lessons into a practice plan.",

@@ -275,12 +275,52 @@ export async function GET(request: NextRequest, { params }: Params) {
         durationSeconds: content.duration_seconds,
       };
     })
-    .filter(Boolean);
+    .filter(
+  (video): video is Exclude<typeof video, null> => video !== null
+);
+
+  const { data: progressRows, error: progressError } = await admin
+    .from("commerce_playback_progress")
+    .select(
+      "catalog_item_id, position_seconds, duration_seconds, percent_complete, completed, completed_at, last_watched_at",
+    )
+    .eq("entitlement_id", typedEntitlement.id)
+    .eq("user_id", user.id)
+    .in("catalog_item_id", availableCatalogIds);
+
+  if (progressError) {
+    return jsonError("Video progress could not be loaded.", 500);
+  }
+
+  const progressByCatalogId = new Map(
+    (progressRows ?? []).map((row) => [
+      row.catalog_item_id as string,
+      {
+        catalogItemId: row.catalog_item_id as string,
+        positionSeconds: Number(row.position_seconds ?? 0),
+        durationSeconds: Number(row.duration_seconds ?? 0),
+        percentComplete: Number(row.percent_complete ?? 0),
+        completed: row.completed === true,
+        completedAt: row.completed_at ?? null,
+        lastWatchedAt: row.last_watched_at ?? null,
+      },
+    ]),
+  );
 
   const selectedCatalogItemId =
     requestedCatalogItemId && availableCatalogIds.includes(requestedCatalogItemId)
       ? requestedCatalogItemId
-      : (videos[0]?.catalogItemId ?? null);
+      : (
+          [...progressByCatalogId.values()]
+            .filter((progress) => !progress.completed)
+            .sort(
+              (a, b) =>
+                new Date(b.lastWatchedAt ?? 0).getTime() -
+                new Date(a.lastWatchedAt ?? 0).getTime(),
+            )[0]?.catalogItemId ??
+          videos[0]?.catalogItemId ??
+          null
+        );
 
   const selectedContent = selectedCatalogItemId
     ? contentByCatalogId.get(selectedCatalogItemId)
@@ -338,8 +378,14 @@ export async function GET(request: NextRequest, { params }: Params) {
     itemType: typedParent.item_type,
     name: typedParent.name,
     description: typedParent.description,
-    videos,
+    videos: videos.map((video) => ({
+      ...video,
+      progress: progressByCatalogId.get(video.catalogItemId) ?? null,
+    })),
     playback,
+    selectedProgress: selectedCatalogItemId
+      ? progressByCatalogId.get(selectedCatalogItemId) ?? null
+      : null,
     accessExpiresAt: typedEntitlement.expires_at,
   });
 }

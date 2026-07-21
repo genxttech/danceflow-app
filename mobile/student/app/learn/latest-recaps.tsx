@@ -20,6 +20,7 @@ const emptyOverview: StudentLearnOverview = {
   groupLessonRecaps: [],
   practiceFocus: [],
   syllabi: [],
+  digitalContent: [],
   lumiPrompts: []
 };
 

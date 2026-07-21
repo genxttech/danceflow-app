@@ -28,6 +28,7 @@ const emptyOverview: StudentLearnOverview & { syllabi: StudentSyllabusSummary[] 
   groupLessonRecaps: [],
   practiceFocus: [],
   syllabi: [],
+  digitalContent: [],
   lumiPrompts: []
 };
 

@@ -35,6 +35,7 @@ const emptyOverview: StudentLearnOverview & { syllabi: StudentSyllabusSummary[] 
   groupLessonRecaps: [],
   practiceFocus: [],
   syllabi: [],
+  digitalContent: [],
   lumiPrompts: [
     "What should I practice this week?",
     "How do I set a dance goal?",
@@ -210,6 +211,10 @@ export default function LearnScreen() {
   const practiceFocus = overview.practiceFocus;
   const syllabi =
     (overview as StudentLearnOverview & { syllabi?: StudentSyllabusSummary[] }).syllabi ?? [];
+  const digitalContent = overview.digitalContent ?? [];
+  const continueLearning = digitalContent.filter(
+    (item) => item.lastWatchedAt && !item.completed
+  );
   const recapCount = recentLessons.length + groupLessonRecaps.length;
 
   return (
@@ -232,7 +237,67 @@ export default function LearnScreen() {
         <FeatureCard label="Needs review" title="Learning history unavailable" detail={errorMessage} />
       ) : null}
 
-      {!loading && !hasPortalAccess ? <LearnValueCard signedIn={isSignedIn} styles={styles} /> : null}
+      {!loading && !hasPortalAccess && digitalContent.length === 0 ? (
+        <LearnValueCard signedIn={isSignedIn} styles={styles} />
+      ) : null}
+
+      {!loading && digitalContent.length > 0 ? (
+        <View style={styles.section}>
+          <AppText variant="subtitle">
+            {continueLearning.length > 0 ? "Continue Learning" : "Digital Learning"}
+          </AppText>
+          {digitalContent.slice(0, 6).map((item) => (
+            <Pressable
+              key={item.entitlementId}
+              onPress={() =>
+                router.push({
+                  pathname: "/learn/digital/[entitlementId]",
+                  params: {
+                    entitlementId: item.entitlementId,
+                    ...(item.resumeCatalogItemId
+                      ? { catalogItemId: item.resumeCatalogItemId }
+                      : {})
+                  }
+                } as never)
+              }
+              style={({ pressed }) => [
+                styles.itemCard,
+                pressed && styles.cardPressed
+              ]}
+            >
+              <View style={styles.cardHeader}>
+                <View style={{ flex: 1 }}>
+                  <AppText variant="subtitle">{item.name}</AppText>
+                  <AppText variant="caption">{item.studioName}</AppText>
+                </View>
+                <View style={styles.progressBadge}>
+                  <AppText style={styles.progressBadgeValue}>
+                    {item.completed ? "✓" : `${Math.round(item.percentComplete)}%`}
+                  </AppText>
+                  <AppText style={styles.progressBadgeLabel}>
+                    {item.completed ? "Complete" : "Progress"}
+                  </AppText>
+                </View>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${Math.max(0, Math.min(100, item.percentComplete))}%` }
+                  ]}
+                />
+              </View>
+              <AppText variant="caption">
+                {item.lastWatchedAt
+                  ? item.completed
+                    ? "Completed"
+                    : "Resume where you stopped"
+                  : "Start watching"}
+              </AppText>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       {!loading && hasPortalAccess ? (
         <>

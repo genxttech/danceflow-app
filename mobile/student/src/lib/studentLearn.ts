@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import type { LinkedStudioAccess } from "@/lib/studentAccess";
+import { loadStudentDigitalLibrary, type StudentDigitalLibraryItem } from "@/lib/studentDigitalContent";
 import {
   appointmentTypeLabel,
   formatScheduleTimeRange
@@ -78,6 +79,7 @@ export type StudentLearnOverview = {
   groupLessonRecaps: StudentGroupLessonRecap[];
   practiceFocus: StudentPracticeFocus[];
   syllabi: StudentSyllabusSummary[];
+  digitalContent: StudentDigitalLibraryItem[];
   lumiPrompts: string[];
 };
 
@@ -428,12 +430,15 @@ function buildLumiPrompts(
 export async function loadStudentLearnOverview(
   linkedStudios: LinkedStudioAccess[]
 ): Promise<StudentLearnOverview> {
+  const digitalContent = await loadStudentDigitalLibrary();
+
   if (!linkedStudios.length) {
     return {
       recentLessons: [],
       groupLessonRecaps: [],
       practiceFocus: [],
       syllabi: [],
+      digitalContent,
       lumiPrompts: buildLumiPrompts([], [])
     };
   }
@@ -603,6 +608,7 @@ export async function loadStudentLearnOverview(
     groupLessonRecaps,
     practiceFocus: buildPracticeFocus(slicedLessons),
     syllabi,
+    digitalContent,
     lumiPrompts: buildLumiPrompts(slicedLessons, groupLessonRecaps)
   };
 }
