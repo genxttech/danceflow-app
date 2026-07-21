@@ -138,7 +138,12 @@ export default async function OrderDetailPage({
           fulfillment_status,
           unit_cost_snapshot
         ),
-        payments(payment_method, status, external_reference, paid_at)
+        payments!commerce_orders_payment_id_fkey(
+          payment_method,
+          status,
+          external_reference,
+          paid_at
+        )
       `,
     )
     .eq("id", id)
