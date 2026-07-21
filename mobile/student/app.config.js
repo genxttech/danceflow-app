@@ -6,13 +6,17 @@ const easProjectId =
 module.exports = ({ config }) => ({
   ...config,
   ...appJson.expo,
+  plugins: Array.from(
+    new Set([...(appJson.expo.plugins || []), "expo-video"])
+  ),
   updates: {
     ...(appJson.expo.updates || {}),
     url: `https://u.expo.dev/${easProjectId}`,
   },
   android: {
     ...appJson.expo.android,
-    googleServicesFile: process.env.GOOGLE_SERVICES_JSON || "./google-services.json",
+    googleServicesFile:
+      process.env.GOOGLE_SERVICES_JSON || "./google-services.json",
     runtimeVersion: "1.0.0",
   },
   ios: {

@@ -19,6 +19,9 @@ type MuxWebhookEvent = {
     upload_id?: string;
     status?: string;
     passthrough?: string;
+    new_asset_settings?: {
+      passthrough?: string;
+    };
     duration?: number;
     aspect_ratio?: string;
     playback_ids?: MuxPlaybackId[];
@@ -94,6 +97,9 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
+  const receivedAt = new Date().toISOString();
+  let webhookEventRowId: string | null = null;
+
   const { data: insertedEvent, error: eventInsertError } = await admin
     .from("commerce_mux_webhook_events")
     .insert({
@@ -101,25 +107,73 @@ export async function POST(request: Request) {
       event_type: event.type,
       payload: event,
       processing_status: "processing",
-      received_at: new Date().toISOString(),
+      received_at: receivedAt,
     })
     .select("id")
     .maybeSingle();
 
   if (eventInsertError?.code === "23505") {
-    return NextResponse.json({ ok: true, duplicate: true });
-  }
+    const { data: existingEvent, error: existingEventError } = await admin
+      .from("commerce_mux_webhook_events")
+      .select("id, processing_status")
+      .eq("mux_event_id", event.id)
+      .maybeSingle();
 
-  if (eventInsertError || !insertedEvent) {
+    if (existingEventError || !existingEvent) {
+      console.error("Mux duplicate webhook lookup failed:", existingEventError);
+      return NextResponse.json(
+        { ok: false, error: "Webhook could not be reconciled." },
+        { status: 500 },
+      );
+    }
+
+    if (existingEvent.processing_status === "processed") {
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
+
+    webhookEventRowId = existingEvent.id;
+
+    const { error: retryUpdateError } = await admin
+      .from("commerce_mux_webhook_events")
+      .update({
+        payload: event,
+        event_type: event.type,
+        processing_status: "processing",
+        error_message: null,
+        processed_at: null,
+        received_at: receivedAt,
+      })
+      .eq("id", existingEvent.id);
+
+    if (retryUpdateError) {
+      console.error("Mux webhook retry reset failed:", retryUpdateError);
+      return NextResponse.json(
+        { ok: false, error: "Webhook retry could not be prepared." },
+        { status: 500 },
+      );
+    }
+  } else if (eventInsertError || !insertedEvent) {
     console.error("Mux webhook event insert failed:", eventInsertError);
     return NextResponse.json(
       { ok: false, error: "Webhook could not be recorded." },
       { status: 500 },
     );
+  } else {
+    webhookEventRowId = insertedEvent.id;
+  }
+
+  if (!webhookEventRowId) {
+    return NextResponse.json(
+      { ok: false, error: "Webhook event could not be identified." },
+      { status: 500 },
+    );
   }
 
   try {
-    const passthrough = parsePassthrough(event.data.passthrough);
+    const passthrough = parsePassthrough(
+      event.data.passthrough ??
+        event.data.new_asset_settings?.passthrough,
+    );
     const uploadId =
       event.type.startsWith("video.upload.")
         ? event.data.id
@@ -157,7 +211,20 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString();
 
-    if (event.type === "video.upload.asset_created") {
+    if (event.type === "video.upload.created") {
+      const { error } = await admin
+        .from("commerce_digital_content")
+        .update({
+          mux_upload_id: event.data.id ?? null,
+          mux_upload_status: event.data.status ?? "waiting",
+          mux_error_message: null,
+          external_provider: "mux",
+          updated_at: now,
+        })
+        .eq("id", contentId);
+
+      if (error) throw new Error(error.message);
+    } else if (event.type === "video.upload.asset_created") {
       const { error } = await admin
         .from("commerce_digital_content")
         .update({
@@ -253,7 +320,7 @@ export async function POST(request: Request) {
         processing_status: "processed",
         processed_at: now,
       })
-      .eq("id", insertedEvent.id);
+      .eq("id", webhookEventRowId);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -267,7 +334,7 @@ export async function POST(request: Request) {
           error instanceof Error ? error.message : "Unknown processing error.",
         processed_at: new Date().toISOString(),
       })
-      .eq("id", insertedEvent.id);
+      .eq("id", webhookEventRowId);
 
     return NextResponse.json(
       { ok: false, error: "Webhook processing failed." },

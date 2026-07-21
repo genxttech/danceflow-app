@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { StyleSheet, useColorScheme, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
@@ -23,6 +23,7 @@ export default function DigitalPurchasesPage() {
   const colors = colorsForScheme(useColorScheme());
   const styles = createStyles(colors);
   const { session } = useAuth();
+  const router = useRouter();
   const [items, setItems] = useState<StudentDigitalEntitlement[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -72,7 +73,7 @@ export default function DigitalPurchasesPage() {
       <AppText variant="title">Digital Purchases</AppText>
       <AppText variant="caption">
         Videos, series, and downloads purchased from your connected studios
-        appear here. Playback will be enabled after secure Mux integration.
+        appear here. Open a video to watch it securely in DanceFlow.
       </AppText>
 
       {loading ? (
@@ -95,23 +96,50 @@ export default function DigitalPurchasesPage() {
 
       {!loading && !errorMessage ? (
         <View style={styles.list}>
-          {items.map((item) => (
-            <View key={item.id} style={styles.card}>
-              <View style={styles.header}>
-                <AppText variant="eyebrow">{itemTypeLabel(item.itemType)}</AppText>
-                <AppText variant="caption">{item.studioName}</AppText>
-              </View>
-              <AppText variant="subtitle">{item.name}</AppText>
-              <AppText variant="caption">
-                Access granted {formatWalletDate(item.grantedAt)}
-              </AppText>
-              <AppText variant="caption">
-                {item.expiresAt
-                  ? `Access expires ${formatWalletDate(item.expiresAt)}`
-                  : "Lifetime access"}
-              </AppText>
-            </View>
-          ))}
+          {items.map((item) => {
+            const playable =
+              item.itemType === "digital_video" ||
+              item.itemType === "video_series";
+
+            return (
+              <Pressable
+                key={item.id}
+                disabled={!playable}
+                onPress={() =>
+                  router.push(
+                    {
+                      pathname: "/learn/digital/[entitlementId]",
+                      params: { entitlementId: item.id }
+                    } as never
+                  )
+                }
+                style={({ pressed }) => [
+                  styles.card,
+                  pressed && playable && styles.cardPressed,
+                  !playable && styles.cardDisabled
+                ]}
+              >
+                <View style={styles.header}>
+                  <AppText variant="eyebrow">
+                    {itemTypeLabel(item.itemType)}
+                  </AppText>
+                  <AppText variant="caption">{item.studioName}</AppText>
+                </View>
+                <AppText variant="subtitle">{item.name}</AppText>
+                <AppText variant="caption">
+                  Access granted {formatWalletDate(item.grantedAt)}
+                </AppText>
+                <AppText variant="caption">
+                  {item.expiresAt
+                    ? `Access expires ${formatWalletDate(item.expiresAt)}`
+                    : "Lifetime access"}
+                </AppText>
+                <AppText variant="caption">
+                  {playable ? "Tap to watch" : "Download access coming next"}
+                </AppText>
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
     </Screen>
@@ -127,6 +155,12 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
       borderWidth: 1,
       gap: 6,
       padding: 18
+    },
+    cardDisabled: {
+      opacity: 0.65
+    },
+    cardPressed: {
+      opacity: 0.78
     },
     header: {
       alignItems: "center",

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, createSign, timingSafeEqual } from "crypto";
 
 const MUX_API_BASE = "https://api.mux.com/video/v1";
 
@@ -126,4 +126,66 @@ export function getMuxSigningPrivateKey() {
 
 export function getMuxSigningKeyId() {
   return required("MUX_SIGNING_KEY_ID");
+}
+
+
+function base64Url(value: string | Buffer) {
+  return Buffer.from(value)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+export function createMuxPlaybackToken(input: {
+  playbackId: string;
+  expiresInSeconds?: number;
+}) {
+  const now = Math.floor(Date.now() / 1000);
+  const expiresInSeconds = Math.min(
+    Math.max(input.expiresInSeconds ?? 900, 60),
+    3600,
+  );
+
+  const header = {
+    alg: "RS256",
+    kid: getMuxSigningKeyId(),
+    typ: "JWT",
+  };
+
+  const payload = {
+    sub: input.playbackId,
+    aud: "v",
+    iat: now,
+    exp: now + expiresInSeconds,
+  };
+
+  const encodedHeader = base64Url(JSON.stringify(header));
+  const encodedPayload = base64Url(JSON.stringify(payload));
+  const unsignedToken = `${encodedHeader}.${encodedPayload}`;
+  const signer = createSign("RSA-SHA256");
+
+  signer.update(unsignedToken);
+  signer.end();
+
+  const signature = signer.sign(getMuxSigningPrivateKey());
+
+  return {
+    expiresAt: new Date((now + expiresInSeconds) * 1000).toISOString(),
+    token: `${unsignedToken}.${base64Url(signature)}`,
+  };
+}
+
+export function createSignedMuxPlaybackUrl(input: {
+  playbackId: string;
+  expiresInSeconds?: number;
+}) {
+  const signed = createMuxPlaybackToken(input);
+
+  return {
+    expiresAt: signed.expiresAt,
+    url: `https://stream.mux.com/${encodeURIComponent(
+      input.playbackId,
+    )}.m3u8?token=${encodeURIComponent(signed.token)}`,
+  };
 }
