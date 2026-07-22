@@ -142,9 +142,12 @@ function getPlan(
   return Array.isArray(value) ? value[0] : value;
 }
 
+const PLATFORM_DISPLAY_TIME_ZONE = "America/New_York";
+
 function formatDate(value: string | null) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", {
+    timeZone: PLATFORM_DISPLAY_TIME_ZONE,
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -154,11 +157,13 @@ function formatDate(value: string | null) {
 function formatDateTime(value: string | null) {
   if (!value) return "Never";
   return new Intl.DateTimeFormat("en-US", {
+    timeZone: PLATFORM_DISPLAY_TIME_ZONE,
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   }).format(new Date(value));
 }
 
@@ -267,6 +272,7 @@ export default async function PlatformStudioDetailPage({
 
   const { id } = await params;
   const supabase = await createClient();
+  const adminSupabase = createAdminClient();
 
   const [
     { data: studio, error: studioError },
@@ -330,7 +336,7 @@ export default async function PlatformStudioDetailPage({
       .order("created_at", { ascending: false })
       .limit(25),
 
-    supabase
+    adminSupabase
       .from("clients")
       .select("id, first_name, last_name, email, updated_at")
       .eq("studio_id", id)
@@ -338,16 +344,17 @@ export default async function PlatformStudioDetailPage({
       .order("updated_at", { ascending: false })
       .limit(150),
 
-    supabase
+    adminSupabase
       .from("client_account_links")
       .select(
         "client_id, user_id, status, relationship_type, is_primary, invited_email, linked_at, created_at, updated_at"
       )
       .eq("studio_id", id),
 
-    supabase
+    adminSupabase
       .from("outbound_deliveries")
       .select("id, recipient_email, related_id, status, error_message, provider_message_id, sent_at, created_at")
+      .eq("studio_id", id)
       .eq("template_key", "client_portal_invite")
       .eq("related_table", "clients")
       .order("created_at", { ascending: false })
@@ -460,7 +467,6 @@ export default async function PlatformStudioDetailPage({
     delivery.related_id ? portalClientIds.has(delivery.related_id) : false
   );
 
-  const adminSupabase = createAdminClient();
   const portalEmails = Array.from(
     new Set(typedPortalClients.map((client) => normalizeEmail(client.email)).filter(Boolean))
   );
@@ -514,27 +520,44 @@ export default async function PlatformStudioDetailPage({
   }
 
   try {
-    const { data: authUsersData, error: authUsersError } =
-      await adminSupabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const emailSet = new Set(portalEmails);
+    const profileIdSet = new Set(portalProfileIds);
+    const matchedUsers = new Map<string, AuthUserDiagnosticRow>();
+    const perPage = 200;
 
-    if (authUsersError) {
-      portalAuthLookupError = authUsersError.message;
-    } else {
-      const emailSet = new Set(portalEmails);
-      const profileIdSet = new Set(portalProfileIds);
-      portalAuthUsers = (authUsersData.users ?? [])
-        .filter((user) => profileIdSet.has(user.id) || emailSet.has(normalizeEmail(user.email)))
-        .map((user) => ({
-          id: user.id,
-          email: user.email,
-          email_confirmed_at: user.email_confirmed_at ?? null,
-          last_sign_in_at: user.last_sign_in_at ?? null,
-          created_at: user.created_at ?? null,
-        }));
+    for (let page = 1; page <= 50; page += 1) {
+      const { data: authUsersData, error: authUsersError } =
+        await adminSupabase.auth.admin.listUsers({ page, perPage });
+
+      if (authUsersError) {
+        portalAuthLookupError = authUsersError.message;
+        break;
+      }
+
+      for (const user of authUsersData.users ?? []) {
+        if (
+          profileIdSet.has(user.id) ||
+          emailSet.has(normalizeEmail(user.email))
+        ) {
+          matchedUsers.set(user.id, {
+            id: user.id,
+            email: user.email,
+            email_confirmed_at: user.email_confirmed_at ?? null,
+            last_sign_in_at: user.last_sign_in_at ?? null,
+            created_at: user.created_at ?? null,
+          });
+        }
+      }
+
+      if ((authUsersData.users ?? []).length < perPage) break;
     }
+
+    portalAuthUsers = Array.from(matchedUsers.values());
   } catch (error) {
     portalAuthLookupError =
-      error instanceof Error ? error.message : "Unable to load auth users for portal diagnostics.";
+      error instanceof Error
+        ? error.message
+        : "Unable to load auth users for portal diagnostics.";
   }
 
   const profileById = new Map(portalProfiles.map((profile) => [profile.id, profile]));
@@ -576,7 +599,7 @@ export default async function PlatformStudioDetailPage({
     if (linkedUserId && linkedProfile && linkedAuthUser) {
       status = "ok";
       label = "Linked";
-    } else if (linkedUserId && (!linkedProfile || !linkedAuthUser)) {
+    } else if (linkedUserId) {
       status = "danger";
       label = "Broken link";
     } else if (
