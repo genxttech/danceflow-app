@@ -1,6 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Resend } from "resend";
 import twilio from "twilio";
+import {
+  renderDanceFlowSystemEmail,
+  renderPlainTextAsStudioEmail,
+} from "@/lib/notifications/email-branding";
 
 type OutboundPayload = Record<string, unknown> | null;
 
@@ -102,6 +106,40 @@ function formatDateTime(value: string, timeZone = "America/New_York") {
     minute: "2-digit",
     timeZoneName: "short",
   }).format(date);
+}
+
+async function getStudioEmailBranding(studioId: string) {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("studios")
+    .select("name, public_name, public_logo_url")
+    .eq("id", studioId)
+    .maybeSingle<{
+      name: string;
+      public_name: string | null;
+      public_logo_url: string | null;
+    }>();
+
+  if (error || !data) {
+    return {
+      name: "Your dance studio",
+      logoUrl: null,
+    };
+  }
+
+  return {
+    name: data.public_name?.trim() || data.name || "Your dance studio",
+    logoUrl: data.public_logo_url,
+  };
+}
+
+function isDanceFlowSystemTemplate(templateKey: string) {
+  return (
+    templateKey.startsWith("platform_") ||
+    templateKey.startsWith("danceflow_") ||
+    templateKey === "welcome_to_danceflow" ||
+    templateKey === "platform_admin_invite"
+  );
 }
 
 function renderAppointmentMessage(row: OutboundDeliveryRow): RenderedMessage | null {
@@ -317,57 +355,27 @@ function getWelcomeEmailContent(params: {
     "The DanceFlow Team",
   ].join("\n");
 
-  const html = `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6; max-width: 680px;">
-      <h1 style="color: #4c1d95; margin-bottom: 12px;">Welcome to DanceFlow</h1>
-
-      <p>Hi ${safeFirstName},</p>
-
-      <p>Welcome to DanceFlow. We are excited to have you in the DanceFlow community.</p>
-
-      <p>${escapeHtml(introLine)}</p>
-
-      <h2 style="font-size: 18px; margin-top: 24px;">Recommended next steps</h2>
-      <ul>
-        ${nextSteps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
-      </ul>
-
-      <p style="margin-top: 24px;">
-        <a href="${dashboardUrl}" style="display: inline-block; background: #4c1d95; color: #ffffff; padding: 12px 18px; border-radius: 12px; text-decoration: none; font-weight: 700;">
-          Open your dashboard
-        </a>
-      </p>
-
-      <h2 style="font-size: 18px; margin-top: 24px;">Helpful Getting Started articles</h2>
-      <ul>
-        ${links
-          .map(
-            (link) =>
-              `<li><a href="${link.url}" style="color: #4c1d95;">${escapeHtml(
-                link.label
-              )}</a></li>`
-          )
-          .join("")}
-      </ul>
-
-      <p style="margin-top: 24px;">
-        Need help? Visit <a href="${supportUrl}" style="color: #4c1d95;">Support</a> or reply to this email.
-      </p>
-
-      <p style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
-        <a href="${termsUrl}" style="color: #4c1d95;">SaaS Terms</a>
-        &nbsp;·&nbsp;
-        <a href="${privacyUrl}" style="color: #4c1d95;">Privacy Policy</a>
-        &nbsp;·&nbsp;
-        <a href="${securityUrl}" style="color: #4c1d95;">Security</a>
-      </p>
-
-      <p style="margin-top: 28px;">
-        Thanks for being part of DanceFlow.<br />
-        The DanceFlow Team
-      </p>
-    </div>
-  `;
+  const html = renderDanceFlowSystemEmail({
+    previewText: subject,
+    eyebrow: "DanceFlow",
+    heading: "Welcome to DanceFlow",
+    greeting: `Hi ${firstName},`,
+    intro: "We are excited to have you in the DanceFlow community.",
+    bodyText: [
+      introLine,
+      "",
+      "Recommended next steps:",
+      ...nextSteps.map((step) => `• ${step}`),
+      "",
+      "Helpful articles:",
+      ...links.map((link) => `• ${link.label}: ${link.url}`),
+      "",
+      `Support: ${supportUrl}`,
+    ].join("\n"),
+    actionLabel: "Open your dashboard",
+    actionUrl: dashboardUrl,
+    footerText: "This welcome message was sent by DanceFlow.",
+  });
 
   return { subject, text, html };
 }
@@ -431,6 +439,25 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
   }
 
   const rendered = renderMessage(row);
+  let bodyHtml = rendered.bodyHtml ?? null;
+
+  if (!bodyHtml) {
+    if (isDanceFlowSystemTemplate(row.template_key)) {
+      bodyHtml = renderDanceFlowSystemEmail({
+        previewText: rendered.subject,
+        heading: rendered.subject,
+        bodyText: rendered.bodyText,
+      });
+    } else {
+      const studioBranding = await getStudioEmailBranding(row.studio_id);
+      bodyHtml = renderPlainTextAsStudioEmail({
+        studioName: studioBranding.name,
+        studioLogoUrl: studioBranding.logoUrl,
+        subject: rendered.subject,
+        bodyText: rendered.bodyText,
+      });
+    }
+  }
 
   try {
     const resend = getResendClient();
@@ -440,7 +467,7 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
       to: [row.recipient_email],
       subject: rendered.subject,
       text: rendered.bodyText,
-      html: rendered.bodyHtml || undefined,
+      html: bodyHtml,
     });
 
     if (response.error) {
