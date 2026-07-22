@@ -23,45 +23,62 @@ function percent(value: number) {
 
 function recommendation(data: CommerceIntelligence) {
   if (data.strongestSignal === "fulfillment") {
+    const first = data.unfulfilledOrders[0];
     return {
       title: "Clear paid orders waiting on fulfillment.",
       detail: `${data.unfulfilledOrderCount} paid order${data.unfulfilledOrderCount === 1 ? " is" : "s are"} still waiting on fulfillment.`,
-      href: "/app/orders",
-      label: "Review orders",
+      href: first ? `/app/orders/${first.orderId}` : "/app/orders",
+      label: first ? `Open order ${first.orderNumber}` : "Review orders",
     };
   }
 
   if (data.strongestSignal === "inventory") {
+    const first = data.lowStockVariants[0];
     return {
       title: "Restock before sales are interrupted.",
       detail: `${data.lowStockVariantCount} active variant${data.lowStockVariantCount === 1 ? " is" : "s are"} at or below the reorder threshold.`,
-      href: "/app/catalog",
-      label: "Review inventory",
+      href: first ? `/app/catalog/${first.catalogItemId}` : "/app/catalog",
+      label: first ? `Open ${first.name}` : "Review inventory",
     };
   }
 
   if (data.strongestSignal === "never_started") {
+    const first = data.purchasedNeverStarted[0];
     return {
       title: "Help digital buyers start learning.",
       detail: `${data.digitalNeverStartedCount} digital purchase${data.digitalNeverStartedCount === 1 ? " has" : "s have"} not been started.`,
-      href: "/app/orders",
-      label: "Review digital buyers",
+      href: first?.orderId
+        ? `/app/orders/${first.orderId}`
+        : first
+          ? `/app/catalog/${first.catalogItemId}`
+          : "/app/orders",
+      label: first ? `Review ${first.name}` : "Review digital buyers",
     };
   }
 
   if (data.strongestSignal === "low_completion") {
+    const first = data.lowCompletionContent[0];
     return {
       title: "Review content with weak engagement.",
       detail: `${data.digitalLowCompletionCount} digital purchase${data.digitalLowCompletionCount === 1 ? " has" : "s have"} started but remains below 35% completion.`,
-      href: "/app/catalog",
-      label: "Review content",
+      href: first ? `/app/catalog/${first.catalogItemId}` : "/app/catalog",
+      label: first ? `Open ${first.name}` : "Review content",
+    };
+  }
+
+  if (data.strongestSignal === "conversion") {
+    return {
+      title: "Reduce Marketplace checkout drop-off.",
+      detail: `${data.completedMarketplaceOrderCount} of ${data.marketplaceCheckoutCount} Marketplace checkouts completed in this range.`,
+      href: "/app/analytics",
+      label: "Review conversion",
     };
   }
 
   return {
     title: "Commerce is ready for growth.",
     detail:
-      "No urgent fulfillment, inventory, or digital engagement issue is standing out.",
+      "No urgent fulfillment, inventory, engagement, or conversion issue is standing out.",
     href: "/app/catalog",
     label: "Grow the catalog",
   };
@@ -76,6 +93,35 @@ export default function CommerceIntelligenceSection({
 }) {
   const nextMove = recommendation(data);
 
+  const attentionRecords = [
+    ...data.unfulfilledOrders.slice(0, 2).map((order) => ({
+      key: `order-${order.orderId}`,
+      label: `Order ${order.orderNumber}`,
+      detail: "Paid and waiting on fulfillment",
+      href: `/app/orders/${order.orderId}`,
+    })),
+    ...data.lowStockVariants.slice(0, 2).map((variant) => ({
+      key: `stock-${variant.inventoryId}`,
+      label: variant.name,
+      detail: `${variant.quantityOnHand} on hand · reorder at ${variant.reorderThreshold}`,
+      href: `/app/catalog/${variant.catalogItemId}`,
+    })),
+    ...data.purchasedNeverStarted.slice(0, 2).map((item) => ({
+      key: `never-${item.entitlementId}`,
+      label: item.name,
+      detail: "Purchased but never started",
+      href: item.orderId
+        ? `/app/orders/${item.orderId}`
+        : `/app/catalog/${item.catalogItemId}`,
+    })),
+    ...data.lowCompletionContent.slice(0, 2).map((item) => ({
+      key: `low-${item.entitlementId}`,
+      label: item.name,
+      detail: `${Math.round(item.percentComplete)}% complete`,
+      href: `/app/catalog/${item.catalogItemId}`,
+    })),
+  ].slice(0, 6);
+
   return (
     <section className="rounded-[32px] border border-violet-200 bg-white p-5 shadow-sm md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -87,9 +133,9 @@ export default function CommerceIntelligenceSection({
             {title}
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Sales, fulfillment, inventory, and student content engagement are
-            evaluated together so the next action links directly to Orders or
-            Catalog.
+            Sales, Marketplace conversion, fulfillment, inventory, and student
+            content engagement use the same range and link directly to the
+            records that need attention.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -108,7 +154,7 @@ export default function CommerceIntelligenceSection({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {[
           {
             label: "Net commerce revenue",
@@ -117,10 +163,22 @@ export default function CommerceIntelligenceSection({
             icon: TrendingUp,
           },
           {
+            label: "Digital revenue",
+            value: money(data.digitalRevenue),
+            helper: `${money(data.physicalRevenue)} physical`,
+            icon: CirclePlay,
+          },
+          {
             label: "Average order",
             value: money(data.averageOrderValue),
             helper: `${money(data.refunds)} refunded`,
             icon: ShoppingBag,
+          },
+          {
+            label: "Marketplace conversion",
+            value: percent(data.marketplaceConversionRate),
+            helper: `${data.completedMarketplaceOrderCount} of ${data.marketplaceCheckoutCount} completed`,
+            icon: TrendingUp,
           },
           {
             label: "Needs fulfillment",
@@ -133,12 +191,6 @@ export default function CommerceIntelligenceSection({
             value: String(data.lowStockVariantCount),
             helper: "Variants at reorder level",
             icon: Boxes,
-          },
-          {
-            label: "Content completion",
-            value: percent(data.digitalCompletionRate),
-            helper: `${percent(data.digitalStartRate)} started`,
-            icon: CirclePlay,
           },
         ].map((metric) => {
           const Icon = metric.icon;
@@ -203,7 +255,8 @@ export default function CommerceIntelligenceSection({
                       {item.name}
                     </Link>
                     <p className="text-xs text-slate-500">
-                      {item.units} unit{item.units === 1 ? "" : "s"}
+                      {item.units} unit{item.units === 1 ? "" : "s"} ·{" "}
+                      {item.itemType.replaceAll("_", " ")}
                     </p>
                   </div>
                   <span className="text-sm font-semibold text-slate-700">
@@ -224,33 +277,47 @@ export default function CommerceIntelligenceSection({
             Digital engagement
           </p>
           <div className="mt-3 space-y-3 text-sm">
-            <div className="flex justify-between gap-3">
-              <span className="text-slate-600">Purchases</span>
-              <span className="font-semibold text-slate-950">
-                {data.digitalEntitlementCount}
-              </span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-slate-600">Never started</span>
-              <span className="font-semibold text-slate-950">
-                {data.digitalNeverStartedCount}
-              </span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-slate-600">Low completion</span>
-              <span className="font-semibold text-slate-950">
-                {data.digitalLowCompletionCount}
-              </span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-slate-600">Completed</span>
-              <span className="font-semibold text-slate-950">
-                {data.digitalCompletedCount}
-              </span>
-            </div>
+            {[
+              ["Purchases", data.digitalEntitlementCount],
+              ["Started", data.digitalStartedCount],
+              ["Never started", data.digitalNeverStartedCount],
+              ["Low completion", data.digitalLowCompletionCount],
+              ["Completed", data.digitalCompletedCount],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="flex justify-between gap-3">
+                <span className="text-slate-600">{label}</span>
+                <span className="font-semibold text-slate-950">{value}</span>
+              </div>
+            ))}
           </div>
         </article>
       </div>
+
+      <article className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+          Records needing attention
+        </p>
+        {attentionRecords.length ? (
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {attentionRecords.map((record) => (
+              <Link
+                key={record.key}
+                href={record.href}
+                className="rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-violet-300 hover:shadow-sm"
+              >
+                <p className="text-sm font-semibold text-slate-950">
+                  {record.label}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">{record.detail}</p>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">
+            No commerce records currently require urgent review.
+          </p>
+        )}
+      </article>
     </section>
   );
 }

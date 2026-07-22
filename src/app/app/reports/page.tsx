@@ -2821,12 +2821,6 @@ export default async function ReportsPage({
       : null,
   };
 
-  const commerceIntelligence = await getCommerceIntelligence({
-    supabase,
-    studioId,
-    rangeStart,
-  });
-
   if (isOrganizerWorkspace) {
     const organizerNetRevenue =
       eventNetRevenueTotal ||
@@ -3182,6 +3176,12 @@ export default async function ReportsPage({
       </div>
     );
   }
+
+  const commerceIntelligence = await getCommerceIntelligence({
+    supabase,
+    studioId,
+    rangeStart,
+  });
 
   return (
     <div className="space-y-8">

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+type OrderMetadata = Record<string, unknown>;
+
 type OrderRow = {
   id: string;
   order_number: string;
@@ -9,6 +11,7 @@ type OrderRow = {
   total: number | string | null;
   refund_total: number | string | null;
   created_at: string;
+  metadata: OrderMetadata | null;
 };
 
 type OrderItemRow = {
@@ -24,9 +27,6 @@ type CatalogRow = {
   id: string;
   name: string;
   item_type: string;
-  active: boolean;
-  published: boolean;
-  marketplace_visible: boolean;
 };
 
 type EntitlementRow = {
@@ -65,18 +65,39 @@ export type CommerceProductInsight = {
 export type CommerceContentInsight = {
   entitlementId: string;
   catalogItemId: string;
+  orderId: string | null;
   name: string;
   percentComplete: number;
   completed: boolean;
   lastWatchedAt: string | null;
 };
 
+export type CommerceOrderInsight = {
+  orderId: string;
+  orderNumber: string;
+  fulfillmentStatus: string;
+  createdAt: string;
+};
+
+export type CommerceInventoryInsight = {
+  inventoryId: string;
+  catalogItemId: string;
+  name: string;
+  quantityOnHand: number;
+  reorderThreshold: number;
+};
+
 export type CommerceIntelligence = {
   orderCount: number;
   completedOrderCount: number;
   netRevenue: number;
+  digitalRevenue: number;
+  physicalRevenue: number;
   refunds: number;
   averageOrderValue: number;
+  marketplaceCheckoutCount: number;
+  completedMarketplaceOrderCount: number;
+  marketplaceConversionRate: number;
   unfulfilledOrderCount: number;
   lowStockVariantCount: number;
   digitalEntitlementCount: number;
@@ -87,6 +108,8 @@ export type CommerceIntelligence = {
   digitalStartRate: number;
   digitalCompletionRate: number;
   topProducts: CommerceProductInsight[];
+  unfulfilledOrders: CommerceOrderInsight[];
+  lowStockVariants: CommerceInventoryInsight[];
   purchasedNeverStarted: CommerceContentInsight[];
   lowCompletionContent: CommerceContentInsight[];
   strongestSignal:
@@ -94,12 +117,27 @@ export type CommerceIntelligence = {
     | "inventory"
     | "never_started"
     | "low_completion"
+    | "conversion"
     | "growth";
 };
 
 function amount(value: number | string | null | undefined) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isMarketplaceOrder(order: OrderRow) {
+  const metadata = order.metadata ?? {};
+  return Boolean(
+    metadata.student_user_id ||
+      metadata.source === "student_marketplace" ||
+      metadata.checkout_source === "student_marketplace" ||
+      metadata.marketplace === true,
+  );
+}
+
+function percent(numerator: number, denominator: number) {
+  return denominator > 0 ? (numerator / denominator) * 100 : 0;
 }
 
 export async function getCommerceIntelligence(input: {
@@ -110,14 +148,22 @@ export async function getCommerceIntelligence(input: {
   let orderQuery = input.supabase
     .from("commerce_orders")
     .select(
-      "id, order_number, status, payment_status, fulfillment_status, total, refund_total, created_at",
+      "id, order_number, status, payment_status, fulfillment_status, total, refund_total, created_at, metadata",
     )
     .eq("studio_id", input.studioId)
     .order("created_at", { ascending: false })
-    .limit(2000);
+    .limit(5000);
+
+  let entitlementQuery = input.supabase
+    .from("commerce_entitlements")
+    .select("id, catalog_item_id, order_id, status, granted_at")
+    .eq("studio_id", input.studioId)
+    .in("status", ["active", "refunded_access_retained"])
+    .limit(20000);
 
   if (input.rangeStart) {
     orderQuery = orderQuery.gte("created_at", input.rangeStart);
+    entitlementQuery = entitlementQuery.gte("granted_at", input.rangeStart);
   }
 
   const [
@@ -135,27 +181,20 @@ export async function getCommerceIntelligence(input: {
         "order_id, catalog_item_id, name_snapshot, quantity, line_total, fulfillment_status",
       )
       .eq("studio_id", input.studioId)
-      .limit(10000),
+      .limit(20000),
     input.supabase
       .from("commerce_catalog_items")
-      .select(
-        "id, name, item_type, active, published, marketplace_visible",
-      )
+      .select("id, name, item_type")
       .eq("studio_id", input.studioId)
-      .limit(5000),
-    input.supabase
-      .from("commerce_entitlements")
-      .select("id, catalog_item_id, order_id, status, granted_at")
-      .eq("studio_id", input.studioId)
-      .in("status", ["active", "refunded_access_retained"])
       .limit(10000),
+    entitlementQuery,
     input.supabase
       .from("commerce_playback_progress")
       .select(
         "entitlement_id, catalog_item_id, percent_complete, completed, last_watched_at",
       )
       .eq("studio_id", input.studioId)
-      .limit(20000),
+      .limit(30000),
     input.supabase
       .from("commerce_product_variant_inventory")
       .select(
@@ -163,7 +202,7 @@ export async function getCommerceIntelligence(input: {
       )
       .eq("studio_id", input.studioId)
       .eq("active", true)
-      .limit(5000),
+      .limit(10000),
   ]);
 
   const criticalErrors = [
@@ -184,14 +223,16 @@ export async function getCommerceIntelligence(input: {
 
   const orders = (ordersResult.data ?? []) as OrderRow[];
   const orderIds = new Set(orders.map((order) => order.id));
-  const orderById = new Map(orders.map((order) => [order.id, order]));
   const catalog = (catalogResult.data ?? []) as CatalogRow[];
   const catalogById = new Map(catalog.map((item) => [item.id, item]));
   const orderItems = ((orderItemsResult.data ?? []) as OrderItemRow[]).filter(
     (item) => orderIds.has(item.order_id),
   );
   const entitlements = (entitlementsResult.data ?? []) as EntitlementRow[];
-  const progress = (progressResult.data ?? []) as ProgressRow[];
+  const entitlementIds = new Set(entitlements.map((item) => item.id));
+  const progress = ((progressResult.data ?? []) as ProgressRow[]).filter(
+    (item) => entitlementIds.has(item.entitlement_id),
+  );
   const inventory = (inventoryResult.data ?? []) as InventoryRow[];
 
   const completedOrders = orders.filter(
@@ -205,19 +246,26 @@ export async function getCommerceIntelligence(input: {
   );
 
   const netRevenue = completedOrders.reduce(
-    (sum, order) =>
-      sum + amount(order.total) - amount(order.refund_total),
+    (sum, order) => sum + amount(order.total) - amount(order.refund_total),
     0,
   );
   const refunds = completedOrders.reduce(
     (sum, order) => sum + amount(order.refund_total),
     0,
   );
-  const unfulfilledOrderCount = orders.filter(
-    (order) =>
-      ["paid", "partially_refunded"].includes(order.payment_status) &&
-      !["fulfilled", "not_required"].includes(order.fulfillment_status),
-  ).length;
+
+  const unfulfilledOrders = orders
+    .filter(
+      (order) =>
+        ["paid", "partially_refunded"].includes(order.payment_status) &&
+        !["fulfilled", "not_required"].includes(order.fulfillment_status),
+    )
+    .map((order) => ({
+      orderId: order.id,
+      orderNumber: order.order_number,
+      fulfillmentStatus: order.fulfillment_status,
+      createdAt: order.created_at,
+    }));
 
   const productMap = new Map<string, CommerceProductInsight>();
   for (const item of completedOrderItems) {
@@ -238,6 +286,14 @@ export async function getCommerceIntelligence(input: {
     productMap.set(key, current);
   }
 
+  const productInsights = Array.from(productMap.values()).sort(
+    (a, b) => b.revenue - a.revenue || b.units - a.units,
+  );
+  const digitalTypes = new Set(["digital_video", "video_series", "digital_download"]);
+  const digitalRevenue = productInsights
+    .filter((item) => digitalTypes.has(item.itemType))
+    .reduce((sum, item) => sum + item.revenue, 0);
+
   const progressByEntitlement = new Map<string, ProgressRow[]>();
   for (const row of progress) {
     const current = progressByEntitlement.get(row.entitlement_id) ?? [];
@@ -248,10 +304,7 @@ export async function getCommerceIntelligence(input: {
   const digitalInsights: CommerceContentInsight[] = entitlements
     .map((entitlement) => {
       const catalogItem = catalogById.get(entitlement.catalog_item_id);
-      if (
-        !catalogItem ||
-        !["digital_video", "video_series"].includes(catalogItem.item_type)
-      ) {
+      if (!catalogItem || !digitalTypes.has(catalogItem.item_type)) {
         return null;
       }
 
@@ -271,6 +324,7 @@ export async function getCommerceIntelligence(input: {
       return {
         entitlementId: entitlement.id,
         catalogItemId: entitlement.catalog_item_id,
+        orderId: entitlement.order_id,
         name: catalogItem.name,
         percentComplete: Number(averagePercent.toFixed(1)),
         completed: rows.length > 0 && rows.every((row) => row.completed),
@@ -283,62 +337,87 @@ export async function getCommerceIntelligence(input: {
     (item) => item.lastWatchedAt !== null,
   );
   const digitalCompleted = digitalInsights.filter((item) => item.completed);
-  const purchasedNeverStarted = digitalInsights
-    .filter((item) => item.lastWatchedAt === null)
-    .slice(0, 8);
-  const lowCompletionContent = digitalInsights
+
+  const allPurchasedNeverStarted = digitalInsights.filter(
+    (item) => item.lastWatchedAt === null,
+  );
+  const allLowCompletionContent = digitalInsights
     .filter(
       (item) =>
         item.lastWatchedAt !== null &&
         !item.completed &&
         item.percentComplete < 35,
     )
-    .sort((a, b) => a.percentComplete - b.percentComplete)
-    .slice(0, 8);
+    .sort((a, b) => a.percentComplete - b.percentComplete);
 
-  const lowStockVariantCount = inventory.filter(
-    (row) =>
-      Number(row.quantity_on_hand ?? 0) <=
-      Number(row.reorder_threshold ?? 0),
-  ).length;
+  const lowStockVariants = inventory
+    .filter(
+      (row) =>
+        Number(row.quantity_on_hand ?? 0) <=
+        Number(row.reorder_threshold ?? 0),
+    )
+    .map((row) => ({
+      inventoryId: row.id,
+      catalogItemId: row.catalog_item_id,
+      name: row.name,
+      quantityOnHand: Number(row.quantity_on_hand ?? 0),
+      reorderThreshold: Number(row.reorder_threshold ?? 0),
+    }));
+
+  const marketplaceOrders = orders.filter(isMarketplaceOrder);
+  const completedMarketplaceOrders = marketplaceOrders.filter(
+    (order) =>
+      order.status === "completed" &&
+      ["paid", "partially_refunded", "refunded"].includes(order.payment_status),
+  );
+  const marketplaceConversionRate = percent(
+    completedMarketplaceOrders.length,
+    marketplaceOrders.length,
+  );
 
   const strongestSignal: CommerceIntelligence["strongestSignal"] =
-    unfulfilledOrderCount > 0
+    unfulfilledOrders.length > 0
       ? "fulfillment"
-      : lowStockVariantCount > 0
+      : lowStockVariants.length > 0
         ? "inventory"
-        : purchasedNeverStarted.length > 0
+        : allPurchasedNeverStarted.length > 0
           ? "never_started"
-          : lowCompletionContent.length > 0
+          : allLowCompletionContent.length > 0
             ? "low_completion"
-            : "growth";
+            : marketplaceOrders.length >= 5 && marketplaceConversionRate < 50
+              ? "conversion"
+              : "growth";
 
   return {
     orderCount: orders.length,
     completedOrderCount: completedOrders.length,
     netRevenue,
+    digitalRevenue,
+    physicalRevenue: Math.max(0, netRevenue - digitalRevenue),
     refunds,
     averageOrderValue: completedOrders.length
       ? netRevenue / completedOrders.length
       : 0,
-    unfulfilledOrderCount,
-    lowStockVariantCount,
+    marketplaceCheckoutCount: marketplaceOrders.length,
+    completedMarketplaceOrderCount: completedMarketplaceOrders.length,
+    marketplaceConversionRate,
+    unfulfilledOrderCount: unfulfilledOrders.length,
+    lowStockVariantCount: lowStockVariants.length,
     digitalEntitlementCount: digitalInsights.length,
     digitalStartedCount: digitalStarted.length,
     digitalCompletedCount: digitalCompleted.length,
-    digitalNeverStartedCount: purchasedNeverStarted.length,
-    digitalLowCompletionCount: lowCompletionContent.length,
-    digitalStartRate: digitalInsights.length
-      ? (digitalStarted.length / digitalInsights.length) * 100
-      : 0,
-    digitalCompletionRate: digitalInsights.length
-      ? (digitalCompleted.length / digitalInsights.length) * 100
-      : 0,
-    topProducts: Array.from(productMap.values())
-      .sort((a, b) => b.revenue - a.revenue || b.units - a.units)
-      .slice(0, 6),
-    purchasedNeverStarted,
-    lowCompletionContent,
+    digitalNeverStartedCount: allPurchasedNeverStarted.length,
+    digitalLowCompletionCount: allLowCompletionContent.length,
+    digitalStartRate: percent(digitalStarted.length, digitalInsights.length),
+    digitalCompletionRate: percent(
+      digitalCompleted.length,
+      digitalInsights.length,
+    ),
+    topProducts: productInsights.slice(0, 6),
+    unfulfilledOrders: unfulfilledOrders.slice(0, 8),
+    lowStockVariants: lowStockVariants.slice(0, 8),
+    purchasedNeverStarted: allPurchasedNeverStarted.slice(0, 8),
+    lowCompletionContent: allLowCompletionContent.slice(0, 8),
     strongestSignal,
   };
 }
