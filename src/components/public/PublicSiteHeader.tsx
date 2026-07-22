@@ -7,6 +7,9 @@ type PublicSiteHeaderProps = {
     | "discover"
     | "studios"
     | "events"
+    | "partners"
+    | "jobs"
+    | "marketplace"
     | "pricing"
     | "account"
     | "favorites";
@@ -62,10 +65,15 @@ export default function PublicSiteHeader({
               </Link>
 
               <Link
+                href="/discover"
+                className={navClass(currentPath === "discover")}
+              >
+                Discover
+              </Link>
+
+              <Link
                 href="/discover/studios"
-                className={navClass(
-                  currentPath === "discover" || currentPath === "studios"
-                )}
+                className={navClass(currentPath === "studios")}
               >
                 Studios
               </Link>
@@ -75,6 +83,13 @@ export default function PublicSiteHeader({
                 className={navClass(currentPath === "events")}
               >
                 Events
+              </Link>
+
+              <Link
+                href="/marketplace"
+                className={navClass(currentPath === "marketplace")}
+              >
+                Marketplace
               </Link>
 
               <Link
@@ -150,10 +165,15 @@ export default function PublicSiteHeader({
           </Link>
 
           <Link
+            href="/discover"
+            className={mobileNavClass(currentPath === "discover")}
+          >
+            Discover
+          </Link>
+
+          <Link
             href="/discover/studios"
-            className={mobileNavClass(
-              currentPath === "discover" || currentPath === "studios"
-            )}
+            className={mobileNavClass(currentPath === "studios")}
           >
             Studios
           </Link>
@@ -163,6 +183,13 @@ export default function PublicSiteHeader({
             className={mobileNavClass(currentPath === "events")}
           >
             Events
+          </Link>
+
+          <Link
+            href="/marketplace"
+            className={mobileNavClass(currentPath === "marketplace")}
+          >
+            Marketplace
           </Link>
 
           <Link

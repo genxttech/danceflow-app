@@ -16,8 +16,12 @@ export default function PublicSiteFooter() {
         <div>
           <p className="text-sm font-semibold text-slate-900">Explore</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
+            <Link href="/discover" className="hover:text-slate-900">Discovery Home</Link>
             <Link href="/discover/studios" className="hover:text-slate-900">Studios</Link>
             <Link href="/discover/events" className="hover:text-slate-900">Events</Link>
+            <Link href="/discover/partners" className="hover:text-slate-900">Dance Partners</Link>
+            <Link href="/discover/jobs" className="hover:text-slate-900">Dance Jobs</Link>
+            <Link href="/marketplace" className="hover:text-slate-900">Marketplace</Link>
             <Link href="/get-started" className="hover:text-slate-900">Pricing</Link>
           </div>
         </div>

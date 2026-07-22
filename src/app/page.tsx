@@ -1,10 +1,62 @@
 import Image from "next/image";
 import Link from "next/link";
+import {
+  ArrowRight,
+  BriefcaseBusiness,
+  CalendarDays,
+  GraduationCap,
+  MapPinned,
+  UsersRound,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserPlatformRole } from "@/lib/auth/platform";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
+
+
+const discoveryCards = [
+  {
+    title: "Studios",
+    description:
+      "Find dance studios, instructors, specialties, and beginner-friendly places to begin or grow.",
+    href: "/discover/studios",
+    icon: MapPinned,
+    gradient: "from-violet-600 to-purple-800",
+  },
+  {
+    title: "Events",
+    description:
+      "Explore socials, classes, workshops, competitions, and memorable dance experiences.",
+    href: "/discover/events",
+    icon: CalendarDays,
+    gradient: "from-orange-500 to-rose-600",
+  },
+  {
+    title: "Partners",
+    description:
+      "Meet dancers looking for practice, social dancing, showcases, or competition goals.",
+    href: "/discover/partners",
+    icon: UsersRound,
+    gradient: "from-pink-600 to-fuchsia-800",
+  },
+  {
+    title: "Jobs",
+    description:
+      "Find instructor, coaching, front-desk, event, and other opportunities in the dance world.",
+    href: "/discover/jobs",
+    icon: BriefcaseBusiness,
+    gradient: "from-emerald-600 to-teal-800",
+  },
+  {
+    title: "Marketplace",
+    description:
+      "Learn from studio-created digital videos and series wherever your dance journey takes you.",
+    href: "/marketplace",
+    icon: GraduationCap,
+    gradient: "from-blue-600 to-indigo-800",
+  },
+];
 
 const featureCards = [
   {
@@ -251,6 +303,14 @@ export default async function HomePage() {
 
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Link
+                    href="/discover"
+                    className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:opacity-95"
+                  >
+                    Explore DanceFlow Discovery
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+
+                  <Link
                     href="/get-started/studio"
                     className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
                   >
@@ -259,23 +319,9 @@ export default async function HomePage() {
 
                   <Link
                     href="/get-started/organizer"
-                    className="rounded-xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white hover:bg-orange-600"
+                    className="rounded-xl border border-orange-200 bg-white px-5 py-3 text-sm font-semibold text-orange-700 hover:bg-orange-50"
                   >
                     For Organizers
-                  </Link>
-
-                  <Link
-                    href="/discover/events"
-                    className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Find Events
-                  </Link>
-
-                  <Link
-                    href="/discover/partners"
-                    className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Find Partners
                   </Link>
                 </div>
 
@@ -330,6 +376,62 @@ export default async function HomePage() {
             </div>
           </div>
         </section>
+        <section className="relative mx-auto max-w-7xl px-6 py-16 lg:px-8">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--brand-accent-dark)]">
+              The heart of DanceFlow
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+              Discover the people, places, experiences, and learning that keep dance moving
+            </h2>
+            <p className="mt-4 text-lg leading-8 text-slate-600">
+              DanceFlow Discovery is not one search box. It is five inviting
+              paths into the dance community—each designed to help you take a
+              meaningful next step.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-5">
+            {discoveryCards.map((card) => {
+              const Icon = card.icon;
+              return (
+                <Link
+                  key={card.href}
+                  href={card.href}
+                  className={`group relative min-h-[310px] overflow-hidden rounded-[30px] bg-gradient-to-br ${card.gradient} p-6 text-white shadow-lg transition duration-300 hover:-translate-y-2 hover:shadow-2xl`}
+                >
+                  <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-white/15 blur-2xl transition group-hover:scale-125" />
+                  <div className="relative flex h-full flex-col">
+                    <div className="w-fit rounded-2xl border border-white/20 bg-white/15 p-3 backdrop-blur">
+                      <Icon className="h-6 w-6" />
+                    </div>
+                    <h3 className="mt-8 text-2xl font-semibold tracking-tight">
+                      {card.title}
+                    </h3>
+                    <p className="mt-3 text-sm leading-6 text-white/80">
+                      {card.description}
+                    </p>
+                    <div className="mt-auto flex items-center gap-2 pt-8 text-sm font-semibold">
+                      Explore {card.title}
+                      <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="mt-8 text-center">
+            <Link
+              href="/discover"
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:text-violet-800"
+            >
+              See the full Discovery experience
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </section>
+
 
         <section className="mx-auto max-w-7xl px-6 py-14 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
