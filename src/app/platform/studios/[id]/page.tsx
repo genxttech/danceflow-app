@@ -97,8 +97,12 @@ type ClientAccountLinkDiagnosticRow = {
   client_id: string;
   user_id: string | null;
   status: string;
+  relationship_type: string | null;
+  is_primary: boolean | null;
   invited_email: string | null;
   linked_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 type ProfileDiagnosticRow = {
@@ -254,26 +258,14 @@ function adminActionLabel(value: string) {
   return "Note";
 }
 
-type StudioSearchParams = Promise<{
-  portal_repair?: string;
-  portal_repaired?: string;
-  portal_profiles?: string;
-  portal_skipped?: string;
-  portal_failed?: string;
-  portal_repair_error?: string;
-}>;
-
 export default async function PlatformStudioDetailPage({
   params,
-  searchParams,
 }: {
   params: Params;
-  searchParams?: StudioSearchParams;
 }) {
   await requirePlatformAdmin();
 
   const { id } = await params;
-  const query = (await searchParams) ?? {};
   const supabase = await createClient();
 
   const [
@@ -348,7 +340,9 @@ export default async function PlatformStudioDetailPage({
 
     supabase
       .from("client_account_links")
-      .select("client_id, user_id, status, invited_email, linked_at")
+      .select(
+        "client_id, user_id, status, relationship_type, is_primary, invited_email, linked_at, created_at, updated_at"
+      )
       .eq("studio_id", id),
 
     supabase
@@ -411,9 +405,56 @@ export default async function PlatformStudioDetailPage({
     (portalAccountLinks ?? []) as ClientAccountLinkDiagnosticRow[];
   const typedPortalInviteDeliveries = (portalInviteDeliveries ?? []) as PortalInviteDeliveryRow[];
 
-  const accountLinkByClientId = new Map(
-    typedPortalAccountLinks.map((link) => [link.client_id, link] as const),
-  );
+  /*
+   * A client can have several lifecycle rows. Never let an unordered stale
+   * invitation row override a valid linked relationship in diagnostics.
+   */
+  const accountLinksByClientId = new Map<
+    string,
+    ClientAccountLinkDiagnosticRow[]
+  >();
+
+  for (const link of typedPortalAccountLinks) {
+    const rows = accountLinksByClientId.get(link.client_id) ?? [];
+    rows.push(link);
+    accountLinksByClientId.set(link.client_id, rows);
+  }
+
+  function linkPriority(link: ClientAccountLinkDiagnosticRow) {
+    if (
+      link.status === "linked" &&
+      link.relationship_type === "self" &&
+      link.is_primary === true
+    ) {
+      return 500;
+    }
+
+    if (link.status === "linked") return 400;
+    if (["invited", "claim_pending"].includes(link.status)) return 300;
+    if (link.status === "conflict") return 200;
+    return 100;
+  }
+
+  function linkTimestamp(link: ClientAccountLinkDiagnosticRow) {
+    const value = link.updated_at ?? link.created_at ?? link.linked_at;
+    const parsed = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  const accountLinkByClientId = new Map<
+    string,
+    ClientAccountLinkDiagnosticRow
+  >();
+
+  for (const [clientId, rows] of accountLinksByClientId) {
+    const selected = [...rows].sort((left, right) => {
+      const priorityDifference = linkPriority(right) - linkPriority(left);
+      if (priorityDifference !== 0) return priorityDifference;
+      return linkTimestamp(right) - linkTimestamp(left);
+    })[0];
+
+    if (selected) accountLinkByClientId.set(clientId, selected);
+  }
   const portalClientIds = new Set(typedPortalClients.map((client) => client.id));
   const filteredPortalInviteDeliveries = typedPortalInviteDeliveries.filter((delivery) =>
     delivery.related_id ? portalClientIds.has(delivery.related_id) : false
@@ -538,6 +579,14 @@ export default async function PlatformStudioDetailPage({
     } else if (linkedUserId && (!linkedProfile || !linkedAuthUser)) {
       status = "danger";
       label = "Broken link";
+    } else if (
+      accountLink &&
+      ["invited", "claim_pending"].includes(accountLink.status) &&
+      !matchingAuthUser &&
+      !matchingProfile
+    ) {
+      status = "neutral";
+      label = "Invitation pending";
     } else if (matchingAuthUser || matchingProfile) {
       status = "warning";
       label = "Repair available";
@@ -612,16 +661,6 @@ export default async function PlatformStudioDetailPage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1">
-      {query.portal_repair_error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          Portal repair failed: {decodeURIComponent(query.portal_repair_error)}
-        </div>
-      ) : query.portal_repair === "1" ? (
-        <div className={`rounded-2xl border p-4 text-sm ${Number(query.portal_failed ?? "0") > 0 ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
-          Portal repair finished. Linked {query.portal_repaired ?? "0"} client account{query.portal_repaired === "1" ? "" : "s"}, refreshed {query.portal_profiles ?? "0"} profile{query.portal_profiles === "1" ? "" : "s"}, skipped {query.portal_skipped ?? "0"}, and encountered {query.portal_failed ?? "0"} failure{query.portal_failed === "1" ? "" : "s"}.
-        </div>
-      ) : null}
-
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -891,8 +930,7 @@ export default async function PlatformStudioDetailPage({
               type="submit"
               className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
-              Repair {portalRepairCount} matching portal link
-              {portalRepairCount === 1 ? "" : "s"}
+              Repair matching portal links
             </button>
           </form>
         </div>
@@ -962,9 +1000,11 @@ export default async function PlatformStudioDetailPage({
                           ? "Client link points to a missing profile or auth user."
                           : item.label === "Invite failed"
                             ? "Most recent portal invite failed to send."
-                            : item.label === "Linked"
-                              ? "Client, profile, and auth user are aligned."
-                              : "No confirmed portal linkage found yet."}
+                            : item.label === "Invitation pending"
+                              ? "Invite exists, but the client has not created or authenticated an account yet."
+                              : item.label === "Linked"
+                                ? "Client, profile, and auth user are aligned."
+                                : "No confirmed portal linkage found yet."}
                     </p>
                   </div>
 
