@@ -254,20 +254,29 @@ export async function linkExistingClientAccount(params: {
     }
   }
 
-  const { data: existingLink, error: existingLinkError } = await admin
+  const { data: relationshipRows, error: existingLinkError } = await admin
     .from("client_account_links")
-    .select("id")
+    .select("id, user_id, status, relationship_type, created_at")
     .eq("studio_id", params.studioId)
     .eq("client_id", params.clientId)
-    .eq("user_id", params.userId)
     .eq("relationship_type", relationshipType)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: false });
 
   if (existingLinkError) {
     throw new Error(`Account relationship lookup failed: ${existingLinkError.message}`);
   }
+
+  const exactUserLink =
+    (relationshipRows ?? []).find((row) => row.user_id === params.userId) ?? null;
+  const reusableInvitation =
+    (relationshipRows ?? []).find(
+      (row) =>
+        !row.user_id &&
+        ["unclaimed", "invited", "claim_pending", "conflict", "rejected", "disconnected"].includes(
+          String(row.status),
+        ),
+    ) ?? null;
+  const existingLink = exactUserLink ?? reusableInvitation;
 
   const payload = {
     studio_id: params.studioId,
@@ -297,10 +306,36 @@ export async function linkExistingClientAccount(params: {
         .from("client_account_links")
         .update(payload)
         .eq("id", existingLink.id)
+        .eq("studio_id", params.studioId)
+        .eq("client_id", params.clientId)
     : await admin.from("client_account_links").insert(payload);
 
   if (linkError) {
     throw new Error(`Account relationship save failed: ${linkError.message}`);
+  }
+
+  const canonicalLinkId = existingLink?.id ?? null;
+  let staleQuery = admin
+    .from("client_account_links")
+    .update({
+      invite_token_hash: null,
+      invite_expires_at: null,
+      updated_at: now,
+    })
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .in("status", ["invited", "claim_pending"]);
+
+  if (canonicalLinkId) {
+    staleQuery = staleQuery.neq("id", canonicalLinkId);
+  }
+
+  const { error: staleInviteError } = await staleQuery;
+  if (staleInviteError) {
+    console.error(
+      "Linked client account, but stale invitation cleanup failed:",
+      staleInviteError.message,
+    );
   }
 }
 

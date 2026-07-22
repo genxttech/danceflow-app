@@ -254,14 +254,26 @@ function adminActionLabel(value: string) {
   return "Note";
 }
 
+type StudioSearchParams = Promise<{
+  portal_repair?: string;
+  portal_repaired?: string;
+  portal_profiles?: string;
+  portal_skipped?: string;
+  portal_failed?: string;
+  portal_repair_error?: string;
+}>;
+
 export default async function PlatformStudioDetailPage({
   params,
+  searchParams,
 }: {
   params: Params;
+  searchParams?: StudioSearchParams;
 }) {
   await requirePlatformAdmin();
 
   const { id } = await params;
+  const query = (await searchParams) ?? {};
   const supabase = await createClient();
 
   const [
@@ -600,6 +612,16 @@ export default async function PlatformStudioDetailPage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1">
+      {query.portal_repair_error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          Portal repair failed: {decodeURIComponent(query.portal_repair_error)}
+        </div>
+      ) : query.portal_repair === "1" ? (
+        <div className={`rounded-2xl border p-4 text-sm ${Number(query.portal_failed ?? "0") > 0 ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+          Portal repair finished. Linked {query.portal_repaired ?? "0"} client account{query.portal_repaired === "1" ? "" : "s"}, refreshed {query.portal_profiles ?? "0"} profile{query.portal_profiles === "1" ? "" : "s"}, skipped {query.portal_skipped ?? "0"}, and encountered {query.portal_failed ?? "0"} failure{query.portal_failed === "1" ? "" : "s"}.
+        </div>
+      ) : null}
+
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -869,7 +891,8 @@ export default async function PlatformStudioDetailPage({
               type="submit"
               className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
-              Repair matching portal links
+              Repair {portalRepairCount} matching portal link
+              {portalRepairCount === 1 ? "" : "s"}
             </button>
           </form>
         </div>

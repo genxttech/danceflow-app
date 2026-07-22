@@ -907,12 +907,12 @@ export async function sendPortalInviteAction(formData: FormData) {
       throw magicLinkError;
     }
 
-    /*
-      Use Supabase's generated action link instead of reconstructing a
-      callback URL from hashed_token. The action link performs the provider's
-      verification step first and then returns to DanceFlow with a PKCE code.
-    */
-    const actionLink = magicLinkData.properties?.action_link;
+    const tokenHash = magicLinkData.properties?.hashed_token;
+    const actionLink = tokenHash
+      ? `${baseUrl}/callback?token_hash=${encodeURIComponent(
+          tokenHash,
+        )}&type=magiclink&next=${encodeURIComponent(invitePath)}`
+      : magicLinkData.properties?.action_link;
 
     if (!actionLink) {
       throw new Error("Supabase did not return a portal invite action link.");

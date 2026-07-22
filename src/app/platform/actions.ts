@@ -449,18 +449,14 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
   const studioId = studioIdResult.ok ? studioIdResult.value : null;
   const returnTo = safeReturnPath(
     formData.get("returnTo"),
-    studioId ? `/platform/studios/${studioId}` : "/platform/studios"
+    studioId ? `/platform/studios/${studioId}` : "/platform/studios",
   );
 
-  if (!studioId) {
-    redirect(returnTo);
-  }
+  if (!studioId) redirect(returnTo);
 
   const supabase = await createClient();
   const adminSupabase = createAdminClient();
-  const {
-    data: { user: adminUser },
-  } = await supabase.auth.getUser();
+  const { data: { user: adminUser } } = await supabase.auth.getUser();
 
   const { data: clients, error: clientsError } = await adminSupabase
     .from("clients")
@@ -469,15 +465,8 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
     .not("email", "is", null);
 
   if (clientsError) {
-    throw new Error(`Failed to load clients for portal repair: ${clientsError.message}`);
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}portal_repair_error=${encodeURIComponent(clientsError.message)}`);
   }
-
-  const clientRows = (clients ?? []) as Array<{
-    id: string;
-    first_name: string | null;
-    last_name: string | null;
-    email: string | null;
-  }>;
 
   const { data: existingLinks, error: existingLinksError } = await adminSupabase
     .from("client_account_links")
@@ -485,89 +474,73 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
     .eq("studio_id", studioId);
 
   if (existingLinksError) {
-    throw new Error(`Failed to load account links for portal repair: ${existingLinksError.message}`);
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}portal_repair_error=${encodeURIComponent(existingLinksError.message)}`);
   }
 
-  const linksByClientId = new Map(
-    (existingLinks ?? []).map((link) => [String(link.client_id), link] as const),
-  );
-
-  const { data: authUsersData, error: authUsersError } = await adminSupabase.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
-
-  if (authUsersError) {
-    throw new Error(`Failed to load auth users for portal repair: ${authUsersError.message}`);
+  const linksByClientId = new Map<string, Array<{ client_id: string; user_id: string | null; status: string }>>();
+  for (const link of existingLinks ?? []) {
+    const clientId = String(link.client_id);
+    const rows = linksByClientId.get(clientId) ?? [];
+    rows.push({ client_id: clientId, user_id: link.user_id ? String(link.user_id) : null, status: String(link.status) });
+    linksByClientId.set(clientId, rows);
   }
 
-  const authByEmail = new Map(
-    (authUsersData.users ?? [])
-      .filter((authUser) => authUser.email)
-      .map((authUser) => [String(authUser.email).trim().toLowerCase(), authUser] as const)
-  );
+  const authByEmail = new Map<string, { id: string; email?: string | null; user_metadata?: Record<string, unknown> }>();
+  const perPage = 200;
+  for (let page = 1; page <= 50; page += 1) {
+    const { data: authUsersData, error: authUsersError } = await adminSupabase.auth.admin.listUsers({ page, perPage });
+    if (authUsersError) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}portal_repair_error=${encodeURIComponent(authUsersError.message)}`);
+    }
+    for (const authUser of authUsersData.users ?? []) {
+      const email = String(authUser.email ?? "").trim().toLowerCase();
+      if (email) authByEmail.set(email, authUser);
+    }
+    if ((authUsersData.users ?? []).length < perPage) break;
+  }
 
   let profilesUpserted = 0;
   let linksCreated = 0;
   let skippedAlreadyLinked = 0;
   let skippedNoAuthUser = 0;
   let skippedMismatchedLink = 0;
+  const failures: string[] = [];
 
-  for (const client of clientRows) {
+  for (const client of clients ?? []) {
     const normalizedEmail = String(client.email ?? "").trim().toLowerCase();
     if (!normalizedEmail) continue;
-
     const matchingAuthUser = authByEmail.get(normalizedEmail);
-    if (!matchingAuthUser) {
-      skippedNoAuthUser += 1;
-      continue;
-    }
+    if (!matchingAuthUser) { skippedNoAuthUser += 1; continue; }
 
     const displayName = [client.first_name, client.last_name].filter(Boolean).join(" ").trim();
+    const { error: profileError } = await adminSupabase.from("profiles").upsert({
+      id: matchingAuthUser.id,
+      full_name: displayName || String(matchingAuthUser.user_metadata?.full_name ?? "").trim() || null,
+      email: matchingAuthUser.email ?? client.email,
+      platform_role: null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "id" });
 
-    const { error: profileError } = await adminSupabase.from("profiles").upsert(
-      {
-        id: matchingAuthUser.id,
-        full_name: displayName || matchingAuthUser.user_metadata?.full_name || null,
-        email: matchingAuthUser.email ?? client.email,
-        platform_role: null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
-
-    if (profileError) {
-      throw new Error(`Failed to upsert portal profile for ${client.email}: ${profileError.message}`);
-    }
-
+    if (profileError) { failures.push(`${normalizedEmail}: profile ${profileError.message}`); continue; }
     profilesUpserted += 1;
 
-    const existingLink = linksByClientId.get(client.id);
-    if (
-      existingLink?.status === "linked" &&
-      existingLink.user_id === matchingAuthUser.id
-    ) {
+    const clientLinks = linksByClientId.get(String(client.id)) ?? [];
+    if (clientLinks.some((link) => link.status === "linked" && link.user_id === matchingAuthUser.id)) {
       skippedAlreadyLinked += 1;
       continue;
     }
-
-    if (
-      existingLink?.status === "linked" &&
-      existingLink.user_id &&
-      existingLink.user_id !== matchingAuthUser.id
-    ) {
+    if (clientLinks.some((link) => link.status === "linked" && link.user_id && link.user_id !== matchingAuthUser.id)) {
       skippedMismatchedLink += 1;
+      failures.push(`${normalizedEmail}: client is linked to a different account`);
       continue;
     }
 
-    await linkExistingClientAccount({
-      studioId,
-      clientId: client.id,
-      userId: matchingAuthUser.id,
-      invitedEmail: normalizedEmail,
-    });
-
-    linksCreated += 1;
+    try {
+      await linkExistingClientAccount({ studioId, clientId: String(client.id), userId: matchingAuthUser.id, invitedEmail: normalizedEmail });
+      linksCreated += 1;
+    } catch (error) {
+      failures.push(`${normalizedEmail}: ${error instanceof Error ? error.message : "repair failed"}`);
+    }
   }
 
   const note = [
@@ -577,18 +550,22 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
     `Already linked: ${skippedAlreadyLinked}.`,
     `No auth user: ${skippedNoAuthUser}.`,
     `Mismatched existing links skipped: ${skippedMismatchedLink}.`,
-  ].join(" ");
+    `Failures: ${failures.length}.`,
+    failures.length ? `Details: ${failures.slice(0, 10).join(" | ")}` : "",
+  ].filter(Boolean).join(" ");
 
-  await supabase.from("platform_admin_actions").insert({
+  const { error: auditError } = await adminSupabase.from("platform_admin_actions").insert({
     target_type: "workspace",
     target_id: studioId,
-    action_type: "resolved",
+    action_type: failures.length ? "follow_up" : "resolved",
     note,
     created_by: adminUser?.id ?? null,
   });
+  if (auditError) console.error("Portal repair audit log failed:", auditError.message);
 
   revalidatePath(`/platform/studios/${studioId}`);
-  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}portal_repair=1`);
+  const separator = returnTo.includes("?") ? "&" : "?";
+  redirect(`${returnTo}${separator}portal_repair=1&portal_repaired=${linksCreated}&portal_profiles=${profilesUpserted}&portal_skipped=${skippedAlreadyLinked + skippedNoAuthUser + skippedMismatchedLink}&portal_failed=${failures.length}`);
 }
 
 function normalizeMobilePushCategory(value: FormDataEntryValue | null) {
