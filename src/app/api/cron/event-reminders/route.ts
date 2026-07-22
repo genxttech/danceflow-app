@@ -7,6 +7,7 @@ import {
   buildEventConfirmedSmsTemplate,
 } from "@/lib/notifications/templates";
 import { sendEventRegistrationPush } from "@/lib/notifications/eventPush";
+import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,14 +24,18 @@ type EventReminderCandidate = {
   currency: string | null;
   events:
     | {
+        id: string;
         slug: string;
         name: string;
+        organizer_id: string | null;
         start_date: string;
         start_time: string | null;
       }
     | {
+        id: string;
         slug: string;
         name: string;
+        organizer_id: string | null;
         start_date: string;
         start_time: string | null;
       }[]
@@ -56,14 +61,18 @@ function getAppUrl() {
 function getEventValue(
   value:
     | {
+        id: string;
         slug: string;
         name: string;
+        organizer_id: string | null;
         start_date: string;
         start_time: string | null;
       }
     | {
+        id: string;
         slug: string;
         name: string;
+        organizer_id: string | null;
         start_date: string;
         start_time: string | null;
       }[]
@@ -108,8 +117,10 @@ async function queueUpcomingEventReminders() {
       total_price,
       currency,
       events (
+        id,
         slug,
         name,
+        organizer_id,
         start_date,
         start_time
       ),
@@ -152,6 +163,11 @@ async function queueUpcomingEventReminders() {
 
     const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(eventValue.slug)}`;
     const ticketTypeValue = getTicketTypeValue(row.event_ticket_types);
+    const branding = await resolveEventEmailBranding({
+      eventId: eventValue.id,
+      studioId: row.studio_id,
+      organizerId: eventValue.organizer_id,
+    });
 
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: `${eventValue.name} — Reminder`,
@@ -162,6 +178,8 @@ async function queueUpcomingEventReminders() {
       totalPrice: Number(row.total_price ?? 0),
       currency: row.currency || "USD",
       eventUrl,
+      brandName: branding.name,
+      brandLogoUrl: branding.logoUrl,
     });
 
     const smsBody = buildEventConfirmedSmsTemplate({
@@ -185,6 +203,7 @@ async function queueUpcomingEventReminders() {
         recipientEmail: row.attendee_email,
         subject: emailTemplate.subject,
         bodyText: emailTemplate.bodyText,
+        bodyHtml: emailTemplate.bodyHtml,
         relatedTable: "event_registrations",
         relatedId: row.id,
         dedupeKey: `event_registration_reminder_24h:email:${row.id}:${reminderKey}`,

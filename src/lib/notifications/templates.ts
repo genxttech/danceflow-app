@@ -1,3 +1,5 @@
+import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+
 type TicketCodeLine = {
   name: string;
   code: string;
@@ -18,6 +20,8 @@ type EventOutboundTemplateParams = {
   totalPrice: number;
   currency: string;
   eventUrl: string;
+  brandName?: string;
+  brandLogoUrl?: string | null;
   ticketCodes?: TicketCodeLine[];
   purchasedItems?: TicketPurchaseLine[];
 };
@@ -46,8 +50,13 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-function escapeHtmlAttribute(value: string) {
-  return escapeHtml(value);
+function safeUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return ["http:", "https:"].includes(parsed.protocol) ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
 }
 
 function buildTicketQrUrl(eventUrl: string, ticketCode: string) {
@@ -67,244 +76,143 @@ function ticketCodeText(params: EventOutboundTemplateParams) {
   if (!rows.length) return "";
 
   return [
-    ``,
+    "",
     `Ticket check-in code${rows.length > 1 ? "s" : ""}:`,
     ...rows.map((ticket) => `${ticket.name || "Attendee"}: ${ticket.code}`),
-    ``,
-    `Bring this code with you for faster check-in.`,
+    "",
+    "Bring this code with you for faster check-in.",
   ].join("\n");
 }
 
-function brandedEmailShell(params: {
-  previewLabel: string;
-  headline: string;
-  intro: string;
-  eventName: string;
-  ticketTypeName: string;
-  quantity: number;
-  totalLabel: string;
-  currency: string;
-  eventUrl: string;
-  ticketCodes?: TicketCodeLine[];
-  purchasedItems?: TicketPurchaseLine[];
-}) {
-  const ticketRows = params.ticketCodes ?? [];
-  const purchaseRows = params.purchasedItems ?? [];
+function eventBrand(params: EventOutboundTemplateParams) {
+  return {
+    name: params.brandName?.trim() || "DanceFlow Event Organizer",
+    logoUrl: params.brandLogoUrl ?? null,
+  };
+}
 
-  const purchaseSummary = purchaseRows.length
-    ? purchaseRows
+function purchaseDetailsHtml(params: EventOutboundTemplateParams) {
+  const purchased = params.purchasedItems ?? [];
+  const rows = purchased.length
+    ? purchased
+    : [
+        {
+          name: params.ticketTypeName,
+          quantity: params.quantity,
+          totalPrice: params.totalPrice,
+        },
+      ];
+
+  return `
+    <div style="margin:0 0 18px;border:1px solid #e2e8f0;border-radius:16px;padding:16px;background:#f8fafc;">
+      <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:8px;">Event</div>
+      <div style="font-size:22px;line-height:1.3;font-weight:800;color:#0f172a;">${escapeHtml(params.eventName)}</div>
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 20px;border-collapse:collapse;">
+      ${rows
         .map((item) => {
-          const totalLabel =
-            typeof item.totalPrice === "number" && Number.isFinite(item.totalPrice)
+          const itemTotal =
+            typeof item.totalPrice === "number"
               ? money(item.totalPrice, params.currency)
               : "";
-
-          return `
-            <tr>
-              <td style="padding:10px 0;border-top:1px solid #f3e8f0;">
-                <div style="font-size:15px;font-weight:800;color:#111827;">${escapeHtml(
-                  item.name
-                )}</div>
-                <div style="font-size:13px;color:#6b7280;margin-top:2px;">Quantity: ${Number(
-                  item.quantity || 0
-                )}</div>
-              </td>
-              <td align="right" style="padding:10px 0;border-top:1px solid #f3e8f0;font-size:14px;font-weight:800;color:#111827;">${escapeHtml(
-                totalLabel
-              )}</td>
-            </tr>
-          `;
+          return `<tr>
+            <td style="padding:12px 0;border-bottom:1px solid #e2e8f0;">
+              <div style="font-size:15px;font-weight:700;color:#0f172a;">${escapeHtml(item.name)}</div>
+              <div style="font-size:13px;color:#64748b;">Quantity: ${Number(item.quantity || 0)}</div>
+            </td>
+            <td align="right" style="padding:12px 0;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;">${escapeHtml(itemTotal)}</td>
+          </tr>`;
         })
-        .join("")
-    : "";
+        .join("")}
+    </table>`;
+}
 
-  const ticketCodeCards = ticketRows.length
-    ? ticketRows
+function ticketCardsHtml(params: EventOutboundTemplateParams) {
+  const tickets = params.ticketCodes ?? [];
+  if (!tickets.length) return "";
+
+  return `
+    <div style="margin:20px 0 0;">
+      <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;">Check-in code${tickets.length > 1 ? "s" : ""}</div>
+      ${tickets
         .map((ticket) => {
-          const qrUrl = buildTicketQrUrl(params.eventUrl, ticket.code);
-
-          return `
-            <div style="padding:14px;border:1px solid #f3d4e6;background:#fff7fb;border-radius:14px;margin-top:10px;">
-              <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">${escapeHtml(
-                ticket.name || "Attendee"
-              )}</div>
-
-              <div style="font-size:22px;line-height:1.1;font-weight:800;letter-spacing:0.08em;color:#be185d;">${escapeHtml(
-                ticket.code
-              )}</div>
-
-              ${
-                qrUrl
-                  ? `
-                    <div style="margin-top:12px;text-align:center;">
-                      <img
-                        src="${escapeHtmlAttribute(qrUrl)}"
-                        width="180"
-                        height="180"
-                        alt="QR code for ticket ${escapeHtmlAttribute(
-                          ticket.code
-                        )}"
-                        style="display:block;margin:0 auto;border:1px solid #f3d4e6;border-radius:12px;background:#ffffff;padding:8px;"
-                      />
-                      <div style="margin-top:8px;font-size:12px;line-height:1.5;color:#6b7280;">
-                        Show this QR code or the ticket code above at check-in.
-                      </div>
-                    </div>
-                  `
-                  : ""
-              }
-            </div>
-          `;
+          const qrUrl = safeUrl(buildTicketQrUrl(params.eventUrl, ticket.code));
+          return `<div style="margin-top:10px;padding:15px;border:1px solid #e9d5ff;border-radius:16px;background:#faf5ff;">
+            <div style="font-size:13px;color:#64748b;">${escapeHtml(ticket.name || "Attendee")}</div>
+            <div style="margin-top:4px;font-size:22px;font-weight:800;letter-spacing:.08em;color:#6d28d9;">${escapeHtml(ticket.code)}</div>
+            ${
+              qrUrl
+                ? `<img src="${escapeHtml(qrUrl)}" width="176" height="176" alt="Ticket QR code" style="display:block;margin:14px auto 0;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;padding:8px;" />`
+                : ""
+            }
+          </div>`;
         })
-        .join("")
-    : `<div style="padding:12px 14px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:14px;color:#6b7280;">Your check-in code will be available in your registration details.</div>`;
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(params.previewLabel)}</title>
-  </head>
-  <body style="margin:0;padding:0;background:#f6f3f7;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(
-      params.previewLabel
-    )}</div>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f3f7;margin:0;padding:24px 12px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid #eaddec;box-shadow:0 18px 40px rgba(17,24,39,0.08);">
-            <tr>
-              <td style="background:linear-gradient(135deg,#111827 0%,#7f1d1d 45%,#be185d 100%);padding:28px 26px;color:#ffffff;">
-                <div style="font-size:14px;letter-spacing:0.16em;text-transform:uppercase;font-weight:800;color:#fed7aa;">DanceFlow</div>
-                <h1 style="margin:10px 0 0;font-size:30px;line-height:1.15;font-weight:800;">${escapeHtml(
-                  params.headline
-                )}</h1>
-                <p style="margin:10px 0 0;font-size:15px;line-height:1.6;color:#ffe4ef;">${escapeHtml(
-                  params.intro
-                )}</p>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:26px;">
-                <div style="border:1px solid #eee3ef;border-radius:18px;padding:18px;background:#fffafc;">
-                  <div style="font-size:13px;text-transform:uppercase;letter-spacing:0.1em;font-weight:800;color:#be185d;margin-bottom:6px;">Event</div>
-                  <div style="font-size:24px;line-height:1.2;font-weight:800;color:#111827;">${escapeHtml(
-                    params.eventName
-                  )}</div>
-                </div>
-
-                ${
-                  purchaseRows.length
-                    ? `
-                      <div style="margin-top:16px;border:1px solid #eee3ef;border-radius:16px;background:#ffffff;padding:14px;">
-                        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">Tickets and options purchased</div>
-                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px;">
-                          ${purchaseSummary}
-                        </table>
-                      </div>
-                    `
-                    : `
-                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;">
-                        <tr>
-                          <td style="padding:12px;border:1px solid #eee3ef;border-radius:14px;background:#ffffff;">
-                            <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">Ticket</div>
-                            <div style="font-size:16px;font-weight:700;color:#111827;margin-top:4px;">${escapeHtml(
-                              params.ticketTypeName
-                            )}</div>
-                          </td>
-                        </tr>
-                      </table>
-                    `
-                }
-
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px;">
-                  <tr>
-                    <td width="50%" style="padding:12px;border:1px solid #eee3ef;border-radius:14px;background:#ffffff;">
-                      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">${
-                        purchaseRows.length ? "Total items" : "Quantity"
-                      }</div>
-                      <div style="font-size:16px;font-weight:700;color:#111827;margin-top:4px;">${params.quantity}</div>
-                    </td>
-                    <td width="12"></td>
-                    <td width="50%" style="padding:12px;border:1px solid #eee3ef;border-radius:14px;background:#ffffff;">
-                      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">Total</div>
-                      <div style="font-size:16px;font-weight:700;color:#111827;margin-top:4px;">${escapeHtml(
-                        params.totalLabel
-                      )}</div>
-                    </td>
-                  </tr>
-                </table>
-
-                <div style="margin-top:20px;">
-                  <div style="font-size:13px;text-transform:uppercase;letter-spacing:0.1em;font-weight:800;color:#be185d;margin-bottom:8px;">Check-in code${
-                    ticketRows.length > 1 ? "s" : ""
-                  }</div>
-                  ${ticketCodeCards}
-                  <p style="margin:12px 0 0;font-size:14px;line-height:1.6;color:#4b5563;">Bring your check-in code or QR code with you for faster event entry. Staff can also look you up by name or email.</p>
-                </div>
-
-                <div style="margin-top:26px;text-align:center;">
-                  <a href="${escapeHtml(
-                    params.eventUrl
-                  )}" style="display:inline-block;background:#be185d;color:#ffffff;text-decoration:none;font-weight:800;border-radius:999px;padding:14px 22px;">View Event Details</a>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:18px 26px;background:#111827;color:#d1d5db;font-size:13px;line-height:1.6;">
-                Sent by DanceFlow. You are receiving this because an event registration was completed with this email address.<br />
-                <span style="color:#f9a8d4;font-weight:700;">DanceFlow</span> helps dancers, studios, and organizers stay connected.
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
+        .join("")}
+    </div>`;
 }
 
 export function buildEventWaitlistEmailTemplate(
-  params: EventOutboundTemplateParams
+  params: EventOutboundTemplateParams,
 ) {
+  const brand = eventBrand(params);
+  const greeting = params.attendeeFirstName || attendeeName(params) || "there";
+  const bodyText = [
+    `Hi ${greeting},`,
+    "",
+    `You're now on the waitlist for ${params.eventName}.`,
+    `Ticket: ${params.ticketTypeName}`,
+    `Quantity: ${params.quantity}`,
+    "",
+    `${brand.name} will contact you if a spot opens up.`,
+    `Event page: ${params.eventUrl}`,
+    "",
+    "Thanks,",
+    brand.name,
+  ].join("\n");
+
   return {
     subject: `You're on the waitlist for ${params.eventName}`,
-    bodyText: [
-      `Hi ${params.attendeeFirstName || attendeeName(params)},`,
-      ``,
-      `You're now on the waitlist for ${params.eventName}.`,
-      `Ticket: ${params.ticketTypeName}`,
-      `Quantity: ${params.quantity}`,
-      ``,
-      `If a spot opens up, the organizer can contact you with next steps.`,
-      `Event page: ${params.eventUrl}`,
-      ``,
-      `Thanks,`,
-      `DanceFlow`,
-    ].join("\n"),
+    bodyText,
+    bodyHtml: renderStudioBrandedEmail(brand, {
+      previewText: `Waitlist confirmation for ${params.eventName}`,
+      eyebrow: "Event Waitlist",
+      heading: "You’re on the waitlist",
+      greeting: `Hi ${greeting},`,
+      intro: `${brand.name} has received your waitlist registration.`,
+      bodyText,
+      detailRows: [
+        { label: "Event", value: params.eventName },
+        { label: "Ticket", value: params.ticketTypeName },
+        { label: "Quantity", value: String(params.quantity) },
+      ],
+      actionLabel: "View Event Details",
+      actionUrl: params.eventUrl,
+      footerText: `Sent by ${brand.name} through DanceFlow.`,
+    }),
   };
 }
 
 export function buildEventWaitlistSmsTemplate(
-  params: EventOutboundTemplateParams
+  params: EventOutboundTemplateParams,
 ) {
   return `You're on the waitlist for ${params.eventName}. Ticket: ${params.ticketTypeName}. Qty: ${params.quantity}. Details: ${params.eventUrl}`;
 }
 
 export function buildEventConfirmedEmailTemplate(
-  params: EventOutboundTemplateParams
+  params: EventOutboundTemplateParams,
 ) {
+  const brand = eventBrand(params);
+  const greeting = params.attendeeFirstName || attendeeName(params) || "there";
   const totalLabel =
     params.totalPrice > 0 ? money(params.totalPrice, params.currency) : "Free";
 
   const purchaseRows = params.purchasedItems ?? [];
   const purchaseLines = purchaseRows.length
     ? [
-        `Tickets and options purchased:`,
+        "Tickets and options purchased:",
         ...purchaseRows.map((item) => {
           const itemTotal =
-            typeof item.totalPrice === "number" && Number.isFinite(item.totalPrice)
+            typeof item.totalPrice === "number"
               ? ` — ${money(item.totalPrice, params.currency)}`
               : "";
           return `- ${item.name} x ${item.quantity}${itemTotal}`;
@@ -313,51 +221,55 @@ export function buildEventConfirmedEmailTemplate(
     : [`Ticket: ${params.ticketTypeName}`, `Quantity: ${params.quantity}`];
 
   const bodyText = [
-    `Hi ${params.attendeeFirstName || attendeeName(params)},`,
-    ``,
+    `Hi ${greeting},`,
+    "",
     `Your registration is confirmed for ${params.eventName}.`,
     ...purchaseLines,
     `Total: ${totalLabel}`,
     ticketCodeText(params),
-    ``,
+    "",
     `Event page: ${params.eventUrl}`,
-    `Need more tickets or classes? You can return to the event page and make another purchase with the same email.`,
-    ``,
-    `Thanks,`,
-    `DanceFlow`,
+    "",
+    "Thanks,",
+    brand.name,
   ]
-    .filter((line) => line !== null && line !== undefined)
+    .filter(Boolean)
     .join("\n");
 
-  const bodyHtml = brandedEmailShell({
-    previewLabel: `Registration confirmed for ${params.eventName}`,
-    headline: "Registration Confirmed",
-    intro: "You are registered. Save your check-in code for faster entry.",
-    eventName: params.eventName,
-    ticketTypeName: params.ticketTypeName,
-    quantity: params.quantity,
-    totalLabel,
-    currency: params.currency,
-    eventUrl: params.eventUrl,
-    ticketCodes: params.ticketCodes,
-    purchasedItems: params.purchasedItems,
-  });
+  const customHtml = `
+    ${purchaseDetailsHtml(params)}
+    <div style="padding:13px 15px;border-radius:14px;background:#ecfdf5;border:1px solid #a7f3d0;font-size:15px;color:#065f46;">
+      <strong>Total:</strong> ${escapeHtml(totalLabel)}
+    </div>
+    ${ticketCardsHtml(params)}
+  `;
 
   return {
     subject: `Registration confirmed for ${params.eventName}`,
     bodyText,
-    bodyHtml,
+    bodyHtml: renderStudioBrandedEmail(brand, {
+      previewText: `Registration confirmed for ${params.eventName}`,
+      eyebrow: "Event Registration",
+      heading: "Registration Confirmed",
+      greeting: `Hi ${greeting},`,
+      intro: `${brand.name} has confirmed your registration.`,
+      bodyText,
+      contentHtml: customHtml,
+      actionLabel: "View Event Details",
+      actionUrl: params.eventUrl,
+      footerText: `Sent by ${brand.name} through DanceFlow.`,
+    }),
   };
 }
 
 export function buildEventConfirmedSmsTemplate(
-  params: EventOutboundTemplateParams
+  params: EventOutboundTemplateParams,
 ) {
   return `Confirmed: ${params.eventName}. Ticket: ${params.ticketTypeName}. Qty: ${
     params.quantity
   }. ${
     params.totalPrice > 0
       ? `Total ${money(params.totalPrice, params.currency)}.`
-      : `Free registration.`
+      : "Free registration."
   } Details: ${params.eventUrl}`;
 }

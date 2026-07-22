@@ -10,6 +10,7 @@ type BrandedEmailParams = {
   greeting?: string | null;
   intro?: string | null;
   bodyText: string;
+  contentHtml?: string | null;
   actionLabel?: string | null;
   actionUrl?: string | null;
   detailRows?: Array<{ label: string; value: string }>;
@@ -153,7 +154,11 @@ function emailShell(params: {
                 ${greetingHtml}
                 ${introHtml}
                 ${detailsHtml}
-                ${textToHtmlParagraphs(params.content.bodyText)}
+                ${
+                  params.content.contentHtml
+                    ? params.content.contentHtml
+                    : textToHtmlParagraphs(params.content.bodyText)
+                }
                 ${actionHtml}
               </td>
             </tr>

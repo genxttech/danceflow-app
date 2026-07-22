@@ -8,6 +8,7 @@ import { getStripe } from "@/lib/payments/stripe";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { buildEventConfirmedEmailTemplate } from "@/lib/notifications/templates";
+import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 
 type RegistrationRow = {
   id: string;
@@ -587,6 +588,7 @@ type EventForResend = {
   id: string;
   slug: string;
   name: string;
+  organizer_id: string | null;
 };
 
 type RegistrationForResend = RegistrationRow & {
@@ -790,7 +792,8 @@ async function queueTicketConfirmationResend(params: {
       events (
         id,
         slug,
-        name
+        name,
+        organizer_id
       ),
       event_ticket_types (
         id,
@@ -921,6 +924,12 @@ async function queueTicketConfirmationResend(params: {
 
   const primaryTicketType = singleRelation(registration.event_ticket_types);
 
+  const branding = await resolveEventEmailBranding({
+    eventId: event.id,
+    studioId: registration.studio_id,
+    organizerId: event.organizer_id,
+  });
+
   const template = buildEventConfirmedEmailTemplate({
     eventName: event.name,
     attendeeFirstName: registration.attendee_first_name,
@@ -935,6 +944,8 @@ async function queueTicketConfirmationResend(params: {
     eventUrl: `${getAppUrl()}/events/${encodeURIComponent(event.slug)}`,
     ticketCodes,
     purchasedItems: purchasedItems.length > 1 ? purchasedItems : undefined,
+    brandName: branding.name,
+    brandLogoUrl: branding.logoUrl,
   });
 
   const result = await queueOutboundDelivery({

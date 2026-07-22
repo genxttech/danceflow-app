@@ -14,6 +14,7 @@ import {
   buildEventWaitlistSmsTemplate,
 } from "@/lib/notifications/templates";
 import { sendEventRegistrationPush } from "@/lib/notifications/eventPush";
+import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 import {
   cleanFormText,
   getValidatedValue,
@@ -418,6 +419,8 @@ async function createStripeCheckoutSession(params: {
 
 async function safeQueueEventWaitlistOutbound(params: {
   studioId: string;
+  eventId: string;
+  organizerId: string | null;
   registrationId: string;
   eventSlug: string;
   eventName: string;
@@ -432,6 +435,11 @@ async function safeQueueEventWaitlistOutbound(params: {
 }) {
   try {
     const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(params.eventSlug)}`;
+    const branding = await resolveEventEmailBranding({
+      eventId: params.eventId,
+      studioId: params.studioId,
+      organizerId: params.organizerId,
+    });
 
     const emailTemplate = buildEventWaitlistEmailTemplate({
       eventName: params.eventName,
@@ -442,6 +450,8 @@ async function safeQueueEventWaitlistOutbound(params: {
       totalPrice: params.totalPrice,
       currency: params.currency,
       eventUrl,
+      brandName: branding.name,
+      brandLogoUrl: branding.logoUrl,
     });
 
     const smsBody = buildEventWaitlistSmsTemplate({
@@ -463,6 +473,7 @@ async function safeQueueEventWaitlistOutbound(params: {
         recipientEmail: params.attendeeEmail,
         subject: emailTemplate.subject,
         bodyText: emailTemplate.bodyText,
+        bodyHtml: emailTemplate.bodyHtml,
         relatedTable: "event_registrations",
         relatedId: params.registrationId,
         dedupeKey: `event_waitlist_confirmation:email:${params.registrationId}`,
@@ -485,6 +496,8 @@ async function safeQueueEventWaitlistOutbound(params: {
 
 async function safeQueueEventConfirmedOutbound(params: {
   studioId: string;
+  eventId: string;
+  organizerId: string | null;
   registrationId: string;
   eventSlug: string;
   eventName: string;
@@ -499,6 +512,11 @@ async function safeQueueEventConfirmedOutbound(params: {
 }) {
   try {
     const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(params.eventSlug)}`;
+    const branding = await resolveEventEmailBranding({
+      eventId: params.eventId,
+      studioId: params.studioId,
+      organizerId: params.organizerId,
+    });
 
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: params.eventName,
@@ -509,6 +527,8 @@ async function safeQueueEventConfirmedOutbound(params: {
       totalPrice: params.totalPrice,
       currency: params.currency,
       eventUrl,
+      brandName: branding.name,
+      brandLogoUrl: branding.logoUrl,
     });
 
     const smsBody = buildEventConfirmedSmsTemplate({
@@ -530,6 +550,7 @@ async function safeQueueEventConfirmedOutbound(params: {
         recipientEmail: params.attendeeEmail,
         subject: emailTemplate.subject,
         bodyText: emailTemplate.bodyText,
+        bodyHtml: emailTemplate.bodyHtml,
         relatedTable: "event_registrations",
         relatedId: params.registrationId,
         dedupeKey: `event_registration_confirmed:email:${params.registrationId}`,
@@ -1037,6 +1058,8 @@ export async function createEventRegistrationAction(
 
       await safeQueueEventWaitlistOutbound({
         studioId: event.studio_id,
+        eventId: event.id,
+        organizerId: event.organizer_id,
         registrationId: waitlistRegistration.id,
         eventSlug: event.slug,
         eventName: event.name,
@@ -1133,6 +1156,8 @@ export async function createEventRegistrationAction(
     if (totalPrice === 0) {
       await safeQueueEventConfirmedOutbound({
         studioId: event.studio_id,
+        eventId: event.id,
+        organizerId: event.organizer_id,
         registrationId: registration.id,
         eventSlug: event.slug,
         eventName: event.name,
