@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { getCronAuthFailure } from "@/lib/security/cron";
+import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
 
 export const dynamic = "force-dynamic";
 
@@ -535,7 +536,7 @@ export async function GET(request: NextRequest) {
     .slice(0, 5)
     .map((message) => `${formatDate(message.created_at)} — ${message.provider ?? "provider"} message still ${message.status ?? "queued"}`);
 
-  const html = `
+  const reportContentHtml = `
     <div style="font-family:Arial,sans-serif;background:#f8fafc;padding:24px;color:#0f172a;">
       <div style="max-width:820px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:24px;overflow:hidden;">
         <div style="background:linear-gradient(135deg,#4b2e83,#9d174d);color:#ffffff;padding:28px;">
@@ -624,15 +625,40 @@ export async function GET(request: NextRequest) {
     </div>
   `;
 
+  const subject = `DanceFlow Daily Platform Digest — ${new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date())}`;
+
+  const text = [
+    subject,
+    "",
+    `Unresolved backend errors: ${unresolvedBackendErrors}`,
+    `Studios never accessed: ${neverAccessedStudios.length}`,
+    `Studios inactive for 30+ days: ${staleAccessStudios.length}`,
+    `Studios recently active: ${recentlyActiveStudios.length}`,
+    "",
+    `Dashboard: ${dashboardUrl}`,
+  ].join("\n");
+
+  const html = renderDanceFlowSystemEmail({
+    previewText: subject,
+    eyebrow: "DanceFlow Platform Operations",
+    heading: "Daily Platform Digest",
+    bodyText: text,
+    contentHtml: reportContentHtml,
+    actionLabel: "Open Platform Dashboard",
+    actionUrl: dashboardUrl,
+    footerText: "Confidential DanceFlow platform operations message.",
+  });
+
   const resend = new Resend(resendApiKey);
   await resend.emails.send({
     from: digestFrom,
     to: digestTo,
-    subject: `DanceFlow Daily Platform Digest — ${new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(new Date())}`,
+    subject,
+    text,
     html,
   });
 

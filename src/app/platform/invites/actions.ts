@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
 import { createClient } from "@/lib/supabase/server";
 import {
   cleanTextValue,
@@ -66,36 +67,26 @@ function buildInviteEmailHtml({
   inviteLink: string;
   durationMonths: number;
 }) {
-  const greetingName = escapeHtml(recipientName || "there");
-  const safeInviteLink = escapeHtml(inviteLink);
+  const greetingName = recipientName || "there";
+  const bodyText = [
+    `I'm inviting you to join the DanceFlow Ambassador Pro Pilot.`,
+    `You'll receive ${durationMonths} months of complimentary Pro access so you can use DanceFlow with your own teaching business, explore the full feature set, and share feedback from the perspective of a traveling instructor.`,
+    "",
+    "Your invite is tied to this email address.",
+    "",
+    "Once you're in, we can schedule a short onboarding call and get your workspace set up.",
+  ].join("\n");
 
-  return `
-    <div style="font-family: Arial, sans-serif; background:#f8fafc; padding:24px; color:#0f172a;">
-      <div style="max-width:640px; margin:0 auto; background:#ffffff; border:1px solid #e2e8f0; border-radius:24px; padding:28px;">
-        <p style="margin:0 0 8px; font-size:12px; letter-spacing:0.16em; text-transform:uppercase; color:#7c3aed; font-weight:700;">DanceFlow Ambassador Pro Pilot</p>
-        <h1 style="margin:0; font-size:28px; line-height:1.2; color:#020617;">You&apos;re invited to DanceFlow Ambassador Pro</h1>
-        <p style="margin:20px 0 0; font-size:15px; line-height:1.7; color:#334155;">Hi ${greetingName},</p>
-        <p style="margin:12px 0 0; font-size:15px; line-height:1.7; color:#334155;">
-          I&apos;m inviting you to join the DanceFlow Ambassador Pro Pilot. You&apos;ll receive ${durationMonths} months of complimentary Pro access so you can use DanceFlow with your own teaching business, explore the full feature set, and share feedback from the perspective of a traveling instructor.
-        </p>
-        <p style="margin:12px 0 0; font-size:15px; line-height:1.7; color:#334155;">
-          Your invite is tied to this email address. Click below to create or connect your DanceFlow account and activate your Ambassador Pro access.
-        </p>
-        <div style="margin:26px 0;">
-          <a href="${safeInviteLink}" style="display:inline-block; background:#7c3aed; color:#ffffff; text-decoration:none; padding:14px 20px; border-radius:16px; font-weight:700; font-size:14px;">Accept Your Invite</a>
-        </div>
-        <p style="margin:0; font-size:13px; line-height:1.7; color:#64748b;">
-          If the button does not work, copy and paste this link into your browser:<br />
-          <span style="word-break:break-all; color:#334155;">${safeInviteLink}</span>
-        </p>
-        <hr style="border:none; border-top:1px solid #e2e8f0; margin:24px 0;" />
-        <p style="margin:0; font-size:14px; line-height:1.7; color:#334155;">
-          Once you&apos;re in, we can schedule a short onboarding call and get your workspace set up.
-        </p>
-        <p style="margin:16px 0 0; font-size:14px; line-height:1.7; color:#334155;">Thanks,<br />Michael<br />DanceFlow</p>
-      </div>
-    </div>
-  `;
+  return renderDanceFlowSystemEmail({
+    previewText: "Your DanceFlow Ambassador Pro invite",
+    eyebrow: "DanceFlow Ambassador Pro",
+    heading: "You’re invited to DanceFlow Ambassador Pro",
+    greeting: `Hi ${greetingName},`,
+    bodyText,
+    actionLabel: "Accept Your Invite",
+    actionUrl: inviteLink,
+    footerText: "This invitation was sent by DanceFlow.",
+  });
 }
 
 function buildInviteEmailText({
@@ -107,8 +98,8 @@ function buildInviteEmailText({
   inviteLink: string;
   durationMonths: number;
 }) {
-  const greetingName = escapeHtml(recipientName || "there");
-  const safeInviteLink = escapeHtml(inviteLink);
+  const greetingName = recipientName || "there";
+  const safeInviteLink = inviteLink;
 
   return `Hi ${greetingName},\n\nI'm inviting you to join the DanceFlow Ambassador Pro Pilot. You'll receive ${durationMonths} months of complimentary Pro access so you can use DanceFlow with your own teaching business, explore the full feature set, and share feedback from the perspective of a traveling instructor.\n\nYour invite is tied to this email address. Use this link to create or connect your DanceFlow account and activate your Ambassador Pro access:\n\n${safeInviteLink}\n\nOnce you're in, we can schedule a short onboarding call and get your workspace set up.\n\nThanks,\nMichael\nDanceFlow`;
 }

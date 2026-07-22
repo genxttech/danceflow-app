@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signing";
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
+import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
 export type DocumentActionState = {
   error?: string;
@@ -852,7 +853,7 @@ async function queueDocumentAssignmentEmail(params: {
     await Promise.all([
       admin
         .from("studios")
-        .select("name, public_name, slug")
+        .select("name, public_name, public_logo_url, slug")
         .eq("id", params.studioId)
         .maybeSingle(),
       admin
@@ -883,7 +884,24 @@ async function queueDocumentAssignmentEmail(params: {
     ? `Reminder: ${documentTitle} needs your signature`
     : `${studioName} assigned a document for your review`;
   const bodyText = `${clientName || "Hello"},\n\n${studioName} ${isReminder ? "is reminding you to review" : "assigned"} ${documentTitle}.\n\nOpen your DanceFlow portal to review and sign it: ${portalUrl}\n\nThank you,\n${studioName}`;
-  const bodyHtml = `<p>${htmlEscape(clientName || "Hello")},</p><p>${htmlEscape(studioName)} ${isReminder ? "is reminding you to review" : "assigned"} <strong>${htmlEscape(documentTitle)}</strong>.</p><p><a href="${htmlEscape(portalUrl)}">Open your DanceFlow portal</a> to review and sign it.</p><p>Thank you,<br>${htmlEscape(studioName)}</p>`;
+  const bodyHtml = renderStudioBrandedEmail(
+    {
+      name: studioName,
+      logoUrl: studio?.public_logo_url ?? null,
+    },
+    {
+      previewText: subject,
+      eyebrow: isReminder ? "Signature Reminder" : "Document Request",
+      heading: isReminder ? "Your signature is still needed" : "A document is ready for review",
+      greeting: `${clientName || "Hello"},`,
+      intro: `${studioName} ${isReminder ? "is reminding you to review" : "assigned"} ${documentTitle}.`,
+      bodyText,
+      detailRows: [{ label: "Document", value: documentTitle }],
+      actionLabel: "Review and Sign",
+      actionUrl: portalUrl,
+      footerText: `Sent by ${studioName} through DanceFlow.`,
+    },
+  );
   const dedupeKey = isReminder
     ? `document:${params.assignmentId}:manual-reminder:${new Date().toISOString().slice(0, 10)}`
     : `document:${params.assignmentId}:assignment`;

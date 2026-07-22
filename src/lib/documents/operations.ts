@@ -1,16 +1,17 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
 function htmlEscape(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
-type AssignmentRow = { id: string; studio_id: string; client_id: string | null; template_id: string; assigned_to_email: string | null; due_at: string | null; reminder_sent_at: string | null; overdue_reminder_sent_at: string | null; clients: { first_name: string | null; last_name: string | null; email: string | null } | { first_name: string | null; last_name: string | null; email: string | null }[] | null; document_templates: { title: string | null } | { title: string | null }[] | null; studios: { name: string | null; public_name: string | null; slug: string | null } | { name: string | null; public_name: string | null; slug: string | null }[] | null };
+type AssignmentRow = { id: string; studio_id: string; client_id: string | null; template_id: string; assigned_to_email: string | null; due_at: string | null; reminder_sent_at: string | null; overdue_reminder_sent_at: string | null; clients: { first_name: string | null; last_name: string | null; email: string | null } | { first_name: string | null; last_name: string | null; email: string | null }[] | null; document_templates: { title: string | null } | { title: string | null }[] | null; studios: { name: string | null; public_name: string | null; public_logo_url: string | null; slug: string | null } | { name: string | null; public_name: string | null; public_logo_url: string | null; slug: string | null }[] | null };
 const one = <T,>(value: T | T[] | null): T | null => Array.isArray(value) ? value[0] ?? null : value;
 
 export async function runDocumentOperations(now = new Date()) {
   const admin = createAdminClient();
   const inThreeDays = new Date(now.getTime() + 3 * 86400000).toISOString();
-  const { data, error } = await admin.from("document_assignments").select("id, studio_id, client_id, template_id, assigned_to_email, due_at, reminder_sent_at, overdue_reminder_sent_at, clients(first_name,last_name,email), document_templates(title), studios(name,public_name,slug)").eq("status", "pending").not("due_at", "is", null).lte("due_at", inThreeDays).limit(500);
+  const { data, error } = await admin.from("document_assignments").select("id, studio_id, client_id, template_id, assigned_to_email, due_at, reminder_sent_at, overdue_reminder_sent_at, clients(first_name,last_name,email), document_templates(title), studios(name,public_name,public_logo_url,slug)").eq("status", "pending").not("due_at", "is", null).lte("due_at", inThreeDays).limit(500);
   if (error) throw error;
   let queued = 0, skipped = 0, failed = 0;
   for (const row of (data ?? []) as AssignmentRow[]) {
@@ -28,7 +29,24 @@ export async function runDocumentOperations(now = new Date()) {
     const kind = overdue ? "overdue" : "due-soon";
     const subject = overdue ? `Past due: ${title} needs your signature` : `Reminder: ${title} is due soon`;
     const bodyText = `${clientName},\n\n${studioName} is reminding you to review and sign ${title}.\n\nOpen your DanceFlow portal: ${portalUrl}\n\nThank you,\n${studioName}`;
-    const bodyHtml = `<p>${htmlEscape(clientName)},</p><p>${htmlEscape(studioName)} is reminding you to review and sign <strong>${htmlEscape(title)}</strong>.</p><p><a href="${htmlEscape(portalUrl)}">Open your DanceFlow portal</a>.</p><p>Thank you,<br>${htmlEscape(studioName)}</p>`;
+    const bodyHtml = renderStudioBrandedEmail(
+      {
+        name: studioName,
+        logoUrl: studio?.public_logo_url ?? null,
+      },
+      {
+        previewText: subject,
+        eyebrow: overdue ? "Past Due Document" : "Signature Reminder",
+        heading: overdue ? "Your document is past due" : "Your document is due soon",
+        greeting: `${clientName},`,
+        intro: `${studioName} is reminding you to review and sign ${title}.`,
+        bodyText,
+        detailRows: [{ label: "Document", value: title }],
+        actionLabel: "Open Documents",
+        actionUrl: portalUrl,
+        footerText: `Sent by ${studioName} through DanceFlow.`,
+      },
+    );
     const { error: deliveryError } = await admin.from("outbound_deliveries").insert({ studio_id: row.studio_id, channel: "email", template_key: overdue ? "document_overdue_reminder" : "document_due_soon_reminder", recipient_email: email, subject, body_text: bodyText, body_html: bodyHtml, related_table: "document_assignments", related_id: row.id, dedupe_key: `document:${row.id}:${kind}`, status: "queued", updated_at: now.toISOString() });
     if (deliveryError && deliveryError.code !== "23505") { failed++; continue; }
     await admin.from("document_assignments").update(overdue ? { overdue_reminder_sent_at: now.toISOString() } : { reminder_sent_at: now.toISOString() }).eq("id", row.id).eq("status", "pending");

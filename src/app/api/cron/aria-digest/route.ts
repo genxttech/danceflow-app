@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCronAuthFailure } from "@/lib/security/cron";
+import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
 type DigestType = "morning" | "end_of_day";
 type DigestPreferenceRow = {
@@ -29,6 +30,7 @@ type DigestStudioRow = {
   id: string;
   name: string | null;
   public_name: string | null;
+  public_logo_url: string | null;
   timezone: string | null;
 };
 
@@ -222,10 +224,11 @@ ${(process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/
 
 function buildDigestHtml(params: {
   studioName: string;
+  studioLogoUrl?: string | null;
   digestType: DigestType;
   summary: ReturnType<typeof buildDigestSummary>;
 }) {
-  const { studioName, digestType, summary } = params;
+  const { studioName, studioLogoUrl, digestType, summary } = params;
   const operationsUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/$/, "")}/app/aria/operations`;
   const briefingLabel = digestTypeLabel(digestType);
   const intro =
@@ -233,132 +236,61 @@ function buildDigestHtml(params: {
       ? "Here is the studio work that deserves attention today."
       : "Here is what remains open and should carry into the next workday.";
 
+  const metricCards = [
+    { label: "Open actions", value: summary.open_actions },
+    { label: "Overdue", value: summary.overdue_actions },
+    { label: "Assigned to you", value: summary.assigned_to_recipient },
+    { label: "Queued follow-ups", value: summary.queued_followups },
+  ]
+    .map(
+      (metric) => `<td style="width:50%;padding:6px;">
+        <div style="border:1px solid #e2e8f0;border-radius:14px;background:#ffffff;padding:16px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;">${escapeHtml(metric.label)}</div>
+          <div style="margin-top:6px;font-size:28px;line-height:1;font-weight:800;color:#0f172a;">${metric.value}</div>
+        </div>
+      </td>`,
+    );
 
   const actionRows = summary.top_actions.length
     ? summary.top_actions
         .map(
-          (action, index) => `
-            <tr>
-              <td style="padding:12px 0;border-bottom:1px solid #e2e8f0;vertical-align:top;">
-                <div style="display:inline-block;width:26px;height:26px;border-radius:999px;background:#fce7f3;color:#9d174d;text-align:center;line-height:26px;font-size:12px;font-weight:800;">
-                  ${index + 1}
-                </div>
-              </td>
-              <td style="padding:12px 0 12px 10px;border-bottom:1px solid #e2e8f0;">
-                <div style="font-size:14px;font-weight:700;color:#0f172a;">
-                  ${escapeHtml(action.title)}
-                </div>
-                <div style="margin-top:4px;font-size:12px;color:#64748b;">
-                  ${escapeHtml(action.priority ?? "normal")} priority · ${escapeHtml(action.status ?? "open")}
-                </div>
-              </td>
-            </tr>`,
+          (action, index) => `<tr>
+            <td style="padding:12px 0;border-bottom:1px solid #e2e8f0;vertical-align:top;font-weight:800;color:#9d174d;">${index + 1}</td>
+            <td style="padding:12px 0 12px 10px;border-bottom:1px solid #e2e8f0;">
+              <div style="font-size:14px;font-weight:700;color:#0f172a;">${escapeHtml(action.title)}</div>
+              <div style="margin-top:4px;font-size:12px;color:#64748b;">${escapeHtml(action.priority ?? "normal")} priority · ${escapeHtml(action.status ?? "open")}</div>
+            </td>
+          </tr>`,
         )
         .join("")
-    : `
-      <tr>
-        <td style="padding:18px;border:1px dashed #cbd5e1;border-radius:14px;background:#f8fafc;font-size:14px;color:#64748b;">
-          No open ARIA actions are currently standing out.
-        </td>
-      </tr>`;
+    : `<tr><td style="padding:18px;color:#64748b;">No open ARIA actions are currently standing out.</td></tr>`;
 
-  return `
-<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;">
-      <tr>
-        <td align="center" style="padding:24px 12px;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #e2e8f0;border-radius:20px;overflow:hidden;">
-            <tr>
-              <td style="padding:28px;background:linear-gradient(135deg,#4c1d95,#be185d);color:#ffffff;">
-                <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;opacity:.88;">
-                  ARIA Operations
-                </div>
-                <h1 style="margin:10px 0 0;font-size:28px;line-height:1.2;color:#ffffff;">
-                  ${escapeHtml(briefingLabel)}
-                </h1>
-                <p style="margin:8px 0 0;font-size:15px;line-height:1.6;color:#fdf2f8;">
-                  ${escapeHtml(studioName)}
-                </p>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:26px 28px 8px;">
-                <p style="margin:0;font-size:16px;line-height:1.65;color:#334155;">
-                  ${escapeHtml(intro)}
-                </p>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:10px 22px 18px;">
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                  <tr>
-                    ${[
-                      { label: "Open actions", value: summary.open_actions },
-                      { label: "Overdue", value: summary.overdue_actions },
-                    ].map((metric) => `
-                      <td style="width:50%;padding:6px;">
-                        <div style="border:1px solid #e2e8f0;border-radius:14px;background:#ffffff;padding:16px;">
-                          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;">${escapeHtml(metric.label)}</div>
-                          <div style="margin-top:6px;font-size:28px;line-height:1;font-weight:800;color:#0f172a;">${metric.value}</div>
-                        </div>
-                      </td>`).join("")}
-                  </tr>
-                  <tr>
-                    ${[
-                      { label: "Assigned to you", value: summary.assigned_to_recipient },
-                      { label: "Queued follow-ups", value: summary.queued_followups },
-                    ].map((metric) => `
-                      <td style="width:50%;padding:6px;">
-                        <div style="border:1px solid #e2e8f0;border-radius:14px;background:#ffffff;padding:16px;">
-                          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;">${escapeHtml(metric.label)}</div>
-                          <div style="margin-top:6px;font-size:28px;line-height:1;font-weight:800;color:#0f172a;">${metric.value}</div>
-                        </div>
-                      </td>`).join("")}
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:6px 28px 12px;">
-                <div style="border-radius:14px;background:#fff7ed;border:1px solid #fed7aa;padding:14px 16px;font-size:13px;color:#9a3412;">
-                  <strong>${summary.urgent_actions} urgent</strong> · ${summary.high_priority_actions} high-priority
-                </div>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:16px 28px 8px;">
-                <h2 style="margin:0;font-size:18px;color:#0f172a;">Top actions</h2>
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px;">
-                  ${actionRows}
-                </table>
-              </td>
-            </tr>
-
-            <tr>
-              <td align="center" style="padding:24px 28px 30px;">
-                <a href="${operationsUrl}" style="display:inline-block;border-radius:12px;background:#be185d;color:#ffffff;text-decoration:none;font-size:14px;font-weight:800;padding:13px 20px;">
-                  Open ARIA Operations
-                </a>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:12px;line-height:1.6;color:#64748b;">
-                This briefing was prepared automatically from your current DanceFlow operations data.
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
+  const contentHtml = `
+    <p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#334155;">${escapeHtml(intro)}</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+      <tr>${metricCards.slice(0, 2).join("")}</tr>
+      <tr>${metricCards.slice(2).join("")}</tr>
     </table>
-  </body>
-</html>`;
+    <div style="margin:14px 0;border-radius:14px;background:#fff7ed;border:1px solid #fed7aa;padding:14px 16px;font-size:13px;color:#9a3412;">
+      <strong>${summary.urgent_actions} urgent</strong> · ${summary.high_priority_actions} high-priority
+    </div>
+    <h2 style="margin:22px 0 6px;font-size:18px;color:#0f172a;">Top actions</h2>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${actionRows}</table>
+  `;
+
+  return renderStudioBrandedEmail(
+    { name: studioName, logoUrl: studioLogoUrl ?? null },
+    {
+      previewText: `${briefingLabel} for ${studioName}`,
+      eyebrow: "ARIA Operations",
+      heading: briefingLabel,
+      bodyText: buildDigestBody({ studioName, digestType, summary }),
+      contentHtml,
+      actionLabel: "Open ARIA Operations",
+      actionUrl: operationsUrl,
+      footerText: `Prepared by DanceFlow ARIA for ${studioName}.`,
+    },
+  );
 }
 
 async function processDigestRun(params: {
@@ -400,7 +332,7 @@ async function processDigestRun(params: {
     const [{ data: studio }, { data: actions, error: actionsError }, { data: profile }] = await Promise.all([
       adminSupabase
         .from("studios")
-        .select("id, name, public_name, timezone")
+        .select("id, name, public_name, public_logo_url, timezone")
         .eq("id", preference.studio_id)
         .maybeSingle<DigestStudioRow>(),
       adminSupabase
@@ -461,7 +393,7 @@ async function processDigestRun(params: {
           recipient_phone: null,
           subject,
           body_text: bodyText,
-          body_html: buildDigestHtml({ studioName, digestType, summary }),
+          body_html: buildDigestHtml({ studioName, studioLogoUrl: studio?.public_logo_url ?? null, digestType, summary }),
           related_table: null,
           related_id: null,
           dedupe_key: `aria-digest:${preference.studio_id}:${digestDate}:${digestType}`,

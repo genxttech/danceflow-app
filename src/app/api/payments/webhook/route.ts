@@ -14,6 +14,7 @@ import {
   buildEventConfirmedSmsTemplate,
 } from "@/lib/notifications/templates";
 import { finalizeStudentMarketplacePayment } from "@/lib/commerce/studentMarketplace";
+import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -1531,8 +1532,10 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
         total_price,
         currency,
         events (
+          id,
           slug,
-          name
+          name,
+          organizer_id
         ),
         event_ticket_types (
           name
@@ -1593,6 +1596,12 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
       })
       .filter(Boolean) as Array<{ name: string; code: string }>;
 
+    const branding = await resolveEventEmailBranding({
+      eventId: eventValue.id,
+      studioId: registration.studio_id,
+      organizerId: eventValue.organizer_id ?? null,
+    });
+
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: eventValue.name,
       attendeeFirstName: registration.attendee_first_name,
@@ -1603,6 +1612,8 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
       currency: registration.currency || "USD",
       eventUrl,
       ticketCodes,
+      brandName: branding.name,
+      brandLogoUrl: branding.logoUrl,
     });
 
     const smsBody = buildEventConfirmedSmsTemplate({
@@ -1691,8 +1702,10 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
         total_amount,
         currency,
         events (
+          id,
           slug,
-          name
+          name,
+          organizer_id
         )
       `,
       )
@@ -1852,6 +1865,12 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
     const totalPrice = Number(order.total_amount ?? 0);
     const firstTicketName = registrationItems[0]?.name ?? "Event registration";
 
+    const branding = await resolveEventEmailBranding({
+      eventId: eventValue.id,
+      studioId: order.studio_id ?? primaryRegistration.studio_id,
+      organizerId: eventValue.organizer_id ?? null,
+    });
+
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: eventValue.name,
       attendeeFirstName: firstName,
@@ -1863,6 +1882,8 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
       eventUrl,
       ticketCodes,
       purchasedItems: finalPurchasedItems,
+      brandName: branding.name,
+      brandLogoUrl: branding.logoUrl,
     });
 
     const smsBody = buildEventConfirmedSmsTemplate({
