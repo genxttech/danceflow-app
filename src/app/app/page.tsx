@@ -24,9 +24,8 @@ import { syncStudioNotifications } from "@/lib/notifications/sync";
 import { dismissPlatformBroadcastAlertAction } from "@/app/platform/actions";
 import { dismissWorkspaceOnboardingAction } from "@/app/app/onboarding-actions";
 import { OnboardingCompletionRecorder } from "@/app/app/OnboardingCompletionRecorder";
-import SuggestedFollowUpsCard, {
-  type SuggestedFollowUpItem,
-} from "./SuggestedFollowUpsCard";
+import type { SuggestedFollowUpItem } from "./SuggestedFollowUpsCard";
+import TodayActionQueue from "@/components/app/today/TodayActionQueue";
 import {
   getAccessibleStudios,
   getCurrentStudioContext,
@@ -2896,307 +2895,55 @@ export default async function AppDashboardPage({
         />
       )}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <QuickActionCard
-          href="/app/payments/quick-charge"
-          title="Quick Charge"
-          description="Collect fast front desk payments for classes, parties, walk-ins, and door sales."
-          icon={CreditCard}
-          primary
-        />
-        <QuickActionCard
-          href="/app/schedule/new"
-          title="Book Lesson"
-          description="Schedule a private lesson, intro lesson, coaching session, class, or rental."
-          icon={CalendarDays}
-        />
-        <QuickActionCard
-          href="/app/schedule/requests"
-          title="Booking Requests"
-          description="Review portal scheduling requests and move them toward the calendar."
-          icon={ClipboardList}
-        />
-        <QuickActionCard
-          href="/app/clients/new"
-          title="Add Client"
-          description="Create a client profile and keep contact, package, and payment details organized."
-          icon={Users}
-        />
-        <QuickActionCard
-          href="/app/payments"
-          title="Record Payment"
-          description="Post payments, track balances, and keep packages or memberships current."
-          icon={CreditCard}
-        />
-        <QuickActionCard
-          href="/app/events"
-          title="Events"
-          description="Manage workshops, group classes, public events, registrations, and tickets."
-          icon={Ticket}
-        />
-      </section>
+      <TodayActionQueue
+        bookingRequestCount={pendingBookingRequestCount ?? 0}
+        unreadCount={unreadCount}
+        payoutsReady={payoutsReady}
+        followUps={suggestedFollowUps}
+        appointments={upcomingAppointments.map((appointment) => {
+          const client = appointment.client_id
+            ? clientMap.get(appointment.client_id)
+            : null;
+          const instructor = appointment.instructor_id
+            ? instructorMap.get(appointment.instructor_id)
+            : null;
+          const room = appointment.room_id
+            ? roomMap.get(appointment.room_id)
+            : null;
 
-      <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-white shadow-sm">
-        <div className="border-b border-[#F3E8FF] bg-gradient-to-r from-[#FCF8FF] to-white px-6 py-5">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
-                Client Outreach
-              </p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-950">
-                Upcoming Birthdays
-              </h2>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
-                Keep birthday cards and client appreciation touchpoints from
-                slipping through the cracks.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/app/reports/client-birthdays"
-                className="inline-flex items-center justify-center rounded-xl bg-[#6B21A8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#581C87]"
-              >
-                View birthday report
-              </Link>
-              <Link
-                href="/app/reports/client-birthdays/export?range=next30&format=labels"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#D8B4FE] bg-white px-4 py-2 text-sm font-semibold text-[#6B21A8] hover:bg-[#FCF8FF]"
-              >
-                <Download className="h-4 w-4" />
-                Export labels
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-4 p-6 sm:grid-cols-2 xl:grid-cols-5">
-          <div className="rounded-2xl bg-[#F3E8FF] p-4">
-            <Cake className="h-5 w-5 text-[#6B21A8]" />
-            <p className="mt-3 text-2xl font-semibold text-slate-950">
-              {upcomingBirthdays7Count}
-            </p>
-            <p className="text-sm text-slate-600">next 7 days</p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Next 30 days</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {upcomingBirthdays30Count}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Card-ready</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {birthdayCardReadyCount}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Missing birthday</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {missingBirthdayCount}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Missing address</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {missingMailingAddressCount}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <SuggestedFollowUpsCard
-        suggestions={suggestedFollowUps}
-        aiEnabled={process.env.AI_FEATURES_ENABLED === "true"}
+          return {
+            id: appointment.id,
+            title:
+              appointment.title?.trim() ||
+              appointmentTypeLabel(appointment.appointment_type),
+            typeLabel: appointmentTypeLabel(appointment.appointment_type),
+            dateTime: fmtDateTime(appointment.starts_at, studioTimeZone),
+            detail:
+              compactList([
+                fullName(client) ? `Client: ${fullName(client)}` : null,
+                fullName(instructor)
+                  ? `Instructor: ${fullName(instructor)}`
+                  : null,
+                room?.name ? `Room: ${room.name}` : null,
+              ]) || "No client, instructor, or room assigned yet.",
+            href: `/app/schedule/${appointment.id}`,
+          };
+        })}
+        notifications={typedNotifications.map((notification) => ({
+          id: notification.id,
+          title: notification.title,
+          body: notification.body,
+          unread: !notification.read_at,
+        }))}
+        birthdays={{
+          next7: upcomingBirthdays7Count,
+          next30: upcomingBirthdays30Count,
+          cardReady: birthdayCardReadyCount,
+          missingBirthday: missingBirthdayCount,
+          missingAddress: missingMailingAddressCount,
+        }}
+        planLabel={planBadge}
       />
-
-      {!payoutsReady ? (
-        <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-6 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">
-                Payments Setup
-              </p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-950">
-                Connect payouts before relying on paid sales
-              </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-700">
-                Set up Stripe payouts so your studio can safely collect
-                payments, sell packages, manage memberships, and process event
-                registrations.
-              </p>
-            </div>
-            <Link
-              href="/app/payments"
-              className="inline-flex items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
-            >
-              Open Billing & Payments
-            </Link>
-          </div>
-        </section>
-      ) : null}
-
-      <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-        <SectionCard
-          title="Upcoming Schedule"
-          subtitle="The next items on your studio calendar."
-          action={
-            <Link
-              href="/app/schedule"
-              className="text-sm font-medium text-[#6B21A8] hover:underline"
-            >
-              Open Schedule
-            </Link>
-          }
-        >
-          {upcomingAppointments.length === 0 ? (
-            <EmptyState>
-              No upcoming appointments yet. Create a lesson or class to get
-              started.
-            </EmptyState>
-          ) : (
-            <div className="space-y-4">
-              {upcomingAppointments.slice(0, 5).map((appointment) => {
-                const client = appointment.client_id
-                  ? clientMap.get(appointment.client_id)
-                  : null;
-                const instructor = appointment.instructor_id
-                  ? instructorMap.get(appointment.instructor_id)
-                  : null;
-                const room = appointment.room_id
-                  ? roomMap.get(appointment.room_id)
-                  : null;
-                const title =
-                  appointment.title?.trim() ||
-                  appointmentTypeLabel(appointment.appointment_type);
-
-                return (
-                  <div
-                    key={appointment.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-semibold text-slate-900">
-                            {title}
-                          </h3>
-                          <span className="inline-flex rounded-full bg-[#F3E8FF] px-2.5 py-1 text-xs font-medium text-[#6B21A8] ring-1 ring-[#E9D5FF]">
-                            {appointmentTypeLabel(appointment.appointment_type)}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm font-medium text-slate-700">
-                          {fmtDateTime(appointment.starts_at, studioTimeZone)}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {compactList([
-                            fullName(client)
-                              ? `Client: ${fullName(client)}`
-                              : null,
-                            fullName(instructor)
-                              ? `Instructor: ${fullName(instructor)}`
-                              : null,
-                            room?.name ? `Room: ${room.name}` : null,
-                          ]) || "No client, instructor, or room assigned yet."}
-                        </p>
-                      </div>
-
-                      <Link
-                        href={`/app/schedule/${appointment.id}`}
-                        className="inline-flex items-center gap-2 text-sm font-medium text-[#6B21A8] hover:underline"
-                      >
-                        Open
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </SectionCard>
-
-        <div className="space-y-8">
-          <SectionCard
-            title="Recent Notifications"
-            subtitle="Stay on top of payment, schedule, and client updates."
-            action={
-              <Link
-                href="/app/notifications"
-                className="text-sm font-medium text-[#6B21A8] hover:underline"
-              >
-                View All
-              </Link>
-            }
-          >
-            {typedNotifications.length === 0 ? (
-              <EmptyState>No notifications yet.</EmptyState>
-            ) : (
-              <div className="space-y-3">
-                {typedNotifications.slice(0, 4).map((notification) => (
-                  <div
-                    key={notification.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-900">
-                          {notification.title}
-                        </h3>
-                        {notification.body ? (
-                          <p className="mt-1 text-sm text-slate-600">
-                            {notification.body}
-                          </p>
-                        ) : null}
-                      </div>
-                      {!notification.read_at ? (
-                        <span className="rounded-full bg-[#F97316]/10 px-2 py-1 text-xs font-semibold text-[#C2410C]">
-                          New
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </SectionCard>
-
-          <SectionCard
-            title="Plan & Tools"
-            subtitle="Your current access and upgrade path."
-          >
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm text-slate-500">Current Plan</p>
-                  <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                    {planBadge}
-                  </h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    {planCode === "starter"
-                      ? "Starter tools are active. Upgrade when you are ready for deeper reporting and automation."
-                      : "Your workspace includes expanded tools for operations, reporting, and growth."}
-                  </p>
-                </div>
-                <Layers3 className="h-5 w-5 text-[#6B21A8]" />
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Link
-                  href="/account/billing"
-                  className="rounded-xl bg-[#6B21A8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#581C87]"
-                >
-                  Manage Plan
-                </Link>
-                <Link
-                  href="/app/reports"
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#D8B4FE] hover:text-[#6B21A8]"
-                >
-                  Open Reports
-                </Link>
-              </div>
-            </div>
-          </SectionCard>
-        </div>
-      </section>
 
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
