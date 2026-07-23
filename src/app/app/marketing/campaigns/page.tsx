@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { ArrowRight, CheckCircle2, Link2, Mail, Megaphone, Sparkles, Users, ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { createMarketingCampaignDraftAction } from "./actions";
 import CampaignAIAssistant from "./CampaignAIAssistant";
+import MarketingCampaignList from "./MarketingCampaignList";
 
 type SearchParams = Promise<{
   campaign_saved?: string;
@@ -11,7 +13,7 @@ type SearchParams = Promise<{
   template?: string;
 }>;
 
-type CampaignRow = {
+export type CampaignRow = {
   id: string;
   name: string;
   subject: string;
@@ -173,9 +175,6 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function audienceLabel(value: string) {
-  return audienceOptions.find((option) => option.key === value)?.label ?? value;
-}
 
 function campaignErrorMessage(code?: string) {
   switch (code) {
@@ -479,6 +478,24 @@ export default async function MarketingCampaignsPage({
 
   const campaigns = (campaignsResult.data ?? []) as CampaignRow[];
   const events = (eventsResult.data ?? []) as EventOption[];
+  const campaignStatusCounts = campaigns.reduce(
+    (counts, campaign) => {
+      const normalized = campaign.status.trim().toLowerCase();
+
+      if (normalized === "sent") {
+        counts.sent += 1;
+      } else if (normalized === "scheduled") {
+        counts.scheduled += 1;
+      } else if (normalized === "failed") {
+        counts.failed += 1;
+      } else {
+        counts.draft += 1;
+      }
+
+      return counts;
+    },
+    { draft: 0, scheduled: 0, sent: 0, failed: 0 },
+  );
   const campaignError = campaignErrorMessage(
     resolvedSearchParams.campaign_error,
   );
@@ -499,7 +516,7 @@ export default async function MarketingCampaignsPage({
       ?.label ?? "Selected audience";
 
   return (
-    <main className="min-h-screen bg-[var(--brand-page-bg)] px-4 py-6 text-[var(--brand-text)] sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.09),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.10),transparent_26%),linear-gradient(180deg,#fff7ed_0%,var(--brand-page-bg)_32%,#ffffff_100%)] px-4 py-6 text-[var(--brand-text)] sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         {resolvedSearchParams.campaign_saved ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
@@ -513,9 +530,9 @@ export default async function MarketingCampaignsPage({
           </div>
         ) : null}
 
-        <section className="overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white shadow-sm">
-          <div className="bg-gradient-to-r from-[#241432] via-[#4D1F47] to-[#E85D2A] px-6 py-7 text-white sm:px-8">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/75">
+        <section className="overflow-hidden rounded-3xl border border-violet-200/80 bg-white shadow-[0_20px_55px_rgba(76,29,149,0.12)]">
+          <div className="bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] px-6 py-7 text-white sm:px-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-200">
               DanceFlow Marketing
             </p>
             <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -531,59 +548,78 @@ export default async function MarketingCampaignsPage({
 
               <Link
                 href="/app/clients"
-                className="inline-flex items-center justify-center rounded-2xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm backdrop-blur transition hover:bg-white/20"
+                className="inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white shadow-sm backdrop-blur transition hover:bg-white/15"
               >
                 View CRM
               </Link>
             </div>
           </div>
 
-          <div className="grid gap-4 p-5 sm:p-6 lg:grid-cols-3">
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-              <p className="text-sm font-semibold text-[var(--brand-muted)]">
-                Campaign focus
-              </p>
-              <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
-                Native in-app emails
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">
-                Create campaign drafts without leaving DanceFlow.
-              </p>
+          <div className="grid gap-4 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_55%,#ffffff_100%)] p-5 sm:p-6 lg:grid-cols-3">
+            <div className="rounded-2xl border border-orange-200 bg-white/90 p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="rounded-xl bg-orange-50 p-2 text-orange-700 ring-1 ring-orange-200">
+                  <Megaphone className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">
+                    Campaign workspace
+                  </p>
+                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">
+                    {campaigns.length} recent draft{campaigns.length === 1 ? "" : "s"}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                    Draft, review, test, and send without leaving DanceFlow.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-              <p className="text-sm font-semibold text-[var(--brand-muted)]">
-                Audience Preview
-              </p>
-              <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
-                {audiencePreviews.reduce(
-                  (sum, audience) => sum + audience.count,
-                  0,
-                )}{" "}
-                possible contacts
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">
-                Counts are deduped within each audience and exclude blank
-                emails.
-              </p>
+            <div className="rounded-2xl border border-violet-200 bg-white/90 p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="rounded-xl bg-violet-50 p-2 text-violet-700 ring-1 ring-violet-200">
+                  <Users className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                    Audience reach
+                  </p>
+                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">
+                    {audiencePreviews.reduce(
+                      (sum, audience) => sum + audience.count,
+                      0,
+                    )} possible contacts
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                    Audience counts come from current CRM, schedule, package, and event data.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-              <p className="text-sm font-semibold text-[var(--brand-muted)]">
-                Compliance
-              </p>
-              <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
-                Unsubscribes built in
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">
-                Sending will respect suppression records before emails go out.
-              </p>
+            <div className="rounded-2xl border border-emerald-200 bg-white/90 p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="rounded-xl bg-emerald-50 p-2 text-emerald-700 ring-1 ring-emerald-200">
+                  <ShieldCheck className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                    Delivery safeguards
+                  </p>
+                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">
+                    Suppressions respected
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                    Unsubscribes and suppression records are checked before sending.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+          <div className="rounded-3xl border border-violet-200/80 bg-white p-5 shadow-[0_18px_45px_rgba(76,29,149,0.09)] sm:p-6">
             <div>
               <h2 className="text-xl font-bold text-[var(--brand-text)]">
                 Create campaign draft
@@ -594,11 +630,11 @@ export default async function MarketingCampaignsPage({
               </p>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
+            <div className="mt-5 rounded-2xl border border-orange-200/70 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_100%)] p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="text-sm font-bold text-[var(--brand-text)]">
-                    Quick-start templates
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">
+                    Start with a template
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
                     Choose a starting point, then edit the audience, event,
@@ -623,7 +659,7 @@ export default async function MarketingCampaignsPage({
                     href={`/app/marketing/campaigns?template=${template.key}`}
                     className={`rounded-2xl border px-4 py-3 text-left transition ${
                       selectedTemplate?.key === template.key
-                        ? "border-[#E85D2A] bg-white shadow-sm"
+                        ? "border-orange-400 bg-white shadow-[0_10px_28px_rgba(249,115,22,0.12)] ring-1 ring-orange-200"
                         : "border-[var(--brand-border)] bg-white/70 hover:border-[#A64AC9] hover:bg-white"
                     }`}
                   >
@@ -646,13 +682,54 @@ export default async function MarketingCampaignsPage({
               ) : null}
             </div>
 
+            <div className="mt-5 grid gap-2 sm:grid-cols-4">
+              {[
+                { step: "1", label: "Choose audience", detail: "Who should receive it" },
+                { step: "2", label: "Write message", detail: "Subject, preview, and body" },
+                { step: "3", label: "Add action", detail: "Optional button and link" },
+                { step: "4", label: "Save draft", detail: "Review before sending" },
+              ].map((item, index) => (
+                <div
+                  key={item.step}
+                  className="relative rounded-2xl border border-violet-100 bg-white p-3 shadow-sm"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#4c1d95_0%,#f97316_130%)] text-xs font-bold text-white">
+                      {item.step}
+                    </span>
+                    <div>
+                      <p className="text-sm font-bold text-[var(--brand-text)]">{item.label}</p>
+                      <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">{item.detail}</p>
+                    </div>
+                  </div>
+                  {index < 3 ? (
+                    <ArrowRight className="absolute -right-3 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-violet-300 sm:block" />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
             <form
               action={createMarketingCampaignDraftAction}
-              className="mt-5 space-y-4"
+              className="mt-5 space-y-5"
             >
-              <div>
-                <label
-                  htmlFor="name"
+              <section className="rounded-3xl border border-violet-200/70 bg-[linear-gradient(135deg,#ffffff_0%,#faf5ff_100%)] p-4 sm:p-5">
+                <div className="mb-4 flex items-start gap-3">
+                  <span className="rounded-xl bg-violet-50 p-2 text-violet-700 ring-1 ring-violet-200">
+                    <Users className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">Step 1</p>
+                    <h3 className="mt-1 text-lg font-bold text-[var(--brand-text)]">Campaign and audience</h3>
+                    <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                      Name the campaign, choose the audience, and select an event only when required.
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label
+                      htmlFor="name"
                   className="text-sm font-semibold text-[var(--brand-text)]"
                 >
                   Campaign name
@@ -715,11 +792,27 @@ export default async function MarketingCampaignsPage({
                   Required only for Specific event registrants and Specific
                   event checked-in attendees.
                 </p>
-              </div>
+                  </div>
+                </div>
+              </section>
 
-              <div>
-                <label
-                  htmlFor="subject"
+              <section className="rounded-3xl border border-orange-200/70 bg-[linear-gradient(135deg,#ffffff_0%,#fff7ed_100%)] p-4 sm:p-5">
+                <div className="mb-4 flex items-start gap-3">
+                  <span className="rounded-xl bg-orange-50 p-2 text-orange-700 ring-1 ring-orange-200">
+                    <Mail className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">Step 2</p>
+                    <h3 className="mt-1 text-lg font-bold text-[var(--brand-text)]">Message</h3>
+                    <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                      Write the subject, inbox preview, and branded studio message.
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label
+                      htmlFor="subject"
                   className="text-sm font-semibold text-[var(--brand-text)]"
                 >
                   Subject line
@@ -768,17 +861,32 @@ export default async function MarketingCampaignsPage({
                 />
               </div>
 
-              <CampaignAIAssistant
-                campaignContext="studio"
-                audienceLabel={defaultAudienceLabel}
-                currentSubject={selectedTemplate?.subject ?? ""}
-                currentPreviewText={selectedTemplate?.previewText ?? ""}
-                currentBodyText={selectedTemplate?.bodyText ?? ""}
-                ctaLabel={selectedTemplate?.ctaLabel ?? ""}
-                compact
-              />
+                  <CampaignAIAssistant
+                    campaignContext="studio"
+                    audienceLabel={defaultAudienceLabel}
+                    currentSubject={selectedTemplate?.subject ?? ""}
+                    currentPreviewText={selectedTemplate?.previewText ?? ""}
+                    currentBodyText={selectedTemplate?.bodyText ?? ""}
+                    ctaLabel={selectedTemplate?.ctaLabel ?? ""}
+                    compact
+                  />
+                </div>
+              </section>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <section className="rounded-3xl border border-emerald-200/70 bg-[linear-gradient(135deg,#ffffff_0%,#ecfdf5_100%)] p-4 sm:p-5">
+                <div className="mb-4 flex items-start gap-3">
+                  <span className="rounded-xl bg-emerald-50 p-2 text-emerald-700 ring-1 ring-emerald-200">
+                    <Link2 className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Step 3</p>
+                    <h3 className="mt-1 text-lg font-bold text-[var(--brand-text)]">Call to action</h3>
+                    <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                      Add an optional button that directs recipients to the next step.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label
                     htmlFor="ctaLabel"
@@ -810,18 +918,34 @@ export default async function MarketingCampaignsPage({
                   />
                 </div>
               </div>
+              </section>
 
-              <button
-                type="submit"
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-[#4D1F47] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#3D1839] sm:w-auto"
-              >
-                Save Draft
-              </button>
+              <section className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                <div className="flex items-start gap-3">
+                  <span className="rounded-xl bg-white p-2 text-violet-700 ring-1 ring-slate-200">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">Step 4</p>
+                    <h3 className="mt-1 text-base font-bold text-[var(--brand-text)]">Save for review</h3>
+                    <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                      Saving creates a draft only. Review recipients, branding, and delivery settings before sending.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="inline-flex w-full shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 sm:w-auto"
+                >
+                  Save Draft
+                </button>
+              </section>
             </form>
           </div>
 
           <aside className="flex flex-col gap-6">
-            <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+            <section className="rounded-3xl border border-orange-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#fff7ed_100%)] p-5 shadow-[0_18px_45px_rgba(249,115,22,0.08)] sm:p-6">
               <h2 className="text-lg font-bold text-[var(--brand-text)]">
                 Audience preview
               </h2>
@@ -834,7 +958,7 @@ export default async function MarketingCampaignsPage({
                 {audiencePreviews.map((audience) => (
                   <details
                     key={audience.key}
-                    className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4"
+                    className="rounded-2xl border border-violet-100 bg-white/85 p-4 transition hover:border-orange-200 hover:shadow-sm"
                   >
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-start justify-between gap-3">
@@ -872,66 +996,64 @@ export default async function MarketingCampaignsPage({
           </aside>
         </section>
 
-        <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <section className="rounded-3xl border border-violet-200/80 bg-white p-5 shadow-[0_18px_45px_rgba(76,29,149,0.09)] sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-xl font-bold text-[var(--brand-text)]">
-                Recent campaign drafts
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                Campaign activity
+              </p>
+              <h2 className="mt-1 text-xl font-bold text-[var(--brand-text)]">
+                Recent campaigns
               </h2>
               <p className="mt-1 text-sm text-[var(--brand-muted)]">
-                Drafts, test sends, send lists, and campaign sending are now
-                part of the native DanceFlow marketing workflow.
+                See what needs work, what is scheduled, and what has already been delivered.
               </p>
             </div>
-            <span className="inline-flex w-fit rounded-full border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--brand-muted)]">
-              Draft mode
+            <span className="inline-flex w-fit rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-800">
+              {campaigns.length} recent
             </span>
+          </div>
+
+          <div className="mt-5 grid gap-2 sm:grid-cols-4">
+            <div className="rounded-2xl border border-violet-100 bg-violet-50/70 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+                Drafts
+              </p>
+              <p className="mt-1 text-2xl font-bold text-violet-950">
+                {campaignStatusCounts.draft}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">
+                Scheduled
+              </p>
+              <p className="mt-1 text-2xl font-bold text-sky-950">
+                {campaignStatusCounts.scheduled}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                Sent
+              </p>
+              <p className="mt-1 text-2xl font-bold text-emerald-950">
+                {campaignStatusCounts.sent}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-red-100 bg-red-50/70 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-red-700">
+                Attention
+              </p>
+              <p className="mt-1 text-2xl font-bold text-red-950">
+                {campaignStatusCounts.failed}
+              </p>
+            </div>
           </div>
 
           <div className="mt-5 space-y-3">
             {campaigns.length > 0 ? (
-              campaigns.map((campaign) => (
-                <article
-                  key={campaign.id}
-                  className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-semibold text-[var(--brand-text)]">
-                        {campaign.name}
-                      </p>
-                      <p className="mt-1 text-sm text-[var(--brand-muted)]">
-                        {campaign.subject}
-                      </p>
-                      {campaign.preview_text ? (
-                        <p className="mt-1 text-xs text-[var(--brand-muted)]">
-                          {campaign.preview_text}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full bg-[var(--brand-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--brand-muted)]">
-                        {audienceLabel(campaign.audience_type)}
-                      </span>
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold capitalize text-slate-700">
-                        {campaign.status}
-                      </span>
-                      <Link
-                        href={`/app/marketing/campaigns/${campaign.id}`}
-                        className="inline-flex items-center justify-center rounded-full border border-[var(--brand-border)] bg-white px-3 py-1 text-xs font-bold text-[#4D1F47] transition hover:bg-[var(--brand-soft-bg)]"
-                      >
-                        Open
-                      </Link>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-xs text-[var(--brand-muted)]">
-                    Created {formatDate(campaign.created_at)} · Sent{" "}
-                    {formatDate(campaign.sent_at)}
-                  </p>
-                </article>
-              ))
+              <MarketingCampaignList campaigns={campaigns} />
             ) : (
-              <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-5 text-sm text-[var(--brand-muted)]">
+              <div className="rounded-2xl border border-dashed border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-5 text-sm text-[var(--brand-muted)]">
                 No campaign drafts yet. Create the first draft above.
               </div>
             )}

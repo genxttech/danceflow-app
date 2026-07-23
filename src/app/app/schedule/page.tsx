@@ -25,6 +25,7 @@ import {
 } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
+import ScheduleDetailPanelTrigger from "./ScheduleDetailPanelTrigger";
 
 type SearchParams = Promise<{
   q?: string;
@@ -1781,12 +1782,32 @@ export default async function SchedulePage({
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0 pl-2">
                       <div className="flex flex-wrap items-center gap-3">
-                        <Link
-                          href={`/app/events/${event.id}`}
-                          className="text-lg font-semibold text-slate-950 hover:text-[var(--brand-primary)]"
-                        >
-                          {event.name}
-                        </Link>
+                        <ScheduleDetailPanelTrigger
+                          kind="event"
+                          title={event.name}
+                          description={`${eventTypeLabel(event.event_type)} · ${formatEventDateRange(
+                            event,
+                            item.occurrence_date,
+                          )}`}
+                          status={event.status}
+                          primaryHref={`/app/events/${event.id}`}
+                          primaryLabel="Open event"
+                          secondaryHref={`/app/events/${event.id}`}
+                          secondaryLabel="Check-in / roster"
+                          details={[
+                            { label: "When", value: formatEventDateRange(event, item.occurrence_date) },
+                            { label: "Organizer", value: getOrganizerName(event.organizers) },
+                            {
+                              label: "Location",
+                              value:
+                                event.venue_name ||
+                                [event.city, event.state].filter(Boolean).join(", ") ||
+                                "No location",
+                            },
+                            { label: "Visibility", value: event.visibility },
+                          ]}
+                          triggerClassName="text-left text-lg font-semibold text-slate-950 hover:text-[var(--brand-primary)]"
+                        />
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
@@ -1857,12 +1878,33 @@ export default async function SchedulePage({
                     </div>
 
                     <div className="flex flex-wrap gap-2 xl:min-w-[220px] xl:justify-end">
-                      <Link
-                        href={`/app/events/${event.id}`}
-                        className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
-                      >
-                        View Event
-                      </Link>
+                      <ScheduleDetailPanelTrigger
+                        kind="event"
+                        title={event.name}
+                        description={`${eventTypeLabel(event.event_type)} · ${formatEventDateRange(
+                          event,
+                          item.occurrence_date,
+                        )}`}
+                        status={event.status}
+                        primaryHref={`/app/events/${event.id}`}
+                        primaryLabel="Open event"
+                        secondaryHref={`/app/events/${event.id}`}
+                        secondaryLabel="Check-in / roster"
+                        details={[
+                          { label: "When", value: formatEventDateRange(event, item.occurrence_date) },
+                          { label: "Organizer", value: getOrganizerName(event.organizers) },
+                          {
+                            label: "Location",
+                            value:
+                              event.venue_name ||
+                              [event.city, event.state].filter(Boolean).join(", ") ||
+                              "No location",
+                          },
+                          { label: "Visibility", value: event.visibility },
+                        ]}
+                        triggerLabel="Review details"
+                        triggerClassName="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
+                      />
 
                       <Link
                         href={`/app/events/${event.id}`}
@@ -1906,12 +1948,48 @@ export default async function SchedulePage({
                 <div className="flex flex-col gap-4 pl-2 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-3">
-                      <Link
-                        href={`/app/schedule/${appointment.id}`}
-                        className="text-lg font-semibold text-slate-900 hover:underline"
-                      >
-                        {getClientName(appointment.clients)}
-                      </Link>
+                      <ScheduleDetailPanelTrigger
+                        kind="appointment"
+                        title={getClientName(appointment.clients)}
+                        description={`${appointmentTypeLabel(appointment.appointment_type)} · ${formatDateTime(
+                          appointment.starts_at,
+                          studioTimeZone,
+                        )}`}
+                        status={appointment.status}
+                        primaryHref={`/app/schedule/${appointment.id}`}
+                        primaryLabel="Open appointment"
+                        secondaryHref={
+                          !isFinalStatus && canEditAppointments(role)
+                            ? `/app/schedule/${appointment.id}/edit`
+                            : undefined
+                        }
+                        secondaryLabel="Edit appointment"
+                        details={[
+                          { label: "Start", value: formatDateTime(appointment.starts_at, studioTimeZone) },
+                          { label: "Instructor", value: getInstructorName(appointment.instructors) },
+                          { label: "Room", value: getRoomName(appointment.rooms) },
+                          { label: "Billing", value: billingTypeLabel(appointment.billing_type) },
+                          {
+                            label: "Package",
+                            value: isFloorRental
+                              ? "No package deduction"
+                              : pkg
+                                ? `${pkg.name_snapshot} — ${summarizeClientPackageItems(
+                                    pkg.client_package_items ?? [],
+                                  )}`
+                                : "No package linked",
+                          },
+                          { label: "Payment", value: appointment.payment_status || "Not recorded" },
+                        ]}
+                        note={
+                          appointment.is_recurring
+                            ? "This appointment is part of a recurring series. Attendance applies per lesson, while cancellation may affect this lesson or this and future lessons."
+                            : isFloorRental
+                              ? "Floor rentals are shown for operational visibility and do not use standard lesson attendance or package deductions."
+                              : appointment.billing_note || undefined
+                        }
+                        triggerClassName="text-left text-lg font-semibold text-slate-900 hover:text-violet-800"
+                      />
 
                       <span
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
@@ -2035,12 +2113,49 @@ export default async function SchedulePage({
                   </div>
 
                   <div className="flex flex-wrap gap-2 xl:min-w-[150px] xl:justify-end">
-                    <Link
-                      href={`/app/schedule/${appointment.id}`}
-                      className="rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50"
-                    >
-                      View
-                    </Link>
+                    <ScheduleDetailPanelTrigger
+                      kind="appointment"
+                      title={getClientName(appointment.clients)}
+                      description={`${appointmentTypeLabel(appointment.appointment_type)} · ${formatDateTime(
+                        appointment.starts_at,
+                        studioTimeZone,
+                      )}`}
+                      status={appointment.status}
+                      primaryHref={`/app/schedule/${appointment.id}`}
+                      primaryLabel="Open appointment"
+                      secondaryHref={
+                        !isFinalStatus && canEditAppointments(role)
+                          ? `/app/schedule/${appointment.id}/edit`
+                          : undefined
+                      }
+                      secondaryLabel="Edit appointment"
+                      details={[
+                        { label: "Start", value: formatDateTime(appointment.starts_at, studioTimeZone) },
+                        { label: "Instructor", value: getInstructorName(appointment.instructors) },
+                        { label: "Room", value: getRoomName(appointment.rooms) },
+                        { label: "Billing", value: billingTypeLabel(appointment.billing_type) },
+                        {
+                          label: "Package",
+                          value: isFloorRental
+                            ? "No package deduction"
+                            : pkg
+                              ? `${pkg.name_snapshot} — ${summarizeClientPackageItems(
+                                  pkg.client_package_items ?? [],
+                                )}`
+                              : "No package linked",
+                        },
+                        { label: "Payment", value: appointment.payment_status || "Not recorded" },
+                      ]}
+                      note={
+                        appointment.is_recurring
+                          ? "This appointment is part of a recurring series. Attendance applies per lesson, while cancellation may affect this lesson or this and future lessons."
+                          : isFloorRental
+                            ? "Floor rentals are shown for operational visibility and do not use standard lesson attendance or package deductions."
+                            : appointment.billing_note || undefined
+                      }
+                      triggerLabel="Review"
+                      triggerClassName="rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50"
+                    />
 
                     {!isFinalStatus && canEditAppointments(role) ? (
                       <Link

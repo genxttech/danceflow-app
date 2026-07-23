@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import WorkspaceEmptyState from "@/components/app/workspace/WorkspaceEmptyState";
 import WorkspacePane from "@/components/app/workspace/WorkspacePane";
+import ResponsiveDetailPanel from "@/components/app/workspace/ResponsiveDetailPanel";
 
 export type TodayFollowUpItem = {
   id: string;
@@ -47,6 +48,20 @@ export type TodayNotificationItem = {
 
 type QueueView = "attention" | "follow-up" | "schedule" | "alerts";
 
+type TodayDetailSelection =
+  | { kind: "follow-up"; item: TodayFollowUpItem }
+  | { kind: "appointment"; item: TodayAppointmentItem }
+  | { kind: "notification"; item: TodayNotificationItem }
+  | {
+      kind: "queue";
+      title: string;
+      detail: string;
+      metric?: string | number;
+      href: string;
+      actionLabel: string;
+      tone: "default" | "warning" | "danger" | "success";
+    };
+
 function priorityClasses(priority: TodayFollowUpItem["priority"]) {
   if (priority === "high") return "border-rose-200 bg-rose-50 text-rose-700";
   if (priority === "medium") return "border-amber-200 bg-amber-50 text-amber-700";
@@ -66,6 +81,8 @@ function QueueLink({
   detail,
   metric,
   tone = "default",
+  actionLabel = "Open workflow",
+  onReview,
 }: {
   href: string;
   icon: ReactNode;
@@ -73,6 +90,8 @@ function QueueLink({
   detail: string;
   metric?: string | number;
   tone?: "default" | "warning" | "danger" | "success";
+  actionLabel?: string;
+  onReview: (selection: TodayDetailSelection) => void;
 }) {
   const toneClass =
     tone === "danger"
@@ -84,9 +103,20 @@ function QueueLink({
           : "bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]";
 
   return (
-    <Link
-      href={href}
-      className="flex items-start gap-3 border-b border-[var(--brand-border)] px-4 py-3 transition last:border-b-0 hover:bg-[linear-gradient(90deg,rgba(124,58,237,0.06),rgba(249,115,22,0.05))]"
+    <button
+      type="button"
+      onClick={() =>
+        onReview({
+          kind: "queue",
+          title,
+          detail,
+          metric,
+          href,
+          actionLabel,
+          tone,
+        })
+      }
+      className="flex w-full items-start gap-3 border-b border-[var(--brand-border)] px-4 py-3 text-left transition last:border-b-0 hover:bg-[linear-gradient(90deg,rgba(124,58,237,0.06),rgba(249,115,22,0.05))]"
     >
       <span className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${toneClass}`}>
         {icon}
@@ -103,7 +133,7 @@ function QueueLink({
         <span className="mt-1 block text-xs leading-5 text-[var(--brand-muted)]">{detail}</span>
       </span>
       <ArrowRight className="mt-2 h-4 w-4 shrink-0 text-[var(--brand-muted)]" />
-    </Link>
+    </button>
   );
 }
 
@@ -181,6 +211,8 @@ export default function TodayActionQueue({
   const [selectedFollowUpId, setSelectedFollowUpId] = useState<string | null>(
     orderedFollowUps[0]?.id ?? null,
   );
+  const [detailSelection, setDetailSelection] =
+    useState<TodayDetailSelection | null>(null);
 
   const selectedFollowUp =
     orderedFollowUps.find((item) => item.id === selectedFollowUpId) ??
@@ -263,6 +295,8 @@ export default function TodayActionQueue({
               detail="Approve, decline, or schedule new and in-review requests."
               metric={bookingRequestCount}
               tone={bookingRequestCount > 0 ? "warning" : "success"}
+              actionLabel="Review booking requests"
+              onReview={setDetailSelection}
             />
             <QueueLink
               href="/app/notifications?status=unread"
@@ -271,6 +305,8 @@ export default function TodayActionQueue({
               detail="Review schedule, payment, document, and client notifications."
               metric={unreadCount}
               tone={unreadCount > 0 ? "warning" : "success"}
+              actionLabel="Review notifications"
+              onReview={setDetailSelection}
             />
             <QueueLink
               href="/app/payments"
@@ -283,6 +319,8 @@ export default function TodayActionQueue({
               }
               metric={payoutsReady ? "Ready" : "Required"}
               tone={payoutsReady ? "success" : "danger"}
+              actionLabel={payoutsReady ? "Open payments" : "Connect payouts"}
+              onReview={setDetailSelection}
             />
             <QueueLink
               href="/app/reports/client-birthdays"
@@ -291,6 +329,8 @@ export default function TodayActionQueue({
               detail={`${birthdays.next7} in the next 7 days; ${birthdays.cardReady} have mailing details ready.`}
               metric={birthdays.next30}
               tone={birthdays.next7 > 0 ? "warning" : "default"}
+              actionLabel="Open birthday report"
+              onReview={setDetailSelection}
             />
             <QueueLink
               href="/app/settings/billing"
@@ -298,6 +338,8 @@ export default function TodayActionQueue({
               title="Plan and access"
               detail={`Current workspace plan: ${planLabel}.`}
               metric={planLabel}
+              actionLabel="Review billing and access"
+              onReview={setDetailSelection}
             />
           </WorkspacePane>
 
@@ -371,7 +413,10 @@ export default function TodayActionQueue({
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setSelectedFollowUpId(item.id)}
+                  onClick={() => {
+                    setSelectedFollowUpId(item.id);
+                    setDetailSelection({ kind: "follow-up", item });
+                  }}
                   className={[
                     "block w-full border-b border-[var(--brand-border)] px-4 py-3 text-left transition last:border-b-0",
                     selectedFollowUp?.id === item.id
@@ -473,10 +518,13 @@ export default function TodayActionQueue({
           {appointments.length ? (
             <div className="grid gap-0 md:grid-cols-2">
               {appointments.slice(0, 8).map((appointment) => (
-                <Link
+                <button
                   key={appointment.id}
-                  href={appointment.href}
-                  className="border-b border-[var(--brand-border)] px-4 py-4 transition hover:bg-[var(--brand-primary-soft)]/55 md:odd:border-r"
+                  type="button"
+                  onClick={() =>
+                    setDetailSelection({ kind: "appointment", item: appointment })
+                  }
+                  className="border-b border-[var(--brand-border)] px-4 py-4 text-left transition hover:bg-[var(--brand-primary-soft)]/55 md:odd:border-r"
                 >
                   <div className="flex items-start gap-3">
                     <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
@@ -497,7 +545,7 @@ export default function TodayActionQueue({
                       </span>
                     </span>
                   </div>
-                </Link>
+                </button>
               ))}
             </div>
           ) : (
@@ -529,10 +577,13 @@ export default function TodayActionQueue({
             [...notifications]
               .sort((a, b) => Number(b.unread) - Number(a.unread))
               .map((notification) => (
-                <Link
+                <button
                   key={notification.id}
-                  href="/app/notifications"
-                  className="block border-b border-[var(--brand-border)] px-4 py-4 transition last:border-b-0 hover:bg-[var(--brand-primary-soft)]/55"
+                  type="button"
+                  onClick={() =>
+                    setDetailSelection({ kind: "notification", item: notification })
+                  }
+                  className="block w-full border-b border-[var(--brand-border)] px-4 py-4 text-left transition last:border-b-0 hover:bg-[var(--brand-primary-soft)]/55"
                 >
                   <div className="flex items-start gap-3">
                     <span
@@ -563,7 +614,7 @@ export default function TodayActionQueue({
                       ) : null}
                     </div>
                   </div>
-                </Link>
+                </button>
               ))
           ) : (
             <div className="flex items-center gap-3 px-4 py-8 text-sm text-[var(--brand-muted)]">
@@ -573,6 +624,164 @@ export default function TodayActionQueue({
           )}
         </WorkspacePane>
       ) : null}
+
+      <ResponsiveDetailPanel
+        open={Boolean(detailSelection)}
+        title={
+          detailSelection?.kind === "follow-up"
+            ? detailSelection.item.personName
+            : detailSelection?.kind === "appointment"
+              ? detailSelection.item.title
+              : detailSelection?.kind === "notification"
+                ? detailSelection.item.title
+                : detailSelection?.kind === "queue"
+                  ? detailSelection.title
+                  : "Today details"
+        }
+        description={
+          detailSelection?.kind === "follow-up"
+            ? `${priorityLabel(detailSelection.item.priority)} priority follow-up`
+            : detailSelection?.kind === "appointment"
+              ? `${detailSelection.item.typeLabel} · ${detailSelection.item.dateTime}`
+              : detailSelection?.kind === "notification"
+                ? detailSelection.item.unread
+                  ? "Unread workspace notification"
+                  : "Workspace notification"
+                : detailSelection?.kind === "queue"
+                  ? "Today operations queue"
+                  : undefined
+        }
+        onClose={() => setDetailSelection(null)}
+        footer={
+          detailSelection ? (
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setDetailSelection(null)}
+                className="rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-semibold text-violet-800 hover:bg-violet-50"
+              >
+                Keep reviewing Today
+              </button>
+              <Link
+                href={
+                  detailSelection.kind === "follow-up"
+                    ? detailSelection.item.href
+                    : detailSelection.kind === "appointment"
+                      ? detailSelection.item.href
+                      : detailSelection.kind === "notification"
+                        ? "/app/notifications"
+                        : detailSelection.href
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-110"
+              >
+                {detailSelection.kind === "follow-up"
+                  ? "Open client workflow"
+                  : detailSelection.kind === "appointment"
+                    ? "Open appointment"
+                    : detailSelection.kind === "notification"
+                      ? "Open notifications"
+                      : detailSelection.actionLabel}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          ) : null
+        }
+      >
+        {detailSelection ? (
+          <div className="space-y-4 p-5">
+            {detailSelection.kind === "follow-up" ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${priorityClasses(detailSelection.item.priority)}`}>
+                    {priorityLabel(detailSelection.item.priority)}
+                  </span>
+                  <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold capitalize text-violet-800">
+                    {detailSelection.item.type.replaceAll("_", " ")}
+                  </span>
+                </div>
+                <div className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                    Why this is here
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    {detailSelection.item.reason}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-orange-100 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_100%)] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
+                    Recommended next step
+                  </p>
+                  <p className="mt-2 text-sm font-medium leading-6 text-slate-900">
+                    {detailSelection.item.suggestedAction}
+                  </p>
+                  {detailSelection.item.context ? (
+                    <p className="mt-3 text-xs leading-5 text-slate-600">
+                      {detailSelection.item.context}
+                    </p>
+                  ) : null}
+                </div>
+              </>
+            ) : detailSelection.kind === "appointment" ? (
+              <>
+                <div className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                    Appointment
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {detailSelection.item.dateTime}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {detailSelection.item.typeLabel}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-orange-100 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_100%)] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
+                    Schedule context
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    {detailSelection.item.detail}
+                  </p>
+                </div>
+              </>
+            ) : detailSelection.kind === "notification" ? (
+              <div className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Bell className="h-4 w-4 text-violet-700" />
+                  {detailSelection.item.unread ? (
+                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                      Unread
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-700">
+                  {detailSelection.item.body || "This notification does not include additional details."}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                    Queue summary
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    {detailSelection.detail}
+                  </p>
+                </div>
+                {detailSelection.metric !== undefined ? (
+                  <div className="rounded-2xl border border-orange-100 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_100%)] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
+                      Current status
+                    </p>
+                    <p className="mt-2 text-2xl font-bold text-slate-950">
+                      {detailSelection.metric}
+                    </p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
+      </ResponsiveDetailPanel>
 
       {birthdays.missingBirthday > 0 || birthdays.missingAddress > 0 ? (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-4 py-3 text-xs text-[var(--brand-muted)]">

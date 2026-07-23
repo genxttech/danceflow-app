@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import {
-  Archive,
   Search,
   Sparkles,
   UserRoundCheck,
@@ -9,19 +8,18 @@ import {
   Users,
 } from "lucide-react";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
-import RecordRow from "@/components/app/workspace/RecordRow";
 import WorkspaceEmptyState from "@/components/app/workspace/WorkspaceEmptyState";
 import WorkspaceHeader from "@/components/app/workspace/WorkspaceHeader";
 import WorkspaceToolbar from "@/components/app/workspace/WorkspaceToolbar";
-import { archiveClientAction } from "./actions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import ClientWorkspaceList from "./ClientWorkspaceList";
 
 type SearchParams = Promise<{
   status?: string;
   q?: string;
 }>;
 
-type ClientRow = {
+export type ClientRow = {
   id: string;
   first_name: string;
   last_name: string;
@@ -34,28 +32,6 @@ type ClientRow = {
   created_at: string;
 };
 
-function statusBadgeClass(status: string) {
-  if (status === "lead") return "border-sky-200 bg-sky-50 text-sky-700";
-  if (status === "contacted") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (status === "consultation_booked") return "border-violet-200 bg-violet-50 text-violet-700";
-  if (status === "converted") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "lost") return "border-rose-200 bg-rose-50 text-rose-700";
-  if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "inactive") return "border-slate-200 bg-slate-100 text-slate-700";
-  if (status === "archived") return "border-rose-200 bg-rose-50 text-rose-700";
-  return "border-slate-200 bg-slate-100 text-slate-700";
-}
-
-function statusLabel(status: string) {
-  return status
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function initialsFor(client: Pick<ClientRow, "first_name" | "last_name">) {
-  return `${client.first_name.charAt(0)}${client.last_name.charAt(0)}`.toUpperCase();
-}
 
 const statusOptions = [
   { value: "", label: "All statuses" },
@@ -311,82 +287,7 @@ export default async function ClientsPage({
               }
             />
           ) : (
-            <div>
-              {typedClients.map((client) => (
-                <div
-                  key={client.id}
-                  className="grid border-b border-[var(--brand-border)] last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto]"
-                >
-                  <RecordRow
-                    href={`/app/clients/${client.id}`}
-                    title={`${client.first_name} ${client.last_name}`}
-                    subtitle={
-                      [client.email, client.phone].filter(Boolean).join(" • ") ||
-                      "No contact information"
-                    }
-                    leading={
-                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--brand-primary-soft)] text-sm font-semibold text-[var(--brand-primary)]">
-                        {initialsFor(client)}
-                      </span>
-                    }
-                    meta={
-                      <>
-                        <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusBadgeClass(
-                            client.status,
-                          )}`}
-                        >
-                          {statusLabel(client.status)}
-                        </span>
-                        {client.skill_level ? (
-                          <span className="inline-flex rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
-                            {client.skill_level}
-                          </span>
-                        ) : null}
-                        {client.dance_interests ? (
-                          <span className="max-w-[18rem] truncate rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-medium text-orange-800">
-                            {client.dance_interests}
-                          </span>
-                        ) : null}
-                        {client.referral_source ? (
-                          <span className="max-w-[14rem] truncate rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-800">
-                            {client.referral_source.replaceAll("_", " ")}
-                          </span>
-                        ) : null}
-                      </>
-                    }
-                    trailing={
-                      <span className="hidden text-xs font-semibold text-[var(--brand-primary)] sm:inline">
-                        Open
-                      </span>
-                    }
-                    className="border-b-0"
-                  />
-
-                  <div className="flex items-center gap-2 border-t border-[var(--brand-border)] px-4 py-2 lg:border-l lg:border-t-0">
-                    <Link
-                      href={`/app/clients/${client.id}/edit`}
-                      className="rounded-lg border border-[var(--brand-border)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
-                    >
-                      Edit
-                    </Link>
-
-                    {client.status !== "archived" ? (
-                      <form action={archiveClientAction}>
-                        <input type="hidden" name="clientId" value={client.id} />
-                        <button
-                          type="submit"
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                        >
-                          <Archive className="h-3.5 w-3.5" />
-                          Archive
-                        </button>
-                      </form>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ClientWorkspaceList clients={typedClients} />
           )}
         </div>
 
