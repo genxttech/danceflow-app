@@ -1,6 +1,6 @@
-import { Link, router } from "expo-router";
+import { Link, router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -162,47 +162,40 @@ export default function LearnScreen() {
   const [overview, setOverview] = useState<StudentLearnOverview>(emptyOverview);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const load = useCallback(async () => {
     const userId = session?.user.id;
 
-    async function load() {
-      if (!userId) {
-        setLinkedStudios([]);
-        setOverview(emptyOverview);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setErrorMessage(null);
-
-      try {
-        const access = await getStudentAccess(userId);
-        const learnOverview = await loadStudentLearnOverview(access.linkedStudios);
-
-        if (!mounted) return;
-
-        setLinkedStudios(access.linkedStudios);
-        setOverview(learnOverview);
-      } catch {
-        if (!mounted) return;
-
-        setLinkedStudios([]);
-        setOverview(emptyOverview);
-        setErrorMessage("Learning history could not be loaded yet. Try again in a moment.");
-      } finally {
-        if (!mounted) return;
-        setLoading(false);
-      }
+    if (!userId) {
+      setLinkedStudios([]);
+      setOverview(emptyOverview);
+      setLoading(false);
+      return;
     }
 
-    load();
+    setLoading(true);
+    setErrorMessage(null);
 
-    return () => {
-      mounted = false;
-    };
+    try {
+      const access = await getStudentAccess(userId);
+      const learnOverview = await loadStudentLearnOverview(access.linkedStudios);
+      setLinkedStudios(access.linkedStudios);
+      setOverview(learnOverview);
+    } catch {
+      setLinkedStudios([]);
+      setOverview(emptyOverview);
+      setErrorMessage(
+        "Learning history could not be loaded yet. Try again in a moment."
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [session?.user.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
 
   const hasPortalAccess = linkedStudios.length > 0;
   const isSignedIn = Boolean(session);
@@ -234,7 +227,14 @@ export default function LearnScreen() {
       ) : null}
 
       {errorMessage ? (
-        <FeatureCard label="Needs review" title="Learning history unavailable" detail={errorMessage} />
+        <>
+          <FeatureCard
+            label="Needs review"
+            title="Learning history unavailable"
+            detail={errorMessage}
+          />
+          <AppButton label="Try again" onPress={() => void load()} variant="secondary" />
+        </>
       ) : null}
 
       {!loading && !hasPortalAccess && digitalContent.length === 0 ? (
@@ -269,6 +269,7 @@ export default function LearnScreen() {
                 <Image
                   accessibilityIgnoresInvertColors
                   resizeMode="cover"
+                  accessibilityLabel={`${item.name} cover`}
                   source={{ uri: item.imageUrl }}
                   style={styles.digitalCover}
                 />
@@ -282,7 +283,9 @@ export default function LearnScreen() {
               <View style={styles.digitalCardBody}>
               <View style={styles.cardHeader}>
                 <View style={{ flex: 1 }}>
-                  <AppText variant="subtitle">{item.name}</AppText>
+                  <AppText numberOfLines={2} variant="subtitle">
+                    {item.name}
+                  </AppText>
                   <AppText variant="caption">{item.studioName}</AppText>
                 </View>
                 <View style={styles.progressBadge}>

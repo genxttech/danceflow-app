@@ -19,6 +19,12 @@ function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+const CONFIRM_RETRY_DELAYS_MS = [0, 1200, 2500, 4000];
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 function money(value: number, currency: string) {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
@@ -86,14 +92,30 @@ export default function MarketplaceDetailScreen() {
 
       const payment = await presentPaymentSheet();
       if (payment.error) {
+        if (String(payment.error.code ?? "").toLowerCase() === "canceled") {
+          setStatusMessage(null);
+          return;
+        }
         throw new Error(payment.error.message || "Payment was not completed.");
       }
 
       setStatusMessage("Payment received. Granting access...");
-      const confirmation = await confirmStudentMarketplaceOrder(checkout.orderId);
 
-      if (!confirmation.confirmed) {
-        throw new Error("Payment is still confirming. Check Digital Purchases shortly.");
+      let confirmed = false;
+      for (const delay of CONFIRM_RETRY_DELAYS_MS) {
+        if (delay) await wait(delay);
+        const confirmation = await confirmStudentMarketplaceOrder(checkout.orderId);
+        if (confirmation.confirmed) {
+          confirmed = true;
+          break;
+        }
+      }
+
+      if (!confirmed) {
+        setStatusMessage(
+          "Payment was received. Access is still syncing and should appear in Digital Purchases shortly."
+        );
+        await wait(1800);
       }
 
       router.replace("/wallet/digital-purchases" as never);
@@ -127,6 +149,7 @@ export default function MarketplaceDetailScreen() {
         <Image
           accessibilityIgnoresInvertColors
           resizeMode="cover"
+          accessibilityLabel={`${item.name} cover`}
           source={{ uri: item.imageUrl }}
           style={styles.cover}
         />
@@ -147,6 +170,20 @@ export default function MarketplaceDetailScreen() {
         {item.instructorName ? (
           <AppText variant="caption">Instructor: {item.instructorName}</AppText>
         ) : null}
+        <View style={styles.metaRow}>
+          {item.danceStyle ? (
+            <View style={styles.metaChip}>
+              <AppText variant="caption">{item.danceStyle}</AppText>
+            </View>
+          ) : null}
+          {item.skillLevel ? (
+            <View style={styles.metaChip}>
+              <AppText variant="caption">
+                {item.skillLevel.replace(/_/g, " ")}
+              </AppText>
+            </View>
+          ) : null}
+        </View>
         <AppText variant="subtitle">{money(item.price, item.currency)}</AppText>
       </View>
 
@@ -204,6 +241,17 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
       borderWidth: 1,
       gap: 10,
       padding: 18
+    },
+    metaChip: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6
+    },
+    metaRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8
     }
   });
 }

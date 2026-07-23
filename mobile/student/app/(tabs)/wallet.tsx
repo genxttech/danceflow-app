@@ -391,6 +391,7 @@ export default function WalletScreen() {
     .map(orderTicketToWalletTicket);
   const tickets = [...walletTickets, ...checkoutFallbackTickets];
   const registrations = wallet?.registrations ?? [];
+  const digitalPurchases = wallet?.digitalEntitlements ?? [];
   const checkoutOrderTicketsAvailable = Boolean(
     checkoutOrderStatus?.registrationIds.some((registrationId) =>
       tickets.some((ticket) => ticket.registrationId === registrationId)
@@ -550,7 +551,7 @@ export default function WalletScreen() {
             />
             <WalletCategoryCard
               active={false}
-              countLabel="Open"
+              countLabel={`${digitalPurchases.length}`}
               detail="Purchased videos, series, downloads, and secure digital access."
               icon="play-circle-outline"
               onPress={() => router.push("/wallet/digital-purchases" as never)}

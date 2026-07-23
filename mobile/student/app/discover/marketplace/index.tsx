@@ -79,11 +79,15 @@ export default function MarketplaceScreen() {
         {items.map((item) => (
           <Pressable
             key={item.id}
+            accessibilityLabel={`${item.name}, ${item.owned ? "owned" : money(item.price, item.currency)}`}
+            accessibilityRole="button"
             onPress={() =>
-              router.push({
-                pathname: "/discover/marketplace/[catalogItemId]",
-                params: { catalogItemId: item.id }
-              } as never)
+              item.owned
+                ? router.push("/wallet/digital-purchases" as never)
+                : router.push({
+                    pathname: "/discover/marketplace/[catalogItemId]",
+                    params: { catalogItemId: item.id }
+                  } as never)
             }
             style={({ pressed }) => [styles.card, pressed && styles.pressed]}
           >
@@ -91,6 +95,7 @@ export default function MarketplaceScreen() {
               <Image
                 accessibilityIgnoresInvertColors
                 resizeMode="cover"
+                accessibilityLabel={`${item.name} cover`}
                 source={{ uri: item.imageUrl }}
                 style={styles.cover}
               />
@@ -104,13 +109,23 @@ export default function MarketplaceScreen() {
               <AppText variant="eyebrow">
                 {item.itemType === "video_series" ? "Video Series" : "Video"}
               </AppText>
-              <AppText variant="caption">{item.studioName}</AppText>
+              <AppText numberOfLines={1} style={styles.studioName} variant="caption">
+                {item.studioName}
+              </AppText>
             </View>
-            <AppText variant="subtitle">{item.name}</AppText>
-            {item.description ? <AppText variant="caption">{item.description}</AppText> : null}
+            <AppText numberOfLines={2} variant="subtitle">
+              {item.name}
+            </AppText>
+            {item.description ? (
+              <AppText numberOfLines={3} variant="caption">
+                {item.description}
+              </AppText>
+            ) : null}
             <View style={styles.footer}>
               <AppText variant="subtitle">{money(item.price, item.currency)}</AppText>
-              <AppText variant="caption">{item.owned ? "Owned" : "View details"}</AppText>
+              <AppText style={item.owned ? styles.ownedLabel : undefined} variant="caption">
+                {item.owned ? "Open purchases" : "View details"}
+              </AppText>
             </View>
             </View>
           </Pressable>
@@ -163,8 +178,16 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     list: {
       gap: 12
     },
+    ownedLabel: {
+      color: colors.primary,
+      fontWeight: "900"
+    },
     pressed: {
       opacity: 0.8
+    },
+    studioName: {
+      flexShrink: 1,
+      textAlign: "right"
     }
   });
 }

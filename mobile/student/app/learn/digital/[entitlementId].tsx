@@ -83,6 +83,7 @@ export default function DigitalContentPlaybackScreen() {
           entitlementId,
           catalogItemId
         );
+        resumeAppliedForRef.current = null;
         setContent(nextContent);
         setSelectedCatalogItemId(
           nextContent.playback?.catalogItemId ??
@@ -157,6 +158,8 @@ export default function DigitalContentPlaybackScreen() {
       positionSeconds: player.duration || selectedVideo?.durationSeconds || 0,
       durationSeconds: player.duration || selectedVideo?.durationSeconds || 0,
       completed: true
+    }).catch(() => {
+      // Completion will be reconciled on the next progress update.
     });
   });
 
@@ -179,8 +182,13 @@ export default function DigitalContentPlaybackScreen() {
           detail={errorMessage ?? "This content could not be opened."}
         />
         <AppButton
+          label="Try again"
+          onPress={() => void load(initialCatalogItemId)}
+        />
+        <AppButton
           label="Back to purchases"
           onPress={() => router.replace("/wallet/digital-purchases" as never)}
+          variant="secondary"
         />
       </Screen>
     );
@@ -194,6 +202,13 @@ export default function DigitalContentPlaybackScreen() {
       <AppText variant="title">{content.name}</AppText>
       {content.description ? (
         <AppText variant="caption">{content.description}</AppText>
+      ) : null}
+
+      {loading && content ? (
+        <FeatureCard
+          title="Loading selected lesson"
+          detail="Refreshing secure playback and progress."
+        />
       ) : null}
 
       {playbackUrl ? (
@@ -257,9 +272,14 @@ export default function DigitalContentPlaybackScreen() {
                   setSelectedCatalogItemId(video.catalogItemId);
                   void load(video.catalogItemId);
                 }}
-                style={[
+                accessibilityLabel={`Lesson ${index + 1}: ${video.title}`}
+                accessibilityRole="button"
+                disabled={loading}
+                style={({ pressed }) => [
                   styles.lessonCard,
-                  selected && styles.lessonCardSelected
+                  selected && styles.lessonCardSelected,
+                  pressed && styles.lessonCardPressed,
+                  loading && styles.lessonCardDisabled
                 ]}
               >
                 <AppText variant="eyebrow">
@@ -310,6 +330,12 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
       borderWidth: 1,
       gap: 5,
       padding: 15
+    },
+    lessonCardDisabled: {
+      opacity: 0.6
+    },
+    lessonCardPressed: {
+      opacity: 0.78
     },
     lessonCardSelected: {
       borderColor: colors.primary,

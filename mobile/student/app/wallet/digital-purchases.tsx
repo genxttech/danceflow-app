@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
@@ -63,10 +64,6 @@ export default function DigitalPurchasesPage() {
     }, [load])
   );
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
   return (
     <Screen>
       <AppText variant="eyebrow">Wallet</AppText>
@@ -84,7 +81,10 @@ export default function DigitalPurchasesPage() {
       ) : null}
 
       {!loading && errorMessage ? (
-        <FeatureCard title="Digital purchases unavailable" detail={errorMessage} />
+        <>
+          <FeatureCard title="Digital purchases unavailable" detail={errorMessage} />
+          <AppButton label="Try again" onPress={() => void load()} variant="secondary" />
+        </>
       ) : null}
 
       {!loading && !errorMessage && items.length === 0 ? (
@@ -138,7 +138,9 @@ export default function DigitalPurchasesPage() {
                   </AppText>
                   <AppText variant="caption">{item.studioName}</AppText>
                 </View>
-                <AppText variant="subtitle">{item.name}</AppText>
+                <AppText numberOfLines={2} variant="subtitle">
+                  {item.name}
+                </AppText>
                 <AppText variant="caption">
                   Access granted {formatWalletDate(item.grantedAt)}
                 </AppText>
@@ -201,6 +203,10 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     },
     list: {
       gap: 12
+    },
+    studioName: {
+      flexShrink: 1,
+      textAlign: "right"
     }
   });
 }
