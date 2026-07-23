@@ -169,12 +169,12 @@ export default function UnifiedSalesForm({
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5 xl:min-w-[980px]">
+          <div className="grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:w-auto xl:grid-cols-5">
             <button
               type="button"
               disabled={!canSellPackages}
               onClick={() => canSellPackages && setSaleType("package")}
-              className={`rounded-2xl border p-4 text-left transition ${
+              className={`min-h-20 rounded-2xl border p-4 text-left transition ${
                 saleType === "package"
                   ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]"
                   : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
@@ -193,7 +193,7 @@ export default function UnifiedSalesForm({
               type="button"
               disabled={!canSellMemberships}
               onClick={() => canSellMemberships && setSaleType("membership")}
-              className={`rounded-2xl border p-4 text-left transition ${
+              className={`min-h-20 rounded-2xl border p-4 text-left transition ${
                 saleType === "membership"
                   ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]"
                   : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
@@ -214,7 +214,7 @@ export default function UnifiedSalesForm({
               onClick={() =>
                 canSellPhysicalProducts && setSaleType("physical_product")
               }
-              className={`rounded-2xl border p-4 text-left transition ${
+              className={`min-h-20 rounded-2xl border p-4 text-left transition ${
                 saleType === "physical_product"
                   ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]"
                   : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
@@ -239,7 +239,7 @@ export default function UnifiedSalesForm({
               onClick={() =>
                 canSellPhysicalProducts && setSaleType("digital_product")
               }
-              className={`rounded-2xl border p-4 text-left transition ${
+              className={`min-h-20 rounded-2xl border p-4 text-left transition ${
                 saleType === "digital_product"
                   ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]"
                   : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
@@ -262,7 +262,7 @@ export default function UnifiedSalesForm({
               type="button"
               disabled={!canQuickCharge}
               onClick={() => canQuickCharge && setSaleType("quick_charge")}
-              className={`rounded-2xl border p-4 text-left transition ${
+              className={`min-h-20 rounded-2xl border p-4 text-left transition ${
                 saleType === "quick_charge"
                   ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]"
                   : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
@@ -345,7 +345,9 @@ export default function UnifiedSalesForm({
         <div className="flex items-start gap-3">
           <Sparkles className="mt-0.5 h-4 w-4 text-[var(--brand-primary)]" />
           <p>
-            Packages, memberships, and Quick Charge keep their existing fulfillment and payment logic underneath. Sell is the single front-desk entry point; catalog products will join this workflow in later slices.
+            Packages, memberships, Quick Charge, physical products, and digital
+            content keep their specialized fulfillment logic underneath. Sell is
+            the single front-desk entry point for every supported sale type.
           </p>
         </div>
       </div>

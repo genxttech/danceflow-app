@@ -230,7 +230,7 @@ export default async function CatalogPage({
                 className="flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 md:flex-row md:items-center md:justify-between"
               >
                 <div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                     <Link
                       href={catalogItemHref(item)}
                       className="font-semibold text-slate-950 hover:text-[var(--brand-primary)]"
@@ -253,10 +253,14 @@ export default async function CatalogPage({
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-2 text-sm text-slate-600">
-                    {item.description || "No description"} ·{" "}
-                    {money(item.price, item.currency)}
-                    {item.sku ? ` · ${item.sku}` : ""}
+                  <p className="mt-2 break-words text-sm text-slate-600">
+                    <span className="line-clamp-2">
+                      {item.description || "No description"}
+                    </span>
+                    <span className="mt-1 block font-medium text-slate-700">
+                      {money(item.price, item.currency)}
+                      {item.sku ? ` · ${item.sku}` : ""}
+                    </span>
                   </p>
                   {item.item_type === "physical_product" ? (
                     <p className="mt-2 text-xs font-medium text-slate-500">
@@ -270,14 +274,14 @@ export default async function CatalogPage({
                 <div className="flex flex-wrap items-center gap-2">
                   <Link
                     href={catalogItemHref(item)}
-                    className="rounded-xl bg-[var(--brand-primary-soft)] px-3 py-2 text-sm font-semibold text-[var(--brand-primary)]"
+                    className="w-full rounded-xl bg-[var(--brand-primary-soft)] px-3 py-2.5 text-center text-sm font-semibold text-[var(--brand-primary)] sm:w-auto"
                   >
                     Manage
                   </Link>
                 <form action={setCatalogItemActiveAction}>
                   <input type="hidden" name="itemId" value={item.id} />
                   <input type="hidden" name="active" value={item.active ? "false" : "true"} />
-                  <button className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                  <button className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:w-auto">
                     {item.active ? "Archive" : "Reactivate"}
                   </button>
                 </form>

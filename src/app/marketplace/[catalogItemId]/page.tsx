@@ -93,7 +93,7 @@ export default async function MarketplaceItemPage({
           {thumbnail.imageUrl ? (
             <img
               src={thumbnail.imageUrl}
-              alt=""
+              alt={`${data.name} cover`}
               className="h-full w-full object-cover"
             />
           ) : (
@@ -114,7 +114,7 @@ export default async function MarketplaceItemPage({
               ? "Video series"
               : "Digital video"}
           </p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
+          <h1 className="mt-3 break-words text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
             {data.name}
           </h1>
           <p className="mt-2 text-sm text-slate-500">
@@ -139,6 +139,11 @@ export default async function MarketplaceItemPage({
                 {content.skill_level.replaceAll("_", " ")}
               </span>
             ) : null}
+            {content?.duration_seconds ? (
+              <span className="rounded-full bg-slate-100 px-3 py-1.5">
+                {Math.max(1, Math.round(Number(content.duration_seconds) / 60))} min
+              </span>
+            ) : null}
           </div>
           <div className="mt-8 flex flex-col gap-3 rounded-3xl bg-violet-50 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -147,10 +152,13 @@ export default async function MarketplaceItemPage({
                 {money(data.price, String(data.currency ?? "USD").toUpperCase())}
               </p>
             </div>
-            <p className="max-w-md text-sm leading-6 text-slate-600">
-              Open the DanceFlow student app to purchase securely. Your access
-              will appear in Learn and Wallet after payment.
-            </p>
+            <div className="max-w-md text-sm leading-6 text-slate-600">
+              <p className="font-semibold text-slate-800">Purchase in the DanceFlow student app</p>
+              <p className="mt-1">
+                Sign in, open Marketplace, and select this item. Access appears
+                in Learn and the receipt appears in Wallet after payment.
+              </p>
+            </div>
           </div>
         </div>
       </article>

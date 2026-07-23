@@ -83,7 +83,7 @@ export default async function MarketplacePage() {
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#6B21A8]">
           DanceFlow Marketplace
         </p>
-        <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
           Learn from DanceFlow studios
         </h1>
         <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
@@ -108,7 +108,7 @@ export default async function MarketplacePage() {
                     {imageUrl ? (
                       <img
                         src={imageUrl}
-                        alt=""
+                        alt={`${row.name} cover`}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -123,7 +123,7 @@ export default async function MarketplacePage() {
                         ? "Video series"
                         : "Digital video"}
                     </p>
-                    <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                    <h2 className="mt-2 break-words text-xl font-semibold text-slate-950">
                       {row.name}
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
@@ -136,7 +136,7 @@ export default async function MarketplacePage() {
                         {row.description}
                       </p>
                     ) : null}
-                    <div className="mt-4 flex items-center justify-between gap-3">
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <span className="font-semibold text-slate-950">
                         {money(row.price, String(row.currency ?? "USD").toUpperCase())}
                       </span>

@@ -137,7 +137,11 @@ export default function DigitalProductSaleForm({
           </div>
 
           <div className="mt-4 max-h-[360px] space-y-2 overflow-y-auto pr-1">
-            {filteredClients.map((client) => {
+            {filteredClients.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-600">
+                No linked students match this search.
+              </div>
+            ) : filteredClients.map((client) => {
               const active = selectedClientId === client.id;
 
               return (
@@ -299,7 +303,7 @@ export default function DigitalProductSaleForm({
           />
         </label>
 
-        <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4">
+        <div className="mt-5 flex flex-col gap-4 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm text-slate-500">Total</p>
             <p className="mt-1 text-2xl font-semibold text-slate-950">
@@ -308,7 +312,7 @@ export default function DigitalProductSaleForm({
           </div>
           <button
             disabled={!ready}
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
           >
             Complete sale and grant access
           </button>

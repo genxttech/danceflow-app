@@ -19,7 +19,7 @@ export default function CatalogItemForm() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-primary)] hover:bg-white/90"
+        className="w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[var(--brand-primary)] hover:bg-white/90 sm:w-auto"
       >
         Add catalog item
       </button>
@@ -29,7 +29,7 @@ export default function CatalogItemForm() {
   return (
     <form
       action={createCatalogItemAction}
-      className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
     >
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -116,7 +116,7 @@ export default function CatalogItemForm() {
         </label>
       </div>
 
-      <button className="mt-5 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white">
+      <button className="mt-5 w-full rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white sm:w-auto">
         Create item
       </button>
     </form>

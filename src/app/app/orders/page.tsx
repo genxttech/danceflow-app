@@ -10,6 +10,7 @@ type CommerceOrder = {
   order_number: string;
   status: string;
   payment_status: string;
+  fulfillment_status: string;
   customer_type: string;
   guest_name: string | null;
   subtotal: number | string;
@@ -53,7 +54,7 @@ export default async function OrdersPage() {
   const { data, error } = await supabase
     .from("commerce_orders")
     .select(
-      "id, order_number, status, payment_status, customer_type, guest_name, subtotal, discount_total, tax_total, total, currency, created_at, clients(first_name, last_name)",
+      "id, order_number, status, payment_status, fulfillment_status, customer_type, guest_name, subtotal, discount_total, tax_total, total, currency, created_at, clients(first_name, last_name)",
     )
     .eq("studio_id", context.studioId)
     .order("created_at", { ascending: false })
@@ -113,7 +114,9 @@ export default async function OrdersPage() {
           },
           {
             title: "Fulfilled",
-            value: orders.filter((order) => order.status === "fulfilled").length,
+            value: orders.filter((order) =>
+              ["fulfilled", "not_required"].includes(order.fulfillment_status),
+            ).length,
             icon: PackageCheck,
           },
         ].map((stat) => {
@@ -145,7 +148,45 @@ export default async function OrdersPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            <div className="space-y-3 p-4 md:hidden">
+              {orders.map((order) => (
+                <Link
+                  key={order.id}
+                  href={`/app/orders/${order.id}`}
+                  className="block rounded-2xl border border-slate-200 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-950">
+                        {order.order_number}
+                      </p>
+                      <p className="mt-1 truncate text-sm text-slate-600">
+                        {customer(order)}
+                      </p>
+                    </div>
+                    <p className="shrink-0 font-semibold text-slate-950">
+                      {money(order.total, order.currency)}
+                    </p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium">
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 capitalize text-slate-700">
+                      {order.status.replaceAll("_", " ")}
+                    </span>
+                    <span className="rounded-full bg-violet-50 px-2.5 py-1 capitalize text-violet-700">
+                      {order.payment_status.replaceAll("_", " ")}
+                    </span>
+                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 capitalize text-emerald-700">
+                      {order.fulfillment_status.replaceAll("_", " ")}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    {new Date(order.created_at).toLocaleString()}
+                  </p>
+                </Link>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
@@ -177,7 +218,8 @@ export default async function OrdersPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </section>
     </div>

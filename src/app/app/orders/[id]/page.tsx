@@ -239,7 +239,11 @@ export default async function OrderDetailPage({
       {messages.success ? (
         <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
           <CheckCircle2 className="mt-0.5 h-5 w-5" />
-          <p className="text-sm">Order completed and inventory updated.</p>
+          <p className="text-sm">
+            {messages.success === "digital_access_granted"
+              ? "Order completed and digital access granted."
+              : "Order completed successfully."}
+          </p>
         </div>
       ) : null}
 
@@ -292,10 +296,10 @@ export default async function OrderDetailPage({
           {items.map((item) => (
             <div
               key={item.id}
-              className="flex items-start justify-between gap-4 rounded-2xl bg-slate-50 p-4"
+              className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-start sm:justify-between"
             >
               <div>
-                <p className="font-semibold text-slate-950">
+                <p className="break-words font-semibold text-slate-950">
                   {item.quantity} × {item.name_snapshot}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">

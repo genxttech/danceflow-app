@@ -184,7 +184,11 @@ export default function PhysicalProductSaleForm({
               </div>
 
               <div className="mt-4 max-h-[340px] space-y-2 overflow-y-auto pr-1">
-                {filteredClients.map((client) => {
+                {filteredClients.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-600">
+                    No clients match this search.
+                  </div>
+                ) : filteredClients.map((client) => {
                   const active = selectedClientId === client.id;
                   return (
                     <button
@@ -415,7 +419,7 @@ export default function PhysicalProductSaleForm({
         </label>
 
         <div className="mt-5 flex flex-wrap gap-3">
-          <form action={completePhysicalProductSaleAction}>
+          <form action={completePhysicalProductSaleAction} className="w-full sm:w-auto">
             <SharedFields />
             <input type="hidden" name="paymentMethod" value={paymentMethod} />
             <input
@@ -425,17 +429,17 @@ export default function PhysicalProductSaleForm({
             />
             <button
               disabled={!ready}
-              className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
             >
               Complete {paymentMethod === "card" ? "external card" : paymentMethod} sale
             </button>
           </form>
 
-          <form action={startPhysicalProductTerminalSaleAction}>
+          <form action={startPhysicalProductTerminalSaleAction} className="w-full sm:w-auto">
             <SharedFields />
             <button
               disabled={!ready || !hasOnlineReader || total <= 0}
-              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
             >
               <CreditCard className="h-4 w-4" />
               Send to card reader
