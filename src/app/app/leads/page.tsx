@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { archiveLeadAction, convertLeadToActiveAction } from "./actions";
+import LeadsWorkspacePanels from "./LeadsWorkspacePanels";
 
 type SearchParamValue = string | string[] | undefined;
 
@@ -13,7 +13,7 @@ type SearchParams = Promise<{
   error?: SearchParamValue;
 }>;
 
-type LeadRow = {
+export type LeadRow = {
   id: string;
   first_name: string;
   last_name: string;
@@ -36,7 +36,7 @@ type BookingRequestRow = {
   created_at: string | null;
 };
 
-type BookingRequestState = {
+export type BookingRequestState = {
   hasPending: boolean;
   hasApproved: boolean;
   pendingRequestId?: string;
@@ -55,7 +55,7 @@ type FollowUpClient =
     }[]
   | null;
 
-type FollowUpRow = {
+export type FollowUpRow = {
   id: string;
   client_id: string;
   activity_type: string;
@@ -95,18 +95,6 @@ function formatDateTime(value: string | null) {
   });
 }
 
-function formatShortDate(value: string | null) {
-  if (!value) return "—";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return date.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-}
 
 function getClientRecord(value: FollowUpClient) {
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -153,54 +141,8 @@ function sourceLabel(source: string | null) {
   }
 }
 
-function sourceBadgeClass(source: string | null) {
-  switch (source) {
-    case "public_intro_booking":
-      return "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200";
-    case "event_registration":
-      return "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200";
-    case "public_directory_inquiry":
-    case "public_directory":
-      return "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200";
-    case "website_form":
-      return "bg-cyan-50 text-cyan-700 ring-1 ring-inset ring-cyan-200";
-    case "manual":
-    case null:
-      return "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200";
-    default:
-      return "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200";
-  }
-}
 
-function statusBadgeClass(status: string) {
-  switch (status) {
-    case "lead":
-      return "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200";
-    case "active":
-      return "bg-green-50 text-green-700 ring-1 ring-inset ring-green-200";
-    case "archived":
-      return "bg-red-50 text-red-700 ring-1 ring-inset ring-red-200";
-    default:
-      return "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200";
-  }
-}
 
-function activityLabel(value: string) {
-  switch (value) {
-    case "follow_up":
-      return "Follow Up";
-    case "call":
-      return "Call";
-    case "text":
-      return "Text";
-    case "email":
-      return "Email";
-    case "consultation":
-      return "Consultation";
-    default:
-      return "Note";
-  }
-}
 
 function sourceFilterMatches(sourceFilter: string, referralSource: string | null) {
   if (sourceFilter === "all") return true;
@@ -320,32 +262,7 @@ function getLeadPriority(lead: LeadRow) {
   return 5;
 }
 
-function getRecommendedActionLabel(lead: LeadRow, bookingRequestState?: BookingRequestState) {
-  if (bookingRequestState?.hasPending) return "Review booking request";
-  if (bookingRequestState?.hasApproved) return "Open lead";
 
-  if (lead.referral_source === "public_intro_booking") return "Book intro";
-  if (lead.referral_source === "event_registration") return "Convert after attendance";
-  if (
-    lead.referral_source === "public_directory" ||
-    lead.referral_source === "public_directory_inquiry"
-  ) {
-    return "Call or text back";
-  }
-  return "Open lead";
-}
-
-function getRecommendedActionHref(lead: LeadRow, bookingRequestState?: BookingRequestState) {
-  if (bookingRequestState?.hasPending) {
-    return "/app/schedule/requests?status=pending";
-  }
-
-  if (lead.referral_source === "public_intro_booking" && !bookingRequestState?.hasApproved) {
-    return `/app/schedule/new?clientId=${lead.id}`;
-  }
-
-  return `/app/clients/${lead.id}`;
-}
 
 export default async function LeadsPage({
   searchParams,
@@ -625,9 +542,9 @@ export default async function LeadsPage({
   };
 
   return (
-    <div className="space-y-6 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+    <div className="min-h-[calc(100vh-4rem)] space-y-6 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.10),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.10),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#ffffff_30%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+        <div className="bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
@@ -658,7 +575,7 @@ export default async function LeadsPage({
           </div>
         </div>
 
-        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+        <div className="border-t border-orange-100 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_55%,#ffffff_100%)] px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
               <h2 className="text-lg font-semibold text-sky-950">Follow-Up Pipeline</h2>
@@ -697,25 +614,25 @@ export default async function LeadsPage({
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="rounded-2xl border border-violet-200/70 bg-white p-4 shadow-sm">
           <p className="text-sm text-slate-500">Overdue follow-ups</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">{filteredOverdue.length}</p>
           <p className="mt-2 text-xs text-slate-500">Top front-desk priority</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="rounded-2xl border border-violet-200/70 bg-white p-4 shadow-sm">
           <p className="text-sm text-slate-500">Due today</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">{filteredDueToday.length}</p>
           <p className="mt-2 text-xs text-slate-500">Same-day callbacks and touchpoints</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="rounded-2xl border border-violet-200/70 bg-white p-4 shadow-sm">
           <p className="text-sm text-slate-500">Public intro leads</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">{publicIntroLeads.length}</p>
           <p className="mt-2 text-xs text-slate-500">Highest conversion intent</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="rounded-2xl border border-violet-200/70 bg-white p-4 shadow-sm">
           <p className="text-sm text-slate-500">Event registration leads</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
             {eventRegistrationLeads.length}
@@ -723,14 +640,14 @@ export default async function LeadsPage({
           <p className="mt-2 text-xs text-slate-500">Nurture after attendance</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="rounded-2xl border border-violet-200/70 bg-white p-4 shadow-sm">
           <p className="text-sm text-slate-500">New in last 7 days</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">{newLast7DaysCount}</p>
           <p className="mt-2 text-xs text-slate-500">Recent inbound volume</p>
         </div>
       </div>
 
-      <form className="rounded-2xl border bg-white p-4">
+      <form className="rounded-[28px] border border-violet-200/80 bg-white/95 p-5 shadow-[0_18px_45px_rgba(76,29,149,0.09)]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-center">
             <input
@@ -758,7 +675,7 @@ export default async function LeadsPage({
 
             <button
               type="submit"
-              className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+              className="inline-flex items-center rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-110"
             >
               Apply
             </button>
@@ -788,7 +705,7 @@ export default async function LeadsPage({
                   href={sourceHref(item.value)}
                   className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-medium ${
                     isActive
-                      ? "bg-slate-900 text-white"
+                      ? "bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] text-white shadow-sm"
                       : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                   }`}
                 >
@@ -808,7 +725,7 @@ export default async function LeadsPage({
       </form>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-2xl border bg-white p-6">
+        <div className="rounded-[28px] border border-violet-200/80 bg-white p-6 shadow-[0_18px_45px_rgba(76,29,149,0.08)]">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">Front-desk priority queue</h2>
@@ -825,86 +742,18 @@ export default async function LeadsPage({
                 No leads match the current filters.
               </div>
             ) : (
-              priorityLeads.map((lead) => (
-                <div
-                  key={lead.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300 hover:bg-slate-100"
-                >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={`/app/clients/${lead.id}`}
-                          className="text-base font-semibold text-slate-900 hover:underline"
-                        >
-                          {lead.first_name} {lead.last_name}
-                        </Link>
-
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${sourceBadgeClass(
-                            lead.referral_source
-                          )}`}
-                        >
-                          {sourceLabel(lead.referral_source)}
-                        </span>
-
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            lead.status
-                          )}`}
-                        >
-                          {lead.status}
-                        </span>
-                      </div>
-
-                      <div className="mt-2 grid gap-1 text-sm text-slate-600">
-                        <p>{lead.email ?? "No email"}</p>
-                        <p>{lead.phone ?? "No phone"}</p>
-                        <p>Created {formatDateTime(lead.created_at)}</p>
-                        <p>Interest: {lead.dance_interests ?? "—"}</p>
-                      </div>
-
-                      <div className="mt-3">
-                        <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
-                          Recommended: {getRecommendedActionLabel(lead, bookingRequestStateByClientId.get(lead.id))}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 lg:justify-end">
-                      <Link
-                        href={getRecommendedActionHref(lead, bookingRequestStateByClientId.get(lead.id))}
-                        className="inline-flex items-center rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                      >
-                        {getRecommendedActionLabel(lead, bookingRequestStateByClientId.get(lead.id))}
-                      </Link>
-
-                      <Link
-                        href={`/app/clients/${lead.id}`}
-                        className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        View lead
-                      </Link>
-
-                      <form action={convertLeadToActiveAction}>
-                        <input type="hidden" name="clientId" value={lead.id} />
-                        <input type="hidden" name="returnTo" value={returnTo} />
-                        <button
-                          type="submit"
-                          className="inline-flex items-center rounded-xl border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-50"
-                        >
-                          Convert active
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                </div>
-              ))
+              <LeadsWorkspacePanels
+                variant="priority"
+                leads={priorityLeads}
+                followUps={[]}
+                bookingRequestStates={Object.fromEntries(bookingRequestStateByClientId)}
+                returnTo={returnTo}
+              />
             )}
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-6">
+        <div className="rounded-[28px] border border-violet-200/80 bg-white p-6 shadow-[0_18px_45px_rgba(76,29,149,0.08)]">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">Follow-up queue</h2>
@@ -930,7 +779,7 @@ export default async function LeadsPage({
                   href={baseFilterHref(item.value)}
                   className={`rounded-full px-3 py-2 text-sm font-medium ${
                     isActive
-                      ? "bg-slate-900 text-white"
+                      ? "bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] text-white shadow-sm"
                       : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                   }`}
                 >
@@ -946,63 +795,20 @@ export default async function LeadsPage({
                 No follow-ups in this view.
               </div>
             ) : (
-              activeFollowUpList.map((item) => {
-                const clientSource = getClientSource(item.clients);
-
-                return (
-                  <Link
-                    key={item.id}
-                    href={`/app/clients/${item.client_id}`}
-                    className="block rounded-2xl border border-slate-200 bg-slate-50 p-4 hover:border-slate-300 hover:bg-slate-100"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium text-slate-900">{getClientName(item.clients)}</p>
-
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${sourceBadgeClass(
-                              clientSource
-                            )}`}
-                          >
-                            {sourceLabel(clientSource)}
-                          </span>
-                        </div>
-
-                        <p className="mt-1 text-sm text-slate-600">
-                          {activityLabel(item.activity_type)}
-                        </p>
-
-                        <p className="mt-1 text-sm text-slate-600">{item.note || "No note"}</p>
-
-                        <p className="mt-2 text-sm text-slate-500">
-                          {tab === "completed"
-                            ? `Completed ${formatDateTime(item.completed_at)}`
-                            : `Due ${formatDateTime(item.follow_up_due_at)}`}
-                        </p>
-                      </div>
-
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                          tab === "completed"
-                            ? "bg-green-50 text-green-700 ring-1 ring-inset ring-green-200"
-                            : tab === "today"
-                              ? "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200"
-                              : "bg-red-50 text-red-700 ring-1 ring-inset ring-red-200"
-                        }`}
-                      >
-                        {tab === "completed" ? "Completed" : tab === "today" ? "Today" : "Overdue"}
-                      </span>
-                    </div>
-                  </Link>
-                );
-              })
+              <LeadsWorkspacePanels
+                variant="follow-up"
+                leads={[]}
+                followUps={activeFollowUpList}
+                bookingRequestStates={{}}
+                returnTo={returnTo}
+                followUpView={tab}
+              />
             )}
           </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white p-6">
+      <div className="rounded-[28px] border border-violet-200/80 bg-white p-6 shadow-[0_18px_45px_rgba(76,29,149,0.08)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-slate-900">Open leads queue</h2>
@@ -1013,10 +819,10 @@ export default async function LeadsPage({
           <p className="text-sm text-slate-500">{sortedLeadQueue.length} leads</p>
         </div>
 
-        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+        <div className="mt-5 overflow-hidden rounded-2xl border border-violet-200/80 shadow-sm">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
+              <thead className="bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_70%,#ffffff_100%)] text-left text-slate-700">
                 <tr>
                   <th className="px-4 py-3 font-medium">Lead</th>
                   <th className="px-4 py-3 font-medium">Source</th>
@@ -1035,96 +841,13 @@ export default async function LeadsPage({
                     </td>
                   </tr>
                 ) : (
-                  sortedLeadQueue.map((lead) => (
-                    <tr key={lead.id} className="border-t border-slate-200 align-top">
-                      <td className="px-4 py-4">
-                        <div className="flex flex-col gap-1">
-                          <Link
-                            href={`/app/clients/${lead.id}`}
-                            className="font-medium text-slate-900 hover:underline"
-                          >
-                            {lead.first_name} {lead.last_name}
-                          </Link>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                                lead.status
-                              )}`}
-                            >
-                              {lead.status}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${sourceBadgeClass(
-                            lead.referral_source
-                          )}`}
-                        >
-                          {sourceLabel(lead.referral_source)}
-                        </span>
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-600">
-                        <div className="space-y-1">
-                          <div>{lead.email ?? "—"}</div>
-                          <div>{lead.phone ?? "—"}</div>
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-600">
-                        {lead.dance_interests ?? "—"}
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-600">
-                        <div>{formatShortDate(lead.created_at)}</div>
-                        <div className="text-xs text-slate-400">{formatDateTime(lead.created_at)}</div>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          {getRecommendedActionLabel(lead, bookingRequestStateByClientId.get(lead.id))}
-                        </span>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <div className="flex flex-wrap gap-3">
-                          <Link
-                            href={getRecommendedActionHref(lead, bookingRequestStateByClientId.get(lead.id))}
-                            className="font-medium text-slate-900 underline"
-                          >
-                            {getRecommendedActionLabel(lead, bookingRequestStateByClientId.get(lead.id))}
-                          </Link>
-
-                          <Link
-                            href={`/app/clients/${lead.id}/edit`}
-                            className="text-slate-700 underline"
-                          >
-                            Edit
-                          </Link>
-
-                          <form action={convertLeadToActiveAction}>
-                            <input type="hidden" name="clientId" value={lead.id} />
-                            <input type="hidden" name="returnTo" value={returnTo} />
-                            <button type="submit" className="text-green-700 underline">
-                              Convert active
-                            </button>
-                          </form>
-
-                          <form action={archiveLeadAction}>
-                            <input type="hidden" name="clientId" value={lead.id} />
-                            <input type="hidden" name="returnTo" value={returnTo} />
-                            <button type="submit" className="text-red-600 underline">
-                              Archive
-                            </button>
-                          </form>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                  <LeadsWorkspacePanels
+                    variant="table"
+                    leads={sortedLeadQueue}
+                    followUps={[]}
+                    bookingRequestStates={Object.fromEntries(bookingRequestStateByClientId)}
+                    returnTo={returnTo}
+                  />
                 )}
               </tbody>
             </table>
@@ -1132,26 +855,26 @@ export default async function LeadsPage({
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="rounded-2xl border border-violet-100 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-4">
             <p className="text-sm text-slate-500">Public Intro</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">{publicIntroLeads.length}</p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="rounded-2xl border border-violet-100 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-4">
             <p className="text-sm text-slate-500">Event Registration</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">
               {eventRegistrationLeads.length}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="rounded-2xl border border-violet-100 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-4">
             <p className="text-sm text-slate-500">Public Directory</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">
               {publicDirectoryLeads.length}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="rounded-2xl border border-violet-100 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-4">
             <p className="text-sm text-slate-500">Manual / Other</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">
               {manualLeads.length}
