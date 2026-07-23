@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CalendarDays, ExternalLink, MapPin, Phone, Mail } from "lucide-react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
@@ -8,6 +9,7 @@ import PublicLeadForm from "@/app/lead/[studioSlug]/PublicLeadForm";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
+import PublicStudioTabs from "./PublicStudioTabs";
 
 type StudioPageParams = Promise<{
   studioSlug: string;
@@ -47,8 +49,8 @@ function normalizeStudioPublicTab(
 
 function publicTabClass(isActive: boolean) {
   return isActive
-    ? "shrink-0 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm ring-2 ring-orange-200"
-    : "shrink-0 rounded-full border border-orange-100 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700";
+    ? "shrink-0 rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-3 py-2 text-sm font-semibold text-white shadow-sm"
+    : "shrink-0 rounded-xl border border-orange-100 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-violet-200 hover:bg-violet-50";
 }
 
 function tabPanelClass(isActive: boolean, className: string) {
@@ -401,14 +403,15 @@ export default async function PublicStudioPage({
     return (
       <>
         <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
-        <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.16),transparent_34%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.12),transparent_30%),linear-gradient(180deg,#fff7ed_0%,#f8fafc_38%,#ffffff_100%)]">
+        <main className="min-h-screen pb-24 lg:pb-0 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.12),transparent_28%),linear-gradient(180deg,#fff7ed_0%,#f8fafc_34%,#ffffff_100%)]">
           <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6 lg:px-8">
             <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-5 text-rose-800">
               Missing studio.
             </div>
           </div>
         </main>
-        <PublicSiteFooter />
+  
+      <PublicSiteFooter />
       </>
     );
   }
@@ -692,34 +695,32 @@ export default async function PublicStudioPage({
       <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.16),transparent_34%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.12),transparent_30%),linear-gradient(180deg,#fff7ed_0%,#f8fafc_38%,#ffffff_100%)]">
-        <section className="border-b border-orange-100/70 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_48%,#f97316_140%)]">
-          <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-            <div className="mb-4">
+        <section className="border-b border-orange-200/70 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] text-white">
+          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="mb-5">
               <Link
                 href="/discover/studios"
-                className="inline-flex rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white shadow-sm backdrop-blur hover:bg-white/15"
+                className="inline-flex rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
               >
-                Back to Studios
+                Back to studios
               </Link>
             </div>
 
-            <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-200">
-                  Public Studio Profile
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
+                  DanceFlow Studio Profile
                 </p>
 
-                <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
+                <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+                    <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
                       {title}
                     </h1>
-                    <p className="mt-3 text-lg text-white/80">{location}</p>
-                    {studio.beginner_friendly ? (
-                      <span className="mt-4 inline-flex rounded-full bg-green-400/15 px-3 py-1 text-xs font-semibold text-green-100 ring-1 ring-green-300/25">
-                        Beginner Friendly
-                      </span>
-                    ) : null}
+                    <p className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-white/80">
+                      <MapPin className="h-4 w-4 text-orange-200" />
+                      {location}
+                    </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -728,7 +729,7 @@ export default async function PublicStudioPage({
                       text={`Check out ${title} on DanceFlow.`}
                       url={`/studios/${studioUrlSlug}`}
                       label="Share Studio"
-                      className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-white/15"
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white shadow-sm backdrop-blur transition hover:bg-white/15"
                     />
                     <FavoriteButton
                       targetType="studio"
@@ -740,16 +741,22 @@ export default async function PublicStudioPage({
                   </div>
                 </div>
 
-                <p className="mt-6 max-w-3xl text-lg leading-8 text-white/80">
+                <p className="mt-5 max-w-3xl text-base leading-7 text-white/80">
                   {studio.public_short_description ||
                     "Explore this studio’s offerings, upcoming events, and ways to connect."}
                 </p>
 
-                <div className="mt-6 flex flex-wrap gap-3">
+                <div className="mt-5 flex flex-wrap gap-3">
+                  {studio.beginner_friendly ? (
+                    <span className="inline-flex rounded-full bg-emerald-400/15 px-3 py-1.5 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-300/25">
+                      Beginner Friendly
+                    </span>
+                  ) : null}
+
                   {studio.public_lead_enabled ? (
                     <Link
                       href={`/studios/${studioUrlSlug}?tab=contact#lead`}
-                      className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 shadow-sm hover:bg-orange-50"
+                      className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-orange-50"
                     >
                       {leadCtaText}
                     </Link>
@@ -760,23 +767,25 @@ export default async function PublicStudioPage({
                       href={studio.public_website_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
                     >
                       Visit Website
+                      <ExternalLink className="h-4 w-4" />
                     </a>
                   ) : null}
 
                   <Link
                     href="/discover/events"
-                    className="rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
                   >
+                    <CalendarDays className="h-4 w-4" />
                     Browse Events
                   </Link>
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-[2rem] border border-white/20 bg-white/10 shadow-2xl shadow-slate-950/25 ring-1 ring-white/10">
-                <div className="h-[320px] bg-white/10">
+              <div className="overflow-hidden rounded-3xl border border-white/20 bg-white/10 shadow-2xl shadow-slate-950/20 ring-1 ring-white/10">
+                <div className="h-64">
                   {studio.public_hero_image_url ? (
                     <img
                       src={studio.public_hero_image_url}
@@ -784,7 +793,7 @@ export default async function PublicStudioPage({
                       className="h-full w-full object-cover"
                     />
                   ) : studio.public_logo_url ? (
-                    <div className="flex h-full items-center justify-center bg-white p-10">
+                    <div className="flex h-full items-center justify-center bg-white p-8">
                       <img
                         src={studio.public_logo_url}
                         alt={title}
@@ -802,26 +811,14 @@ export default async function PublicStudioPage({
           </div>
         </section>
 
-        <nav
-          aria-label="Studio page tabs"
-          className="sticky top-0 z-20 border-b border-orange-100 bg-white/90 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80 sm:px-6 lg:px-8"
-        >
-          <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {studioTabs.map((tab) => (
-              <Link
-                key={tab.key}
-                href={`/studios/${studioUrlSlug}?tab=${tab.key}`}
-                aria-current={activeStudioTab === tab.key ? "page" : undefined}
-                className={publicTabClass(activeStudioTab === tab.key)}
-              >
-                {tab.label}
-              </Link>
-            ))}
-          </div>
-        </nav>
+        <PublicStudioTabs
+          studioSlug={studioUrlSlug}
+          activeTab={activeStudioTab}
+          tabs={studioTabs}
+        />
 
         <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          <div className="grid gap-8">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-8">
               <section id="overview" className={tabPanelClass(activeStudioTab === "overview", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
@@ -1162,40 +1159,49 @@ export default async function PublicStudioPage({
               ) : null}
             </div>
 
-            <aside className="space-y-6">
+            <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
               <section id="contact" className={tabPanelClass(activeStudioTab === "contact", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <h2 className="text-xl font-semibold tracking-tight text-slate-950">
                   Contact Information
                 </h2>
 
                 <div className="mt-5 space-y-4 text-sm text-slate-600">
-                  <div>
-                    <p className="font-medium text-slate-900">Location</p>
-                    <p className="mt-1">{location}</p>
-                    {studio.postal_code ? <p>{studio.postal_code}</p> : null}
+                  <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
+                    <MapPin className="mt-0.5 h-4 w-4 text-orange-600" />
+                    <div>
+                      <p className="font-medium text-slate-900">Location</p>
+                      <p className="mt-1">{location}</p>
+                      {studio.postal_code ? <p>{studio.postal_code}</p> : null}
+                    </div>
                   </div>
 
                   {studio.public_phone ? (
-                    <div>
-                      <p className="font-medium text-slate-900">Phone</p>
-                      <a
-                        href={`tel:${studio.public_phone}`}
-                        className="mt-1 inline-block hover:text-slate-900"
-                      >
-                        {studio.public_phone}
-                      </a>
+                    <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
+                      <Phone className="mt-0.5 h-4 w-4 text-orange-600" />
+                      <div>
+                        <p className="font-medium text-slate-900">Phone</p>
+                        <a
+                          href={`tel:${studio.public_phone}`}
+                          className="mt-1 inline-block hover:text-slate-900"
+                        >
+                          {studio.public_phone}
+                        </a>
+                      </div>
                     </div>
                   ) : null}
 
                   {studio.public_email ? (
-                    <div>
-                      <p className="font-medium text-slate-900">Email</p>
-                      <a
-                        href={`mailto:${studio.public_email}`}
-                        className="mt-1 inline-block hover:text-slate-900"
-                      >
-                        {studio.public_email}
-                      </a>
+                    <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
+                      <Mail className="mt-0.5 h-4 w-4 text-orange-600" />
+                      <div>
+                        <p className="font-medium text-slate-900">Email</p>
+                        <a
+                          href={`mailto:${studio.public_email}`}
+                          className="mt-1 inline-block break-all hover:text-slate-900"
+                        >
+                          {studio.public_email}
+                        </a>
+                      </div>
                     </div>
                   ) : null}
 
@@ -1215,55 +1221,30 @@ export default async function PublicStudioPage({
                 </div>
               </section>
 
-              <section className={tabPanelClass(activeStudioTab === "overview", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
-                <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-                  Explore More
-                </h2>
 
-                <div className="mt-5 grid gap-3">
-                  <Link
-                    href="/discover/studios"
-                    className="rounded-2xl border border-orange-100 bg-[linear-gradient(135deg,#ffffff_0%,#fff7ed_100%)] p-4 shadow-sm hover:bg-orange-50"
-                  >
-                    <p className="font-medium text-slate-900">
-                      Browse other studios
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Compare more options nearby.
-                    </p>
-                  </Link>
-
-                  <Link
-                    href="/discover/events"
-                    className="rounded-2xl border border-orange-100 bg-[linear-gradient(135deg,#ffffff_0%,#fff7ed_100%)] p-4 shadow-sm hover:bg-orange-50"
-                  >
-                    <p className="font-medium text-slate-900">
-                      Browse public events
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Find classes, socials, and workshops.
-                    </p>
-                  </Link>
-
-                  {!user ? (
-                    <Link
-                      href="/signup"
-                      className="rounded-2xl border border-violet-200 bg-violet-50 p-4 hover:bg-violet-100"
-                    >
-                      <p className="font-medium text-slate-900">
-                        Create a free account
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        Save favorites and keep track of discovery.
-                      </p>
-                    </Link>
-                  ) : null}
-                </div>
-              </section>
             </aside>
           </div>
         </section>
       </main>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-orange-200 bg-white/95 p-3 shadow-[0_-14px_40px_rgba(76,29,149,0.14)] backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-xl gap-2">
+          {studio.public_lead_enabled ? (
+            <Link
+              href={`/studios/${studioUrlSlug}?tab=contact#lead`}
+              className="flex-1 rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-3 text-center text-sm font-semibold text-white"
+            >
+              {leadCtaText}
+            </Link>
+          ) : null}
+          <Link
+            href={`/studios/${studioUrlSlug}?tab=events`}
+            className="flex-1 rounded-xl border border-orange-200 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-800"
+          >
+            View Events
+          </Link>
+        </div>
+      </div>
 
       <PublicSiteFooter />
     </>
