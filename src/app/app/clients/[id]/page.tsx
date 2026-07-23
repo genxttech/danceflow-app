@@ -14,6 +14,7 @@ import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import WorkspaceHeader from "@/components/app/workspace/WorkspaceHeader";
+import ClientWorkspaceTabs from "./ClientWorkspaceTabs";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
@@ -1785,7 +1786,6 @@ export default async function ClientDetailPage({
   const notificationId = query.notificationId ?? "";
   const banner = getBanner(query);
   const activeTab = getClientDetailTab(query.tab);
-  const activeTabInfo = clientDetailTabs.find((tab) => tab.id === activeTab) ?? clientDetailTabs[0];
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
@@ -2802,21 +2802,26 @@ export default async function ClientDetailPage({
                 Client profile, balances, memberships, appointments, payments, and instructor access settings.
               </p>
 
-              <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/80 px-4 py-3 shadow-sm">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <details className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+                  <span>
+                    <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                       {linkedPartnerRelationshipType === "spouse"
                         ? "Linked Spouse"
                         : "Linked Partner"}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">
+                    </span>
+                    <span className="mt-1 block text-sm text-slate-600">
                       {linkedPartner
                         ? `${linkedPartner.first_name} ${linkedPartner.last_name}`
                         : "No partner linked yet."}
-                    </p>
-                  </div>
+                    </span>
+                  </span>
+                  <span className="text-xs font-semibold text-[var(--brand-primary)]">
+                    Manage
+                  </span>
+                </summary>
 
+                <div className="border-t border-[var(--brand-border)] px-4 py-4">
                   <div className="flex flex-wrap items-center gap-2">
                     {linkedPartner ? (
                       <>
@@ -2848,7 +2853,6 @@ export default async function ClientDetailPage({
                       </>
                     ) : null}
                   </div>
-                </div>
 
                 {!linkedPartner ? (
                   <form action={linkPartnerAction} className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
@@ -2897,7 +2901,8 @@ export default async function ClientDetailPage({
                     </div>
                   </form>
                 ) : null}
-              </div>
+                </div>
+              </details>
             </div>
 
             <div className="flex flex-wrap gap-3 xl:max-w-xl xl:justify-end">
@@ -2930,29 +2935,29 @@ export default async function ClientDetailPage({
           </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-sm text-slate-500">Email</p>
               <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
                 {typedClient.email ?? "—"}
               </p>
             </div>
 
-            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
+            <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-sm text-slate-500">Phone</p>
               <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
                 {typedClient.phone ?? "—"}
               </p>
             </div>
 
-            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
+            <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-sm text-slate-500">Birthday</p>
               <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
                 {formatClientBirthday(typedClient.birthday)}
               </p>
             </div>
 
-            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
+            <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-sm text-slate-500">Mailing Address</p>
               <div className="mt-1 space-y-0.5 break-words font-medium text-[var(--brand-text)]">
                 {formatMailingAddress(typedClient).map((line) => (
@@ -3001,30 +3006,11 @@ export default async function ClientDetailPage({
         </div>
       </div>
 
-      <div className="sticky top-0 z-20 rounded-2xl border border-[var(--brand-border)] bg-white/95 p-2 shadow-sm backdrop-blur">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {clientDetailTabs.map((tab) => {
-            const isActive = tab.id === activeTab;
-
-            return (
-              <Link
-                key={tab.id}
-                href={`/app/clients/${typedClient.id}?tab=${tab.id}`}
-                className={`whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                  isActive
-                    ? "bg-[var(--brand-primary)] text-white shadow-sm"
-                    : "border border-[var(--brand-border)] bg-white text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
-                }`}
-              >
-                {tab.label}
-              </Link>
-            );
-          })}
-        </div>
-        <p className="mt-2 px-1 text-xs leading-5 text-slate-500">
-          {activeTabInfo.description}
-        </p>
-      </div>
+      <ClientWorkspaceTabs
+        clientId={typedClient.id}
+        activeTab={activeTab}
+        tabs={clientDetailTabs}
+      />
 
       {activeTab === "marketing" ? (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -4148,86 +4134,6 @@ export default async function ClientDetailPage({
 
       <div className="space-y-6">
         <div className="space-y-6">
-          {activeTab === "overview" ? (
-          <SectionCard title="Client Snapshot">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-                <p className="text-sm text-slate-500">Active Packages</p>
-                <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
-                  {activePackages.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-                <p className="text-sm text-slate-500">
-                  {isIndependentInstructor ? "Upcoming Bookings" : "Upcoming Lessons"}
-                </p>
-                <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
-                  {typedUpcoming.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-                <p className="text-sm text-slate-500">Payments Recorded</p>
-                <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
-                  {typedPayments.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-                <p className="text-sm text-slate-500">Total Paid</p>
-                <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
-                  {fmtCurrency(totalPaid)}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-                <p className="text-sm text-slate-500">Account Balance</p>
-                <p className={`mt-2 text-xl font-semibold md:text-2xl ${
-                  accountNetBalance < 0 ? "text-rose-700" : "text-[var(--brand-text)]"
-                }`}>
-                  {fmtCurrency(Math.abs(accountNetBalance))}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">{accountBalanceLabel}</p>
-              </div>
-            </div>
-
-            {nextAppointment ? (
-              <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-                <p className="text-sm text-slate-500">Next Appointment</p>
-
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <p className="font-medium text-[var(--brand-text)]">
-                    {nextAppointment.title ||
-                      appointmentTypeLabel(nextAppointment.appointment_type)}
-                  </p>
-
-                  <span
-                    className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${appointmentTypeBadgeClass(
-                      nextAppointment.appointment_type
-                    )}`}
-                  >
-                    {isFloorRental(nextAppointment.appointment_type)
-                      ? "Floor Rental"
-                      : appointmentTypeLabel(nextAppointment.appointment_type)}
-                  </span>
-                </div>
-
-                <p className="mt-1 text-sm text-slate-600">
-                  {fmtShortDateTime(nextAppointment.starts_at, studioTimeZone)}
-                </p>
-
-                <p className="mt-1 text-sm text-slate-500">
-                  {isFloorRental(nextAppointment.appointment_type)
-                    ? "No room required • No package deduction"
-                    : `${getInstructorName(nextAppointment.instructors)} • ${getRoomName(
-                        nextAppointment.rooms
-                      )}`}
-                </p>
-              </div>
-            ) : null}
-          </SectionCard>
-          ) : null}
 
           {activeTab === "portal" ? (
           <SectionCard
