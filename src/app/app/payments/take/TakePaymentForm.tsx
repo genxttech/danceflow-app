@@ -20,6 +20,18 @@ type PaymentArrangementOption = {
   package_name: string;
 };
 
+type MembershipOption = {
+  id: string;
+  client_id: string;
+  name: string;
+  price: number;
+  current_period_start: string;
+  current_period_end: string;
+  status: string;
+  auto_renew: boolean;
+  cancel_at_period_end: boolean;
+};
+
 type ClientOption = {
   id: string;
   first_name: string;
@@ -36,9 +48,11 @@ function clientName(client: ClientOption) {
 export default function TakePaymentForm({
   clients,
   arrangements,
+  memberships,
 }: {
   clients: ClientOption[];
   arrangements: PaymentArrangementOption[];
+  memberships: MembershipOption[];
 }) {
   const [state, formAction, pending] = useActionState(createPaymentAction, initialState);
   const [search, setSearch] = useState("");
@@ -47,6 +61,7 @@ export default function TakePaymentForm({
   const [method, setMethod] = useState("card");
   const [serviceType, setServiceType] = useState("general");
   const [arrangementId, setArrangementId] = useState("");
+  const [clientMembershipId, setClientMembershipId] = useState("");
   const today = new Date().toISOString().slice(0, 10);
 
   const filteredClients = useMemo(() => {
@@ -67,6 +82,11 @@ export default function TakePaymentForm({
   );
   const selectedArrangement =
     clientArrangements.find((arrangement) => arrangement.id === arrangementId) ?? null;
+  const clientMemberships = memberships.filter(
+    (membership) => membership.client_id === clientId,
+  );
+  const selectedMembership =
+    clientMemberships.find((membership) => membership.id === clientMembershipId) ?? null;
 
   return (
     <form action={formAction} className="space-y-6">
@@ -76,6 +96,7 @@ export default function TakePaymentForm({
         value={serviceType === "payment_arrangement" ? "arrangement_payment" : "standard"}
       />
       <input type="hidden" name="arrangementId" value={arrangementId} />
+      <input type="hidden" name="clientMembershipId" value={clientMembershipId} />
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="status" value={paymentAction === "manual" ? "paid" : "pending"} />
       <input type="hidden" name="returnTo" value="/app/payments" />
@@ -132,7 +153,7 @@ export default function TakePaymentForm({
             <p className="text-sm text-slate-500">Step 2</p>
             <h2 className="text-xl font-semibold text-slate-950">Enter payment details</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Record a general client payment, floor rental, event payment, or other service payment.
+              Record a membership renewal, general client payment, floor rental, event payment, or other service payment.
             </p>
           </div>
         </div>
@@ -157,13 +178,15 @@ export default function TakePaymentForm({
               onChange={(event) => {
                 setServiceType(event.target.value);
                 setArrangementId("");
-                if (event.target.value === "payment_arrangement") {
+                setClientMembershipId("");
+                if (event.target.value === "payment_arrangement" || event.target.value === "membership") {
                   setPaymentAction("manual");
                 }
               }}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
             >
               <option value="general">General client payment</option>
+              <option value="membership">Membership payment or renewal</option>
               <option value="payment_arrangement">Payment arrangement installment</option>
               <option value="floor_rental">Floor rental</option>
               <option value="event_registration">Event registration</option>
@@ -205,6 +228,34 @@ export default function TakePaymentForm({
             </select>
           </label>
         </div>
+
+        {serviceType === "membership" ? (
+          <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-violet-950">Membership to renew</span>
+              <select
+                value={clientMembershipId}
+                onChange={(event) => setClientMembershipId(event.target.value)}
+                required
+                className="w-full rounded-xl border border-violet-300 bg-white px-3 py-2.5 text-sm"
+              >
+                <option value="">Select a membership</option>
+                {clientMemberships.map((membership) => (
+                  <option key={membership.id} value={membership.id}>
+                    {membership.name} — ${membership.price.toFixed(2)} — current period ends {membership.current_period_end}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedMembership ? (
+              <p className="mt-2 text-xs leading-5 text-violet-800">
+                Payment will be applied to the open period. When the current period is already paid and expired, DanceFlow will create the next renewal period automatically.
+              </p>
+            ) : clientId ? (
+              <p className="mt-2 text-xs text-amber-800">No active membership is available for this client.</p>
+            ) : null}
+          </div>
+        ) : null}
 
         {serviceType === "payment_arrangement" ? (
           <label className="mt-5 block">
@@ -282,17 +333,17 @@ export default function TakePaymentForm({
                 key={option.value}
                 type="button"
                 onClick={() => {
-                  if (serviceType === "payment_arrangement" && option.value !== "manual") return;
+                  if ((serviceType === "payment_arrangement" || serviceType === "membership") && option.value !== "manual") return;
                   setPaymentAction(option.value);
                 }}
                 disabled={
-                  serviceType === "payment_arrangement" &&
+                  (serviceType === "payment_arrangement" || serviceType === "membership") &&
                   option.value !== "manual"
                 }
                 className={`rounded-2xl border p-4 text-left transition ${
                   active
                     ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]"
-                    : serviceType === "payment_arrangement" &&
+                    : (serviceType === "payment_arrangement" || serviceType === "membership") &&
                         option.value !== "manual"
                       ? "cursor-not-allowed border-slate-200 bg-slate-100 opacity-50"
                       : "border-slate-200 bg-slate-50 hover:border-slate-300"
@@ -313,7 +364,8 @@ export default function TakePaymentForm({
           disabled={
             pending ||
             !selectedClient ||
-            (serviceType === "payment_arrangement" && !selectedArrangement)
+            (serviceType === "payment_arrangement" && !selectedArrangement) ||
+            (serviceType === "membership" && !selectedMembership)
           }
           className="mt-6 w-full rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
         >

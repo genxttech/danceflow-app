@@ -992,7 +992,28 @@ async function syncMembershipUsageForAppointment(params: {
     throw new Error(`Could not load membership period: ${periodError.message}`);
   }
 
-  if (!membershipPeriod || !["paid", "waived"].includes(membershipPeriod.payment_status)) {
+  if (!membershipPeriod) {
+    throw new Error("Membership usage cannot be recorded because no renewal period covers this appointment.");
+  }
+
+  const { data: membershipSettings, error: membershipSettingsError } = await supabase
+    .from("studio_settings")
+    .select("block_unpaid_membership_booking")
+    .eq("studio_id", studioId)
+    .single();
+
+  if (membershipSettingsError || !membershipSettings) {
+    throw new Error("Studio membership booking settings could not be loaded.");
+  }
+
+  const paymentStatus = String(membershipPeriod.payment_status ?? "due");
+  if (["void"].includes(paymentStatus)) {
+    throw new Error("Membership usage cannot be recorded against a void renewal period.");
+  }
+  if (
+    membershipSettings.block_unpaid_membership_booking &&
+    !["paid", "waived"].includes(paymentStatus)
+  ) {
     throw new Error("Membership usage cannot be recorded against an unpaid renewal period.");
   }
 

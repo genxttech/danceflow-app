@@ -2,13 +2,14 @@
 
 import { redirect } from "next/navigation";
 import { requireClientEditAccess } from "@/lib/auth/serverRoleGuard";
+import { recordManualMembershipPayment } from "@/lib/memberships/manual-payment";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAYMENT_METHODS = new Set(["card", "cash", "check", "ach", "venmo", "zelle", "other"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "processed", "complete", "completed", "failed", "refunded"]);
 const PAYMENT_ACTIONS = new Set(["manual", "charge_now", "send_to_portal", "terminal"]);
 const ENTRY_MODES = new Set(["standard", "sell_package_and_pay", "existing_package_payment", "arrangement_payment"]);
-const SERVICE_TYPES = new Set(["general", "floor_rental", "event_registration", "payment_arrangement", "other"]);
+const SERVICE_TYPES = new Set(["general", "membership", "floor_rental", "event_registration", "payment_arrangement", "other"]);
 
 function cleanText(value: string, maxLength = 1000) {
   return value
@@ -123,6 +124,7 @@ function getPaymentType(entryMode: string, serviceType: string) {
   if (entryMode === "sell_package_and_pay" || entryMode === "existing_package_payment") {
     return "package_sale";
   }
+  if (serviceType === "membership") return "membership";
   if (serviceType === "floor_rental") return "floor_rental";
   if (serviceType === "event_registration") return "event_registration";
   return "general";
@@ -136,6 +138,7 @@ function getAccountingCategory(entryMode: string, serviceType: string) {
     return "package_revenue";
   }
 
+  if (serviceType === "membership") return "membership_revenue";
   if (serviceType === "floor_rental") return "floor_rental_revenue";
   if (serviceType === "event_registration") return "event_ticket_revenue";
 
@@ -162,6 +165,7 @@ export async function createPaymentAction(
     const clientPackageId = getString(formData, "clientPackageId");
     const packageTemplateId = getString(formData, "packageTemplateId");
     const arrangementId = getString(formData, "arrangementId");
+    const clientMembershipId = getString(formData, "clientMembershipId");
     const salePriceRaw = getString(formData, "salePrice");
     const amountRaw = getString(formData, "amount");
     const paymentMethod =
@@ -201,6 +205,36 @@ export async function createPaymentAction(
       (arrangementId && !isUuid(arrangementId))
     ) {
       return { error: "Invalid package or payment arrangement selection." };
+    }
+
+    if (serviceType === "membership") {
+      if (paymentAction !== "manual") {
+        return { error: "Membership payments collected outside DanceFlow must be recorded as completed manual payments." };
+      }
+      if (!clientMembershipId || !isUuid(clientMembershipId)) {
+        return { error: "Choose the membership this payment should renew." };
+      }
+      if (!isPaidLikeStatus(status)) {
+        return { error: "Membership payments must be recorded with a completed payment status." };
+      }
+      const membershipAmount = getNumber(amountRaw);
+      if (membershipAmount == null || membershipAmount <= 0) {
+        return { error: "Membership payment amount must be greater than zero." };
+      }
+
+      await recordManualMembershipPayment({
+        supabase,
+        studioId,
+        userId: user.id,
+        clientId,
+        clientMembershipId,
+        amount: membershipAmount,
+        paymentMethod,
+        paidAtIso: selectedPaymentDateIso,
+        notes: notes || null,
+      });
+
+      redirect(getReturnTo(formData, "/app/payments", "membership_payment_recorded"));
     }
 
     if (entryMode === "arrangement_payment") {

@@ -14,7 +14,11 @@ export default async function TakePaymentPage() {
     redirect("/app");
   }
 
-  const [{ data: clients, error }, { data: arrangements, error: arrangementsError }] = await Promise.all([
+  const [
+    { data: clients, error },
+    { data: arrangements, error: arrangementsError },
+    { data: memberships, error: membershipsError },
+  ] = await Promise.all([
     supabase
     .from("clients")
     .select("id, first_name, last_name, email, status")
@@ -34,6 +38,12 @@ export default async function TakePaymentPage() {
       .eq("studio_id", context.studioId)
       .eq("status", "active")
       .order("first_due_date", { ascending: true }),
+    supabase
+      .from("client_memberships")
+      .select("id, client_id, name_snapshot, price_snapshot, current_period_start, current_period_end, status, auto_renew, cancel_at_period_end")
+      .eq("studio_id", context.studioId)
+      .in("status", ["active", "past_due", "unpaid"])
+      .order("current_period_start", { ascending: false }),
   ]);
 
   if (error) {
@@ -42,6 +52,10 @@ export default async function TakePaymentPage() {
 
   if (arrangementsError) {
     throw new Error(`Failed to load payment arrangements: ${arrangementsError.message}`);
+  }
+
+  if (membershipsError) {
+    throw new Error(`Failed to load client memberships: ${membershipsError.message}`);
   }
 
   return (
@@ -113,6 +127,17 @@ export default async function TakePaymentPage() {
           first_name: client.first_name,
           last_name: client.last_name,
           email: client.email,
+        }))}
+        memberships={(memberships ?? []).map((membership) => ({
+          id: membership.id,
+          client_id: membership.client_id,
+          name: membership.name_snapshot,
+          price: Number(membership.price_snapshot ?? 0),
+          current_period_start: membership.current_period_start,
+          current_period_end: membership.current_period_end,
+          status: membership.status,
+          auto_renew: membership.auto_renew,
+          cancel_at_period_end: membership.cancel_at_period_end,
         }))}
         arrangements={(arrangements ?? []).map((arrangement) => {
           const pkg = Array.isArray(arrangement.client_packages)

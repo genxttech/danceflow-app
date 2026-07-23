@@ -21,6 +21,7 @@ import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
 import { ClientSendSmsCard } from "./ClientSendSmsCard";
 import { ClientSmsMessageHistoryCard } from "./ClientSmsMessageHistoryCard";
+import ClientCommunicationWorkspace from "./ClientCommunicationWorkspace";
 import ClientSyllabusTab from "./ClientSyllabusTab";
 import type { SmsMessageLogRow, SmsPermissionRow } from "@/lib/sms/compliance";
 import {
@@ -483,7 +484,7 @@ const clientDetailTabs: { id: ClientDetailTab; label: string; description: strin
   { id: "overview", label: "Overview", description: "Snapshot, lead status, event history, and next best actions" },
   { id: "schedule", label: "Schedule", description: "Upcoming and recent lessons, classes, and rentals" },
   { id: "billing", label: "Packages & Billing", description: "Packages, payments, memberships, credits, and ledger activity" },
-  { id: "marketing", label: "Marketing", description: "Follow-up, SMS consent, one-to-one texting, and message history" },
+  { id: "marketing", label: "Communication", description: "Follow-ups, notes, texts, automation outreach, and message history" },
   { id: "documents", label: "Documents", description: "Waivers, policies, agreements, and signature status" },
   { id: "syllabus", label: "Syllabus", description: "Dance figure progress, instructor notes, and student focus areas" },
   { id: "notes", label: "Notes / Activity", description: "Internal notes, lead activity, and completed follow-ups" },
@@ -3029,46 +3030,22 @@ export default async function ClientDetailPage({
       />
 
       {activeTab === "marketing" ? (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          <div className="space-y-6">
-            <SectionCard
-              title="Client Follow-Up"
-              subtitle="Keep follow-up notes and outreach context close to the client record."
-              action={
-                <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
-                  Relationship tools
-                </span>
-              }
-            >
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-                <p className="font-medium text-[var(--brand-text)]">Use this tab for consent-based outreach.</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Review SMS permission, send one-to-one texts to opted-in clients, and keep recent communication history in view before the next follow-up.
-                </p>
-              </div>
-            </SectionCard>
-
-            <ClientSmsConsentCard
-              clientId={typedClient.id}
-              phone={typedClient.phone}
-              permission={typedSmsPermission}
-              canManage={canEditClients(role)}
-              message={query.sms_consent === "updated" ? "SMS consent saved." : null}
-              error={query.sms_error ?? null}
-            />
-          </div>
-
-          <div className="space-y-6">
-            <ClientSendSmsCard
-              clientId={typedClient.id}
-              phone={typedClient.phone}
-              permission={typedSmsPermission}
-              canManage={canEditClients(role)}
-            />
-
-            <ClientSmsMessageHistoryCard messages={typedSmsMessages} />
-          </div>
-        </div>
+        <ClientCommunicationWorkspace
+          clientId={typedClient.id}
+          clientName={`${typedClient.first_name} ${typedClient.last_name}`}
+          phone={typedClient.phone}
+          smsPermission={typedSmsPermission}
+          smsMessages={typedSmsMessages}
+          leadActivities={typedLeadActivities}
+          clientNotes={typedClientActivityNotes}
+          automationActions={typedAutomationActions}
+          automationDeliveries={typedAutomationDeliveries}
+          canManage={canEditClients(role)}
+          returnTo={`/app/clients/${typedClient.id}?tab=marketing`}
+          smsConsentMessage={query.sms_consent === "updated" ? "SMS consent saved." : null}
+          smsConsentError={query.sms_error ?? null}
+          studioTimeZone={studioTimeZone}
+        />
       ) : null}
 
 
@@ -4686,115 +4663,7 @@ export default async function ClientDetailPage({
           </SectionCard>
           ) : null}
 
-          {activeTab === "notes" ? (
-            <SectionCard
-              title="Automation Activity"
-              subtitle="ARIA and automation suggestions, drafts, sends, and completions tied to this client."
-              action={
-                <Link
-                  href="/app/automations"
-                  className="rounded-full border border-[var(--brand-border)] px-3 py-1 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
-                >
-                  Open Automations
-                </Link>
-              }
-            >
-              <div className="space-y-3">
-                {typedAutomationActions.length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    No automation activity has been recorded for this client yet.
-                  </p>
-                ) : (
-                  typedAutomationActions.map((action) => {
-                    const delivery = automationDeliveryByActionId.get(action.id);
 
-                    return (
-                      <div
-                        key={action.id}
-                        className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
-                              {automationRuleLabel(action.rule_key)}
-                            </p>
-                            <p className="mt-1 font-semibold text-[var(--brand-text)]">
-                              {action.title}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              Created {fmtShortDateTime(action.created_at)}
-                              {action.due_at ? ` · Due ${fmtShortDateTime(action.due_at)}` : ""}
-                            </p>
-                          </div>
-
-                          <div className="flex flex-wrap gap-2">
-                            <span
-                              className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${automationStatusBadgeClass(
-                                action.status,
-                              )}`}
-                            >
-                              {action.status.replaceAll("_", " ")}
-                            </span>
-                            {action.priority ? (
-                              <span className="inline-flex rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-600">
-                                {action.priority}
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        {action.body ? (
-                          <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                            {action.body}
-                          </p>
-                        ) : null}
-
-                        {delivery ? (
-                          <div className="mt-3 rounded-2xl border border-white bg-white/80 p-3 text-sm">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="font-semibold text-[var(--brand-text)]">
-                                Email draft / delivery
-                              </p>
-                              <span
-                                className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${deliveryStatusBadgeClass(
-                                  delivery.status,
-                                )}`}
-                              >
-                                {delivery.status.replaceAll("_", " ")}
-                              </span>
-                            </div>
-
-                            <p className="mt-2 text-xs text-slate-500">
-                              To: {delivery.recipient_email ?? "No recipient"} · Created{" "}
-                              {fmtShortDateTime(delivery.created_at)}
-                              {delivery.sent_at ? ` · Sent ${fmtShortDateTime(delivery.sent_at)}` : ""}
-                            </p>
-
-                            {delivery.subject ? (
-                              <p className="mt-2 text-sm text-slate-700">
-                                <span className="font-medium">Subject:</span> {delivery.subject}
-                              </p>
-                            ) : null}
-
-                            {delivery.error_message ? (
-                              <p className="mt-2 text-xs text-red-600">
-                                {delivery.error_message}
-                              </p>
-                            ) : null}
-                          </div>
-                        ) : null}
-
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                          {action.completed_at ? <span>Completed {fmtShortDateTime(action.completed_at)}</span> : null}
-                          {action.dismissed_at ? <span>Dismissed {fmtShortDateTime(action.dismissed_at)}</span> : null}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </SectionCard>
-          ) : null}
         </div>
 
         <div className="space-y-6">
@@ -5283,88 +5152,7 @@ export default async function ClientDetailPage({
           </SectionCard>
           ) : null}
 
-          {activeTab === "notes" && typedClient.status === "lead" ? (
-            <>
-              <QuickActionPanel
-                title="Quick Lead Follow-Up"
-                description="Add a note, call, text, email, consultation, or follow-up reminder without leaving this page."
-                defaultOpen
-              >
-                <LeadActivityForm clientId={typedClient.id} returnTo={returnTo} />
-              </QuickActionPanel>
 
-              <SectionCard
-                title="Lead Activity Timeline"
-                subtitle="Recent lead outreach, reminders, and completed follow-ups."
-              >
-                <div className="space-y-3">
-                  {typedLeadActivities.length === 0 ? (
-                    <p className="text-slate-500">No lead activity logged yet.</p>
-                  ) : (
-                    typedLeadActivities.map((activity) => (
-                      <div
-                        key={activity.id}
-                        className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-medium text-[var(--brand-text)]">
-                              {activityLabel(activity.activity_type)}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {fmtDateTime(activity.created_at)}
-                            </p>
-                          </div>
-
-                          {activity.follow_up_due_at ? (
-                            <span
-                              className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
-                                activity.completed_at
-                                  ? "bg-green-50 text-green-700"
-                                  : "bg-amber-50 text-amber-700"
-                              }`}
-                            >
-                              {activity.completed_at ? "Completed" : "Open"}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">
-                          {activity.note}
-                        </p>
-
-                        {activity.follow_up_due_at ? (
-                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                            <p className="text-xs text-slate-500">
-                              Follow-up due: {fmtDateTime(activity.follow_up_due_at)}
-                            </p>
-
-                            {!activity.completed_at ? (
-                              <form action={completeLeadFollowUpAction}>
-                                <input type="hidden" name="activityId" value={activity.id} />
-                                <input type="hidden" name="clientId" value={typedClient.id} />
-                                <input type="hidden" name="returnTo" value={returnTo} />
-                                <button
-                                  type="submit"
-                                  className="text-xs font-medium underline"
-                                >
-                                  Mark Complete
-                                </button>
-                              </form>
-                            ) : null}
-                          </div>
-                        ) : null}
-
-                        <p className="mt-3 text-xs text-slate-500">
-                          By: {getAuthorName(activity.profiles)}
-                        </p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </SectionCard>
-            </>
-          ) : null}
 
           {activeTab === "schedule" && isIndependentInstructor ? (
             <SectionCard
