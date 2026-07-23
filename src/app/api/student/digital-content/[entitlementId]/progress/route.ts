@@ -37,13 +37,13 @@ function safeSeconds(value: unknown, maximum: number) {
 }
 
 export async function POST(request: NextRequest, { params }: Params) {
-  const rateLimit = checkRateLimit(
-    rateLimitKey("student-digital-progress", getIpFromRequest(request)),
-    { limit: 90, windowMs: 15 * 60 * 1000 },
+  const ipRateLimit = checkRateLimit(
+    rateLimitKey("student-digital-progress:ip", getIpFromRequest(request)),
+    { limit: 180, windowMs: 15 * 60 * 1000 },
   );
 
-  if (!rateLimit.allowed) {
-    return rateLimitedJson(rateLimit);
+  if (!ipRateLimit.allowed) {
+    return rateLimitedJson(ipRateLimit);
   }
 
   const user = await getStudentApiUser(request);
@@ -51,6 +51,17 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { entitlementId } = await params;
   const normalizedEntitlementId = normalizeStudentApiUuid(entitlementId);
+
+  const userRateLimit = checkRateLimit(
+    rateLimitKey(
+      "student-digital-progress:user",
+      user.id,
+      normalizedEntitlementId ?? "invalid",
+    ),
+    { limit: 120, windowMs: 15 * 60 * 1000 },
+  );
+  if (!userRateLimit.allowed) return rateLimitedJson(userRateLimit);
+
   const body = (await request.json().catch(() => null)) as ProgressBody | null;
   const catalogItemId = normalizeStudentApiUuid(body?.catalogItemId);
 
@@ -119,9 +130,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       ? Math.min(100, Math.max(0, (finalPosition / finalDuration) * 100))
       : 0;
   const completed =
-    body.completed === true ||
-    (finalDuration > 0 &&
-      (calculatedPercent >= 90 || finalDuration - finalPosition <= 15));
+    finalDuration > 0 &&
+    (calculatedPercent >= 90 || finalDuration - finalPosition <= 15);
   const now = new Date().toISOString();
 
   const { data: existing, error: existingError } = await admin
@@ -153,6 +163,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     metadata: {
       source: "student_app",
       completion_threshold_percent: 90,
+      client_completed_signal: body.completed === true,
     },
   };
 

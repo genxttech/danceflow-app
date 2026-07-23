@@ -15,11 +15,11 @@ function one<T>(value: T | T[] | null | undefined) {
 }
 
 export async function POST(request: NextRequest, { params }: Params) {
-  const rateLimit = checkRateLimit(
-    rateLimitKey("checkout:student-marketplace", getIpFromRequest(request)),
-    { limit: 6, windowMs: 15 * 60 * 1000 },
+  const ipRateLimit = checkRateLimit(
+    rateLimitKey("checkout:student-marketplace:ip", getIpFromRequest(request)),
+    { limit: 20, windowMs: 15 * 60 * 1000 },
   );
-  if (!rateLimit.allowed) return rateLimitedJson(rateLimit);
+  if (!ipRateLimit.allowed) return rateLimitedJson(ipRateLimit);
 
   const { catalogItemId } = await params;
   const id = normalizeStudentApiUuid(catalogItemId);
@@ -27,6 +27,12 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const user = await getStudentApiUser(request);
   if (!user?.email) return jsonError("Sign in before purchasing content.", 401);
+
+  const userRateLimit = checkRateLimit(
+    rateLimitKey("checkout:student-marketplace:user", user.id, id),
+    { limit: 4, windowMs: 15 * 60 * 1000 },
+  );
+  if (!userRateLimit.allowed) return rateLimitedJson(userRateLimit);
 
   const admin = createAdminClient();
   const stripe = getStripe();

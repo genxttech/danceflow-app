@@ -4,6 +4,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canSellCommerce } from "@/lib/auth/permissions";
+import {
+  checkRateLimit,
+  getServerActionRateLimitKey,
+  rateLimitErrorMessage,
+} from "@/lib/security/rate-limit";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -62,12 +67,27 @@ async function requireSeller() {
   return { supabase, context };
 }
 
+async function requireCommerceActionRateLimit(
+  scope: string,
+  userId: string,
+  studioId: string,
+) {
+  const key = await getServerActionRateLimitKey(scope, [userId, studioId]);
+  const result = checkRateLimit(key, { limit: 30, windowMs: 15 * 60 * 1000 });
+  if (!result.allowed) errorRedirect(rateLimitErrorMessage(result));
+}
+
 function errorRedirect(message: string) {
   redirect(`/app/sell?type=physical_product&error=${encodeURIComponent(message)}`);
 }
 
 export async function completePhysicalProductSaleAction(formData: FormData) {
   const { supabase, context } = await requireSeller();
+  await requireCommerceActionRateLimit(
+    "commerce-sale:physical-manual",
+    context.userId,
+    context.studioId,
+  );
 
   const clientId = clean(formData.get("clientId"), 60);
   const guestName = clean(formData.get("guestName"), 120);
@@ -129,6 +149,11 @@ export async function completePhysicalProductSaleAction(formData: FormData) {
 
 export async function startPhysicalProductTerminalSaleAction(formData: FormData) {
   const { supabase, context } = await requireSeller();
+  await requireCommerceActionRateLimit(
+    "commerce-sale:physical-terminal",
+    context.userId,
+    context.studioId,
+  );
 
   const clientId = clean(formData.get("clientId"), 60);
   const guestName = clean(formData.get("guestName"), 120);
@@ -177,6 +202,11 @@ export async function startPhysicalProductTerminalSaleAction(formData: FormData)
 
 export async function completeDigitalProductSaleAction(formData: FormData) {
   const { supabase, context } = await requireSeller();
+  await requireCommerceActionRateLimit(
+    "commerce-sale:digital-manual",
+    context.userId,
+    context.studioId,
+  );
 
   const clientId = clean(formData.get("clientId"), 60);
   const catalogItemId = clean(formData.get("catalogItemId"), 60);

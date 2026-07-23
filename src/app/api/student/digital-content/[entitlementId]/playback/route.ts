@@ -5,6 +5,12 @@ import {
   normalizeStudentApiUuid,
 } from "@/lib/auth/studentApiAuth";
 import { createSignedMuxPlaybackUrl } from "@/lib/mux/server";
+import {
+  checkRateLimit,
+  getIpFromRequest,
+  rateLimitKey,
+  rateLimitedJson,
+} from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -104,6 +110,16 @@ export async function GET(request: NextRequest, { params }: Params) {
   );
   const user = await getStudentApiUser(request);
 
+  const ipRateLimit = checkRateLimit(
+    rateLimitKey(
+      "student-digital-playback:ip",
+      getIpFromRequest(request),
+      normalizedEntitlementId ?? "invalid",
+    ),
+    { limit: 90, windowMs: 15 * 60 * 1000 },
+  );
+  if (!ipRateLimit.allowed) return rateLimitedJson(ipRateLimit);
+
   if (!user) {
     await recordAccess({
       entitlementId: normalizedEntitlementId,
@@ -115,6 +131,16 @@ export async function GET(request: NextRequest, { params }: Params) {
     });
     return jsonError("Sign in to watch this content.", 401);
   }
+
+  const userRateLimit = checkRateLimit(
+    rateLimitKey(
+      "student-digital-playback:user",
+      user.id,
+      normalizedEntitlementId ?? "invalid",
+    ),
+    { limit: 45, windowMs: 15 * 60 * 1000 },
+  );
+  if (!userRateLimit.allowed) return rateLimitedJson(userRateLimit);
 
   if (!normalizedEntitlementId) {
     await recordAccess({

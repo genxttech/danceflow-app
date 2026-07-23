@@ -36,6 +36,9 @@ type MuxWebhookEvent = {
   };
 };
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function parsePassthrough(value: string | undefined) {
   if (!value) return null;
 
@@ -45,6 +48,17 @@ function parsePassthrough(value: string | undefined) {
       digitalContentId?: string;
       studioId?: string;
     };
+
+    if (
+      !parsed.digitalContentId ||
+      !parsed.catalogItemId ||
+      !parsed.studioId ||
+      !UUID_PATTERN.test(parsed.digitalContentId) ||
+      !UUID_PATTERN.test(parsed.catalogItemId) ||
+      !UUID_PATTERN.test(parsed.studioId)
+    ) {
+      return null;
+    }
 
     return parsed;
   } catch {
@@ -184,6 +198,28 @@ export async function POST(request: Request) {
         : event.data.id;
 
     let contentId = passthrough?.digitalContentId ?? null;
+
+    if (contentId && passthrough) {
+      const { data: matchedContent, error: matchedContentError } = await admin
+        .from("commerce_digital_content")
+        .select("id, studio_id, catalog_item_id, mux_upload_id, mux_asset_id")
+        .eq("id", contentId)
+        .eq("studio_id", passthrough.studioId)
+        .eq("catalog_item_id", passthrough.catalogItemId)
+        .maybeSingle();
+
+      if (matchedContentError || !matchedContent) {
+        throw new Error("Mux passthrough did not match digital content.");
+      }
+
+      if (uploadId && matchedContent.mux_upload_id && matchedContent.mux_upload_id !== uploadId) {
+        throw new Error("Mux upload ID did not match digital content.");
+      }
+
+      if (assetId && matchedContent.mux_asset_id && matchedContent.mux_asset_id !== assetId) {
+        throw new Error("Mux asset ID did not match digital content.");
+      }
+    }
 
     if (!contentId && uploadId) {
       const { data } = await admin

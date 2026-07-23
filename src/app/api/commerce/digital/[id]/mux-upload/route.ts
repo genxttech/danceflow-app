@@ -3,6 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageCommerce } from "@/lib/auth/permissions";
 import { createMuxDirectUpload } from "@/lib/mux/server";
+import {
+  checkRateLimit,
+  getIpFromRequest,
+  rateLimitKey,
+  rateLimitedJson,
+} from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -10,18 +16,14 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function appOrigin(request: Request) {
-  const requestOrigin = request.headers.get("origin")?.trim();
-
-  if (requestOrigin) {
-    return new URL(requestOrigin).origin;
-  }
-
   const configured =
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_SITE_URL?.trim();
 
-  if (configured) {
-    return new URL(configured).origin;
+  if (configured) return new URL(configured).origin;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("A configured DanceFlow application URL is required.");
   }
 
   return new URL(request.url).origin;
@@ -33,6 +35,12 @@ export async function POST(
 ) {
   try {
     const { id } = await context.params;
+
+    const ipRateLimit = checkRateLimit(
+      rateLimitKey("commerce-mux-upload:ip", getIpFromRequest(request), id),
+      { limit: 20, windowMs: 15 * 60 * 1000 },
+    );
+    if (!ipRateLimit.allowed) return rateLimitedJson(ipRateLimit);
 
     if (!UUID_PATTERN.test(id)) {
       return NextResponse.json(
@@ -110,6 +118,17 @@ export async function POST(
       );
     }
 
+    const userRateLimit = checkRateLimit(
+      rateLimitKey(
+        "commerce-mux-upload:user",
+        studioContext.userId,
+        studioContext.studioId,
+        id,
+      ),
+      { limit: 6, windowMs: 30 * 60 * 1000 },
+    );
+    if (!userRateLimit.allowed) return rateLimitedJson(userRateLimit);
+
     const passthrough = JSON.stringify({
       catalogItemId: id,
       digitalContentId: content.id,
@@ -171,6 +190,12 @@ export async function DELETE(
 ) {
   try {
     const { id } = await context.params;
+
+    const ipRateLimit = checkRateLimit(
+      rateLimitKey("commerce-mux-reset:ip", getIpFromRequest(_request), id),
+      { limit: 10, windowMs: 15 * 60 * 1000 },
+    );
+    if (!ipRateLimit.allowed) return rateLimitedJson(ipRateLimit);
 
     if (!UUID_PATTERN.test(id)) {
       return NextResponse.json(
@@ -262,6 +287,12 @@ export async function PATCH(
 ) {
   try {
     const { id } = await context.params;
+
+    const ipRateLimit = checkRateLimit(
+      rateLimitKey("commerce-mux-status:ip", getIpFromRequest(_request), id),
+      { limit: 30, windowMs: 15 * 60 * 1000 },
+    );
+    if (!ipRateLimit.allowed) return rateLimitedJson(ipRateLimit);
 
     if (!UUID_PATTERN.test(id)) {
       return NextResponse.json(

@@ -5,6 +5,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageCommerce } from "@/lib/auth/permissions";
+import {
+  checkRateLimit,
+  getServerActionRateLimitKey,
+  rateLimitErrorMessage,
+} from "@/lib/security/rate-limit";
 
 const ITEM_TYPES = new Set([
   "physical_product",
@@ -52,8 +57,25 @@ async function requireCommerceManager() {
   return { supabase, context };
 }
 
+async function requireCatalogActionRateLimit(
+  scope: string,
+  userId: string,
+  studioId: string,
+) {
+  const key = await getServerActionRateLimitKey(scope, [userId, studioId]);
+  const result = checkRateLimit(key, { limit: 45, windowMs: 15 * 60 * 1000 });
+  if (!result.allowed) {
+    redirect(`/app/catalog?error=${encodeURIComponent(rateLimitErrorMessage(result))}`);
+  }
+}
+
 export async function createCatalogItemAction(formData: FormData) {
   const { supabase, context } = await requireCommerceManager();
+  await requireCatalogActionRateLimit(
+    "commerce-catalog:create",
+    context.userId,
+    context.studioId,
+  );
   const name = clean(formData.get("name"), 160);
   const description = clean(formData.get("description"), 2000);
   const itemType = clean(formData.get("itemType"), 60);
@@ -113,6 +135,11 @@ export async function createCatalogItemAction(formData: FormData) {
 
 export async function setCatalogItemActiveAction(formData: FormData) {
   const { supabase, context } = await requireCommerceManager();
+  await requireCatalogActionRateLimit(
+    "commerce-catalog:set-active",
+    context.userId,
+    context.studioId,
+  );
   const itemId = clean(formData.get("itemId"), 60);
   const active = clean(formData.get("active"), 10) === "true";
 
@@ -160,6 +187,11 @@ function safeCatalogReturn(itemId: string, success: string) {
 
 export async function createProductVariantAction(formData: FormData) {
   const { supabase, context } = await requireCommerceManager();
+  await requireCatalogActionRateLimit(
+    "commerce-catalog:create-variant",
+    context.userId,
+    context.studioId,
+  );
   const catalogItemId = clean(formData.get("catalogItemId"), 60);
   const name = clean(formData.get("name"), 120);
   const sku = clean(formData.get("sku"), 80);
@@ -221,6 +253,11 @@ export async function createProductVariantAction(formData: FormData) {
 
 export async function adjustInventoryAction(formData: FormData) {
   const { supabase, context } = await requireCommerceManager();
+  await requireCatalogActionRateLimit(
+    "commerce-catalog:adjust-inventory",
+    context.userId,
+    context.studioId,
+  );
   const catalogItemId = clean(formData.get("catalogItemId"), 60);
   const variantId = clean(formData.get("variantId"), 60);
   const reason = clean(formData.get("reason"), 60);
@@ -286,6 +323,11 @@ export async function adjustInventoryAction(formData: FormData) {
 
 export async function setProductVariantActiveAction(formData: FormData) {
   const { supabase, context } = await requireCommerceManager();
+  await requireCatalogActionRateLimit(
+    "commerce-catalog:set-variant-active",
+    context.userId,
+    context.studioId,
+  );
   const catalogItemId = clean(formData.get("catalogItemId"), 60);
   const variantId = clean(formData.get("variantId"), 60);
   const active = clean(formData.get("active"), 10) === "true";
