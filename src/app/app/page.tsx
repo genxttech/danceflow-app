@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
+import TodayWorkspaceHeader from "@/components/app/today/TodayWorkspaceHeader";
 import { redirect } from "next/navigation";
 import {
   ArrowRight,
@@ -2787,7 +2788,21 @@ export default async function AppDashboardPage({
   const planBadge = planLabel;
 
   return (
-    <main className="space-y-8 p-6 md:p-8">
+    <main className="min-h-[calc(100vh-4rem)] bg-[var(--brand-surface)]">
+      <TodayWorkspaceHeader
+        workspaceName={
+          currentWorkspace?.studioName || workspace?.name || "Studio Workspace"
+        }
+        planLabel={planBadge}
+        trialLabel={subscriptionTrialInfo?.label ?? null}
+        clientCount={typedClients.length}
+        upcomingCount={upcomingAppointments.length}
+        membershipCount={activeMembershipsCount}
+        bookingRequestCount={pendingBookingRequestCount ?? 0}
+        unreadCount={unreadCount}
+      />
+
+      <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
       {recordStudioOnboardingCompletion ? (
         <OnboardingCompletionRecorder checklistType="studio" />
@@ -2843,113 +2858,6 @@ export default async function AppDashboardPage({
           </div>
         </section>
       ) : null}
-
-      <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-white shadow-sm">
-        <div className="bg-gradient-to-br from-[#4C1D95] via-[#6B21A8] to-[#F97316] px-6 py-8 text-white md:px-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow Studio Dashboard
-              </p>
-
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Welcome back{workspace?.name ? `, ${workspace.name}` : ""}
-              </h1>
-
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Keep your studio moving with quick access to scheduling,
-                clients, payments, notifications, and growth tools.
-              </p>
-
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-white/80">
-                <span>
-                  Current workspace:{" "}
-                  <span className="font-medium text-white">
-                    {currentWorkspace?.studioName ||
-                      workspace?.name ||
-                      "Studio Workspace"}
-                  </span>
-                </span>
-                <span
-                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${planBadgeClass(
-                    planCode,
-                  )}`}
-                >
-                  {planBadge}
-                </span>
-                {subscriptionTrialInfo ? (
-                  <span className="inline-flex flex-col rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/15">
-                    <span>{subscriptionTrialInfo.label}</span>
-                    <span className="mt-0.5 text-white/70">
-                      {subscriptionTrialInfo.detail}
-                    </span>
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/app/payments/quick-charge"
-                className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#4C1D95] shadow-sm hover:bg-white/90"
-              >
-                Quick Charge
-              </Link>
-              <Link
-                href="/app/schedule/new"
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-              >
-                New Appointment
-              </Link>
-              <Link
-                href="/app/schedule/requests"
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-              >
-                Booking Requests
-              </Link>
-              <Link
-                href="/app/clients/new"
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-              >
-                Add Client
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="border-t border-[#E9D5FF] bg-[#FCF8FF] px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <StatCard
-              label="Clients"
-              value={typedClients.length}
-              icon={Users}
-            />
-            <StatCard
-              label="Upcoming"
-              value={upcomingAppointments.length}
-              icon={CalendarDays}
-              subtext="Scheduled appointments ahead"
-            />
-            <StatCard
-              label="Active Memberships"
-              value={activeMembershipsCount}
-              icon={CreditCard}
-            />
-            <StatCard
-              label="Booking Requests"
-              value={pendingBookingRequestCount ?? 0}
-              icon={ClipboardList}
-              subtext="New or in review"
-            />
-            <StatCard
-              label="Unread Alerts"
-              value={unreadCount}
-              icon={Bell}
-              subtext="Notifications needing review"
-            />
-          </div>
-        </div>
-      </section>
 
       {activeAriaGoal ? (
         <AriaInsightCard
@@ -3322,6 +3230,7 @@ export default async function AppDashboardPage({
           </p>
         </div>
       </section>
+      </div>
     </main>
   );
 }
