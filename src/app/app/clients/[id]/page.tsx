@@ -2638,7 +2638,7 @@ export default async function ClientDetailPage({
 
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.07),transparent_26%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.08),transparent_24%)]">
       {banner ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm ${
@@ -2651,7 +2651,7 @@ export default async function ClientDetailPage({
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white shadow-sm">
+      <section className="overflow-hidden rounded-3xl border border-violet-200/80 bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_62%)] shadow-[0_18px_50px_rgba(76,29,149,0.10)]">
         <WorkspaceHeader
           eyebrow="Selected client"
           title={`${typedClient.first_name} ${typedClient.last_name}`}
@@ -2675,7 +2675,7 @@ export default async function ClientDetailPage({
               {canCreateAppointments(role) ? (
                 <Link
                   href={`/app/schedule/new?clientId=${typedClient.id}`}
-                  className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-primary-dark)]"
+                  className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
                 >
                   Book lesson
                 </Link>
@@ -2724,10 +2724,10 @@ export default async function ClientDetailPage({
         />
       </section>
 
-      <div className="overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm sm:p-5">
+      <div className="overflow-hidden rounded-3xl border border-orange-200/70 bg-white p-4 shadow-[0_18px_45px_rgba(249,115,22,0.07)] sm:p-5">
         <div className="flex flex-col gap-6">
           <div className="grid gap-5 lg:grid-cols-[180px_minmax(0,1fr)]">
-            <aside className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+            <aside className="rounded-2xl border border-violet-200 bg-[linear-gradient(180deg,#faf5ff_0%,#fff7ed_100%)] p-3">
               <div className="overflow-hidden rounded-3xl border border-slate-200 bg-[var(--brand-primary-soft)]">
                 <div className="flex aspect-square items-center justify-center bg-white text-3xl font-semibold text-[var(--brand-primary)]">
                   {typedClient.photo_url ? (

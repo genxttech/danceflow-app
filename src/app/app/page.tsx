@@ -2786,7 +2786,7 @@ export default async function AppDashboardPage({
   const planBadge = planLabel;
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[var(--brand-surface)]">
+    <main className="min-h-[calc(100vh-4rem)] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_26%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.08),transparent_24%),linear-gradient(180deg,var(--brand-surface)_0%,#ffffff_100%)]">
       <TodayWorkspaceHeader
         workspaceName={
           currentWorkspace?.studioName || workspace?.name || "Studio Workspace"

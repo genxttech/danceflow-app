@@ -241,18 +241,18 @@ export default function ClientWorkspaceContextPanel({
   return (
     <section
       aria-label="Client context and actions"
-      className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm sm:p-5"
+      className="rounded-3xl border border-violet-200/80 bg-[linear-gradient(135deg,#ffffff_0%,#faf5ff_52%,#fff7ed_100%)] p-4 shadow-[0_18px_50px_rgba(76,29,149,0.10)] sm:p-5"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand-muted)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
             Client context
           </p>
           <h2 className="mt-1 text-lg font-semibold text-[var(--brand-text)]">
             {visibleIssues.length > 0 ? "What needs attention" : "Relationship is in good standing"}
           </h2>
         </div>
-        <span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-semibold text-[var(--brand-primary)]">
+        <span className="rounded-full bg-[linear-gradient(135deg,#ede9fe_0%,#ffedd5_100%)] px-3 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-200">
           {activeTab.replaceAll("_", " ")}
         </span>
       </div>
@@ -316,7 +316,7 @@ export default function ClientWorkspaceContextPanel({
               <Link
                 key={item.key}
                 href={item.href}
-                className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4 transition hover:bg-white hover:shadow-sm"
+                className="rounded-2xl border border-violet-100 bg-white/85 p-4 transition hover:-translate-y-0.5 hover:border-orange-200 hover:bg-white hover:shadow-sm"
               >
                 <div className="flex items-center gap-3">
                   <span className={`rounded-xl p-2 ring-1 ${classes.icon}`}>

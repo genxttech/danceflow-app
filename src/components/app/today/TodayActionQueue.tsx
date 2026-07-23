@@ -86,7 +86,7 @@ function QueueLink({
   return (
     <Link
       href={href}
-      className="flex items-start gap-3 border-b border-[var(--brand-border)] px-4 py-3 transition last:border-b-0 hover:bg-[var(--brand-primary-soft)]/55"
+      className="flex items-start gap-3 border-b border-[var(--brand-border)] px-4 py-3 transition last:border-b-0 hover:bg-[linear-gradient(90deg,rgba(124,58,237,0.06),rgba(249,115,22,0.05))]"
     >
       <span className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${toneClass}`}>
         {icon}
@@ -125,7 +125,7 @@ function QueueTab({
       className={[
         "inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition",
         active
-          ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
+          ? "border-transparent bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] text-white shadow-sm"
           : "border-[var(--brand-border)] bg-white text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]",
       ].join(" ")}
       aria-pressed={active}
@@ -199,8 +199,8 @@ export default function TodayActionQueue({
   ];
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white shadow-sm">
-      <div className="border-b border-[var(--brand-border)] px-4 py-4 sm:px-5">
+    <section className="overflow-hidden rounded-3xl border border-violet-200/80 bg-white shadow-[0_18px_50px_rgba(76,29,149,0.10)]">
+      <div className="border-b border-violet-100 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_52%,#ffffff_100%)] px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">

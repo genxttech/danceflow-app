@@ -24,7 +24,7 @@ export default function TodayWorkspaceHeader({
   unreadCount: number;
 }) {
   return (
-    <div className="bg-white">
+    <div className="overflow-hidden border-b border-orange-200/70 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.16),transparent_32%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.16),transparent_30%),linear-gradient(180deg,#fff7ed_0%,#ffffff_72%)]">
       <WorkspaceHeader
         eyebrow="Studio operations"
         title="Today"
@@ -33,19 +33,19 @@ export default function TodayWorkspaceHeader({
           <>
             <Link
               href="/app/sell"
-              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-primary-dark)]"
+              className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
             >
               Sell
             </Link>
             <Link
               href="/app/schedule/new"
-              className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+              className="rounded-xl border border-violet-200 bg-white/90 px-4 py-2 text-sm font-semibold text-violet-800 shadow-sm hover:bg-violet-50"
             >
               New appointment
             </Link>
             <Link
               href="/app/clients/new"
-              className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+              className="rounded-xl border border-orange-200 bg-white/90 px-4 py-2 text-sm font-semibold text-orange-800 shadow-sm hover:bg-orange-50"
             >
               Add client
             </Link>
@@ -53,7 +53,7 @@ export default function TodayWorkspaceHeader({
         }
       />
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-[var(--brand-border)] px-4 py-2 text-xs text-[var(--brand-muted)] sm:px-6 lg:px-8">
+      <div className="flex flex-wrap items-center gap-2 border-t border-orange-100 bg-white/65 px-4 py-2 text-xs text-[var(--brand-muted)] backdrop-blur sm:px-6 lg:px-8">
         <span className="font-medium text-[var(--brand-text)]">{workspaceName}</span>
         <span aria-hidden="true">•</span>
         <span>{planLabel} plan</span>

@@ -155,8 +155,8 @@ export default async function ClientsPage({
   const filtersApplied = Boolean(selectedStatus || queryText);
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[var(--brand-surface)]">
-      <section className="border-b border-[var(--brand-border)] bg-white">
+    <main className="min-h-[calc(100vh-4rem)] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.09),transparent_26%),linear-gradient(180deg,#fff7ed_0%,var(--brand-surface)_30%,#ffffff_100%)]">
+      <section className="border-b border-orange-200/70 bg-[linear-gradient(180deg,rgba(255,247,237,0.95)_0%,rgba(255,255,255,0.98)_70%)]">
         <WorkspaceHeader
           eyebrow="Studio relationships"
           title="Clients"
@@ -171,7 +171,7 @@ export default async function ClientsPage({
               </Link>
               <Link
                 href="/app/clients/new"
-                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-primary-dark)]"
+                className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
               >
                 New client
               </Link>
@@ -251,7 +251,7 @@ export default async function ClientsPage({
               <>
                 <button
                   type="submit"
-                  className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-primary-dark)]"
+                  className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
                 >
                   Apply
                 </button>
@@ -270,8 +270,8 @@ export default async function ClientsPage({
       </section>
 
       <section className="p-4 sm:p-6 lg:p-8">
-        <div className="overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-[var(--brand-border)] px-4 py-3 sm:px-5">
+        <div className="overflow-hidden rounded-3xl border border-violet-200/70 bg-white shadow-[0_18px_50px_rgba(76,29,149,0.08)]">
+          <div className="flex items-center justify-between border-b border-violet-100 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_70%,#ffffff_100%)] px-4 py-3 sm:px-5">
             <div>
               <h2 className="text-sm font-semibold text-[var(--brand-text)]">Client records</h2>
               <p className="mt-0.5 text-xs text-[var(--brand-muted)]">

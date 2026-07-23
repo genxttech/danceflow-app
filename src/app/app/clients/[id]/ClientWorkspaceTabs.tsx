@@ -22,7 +22,7 @@ export default function ClientWorkspaceTabs({
   const activeTabInfo = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
   return (
-    <div className="sticky top-0 z-20 rounded-2xl border border-[var(--brand-border)] bg-white/95 p-2 shadow-sm backdrop-blur">
+    <div className="sticky top-0 z-20 rounded-2xl border border-violet-200/80 bg-white/95 p-2 shadow-[0_12px_35px_rgba(76,29,149,0.10)] backdrop-blur">
       <div className="sm:hidden">
         <label htmlFor="client-workspace-tab" className="sr-only">
           Client workspace section
@@ -54,7 +54,7 @@ export default function ClientWorkspaceTabs({
               className={[
                 "whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition",
                 isActive
-                  ? "bg-[var(--brand-primary)] text-white shadow-sm"
+                  ? "bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] text-white shadow-sm"
                   : "border border-[var(--brand-border)] bg-white text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]",
               ].join(" ")}
             >
