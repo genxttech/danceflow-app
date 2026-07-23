@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import {
+  cancelAppointmentAction,
   markAppointmentAttendedAction,
   markAppointmentNoShowAction,
 } from "@/app/app/schedule/actions";
-import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 
 export type DrawerAppointment = {
   id: string;
@@ -144,7 +144,7 @@ function DetailCard({
   value: string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-violet-100 bg-white/90 p-4 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
         {label}
       </p>
@@ -180,20 +180,20 @@ export default function ScheduleEventDrawer({
         type="button"
         aria-label="Close drawer overlay"
         onClick={onClose}
-        className="fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-[1px]"
+        className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-[2px]"
       />
 
-      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-slate-50 shadow-2xl">
-        <div className="border-b border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6">
+      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-xl flex-col border-l border-violet-200 bg-[linear-gradient(180deg,#faf5ff_0%,#f8fafc_38%,#fff7ed_100%)] shadow-2xl">
+        <div className="border-b border-white/15 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] px-5 py-5 text-white shadow-sm sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
                 Schedule Item
               </p>
-              <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
+              <h3 className="mt-1 text-xl font-semibold tracking-tight text-white">
                 {appointment.title || appointmentTypeLabel(appointment.appointment_type)}
               </h3>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-white/80">
                 {formatDateTime(appointment.starts_at, studioTimeZone)}
               </p>
             </div>
@@ -201,7 +201,7 @@ export default function ScheduleEventDrawer({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
             >
               Close
             </button>
@@ -233,7 +233,7 @@ export default function ScheduleEventDrawer({
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <section className="rounded-2xl border border-orange-100 bg-white/90 p-4 shadow-sm">
             <h4 className="text-sm font-semibold text-slate-900">At a glance</h4>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -253,7 +253,7 @@ export default function ScheduleEventDrawer({
           </section>
 
           {appointment.payment_status || appointment.notes ? (
-            <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <section className="rounded-2xl border border-violet-100 bg-white/90 p-4 shadow-sm">
               <h4 className="text-sm font-semibold text-slate-900">CRM context</h4>
               {appointment.payment_status ? <p className="mt-3 text-sm text-slate-700"><span className="font-medium">Payment:</span> {formatStatusLabel(appointment.payment_status)}</p> : null}
               {appointment.notes ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{appointment.notes}</p> : null}
@@ -275,7 +275,7 @@ export default function ScheduleEventDrawer({
                   <input type="hidden" name="appointmentId" value={appointment.id} />
                   <button
                     type="submit"
-                    className="w-full rounded-xl bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700"
+                    className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
                   >
                     Mark Attended
                   </button>
@@ -285,7 +285,7 @@ export default function ScheduleEventDrawer({
                   <input type="hidden" name="appointmentId" value={appointment.id} />
                   <button
                     type="submit"
-                    className="w-full rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-600"
+                    className="w-full rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
                   >
                     Mark No Show
                   </button>
@@ -298,19 +298,21 @@ export default function ScheduleEventDrawer({
             <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <h4 className="text-sm font-semibold text-slate-900">Appointment Action</h4>
               <div className="mt-4">
-                <AppointmentCancellationForm
-                  appointmentId={appointment.id}
-                  returnTo="/app/schedule"
-                  isRecurring={Boolean(appointment.is_recurring)}
-                  isFloorRental={isFloorRental}
-                  compact
-                />
+                <form action={cancelAppointmentAction}>
+                  <input type="hidden" name="appointmentId" value={appointment.id} />
+                  <button
+                    type="submit"
+                    className="w-full rounded-xl border border-red-200 px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50"
+                  >
+                    {isFloorRental ? "Cancel Rental" : "Cancel Appointment"}
+                  </button>
+                </form>
               </div>
             </section>
           ) : null}
         </div>
 
-        <div className="border-t border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6">
+        <div className="border-t border-violet-200 bg-white/95 px-5 py-4 shadow-[0_-12px_35px_rgba(76,29,149,0.10)] backdrop-blur sm:px-6">
           <div className="flex flex-wrap gap-3">
             {appointment.client_id ? (
               <Link
@@ -329,7 +331,7 @@ export default function ScheduleEventDrawer({
 
             <Link
               href={`/app/schedule/${appointment.id}/edit`}
-              className="rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2 text-sm font-medium text-white hover:opacity-95"
+              className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
             >
               Edit
             </Link>

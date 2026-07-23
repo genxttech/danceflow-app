@@ -347,9 +347,9 @@ function CompactScheduleHeader() {
   const labels = ["Private lessons", "Floor rentals", "Room unavailable", "Agenda-ready"];
 
   return (
-    <section className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
-      <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-5 py-5 text-white md:px-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+    <section className="overflow-hidden rounded-[28px] border border-violet-200/80 bg-white shadow-[0_20px_55px_rgba(76,29,149,0.12)]">
+      <div className="bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] px-5 py-5 text-white md:px-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
           DanceFlow Schedule
         </p>
         <div className="mt-2 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -366,7 +366,7 @@ function CompactScheduleHeader() {
             {labels.map((label) => (
               <span
                 key={label}
-                className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium text-white"
+                className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold text-white backdrop-blur"
               >
                 {label}
               </span>
@@ -588,7 +588,8 @@ export default async function ScheduleCalendarPage({
 
   if (view === "agenda") {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.09),transparent_26%)] p-1">
+        <CompactScheduleHeader />
         <ScheduleAgendaView
           view="agenda"
           baseDate={baseDate}
@@ -610,7 +611,8 @@ export default async function ScheduleCalendarPage({
 
   if (view === "month") {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.09),transparent_26%)] p-1">
+        <CompactScheduleHeader />
         <ScheduleMonthView
           view="month"
           baseDate={baseDate}
@@ -631,7 +633,8 @@ export default async function ScheduleCalendarPage({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.09),transparent_26%)] p-1">
+      <CompactScheduleHeader />
       <ScheduleCalendarView
         view={view}
         baseDate={baseDate}

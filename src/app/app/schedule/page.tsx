@@ -585,30 +585,6 @@ function getPaymentAmountDefault(appointment: AppointmentRow) {
   return amount > 0 ? amount.toFixed(2) : "";
 }
 
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm ring-1 ring-[var(--brand-primary-soft)]/50 transition hover:-translate-y-0.5 hover:shadow-md">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-        </div>
-        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)] ring-1 ring-[var(--brand-border)]">
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function getBanner(search: {
   success?: string;
   error?: string;
@@ -1207,7 +1183,7 @@ export default async function SchedulePage({
   ] as const;
 
   return (
-    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+    <div className="space-y-6 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.09),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.10),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#ffffff_30%)] p-1">
       {banner ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
@@ -1220,54 +1196,25 @@ export default async function SchedulePage({
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+      <section className="overflow-hidden rounded-[30px] border border-violet-200/80 bg-white shadow-[0_20px_55px_rgba(76,29,149,0.12)]">
+        <div className="bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] px-5 py-6 text-white sm:px-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
                 DanceFlow Schedule
               </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Schedule Command Center
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+                Schedule workspace
               </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Manage appointments, event visibility, attendance, floor
-                rentals, and the daily operating flow from one branded workspace
-                view.
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
+                Manage lessons, events, attendance, booking requests, floor rentals, and daily closeout from one operating view.
               </p>
             </div>
 
-            <div className="flex flex-col gap-3">
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-white/65">
-                  Open calendar
-                </p>
-                <div className="grid grid-cols-4 rounded-lg border border-white/20 bg-white/10 p-1">
-                  {calendarViews.map((item) => (
-                    <Link
-                      key={item.view}
-                      href={`/app/schedule/calendar${buildQuery({
-                        view: item.view,
-                        date: baseDate,
-                        instructor:
-                          instructorFilter !== "all" ? instructorFilter : undefined,
-                        room: roomFilter !== "all" ? roomFilter : undefined,
-                        status: statusFilter !== "all" ? statusFilter : undefined,
-                        source:
-                          sourceFilter !== "all" ? sourceFilter : undefined,
-                      })}`}
-                      className="rounded-md px-3 py-2 text-center text-sm font-semibold text-white hover:bg-white/15"
-                    >
-                      {item.label}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <div className="flex flex-wrap gap-2">
               <Link
                 href="/app/schedule/requests"
-                className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-center text-sm font-medium text-white hover:bg-white/15"
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
               >
                 Booking Requests
               </Link>
@@ -1275,87 +1222,79 @@ export default async function SchedulePage({
               {canCreateAppointments(role) ? (
                 <Link
                   href="/app/schedule/new"
-                  className="rounded-lg bg-white px-4 py-2 text-center text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+                  className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-sm hover:bg-orange-50"
                 >
                   New Appointment
                 </Link>
               ) : null}
-              </div>
             </div>
           </div>
         </div>
 
-        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-sky-950">
-                See your day at a glance
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-sky-900">
-                Use this page to see lessons, floor rentals, and event items in
-                one place so it is easier to manage the day.
-              </p>
-            </div>
+        <div className="grid gap-4 border-t border-orange-100 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_55%,#ffffff_100%)] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+              Open calendar
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              Switch to a full calendar view while preserving the selected date and filters.
+            </p>
+          </div>
 
-            <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-violet-950">
-                Use filters to find what you need faster
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-violet-900">
-                Filter by date, instructor, room, or status to narrow the
-                schedule and focus on the appointments that matter right now.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-amber-950">
-                Keep lessons moving smoothly
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-amber-900">
-                Open an appointment to update attendance, check package details,
-                and make quick changes without losing your place.
-              </p>
-            </div>
-            <Link
-              href="/app/schedule/requests"
-              className="rounded-2xl border border-purple-200 bg-purple-50 p-5 transition hover:border-purple-300 hover:bg-purple-100/70"
-            >
-              <h2 className="text-lg font-semibold text-purple-950">
-                Review booking requests
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-purple-900">
-                See portal scheduling requests, update their status, and turn approved requests into appointments.
-              </p>
-            </Link>
+          <div className="grid grid-cols-4 rounded-xl border border-violet-200 bg-white p-1 shadow-sm">
+            {calendarViews.map((item) => (
+              <Link
+                key={item.view}
+                href={`/app/schedule/calendar${buildQuery({
+                  view: item.view,
+                  date: baseDate,
+                  instructor:
+                    instructorFilter !== "all" ? instructorFilter : undefined,
+                  room: roomFilter !== "all" ? roomFilter : undefined,
+                  status: statusFilter !== "all" ? statusFilter : undefined,
+                  source:
+                    sourceFilter !== "all" ? sourceFilter : undefined,
+                })}`}
+                className="rounded-lg px-3 py-2 text-center text-xs font-semibold text-slate-700 hover:bg-violet-50 hover:text-violet-800 sm:text-sm"
+              >
+                {item.label}
+              </Link>
+            ))}
           </div>
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <StatCard
-          label="Visible Items"
-          value={mixedItems.length}
-          icon={ClipboardList}
-        />
-        <StatCard
-          label="Appointments"
-          value={typedAppointments.length}
-          icon={CalendarDays}
-        />
-        <StatCard label="Events" value={eventCount} icon={Sparkles} />
-        <StatCard
-          label="Scheduled"
-          value={scheduledCount}
-          icon={CalendarDays}
-        />
-        <StatCard label="Recurring" value={recurringCount} icon={Repeat2} />
-        <StatCard
-          label="Floor Rentals"
-          value={floorRentalCount}
-          icon={DoorOpen}
-        />
-      </div>
-      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="overflow-hidden rounded-3xl border border-orange-200/70 bg-white shadow-sm">
+        <div className="grid grid-cols-2 divide-x divide-y divide-orange-100 sm:grid-cols-3 sm:divide-y-0 xl:grid-cols-6">
+          {[
+            { label: "Visible", value: mixedItems.length, icon: ClipboardList },
+            { label: "Appointments", value: typedAppointments.length, icon: CalendarDays },
+            { label: "Events", value: eventCount, icon: Sparkles },
+            { label: "Scheduled", value: scheduledCount, icon: CalendarDays },
+            { label: "Recurring", value: recurringCount, icon: Repeat2 },
+            { label: "Floor rentals", value: floorRentalCount, icon: DoorOpen },
+          ].map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <div key={item.label} className="flex items-center gap-3 px-4 py-4">
+                <span className="rounded-xl bg-[linear-gradient(135deg,#ede9fe_0%,#ffedd5_100%)] p-2 text-violet-800 ring-1 ring-violet-200">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    {item.label}
+                  </p>
+                  <p className="mt-0.5 text-xl font-semibold text-slate-950">
+                    {item.value}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      <section className="rounded-[28px] border border-emerald-200 bg-[linear-gradient(135deg,#ffffff_0%,#ecfdf5_48%,#fff7ed_100%)] p-5 shadow-[0_18px_45px_rgba(5,150,105,0.08)]">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
             <div className="rounded-2xl bg-green-50 p-3 text-green-700">
@@ -1479,7 +1418,7 @@ export default async function SchedulePage({
                     key={appointment.id}
                     className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm"
                   >
-                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
                           <span>{formatDateTime(appointment.starts_at, studioTimeZone)}</span>
@@ -1640,9 +1579,9 @@ export default async function SchedulePage({
         ) : null}
       </section>
 
-      <form className="rounded-[28px] border border-[var(--brand-border)] bg-white/95 p-5 shadow-sm ring-1 ring-[var(--brand-primary-soft)]/60">
+      <form className="rounded-[28px] border border-violet-200/80 bg-white/95 p-5 shadow-[0_18px_45px_rgba(76,29,149,0.09)]">
         <div className="mb-4 flex items-start gap-3">
-          <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+          <div className="rounded-2xl bg-[linear-gradient(135deg,#4c1d95_0%,#f97316_130%)] p-3 text-white shadow-sm">
             <Filter className="h-5 w-5" />
           </div>
           <div>
@@ -1782,7 +1721,7 @@ export default async function SchedulePage({
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="submit"
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 font-medium text-white shadow-sm hover:brightness-95"
+            className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 font-semibold text-white shadow-sm hover:brightness-110"
           >
             Apply Filters
           </button>
@@ -1795,9 +1734,32 @@ export default async function SchedulePage({
         </div>
       </form>
 
+      <section className="rounded-3xl border border-orange-200/70 bg-[linear-gradient(135deg,#ffffff_0%,#fff7ed_55%,#faf5ff_100%)] px-5 py-4 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+              Operating schedule
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">
+              {scope === "today"
+                ? `Items for ${formatDate(baseDate)}`
+                : scope === "next7"
+                  ? "Next 7 days"
+                  : "All visible schedule items"}
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Appointments and studio events are ordered by start time. Open an item for full details.
+            </p>
+          </div>
+          <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-orange-200">
+            {mixedItems.length} item{mixedItems.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      </section>
+
       <div className="space-y-4">
         {mixedItems.length === 0 ? (
-          <div className="rounded-[28px] border border-dashed border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/25 p-10 text-center text-slate-500 shadow-sm">
+          <div className="rounded-[28px] border border-dashed border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-10 text-center text-slate-500 shadow-sm">
             <p className="text-base font-medium text-slate-900">
               No schedule items match your current filters.
             </p>
@@ -1813,7 +1775,7 @@ export default async function SchedulePage({
               return (
                 <div
                   key={`event-${event.id}`}
-                  className={`relative overflow-hidden rounded-2xl border p-5 transition hover:-translate-y-0.5 hover:shadow-md ${eventCardClass(event.event_type)}`}
+                  className={`relative overflow-hidden rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:shadow-md sm:p-5 ${eventCardClass(event.event_type)}`}
                 >
                   <div className={`absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b ${eventAccentClass(event.event_type)}`} />
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -1848,11 +1810,11 @@ export default async function SchedulePage({
                       </div>
 
                       <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Shown on the schedule for staffing, room planning, registration, and check-in visibility.
+                        Staffing, room planning, registration, and check-in visibility.
                       </p>
 
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/75 p-3 shadow-sm">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             When
                           </p>
@@ -1861,7 +1823,7 @@ export default async function SchedulePage({
                           </p>
                         </div>
 
-                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/75 p-3 shadow-sm">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             Organizer
                           </p>
@@ -1870,7 +1832,7 @@ export default async function SchedulePage({
                           </p>
                         </div>
 
-                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/75 p-3 shadow-sm">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             Location
                           </p>
@@ -1883,7 +1845,7 @@ export default async function SchedulePage({
                           </p>
                         </div>
 
-                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/75 p-3 shadow-sm">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             Visibility
                           </p>
@@ -1894,17 +1856,17 @@ export default async function SchedulePage({
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-3 xl:justify-end">
+                    <div className="flex flex-wrap gap-2 xl:min-w-[220px] xl:justify-end">
                       <Link
                         href={`/app/events/${event.id}`}
-                        className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-95"
+                        className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
                       >
                         View Event
                       </Link>
 
                       <Link
                         href={`/app/events/${event.id}`}
-                        className="rounded-xl border border-slate-200 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-white"
+                        className="rounded-xl border border-violet-200 bg-white/85 px-4 py-2 text-sm font-semibold text-violet-800 shadow-sm hover:bg-violet-50"
                       >
                         Check-In / Roster
                       </Link>
@@ -1938,10 +1900,11 @@ export default async function SchedulePage({
             return (
               <div
                 key={`appointment-${appointment.id}`}
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-[var(--brand-border)] hover:shadow-md"
+                className="relative overflow-hidden rounded-2xl border border-orange-100 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-[0_16px_40px_rgba(76,29,149,0.10)] sm:p-5"
               >
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0">
+                <div className="absolute inset-y-0 left-0 w-1 bg-[linear-gradient(180deg,#4c1d95_0%,#f97316_100%)]" />
+                <div className="flex flex-col gap-4 pl-2 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-3">
                       <Link
                         href={`/app/schedule/${appointment.id}`}
@@ -2011,9 +1974,9 @@ export default async function SchedulePage({
                       </p>
                     ) : null}
 
-                    <div className="mt-3 grid gap-x-8 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                           Start
                         </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
@@ -2021,8 +1984,8 @@ export default async function SchedulePage({
                         </p>
                       </div>
 
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                      <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                           Instructor
                         </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
@@ -2030,8 +1993,8 @@ export default async function SchedulePage({
                         </p>
                       </div>
 
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                      <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                           Room
                         </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
@@ -2039,8 +2002,8 @@ export default async function SchedulePage({
                         </p>
                       </div>
 
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                      <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                           Package
                         </p>
                         <p className="mt-1 break-words text-sm font-medium text-slate-900">
@@ -2071,10 +2034,10 @@ export default async function SchedulePage({
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-3 xl:justify-end">
+                  <div className="flex flex-wrap gap-2 xl:min-w-[150px] xl:justify-end">
                     <Link
                       href={`/app/schedule/${appointment.id}`}
-                      className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                      className="rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50"
                     >
                       View
                     </Link>
@@ -2082,7 +2045,7 @@ export default async function SchedulePage({
                     {!isFinalStatus && canEditAppointments(role) ? (
                       <Link
                         href={`/app/schedule/${appointment.id}/edit`}
-                        className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                        className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-50"
                       >
                         Edit
                       </Link>
@@ -2091,7 +2054,7 @@ export default async function SchedulePage({
                 </div>
 
                 {showAttendanceActions ? (
-                  <div className="mt-4 flex flex-wrap gap-3 border-t pt-4">
+                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-orange-100 bg-[linear-gradient(90deg,rgba(255,247,237,0.7),rgba(250,245,255,0.7))] px-3 py-3">
                     <form action={markAppointmentAttendedAction}>
                       <input
                         type="hidden"
@@ -2105,7 +2068,7 @@ export default async function SchedulePage({
                       />
                       <button
                         type="submit"
-                        className="rounded-xl bg-green-600 px-4 py-2 text-white hover:bg-green-700"
+                        className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
                       >
                         Mark Attended
                       </button>
@@ -2124,7 +2087,7 @@ export default async function SchedulePage({
                       />
                       <button
                         type="submit"
-                        className="rounded-xl bg-amber-500 px-4 py-2 text-white hover:bg-amber-600"
+                        className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
                       >
                         Mark No Show
                       </button>
