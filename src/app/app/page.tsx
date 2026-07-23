@@ -12,7 +12,6 @@ import {
   ClipboardList,
   CreditCard,
   Download,
-  Globe2,
   Layers3,
   Sparkles,
   Star,
@@ -2944,39 +2943,6 @@ export default async function AppDashboardPage({
         }}
         planLabel={planBadge}
       />
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
-          <Sparkles className="h-5 w-5 text-[#6B21A8]" />
-          <h3 className="mt-4 text-base font-semibold text-slate-950">
-            Discovery to Leads
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Use public studio and event listings to help dancers find you and
-            turn interest into clients.
-          </p>
-        </div>
-        <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
-          <Globe2 className="h-5 w-5 text-[#6B21A8]" />
-          <h3 className="mt-4 text-base font-semibold text-slate-950">
-            Public Presence
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Keep studio details, event visibility, and profile information ready
-            for public discovery.
-          </p>
-        </div>
-        <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
-          <CheckCircle2 className="h-5 w-5 text-[#6B21A8]" />
-          <h3 className="mt-4 text-base font-semibold text-slate-950">
-            Daily Operations
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Manage scheduling, attendance, packages, payments, and alerts from
-            one workflow-centered dashboard.
-          </p>
-        </div>
-      </section>
       </div>
     </main>
   );
