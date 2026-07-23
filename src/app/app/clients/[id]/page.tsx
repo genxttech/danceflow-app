@@ -15,6 +15,7 @@ import QuickActionPanel from "@/components/ui/QuickActionPanel";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import WorkspaceHeader from "@/components/app/workspace/WorkspaceHeader";
 import ClientWorkspaceTabs from "./ClientWorkspaceTabs";
+import ClientWorkspaceContextPanel from "./ClientWorkspaceContextPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
@@ -3010,6 +3011,21 @@ export default async function ClientDetailPage({
         clientId={typedClient.id}
         activeTab={activeTab}
         tabs={clientDetailTabs}
+      />
+
+      <ClientWorkspaceContextPanel
+        clientId={typedClient.id}
+        activeTab={activeTab}
+        clientStatus={typedClient.status}
+        nextAppointmentAt={nextAppointment?.starts_at ?? null}
+        studioTimeZone={studioTimeZone}
+        activePackageCount={activePackages.length}
+        pendingRequiredDocumentCount={pendingRequiredDocumentCount}
+        unpaidLessonCount={unpaidPayAsYouGoLessons.length}
+        accountBalance={accountNetBalance}
+        membershipStatus={typedActiveMembership?.status ?? null}
+        portalStatus={portalLifecycleStatus}
+        canBook={canCreateAppointments(role)}
       />
 
       {activeTab === "marketing" ? (
