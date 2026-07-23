@@ -1,0 +1,10 @@
+export { default as WorkspaceShell } from "./WorkspaceShell";
+export { default as WorkspaceHeader } from "./WorkspaceHeader";
+export { default as WorkspaceToolbar } from "./WorkspaceToolbar";
+export { default as CompactSummaryStrip } from "./CompactSummaryStrip";
+export type { CompactSummaryItem } from "./CompactSummaryStrip";
+export { default as WorkspacePane } from "./WorkspacePane";
+export { default as RecordRow } from "./RecordRow";
+export { default as WorkspaceEmptyState } from "./WorkspaceEmptyState";
+export { default as ResponsiveDetailPanel } from "./ResponsiveDetailPanel";
+export { default as StickyActionBar } from "./StickyActionBar";
