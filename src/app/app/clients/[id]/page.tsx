@@ -12,6 +12,8 @@ import {
 } from "@/app/app/leads/actions";
 import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
+import WorkspaceHeader from "@/components/app/workspace/WorkspaceHeader";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
@@ -703,6 +705,13 @@ function fmtCurrency(value: number, currency = "USD") {
     style: "currency",
     currency,
   }).format(value);
+}
+
+function statusLabel(status: string) {
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function statusBadgeClass(status: string) {
@@ -2641,32 +2650,85 @@ export default async function ClientDetailPage({
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,#0d1536_0%,#111b45_48%,#5b145e_100%)] p-5 text-white shadow-sm md:p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-              DanceFlow Client Workspace
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">
-              Manage the full client relationship in one place
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
-              Keep payments, packages, memberships, appointments, portal access, and follow-up tasks connected so the front desk can move quickly with fewer clicks.
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white/80">
-            <p className="font-semibold text-white">Studio CRM</p>
-            <p className="mt-1">Built for daily studio operations</p>
-          </div>
-        </div>
-      </div>
+      <section className="overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white shadow-sm">
+        <WorkspaceHeader
+          eyebrow="Selected client"
+          title={`${typedClient.first_name} ${typedClient.last_name}`}
+          description={`${statusLabel(typedClient.status)} relationship record with scheduling, billing, communication, documents, learning, notes, and portal access in one workspace.`}
+          actions={
+            <>
+              <Link
+                href="/app/clients"
+                className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+              >
+                Back to clients
+              </Link>
+              {canEditClients(role) ? (
+                <Link
+                  href={`/app/clients/${typedClient.id}/edit`}
+                  className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+                >
+                  Edit client
+                </Link>
+              ) : null}
+              {canCreateAppointments(role) ? (
+                <Link
+                  href={`/app/schedule/new?clientId=${typedClient.id}`}
+                  className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-primary-dark)]"
+                >
+                  Book lesson
+                </Link>
+              ) : null}
+            </>
+          }
+        />
 
-      <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.94)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
+        <CompactSummaryStrip
+          items={[
+            {
+              key: "packages",
+              label: "Active packages",
+              value: activePackages.length,
+              detail: "Current balances",
+              tone: activePackages.length > 0 ? "success" : "default",
+            },
+            {
+              key: "upcoming",
+              label: "Upcoming",
+              value: typedUpcoming.length,
+              detail: isIndependentInstructor ? "Bookings ahead" : "Lessons ahead",
+              tone: typedUpcoming.length > 0 ? "info" : "default",
+            },
+            {
+              key: "payments",
+              label: "Payments",
+              value: typedPayments.length,
+              detail: `${fmtCurrency(totalPaid)} recorded`,
+            },
+            {
+              key: "balance",
+              label: accountBalanceLabel,
+              value: fmtCurrency(Math.abs(accountNetBalance)),
+              detail: "Client account",
+              tone: accountNetBalance < 0 ? "danger" : accountNetBalance > 0 ? "success" : "default",
+            },
+            {
+              key: "documents",
+              label: "Documents due",
+              value: pendingRequiredDocumentCount,
+              detail: `${requiredDocumentCount} required`,
+              tone: pendingRequiredDocumentCount > 0 ? "warning" : "success",
+            },
+          ]}
+        />
+      </section>
+
+      <div className="overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-6">
-          <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
-            <aside className="rounded-[28px] border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+          <div className="grid gap-5 lg:grid-cols-[180px_minmax(0,1fr)]">
+            <aside className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
               <div className="overflow-hidden rounded-3xl border border-slate-200 bg-[var(--brand-primary-soft)]">
-                <div className="flex aspect-square items-center justify-center bg-white text-5xl font-semibold text-[var(--brand-primary)]">
+                <div className="flex aspect-square items-center justify-center bg-white text-3xl font-semibold text-[var(--brand-primary)]">
                   {typedClient.photo_url ? (
                     <img
                       src={typedClient.photo_url}
@@ -2679,19 +2741,19 @@ export default async function ClientDetailPage({
                 </div>
               </div>
 
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-center">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <details className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-center">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                   Client QR
-                </p>
+                </summary>
                 <img
                   src={clientQrUrl}
                   alt={`${typedClient.first_name} ${typedClient.last_name} QR code`}
-                  className="mx-auto mt-3 h-32 w-32 rounded-xl border border-slate-200 bg-white p-2"
+                  className="mx-auto mt-3 h-28 w-28 rounded-xl border border-slate-200 bg-white p-2"
                 />
                 <p className="mt-2 text-xs leading-5 text-slate-500">
                   Use for front desk lookup, check-in, and future client pass flows.
                 </p>
-              </div>
+              </details>
             </aside>
 
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -2838,25 +2900,7 @@ export default async function ClientDetailPage({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:flex xl:max-w-xl xl:flex-wrap xl:justify-end">
-              {canEditClients(role) ? (
-                <Link
-                  href={`/app/clients/${typedClient.id}/edit`}
-                  className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-2 hover:bg-[var(--brand-primary-soft)]"
-                >
-                  Edit Client
-                </Link>
-              ) : null}
-
-              {canCreateAppointments(role) ? (
-                <Link
-                  href={`/app/schedule/new?clientId=${typedClient.id}`}
-                  className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-2 text-white hover:brightness-105"
-                >
-                  Book Lesson
-                </Link>
-              ) : null}
-
+            <div className="flex flex-wrap gap-3 xl:max-w-xl xl:justify-end">
               {typedClient.status === "lead" ? (
                 <>
                   <form action={convertLeadToActiveAction}>
@@ -2957,7 +3001,7 @@ export default async function ClientDetailPage({
         </div>
       </div>
 
-      <div className="rounded-[28px] border border-[var(--brand-border)] bg-white/92 p-3 shadow-sm">
+      <div className="sticky top-0 z-20 rounded-2xl border border-[var(--brand-border)] bg-white/95 p-2 shadow-sm backdrop-blur">
         <div className="flex gap-2 overflow-x-auto pb-1">
           {clientDetailTabs.map((tab) => {
             const isActive = tab.id === activeTab;
