@@ -494,6 +494,7 @@ async function queueAppointmentOutboundDelivery(params: {
     const rows: Array<Record<string, unknown>> = [];
     const seenEmails = new Set<string>();
     const seenPhones = new Set<string>();
+    const appointmentStartsAt = String(appointment.starts_at);
 
     function queueRecipient(
       recipient: NotificationClient | null,

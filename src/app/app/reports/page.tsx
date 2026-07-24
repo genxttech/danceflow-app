@@ -14,6 +14,7 @@ import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntel
 import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import ReportReadinessCard from "@/components/app/reports/ReportReadinessCard";
 import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspaceHeader";
+import AccountingWorkspaceNav from "@/components/app/reports/AccountingWorkspaceNav";
 import {
   accountingCategoryLabel,
   getStudioAccountingEntries,
@@ -3209,12 +3210,16 @@ export default async function ReportsPage({
         ))}
       />
 
-      <CommerceIntelligenceSection
-        data={commerceIntelligence}
-        title={`Commerce reporting · ${rangeLabel(range)}`}
-      />
+      <AccountingWorkspaceNav range={range} />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div id="commerce" className="scroll-mt-28">
+        <CommerceIntelligenceSection
+        data={commerceIntelligence}
+          title={`Commerce reporting · ${rangeLabel(range)}`}
+        />
+      </div>
+
+      <section id="overview" className="scroll-mt-28 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Revenue Collected</p>
           <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
@@ -3367,7 +3372,7 @@ export default async function ReportsPage({
         )}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-2">
+      <section id="profitability" className="scroll-mt-28 grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -3497,7 +3502,7 @@ export default async function ReportsPage({
         </div>
 
         {canViewGrowthReports ? (
-          <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">
+          <div id="instructor-pay" className="scroll-mt-28 rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
@@ -3868,7 +3873,7 @@ export default async function ReportsPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-[#C4B5FD] bg-white p-6 shadow-sm">
+      <section id="revenue" className="scroll-mt-28 rounded-3xl border border-[#C4B5FD] bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6D28D9]">
@@ -4064,7 +4069,7 @@ export default async function ReportsPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-sm">
+      <section id="expenses" className="scroll-mt-28 rounded-3xl border border-emerald-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
@@ -4221,7 +4226,7 @@ export default async function ReportsPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section id="payouts" className="scroll-mt-28 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -5233,7 +5238,10 @@ export default async function ReportsPage({
         </div>
 
         {canViewGrowthReports ? (
-          <div className="rounded-3xl border border-[#BAE6FD] bg-white p-6 shadow-sm">
+          <div
+            id="packages"
+            className="scroll-mt-44 rounded-3xl border border-[#BAE6FD] bg-white p-6 shadow-sm"
+          >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0369A1]">
@@ -5501,7 +5509,10 @@ export default async function ReportsPage({
 
       <section className="grid gap-6 xl:grid-cols-2">
         {canViewGrowthReports ? (
-          <div className="rounded-3xl border border-[#D8B4FE] bg-white p-6 shadow-sm">
+          <div
+            id="memberships"
+            className="scroll-mt-44 rounded-3xl border border-[#D8B4FE] bg-white p-6 shadow-sm"
+          >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">

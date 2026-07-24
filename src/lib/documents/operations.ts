@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 
 function htmlEscape(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
@@ -47,8 +48,22 @@ export async function runDocumentOperations(now = new Date()) {
         footerText: `Sent by ${studioName} through DanceFlow.`,
       },
     );
-    const { error: deliveryError } = await admin.from("outbound_deliveries").insert({ studio_id: row.studio_id, channel: "email", template_key: overdue ? "document_overdue_reminder" : "document_due_soon_reminder", recipient_email: email, subject, body_text: bodyText, body_html: bodyHtml, related_table: "document_assignments", related_id: row.id, dedupe_key: `document:${row.id}:${kind}`, status: "queued", updated_at: now.toISOString() });
-    if (deliveryError && deliveryError.code !== "23505") { failed++; continue; }
+    const delivery = await queueOutboundDelivery({
+      studioId: row.studio_id,
+      channel: "email",
+      templateKey: overdue ? "document_overdue_reminder" : "document_due_soon_reminder",
+      recipientEmail: email,
+      subject,
+      bodyText,
+      bodyHtml,
+      relatedTable: "document_assignments",
+      relatedId: row.id,
+      dedupeKey: `document:${row.id}:${kind}`,
+    });
+    if (!delivery.queued && delivery.reason !== "duplicate") {
+      failed++;
+      continue;
+    }
     await admin.from("document_assignments").update(overdue ? { overdue_reminder_sent_at: now.toISOString() } : { reminder_sent_at: now.toISOString() }).eq("id", row.id).eq("status", "pending");
     await admin.from("document_operation_events").insert({ studio_id: row.studio_id, assignment_id: row.id, event_type: overdue ? "overdue_reminder_queued" : "due_soon_reminder_queued", summary: overdue ? "Overdue signature reminder queued." : "Due-soon signature reminder queued." });
     queued++;

@@ -7,8 +7,180 @@ import { applySigningFields, type AppliedSignature, type SigningField, type Sign
 import { DOCUMENT_FILES_BUCKET, hashSigningToken, signedStoragePath } from "@/lib/documents/signing";
 import { consumePublicSigningRateLimit, serverActionIp } from "@/lib/documents/public-signing-security";
 import { advanceEventSigningCheckpoint, normalizeSigningReturnUrl } from "@/lib/documents/event-signing";
+import { queueOutboundDelivery } from "@/lib/notifications/outbound";
+import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
 const CONSENT_TEXT = "I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own.";
+
+type SigningEmailContext = {
+  studioName: string;
+  studioLogoUrl: string | null;
+  studioSlug: string | null;
+  studioEmail: string | null;
+};
+
+async function getSigningEmailContext(studioId: string): Promise<SigningEmailContext> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("studios")
+    .select("name, public_name, public_logo_url, slug, email")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  return {
+    studioName: data?.public_name?.trim() || data?.name || "Your dance studio",
+    studioLogoUrl: data?.public_logo_url ?? null,
+    studioSlug: data?.slug ?? null,
+    studioEmail: data?.email?.trim() || null,
+  };
+}
+
+async function queueSigningCompletedEmails(params: {
+  envelopeId: string;
+  studioId: string;
+  title: string;
+  signerName: string;
+  signerEmail: string | null;
+}) {
+  const context = await getSigningEmailContext(params.studioId);
+  const portalUrl = context.studioSlug
+    ? `${process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com"}/portal/${encodeURIComponent(context.studioSlug)}/documents`
+    : null;
+
+  if (params.signerEmail) {
+    const subject = `${params.title} has been signed`;
+    const bodyText = [
+      `Hi ${params.signerName || "there"},`,
+      "",
+      `Your signature for ${params.title} has been completed successfully.`,
+      portalUrl ? `View your documents: ${portalUrl}` : "",
+      "",
+      `Questions? Reply to this email to contact ${context.studioName}.`,
+      "",
+      "Thanks,",
+      context.studioName,
+    ].filter(Boolean).join("\\n");
+
+    const bodyHtml = renderStudioBrandedEmail(
+      { name: context.studioName, logoUrl: context.studioLogoUrl },
+      {
+        previewText: `${params.title} has been signed.`,
+        eyebrow: "Signature Complete",
+        heading: "Your document is signed",
+        greeting: `Hi ${params.signerName || "there"},`,
+        intro: `Your signature for ${params.title} has been completed successfully.`,
+        bodyText,
+        detailRows: [{ label: "Document", value: params.title }],
+        actionLabel: portalUrl ? "View Documents" : null,
+        actionUrl: portalUrl,
+        footerText: `Sent by ${context.studioName} through DanceFlow.`,
+      },
+    );
+
+    await queueOutboundDelivery({
+      studioId: params.studioId,
+      channel: "email",
+      templateKey: "document_signing_completed_signer",
+      recipientEmail: params.signerEmail,
+      subject,
+      bodyText,
+      bodyHtml,
+      relatedTable: "document_sign_envelopes",
+      relatedId: params.envelopeId,
+      dedupeKey: `document_signing_completed_signer:${params.envelopeId}`,
+    });
+  }
+
+  if (context.studioEmail) {
+    const subject = `Signed: ${params.title}`;
+    const bodyText = [
+      `${params.signerName || "A signer"} completed ${params.title}.`,
+      "",
+      "The signed document is available in DanceFlow.",
+    ].join("\\n");
+
+    const bodyHtml = renderStudioBrandedEmail(
+      { name: context.studioName, logoUrl: context.studioLogoUrl },
+      {
+        previewText: `${params.signerName || "A signer"} completed ${params.title}.`,
+        eyebrow: "Document Completed",
+        heading: "A document has been signed",
+        intro: `${params.signerName || "A signer"} completed ${params.title}.`,
+        bodyText,
+        detailRows: [
+          { label: "Document", value: params.title },
+          { label: "Signer", value: params.signerName || "Signer" },
+        ],
+        footerText: "This operational notice was sent through DanceFlow.",
+      },
+    );
+
+    await queueOutboundDelivery({
+      studioId: params.studioId,
+      channel: "email",
+      templateKey: "document_signing_completed_studio",
+      recipientEmail: context.studioEmail,
+      subject,
+      bodyText,
+      bodyHtml,
+      relatedTable: "document_sign_envelopes",
+      relatedId: params.envelopeId,
+      dedupeKey: `document_signing_completed_studio:${params.envelopeId}`,
+      replyToEmail: params.signerEmail,
+    });
+  }
+}
+
+async function queueSigningDeclinedEmail(params: {
+  envelopeId: string;
+  studioId: string;
+  title: string;
+  signerName: string | null;
+  signerEmail: string | null;
+  reason: string;
+}) {
+  const context = await getSigningEmailContext(params.studioId);
+  if (!context.studioEmail) return;
+
+  const subject = `Declined: ${params.title}`;
+  const bodyText = [
+    `${params.signerName || "The signer"} declined ${params.title}.`,
+    params.reason ? `Reason: ${params.reason}` : "",
+    "",
+    "Review the request in DanceFlow before deciding whether to revise or resend it.",
+  ].filter(Boolean).join("\\n");
+
+  const bodyHtml = renderStudioBrandedEmail(
+    { name: context.studioName, logoUrl: context.studioLogoUrl },
+    {
+      previewText: `${params.title} was declined.`,
+      eyebrow: "Signature Declined",
+      heading: "A signer declined a document",
+      intro: `${params.signerName || "The signer"} declined ${params.title}.`,
+      bodyText,
+      detailRows: [
+        { label: "Document", value: params.title },
+        { label: "Signer", value: params.signerName || "Signer" },
+        ...(params.reason ? [{ label: "Reason", value: params.reason }] : []),
+      ],
+      footerText: "This operational notice was sent through DanceFlow.",
+    },
+  );
+
+  await queueOutboundDelivery({
+    studioId: params.studioId,
+    channel: "email",
+    templateKey: "document_signing_declined_studio",
+    recipientEmail: context.studioEmail,
+    subject,
+    bodyText,
+    bodyHtml,
+    relatedTable: "document_sign_envelopes",
+    relatedId: params.envelopeId,
+    dedupeKey: `document_signing_declined_studio:${params.envelopeId}`,
+    replyToEmail: params.signerEmail,
+  });
+}
 
 function clean(value: FormDataEntryValue | null, max = 300) {
   return typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max) : "";
@@ -169,6 +341,21 @@ export async function completeSigningAction(formData: FormData) {
     metadata: { consent_text: CONSENT_TEXT, signature_method: method, signed_timezone: timezone, signed_at: signedAt },
   });
 
+  try {
+    await queueSigningCompletedEmails({
+      envelopeId: envelope.id,
+      studioId: envelope.studio_id,
+      title: envelope.title || "Document",
+      signerName,
+      signerEmail: envelope.signer_email,
+    });
+  } catch (emailError) {
+    console.error(
+      "Document signing completion email queue failed",
+      emailError instanceof Error ? emailError.message : emailError,
+    );
+  }
+
   if (envelope.context_type === "event_checkout" && envelope.event_signing_checkpoint_id) {
     try {
       const next = await advanceEventSigningCheckpoint(envelope.id);
@@ -208,7 +395,7 @@ export async function declineSigningAction(formData: FormData) {
 
   const { data: envelope } = await admin
     .from("document_sign_envelopes")
-    .select("id,signer_email,status,expires_at")
+    .select("id,studio_id,title,signer_name,signer_email,status,expires_at")
     .eq("token_hash", tokenHash)
     .maybeSingle();
   if (!envelope || !["sent", "viewed", "started"].includes(envelope.status)) {
@@ -228,5 +415,21 @@ export async function declineSigningAction(formData: FormData) {
     .maybeSingle();
   if (!declinedEnvelope) redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
   await admin.from("document_sign_events").insert({ envelope_id: envelope.id, event_type: "declined", actor_email: envelope.signer_email, summary: reason || "Signer declined the document." });
+
+  try {
+    await queueSigningDeclinedEmail({
+      envelopeId: envelope.id,
+      studioId: envelope.studio_id,
+      title: envelope.title || "Document",
+      signerName: envelope.signer_name,
+      signerEmail: envelope.signer_email,
+      reason,
+    });
+  } catch (emailError) {
+    console.error(
+      "Document signing decline email queue failed",
+      emailError instanceof Error ? emailError.message : emailError,
+    );
+  }
   redirect(`/sign/${encodeURIComponent(token)}?success=declined`);
 }
