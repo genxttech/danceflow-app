@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
 import {
   archiveMembershipPlanAction,
   deleteMembershipPlanAction,
@@ -210,6 +211,10 @@ export default async function MembershipPlansPage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <SellWorkspaceNav
+        role={context.studioRole}
+        isPlatformAdmin={context.isPlatformAdmin}
+      />
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>

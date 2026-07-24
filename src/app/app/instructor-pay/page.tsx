@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canDisbursePayroll, canPreparePayroll } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
 import {
   approvePayrollBatchAction,
   assignEarningsToPayPeriodAction,
@@ -385,6 +386,10 @@ export default async function InstructorPayPage({
 
   return (
     <div className="max-w-7xl space-y-8">
+      <SellWorkspaceNav
+        role={context.studioRole}
+        isPlatformAdmin={context.isPlatformAdmin}
+      />
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>

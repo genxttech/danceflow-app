@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Archive, Boxes, Film, Package, ShoppingBag } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
 import { canManageCommerce } from "@/lib/auth/permissions";
 import CatalogItemForm from "./CatalogItemForm";
 import { setCatalogItemActiveAction } from "./actions";
@@ -128,6 +129,10 @@ export default async function CatalogPage({
 
   return (
     <div className="space-y-6 p-1">
+      <SellWorkspaceNav
+        role={context.studioRole}
+        isPlatformAdmin={context.isPlatformAdmin}
+      />
       <section className="rounded-[32px] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
           <div>
