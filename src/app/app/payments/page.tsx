@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { canViewPayments } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
+import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -243,35 +243,19 @@ export default async function PaymentsPage({
 
   return (
     <div className="space-y-6 p-1">
-      <SellWorkspaceNav
+      <SellWorkspaceHeader
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
+        eyebrow="Revenue operations"
+        title="Payment Ledger"
+        description="Review every payment as a financial transaction with its date, client, description, method, amount, and status."
+        actions={(
+          <Link href="/app/payments/take" className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
+            <WalletCards className="h-4 w-4" />
+            Take payment
+          </Link>
+        )}
       />
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow Revenue
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Payment Ledger
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Review every payment as a financial transaction—date, client, description, method, amount, and status.
-              </p>
-            </div>
-
-            <Link
-              href="/app/payments/take"
-              className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-white/90"
-            >
-              <WalletCards className="h-4 w-4" />
-              Take Payment
-            </Link>
-          </div>
-        </div>
-      </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Stat label="Collected" value={formatMoney(paidTotal)} icon={BadgeDollarSign} />

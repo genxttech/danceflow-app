@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Package2, ShoppingBag, Users, WalletCards } from "lucide-react";
+import { Package2, ShoppingBag, Users, WalletCards } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
+import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import {
   canManagePackages,
   canSellCommerce,
@@ -420,44 +420,23 @@ export default async function NewSalePage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
-      <SellWorkspaceNav
+      <SellWorkspaceHeader
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
+        eyebrow="Daily selling"
+        title="Sell"
+        description="Sell packages, memberships, physical products, digital content, and fast front-desk charges from one guided workspace."
+        actions={(
+          <>
+            <Link href="/app/orders" className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]">
+              Orders
+            </Link>
+            <Link href="/app/packages/client-balances" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
+              Client balances
+            </Link>
+          </>
+        )}
       />
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow Commerce
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Sell
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Sell packages, memberships, physical products, digital content,
-                and fast front-desk charges from one guided workspace.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/app/orders"
-                className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Orders
-              </Link>
-              <Link
-                href="/app/packages/client-balances"
-                className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
-              >
-                Client Balances
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {error ? (
         <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm font-medium text-rose-800">

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Archive, Boxes, Film, Package, ShoppingBag } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
+import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import { canManageCommerce } from "@/lib/auth/permissions";
 import CatalogItemForm from "./CatalogItemForm";
 import { setCatalogItemActiveAction } from "./actions";
@@ -129,28 +129,14 @@ export default async function CatalogPage({
 
   return (
     <div className="space-y-6 p-1">
-      <SellWorkspaceNav
+      <SellWorkspaceHeader
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
+        eyebrow="Products and content"
+        title="Catalog"
+        description="Manage physical products, digital content, and services from one source of truth while packages and memberships remain connected to their operational workflows."
+        actions={<CatalogItemForm />}
       />
-      <section className="rounded-[32px] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-6 text-white shadow-sm md:p-8">
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">
-              Commerce
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-              Catalog
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">
-              Manage physical products, digital content, and services from one
-              source of truth. Packages, memberships, and event offers remain
-              linked to their existing operational systems.
-            </p>
-          </div>
-          <CatalogItemForm />
-        </div>
-      </section>
 
       {params.error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  ArrowLeft,
   Banknote,
   CalendarDays,
   DollarSign,
@@ -16,7 +15,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
+import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import {
   canManageOrganizerExpenses,
   isOrganizerWorkspaceRole,
@@ -317,53 +316,22 @@ export default async function ExpensesPage() {
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
-      <SellWorkspaceNav
+      <SellWorkspaceHeader
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
+        eyebrow={isOrganizerWorkspace ? "Organizer accounting" : "Financial administration"}
+        title={isOrganizerWorkspace ? "Event Expenses" : "Expenses"}
+        description="Record business expenses and predictable costs so reports and profitability views reflect the studio's real financial picture."
       />
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {isOrganizerWorkspace ? "Organizer Accounting" : "DanceFlow Expenses"}
-              </p>
 
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                {isOrganizerWorkspace ? "Event Expenses" : "Expenses"}
-              </h1>
-
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Record business expenses like floor fees, rent, marketing,
-                software, supplies, and event costs so future reports and P&L
-                views can show a clearer financial picture.
-              </p>
-            </div>
-
-            <Link
-              href="/app"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to Dashboard
-            </Link>
-          </div>
-        </div>
-
-        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
-            <h2 className="text-lg font-semibold text-orange-950">
-              Floor fees paid to outside studios belong here
-            </h2>
-            <p className="mt-2 text-sm leading-7 text-orange-900">
-              If you rent floor space from a studio that is not on DanceFlow,
-              record it as a <strong>Floor Rental / Floor Fee</strong> expense.
-              Host studios that collect floor rental fees should treat those
-              collections as revenue, not expenses.
-            </p>
-          </div>
-        </div>
-      </section>
+      {!isOrganizerWorkspace ? (
+        <section className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
+          <h2 className="font-semibold text-orange-950">Floor fees paid to outside studios belong here</h2>
+          <p className="mt-1 text-sm leading-6 text-orange-900">
+            Record outside-studio floor rental as a Floor Rental / Floor Fee expense. Host-studio floor-rental collections belong in revenue, not expenses.
+          </p>
+        </section>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard

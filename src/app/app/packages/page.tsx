@@ -8,7 +8,7 @@ import {
 } from "./actions";
 import { canManagePackages } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
+import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 
 type PackageRow = {
   id: string;
@@ -96,31 +96,18 @@ export default async function PackagesPage() {
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
-      <SellWorkspaceNav
+      <SellWorkspaceHeader
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
-      />
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-6 text-white shadow-sm md:p-8">
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-              DanceFlow
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-              Package Templates
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
-              Build reusable lesson, group class, and party credit packages for quick sales. Archive old templates to keep the sell screen clean without losing history.
-            </p>
-          </div>
-          <Link
-            href="/app/packages/new"
-            className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white/90"
-          >
-            New Package Template
+        eyebrow="Offer setup"
+        title="Package Templates"
+        description="Build reusable lesson, group class, and party-credit packages for quick sales while preserving historical sales records."
+        actions={(
+          <Link href="/app/packages/new" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
+            New package template
           </Link>
-        </div>
-      </section>
+        )}
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">

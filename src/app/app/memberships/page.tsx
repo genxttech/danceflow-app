@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
+import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import {
   archiveMembershipPlanAction,
   deleteMembershipPlanAction,
@@ -211,25 +211,19 @@ export default async function MembershipPlansPage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
-      <SellWorkspaceNav
+      <SellWorkspaceHeader
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
+        eyebrow="Recurring revenue"
+        title="Membership Plans"
+        description="Manage recurring membership offers and monitor active, canceling, pending, and delinquent client memberships."
+        actions={(
+          <>
+            <Link href="/app/sell?type=membership" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">Sell membership</Link>
+            <Link href="/app/memberships/new" className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]">New plan</Link>
+          </>
+        )}
       />
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-6 text-white shadow-sm md:p-8">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Membership Plans</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
-              Create and manage recurring membership options for clients who train consistently. Archive old templates to keep new sales clean while preserving billing history.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/app/memberships/sell" className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white/90">Sell Membership</Link>
-            <Link href="/app/memberships/new" className="rounded-2xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15">New Plan</Link>
-          </div>
-        </div>
-      </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">

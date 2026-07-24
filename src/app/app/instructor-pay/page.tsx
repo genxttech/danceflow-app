@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canDisbursePayroll, canPreparePayroll } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
+import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import {
   approvePayrollBatchAction,
   assignEarningsToPayPeriodAction,
@@ -386,45 +386,25 @@ export default async function InstructorPayPage({
 
   return (
     <div className="max-w-7xl space-y-8">
-      <SellWorkspaceNav
+      <SellWorkspaceHeader
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
+        eyebrow="Financial administration"
+        title="Instructor Compensation"
+        description="Set instructor pay rules, stage earnings, and prepare payroll batches without presenting DanceFlow as a payroll tax processor."
+        actions={(
+          <>
+            <Link href={exportHref} className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">Export CSV</Link>
+            <Link href="/app/instructors" className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]">Manage instructors</Link>
+          </>
+        )}
       />
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-700">
-              Instructor Pay
-            </p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-              Instructor compensation
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Set instructor pay rules and stage earnings from completed lessons and group classes. This is compensation tracking and payroll prep, not payroll tax processing.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={exportHref}
-              className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100"
-            >
-              Export CSV
-            </Link>
-            <Link
-              href="/app/instructors"
-              className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Manage instructors
-            </Link>
-          </div>
-        </div>
 
-        {message ? (
-          <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-            {message}
-          </div>
-        ) : null}
-      </section>
+      {message ? (
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          {message}
+        </div>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-4">
         <div className="rounded-3xl border border-amber-100 bg-amber-50 p-5 shadow-sm">

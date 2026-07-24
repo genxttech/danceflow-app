@@ -3,7 +3,7 @@ import Link from "next/link";
 import { PackageCheck, Receipt, RotateCcw, ShoppingCart } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import SellWorkspaceNav from "@/components/app/sell/SellWorkspaceNav";
+import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import { canViewCommerceOrders } from "@/lib/auth/permissions";
 
 type CommerceOrder = {
@@ -73,32 +73,18 @@ export default async function OrdersPage() {
 
   return (
     <div className="space-y-6 p-1">
-      <SellWorkspaceNav
+      <SellWorkspaceHeader
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
-      />
-      <section className="rounded-[32px] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-6 text-white shadow-sm md:p-8">
-        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">
-              Commerce
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-              Orders
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">
-              One order ledger for physical products, digital content, services,
-              receipts, fulfillment, returns, and refunds.
-            </p>
-          </div>
-          <Link
-            href="/app/sell"
-            className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-primary)]"
-          >
+        eyebrow="Transaction operations"
+        title="Orders"
+        description="Review commerce orders, receipts, fulfillment, returns, and refunds from one order ledger."
+        actions={(
+          <Link href="/app/sell" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
             Start a sale
           </Link>
-        </div>
-      </section>
+        )}
+      />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
