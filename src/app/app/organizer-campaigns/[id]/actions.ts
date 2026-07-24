@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
 const AUDIENCE_TYPES = new Set([
   "all_organizer_contacts",
@@ -34,6 +35,7 @@ type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
 type OrganizerCampaignEmailParams = {
   organizerName: string;
+  organizerLogoUrl?: string | null;
   subject: string;
   previewText: string | null;
   bodyText: string;
@@ -65,6 +67,22 @@ type ContactRegistrationRow = {
   checked_in_at: string | null;
 };
 
+type OrganizerEmailSettings = {
+  name?: string | null;
+  studio_id?: string | null;
+};
+
+type LinkedStudioEmailSettings = {
+  public_logo_url?: string | null;
+  email?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+};
+
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -76,15 +94,86 @@ function appendQuery(url: string, key: string, value: string) {
 }
 
 function normalizeUrl(url: string) {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  return `https://${url}`;
+  const value = url.trim();
+  if (!value) return "";
+
+  try {
+    const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+    const parsed = new URL(candidate);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed.toString()
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 function getSiteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(
     /\/$/,
     "",
+  );
+}
+
+function cleanFooterPart(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function buildLinkedStudioAddress(
+  studio: LinkedStudioEmailSettings | null | undefined,
+) {
+  const parts = [
+    cleanFooterPart(studio?.address_line_1),
+    cleanFooterPart(studio?.address_line_2),
+    [
+      cleanFooterPart(studio?.city),
+      cleanFooterPart(studio?.state),
+      cleanFooterPart(studio?.postal_code),
+    ]
+      .filter(Boolean)
+      .join(", "),
+    cleanFooterPart(studio?.country),
+  ].filter(Boolean);
+
+  return parts.join(" · ");
+}
+
+function getOrganizerFooterNote(params: {
+  organizerName: string;
+  linkedStudio?: LinkedStudioEmailSettings | null;
+  isTest?: boolean;
+}) {
+  const address =
+    buildLinkedStudioAddress(params.linkedStudio) ||
+    cleanFooterPart(process.env.MARKETING_POSTAL_ADDRESS);
+
+  const base = address
+    ? `${params.organizerName} · ${address} · Sent through DanceFlow.`
+    : `${params.organizerName} · Sent through DanceFlow.`;
+
+  return params.isTest
+    ? `${base} This is a test email. No campaign recipients were contacted.`
+    : base;
+}
+
+function hasOrganizerMarketingAddress(
+  studio: LinkedStudioEmailSettings | null | undefined,
+) {
+  return Boolean(
+    buildLinkedStudioAddress(studio) ||
+      cleanFooterPart(process.env.MARKETING_POSTAL_ADDRESS),
+  );
+}
+
+function getOrganizerReplyToEmail(params: {
+  linkedStudio?: LinkedStudioEmailSettings | null;
+  fallbackEmail?: string | null;
+}) {
+  return (
+    cleanFooterPart(params.linkedStudio?.email) ||
+    cleanFooterPart(process.env.MARKETING_REPLY_TO_EMAIL) ||
+    cleanFooterPart(params.fallbackEmail) ||
+    undefined
   );
 }
 
@@ -120,60 +209,32 @@ function plainTextToHtml(value: string) {
 }
 
 function buildOrganizerCampaignEmailHtml(params: OrganizerCampaignEmailParams) {
-  const safeOrganizerName = escapeHtml(
-    params.organizerName || "DanceFlow Organizer",
-  );
-  const safeSubject = escapeHtml(params.subject);
-  const safePreview = params.previewText ? escapeHtml(params.previewText) : "";
-  const bodyHtml = plainTextToHtml(params.bodyText);
-  const safeFooter = escapeHtml(params.footerNote);
-
-  const cta =
-    params.ctaLabel && params.ctaUrl
-      ? `<div style="margin:28px 0 8px;"><a href="${escapeHtml(params.ctaUrl)}" style="display:inline-block;border-radius:14px;background:#4D1F47;color:#ffffff;font-weight:700;text-decoration:none;padding:13px 18px;">${escapeHtml(params.ctaLabel)}</a></div>`
-      : "";
-
-  const unsubscribe = params.unsubscribeUrl
-    ? `<div style="margin-top:10px;">You are receiving this because you registered for or shared your email with ${safeOrganizerName}. <a href="${escapeHtml(params.unsubscribeUrl)}" style="color:#4D1F47;text-decoration:underline;">Unsubscribe</a>.</div>`
+  const unsubscribeHtml = params.unsubscribeUrl
+    ? `<div style="margin-top:18px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;line-height:1.6;color:#64748b;">You are receiving this because you registered for or shared your email with ${escapeHtml(
+        params.organizerName,
+      )}. <a href="${escapeHtml(
+        params.unsubscribeUrl,
+      )}" style="color:#6d28d9;text-decoration:underline;">Unsubscribe</a>.</div>`
     : "";
 
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${safeSubject}</title>
-  </head>
-  <body style="margin:0;background:#f8f5f2;color:#241432;font-family:Arial,Helvetica,sans-serif;">
-    ${safePreview ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${safePreview}</div>` : ""}
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8f5f2;margin:0;padding:24px 12px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #eadfd7;border-radius:24px;overflow:hidden;">
-            <tr>
-              <td style="background:linear-gradient(135deg,#241432,#4D1F47,#E85D2A);padding:28px;color:#ffffff;">
-                <div style="font-size:12px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.75);font-weight:700;">DanceFlow Organizer Message</div>
-                <h1 style="margin:10px 0 0;font-size:28px;line-height:1.15;">${safeOrganizerName}</h1>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:28px;font-size:16px;line-height:1.6;color:#241432;">
-                ${bodyHtml}
-                ${cta}
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:18px 28px;background:#fbfaf8;border-top:1px solid #eadfd7;font-size:12px;line-height:1.5;color:#6b5d66;">
-                ${safeFooter}
-                ${unsubscribe}
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
+  return renderStudioBrandedEmail(
+    {
+      name: params.organizerName,
+      logoUrl: params.organizerLogoUrl ?? null,
+    },
+    {
+      previewText: params.previewText || params.subject,
+      eyebrow: "Event Organizer Update",
+      heading: params.subject,
+      bodyText: params.bodyText,
+      contentHtml: unsubscribeHtml || undefined,
+      actionLabel:
+        params.ctaLabel && params.ctaUrl ? params.ctaLabel : null,
+      actionUrl:
+        params.ctaLabel && params.ctaUrl ? params.ctaUrl : null,
+      footerText: params.footerNote,
+    },
+  );
 }
 
 function buildOrganizerCampaignEmailText(params: OrganizerCampaignEmailParams) {
@@ -498,7 +559,8 @@ export async function updateOrganizerCampaignDraftAction(formData: FormData) {
   const previewText = getString(formData, "previewText");
   const bodyText = getString(formData, "bodyText");
   const ctaLabel = getString(formData, "ctaLabel");
-  const ctaUrl = normalizeUrl(getString(formData, "ctaUrl"));
+  const rawCtaUrl = getString(formData, "ctaUrl");
+  const ctaUrl = normalizeUrl(rawCtaUrl);
   const audienceType =
     getString(formData, "audienceType") || "all_organizer_contacts";
   const audienceEventId = getString(formData, "audienceEventId");
@@ -507,6 +569,10 @@ export async function updateOrganizerCampaignDraftAction(formData: FormData) {
     redirect(
       appendQuery(fallback, "campaign_error", "missing_required_fields"),
     );
+  }
+
+  if (rawCtaUrl && !ctaUrl) {
+    redirect(appendQuery(fallback, "campaign_error", "invalid_cta_url"));
   }
 
   if (!AUDIENCE_TYPES.has(audienceType)) {
@@ -597,6 +663,10 @@ export async function sendOrganizerCampaignTestEmailAction(formData: FormData) {
     redirect(appendQuery(fallback, "campaign_error", "missing_test_email"));
   }
 
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail)) {
+    redirect(appendQuery(fallback, "campaign_error", "invalid_test_email"));
+  }
+
   if (!campaign.subject || !campaign.body_text) {
     redirect(appendQuery(fallback, "campaign_error", "missing_content"));
   }
@@ -607,35 +677,56 @@ export async function sendOrganizerCampaignTestEmailAction(formData: FormData) {
 
   const { data: organizer } = await supabase
     .from("organizers")
-    .select("name")
+    .select("name, studio_id")
     .eq("id", campaign.organizer_id)
-    .maybeSingle();
+    .maybeSingle<OrganizerEmailSettings>();
+
+  const { data: linkedStudio } = organizer?.studio_id
+    ? await supabase
+        .from("studios")
+        .select(
+          "public_logo_url, email, address_line_1, address_line_2, city, state, postal_code, country",
+        )
+        .eq("id", organizer.studio_id)
+        .maybeSingle<LinkedStudioEmailSettings>()
+    : { data: null };
 
   const organizerName = String(organizer?.name ?? "DanceFlow Organizer");
+  const organizerLogoUrl = linkedStudio?.public_logo_url ?? null;
   const resend = new Resend(process.env.RESEND_API_KEY);
-  const replyTo =
-    process.env.MARKETING_REPLY_TO_EMAIL || user.email || undefined;
+  const replyTo = getOrganizerReplyToEmail({
+    linkedStudio,
+    fallbackEmail: user.email,
+  });
 
   const html = buildOrganizerCampaignEmailHtml({
     organizerName,
+    organizerLogoUrl,
     subject: `[TEST] ${campaign.subject}`,
     previewText: campaign.preview_text,
     bodyText: campaign.body_text,
     ctaLabel: campaign.cta_label,
     ctaUrl: campaign.cta_url,
-    footerNote:
-      "This is a DanceFlow organizer campaign test email. No campaign recipients were contacted.",
+    footerNote: getOrganizerFooterNote({
+      organizerName,
+      linkedStudio,
+      isTest: true,
+    }),
   });
 
   const text = buildOrganizerCampaignEmailText({
     organizerName,
+    organizerLogoUrl,
     subject: `[TEST] ${campaign.subject}`,
     previewText: campaign.preview_text,
     bodyText: campaign.body_text,
     ctaLabel: campaign.cta_label,
     ctaUrl: campaign.cta_url,
-    footerNote:
-      "This is a DanceFlow organizer campaign test email. No campaign recipients were contacted.",
+    footerNote: getOrganizerFooterNote({
+      organizerName,
+      linkedStudio,
+      isTest: true,
+    }),
   });
 
   const { error: sendError } = await resend.emails.send({
@@ -792,9 +883,9 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
   ] = await Promise.all([
     supabase
       .from("organizers")
-      .select("name")
+      .select("name, studio_id")
       .eq("id", campaign.organizer_id)
-      .maybeSingle(),
+      .maybeSingle<OrganizerEmailSettings>(),
     supabase
       .from("organizer_marketing_campaign_recipients")
       .select("id, email, name, unsubscribe_token")
@@ -834,9 +925,38 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
     .eq("id", campaign.id)
     .eq("organizer_id", campaign.organizer_id);
 
+  const { data: linkedStudio } = organizer?.studio_id
+    ? await supabase
+        .from("studios")
+        .select(
+          "public_logo_url, email, address_line_1, address_line_2, city, state, postal_code, country",
+        )
+        .eq("id", organizer.studio_id)
+        .maybeSingle<LinkedStudioEmailSettings>()
+    : { data: null };
+
+  if (!hasOrganizerMarketingAddress(linkedStudio)) {
+    await supabase
+      .from("organizer_marketing_campaigns")
+      .update({ status: "draft", updated_at: new Date().toISOString() })
+      .eq("id", campaign.id)
+      .eq("organizer_id", campaign.organizer_id);
+
+    redirect(
+      appendQuery(fallback, "campaign_error", "missing_marketing_footer"),
+    );
+  }
+
   const organizerName = String(organizer?.name ?? "DanceFlow Organizer");
-  const replyTo =
-    process.env.MARKETING_REPLY_TO_EMAIL || user.email || undefined;
+  const organizerLogoUrl = linkedStudio?.public_logo_url ?? null;
+  const replyTo = getOrganizerReplyToEmail({
+    linkedStudio,
+    fallbackEmail: user.email,
+  });
+  const footerNote = getOrganizerFooterNote({
+    organizerName,
+    linkedStudio,
+  });
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   for (const recipient of pendingRecipients) {
@@ -847,12 +967,13 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
 
     const emailParams: OrganizerCampaignEmailParams = {
       organizerName,
+      organizerLogoUrl,
       subject: campaign.subject,
       previewText: campaign.preview_text,
       bodyText: campaign.body_text,
       ctaLabel: campaign.cta_label,
       ctaUrl: campaign.cta_url,
-      footerNote: "Sent with DanceFlow.",
+      footerNote,
       unsubscribeUrl,
     };
 

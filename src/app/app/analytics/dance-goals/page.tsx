@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ComponentType } from "react";
 import {
-  ArrowLeft,
   BarChart3,
   Clock3,
   DollarSign,
@@ -15,6 +14,7 @@ import {
 import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
+import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspaceHeader";
 import {
   formatDanceGoalCurrency,
   formatDanceGoalDays,
@@ -53,14 +53,14 @@ function StatCard({
           : "bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]";
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-slate-500">{label}</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
           <p className="mt-2 text-sm leading-6 text-slate-500">{helper}</p>
         </div>
-        <div className={`rounded-lg p-3 ${accentClass}`}>
+        <div className={`rounded-2xl p-3 ${accentClass}`}>
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -89,7 +89,7 @@ function InsightCard({
           : "border-slate-200 bg-slate-50 text-slate-900";
 
   return (
-    <div className={`rounded-lg border p-4 ${toneClass}`}>
+    <div className={`rounded-3xl border p-4 ${toneClass}`}>
       <p className="text-sm font-semibold">{title}</p>
       <p className="mt-2 text-2xl font-semibold">{value}</p>
       <p className="mt-2 text-sm leading-6 opacity-80">{detail}</p>
@@ -126,57 +126,59 @@ export default async function DanceGoalsAnalyticsPage({
     highInterestLowConversion,
   } = leaders;
 
-  return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      <section className="overflow-hidden rounded-lg border border-[#E9D5FF] bg-gradient-to-br from-[#2D0B45] via-[#5B197A] to-[#7C2D92] shadow-sm">
-        <div className="p-6 text-white sm:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <Link
-                href="/app/analytics"
-                className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/15"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                Studio Analytics
-              </Link>
-              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-                Dance Goal Analytics
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/80 sm:text-base">
-                See which student goals create the strongest conversion, retention, lesson
-                activity, and lifetime spend. ARIA reads these same metrics for studio
-                recommendations.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { value: "30", label: "30 days" },
-                { value: "90", label: "90 days" },
-                { value: "180", label: "180 days" },
-                { value: "365", label: "12 months" },
-                { value: "all", label: "All time" },
-              ].map((option) => {
-                const active = option.value === range.value;
-                return (
-                  <Link
-                    key={option.value}
-                    href={`/app/analytics/dance-goals?range=${option.value}`}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                      active
-                        ? "bg-white text-slate-950"
-                        : "bg-white/10 text-white hover:bg-white/20"
-                    }`}
-                  >
-                    {option.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
+  const rangeControls = [
+    { value: "30", label: "30 days" },
+    { value: "90", label: "90 days" },
+    { value: "180", label: "180 days" },
+    { value: "365", label: "12 months" },
+    { value: "all", label: "All time" },
+  ].map((option) => {
+    const active = option.value === range.value;
 
-      <section className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
+    return (
+      <Link
+        key={option.value}
+        href={`/app/analytics/dance-goals?range=${option.value}`}
+        className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+          active
+            ? "border-white bg-white text-slate-950"
+            : "border-white/20 bg-white/10 text-white hover:bg-white/20"
+        }`}
+      >
+        {option.label}
+      </Link>
+    );
+  });
+
+  return (
+    <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+      <ReportingWorkspaceHeader
+        activeWorkspace="analytics"
+        eyebrow="DanceFlow Intelligence"
+        title="Dance Goal Analytics"
+        description={
+          <>
+            See which student goals create the strongest conversion, retention,
+            lesson activity, and lifetime spend. ARIA reads these same metrics
+            for studio recommendations.
+          </>
+        }
+        controls={rangeControls}
+      >
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/app/analytics?range=${range.value}`}
+            className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
+          >
+            Analytics overview
+          </Link>
+          <span className="rounded-full border border-orange-200/40 bg-orange-300/15 px-4 py-2 text-sm font-semibold text-orange-100">
+            Dance goals
+          </span>
+        </div>
+      </ReportingWorkspaceHeader>
+
+      <section className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
         <span className="font-semibold text-slate-900">How this works:</span>{" "}
         conversion means the client has at least one package or membership purchase.
         retention means a second package or membership purchase within 90 days of the
@@ -280,10 +282,10 @@ export default async function DanceGoalsAnalyticsPage({
         ))}
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
               <BarChart3 className="h-5 w-5" />
             </div>
             <div>
@@ -341,7 +343,7 @@ export default async function DanceGoalsAnalyticsPage({
               </tbody>
             </table>
           ) : (
-            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
               No dance goals are available for this range yet. Add Dance Goals on
               client intake to populate this dashboard.
             </div>
@@ -350,7 +352,7 @@ export default async function DanceGoalsAnalyticsPage({
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center gap-3">
             <PieChart className="h-5 w-5 text-[var(--brand-primary)]" />
             <h2 className="text-lg font-semibold text-slate-950">
@@ -363,7 +365,7 @@ export default async function DanceGoalsAnalyticsPage({
             working.
           </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center gap-3">
             <HeartHandshake className="h-5 w-5 text-emerald-600" />
             <h2 className="text-lg font-semibold text-slate-950">
@@ -375,7 +377,7 @@ export default async function DanceGoalsAnalyticsPage({
             a stronger follow-up path after the first purchase.
           </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center gap-3">
             <Clock3 className="h-5 w-5 text-amber-600" />
             <h2 className="text-lg font-semibold text-slate-950">
