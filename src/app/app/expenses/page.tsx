@@ -1,11 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  Banknote,
-  CalendarDays,
-  DollarSign,
   Plus,
-  ReceiptText,
   Ban,
   CheckCircle2,
   Pause,
@@ -16,6 +12,8 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
+import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import {
   canManageOrganizerExpenses,
   isOrganizerWorkspaceRole,
@@ -157,33 +155,6 @@ function formatCurrency(value: number, currency = "USD") {
     style: "currency",
     currency,
   }).format(Number(value ?? 0));
-}
-
-function StatCard({
-  label,
-  value,
-  helper,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  helper?: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-          {helper ? <p className="mt-1 text-xs text-slate-500">{helper}</p> : null}
-        </div>
-        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default async function ExpensesPage() {
@@ -333,32 +304,15 @@ export default async function ExpensesPage() {
         </section>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label={isOrganizerWorkspace ? "Event Expenses" : "Total Expenses"}
-          value={formatCurrency(totalExpenses)}
-          helper="From the most recent 100 expenses"
-          icon={DollarSign}
-        />
-        <StatCard
-          label="Floor Fees"
-          value={formatCurrency(floorFeeTotal)}
-          helper="Floor rental / floor fee expenses"
-          icon={Banknote}
-        />
-        <StatCard
-          label="Expense Records"
-          value={String(activeExpenses.length)}
-          helper="Active recent expense records"
-          icon={ReceiptText}
-        />
-        <StatCard
-          label="Expected Next 30 Days"
-          value={formatCurrency(expectedNextThirtyDays)}
-          helper="Active predictable expenses"
-          icon={Repeat2}
-        />
-      </div>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-[var(--brand-border)] bg-white"
+        items={[
+          { key: "total", label: isOrganizerWorkspace ? "Event expenses" : "Total expenses", value: formatCurrency(totalExpenses), detail: "Most recent 100 records" },
+          { key: "floor-fees", label: "Floor fees", value: formatCurrency(floorFeeTotal), detail: "Rental and floor costs" },
+          { key: "records", label: "Expense records", value: activeExpenses.length, detail: "Active recent records" },
+          { key: "expected", label: "Next 30 days", value: formatCurrency(expectedNextThirtyDays), detail: "Expected recurring costs", tone: expectedNextThirtyDays > 0 ? "info" as const : "default" as const },
+        ]}
+      />
 
       {allowManage ? (
         <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
@@ -369,7 +323,7 @@ export default async function ExpensesPage() {
 
             <div>
               <h2 className="text-xl font-semibold text-slate-950">
-                Add Expense
+                Add expense
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 Use this for manual expenses, including floor fees paid to
@@ -559,7 +513,7 @@ export default async function ExpensesPage() {
                 type="submit"
                 className="rounded-xl bg-[var(--brand-primary)] px-5 py-2.5 text-sm font-medium text-white hover:opacity-95"
               >
-                Add Expense
+                Add expense
               </button>
             </div>
           </form>
@@ -584,14 +538,12 @@ export default async function ExpensesPage() {
         </div>
 
         {typedRecurringExpenses.length === 0 ? (
-          <div className="px-6 py-10 text-center">
-            <p className="text-sm font-medium text-slate-900">
-              No predictable expenses are scheduled
-            </p>
-            <p className="mt-1 text-sm text-slate-500">
-              Use “Repeat this expense” when adding rent, insurance, software,
-              or another recurring cost.
-            </p>
+          <div className="p-4 sm:p-6">
+            <SellWorkspaceEmptyState
+              title="No expected expenses scheduled"
+              description="Use Repeat this expense when adding rent, insurance, software, or another predictable cost."
+              compact
+            />
           </div>
         ) : (
           <div className="divide-y divide-slate-200">
@@ -693,14 +645,11 @@ export default async function ExpensesPage() {
         </div>
 
         {typedExpenses.length === 0 ? (
-          <div className="px-6 py-14 text-center">
-            <CalendarDays className="mx-auto h-10 w-10 text-slate-300" />
-            <p className="mt-4 text-base font-medium text-slate-900">
-              No expenses recorded yet
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              Add your first expense to start tracking business costs.
-            </p>
+          <div className="p-4 sm:p-6">
+            <SellWorkspaceEmptyState
+              title="No expenses recorded yet"
+              description="Add an expense to begin tracking business costs and improve financial reporting."
+            />
           </div>
         ) : (
           <div className="overflow-x-auto">

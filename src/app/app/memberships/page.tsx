@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
+import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import {
   archiveMembershipPlanAction,
   deleteMembershipPlanAction,
@@ -225,42 +227,16 @@ export default async function MembershipPlansPage({
         )}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Plans</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">
-            {typedPlans.length}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Active</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">
-            {activeMemberships.length}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Canceling</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">
-            {cancelingMemberships.length}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Past Due</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">
-            {pastDueMemberships.length}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Unpaid</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">
-            {unpaidMemberships.length}
-          </p>
-        </div>
-      </div>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-[var(--brand-border)] bg-white"
+        items={[
+          { key: "plans", label: "Plans", value: typedPlans.length, detail: "Configured offers" },
+          { key: "active", label: "Active", value: activeMemberships.length, detail: "Currently active", tone: "success" as const },
+          { key: "canceling", label: "Canceling", value: cancelingMemberships.length, detail: "Ending at period close", tone: cancelingMemberships.length ? "warning" as const : "default" as const },
+          { key: "past-due", label: "Past due", value: pastDueMemberships.length, detail: "Needs attention", tone: pastDueMemberships.length ? "warning" as const : "default" as const },
+          { key: "unpaid", label: "Unpaid", value: unpaidMemberships.length, detail: "Payment unresolved", tone: unpaidMemberships.length ? "danger" as const : "default" as const },
+        ]}
+      />
 
       <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -327,9 +303,11 @@ export default async function MembershipPlansPage({
 
         <div className="mt-5 space-y-3">
           {filteredMemberships.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-6 text-sm text-slate-500">
-              No memberships match this filter.
-            </div>
+            <SellWorkspaceEmptyState
+              title="No memberships match this filter"
+              description="Choose another billing status or sell a membership from the Sell workspace."
+              compact
+            />
           ) : (
             filteredMemberships.map((membership) => (
               <Link
@@ -379,7 +357,7 @@ export default async function MembershipPlansPage({
                     </p>
                   </div>
 
-                  <span className="text-sm underline">Open Client</span>
+                  <span className="text-sm underline">Open client</span>
                 </div>
               </Link>
             ))
@@ -400,15 +378,17 @@ export default async function MembershipPlansPage({
             </div>
 
             <Link href="/app/memberships/new" className="text-sm underline">
-              Create Plan
+              Create plan
             </Link>
           </div>
 
           <div className="mt-5 space-y-3">
             {typedPlans.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-6 text-sm text-slate-500">
-                No membership plans created yet.
-              </div>
+              <SellWorkspaceEmptyState
+                title="No membership plans yet"
+                description="Create a recurring offer before selling a membership to a client."
+                compact
+              />
             ) : (
               typedPlans.map((plan) => (
                 <div
@@ -514,7 +494,7 @@ export default async function MembershipPlansPage({
                 href="/app/memberships/sell"
                 className="rounded-xl border border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-3 hover:bg-white"
               >
-                Sell Membership
+                Sell membership
               </Link>
               <Link
                 href="/app/payments"
@@ -532,7 +512,7 @@ export default async function MembershipPlansPage({
                 href="/app/memberships/new"
                 className="rounded-xl border border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-3 hover:bg-white"
               >
-                New Membership Plan
+                New membership plan
               </Link>
             </div>
           </div>

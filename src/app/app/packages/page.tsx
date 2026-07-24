@@ -9,6 +9,8 @@ import {
 import { canManagePackages } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
+import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 
 type PackageRow = {
   id: string;
@@ -104,33 +106,19 @@ export default async function PackagesPage() {
         description="Build reusable lesson, group class, and party-credit packages for quick sales while preserving historical sales records."
         actions={(
           <Link href="/app/packages/new" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
-            New package template
+            New package
           </Link>
         )}
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Total Templates</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">
-            {packageTemplates.length}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Available for Sale</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">
-            {activeCount}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Archived</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">
-            {archivedCount}
-          </p>
-        </div>
-      </div>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-[var(--brand-border)] bg-white"
+        items={[
+          { key: "total", label: "Templates", value: packageTemplates.length, detail: "Total package templates" },
+          { key: "available", label: "Available", value: activeCount, detail: "Ready for sale", tone: "success" as const },
+          { key: "archived", label: "Archived", value: archivedCount, detail: "Hidden from new sales" },
+        ]}
+      />
 
       <div className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
         <table className="min-w-full text-sm">
@@ -148,7 +136,11 @@ export default async function PackagesPage() {
             {packageTemplates.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                  No package templates yet. Create your first reusable package when you are ready to sell lesson or class credits.
+                  <SellWorkspaceEmptyState
+                    title="No packages yet"
+                    description="Create a reusable package to sell lesson, class, or practice credits."
+                    compact
+                  />
                 </td>
               </tr>
             ) : (

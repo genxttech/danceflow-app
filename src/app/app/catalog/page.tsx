@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Archive, Boxes, Film, Package, ShoppingBag } from "lucide-react";
+import { Boxes } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
+import SellWorkspaceFeedback from "@/components/app/sell/SellWorkspaceFeedback";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
+import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
 import { canManageCommerce } from "@/lib/auth/permissions";
 import CatalogItemForm from "./CatalogItemForm";
 import { setCatalogItemActiveAction } from "./actions";
@@ -139,61 +142,24 @@ export default async function CatalogPage({
       />
 
       {params.error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+        <SellWorkspaceFeedback tone="error">
           {decodeURIComponent(params.error)}
-        </div>
+        </SellWorkspaceFeedback>
       ) : null}
 
       {params.success ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-          Catalog updated.
-        </div>
+        <SellWorkspaceFeedback tone="success">Catalog updated.</SellWorkspaceFeedback>
       ) : null}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            title: "Catalog items",
-            value: items.length,
-            icon: ShoppingBag,
-          },
-          {
-            title: "Physical",
-            value: physical.length,
-            icon: Package,
-          },
-          {
-            title: "Digital",
-            value: digital.length,
-            icon: Film,
-          },
-          {
-            title: "Low stock variants",
-            value: variantInventory.filter(
-              (variant) =>
-                variant.active &&
-                Number(variant.quantity_on_hand ?? 0) <=
-                  Number(variant.reorder_threshold ?? 0),
-            ).length,
-            icon: Archive,
-          },
-        ].map((stat) => {
-          const Icon = stat.icon;
-
-          return (
-            <div
-              key={stat.title}
-              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-            >
-              <Icon className="h-5 w-5 text-[var(--brand-primary)]" />
-              <p className="mt-4 text-sm text-slate-500">{stat.title}</p>
-              <p className="mt-1 text-3xl font-semibold text-slate-950">
-                {stat.value}
-              </p>
-            </div>
-          );
-        })}
-      </section>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-[var(--brand-border)] bg-white"
+        items={[
+          { key: "items", label: "Catalog items", value: items.length, detail: "All products and content" },
+          { key: "physical", label: "Physical", value: physical.length, detail: "Retail products" },
+          { key: "digital", label: "Digital", value: digital.length, detail: "Videos and downloads" },
+          { key: "low-stock", label: "Low stock", value: variantInventory.filter((variant) => variant.active && Number(variant.quantity_on_hand ?? 0) <= Number(variant.reorder_threshold ?? 0)).length, detail: "Variants needing review", tone: "warning" as const },
+        ]}
+      />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-start gap-3">
@@ -210,10 +176,10 @@ export default async function CatalogPage({
 
         <div className="mt-5 space-y-3">
           {items.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
-              No catalog items yet. Add a physical product, video, download, or
-              service to begin building the marketplace.
-            </div>
+            <SellWorkspaceEmptyState
+              title="No catalog items yet"
+              description="Add a physical product, video, download, or service to begin building your studio catalog."
+            />
           ) : (
             items.map((item) => (
               <article

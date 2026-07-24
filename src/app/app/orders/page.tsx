@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { PackageCheck, Receipt, RotateCcw, ShoppingCart } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
+import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import { canViewCommerceOrders } from "@/lib/auth/permissions";
 
 type CommerceOrder = {
@@ -86,57 +87,31 @@ export default async function OrdersPage() {
         )}
       />
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            title: "Orders",
-            value: orders.length,
-            icon: ShoppingCart,
-          },
-          {
-            title: "Paid",
-            value: paid.length,
-            icon: Receipt,
-          },
-          {
-            title: "Refund activity",
-            value: refunded.length,
-            icon: RotateCcw,
-          },
-          {
-            title: "Fulfilled",
-            value: orders.filter((order) =>
-              ["fulfilled", "not_required"].includes(order.fulfillment_status),
-            ).length,
-            icon: PackageCheck,
-          },
-        ].map((stat) => {
-          const Icon = stat.icon;
-
-          return (
-            <div
-              key={stat.title}
-              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-            >
-              <Icon className="h-5 w-5 text-[var(--brand-primary)]" />
-              <p className="mt-4 text-sm text-slate-500">{stat.title}</p>
-              <p className="mt-1 text-3xl font-semibold text-slate-950">
-                {stat.value}
-              </p>
-            </div>
-          );
-        })}
-      </section>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-[var(--brand-border)] bg-white"
+        items={[
+          { key: "orders", label: "Orders", value: orders.length, detail: "Visible records" },
+          { key: "paid", label: "Paid", value: paid.length, detail: "Payment complete", tone: "success" as const },
+          { key: "refunds", label: "Refund activity", value: refunded.length, detail: "Partial or full refunds", tone: refunded.length ? "warning" as const : "default" as const },
+          { key: "fulfilled", label: "Fulfilled", value: orders.filter((order) => ["fulfilled", "not_required"].includes(order.fulfillment_status)).length, detail: "Complete or not required" },
+        ]}
+      />
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         {orders.length === 0 ? (
-          <div className="p-10 text-center">
-            <h2 className="text-xl font-semibold text-slate-950">No commerce orders yet</h2>
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
-              Existing package, membership, payment, and event histories remain
-              in their current ledgers. New catalog checkout will begin writing
-              to this shared order foundation in the next commerce slices.
-            </p>
+          <div className="p-4 sm:p-6">
+            <SellWorkspaceEmptyState
+              title="No orders yet"
+              description="Completed physical-product and digital-content sales will appear here with payment and fulfillment status."
+              action={
+                <Link
+                  href="/app/sell"
+                  className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white"
+                >
+                  Start a sale
+                </Link>
+              }
+            />
           </div>
         ) : (
           <>

@@ -3,14 +3,12 @@ import { redirect } from "next/navigation";
 import { canViewPayments } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
+import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import Link from "next/link";
 import {
   ArrowUpRight,
-  BadgeDollarSign,
-  CreditCard,
   Filter,
-  Receipt,
-  RotateCcw,
   WalletCards,
 } from "lucide-react";
 
@@ -132,32 +130,6 @@ function startOfRange(value: string) {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 }
 
-function Stat({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            {label}
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-        </div>
-        <div className="rounded-xl bg-[var(--brand-primary-soft)] p-2.5 text-[var(--brand-primary)]">
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default async function PaymentsPage({
   searchParams,
 }: {
@@ -257,12 +229,15 @@ export default async function PaymentsPage({
         )}
       />
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Collected" value={formatMoney(paidTotal)} icon={BadgeDollarSign} />
-        <Stat label="Pending" value={formatMoney(pendingTotal)} icon={Receipt} />
-        <Stat label="Refunded" value={formatMoney(refundedTotal)} icon={RotateCcw} />
-        <Stat label="Visible entries" value={String(payments.length)} icon={CreditCard} />
-      </section>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-[var(--brand-border)] bg-white"
+        items={[
+          { key: "collected", label: "Collected", value: formatMoney(paidTotal), detail: "Paid transactions", tone: "success" as const },
+          { key: "pending", label: "Pending", value: formatMoney(pendingTotal), detail: "Awaiting completion", tone: pendingTotal > 0 ? "warning" as const : "default" as const },
+          { key: "refunded", label: "Refunded", value: formatMoney(refundedTotal), detail: "Returned funds", tone: refundedTotal > 0 ? "info" as const : "default" as const },
+          { key: "entries", label: "Visible entries", value: payments.length, detail: "Matching current filters" },
+        ]}
+      />
 
       <form className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-3">
@@ -336,9 +311,12 @@ export default async function PaymentsPage({
         </div>
 
         {payments.length === 0 ? (
-          <div className="p-10 text-center">
-            <p className="font-semibold text-slate-950">No ledger entries match these filters.</p>
-            <p className="mt-2 text-sm text-slate-500">Broaden the date range or clear one of the filters.</p>
+          <div className="p-4 sm:p-6">
+            <SellWorkspaceEmptyState
+              title="No payments match these filters"
+              description="Broaden the date range, clear a filter, or take a new payment."
+              compact
+            />
           </div>
         ) : (
           <div className="divide-y divide-slate-100">

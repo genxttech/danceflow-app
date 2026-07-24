@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Package2, ShoppingBag, Users, WalletCards } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
+import SellWorkspaceFeedback from "@/components/app/sell/SellWorkspaceFeedback";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import {
   canManagePackages,
   canSellCommerce,
@@ -439,68 +440,22 @@ export default async function NewSalePage({
       />
 
       {error ? (
-        <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm font-medium text-rose-800">
-          {error}
-        </div>
+        <SellWorkspaceFeedback tone="error">{error}</SellWorkspaceFeedback>
       ) : null}
 
       {success ? (
-        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-medium text-emerald-800">
-          {success}
-        </div>
+        <SellWorkspaceFeedback tone="success">{success}</SellWorkspaceFeedback>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Selectable Clients</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{clients.length}</p>
-            </div>
-            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-              <Users className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Active Packages</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{packageTemplates.length}</p>
-            </div>
-            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-              <Package2 className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Active Memberships</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{membershipPlans.length}</p>
-            </div>
-            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-              <WalletCards className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Online Readers</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">
-                {readers.filter((reader) => reader.status === "online").length}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-              <ShoppingBag className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
-      </div>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-[var(--brand-border)] bg-white"
+        items={[
+          { key: "clients", label: "Selectable clients", value: clients.length, detail: "Available for sales" },
+          { key: "packages", label: "Active packages", value: packageTemplates.length, detail: "Ready to sell" },
+          { key: "memberships", label: "Active memberships", value: membershipPlans.length, detail: "Plans available" },
+          { key: "readers", label: "Online readers", value: readers.filter((reader) => reader.status === "online").length, detail: "Ready for card sales" },
+        ]}
+      />
 
       <UnifiedSalesForm
         initialType={initialType}
