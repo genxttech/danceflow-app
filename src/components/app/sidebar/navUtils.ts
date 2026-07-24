@@ -1455,112 +1455,190 @@ function makeSection(
   return items.length > 0 ? { title, items } : null;
 }
 
-function optimizeNavigationForTasks(sections: NavSectionType[], options: NormalizeSectionsOptions = {}): NavSectionType[] {
-  const originalItems = uniqueNavItems(sections.flatMap((section) => section.items));
-  const available = new Map(originalItems.map((item) => [routeKey(item.href), item]));
-  const used = new Set<string>();
-  const optimized: NavSectionType[] = [];
+function workspaceForItem(item: NavItem) {
+  const href = routeKey(item.href);
 
-  const orderedSections = [
-    makeSection("Home", available, used, [
-      "/app",
-    ]),
-    makeSection("Daily Operations", available, used, [
+  if (href === "/app") return "Today";
+
+  if (
+    href.startsWith("/app/clients") ||
+    href === "/app/leads" ||
+    href === "/app/syllabus" ||
+    href === "/app/documents" ||
+    href === "/app/organizer-contacts"
+  ) {
+    return "Clients";
+  }
+
+  if (
+    href.startsWith("/app/schedule") ||
+    href.startsWith("/app/instructors") ||
+    href.startsWith("/app/rooms") ||
+    href === "/app/events/checkin" ||
+    href === "/app/events/check-in"
+  ) {
+    return "Schedule";
+  }
+
+  if (
+    href === "/app/sell" ||
+    href === "/app/sales/new" ||
+    href.startsWith("/app/catalog") ||
+    href.startsWith("/app/orders") ||
+    href.startsWith("/app/payments") ||
+    href.startsWith("/app/packages") ||
+    href.startsWith("/app/memberships") ||
+    href.startsWith("/app/expenses") ||
+    href.startsWith("/app/instructor-pay") ||
+    href === "/app/events/sell-tickets" ||
+    href === "/app/events/tickets"
+  ) {
+    return "Sell";
+  }
+
+  if (
+    href.startsWith("/app/marketing") ||
+    href.startsWith("/app/organizer-campaigns") ||
+    href.startsWith("/app/automations") ||
+    href.startsWith("/app/notifications")
+  ) {
+    return "Communications";
+  }
+
+  if (
+    href.startsWith("/app/analytics") ||
+    href.startsWith("/app/reports")
+  ) {
+    return "Reports";
+  }
+
+  if (href.startsWith("/app/aria")) return "ARIA";
+
+  if (
+    href.startsWith("/app/settings") ||
+    href.startsWith("/app/account") ||
+    href.startsWith("/app/help") ||
+    href.startsWith("/app/support") ||
+    href.startsWith("/knowledgebase") ||
+    href.startsWith("/account") ||
+    href.startsWith("/discover") ||
+    href.startsWith("/app/organizers") ||
+    href.startsWith("/app/events") ||
+    href.startsWith("/app/now-hiring")
+  ) {
+    return "Settings";
+  }
+
+  return "Settings";
+}
+
+const WORKSPACE_ORDER = [
+  "Today",
+  "Clients",
+  "Schedule",
+  "Sell",
+  "Communications",
+  "Reports",
+  "ARIA",
+  "Settings",
+] as const;
+
+function itemPriority(section: (typeof WORKSPACE_ORDER)[number], href: string) {
+  const priorities: Record<(typeof WORKSPACE_ORDER)[number], string[]> = {
+    Today: ["/app"],
+    Clients: [
+      "/app/clients",
+      "/app/leads",
+      "/app/clients/new",
+      "/app/documents",
+      "/app/syllabus",
+      "/app/organizer-contacts",
+    ],
+    Schedule: [
       "/app/schedule",
       "/app/schedule/self-service",
-      "/app/calendar",
-      "/app/clients",
-      "/app/clients/new",
-      "/app/attendance",
-      "/app/check-in",
-      "/app/sales/new",
-      ...(options.hasOrganizerSuite
-        ? [
-            "/app/events/sell-tickets",
-            "/app/events/checkin",
-            "/app/events/check-in",
-          ]
-        : []),
-    ]),
-    makeSection("Events", available, used, [
-      "/app/events",
-      "/app/events/new",
-      ...(options.hasOrganizerSuite
-        ? [
-            "/app/events/tickets",
-            "/app/events/registrations",
-            "/app/organizers",
-            "/app/organizer-contacts",
-          ]
-        : []),
-    ]),
-    makeSection("Revenue", available, used, [
+      "/app/instructors/my-availability",
+      "/app/instructors",
+      "/app/rooms",
+      "/app/events/checkin",
+      "/app/events/check-in",
+    ],
+    Sell: [
+      "/app/sell",
       "/app/payments/take",
+      "/app/orders",
+      "/app/catalog",
       "/app/payments",
       "/app/packages",
       "/app/memberships",
       "/app/expenses",
       "/app/instructor-pay",
-      "/app/balances",
-      "/app/settings/billing",
-    ]),
-    makeSection("Growth", available, used, [
-      "/app/leads",
-      "/app/marketing",
-      "/app/campaigns",
-      ...(options.hasOrganizerSuite ? ["/app/organizer-campaigns"] : []),
+      "/app/events/sell-tickets",
+      "/app/events/tickets",
+    ],
+    Communications: [
+      "/app/marketing/campaigns",
+      "/app/organizer-campaigns",
       "/app/automations",
-      "/app/reports/client-birthdays",
-      "/app/discovery-profile",
-      "/app/public-profile",
-      "/app/profile",
-      "/app/discover",
-      "/app/discovery",
-    ]),
-    makeSection("Insights", available, used, [
+      "/app/notifications",
+    ],
+    Reports: [
       "/app/analytics",
       "/app/analytics/dance-goals",
       "/app/reports",
-      "/app/aria",
-      "/app/aria/operations",
-    ]),
-    makeSection("Studio Tools", available, used, [
-      "/app/documents",
-      "/app/syllabus",
-      "/app/instructors",
-      "/app/instructors/my-availability",
-      "/app/rooms",
-      "/app/notifications",
+      "/app/reports/client-birthdays",
+    ],
+    ARIA: ["/app/aria", "/app/aria/operations"],
+    Settings: [
       "/app/settings",
-      "/app/support",
-      "/app/knowledgebase",
-    ]),
-  ].filter((section): section is NavSectionType => Boolean(section));
+      "/app/settings/team",
+      "/app/settings/billing",
+      "/app/organizers",
+      "/app/events",
+      "/app/events/new",
+      "/app/now-hiring",
+      "/discover",
+      "/account",
+      "/app/help",
+      "/knowledgebase",
+    ],
+  };
 
-  optimized.push(...orderedSections);
+  const index = priorities[section].indexOf(routeKey(href));
+  return index >= 0 ? index : priorities[section].length + 100;
+}
 
-  const remainingByOriginalSection: NavSectionType[] = [];
-  for (const section of sections) {
-    const remainingItems = section.items.filter((item) => {
-      const key = routeKey(item.href);
-      if (used.has(key)) return false;
-      used.add(key);
-      return true;
+function optimizeNavigationForTasks(
+  sections: NavSectionType[],
+  _options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  const items = uniqueNavItems(sections.flatMap((section) => section.items));
+  const grouped = new Map<string, NavItem[]>();
+
+  for (const title of WORKSPACE_ORDER) grouped.set(title, []);
+
+  for (const item of items) {
+    const workspace = workspaceForItem(item);
+    grouped.get(workspace)?.push(item);
+  }
+
+  return WORKSPACE_ORDER.map((title) => {
+    const workspaceItems = grouped.get(title) ?? [];
+    const indexedItems = workspaceItems.map((item, index) => ({ item, index }));
+
+    indexedItems.sort((a, b) => {
+      const priorityDelta =
+        itemPriority(title, a.item.href) - itemPriority(title, b.item.href);
+      return priorityDelta !== 0 ? priorityDelta : a.index - b.index;
     });
 
-    if (remainingItems.length > 0) {
-      remainingByOriginalSection.push({
-        title: section.title,
-        items: remainingItems,
-      });
-    }
-  }
-
-  if (remainingByOriginalSection.length > 0) {
-    optimized.push(...remainingByOriginalSection);
-  }
-
-  return optimized;
+    return {
+      title,
+      items: indexedItems.map(({ item }) =>
+        item.href === "/app" ? { ...item, label: "Today" } : item,
+      ),
+    } satisfies NavSectionType;
+  }).filter((section) => section.items.length > 0);
 }
 
 
