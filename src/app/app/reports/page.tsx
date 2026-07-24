@@ -16,6 +16,7 @@ import ReportReadinessCard from "@/components/app/reports/ReportReadinessCard";
 import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspaceHeader";
 import AccountingWorkspaceNav from "@/components/app/reports/AccountingWorkspaceNav";
 import AccountingPeriodCloseOverview from "@/components/app/reports/AccountingPeriodCloseOverview";
+import RevenueExpenseWorkspace from "@/components/app/reports/RevenueExpenseWorkspace";
 import {
   accountingCategoryLabel,
   getStudioAccountingEntries,
@@ -3348,6 +3349,18 @@ export default async function ReportsPage({
           />
         </div>
       </details>
+
+      <RevenueExpenseWorkspace
+        rangeLabel={rangeLabel(range)}
+        grossRevenue={accountingSummary.revenue}
+        refunds={accountingSummary.refunds}
+        fees={accountingSummary.fees}
+        expenses={accountingSummary.expenses}
+        instructorPay={instructorCompensationExpense}
+        netResult={profitAfterInstructorCompensation}
+        revenueCategories={accountingRevenueCategories}
+        expenseCategories={accountingExpenseCategories}
+      />
 
       <div id="commerce" className="scroll-mt-44">
         <CommerceIntelligenceSection
