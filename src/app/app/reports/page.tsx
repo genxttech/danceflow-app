@@ -13,6 +13,7 @@ import AriaAccountingInsightsSection from "@/components/app/reports/AriaAccounti
 import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
 import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import ReportReadinessCard from "@/components/app/reports/ReportReadinessCard";
+import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspaceHeader";
 import {
   accountingCategoryLabel,
   getStudioAccountingEntries,
@@ -1014,7 +1015,7 @@ export default async function ReportsPage({
             line_total,
             cogs_total
           ),
-          payments (
+          payments!commerce_orders_payment_id_fkey (
             payment_method,
             payment_channel
           )
@@ -2845,46 +2846,38 @@ export default async function ReportsPage({
         : "0%";
 
     return (
-      <div className="space-y-8">
-        <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-purple-200">
-                Organizer Intelligence
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Event Reports
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200 md:text-base">
-                Track event revenue, costs, attendance, registrant growth, and
-                campaign performance without studio-only lesson, package, or
-                membership reporting.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {[
-                ["30d", "30 Days"],
-                ["90d", "90 Days"],
-                ["ytd", "Year to Date"],
-                ["all", "All Time"],
-              ].map(([value, label]) => (
-                <Link
-                  key={value}
-                  href={`/app/reports?range=${value}`}
-                  className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                    range === value
-                      ? "bg-white text-slate-950"
-                      : "bg-white/10 text-white hover:bg-white/20"
-                  }`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <ReportingWorkspaceHeader
+          activeWorkspace="reports"
+          eyebrow="Organizer Intelligence"
+          title="Event Accounting & Reports"
+          description={
+            <>
+              Track event revenue, costs, attendance, registrant growth, and
+              campaign performance without studio-only lesson, package, or
+              membership reporting.
+            </>
+          }
+          controls={[
+            ["30d", "30 Days"],
+            ["90d", "90 Days"],
+            ["ytd", "Year to Date"],
+            ["all", "All Time"],
+          ].map(([value, label]) => (
+            <Link
+              key={value}
+              href={`/app/reports?range=${value}`}
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                range === value
+                  ? "border-white bg-white text-slate-950"
+                  : "border-white/20 bg-white/10 text-white hover:bg-white/20"
+              }`}
+            >
+              {label}
+            </Link>
+          ))}
+        >
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
               ["Gross event revenue", fmtCurrency(eventRevenueTotal || organizerRevenueTotal)],
               ["Net event revenue", fmtCurrency(organizerNetRevenue)],
@@ -2902,7 +2895,7 @@ export default async function ReportsPage({
               </div>
             ))}
           </div>
-        </section>
+        </ReportingWorkspaceHeader>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
@@ -3184,46 +3177,37 @@ export default async function ReportsPage({
   });
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-              DanceFlow
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-              Reports
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
-              Track studio performance, client activity, revenue, expenses, and
-              package usage from one place for {rangeLabel(range).toLowerCase()}
-              .
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {[
-              ["today", "Today"],
-              ["month", "Month"],
-              ["last30", "Last 30 Days"],
-              ["quarter", "Quarter"],
-              ["year", "Year"],
-            ].map(([value, label]) => (
-              <Link
-                key={value}
-                href={`/app/reports?range=${value}`}
-                className={`rounded-full border px-4 py-2 text-sm font-medium ${
-                  range === value
-                    ? "border-white bg-white text-slate-950"
-                    : "border-white/25 bg-white/10 text-white hover:bg-white/15"
-                }`}
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
+    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <ReportingWorkspaceHeader
+        activeWorkspace="reports"
+        eyebrow="DanceFlow Financial Intelligence"
+        title="Accounting & Reports"
+        description={
+          <>
+            Review revenue, expenses, profitability, payouts, instructor costs,
+            and export readiness for {rangeLabel(range).toLowerCase()}.
+          </>
+        }
+        controls={[
+          ["today", "Today"],
+          ["month", "Month"],
+          ["last30", "Last 30 Days"],
+          ["quarter", "Quarter"],
+          ["year", "Year"],
+        ].map(([value, label]) => (
+          <Link
+            key={value}
+            href={`/app/reports?range=${value}`}
+            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+              range === value
+                ? "border-white bg-white text-slate-950"
+                : "border-white/20 bg-white/10 text-white hover:bg-white/20"
+            }`}
+          >
+            {label}
+          </Link>
+        ))}
+      />
 
       <CommerceIntelligenceSection
         data={commerceIntelligence}

@@ -7,7 +7,6 @@ import {
   Brain,
   CalendarCheck,
   Clock3,
-  LineChart,
   Target,
   TrendingUp,
   UserCheck,
@@ -18,6 +17,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
+import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspaceHeader";
 import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 
 type SearchParams = Promise<{
@@ -219,14 +219,14 @@ function StatCard({
   icon: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-slate-500">{label}</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
           <p className="mt-2 text-sm text-slate-500">{helper}</p>
         </div>
-        <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -236,7 +236,7 @@ function StatCard({
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+    <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
       {message}
     </div>
   );
@@ -757,47 +757,37 @@ export default async function AnalyticsPage({
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      <section className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 shadow-sm">
-        <div className="p-6 text-white sm:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/80">
-                <LineChart className="h-3.5 w-3.5" />
-                Studio Analytics
-              </div>
-              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-                Conversion Dashboard
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75 sm:text-base">
-                Track how leads move into intros, first purchases, and retention
-                purchases. Accounting reports show what happened financially;
-                analytics shows where the studio is gaining or losing momentum.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {RANGE_OPTIONS.map((option) => {
-                const active = option.value === range;
-                return (
-                  <Link
-                    key={option.value}
-                    href={`/app/analytics?range=${option.value}`}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                      active
-                        ? "bg-white text-slate-950"
-                        : "bg-white/10 text-white hover:bg-white/20"
-                    }`}
-                  >
-                    {option.label.replace("Last ", "")}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <ReportingWorkspaceHeader
+        activeWorkspace="analytics"
+        eyebrow="DanceFlow Intelligence"
+        title="Studio Analytics"
+        description={
+          <>
+            See where leads convert, where client momentum slows, and which
+            relationships need attention. Accounting reports explain the money;
+            Analytics explains the movement behind it.
+          </>
+        }
+        controls={RANGE_OPTIONS.map((option) => {
+          const active = option.value === range;
+          return (
+            <Link
+              key={option.value}
+              href={`/app/analytics?range=${option.value}`}
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                active
+                  ? "border-white bg-white text-slate-950"
+                  : "border-white/20 bg-white/10 text-white hover:bg-white/20"
+              }`}
+            >
+              {option.label.replace("Last ", "")}
+            </Link>
+          );
+        })}
+      />
 
-      <section className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+      <section className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
         <span className="font-semibold text-slate-900">How rates work:</span>{" "}
         the lead stage begins when a client record is created. Leads and
         completed intros are grouped by the selected date range. First purchase
@@ -806,7 +796,7 @@ export default async function AnalyticsPage({
         {RETENTION_WINDOW_DAYS} days of the first purchase.
       </section>
 
-      <section className="rounded-lg border border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_70%,#ffffff_100%)] p-5 shadow-sm">
+      <section className="rounded-3xl border border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_70%,#ffffff_100%)] p-5 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
@@ -835,7 +825,7 @@ export default async function AnalyticsPage({
             ["Needs rebooking", lifecycleSnapshot.counts.needs_rebooking],
             ["Retention risk", lifecycleSnapshot.counts.retention_risk],
           ].map(([label, value]) => (
-            <div key={String(label)} className="rounded-lg border border-white bg-white/85 p-4 shadow-sm">
+            <div key={String(label)} className="rounded-3xl border border-white bg-white/85 p-4 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 {label}
               </p>
@@ -855,7 +845,7 @@ export default async function AnalyticsPage({
       <section className="grid gap-4 lg:grid-cols-3">
         <Link
           href={`/app/analytics/dance-goals?range=${range}`}
-          className="group rounded-lg border border-[#E9D5FF] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#C084FC] hover:shadow-md"
+          className="group rounded-3xl border border-[#E9D5FF] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#C084FC] hover:shadow-md"
         >
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -870,7 +860,7 @@ export default async function AnalyticsPage({
                 by the goals clients select at intake.
               </p>
             </div>
-            <div className="rounded-lg bg-[#F3E8FF] p-3 text-[#6B21A8]">
+            <div className="rounded-2xl bg-[#F3E8FF] p-3 text-[#6B21A8]">
               <Target className="h-5 w-5" />
             </div>
           </div>
@@ -915,7 +905,7 @@ export default async function AnalyticsPage({
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-semibold text-slate-950">
             Avg. lead to intro
           </p>
@@ -926,7 +916,7 @@ export default async function AnalyticsPage({
             Average time from new lead/client creation to intro activity.
           </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-semibold text-slate-950">
             Avg. intro to purchase
           </p>
@@ -937,7 +927,7 @@ export default async function AnalyticsPage({
             Average time from completed intro to first package or membership.
           </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-semibold text-slate-950">
             Avg. first to retention purchase
           </p>
@@ -951,10 +941,10 @@ export default async function AnalyticsPage({
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+              <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
                 <Users className="h-5 w-5" />
               </div>
               <div>
@@ -1006,9 +996,9 @@ export default async function AnalyticsPage({
           </div>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
-            <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
               <Brain className="h-5 w-5" />
             </div>
             <div>
@@ -1024,7 +1014,7 @@ export default async function AnalyticsPage({
             {ariaInsights.map((insight) => (
               <div
                 key={insight.label}
-                className="rounded-lg border border-slate-100 bg-slate-50 p-4"
+                className="rounded-3xl border border-slate-100 bg-slate-50 p-4"
               >
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-slate-950">
@@ -1052,7 +1042,7 @@ export default async function AnalyticsPage({
       </section>
 
       <section className="grid gap-6 lg:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 text-amber-600" />
             <h2 className="text-lg font-semibold text-slate-950">
@@ -1064,7 +1054,7 @@ export default async function AnalyticsPage({
             empty="No new leads without intro activity in this range."
           />
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
             <CalendarCheck className="h-5 w-5 text-rose-600" />
             <h2 className="text-lg font-semibold text-slate-950">
@@ -1076,7 +1066,7 @@ export default async function AnalyticsPage({
             empty="No completed intro clients are missing a first purchase in this range."
           />
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
             <Clock3 className="h-5 w-5 text-blue-600" />
             <h2 className="text-lg font-semibold text-slate-950">
@@ -1090,10 +1080,10 @@ export default async function AnalyticsPage({
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
               <BarChart3 className="h-5 w-5" />
             </div>
             <div>
@@ -1142,7 +1132,7 @@ export default async function AnalyticsPage({
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
+      <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-950">
@@ -1181,7 +1171,7 @@ function OpportunityList({
       {items.map((item) => (
         <div
           key={`${item.clientId}-${item.action}`}
-          className="rounded-lg border border-slate-100 bg-slate-50 p-4"
+          className="rounded-3xl border border-slate-100 bg-slate-50 p-4"
         >
           <div className="flex items-start justify-between gap-3">
             <div>
