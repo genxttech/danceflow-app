@@ -17,6 +17,8 @@ import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspac
 import AccountingWorkspaceNav from "@/components/app/reports/AccountingWorkspaceNav";
 import AccountingPeriodCloseOverview from "@/components/app/reports/AccountingPeriodCloseOverview";
 import RevenueExpenseWorkspace from "@/components/app/reports/RevenueExpenseWorkspace";
+import FinancialObligationsWorkspace from "@/components/app/reports/FinancialObligationsWorkspace";
+import OperationsDeliveryWorkspace from "@/components/app/reports/OperationsDeliveryWorkspace";
 import {
   accountingCategoryLabel,
   getStudioAccountingEntries,
@@ -3362,7 +3364,34 @@ export default async function ReportsPage({
         expenseCategories={accountingExpenseCategories}
       />
 
-      <div id="commerce" className="scroll-mt-44">
+      <FinancialObligationsWorkspace
+        payoutTotal={fmtCurrency(payoutSummary.totalPayouts)}
+        payoutCount={fmtNumber(payoutSummary.count)}
+        unmatchedPayoutItems={payoutSummary.unmatchedItems}
+        failedPayouts={payoutSummary.failedCount}
+        packageOutstandingValue={fmtCurrency(packageOutstandingCreditValue)}
+        packageRemainingCredits={fmtNumber(Math.round(packageCreditsRemainingPortfolio))}
+        lowOrZeroCreditPackages={lowCreditPackages.length + zeroCreditPackages.length}
+        failedPackagePayments={failedPackagePayments.length}
+        membershipMrr={fmtCurrency(monthlyRecurringRevenuePreview)}
+        activeMemberships={activeMemberships.length}
+        pendingMemberships={pendingMemberships.length}
+        endingMemberships={endingMemberships.length}
+        failedMembershipPayments={failedMembershipPayments.length}
+      />
+
+      <OperationsDeliveryWorkspace
+        range={range}
+        instructorCount={instructorSummaries.length}
+        teachingHours={Math.round(totalInstructorMinutes / 60)}
+        instructorRevenue={totalInstructorRevenue}
+        instructorPayOutstanding={instructorPayOutstandingTotal}
+        instructorPayRatio={instructorPayToLessonRevenueRatio}
+        commerce={commerceIntelligence}
+        canViewProReports={canViewProReports}
+      />
+
+      <div className="scroll-mt-44">
         <CommerceIntelligenceSection
           data={commerceIntelligence}
           title={`Commerce reporting · ${rangeLabel(range)}`}
@@ -3371,7 +3400,7 @@ export default async function ReportsPage({
 
       <section>
         {canViewProReports ? (
-          <div className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
+          <div id="accounting-map" className="scroll-mt-44 rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">

@@ -15,6 +15,7 @@ import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspaceHeader";
+import AnalyticsWorkspaceNav from "@/components/app/analytics/AnalyticsWorkspaceNav";
 import {
   formatDanceGoalCurrency,
   formatDanceGoalDays,
@@ -151,7 +152,7 @@ export default async function DanceGoalsAnalyticsPage({
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <ReportingWorkspaceHeader
         activeWorkspace="analytics"
         eyebrow="DanceFlow Intelligence"
@@ -177,6 +178,8 @@ export default async function DanceGoalsAnalyticsPage({
           </span>
         </div>
       </ReportingWorkspaceHeader>
+
+      <AnalyticsWorkspaceNav activeSection="dance_goals" range={range.value} />
 
       <section className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
         <span className="font-semibold text-slate-900">How this works:</span>{" "}

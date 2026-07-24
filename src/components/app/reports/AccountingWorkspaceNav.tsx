@@ -25,16 +25,16 @@ export default function AccountingWorkspaceNav({ range }: { range: string }) {
   return (
     <nav
       aria-label="Accounting workspace sections"
-      className="sticky top-3 z-20 overflow-x-auto rounded-2xl border border-violet-200/80 bg-white/95 p-2 shadow-[0_12px_35px_rgba(76,29,149,0.10)] backdrop-blur"
+      className="sticky top-3 z-20 overflow-x-auto rounded-2xl border border-violet-200/80 bg-white/95 p-2 shadow-[0_12px_35px_rgba(76,29,149,0.10)] backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <div className="flex min-w-max gap-1">
+      <div className="flex min-w-max gap-1 pr-2">
         {sections.map((section) => {
           const Icon = section.icon;
           return (
             <Link
               key={section.id}
               href={`/app/reports?range=${encodeURIComponent(range)}#${section.id}`}
-              className="group inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-[linear-gradient(135deg,#f5f3ff_0%,#fff7ed_100%)] hover:text-violet-900"
+              className="group inline-flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-[linear-gradient(135deg,#f5f3ff_0%,#fff7ed_100%)] hover:text-violet-900"
             >
               <Icon className="h-4 w-4 text-slate-400 group-hover:text-violet-700" />
               {section.label}

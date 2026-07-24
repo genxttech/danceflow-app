@@ -56,7 +56,9 @@ export default function ReportingWorkspaceHeader({
               {description}
             </div>
           </div>
-          {controls ? <div className="flex flex-wrap gap-2">{controls}</div> : null}
+          {controls ? (
+            <div className="flex max-w-full flex-wrap gap-2 sm:justify-end">{controls}</div>
+          ) : null}
         </div>
 
         {children ? <div className="mt-7">{children}</div> : null}
