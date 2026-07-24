@@ -14,7 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewCommunications } from "@/lib/auth/permissions";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
-import WorkspaceHeader from "@/components/app/workspace/WorkspaceHeader";
+import CommunicationsWorkspaceHeader from "@/components/app/communications/CommunicationsWorkspaceHeader";
 
 type SearchParams = Promise<{ view?: string }>;
 
@@ -339,94 +339,69 @@ export default async function CommunicationsPage({
 
   return (
     <main className="space-y-6 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.07),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.08),transparent_26%)]">
-      <section className="overflow-hidden rounded-[28px] border border-violet-200/80 bg-white shadow-[0_18px_45px_rgba(76,29,149,0.09)]">
-        <WorkspaceHeader
-          eyebrow="Relationship operations"
-          title="Communications"
-          description="Manage client conversations, follow-ups, broadcasts, and delivery health without moving between disconnected tools."
-          actions={
-            <>
-              <Link
-                href="/app/marketing/campaigns"
-                className="rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50"
-              >
-                Create broadcast
-              </Link>
-              <Link
-                href="/app/clients"
-                className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
-              >
-                Open clients
-              </Link>
-            </>
-          }
-        />
-
-        <CompactSummaryStrip
-          items={[
-            {
-              key: "follow-ups",
-              label: "Needs follow-up",
-              value: openFollowUps.length,
-              detail: `${overdueFollowUps.length} overdue`,
-              tone: overdueFollowUps.length > 0 ? "danger" : "default",
-            },
-            {
-              key: "today",
-              label: "Due today",
-              value: dueTodayFollowUps.length,
-              detail: "Outreach tasks",
-              tone: dueTodayFollowUps.length > 0 ? "warning" : "default",
-            },
-            {
-              key: "failed",
-              label: "Failed delivery",
-              value: failedDeliveryCount,
-              detail: "SMS and email",
-              tone: failedDeliveryCount > 0 ? "danger" : "success",
-            },
-            {
-              key: "campaigns",
-              label: "Active campaigns",
-              value: activeCampaigns,
-              detail: "Draft or scheduled",
-              tone: activeCampaigns > 0 ? "info" : "default",
-            },
-            {
-              key: "contacts",
-              label: "Recent contacts",
-              value: conversationRows.length,
-              detail: "Loaded relationships",
-            },
-          ]}
-        />
-      </section>
-
-      <nav className="flex gap-2 overflow-x-auto rounded-2xl border border-violet-100 bg-white p-2 shadow-sm">
-        {views.map((view) => (
-          <Link
-            key={view.id}
-            href={`/app/communications?view=${view.id}`}
-            className={`min-w-[150px] shrink-0 rounded-xl px-4 py-3 transition ${
-              activeView === view.id
-                ? "bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] text-white shadow-sm"
-                : "text-slate-700 hover:bg-violet-50"
-            }`}
-          >
-            <span className="block text-sm font-semibold">{view.label}</span>
-            <span
-              className={`mt-1 block text-xs leading-5 ${
-                activeView === view.id ? "text-white/75" : "text-slate-500"
-              }`}
+      <CommunicationsWorkspaceHeader
+        activeView={activeView}
+        views={views}
+        actions={
+          <>
+            <Link
+              href="/app/marketing/campaigns"
+              className="inline-flex w-full items-center justify-center rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-semibold text-violet-800 hover:bg-violet-50 sm:w-auto"
             >
-              {view.description}
-            </span>
-          </Link>
-        ))}
-      </nav>
+              Create broadcast
+            </Link>
+            <Link
+              href="/app/clients"
+              className="inline-flex w-full items-center justify-center rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-110 sm:w-auto"
+            >
+              Open clients
+            </Link>
+          </>
+        }
+        summary={
+          <CompactSummaryStrip
+            items={[
+              {
+                key: "follow-ups",
+                label: "Needs follow-up",
+                value: openFollowUps.length,
+                detail: `${overdueFollowUps.length} overdue`,
+                tone: overdueFollowUps.length > 0 ? "danger" : "default",
+              },
+              {
+                key: "today",
+                label: "Due today",
+                value: dueTodayFollowUps.length,
+                detail: "Outreach tasks",
+                tone: dueTodayFollowUps.length > 0 ? "warning" : "default",
+              },
+              {
+                key: "failed",
+                label: "Failed delivery",
+                value: failedDeliveryCount,
+                detail: "SMS and email",
+                tone: failedDeliveryCount > 0 ? "danger" : "success",
+              },
+              {
+                key: "campaigns",
+                label: "Active campaigns",
+                value: activeCampaigns,
+                detail: "Draft or scheduled",
+                tone: activeCampaigns > 0 ? "info" : "default",
+              },
+              {
+                key: "contacts",
+                label: "Recent contacts",
+                value: conversationRows.length,
+                detail: "Loaded relationships",
+              },
+            ]}
+          />
+        }
+      />
 
       {activeView === "conversations" ? (
-        <section className="rounded-[28px] border border-violet-200/80 bg-white p-5 shadow-sm sm:p-6">
+        <section className="rounded-[28px] border border-violet-200/80 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
@@ -442,7 +417,7 @@ export default async function CommunicationsPage({
             </span>
           </div>
 
-          <div className="mt-5 space-y-3">
+          <div className="mt-4 space-y-2.5">
             {conversationRows.length === 0 ? (
               <EmptyState
                 title="No communication activity yet"
@@ -458,7 +433,7 @@ export default async function CommunicationsPage({
                 <Link
                   key={row.clientId}
                   href={`/app/clients/${row.clientId}?tab=marketing`}
-                  className="block rounded-2xl border border-violet-100 bg-[linear-gradient(135deg,#ffffff_0%,#faf5ff_60%,#fff7ed_100%)] p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
+                  className="block rounded-2xl border border-violet-100 bg-[linear-gradient(135deg,#ffffff_0%,#faf5ff_60%,#fff7ed_100%)] p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
                 >
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0 flex-1">
@@ -479,7 +454,7 @@ export default async function CommunicationsPage({
                       <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">{row.latest.body}</p>
                       <p className="mt-2 text-xs text-slate-500">{formatDateTime(row.latest.at)}</p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex min-w-0 shrink-0 flex-col items-start gap-2 sm:items-end">
                       {row.openFollowUp ? (
                         <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
                           Follow-up {formatDateTime(row.openFollowUp.follow_up_due_at)}
@@ -498,7 +473,7 @@ export default async function CommunicationsPage({
       ) : null}
 
       {activeView === "follow-ups" ? (
-        <section className="rounded-[28px] border border-violet-200/80 bg-white p-5 shadow-sm sm:p-6">
+        <section className="rounded-[28px] border border-violet-200/80 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex items-start gap-3">
             <span className="rounded-xl bg-orange-50 p-2 text-orange-700 ring-1 ring-orange-200">
               <CalendarClock className="h-5 w-5" />
@@ -510,7 +485,7 @@ export default async function CommunicationsPage({
               </p>
             </div>
           </div>
-          <div className="mt-5 space-y-3">
+          <div className="mt-4 space-y-2.5">
             {sortedFollowUps.length === 0 ? (
               <EmptyState title="No open follow-ups" description="All currently scheduled communication follow-ups are complete." />
             ) : (
@@ -523,7 +498,7 @@ export default async function CommunicationsPage({
                   <Link
                     key={followUp.id}
                     href={`/app/clients/${followUp.client_id}?tab=marketing`}
-                    className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-violet-200 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-3.5 transition hover:border-violet-200 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -553,7 +528,7 @@ export default async function CommunicationsPage({
       ) : null}
 
       {activeView === "broadcasts" ? (
-        <section className="rounded-[28px] border border-violet-200/80 bg-white p-5 shadow-sm sm:p-6">
+        <section className="rounded-[28px] border border-violet-200/80 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
               <span className="rounded-xl bg-violet-50 p-2 text-violet-700 ring-1 ring-violet-200">
@@ -566,11 +541,11 @@ export default async function CommunicationsPage({
                 </p>
               </div>
             </div>
-            <Link href="/app/marketing/campaigns" className="rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800">
+            <Link href="/app/marketing/campaigns" className="inline-flex w-full items-center justify-center rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 sm:w-auto">
               Open campaign workspace
             </Link>
           </div>
-          <div className="mt-5 space-y-3">
+          <div className="mt-4 space-y-2.5">
             {campaigns.length === 0 ? (
               <EmptyState
                 title="No broadcast campaigns yet"
@@ -582,7 +557,7 @@ export default async function CommunicationsPage({
                 <Link
                   key={campaign.id}
                   href={`/app/marketing/campaigns/${campaign.id}`}
-                  className="flex flex-col gap-4 rounded-2xl border border-violet-100 bg-white p-4 transition hover:border-violet-200 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-4 rounded-2xl border border-violet-100 bg-white p-3.5 transition hover:border-violet-200 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -607,7 +582,7 @@ export default async function CommunicationsPage({
       ) : null}
 
       {activeView === "delivery" ? (
-        <section className="rounded-[28px] border border-violet-200/80 bg-white p-5 shadow-sm sm:p-6">
+        <section className="rounded-[28px] border border-violet-200/80 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex items-start gap-3">
             <span className="rounded-xl bg-rose-50 p-2 text-rose-700 ring-1 ring-rose-200">
               <Mail className="h-5 w-5" />
@@ -620,7 +595,7 @@ export default async function CommunicationsPage({
             </div>
           </div>
 
-          <div className="mt-5 grid gap-5 xl:grid-cols-2">
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
             <div className="space-y-3">
               <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">Email delivery</h3>
               {deliveries.length === 0 ? (
@@ -630,19 +605,19 @@ export default async function CommunicationsPage({
                   .sort((a, b) => Number(b.status === "failed") - Number(a.status === "failed"))
                   .slice(0, 40)
                   .map((delivery) => (
-                    <div key={delivery.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div key={delivery.id} className="rounded-2xl border border-slate-200 bg-white p-3.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(delivery.status)}`}>
                           {delivery.status.replaceAll("_", " ")}
                         </span>
                         <span className="text-xs text-slate-500">{delivery.template_key?.replaceAll("_", " ") || "Email"}</span>
                       </div>
-                      <p className="mt-3 font-medium text-slate-950">{delivery.subject || "No subject recorded"}</p>
+                      <p className="mt-2 font-medium text-slate-950">{delivery.subject || "No subject recorded"}</p>
                       <p className="mt-1 text-sm text-slate-600">{delivery.recipient_email || "No recipient recorded"}</p>
                       {delivery.error_message ? (
                         <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm leading-6 text-rose-800">{delivery.error_message}</p>
                       ) : null}
-                      <p className="mt-3 text-xs text-slate-500">{formatDateTime(delivery.sent_at || delivery.created_at)}</p>
+                      <p className="mt-2 text-xs text-slate-500">{formatDateTime(delivery.sent_at || delivery.created_at)}</p>
                     </div>
                   ))
               )}
@@ -660,7 +635,7 @@ export default async function CommunicationsPage({
                     <Link
                       key={message.id}
                       href={message.client_id ? `/app/clients/${message.client_id}?tab=marketing` : "/app/clients"}
-                      className="block rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-violet-200 hover:shadow-sm"
+                      className="block rounded-2xl border border-slate-200 bg-white p-3.5 transition hover:border-violet-200 hover:shadow-sm"
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(message.status)}`}>
@@ -668,8 +643,8 @@ export default async function CommunicationsPage({
                         </span>
                         <span className="text-xs capitalize text-slate-500">{message.direction}</span>
                       </div>
-                      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-700">{message.body || "No message body saved."}</p>
-                      <p className="mt-3 text-xs text-slate-500">{formatDateTime(message.delivered_at || message.failed_at || message.sent_at || message.created_at)}</p>
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-700">{message.body || "No message body saved."}</p>
+                      <p className="mt-2 text-xs text-slate-500">{formatDateTime(message.delivered_at || message.failed_at || message.sent_at || message.created_at)}</p>
                     </Link>
                   ))
               )}
@@ -678,18 +653,18 @@ export default async function CommunicationsPage({
         </section>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-4">
+      <section className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-3 md:overflow-visible">
+        <div className="min-w-[260px] shrink-0 rounded-2xl border border-violet-100 bg-violet-50/70 p-4 md:min-w-0">
           <Users className="h-5 w-5 text-violet-700" />
           <p className="mt-3 text-sm font-semibold text-slate-950">Client-owned history</p>
           <p className="mt-1 text-sm leading-6 text-slate-600">Full communication remains attached to the relationship record.</p>
         </div>
-        <div className="rounded-2xl border border-orange-100 bg-orange-50/70 p-4">
+        <div className="min-w-[260px] shrink-0 rounded-2xl border border-orange-100 bg-orange-50/70 p-4 md:min-w-0">
           <MessageSquareText className="h-5 w-5 text-orange-700" />
           <p className="mt-3 text-sm font-semibold text-slate-950">Consent-aware outreach</p>
           <p className="mt-1 text-sm leading-6 text-slate-600">SMS consent remains visible before staff open a conversation.</p>
         </div>
-        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+        <div className="min-w-[260px] shrink-0 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 md:min-w-0">
           {failedDeliveryCount > 0 ? <AlertTriangle className="h-5 w-5 text-rose-700" /> : <CheckCircle2 className="h-5 w-5 text-emerald-700" />}
           <p className="mt-3 text-sm font-semibold text-slate-950">Delivery visibility</p>
           <p className="mt-1 text-sm leading-6 text-slate-600">Failures are surfaced without mixing them into internal notifications.</p>
