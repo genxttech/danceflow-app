@@ -2,7 +2,49 @@ import type { NavItem, NavSectionType } from "./types";
 
 type NormalizeSectionsOptions = {
   hasOrganizerSuite?: boolean;
+  role?: string | null;
 };
+
+function hasRole(options: NormalizeSectionsOptions, roles: string[]) {
+  return roles.includes(options.role ?? "");
+}
+
+function canUseStudioEnhancements(options: NormalizeSectionsOptions) {
+  return hasRole(options, [
+    "platform_admin",
+    "studio_owner",
+    "studio_admin",
+    "front_desk",
+  ]);
+}
+
+function canUseStudioManagementEnhancements(options: NormalizeSectionsOptions) {
+  return hasRole(options, ["platform_admin", "studio_owner", "studio_admin"]);
+}
+
+function canUseAriaNavigation(options: NormalizeSectionsOptions) {
+  return hasRole(options, [
+    "platform_admin",
+    "studio_owner",
+    "studio_admin",
+    "organizer_owner",
+    "organizer_admin",
+  ]);
+}
+
+function canUseOrganizerEnhancements(options: NormalizeSectionsOptions) {
+  return (
+    Boolean(options.hasOrganizerSuite) &&
+    hasRole(options, [
+      "platform_admin",
+      "studio_owner",
+      "studio_admin",
+      "organizer_owner",
+      "organizer_admin",
+      "organizer_staff",
+    ])
+  );
+}
 
 export function isActivePath(pathname: string, href: string) {
   if (href === "/app") {
@@ -65,6 +107,21 @@ export function isActivePath(pathname: string, href: string) {
   }
 
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+
+export function getActiveNavHref(pathname: string, items: NavItem[]) {
+  const matches = items.filter((item) => isActivePath(pathname, item.href));
+
+  if (matches.length === 0) return null;
+
+  return [...matches].sort((a, b) => {
+    const aExact = pathname === a.href ? 1 : 0;
+    const bExact = pathname === b.href ? 1 : 0;
+
+    if (aExact !== bExact) return bExact - aExact;
+    return routeKey(b.href).length - routeKey(a.href).length;
+  })[0]?.href ?? null;
 }
 
 function normalizeNavLabel(item: NavItem) {
@@ -268,7 +325,7 @@ function injectOrganizerCampaignsLink(
   sections: NavSectionType[],
   options: NormalizeSectionsOptions = {},
 ): NavSectionType[] {
-  if (!options.hasOrganizerSuite) {
+  if (!canUseOrganizerEnhancements(options)) {
     return sections;
   }
 
@@ -369,7 +426,7 @@ function injectOrganizerContactsLink(
   sections: NavSectionType[],
   options: NormalizeSectionsOptions = {},
 ): NavSectionType[] {
-  if (!options.hasOrganizerSuite) {
+  if (!canUseOrganizerEnhancements(options)) {
     return sections;
   }
 
@@ -445,7 +502,11 @@ function injectOrganizerContactsLink(
   ];
 }
 
-function injectSyllabusLink(sections: NavSectionType[]): NavSectionType[] {
+function injectSyllabusLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const hasSyllabus = flatItems.some((item) => item.href === "/app/syllabus");
 
@@ -566,7 +627,7 @@ function injectEventWorkflowLinks(
         href: "/app/events/new",
         icon: "events",
       },
-      ...(options.hasOrganizerSuite
+      ...(canUseOrganizerEnhancements(options)
         ? [
             {
               label: "Manage Tickets",
@@ -647,7 +708,11 @@ function injectEventWorkflowLinks(
   return [eventSection, ...cleanedSections];
 }
 
-function injectDocumentsLink(sections: NavSectionType[]): NavSectionType[] {
+function injectDocumentsLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
 
   if (flatItems.some((item) => item.href === "/app/documents")) {
@@ -741,7 +806,11 @@ function injectDocumentsLink(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
-function injectDiscoveryExpansionLinks(sections: NavSectionType[]): NavSectionType[] {
+function injectDiscoveryExpansionLinks(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioManagementEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const additions: NavItem[] = [];
 
@@ -809,7 +878,11 @@ function injectDiscoveryExpansionLinks(sections: NavSectionType[]): NavSectionTy
   ];
 }
 
-function injectAriaLink(sections: NavSectionType[]): NavSectionType[] {
+function injectAriaLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseAriaNavigation(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
 
   if (flatItems.some((item) => item.href === "/app/aria")) {
@@ -863,7 +936,11 @@ function injectAriaLink(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
-function injectAriaOperationsLink(sections: NavSectionType[]): NavSectionType[] {
+function injectAriaOperationsLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseAriaNavigation(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const hasAria = flatItems.some((item) => item.href === "/app/aria");
   const hasAriaOperations = flatItems.some(
@@ -919,7 +996,11 @@ function injectAriaOperationsLink(sections: NavSectionType[]): NavSectionType[] 
   });
 }
 
-function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
+function injectAutomationsLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioManagementEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
 
   if (flatItems.some((item) => item.href === "/app/automations")) {
@@ -1016,7 +1097,11 @@ function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
 
 
 
-function injectCommerceLinks(sections: NavSectionType[]): NavSectionType[] {
+function injectCommerceLinks(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioEnhancements(options)) return sections;
   const commerceHrefs = new Set(["/app/sell", "/app/catalog", "/app/orders"]);
   const cleaned = sections
     .map((section) => ({
@@ -1069,7 +1154,11 @@ function injectCommerceLinks(sections: NavSectionType[]): NavSectionType[] {
   return [commerceSection, ...cleaned];
 }
 
-function injectPaymentWorkflowLinks(sections: NavSectionType[]): NavSectionType[] {
+function injectPaymentWorkflowLinks(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const hasPayments = flatItems.some((item) => item.href === "/app/payments");
   const hasTakePayment = flatItems.some((item) => item.href === "/app/payments/take");
@@ -1104,7 +1193,11 @@ function injectPaymentWorkflowLinks(sections: NavSectionType[]): NavSectionType[
   });
 }
 
-function injectInstructorPayLink(sections: NavSectionType[]): NavSectionType[] {
+function injectInstructorPayLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioManagementEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const hasInstructorPay = flatItems.some((item) => item.href === "/app/instructor-pay");
 
@@ -1185,7 +1278,11 @@ function injectInstructorPayLink(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
-function injectDanceGoalAnalyticsLink(sections: NavSectionType[]): NavSectionType[] {
+function injectDanceGoalAnalyticsLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioManagementEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const hasAnalytics = flatItems.some((item) => item.href === "/app/analytics");
   const hasDanceGoalAnalytics = flatItems.some(
@@ -1251,7 +1348,11 @@ function injectDanceGoalAnalyticsLink(sections: NavSectionType[]): NavSectionTyp
   ];
 }
 
-function injectDirectTaskLinks(sections: NavSectionType[]): NavSectionType[] {
+function injectDirectTaskLinks(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const hasHref = (href: string) => flatItems.some((item) => item.href === href);
 
@@ -1295,7 +1396,11 @@ function injectDirectTaskLinks(sections: NavSectionType[]): NavSectionType[] {
 }
 
 
-function injectBookingRequestsLink(sections: NavSectionType[]): NavSectionType[] {
+function injectBookingRequestsLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const hasScheduleAccess = flatItems.some((item) => item.href === "/app/schedule");
 
@@ -1357,7 +1462,11 @@ function injectBookingRequestsLink(sections: NavSectionType[]): NavSectionType[]
   ];
 }
 
-function injectMyAvailabilityLink(sections: NavSectionType[]): NavSectionType[] {
+function injectMyAvailabilityLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioManagementEnhancements(options)) return sections;
   const flatItems = sections.flatMap((section) => section.items);
   const hasInstructorAccess = flatItems.some(
     (item) => item.href === "/app/instructors",
@@ -1691,8 +1800,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
     .filter((section) => section.items.length > 0);
 
   const withoutDiscoveryDuplicates = removeRedundantDiscoveryLinks(normalized);
-  const withAriaLink = injectAriaLink(withoutDiscoveryDuplicates);
-  const withAriaOperationsLink = injectAriaOperationsLink(withAriaLink);
+  const withAriaLink = injectAriaLink(withoutDiscoveryDuplicates, options);
+  const withAriaOperationsLink = injectAriaOperationsLink(withAriaLink, options);
   const withEventWorkflowLinks = injectEventWorkflowLinks(withAriaOperationsLink, options);
   const withOrganizerContactsLink = injectOrganizerContactsLink(
     withEventWorkflowLinks,
@@ -1702,17 +1811,17 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
     withOrganizerContactsLink,
     options,
   );
-  const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink);
-  const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
-  const withAutomationsLink = injectAutomationsLink(withDocumentsLink);
-  const withCommerceLinks = injectCommerceLinks(withAutomationsLink);
-  const withPaymentWorkflowLinks = injectPaymentWorkflowLinks(withCommerceLinks);
-  const withInstructorPayLink = injectInstructorPayLink(withPaymentWorkflowLinks);
-  const withDanceGoalAnalyticsLink = injectDanceGoalAnalyticsLink(withInstructorPayLink);
-  const withBookingRequestsLink = injectBookingRequestsLink(withDanceGoalAnalyticsLink);
-  const withMyAvailabilityLink = injectMyAvailabilityLink(withBookingRequestsLink);
-  const withDirectTaskLinks = injectDirectTaskLinks(withMyAvailabilityLink);
-  const withDiscoveryExpansionLinks = injectDiscoveryExpansionLinks(withDirectTaskLinks);
+  const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink, options);
+  const withDocumentsLink = injectDocumentsLink(withSyllabusLink, options);
+  const withAutomationsLink = injectAutomationsLink(withDocumentsLink, options);
+  const withCommerceLinks = injectCommerceLinks(withAutomationsLink, options);
+  const withPaymentWorkflowLinks = injectPaymentWorkflowLinks(withCommerceLinks, options);
+  const withInstructorPayLink = injectInstructorPayLink(withPaymentWorkflowLinks, options);
+  const withDanceGoalAnalyticsLink = injectDanceGoalAnalyticsLink(withInstructorPayLink, options);
+  const withBookingRequestsLink = injectBookingRequestsLink(withDanceGoalAnalyticsLink, options);
+  const withMyAvailabilityLink = injectMyAvailabilityLink(withBookingRequestsLink, options);
+  const withDirectTaskLinks = injectDirectTaskLinks(withMyAvailabilityLink, options);
+  const withDiscoveryExpansionLinks = injectDiscoveryExpansionLinks(withDirectTaskLinks, options);
 
   return optimizeNavigationForTasks(withDiscoveryExpansionLinks, options);
 }

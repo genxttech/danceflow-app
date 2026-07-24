@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   Bell,
   BookOpen,
   BriefcaseBusiness,
   CalendarDays,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
   CreditCard,
   DoorOpen,
@@ -26,7 +29,7 @@ import {
   Wallet,
 } from "lucide-react";
 import type { NavItem } from "./types";
-import { isActivePath } from "./navUtils";
+import { getActiveNavHref } from "./navUtils";
 
 function getIcon(icon: string) {
   if (icon === "dashboard") return LayoutDashboard;
@@ -61,6 +64,25 @@ function getIcon(icon: string) {
   return LayoutDashboard;
 }
 
+function useCollapsibleSection(args: {
+  title: string;
+  items: NavItem[];
+  pathname: string;
+}) {
+  const { title, items, pathname } = args;
+  const activeHref = useMemo(
+    () => getActiveNavHref(pathname, items),
+    [items, pathname],
+  );
+  const [open, setOpen] = useState(Boolean(activeHref) || title === "Today");
+
+  useEffect(() => {
+    if (activeHref) setOpen(true);
+  }, [activeHref]);
+
+  return { activeHref, open, setOpen };
+}
+
 export function DesktopNavSection({
   title,
   items,
@@ -70,47 +92,66 @@ export function DesktopNavSection({
   items: NavItem[];
   pathname: string;
 }) {
+  const { activeHref, open, setOpen } = useCollapsibleSection({
+    title,
+    items,
+    pathname,
+  });
+
   return (
     <div>
-      <p className="px-3 text-xs font-semibold uppercase tracking-[0.18em] text-white/50">
-        {title}
-      </p>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-[0.18em] text-white/50 transition hover:bg-white/6 hover:text-white/80"
+      >
+        <span>{title}</span>
+        {open ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+      </button>
 
-      <div className="mt-3 space-y-1">
-        {items.map((item) => {
-          const active = isActivePath(pathname, item.href);
-          const Icon = getIcon(item.icon);
+      {open ? (
+        <div className="mt-2 space-y-1">
+          {items.map((item) => {
+            const active = activeHref === item.href;
+            const Icon = getIcon(item.icon);
 
-          return (
-            <Link
-              key={`${title}-${item.label}-${item.href}`}
-              href={item.href}
-              className={[
-                "flex items-center justify-between rounded-xl px-3 py-2 text-sm transition",
-                active ? "brand-nav-active" : "brand-nav-idle",
-              ].join(" ")}
-            >
-              <span className="flex items-center gap-3">
-                <Icon className="h-4 w-4 shrink-0" />
-                <span>{item.label}</span>
-              </span>
-
-              {typeof item.badge === "number" && item.badge > 0 ? (
-                <span
-                  className={[
-                    "inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    active
-                      ? "bg-white/15 text-white"
-                      : "bg-[rgba(216,138,45,0.18)] text-[#FFDCA9]",
-                  ].join(" ")}
-                >
-                  {item.badge}
+            return (
+              <Link
+                key={`${title}-${item.label}-${item.href}`}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={[
+                  "flex items-center justify-between rounded-xl px-3 py-2 text-sm transition",
+                  active ? "brand-nav-active" : "brand-nav-idle",
+                ].join(" ")}
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
                 </span>
-              ) : null}
-            </Link>
-          );
-        })}
-      </div>
+
+                {typeof item.badge === "number" && item.badge > 0 ? (
+                  <span
+                    className={[
+                      "inline-flex min-w-[1.5rem] shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
+                      active
+                        ? "bg-white/15 text-white"
+                        : "bg-[rgba(216,138,45,0.18)] text-[#FFDCA9]",
+                    ].join(" ")}
+                  >
+                    {item.badge}
+                  </span>
+                ) : null}
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -126,50 +167,69 @@ export function MobileNavSection({
   pathname: string;
   onNavigate?: () => void;
 }) {
+  const { activeHref, open, setOpen } = useCollapsibleSection({
+    title,
+    items,
+    pathname,
+  });
+
   return (
-    <div>
-      <p className="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]/70">
-        {title}
-      </p>
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-white/70 p-2">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]/75 hover:bg-[var(--brand-primary-soft)]"
+      >
+        <span>{title}</span>
+        {open ? (
+          <ChevronDown className="h-4 w-4" />
+        ) : (
+          <ChevronRight className="h-4 w-4" />
+        )}
+      </button>
 
-      <div className="mt-2 space-y-1">
-        {items.map((item) => {
-          const active = isActivePath(pathname, item.href);
-          const Icon = getIcon(item.icon);
+      {open ? (
+        <div className="mt-1 space-y-1">
+          {items.map((item) => {
+            const active = activeHref === item.href;
+            const Icon = getIcon(item.icon);
 
-          return (
-            <Link
-              key={`${title}-${item.label}-${item.href}`}
-              href={item.href}
-              onClick={onNavigate}
-              className={[
-                "flex items-center justify-between rounded-xl px-3 py-3 text-sm transition",
-                active
-                  ? "bg-[var(--brand-primary)] text-white"
-                  : "text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]",
-              ].join(" ")}
-            >
-              <span className="flex items-center gap-3">
-                <Icon className="h-5 w-5 shrink-0" />
-                <span className="text-[15px]">{item.label}</span>
-              </span>
-
-              {typeof item.badge === "number" && item.badge > 0 ? (
-                <span
-                  className={[
-                    "inline-flex min-w-[1.6rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    active
-                      ? "bg-white/15 text-white"
-                      : "bg-[var(--brand-accent-soft)] text-[var(--brand-accent-dark)]",
-                  ].join(" ")}
-                >
-                  {item.badge}
+            return (
+              <Link
+                key={`${title}-${item.label}-${item.href}`}
+                href={item.href}
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
+                className={[
+                  "flex items-center justify-between rounded-xl px-3 py-3 text-sm transition",
+                  active
+                    ? "bg-[var(--brand-primary)] text-white"
+                    : "text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]",
+                ].join(" ")}
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span className="truncate text-[15px]">{item.label}</span>
                 </span>
-              ) : null}
-            </Link>
-          );
-        })}
-      </div>
+
+                {typeof item.badge === "number" && item.badge > 0 ? (
+                  <span
+                    className={[
+                      "inline-flex min-w-[1.6rem] shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
+                      active
+                        ? "bg-white/15 text-white"
+                        : "bg-[var(--brand-accent-soft)] text-[var(--brand-accent-dark)]",
+                    ].join(" ")}
+                  >
+                    {item.badge}
+                  </span>
+                ) : null}
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }

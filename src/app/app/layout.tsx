@@ -1147,6 +1147,7 @@ export default async function AppLayout({
         userName={userName}
         userEmail={userEmail}
         role={roleLabel}
+        navigationRole={context.isPlatformAdmin ? "platform_admin" : context.studioRole}
         sections={sections}
         unreadNotificationsCount={unreadNotificationsCount}
         recentNotifications={safeNotifications}

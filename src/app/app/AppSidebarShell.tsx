@@ -20,6 +20,7 @@ export default function AppSidebarShell({
   userName,
   userEmail,
   role,
+  navigationRole,
   sections,
   unreadNotificationsCount = 0,
   recentNotifications = [],
@@ -34,6 +35,7 @@ export default function AppSidebarShell({
   userName?: string;
   userEmail?: string;
   role?: string;
+  navigationRole?: string | null;
   sections?: unknown;
   unreadNotificationsCount?: number;
   recentNotifications?: NotificationItem[];
@@ -56,8 +58,8 @@ export default function AppSidebarShell({
     : [];
 
   const normalizedSections = useMemo(
-    () => normalizeSections(sections, { hasOrganizerSuite }),
-    [sections, hasOrganizerSuite],
+    () => normalizeSections(sections, { hasOrganizerSuite, role: navigationRole }),
+    [sections, hasOrganizerSuite, navigationRole],
   );
 
   return (
