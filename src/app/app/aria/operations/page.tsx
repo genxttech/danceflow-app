@@ -25,6 +25,7 @@ import {
   generateAriaOperationalActionsAction,
   saveAriaActionPolicyAction,
   saveAriaDigestPreferencesAction,
+  retryAriaAutomationActionDeliveryAction,
   updateAutomationActionStatusAction,
 } from "@/app/app/automations/actions";
 
@@ -118,6 +119,21 @@ type AutomationActionRow = {
   snoozed_until?: string | null;
   review_note?: string | null;
   assigned_to?: string | null;
+  execution_delivery_id?: string | null;
+  execution_status?: string | null;
+  execution_attempt_count?: number | null;
+  execution_last_attempt_at?: string | null;
+  execution_next_attempt_at?: string | null;
+  execution_error_message?: string | null;
+  execution_sent_at?: string | null;
+  outcome_status?: string | null;
+  outcome_type?: string | null;
+  outcome_expected_by?: string | null;
+  outcome_verified_at?: string | null;
+  outcome_related_table?: string | null;
+  outcome_related_id?: string | null;
+  outcome_evidence?: Record<string, unknown> | null;
+  outcome_last_checked_at?: string | null;
 };
 
 type AssignableTeamMember = {
@@ -645,10 +661,12 @@ function automationStatusLabel(value: string | null | undefined) {
   if (value === "drafted") return "Drafted";
   if (value === "approved") return "Approved";
   if (value === "queued") return "Queued";
+  if (value === "awaiting_outcome") return "Awaiting outcome";
   if (value === "completed") return "Completed";
   if (value === "dismissed") return "Dismissed";
   if (value === "skipped") return "Skipped";
   if (value === "snoozed") return "Snoozed";
+  if (value === "failed") return "Needs attention";
   return value || "Action";
 }
 
@@ -1173,7 +1191,7 @@ function AriaActionReviewQueue({
   const activeActions = actions.filter((action) => {
     const status = action.status ?? "";
 
-    if (["suggested", "drafted", "approved", "queued"].includes(status)) {
+    if (["suggested", "drafted", "approved", "queued", "awaiting_outcome", "failed"].includes(status)) {
       return true;
     }
 
@@ -1274,6 +1292,67 @@ function AriaActionReviewQueue({
                       Review note: {action.review_note}
                     </p>
                   ) : null}
+                  {action.execution_status && action.execution_status !== "not_started" ? (
+                    <div className={`mt-3 rounded-xl border px-3 py-3 text-xs leading-5 ${
+                      action.execution_status === "sent"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : action.execution_status === "failed" || action.execution_status === "exhausted"
+                          ? "border-red-200 bg-red-50 text-red-800"
+                          : "border-amber-200 bg-amber-50 text-amber-800"
+                    }`}>
+                      <p className="font-semibold">
+                        Delivery: {action.execution_status.replaceAll("_", " ")}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                        <span>Attempts: {Number(action.execution_attempt_count ?? 0)} of 3</span>
+                        {action.execution_last_attempt_at ? (
+                          <span>Last attempt: {formatDateTime(action.execution_last_attempt_at)}</span>
+                        ) : null}
+                        {action.execution_next_attempt_at ? (
+                          <span>Next retry: {formatDateTime(action.execution_next_attempt_at)}</span>
+                        ) : null}
+                        {action.execution_sent_at ? (
+                          <span>Sent: {formatDateTime(action.execution_sent_at)}</span>
+                        ) : null}
+                      </div>
+                      {action.execution_error_message ? (
+                        <p className="mt-2 break-words">{action.execution_error_message}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {action.outcome_status && action.outcome_status !== "not_applicable" ? (
+                    <div className={`mt-3 rounded-xl border px-3 py-3 text-xs leading-5 ${
+                      action.outcome_status === "verified"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : action.outcome_status === "expired"
+                          ? "border-red-200 bg-red-50 text-red-800"
+                          : "border-violet-200 bg-violet-50 text-violet-800"
+                    }`}>
+                      <p className="font-semibold">
+                        Outcome: {action.outcome_status.replaceAll("_", " ")}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                        {action.outcome_type ? (
+                          <span>Expected: {action.outcome_type.replaceAll("_", " ")}</span>
+                        ) : null}
+                        {action.outcome_expected_by && action.outcome_status === "pending" ? (
+                          <span>Review window ends: {formatDateTime(action.outcome_expected_by)}</span>
+                        ) : null}
+                        {action.outcome_verified_at ? (
+                          <span>Verified: {formatDateTime(action.outcome_verified_at)}</span>
+                        ) : null}
+                        {action.outcome_last_checked_at ? (
+                          <span>Last checked: {formatDateTime(action.outcome_last_checked_at)}</span>
+                        ) : null}
+                      </div>
+                      {action.outcome_status === "pending" ? (
+                        <p className="mt-2">Delivery is complete. ARIA is now checking the authoritative studio record for the expected result.</p>
+                      ) : null}
+                      {action.outcome_status === "expired" ? (
+                        <p className="mt-2">The follow-up window ended without verified evidence. Staff review is needed.</p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <AriaRecommendationExplanationBox action={action} />
                 </div>
 
@@ -1324,7 +1403,7 @@ function AriaActionReviewQueue({
                     >
                       Open
                     </Link>
-                    {action.status !== "approved" ? (
+                    {["suggested", "drafted", "snoozed"].includes(action.status ?? "") ? (
                       <form action={updateAutomationActionStatusAction}>
                         <input
                           type="hidden"
@@ -1345,6 +1424,19 @@ function AriaActionReviewQueue({
                         </button>
                       </form>
                     ) : null}
+                    {["failed", "exhausted"].includes(action.execution_status ?? "") ? (
+                      <form action={retryAriaAutomationActionDeliveryAction}>
+                        <input type="hidden" name="actionId" value={action.id} />
+                        <input type="hidden" name="returnTo" value="/app/aria/operations" />
+                        <button
+                          type="submit"
+                          className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                        >
+                          Retry now
+                        </button>
+                      </form>
+                    ) : null}
+                    {!["queued", "retrying", "failed", "exhausted"].includes(action.execution_status ?? "") && action.outcome_status !== "pending" ? (
                     <form action={updateAutomationActionStatusAction}>
                       <input type="hidden" name="actionId" value={action.id} />
                       <input type="hidden" name="status" value="completed" />
@@ -1360,6 +1452,7 @@ function AriaActionReviewQueue({
                         Mark done
                       </button>
                     </form>
+                    ) : null}
                     <form
                       action={updateAutomationActionStatusAction}
                       className="flex flex-wrap items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-2 py-1"
@@ -1464,7 +1557,7 @@ function AriaActionReviewQueue({
 function isActiveAutomationAction(action: AutomationActionRow, now: Date) {
   const status = action.status ?? "";
 
-  if (["suggested", "drafted", "approved", "queued"].includes(status)) {
+  if (["suggested", "drafted", "approved", "queued", "awaiting_outcome", "failed"].includes(status)) {
     return true;
   }
 
@@ -2588,7 +2681,7 @@ export default async function AriaOperationsCenterPage() {
     } = await supabase
       .from("automation_actions")
       .select(
-        "id, rule_key, title, body, status, priority, related_table, related_id, client_id, due_at, created_at, reviewed_at, approved_at, completed_at, dismissed_at, skipped_at, snoozed_until, review_note, assigned_to",
+        "id, rule_key, title, body, status, priority, related_table, related_id, client_id, due_at, created_at, reviewed_at, approved_at, completed_at, dismissed_at, skipped_at, snoozed_until, review_note, assigned_to, execution_delivery_id, execution_status, execution_attempt_count, execution_last_attempt_at, execution_next_attempt_at, execution_error_message, execution_sent_at, outcome_status, outcome_type, outcome_expected_by, outcome_verified_at, outcome_related_table, outcome_related_id, outcome_evidence, outcome_last_checked_at",
       )
       .eq("studio_id", studioId)
       .in("status", [
@@ -2600,6 +2693,7 @@ export default async function AriaOperationsCenterPage() {
         "completed",
         "dismissed",
         "skipped",
+        "failed",
       ])
       .order("created_at", { ascending: false })
       .limit(100);
@@ -2800,7 +2894,7 @@ export default async function AriaOperationsCenterPage() {
     supabase
       .from("automation_actions")
       .select(
-        "id, rule_key, title, body, status, priority, related_table, related_id, client_id, due_at, created_at, reviewed_at, approved_at, completed_at, dismissed_at, skipped_at, snoozed_until, review_note, assigned_to",
+        "id, rule_key, title, body, status, priority, related_table, related_id, client_id, due_at, created_at, reviewed_at, approved_at, completed_at, dismissed_at, skipped_at, snoozed_until, review_note, assigned_to, execution_delivery_id, execution_status, execution_attempt_count, execution_last_attempt_at, execution_next_attempt_at, execution_error_message, execution_sent_at, outcome_status, outcome_type, outcome_expected_by, outcome_verified_at, outcome_related_table, outcome_related_id, outcome_evidence, outcome_last_checked_at",
       )
       .eq("studio_id", studioId)
       .in("status", [
@@ -2812,6 +2906,7 @@ export default async function AriaOperationsCenterPage() {
         "completed",
         "dismissed",
         "skipped",
+        "failed",
       ])
       .order("created_at", { ascending: false })
       .limit(100),

@@ -6,6 +6,7 @@ import {
   Archive,
   ArrowRight,
   CalendarPlus,
+  Clock3,
   FileText,
   Mail,
   Pencil,
@@ -33,6 +34,34 @@ function statusLabel(status: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+
+function lifecycleBadgeClass(stage: ClientRow["lifecycle_stage"]) {
+  if (["active_student", "new_student", "recovered"].includes(stage)) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (["new_lead", "contacted", "intro_scheduled"].includes(stage)) {
+    return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+  if (["conversion_pending", "needs_rebooking"].includes(stage)) {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  if (stage === "retention_risk") {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
+function formatLifecycleDate(value: string | null) {
+  if (!value) return "No activity recorded";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No activity recorded";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
 }
 
 function initialsFor(client: Pick<ClientRow, "first_name" | "last_name">) {
@@ -81,11 +110,18 @@ export default function ClientWorkspaceList({
 
                   <span className="flex shrink-0 flex-wrap items-center gap-2">
                     <span
+                      className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${lifecycleBadgeClass(
+                        client.lifecycle_stage,
+                      )}`}
+                    >
+                      {client.lifecycle_label}
+                    </span>
+                    <span
                       className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusBadgeClass(
                         client.status,
                       )}`}
                     >
-                      {statusLabel(client.status)}
+                      Record: {statusLabel(client.status)}
                     </span>
                     {client.skill_level ? (
                       <span className="inline-flex rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
@@ -142,7 +178,7 @@ export default function ClientWorkspaceList({
         title={selectedClient ? displayName(selectedClient) : "Client details"}
         description={
           selectedClient
-            ? `${statusLabel(selectedClient.status)} client record`
+            ? `${selectedClient.lifecycle_label} · ${statusLabel(selectedClient.status)} record`
             : undefined
         }
         onClose={() => setSelectedClient(null)}
@@ -183,11 +219,18 @@ export default function ClientWorkspaceList({
                   </h3>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${lifecycleBadgeClass(
+                        selectedClient.lifecycle_stage,
+                      )}`}
+                    >
+                      {selectedClient.lifecycle_label}
+                    </span>
+                    <span
                       className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
                         selectedClient.status,
                       )}`}
                     >
-                      {statusLabel(selectedClient.status)}
+                      Record: {statusLabel(selectedClient.status)}
                     </span>
                     {selectedClient.skill_level ? (
                       <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
@@ -197,6 +240,46 @@ export default function ClientWorkspaceList({
                   </div>
                 </div>
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                Client journey
+              </p>
+              <p className="mt-2 text-base font-semibold text-slate-950">
+                {selectedClient.lifecycle_label}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-700">
+                {selectedClient.lifecycle_description}
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    <Clock3 className="h-3.5 w-3.5" />
+                    Last meaningful activity
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-slate-900">
+                    {formatLifecycleDate(selectedClient.lifecycle_last_activity_at)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Next expected step
+                  </p>
+                  <p className="mt-2 text-sm font-medium leading-6 text-slate-900">
+                    {selectedClient.lifecycle_next_step}
+                  </p>
+                </div>
+              </div>
+              {selectedClient.lifecycle_risk_reason ? (
+                <div className={`mt-3 rounded-xl border p-3 text-sm ${
+                  selectedClient.lifecycle_risk === "high"
+                    ? "border-rose-200 bg-rose-50 text-rose-800"
+                    : "border-amber-200 bg-amber-50 text-amber-800"
+                }`}>
+                  {selectedClient.lifecycle_risk_reason}
+                </div>
+              ) : null}
             </section>
 
             <section className="rounded-2xl border border-orange-100 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_100%)] p-4">

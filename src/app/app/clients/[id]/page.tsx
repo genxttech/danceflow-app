@@ -45,6 +45,7 @@ import {
   retryDelinquentMembershipBillingAction,
 } from "@/app/app/memberships/actions";
 import { recordPayAsYouGoLessonPaymentAction } from "@/app/app/schedule/actions";
+import { deriveClientLifecycle } from "@/lib/clients/lifecycle";
 
 type ClientRecord = {
   id: string;
@@ -68,6 +69,7 @@ type ClientRecord = {
   notes: string | null;
   is_independent_instructor: boolean | null;
   linked_instructor_id: string | null;
+  created_at: string;
 };
 
 type ClientPortalInviteDeliveryRow = {
@@ -166,6 +168,8 @@ type ClientPackageRow = {
   id: string;
   name_snapshot: string;
   expiration_date: string | null;
+  purchase_date: string | null;
+  created_at: string | null;
   active: boolean;
   client_package_items: ClientPackageItemRow[];
 };
@@ -1859,7 +1863,8 @@ export default async function ClientDetailPage({
         photo_url,
         notes,
         is_independent_instructor,
-        linked_instructor_id
+        linked_instructor_id,
+        created_at
       `)
       .eq("id", id)
       .eq("studio_id", studioId)
@@ -1878,6 +1883,8 @@ export default async function ClientDetailPage({
         id,
         name_snapshot,
         expiration_date,
+        purchase_date,
+        created_at,
         active,
         client_package_items (
           id,
@@ -2637,6 +2644,25 @@ export default async function ClientDetailPage({
     (row) => row.isRequired && row.status !== "signed" && row.status !== "completed",
   ).length;
 
+  const clientLifecycle = deriveClientLifecycle({
+    clientStatus: typedClient.status,
+    createdAt: typedClient.created_at,
+    leadActivities: typedLeadActivities,
+    appointments: [...typedUpcoming, ...typedRecent],
+    packages: typedPackages,
+    memberships: typedActiveMembership
+      ? [
+          {
+            id: typedActiveMembership.id,
+            status: typedActiveMembership.status,
+            starts_on: typedActiveMembership.starts_on,
+            cancel_at_period_end: typedActiveMembership.cancel_at_period_end,
+          },
+        ]
+      : [],
+    payments: typedPayments,
+  });
+
 
   return (
     <div className="space-y-8 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.07),transparent_26%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.08),transparent_24%)]">
@@ -3028,6 +3054,66 @@ export default async function ClientDetailPage({
         portalStatus={portalLifecycleStatus}
         canBook={canCreateAppointments(role)}
       />
+
+      {activeTab === "overview" ? (
+        <SectionCard
+          title="Client Journey"
+          subtitle="Derived from scheduling, outreach, purchases, membership health, and recent engagement."
+          action={
+            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+              clientLifecycle.risk === "high"
+                ? "bg-rose-50 text-rose-700"
+                : clientLifecycle.risk === "watch"
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-emerald-50 text-emerald-700"
+            }`}>
+              {clientLifecycle.label}
+            </span>
+          }
+        >
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-violet-100 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                Current stage
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
+                {clientLifecycle.label}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {clientLifecycle.description}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-700">
+                Last meaningful activity
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-950">
+                {clientLifecycle.lastMeaningfulActivityAt
+                  ? fmtDateTime(clientLifecycle.lastMeaningfulActivityAt, studioTimeZone)
+                  : "No activity recorded"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-orange-100 bg-orange-50/70 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">
+                Next expected step
+              </p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-950">
+                {clientLifecycle.nextExpectedStep}
+              </p>
+            </div>
+          </div>
+          {clientLifecycle.riskReason ? (
+            <div className={`mt-4 rounded-2xl border p-4 text-sm leading-6 ${
+              clientLifecycle.risk === "high"
+                ? "border-rose-200 bg-rose-50 text-rose-800"
+                : "border-amber-200 bg-amber-50 text-amber-800"
+            }`}>
+              <span className="font-semibold">Current risk: </span>
+              {clientLifecycle.riskReason}
+            </div>
+          ) : null}
+        </SectionCard>
+      ) : null}
 
       {activeTab === "marketing" ? (
         <ClientCommunicationWorkspace

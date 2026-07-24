@@ -13,6 +13,7 @@ import WorkspaceHeader from "@/components/app/workspace/WorkspaceHeader";
 import WorkspaceToolbar from "@/components/app/workspace/WorkspaceToolbar";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import ClientWorkspaceList from "./ClientWorkspaceList";
+import { deriveClientLifecycle, type ClientLifecycleStage, type ClientLifecycleRisk } from "@/lib/clients/lifecycle";
 
 type SearchParams = Promise<{
   status?: string;
@@ -30,6 +31,13 @@ export type ClientRow = {
   dance_interests: string | null;
   referral_source: string | null;
   created_at: string;
+  lifecycle_stage: ClientLifecycleStage;
+  lifecycle_label: string;
+  lifecycle_description: string;
+  lifecycle_last_activity_at: string | null;
+  lifecycle_next_step: string;
+  lifecycle_risk: ClientLifecycleRisk;
+  lifecycle_risk_reason: string | null;
 };
 
 
@@ -87,7 +95,149 @@ export default async function ClientsPage({
     throw new Error(`Failed to load clients: ${error.message}`);
   }
 
-  const typedClients = ((clients ?? []) as ClientRow[])
+  const baseClients = (clients ?? []) as Array<Omit<ClientRow,
+    | "lifecycle_stage"
+    | "lifecycle_label"
+    | "lifecycle_description"
+    | "lifecycle_last_activity_at"
+    | "lifecycle_next_step"
+    | "lifecycle_risk"
+    | "lifecycle_risk_reason"
+  >>;
+  const clientIds = baseClients.map((client) => client.id);
+
+  const [
+    { data: lifecycleAppointments, error: lifecycleAppointmentsError },
+    { data: lifecyclePackages, error: lifecyclePackagesError },
+    { data: lifecycleMemberships, error: lifecycleMembershipsError },
+    { data: lifecyclePayments, error: lifecyclePaymentsError },
+    { data: lifecycleActivities, error: lifecycleActivitiesError },
+  ] = clientIds.length
+    ? await Promise.all([
+        supabase
+          .from("appointments")
+          .select("client_id, appointment_type, status, starts_at")
+          .eq("studio_id", studioId)
+          .in("client_id", clientIds)
+          .order("starts_at", { ascending: false }),
+        supabase
+          .from("client_packages")
+          .select("client_id, active, purchase_date, created_at")
+          .eq("studio_id", studioId)
+          .in("client_id", clientIds),
+        supabase
+          .from("client_memberships")
+          .select("client_id, status, starts_on, created_at, cancel_at_period_end")
+          .eq("studio_id", studioId)
+          .in("client_id", clientIds),
+        supabase
+          .from("payments")
+          .select("client_id, status, created_at, payment_type")
+          .eq("studio_id", studioId)
+          .in("client_id", clientIds),
+        supabase
+          .from("lead_activities")
+          .select("client_id, created_at, activity_type, follow_up_due_at, completed_at")
+          .eq("studio_id", studioId)
+          .in("client_id", clientIds),
+      ])
+    : [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+      ];
+
+  if (lifecycleAppointmentsError) {
+    throw new Error(`Failed to load lifecycle appointments: ${lifecycleAppointmentsError.message}`);
+  }
+  if (lifecyclePackagesError) {
+    throw new Error(`Failed to load lifecycle packages: ${lifecyclePackagesError.message}`);
+  }
+  if (lifecycleMembershipsError) {
+    throw new Error(`Failed to load lifecycle memberships: ${lifecycleMembershipsError.message}`);
+  }
+  if (lifecyclePaymentsError) {
+    throw new Error(`Failed to load lifecycle payments: ${lifecyclePaymentsError.message}`);
+  }
+  if (lifecycleActivitiesError) {
+    throw new Error(`Failed to load lifecycle activities: ${lifecycleActivitiesError.message}`);
+  }
+
+  function rowsForClient<T extends { client_id: string | null }>(
+    rows: T[] | null,
+    clientId: string,
+  ) {
+    return (rows ?? []).filter((row) => row.client_id === clientId);
+  }
+
+  const clientsWithLifecycle: ClientRow[] = baseClients.map((client) => {
+    const lifecycle = deriveClientLifecycle({
+      clientStatus: client.status,
+      createdAt: client.created_at,
+      appointments: rowsForClient(
+        lifecycleAppointments as Array<{
+          client_id: string | null;
+          appointment_type: string;
+          status: string;
+          starts_at: string;
+        }> | null,
+        client.id,
+      ),
+      packages: rowsForClient(
+        lifecyclePackages as Array<{
+          client_id: string | null;
+          active: boolean;
+          purchase_date: string | null;
+          created_at: string | null;
+        }> | null,
+        client.id,
+      ),
+      memberships: rowsForClient(
+        lifecycleMemberships as Array<{
+          client_id: string | null;
+          status: string;
+          starts_on: string | null;
+          created_at: string | null;
+          cancel_at_period_end: boolean | null;
+        }> | null,
+        client.id,
+      ),
+      payments: rowsForClient(
+        lifecyclePayments as Array<{
+          client_id: string | null;
+          status: string;
+          created_at: string;
+          payment_type: string | null;
+        }> | null,
+        client.id,
+      ),
+      leadActivities: rowsForClient(
+        lifecycleActivities as Array<{
+          client_id: string | null;
+          created_at: string;
+          activity_type: string | null;
+          follow_up_due_at: string | null;
+          completed_at: string | null;
+        }> | null,
+        client.id,
+      ),
+    });
+
+    return {
+      ...client,
+      lifecycle_stage: lifecycle.stage,
+      lifecycle_label: lifecycle.label,
+      lifecycle_description: lifecycle.description,
+      lifecycle_last_activity_at: lifecycle.lastMeaningfulActivityAt,
+      lifecycle_next_step: lifecycle.nextExpectedStep,
+      lifecycle_risk: lifecycle.risk,
+      lifecycle_risk_reason: lifecycle.riskReason,
+    };
+  });
+
+  const typedClients = clientsWithLifecycle
     .filter((client) => {
       if (!queryText) return true;
 
@@ -124,10 +274,20 @@ export default async function ClientsPage({
       return a.created_at.localeCompare(b.created_at);
     });
 
-  const activeCount = typedClients.filter((client) => client.status === "active").length;
-  const leadCount = typedClients.filter((client) => client.status === "lead").length;
-  const inactiveCount = typedClients.filter((client) => client.status === "inactive").length;
-  const archivedCount = typedClients.filter((client) => client.status === "archived").length;
+  const activeCount = typedClients.filter((client) =>
+    ["active_student", "new_student", "recovered"].includes(client.lifecycle_stage)
+  ).length;
+  const leadCount = typedClients.filter((client) =>
+    ["new_lead", "contacted", "intro_scheduled", "conversion_pending"].includes(
+      client.lifecycle_stage,
+    )
+  ).length;
+  const rebookingCount = typedClients.filter(
+    (client) => client.lifecycle_stage === "needs_rebooking",
+  ).length;
+  const riskCount = typedClients.filter(
+    (client) => client.lifecycle_stage === "retention_risk",
+  ).length;
   const filtersApplied = Boolean(selectedStatus || queryText);
 
   return (
@@ -178,17 +338,18 @@ export default async function ClientsPage({
               tone: leadCount > 0 ? "info" : "default",
             },
             {
-              key: "inactive",
-              label: "Inactive",
-              value: inactiveCount,
-              detail: "Re-engagement",
-              tone: inactiveCount > 0 ? "warning" : "default",
+              key: "rebooking",
+              label: "Needs rebooking",
+              value: rebookingCount,
+              detail: "Recent clients without a next visit",
+              tone: rebookingCount > 0 ? "warning" : "default",
             },
             {
-              key: "archived",
-              label: "Archived",
-              value: archivedCount,
-              detail: "Historical records",
+              key: "risk",
+              label: "Retention risk",
+              value: riskCount,
+              detail: "Needs recovery attention",
+              tone: riskCount > 0 ? "danger" : "default",
             },
           ]}
         />

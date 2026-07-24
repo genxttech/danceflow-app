@@ -321,10 +321,14 @@ export async function dismissAutomationAction(formData: FormData) {
 
   const { data: existingAction } = await supabase
     .from("automation_actions")
-    .select("id, status")
+    .select("id, status, outcome_status")
     .eq("id", actionId)
     .eq("studio_id", context.studioId)
-    .maybeSingle<{ id: string; status: string | null }>();
+    .maybeSingle<{
+      id: string;
+      status: string | null;
+      outcome_status: string | null;
+    }>();
 
   await supabase
     .from("automation_actions")
@@ -530,7 +534,15 @@ function allowedAutomationActionSourceStatuses(
   }
 
   if (nextStatus === "completed") {
-    return ["suggested", "drafted", "approved", "queued", "snoozed"];
+    return [
+      "suggested",
+      "drafted",
+      "approved",
+      "queued",
+      "awaiting_outcome",
+      "failed",
+      "snoozed",
+    ];
   }
 
   if (nextStatus === "snoozed") {
@@ -568,10 +580,14 @@ export async function updateAutomationActionStatusAction(formData: FormData) {
 
   const { data: existingAction, error: existingError } = await supabase
     .from("automation_actions")
-    .select("id, status")
+    .select("id, status, outcome_status")
     .eq("id", actionId)
     .eq("studio_id", context.studioId)
-    .maybeSingle<{ id: string; status: string | null }>();
+    .maybeSingle<{
+      id: string;
+      status: string | null;
+      outcome_status: string | null;
+    }>();
 
   if (existingError || !existingAction) {
     console.error(
@@ -601,6 +617,22 @@ export async function updateAutomationActionStatusAction(formData: FormData) {
     reviewNote,
     snoozedUntil,
   });
+  const manuallyResolvedOutcome =
+    nextStatus === "completed" &&
+    ["pending", "expired"].includes(existingAction.outcome_status ?? "");
+
+  if (manuallyResolvedOutcome) {
+    updatePayload.outcome_status = "manually_resolved";
+    updatePayload.outcome_verified_at = now;
+    updatePayload.outcome_last_checked_at = now;
+    updatePayload.outcome_evidence = {
+      resolution: "manual",
+      resolved_by: context.userId,
+      note: reviewNote,
+    };
+    updatePayload.review_note =
+      reviewNote || "A team member confirmed that the outcome was resolved outside automated verification.";
+  }
 
   const { data: updatedAction, error: updateError } = await supabase
     .from("automation_actions")
@@ -623,11 +655,17 @@ export async function updateAutomationActionStatusAction(formData: FormData) {
     .insert({
       studio_id: context.studioId,
       automation_action_id: actionId,
-      event_type: nextStatus,
+      event_type: manuallyResolvedOutcome
+        ? "outcome_manually_resolved"
+        : nextStatus,
       previous_status: currentStatus,
       new_status: nextStatus,
       note: reviewNote,
-      metadata: snoozedUntil ? { snoozed_until: snoozedUntil } : {},
+      metadata: manuallyResolvedOutcome
+        ? { previous_outcome_status: existingAction.outcome_status }
+        : snoozedUntil
+          ? { snoozed_until: snoozedUntil }
+          : {},
       created_by: context.userId,
     });
 
@@ -2533,7 +2571,7 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
               status: "queued",
               subject,
               body_text: bodyText,
-              body_html: renderPlainTextAsHtml(bodyText),
+              body_html: null,
               updated_at: now,
             })
             .eq("id", existingDelivery.id)
@@ -2558,7 +2596,7 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
               recipient_phone: null,
               subject,
               body_text: bodyText,
-              body_html: renderPlainTextAsHtml(bodyText),
+              body_html: null,
               related_table: "automation_actions",
               related_id: action.id,
               dedupe_key: `aria-execution:${action.id}:email`,
@@ -2580,6 +2618,13 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
           .from("automation_actions")
           .update({
             status: "queued",
+            execution_delivery_id: deliveryId,
+            execution_status: "queued",
+            execution_attempt_count: 0,
+            execution_last_attempt_at: null,
+            execution_next_attempt_at: now,
+            execution_error_message: null,
+            execution_sent_at: null,
             reviewed_at: now,
             reviewed_by: context.userId,
             updated_at: now,
@@ -2652,6 +2697,97 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
   );
 }
 
+
+
+export async function retryAriaAutomationActionDeliveryAction(formData: FormData) {
+  const actionId = String(formData.get("actionId") ?? "").trim();
+  const returnTo =
+    getAutomationActionReturnTo(formData.get("returnTo")) ??
+    "/app/aria/operations";
+
+  if (!actionId) {
+    redirect(appendActionResult(returnTo, "error", "aria_retry_missing_action"));
+  }
+
+  const context = await getCurrentStudioContext();
+  if (!canManageSettings(context.studioRole ?? "")) {
+    redirect(appendActionResult(returnTo, "error", "not-authorized"));
+  }
+
+  const supabase = await createClient();
+  const adminSupabase = createAdminClient();
+  const { data: action, error: actionError } = await supabase
+    .from("automation_actions")
+    .select("id, status, execution_status, execution_delivery_id, execution_attempt_count")
+    .eq("id", actionId)
+    .eq("studio_id", context.studioId)
+    .maybeSingle<{
+      id: string;
+      status: string | null;
+      execution_status: string | null;
+      execution_delivery_id: string | null;
+      execution_attempt_count: number | null;
+    }>();
+
+  if (actionError || !action?.execution_delivery_id) {
+    redirect(appendActionResult(returnTo, "error", "aria_retry_not_available"));
+  }
+
+  if (!["failed", "exhausted"].includes(action.execution_status ?? "")) {
+    redirect(appendActionResult(returnTo, "error", "aria_retry_not_available"));
+  }
+
+  const now = new Date().toISOString();
+  const { data: delivery, error: deliveryError } = await adminSupabase
+    .from("outbound_deliveries")
+    .update({ status: "queued", error_message: null, updated_at: now })
+    .eq("id", action.execution_delivery_id)
+    .eq("studio_id", context.studioId)
+    .eq("related_table", "automation_actions")
+    .eq("related_id", action.id)
+    .eq("status", "failed")
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (deliveryError || !delivery) {
+    redirect(appendActionResult(returnTo, "error", "aria_retry_failed"));
+  }
+
+  const { error: updateError } = await adminSupabase
+    .from("automation_actions")
+    .update({
+      status: "queued",
+      execution_status: "retrying",
+      execution_next_attempt_at: now,
+      execution_error_message: null,
+      updated_at: now,
+    })
+    .eq("id", action.id)
+    .eq("studio_id", context.studioId);
+
+  if (updateError) {
+    redirect(appendActionResult(returnTo, "error", "aria_retry_failed"));
+  }
+
+  await supabase.from("automation_action_events").insert({
+    studio_id: context.studioId,
+    automation_action_id: action.id,
+    event_type: "delivery_requeued",
+    previous_status: action.status,
+    new_status: "queued",
+    note: "A team member requested an immediate delivery retry.",
+    metadata: {
+      delivery_id: action.execution_delivery_id,
+      attempt_count: Number(action.execution_attempt_count ?? 0),
+      manual_retry: true,
+    },
+    created_by: context.userId,
+  });
+
+  revalidatePath("/app/aria/operations");
+  revalidatePath("/app/automations");
+  redirect(appendActionResult(returnTo, "success", "aria_delivery_requeued"));
+}
 
 type AutomationActionDraftRow = {
   id: string;

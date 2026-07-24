@@ -5,6 +5,10 @@ import {
   renderDanceFlowSystemEmail,
   renderPlainTextAsStudioEmail,
 } from "@/lib/notifications/email-branding";
+import {
+  getAriaOutcomeExpectation,
+  verifyPendingAriaOutcomes,
+} from "@/lib/aria/outcome-verification";
 
 type OutboundPayload = Record<string, unknown> | null;
 
@@ -20,6 +24,8 @@ type OutboundDeliveryRow = {
   body_html: string | null;
   payload: OutboundPayload;
   status: "queued" | "sent" | "failed" | "skipped";
+  related_table: string | null;
+  related_id: string | null;
 };
 
 type DispatchResult =
@@ -596,6 +602,262 @@ async function syncAriaDigestRunStatus(params: {
   }
 }
 
+async function recordAriaActionDeliveryEvent(params: {
+  studioId: string;
+  actionId: string;
+  eventType: "delivery_sent" | "delivery_failed" | "delivery_requeued" | "delivery_exhausted";
+  previousStatus: string | null;
+  newStatus: string | null;
+  note?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("automation_action_events").insert({
+    studio_id: params.studioId,
+    automation_action_id: params.actionId,
+    event_type: params.eventType,
+    previous_status: params.previousStatus,
+    new_status: params.newStatus,
+    note: params.note?.slice(0, 1000) ?? null,
+    metadata: params.metadata ?? {},
+    created_by: null,
+  });
+
+  if (error) {
+    console.warn("Failed to record ARIA action delivery event", {
+      actionId: params.actionId,
+      eventType: params.eventType,
+      error,
+    });
+  }
+}
+
+async function syncAriaActionDeliveryStatus(params: {
+  row: OutboundDeliveryRow;
+  status: "sent" | "failed";
+  errorMessage?: string | null;
+  providerMessageId?: string | null;
+}) {
+  if (
+    params.row.related_table !== "automation_actions" ||
+    !params.row.related_id ||
+    !params.row.template_key.startsWith("aria_execution_")
+  ) {
+    return;
+  }
+
+  const supabase = createAdminClient();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const { data: action, error: lookupError } = await supabase
+    .from("automation_actions")
+    .select("id, studio_id, rule_key, status, execution_attempt_count")
+    .eq("id", params.row.related_id)
+    .eq("studio_id", params.row.studio_id)
+    .maybeSingle<{
+      id: string;
+      studio_id: string;
+      rule_key: string | null;
+      status: string | null;
+      execution_attempt_count: number | null;
+    }>();
+
+  if (lookupError || !action) {
+    console.warn("Failed to load ARIA action for delivery synchronization", {
+      deliveryId: params.row.id,
+      actionId: params.row.related_id,
+      lookupError,
+    });
+    return;
+  }
+
+  const attemptCount = Number(action.execution_attempt_count ?? 0) + 1;
+
+  if (params.status === "sent") {
+    const outcomeExpectation = getAriaOutcomeExpectation(action.rule_key);
+    const outcomeExpectedBy = outcomeExpectation
+      ? new Date(now.getTime() + outcomeExpectation.windowDays * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+    const nextStatus = outcomeExpectation ? "awaiting_outcome" : "completed";
+
+    const { error } = await supabase
+      .from("automation_actions")
+      .update({
+        status: nextStatus,
+        execution_delivery_id: params.row.id,
+        execution_status: "sent",
+        execution_attempt_count: attemptCount,
+        execution_last_attempt_at: nowIso,
+        execution_next_attempt_at: null,
+        execution_error_message: null,
+        execution_sent_at: nowIso,
+        completed_at: outcomeExpectation ? null : nowIso,
+        outcome_status: outcomeExpectation ? "pending" : "not_applicable",
+        outcome_type: outcomeExpectation?.type ?? null,
+        outcome_expected_by: outcomeExpectedBy,
+        outcome_verified_at: null,
+        outcome_related_table: null,
+        outcome_related_id: null,
+        outcome_evidence: {},
+        outcome_last_checked_at: null,
+        updated_at: nowIso,
+        review_note: outcomeExpectation
+          ? "ARIA verified delivery and is monitoring for the expected outcome."
+          : "ARIA verified that the approved follow-up was sent.",
+      })
+      .eq("id", action.id)
+      .eq("studio_id", action.studio_id);
+
+    if (error) throw new Error(`Failed to synchronize ARIA action sent state: ${error.message}`);
+
+    await recordAriaActionDeliveryEvent({
+      studioId: action.studio_id,
+      actionId: action.id,
+      eventType: "delivery_sent",
+      previousStatus: action.status,
+      newStatus: nextStatus,
+      note: outcomeExpectation
+        ? "ARIA verified outbound delivery and started outcome monitoring."
+        : "ARIA verified outbound delivery.",
+      metadata: {
+        delivery_id: params.row.id,
+        provider_message_id: params.providerMessageId ?? null,
+        attempt_count: attemptCount,
+        outcome_type: outcomeExpectation?.type ?? null,
+        outcome_expected_by: outcomeExpectedBy,
+      },
+    });
+
+    if (outcomeExpectation) {
+      const { error: eventError } = await supabase.from("automation_action_events").insert({
+        studio_id: action.studio_id,
+        automation_action_id: action.id,
+        event_type: "outcome_pending",
+        previous_status: nextStatus,
+        new_status: nextStatus,
+        note: "ARIA is monitoring the authoritative record for the expected outcome.",
+        metadata: {
+          outcome_type: outcomeExpectation.type,
+          outcome_expected_by: outcomeExpectedBy,
+        },
+        created_by: null,
+      });
+      if (eventError) {
+        console.warn("Failed to record ARIA outcome pending event", { actionId: action.id, eventError });
+      }
+    }
+    return;
+  }
+
+  const exhausted = attemptCount >= 3;
+  const nextAttemptAt = exhausted
+    ? null
+    : new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+  const nextStatus = exhausted ? "failed" : "queued";
+  const executionStatus = exhausted ? "exhausted" : "failed";
+
+  const { error } = await supabase
+    .from("automation_actions")
+    .update({
+      status: nextStatus,
+      execution_delivery_id: params.row.id,
+      execution_status: executionStatus,
+      execution_attempt_count: attemptCount,
+      execution_last_attempt_at: nowIso,
+      execution_next_attempt_at: nextAttemptAt,
+      execution_error_message: params.errorMessage?.slice(0, 1000) ?? "Outbound delivery failed.",
+      updated_at: nowIso,
+      review_note: exhausted
+        ? "ARIA delivery failed after three attempts and needs staff attention."
+        : "ARIA delivery failed and is scheduled for retry.",
+    })
+    .eq("id", action.id)
+    .eq("studio_id", action.studio_id);
+
+  if (error) throw new Error(`Failed to synchronize ARIA action failure state: ${error.message}`);
+
+  await recordAriaActionDeliveryEvent({
+    studioId: action.studio_id,
+    actionId: action.id,
+    eventType: exhausted ? "delivery_exhausted" : "delivery_failed",
+    previousStatus: action.status,
+    newStatus: nextStatus,
+    note: params.errorMessage ?? "Outbound delivery failed.",
+    metadata: {
+      delivery_id: params.row.id,
+      attempt_count: attemptCount,
+      next_attempt_at: nextAttemptAt,
+    },
+  });
+}
+
+async function requeueFailedAriaActionDeliveries(limit = 25) {
+  const supabase = createAdminClient();
+  const now = new Date().toISOString();
+  const { data: actions, error } = await supabase
+    .from("automation_actions")
+    .select("id, studio_id, status, execution_delivery_id, execution_attempt_count")
+    .eq("execution_status", "failed")
+    .not("execution_delivery_id", "is", null)
+    .lt("execution_attempt_count", 3)
+    .lte("execution_next_attempt_at", now)
+    .order("execution_next_attempt_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    throw new Error(`Failed to load retryable ARIA action deliveries: ${error.message}`);
+  }
+
+  let requeued = 0;
+  for (const action of actions ?? []) {
+    if (!action.execution_delivery_id) continue;
+
+    const { data: delivery, error: deliveryError } = await supabase
+      .from("outbound_deliveries")
+      .update({ status: "queued", error_message: null, updated_at: now })
+      .eq("id", action.execution_delivery_id)
+      .eq("studio_id", action.studio_id)
+      .eq("related_table", "automation_actions")
+      .eq("related_id", action.id)
+      .eq("status", "failed")
+      .select("id")
+      .maybeSingle<{ id: string }>();
+
+    if (deliveryError || !delivery) {
+      if (deliveryError) console.warn("Failed to requeue ARIA action delivery", deliveryError);
+      continue;
+    }
+
+    await supabase
+      .from("automation_actions")
+      .update({
+        status: "queued",
+        execution_status: "retrying",
+        execution_next_attempt_at: now,
+        execution_error_message: null,
+        updated_at: now,
+      })
+      .eq("id", action.id)
+      .eq("studio_id", action.studio_id);
+
+    await recordAriaActionDeliveryEvent({
+      studioId: action.studio_id,
+      actionId: action.id,
+      eventType: "delivery_requeued",
+      previousStatus: action.status,
+      newStatus: "queued",
+      note: "ARIA automatically requeued the failed delivery.",
+      metadata: {
+        delivery_id: action.execution_delivery_id,
+        attempt_count: Number(action.execution_attempt_count ?? 0),
+      },
+    });
+    requeued += 1;
+  }
+
+  return requeued;
+}
+
 async function requeueFailedAriaDigestDeliveries(limit = 25) {
   const supabase = createAdminClient();
   const now = new Date().toISOString();
@@ -655,7 +917,9 @@ async function requeueFailedAriaDigestDeliveries(limit = 25) {
 
 export async function dispatchQueuedOutboundDeliveries(limit = 25) {
   const supabase = createAdminClient();
-  const requeued = await requeueFailedAriaDigestDeliveries(limit);
+  const digestRequeued = await requeueFailedAriaDigestDeliveries(limit);
+  const actionRequeued = await requeueFailedAriaActionDeliveries(limit);
+  const requeued = digestRequeued + actionRequeued;
 
   const { data, error } = await supabase
     .from("outbound_deliveries")
@@ -670,7 +934,9 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
       body_text,
       body_html,
       payload,
-      status
+      status,
+      related_table,
+      related_id
     `)
     .eq("status", "queued")
     .order("created_at", { ascending: true })
@@ -700,6 +966,11 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
             errorMessage: result.error,
           });
         }
+        await syncAriaActionDeliveryStatus({
+          row,
+          status: "failed",
+          errorMessage: result.error,
+        });
         continue;
       }
 
@@ -708,6 +979,11 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
       if (row.template_key.startsWith("aria_digest_")) {
         await syncAriaDigestRunStatus({ deliveryId: row.id, status: "sent" });
       }
+      await syncAriaActionDeliveryStatus({
+        row,
+        status: "sent",
+        providerMessageId: result.providerMessageId ?? null,
+      });
     } catch (error) {
       failed += 1;
       const message =
@@ -720,14 +996,22 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
           errorMessage: message,
         });
       }
+      await syncAriaActionDeliveryStatus({
+        row,
+        status: "failed",
+        errorMessage: message,
+      });
     }
   }
+
+  const outcomes = await verifyPendingAriaOutcomes(Math.max(limit * 2, 50));
 
   return {
     processed: rows.length,
     requeued,
     sent,
     failed,
+    outcomes,
   };
 }
 
