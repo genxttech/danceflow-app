@@ -45,7 +45,7 @@ import {
   retryDelinquentMembershipBillingAction,
 } from "@/app/app/memberships/actions";
 import { recordPayAsYouGoLessonPaymentAction } from "@/app/app/schedule/actions";
-import { deriveClientLifecycle } from "@/lib/clients/lifecycle";
+import { deriveClientLifecycle, getClientLifecycleAction } from "@/lib/clients/lifecycle";
 
 type ClientRecord = {
   id: string;
@@ -2662,6 +2662,10 @@ export default async function ClientDetailPage({
       : [],
     payments: typedPayments,
   });
+  const clientLifecycleAction = getClientLifecycleAction({
+    clientId: typedClient.id,
+    stage: clientLifecycle.stage,
+  });
 
 
   return (
@@ -3102,6 +3106,27 @@ export default async function ClientDetailPage({
               </p>
             </div>
           </div>
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-violet-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                Recommended journey action
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-950">
+                {clientLifecycleAction.label}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                ARIA: {clientLifecycleAction.ariaPrompt}
+              </p>
+            </div>
+            {clientLifecycleAction.href ? (
+              <Link
+                href={clientLifecycleAction.href}
+                className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-110"
+              >
+                {clientLifecycleAction.label}
+              </Link>
+            ) : null}
+          </div>
           {clientLifecycle.riskReason ? (
             <div className={`mt-4 rounded-2xl border p-4 text-sm leading-6 ${
               clientLifecycle.risk === "high"
@@ -3131,6 +3156,12 @@ export default async function ClientDetailPage({
           smsConsentMessage={query.sms_consent === "updated" ? "SMS consent saved." : null}
           smsConsentError={query.sms_error ?? null}
           studioTimeZone={studioTimeZone}
+          lifecycleLabel={clientLifecycle.label}
+          lifecycleNextStep={clientLifecycle.nextExpectedStep}
+          lifecycleRiskReason={clientLifecycle.riskReason}
+          lifecycleActionLabel={clientLifecycleAction.label}
+          lifecycleActionHref={clientLifecycleAction.href}
+          lifecycleAriaPrompt={clientLifecycleAction.ariaPrompt}
         />
       ) : null}
 

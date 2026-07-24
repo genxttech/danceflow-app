@@ -12,13 +12,62 @@ type QueueOutboundDeliveryParams = {
   relatedTable?: string | null;
   relatedId?: string | null;
   dedupeKey?: string | null;
+  replyToEmail?: string | null;
 };
+
+
+function normalizeEmail(value: string | null | undefined) {
+  const email = value?.trim().toLowerCase() || null;
+  if (!email) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+function isDanceFlowSystemTemplate(templateKey: string) {
+  return (
+    templateKey.startsWith("platform_") ||
+    templateKey.startsWith("danceflow_") ||
+    templateKey === "welcome_to_danceflow" ||
+    templateKey === "platform_admin_invite"
+  );
+}
+
+async function resolveStudioReplyToEmail(params: {
+  studioId: string;
+  templateKey: string;
+  explicitReplyToEmail?: string | null;
+}) {
+  if (isDanceFlowSystemTemplate(params.templateKey)) return null;
+
+  const explicit = normalizeEmail(params.explicitReplyToEmail);
+  if (explicit) return explicit;
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("studios")
+    .select("email")
+    .eq("id", params.studioId)
+    .maybeSingle<{ email: string | null }>();
+
+  if (error) {
+    throw new Error(`Failed to resolve studio reply address: ${error.message}`);
+  }
+
+  return normalizeEmail(data?.email);
+}
 
 export async function queueOutboundDelivery(params: QueueOutboundDeliveryParams) {
   const supabase = createAdminClient();
 
   const recipientEmail = params.recipientEmail?.trim() || null;
   const recipientPhone = params.recipientPhone?.trim() || null;
+  const replyToEmail =
+    params.channel === "email"
+      ? await resolveStudioReplyToEmail({
+          studioId: params.studioId,
+          templateKey: params.templateKey,
+          explicitReplyToEmail: params.replyToEmail,
+        })
+      : null;
 
   if (params.channel === "email" && !recipientEmail) {
     return { queued: false, skipped: true, reason: "missing_email" as const };
@@ -37,6 +86,7 @@ export async function queueOutboundDelivery(params: QueueOutboundDeliveryParams)
     subject: params.subject || null,
     body_text: params.bodyText,
     body_html: params.bodyHtml ?? null,
+    reply_to_email: replyToEmail,
     related_table: params.relatedTable || null,
     related_id: params.relatedId || null,
     dedupe_key: params.dedupeKey || null,

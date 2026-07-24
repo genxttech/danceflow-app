@@ -22,6 +22,7 @@ type OutboundDeliveryRow = {
   subject: string | null;
   body_text: string | null;
   body_html: string | null;
+  reply_to_email: string | null;
   payload: OutboundPayload;
   status: "queued" | "sent" | "failed" | "skipped";
   related_table: string | null;
@@ -87,6 +88,12 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
+function normalizeEmail(value: string | null | undefined) {
+  const email = value?.trim().toLowerCase() || null;
+  if (!email) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
 function safeTimeZone(value: unknown) {
   const timeZone = asString(value) || "America/New_York";
 
@@ -118,24 +125,27 @@ async function getStudioEmailBranding(studioId: string) {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("studios")
-    .select("name, public_name, public_logo_url")
+    .select("name, public_name, public_logo_url, email")
     .eq("id", studioId)
     .maybeSingle<{
       name: string;
       public_name: string | null;
       public_logo_url: string | null;
+      email: string | null;
     }>();
 
   if (error || !data) {
     return {
       name: "Your dance studio",
       logoUrl: null,
+      replyToEmail: null,
     };
   }
 
   return {
     name: data.public_name?.trim() || data.name || "Your dance studio",
     logoUrl: data.public_logo_url,
+    replyToEmail: normalizeEmail(data.email),
   };
 }
 
@@ -434,6 +444,37 @@ export async function sendWelcomeToDanceFlowEmail(params: {
   }
 }
 
+async function resolveReplyToEmail(row: OutboundDeliveryRow) {
+  if (isDanceFlowSystemTemplate(row.template_key)) return null;
+
+  const persisted = normalizeEmail(row.reply_to_email);
+  if (persisted) return persisted;
+
+  const branding = await getStudioEmailBranding(row.studio_id);
+  const fallback = branding.replyToEmail;
+  if (!fallback) return null;
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("outbound_deliveries")
+    .update({
+      reply_to_email: fallback,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", row.id)
+    .eq("studio_id", row.studio_id);
+
+  if (error) {
+    console.warn("Could not persist outbound reply address", {
+      deliveryId: row.id,
+      studioId: row.studio_id,
+      error: error.message,
+    });
+  }
+
+  return fallback;
+}
+
 async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
   if (!row.recipient_email) {
     return { ok: false, error: "Missing recipient email." };
@@ -465,6 +506,8 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
     }
   }
 
+  const replyTo = await resolveReplyToEmail(row);
+
   try {
     const resend = getResendClient();
 
@@ -474,6 +517,7 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
       subject: rendered.subject,
       text: rendered.bodyText,
       html: bodyHtml,
+      ...(replyTo ? { replyTo } : {}),
     });
 
     if (response.error) {
@@ -933,6 +977,7 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
       subject,
       body_text,
       body_html,
+      reply_to_email,
       payload,
       status,
       related_table,

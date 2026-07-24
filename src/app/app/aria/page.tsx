@@ -23,6 +23,7 @@ import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { getDanceGoalIntelligence } from "@/lib/aria/danceGoalInsights";
 import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
+import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 
 type ClientPackageRow = {
   id: string;
@@ -1007,6 +1008,11 @@ export default async function AriaOpportunityHubPage() {
     );
   }
 
+  const lifecycleSnapshot = await loadStudioLifecycleSnapshot({
+    supabase,
+    studioId,
+  });
+
   const nowIso = new Date().toISOString();
   const now = new Date(nowIso);
   const ninetyDaysAgoIso = new Date(
@@ -1571,6 +1577,45 @@ export default async function AriaOpportunityHubPage() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <OpportunityCard
+          tone="booking"
+          icon={CalendarDays}
+          title="Needs rebooking"
+          metric={`${lifecycleSnapshot.counts.needs_rebooking}`}
+          description="Clients with recent attendance but no future appointment."
+          href="/app/clients"
+          actionLabel="Review rebooking queue"
+        />
+        <OpportunityCard
+          tone="revenue"
+          icon={Wallet}
+          title="Conversion pending"
+          metric={`${lifecycleSnapshot.counts.conversion_pending}`}
+          description="Completed intro clients without a recorded first package or membership."
+          href="/app/leads"
+          actionLabel="Review conversion queue"
+        />
+        <OpportunityCard
+          tone="retention"
+          icon={TrendingDown}
+          title="Retention risk"
+          metric={`${lifecycleSnapshot.counts.retention_risk}`}
+          description="Clients with declining engagement, delinquency, or cancellation signals."
+          href="/app/clients"
+          actionLabel="Open recovery queue"
+        />
+        <OpportunityCard
+          tone="automation"
+          icon={Sparkles}
+          title="Lifecycle attention"
+          metric={`${lifecycleSnapshot.riskCounts.high + lifecycleSnapshot.riskCounts.watch}`}
+          description="One shared lifecycle model now drives Today, Leads, ARIA, and Analytics."
+          href="/app/aria/operations"
+          actionLabel="Open operations"
+        />
       </section>
 
       <CommerceIntelligenceSection

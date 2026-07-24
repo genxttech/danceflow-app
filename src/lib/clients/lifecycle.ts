@@ -50,6 +50,101 @@ export type ClientLifecycleInput = {
   }>;
 };
 
+
+export type ClientLifecycleAction = {
+  label: string;
+  href: string | null;
+  intent: "contact" | "book" | "sell" | "recover" | "review" | "none";
+  ariaPrompt: string;
+};
+
+export function getClientLifecycleAction(params: {
+  clientId: string;
+  stage: ClientLifecycleStage;
+}): ClientLifecycleAction {
+  const clientPath = `/app/clients/${params.clientId}`;
+
+  switch (params.stage) {
+    case "new_lead":
+      return {
+        label: "Log first contact",
+        href: `${clientPath}?tab=marketing#lead-activity-form`,
+        intent: "contact",
+        ariaPrompt: "Prepare a first-contact message and follow-up date.",
+      };
+    case "contacted":
+      return {
+        label: "Book intro lesson",
+        href: `/app/schedule/new?clientId=${params.clientId}&appointmentType=intro_lesson`,
+        intent: "book",
+        ariaPrompt: "Recommend the best next appointment and prepare booking outreach.",
+      };
+    case "intro_scheduled":
+      return {
+        label: "Review intro appointment",
+        href: `${clientPath}?tab=schedule`,
+        intent: "review",
+        ariaPrompt: "Prepare attendance confirmation and the first-offer conversation.",
+      };
+    case "conversion_pending":
+      return {
+        label: "Open conversion options",
+        href: `${clientPath}?tab=overview#quick-sale-payment`,
+        intent: "sell",
+        ariaPrompt: "Recommend a first package or membership based on the client record.",
+      };
+    case "new_student":
+      return {
+        label: "Book next lesson",
+        href: `/app/schedule/new?clientId=${params.clientId}`,
+        intent: "book",
+        ariaPrompt: "Prepare onboarding follow-up and secure the next appointment.",
+      };
+    case "active_student":
+      return {
+        label: "Review relationship",
+        href: clientPath,
+        intent: "review",
+        ariaPrompt: "Monitor momentum, package health, and the next scheduled touchpoint.",
+      };
+    case "needs_rebooking":
+      return {
+        label: "Start rebooking follow-up",
+        href: `${clientPath}?tab=marketing#lead-activity-form`,
+        intent: "contact",
+        ariaPrompt: "Draft a rebooking message using recent attendance context.",
+      };
+    case "retention_risk":
+      return {
+        label: "Open recovery workspace",
+        href: `${clientPath}?tab=marketing`,
+        intent: "recover",
+        ariaPrompt: "Review the risk signal and prepare the safest recovery action.",
+      };
+    case "inactive":
+      return {
+        label: "Start win-back outreach",
+        href: `${clientPath}?tab=marketing#lead-activity-form`,
+        intent: "recover",
+        ariaPrompt: "Draft a respectful win-back message based on the last meaningful activity.",
+      };
+    case "recovered":
+      return {
+        label: "Build next booking plan",
+        href: `/app/schedule/new?clientId=${params.clientId}`,
+        intent: "book",
+        ariaPrompt: "Reinforce the recovery with a consistent next-booking plan.",
+      };
+    case "archived":
+      return {
+        label: "Review history",
+        href: clientPath,
+        intent: "none",
+        ariaPrompt: "No automated outreach should occur unless staff reactivates the relationship.",
+      };
+  }
+}
+
 export type ClientLifecycleSummary = {
   stage: ClientLifecycleStage;
   label: string;
@@ -340,4 +435,212 @@ export function lifecycleStageTone(stage: ClientLifecycleStage) {
   }
   if (stage === "retention_risk") return "danger" as const;
   return "default" as const;
+}
+
+export type StudioLifecycleQueueItem = {
+  clientId: string;
+  clientName: string;
+  clientStatus: string;
+  stage: ClientLifecycleStage;
+  label: string;
+  description: string;
+  nextExpectedStep: string;
+  risk: ClientLifecycleRisk;
+  riskReason: string | null;
+  lastMeaningfulActivityAt: string | null;
+  action: ClientLifecycleAction;
+};
+
+export type StudioLifecycleSnapshot = {
+  generatedAt: string;
+  totalClients: number;
+  counts: Record<ClientLifecycleStage, number>;
+  riskCounts: { watch: number; high: number };
+  queue: StudioLifecycleQueueItem[];
+  byClientId: Record<string, StudioLifecycleQueueItem>;
+};
+
+type SupabaseLike = { from: (table: string) => any };
+
+function emptyLifecycleCounts(): Record<ClientLifecycleStage, number> {
+  return {
+    new_lead: 0,
+    contacted: 0,
+    intro_scheduled: 0,
+    conversion_pending: 0,
+    new_student: 0,
+    active_student: 0,
+    needs_rebooking: 0,
+    retention_risk: 0,
+    inactive: 0,
+    recovered: 0,
+    archived: 0,
+  };
+}
+
+function lifecycleQueueRank(item: StudioLifecycleQueueItem) {
+  const stageRank: Record<ClientLifecycleStage, number> = {
+    retention_risk: 0,
+    conversion_pending: 1,
+    needs_rebooking: 2,
+    new_lead: 3,
+    contacted: 4,
+    intro_scheduled: 5,
+    inactive: 6,
+    new_student: 7,
+    recovered: 8,
+    active_student: 9,
+    archived: 10,
+  };
+  const riskRank = item.risk === "high" ? 0 : item.risk === "watch" ? 1 : 2;
+  return riskRank * 100 + stageRank[item.stage];
+}
+
+export async function loadStudioLifecycleSnapshot(params: {
+  supabase: SupabaseLike;
+  studioId: string;
+  now?: Date;
+  clientLimit?: number;
+}): Promise<StudioLifecycleSnapshot> {
+  const now = params.now ?? new Date();
+  const clientLimit = params.clientLimit ?? 3000;
+  const clientsResult = await params.supabase
+    .from("clients")
+    .select("id, first_name, last_name, status, created_at")
+    .eq("studio_id", params.studioId)
+    .order("created_at", { ascending: false })
+    .limit(clientLimit);
+
+  if (clientsResult.error) {
+    throw new Error(`Failed to load lifecycle clients: ${clientsResult.error.message}`);
+  }
+
+  const clients = (clientsResult.data ?? []) as Array<{
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    status: string;
+    created_at: string;
+  }>;
+  const clientIds = clients.map((client) => client.id);
+  const counts = emptyLifecycleCounts();
+
+  if (clientIds.length === 0) {
+    return {
+      generatedAt: now.toISOString(),
+      totalClients: 0,
+      counts,
+      riskCounts: { watch: 0, high: 0 },
+      queue: [],
+      byClientId: {},
+    };
+  }
+
+  const [activitiesResult, appointmentsResult, packagesResult, membershipsResult, paymentsResult] = await Promise.all([
+    params.supabase.from("lead_activities").select("client_id, created_at, activity_type, follow_up_due_at, completed_at").eq("studio_id", params.studioId).in("client_id", clientIds).order("created_at", { ascending: false }).limit(10000),
+    params.supabase.from("appointments").select("id, client_id, appointment_type, status, starts_at").eq("studio_id", params.studioId).in("client_id", clientIds).gte("starts_at", new Date(now.getTime() - 180 * DAY_MS).toISOString()).lte("starts_at", new Date(now.getTime() + 365 * DAY_MS).toISOString()).order("starts_at", { ascending: false }).limit(10000),
+    params.supabase.from("client_packages").select("id, client_id, active, purchase_date, created_at").eq("studio_id", params.studioId).in("client_id", clientIds).order("created_at", { ascending: false }).limit(10000),
+    params.supabase.from("client_memberships").select("id, client_id, status, starts_on, created_at, cancel_at_period_end").eq("studio_id", params.studioId).in("client_id", clientIds).order("created_at", { ascending: false }).limit(10000),
+    params.supabase.from("payments").select("id, client_id, status, created_at, payment_type").eq("studio_id", params.studioId).in("client_id", clientIds).order("created_at", { ascending: false }).limit(10000),
+  ]);
+
+  const failures = [
+    ["lead activities", activitiesResult.error],
+    ["appointments", appointmentsResult.error],
+    ["packages", packagesResult.error],
+    ["memberships", membershipsResult.error],
+    ["payments", paymentsResult.error],
+  ] as const;
+  const failed = failures.find(([, error]) => Boolean(error));
+  if (failed) {
+    throw new Error(`Failed to load lifecycle ${failed[0]}: ${failed[1]?.message ?? "Unknown error"}`);
+  }
+
+  const groupByClient = <T extends { client_id: string | null }>(rows: T[]) => {
+    const map = new Map<string, T[]>();
+    for (const row of rows) {
+      if (!row.client_id) continue;
+      const current = map.get(row.client_id) ?? [];
+      current.push(row);
+      map.set(row.client_id, current);
+    }
+    return map;
+  };
+
+  const activitiesByClient = groupByClient(
+    (activitiesResult.data ?? []) as Array<
+      NonNullable<ClientLifecycleInput["leadActivities"]>[number] & {
+        client_id: string | null;
+      }
+    >,
+  );
+  const appointmentsByClient = groupByClient(
+    (appointmentsResult.data ?? []) as Array<
+      NonNullable<ClientLifecycleInput["appointments"]>[number] & {
+        client_id: string | null;
+      }
+    >,
+  );
+  const packagesByClient = groupByClient(
+    (packagesResult.data ?? []) as Array<
+      NonNullable<ClientLifecycleInput["packages"]>[number] & {
+        client_id: string | null;
+      }
+    >,
+  );
+  const membershipsByClient = groupByClient(
+    (membershipsResult.data ?? []) as Array<
+      NonNullable<ClientLifecycleInput["memberships"]>[number] & {
+        client_id: string | null;
+      }
+    >,
+  );
+  const paymentsByClient = groupByClient(
+    (paymentsResult.data ?? []) as Array<
+      NonNullable<ClientLifecycleInput["payments"]>[number] & {
+        client_id: string | null;
+      }
+    >,
+  );
+
+  const queue = clients.map((client) => {
+    const summary = deriveClientLifecycle({
+      clientStatus: client.status,
+      createdAt: client.created_at,
+      now,
+      leadActivities: activitiesByClient.get(client.id) ?? [],
+      appointments: appointmentsByClient.get(client.id) ?? [],
+      packages: packagesByClient.get(client.id) ?? [],
+      memberships: membershipsByClient.get(client.id) ?? [],
+      payments: paymentsByClient.get(client.id) ?? [],
+    });
+    counts[summary.stage] += 1;
+    return {
+      clientId: client.id,
+      clientName: [client.first_name, client.last_name].filter(Boolean).join(" ").trim() || "Unnamed client",
+      clientStatus: client.status,
+      ...summary,
+      action: getClientLifecycleAction({ clientId: client.id, stage: summary.stage }),
+    } satisfies StudioLifecycleQueueItem;
+  });
+
+  queue.sort((a, b) => {
+    const rank = lifecycleQueueRank(a) - lifecycleQueueRank(b);
+    if (rank !== 0) return rank;
+    const aTime = a.lastMeaningfulActivityAt ? new Date(a.lastMeaningfulActivityAt).getTime() : 0;
+    const bTime = b.lastMeaningfulActivityAt ? new Date(b.lastMeaningfulActivityAt).getTime() : 0;
+    return aTime - bTime;
+  });
+
+  return {
+    generatedAt: now.toISOString(),
+    totalClients: clients.length,
+    counts,
+    riskCounts: {
+      watch: queue.filter((item) => item.risk === "watch").length,
+      high: queue.filter((item) => item.risk === "high").length,
+    },
+    queue,
+    byClientId: Object.fromEntries(queue.map((item) => [item.clientId, item])),
+  };
 }

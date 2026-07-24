@@ -133,6 +133,9 @@ function recommendedActionLabel(
   bookingRequestState?: BookingRequestState,
 ) {
   if (bookingRequestState?.hasPending) return "Review booking request";
+  if (lead.lifecycle_label && lead.lifecycle_stage !== "new_lead") {
+    return lead.lifecycle_label;
+  }
   if (bookingRequestState?.hasApproved) return "Open lead";
   if (lead.referral_source === "public_intro_booking") return "Book intro";
   if (lead.referral_source === "event_registration") {
@@ -155,6 +158,10 @@ function recommendedActionHref(
     return "/app/schedule/requests?status=pending";
   }
 
+  if (lead.lifecycle_action_href) {
+    return lead.lifecycle_action_href;
+  }
+
   if (
     lead.referral_source === "public_intro_booking" &&
     !bookingRequestState?.hasApproved
@@ -171,6 +178,12 @@ function ariaRecommendation(
 ) {
   if (bookingRequestState?.hasPending) {
     return "A booking request is waiting. Review it before sending another invitation or scheduling duplicate outreach.";
+  }
+
+  if (lead.lifecycle_next_step) {
+    return lead.lifecycle_risk_reason
+      ? `${lead.lifecycle_risk_reason} ${lead.lifecycle_next_step}`
+      : lead.lifecycle_next_step;
   }
 
   if (lead.referral_source === "public_intro_booking") {
@@ -360,7 +373,12 @@ export default function LeadsWorkspacePanels({
               <p>Interest: {lead.dance_interests ?? "—"}</p>
             </div>
 
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap gap-2">
+              {lead.lifecycle_label ? (
+                <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-800 ring-1 ring-inset ring-violet-200">
+                  Journey: {lead.lifecycle_label}
+                </span>
+              ) : null}
               <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
                 Recommended: {actionLabel}
               </span>
@@ -556,6 +574,25 @@ export default function LeadsWorkspacePanels({
                             </div>
                           </section>
               
+                          {selectedLead.lifecycle_label ? (
+                            <section className="rounded-2xl border border-violet-200 bg-violet-50/70 p-4">
+                              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                                Client journey
+                              </p>
+                              <p className="mt-2 text-sm font-semibold text-slate-900">
+                                {selectedLead.lifecycle_label}
+                              </p>
+                              <p className="mt-2 text-sm leading-6 text-slate-700">
+                                {selectedLead.lifecycle_next_step}
+                              </p>
+                              {selectedLead.lifecycle_risk_reason ? (
+                                <p className="mt-2 text-xs font-medium text-rose-700">
+                                  {selectedLead.lifecycle_risk_reason}
+                                </p>
+                              ) : null}
+                            </section>
+                          ) : null}
+
                           <section className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-700">
                               ARIA recommendation

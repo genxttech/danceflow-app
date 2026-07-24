@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import LeadsWorkspacePanels from "./LeadsWorkspacePanels";
+import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 
 type SearchParamValue = string | string[] | undefined;
 
@@ -24,6 +25,11 @@ export type LeadRow = {
   referral_source: string | null;
   created_at: string;
   is_independent_instructor: boolean | null;
+  lifecycle_stage?: string;
+  lifecycle_label?: string;
+  lifecycle_next_step?: string;
+  lifecycle_risk_reason?: string | null;
+  lifecycle_action_href?: string | null;
 };
 
 type BookingRequestRow = {
@@ -418,6 +424,11 @@ export default async function LeadsPage({
     throw new Error(`Failed to load booking requests: ${bookingRequestsError.message}`);
   }
 
+  const lifecycleSnapshot = await loadStudioLifecycleSnapshot({
+    supabase,
+    studioId,
+  });
+
   const bookingRequestStateByClientId = new Map<string, BookingRequestState>();
 
   ((bookingRequests ?? []) as BookingRequestRow[]).forEach((request) => {
@@ -451,7 +462,19 @@ export default async function LeadsPage({
     (linkedLeadAccounts ?? []).map((row) => String(row.client_id)),
   );
 
-  const allLeads = ((leads ?? []) as LeadRow[]).filter((lead) => {
+  const allLeads = ((leads ?? []) as LeadRow[])
+    .map((lead) => {
+      const lifecycle = lifecycleSnapshot.byClientId[lead.id];
+      return {
+        ...lead,
+        lifecycle_stage: lifecycle?.stage,
+        lifecycle_label: lifecycle?.label,
+        lifecycle_next_step: lifecycle?.nextExpectedStep,
+        lifecycle_risk_reason: lifecycle?.riskReason ?? null,
+        lifecycle_action_href: lifecycle?.action.href ?? null,
+      };
+    })
+    .filter((lead) => {
     const isActivatedIndependentInstructor =
       lead.is_independent_instructor === true && linkedLeadClientIds.has(lead.id);
 

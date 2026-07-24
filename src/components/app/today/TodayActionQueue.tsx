@@ -182,6 +182,7 @@ export default function TodayActionQueue({
   notifications,
   birthdays,
   planLabel,
+  lifecycle,
 }: {
   bookingRequestCount: number;
   unreadCount: number;
@@ -197,6 +198,12 @@ export default function TodayActionQueue({
     missingAddress: number;
   };
   planLabel: string;
+  lifecycle: {
+    conversionPending: number;
+    needsRebooking: number;
+    retentionRisk: number;
+    inactive: number;
+  };
 }) {
   const orderedFollowUps = useMemo(
     () =>
@@ -220,8 +227,14 @@ export default function TodayActionQueue({
     null;
 
   const highPriorityCount = orderedFollowUps.filter((item) => item.priority === "high").length;
+  const lifecycleAttentionCount =
+    lifecycle.conversionPending + lifecycle.needsRebooking + lifecycle.retentionRisk;
   const attentionCount =
-    bookingRequestCount + unreadCount + highPriorityCount + (payoutsReady ? 0 : 1);
+    bookingRequestCount +
+    unreadCount +
+    highPriorityCount +
+    lifecycleAttentionCount +
+    (payoutsReady ? 0 : 1);
 
   const tabs: Array<{ id: QueueView; label: string; count: number }> = [
     { id: "attention", label: "Attention", count: attentionCount },
@@ -320,6 +333,16 @@ export default function TodayActionQueue({
               metric={payoutsReady ? "Ready" : "Required"}
               tone={payoutsReady ? "success" : "danger"}
               actionLabel={payoutsReady ? "Open payments" : "Connect payouts"}
+              onReview={setDetailSelection}
+            />
+            <QueueLink
+              href="/app/clients"
+              icon={<Sparkles className="h-4 w-4" />}
+              title="Client journeys"
+              detail={`${lifecycle.conversionPending} conversion pending, ${lifecycle.needsRebooking} need rebooking, and ${lifecycle.retentionRisk} retention risks.`}
+              metric={lifecycleAttentionCount}
+              tone={lifecycle.retentionRisk > 0 ? "danger" : lifecycleAttentionCount > 0 ? "warning" : "success"}
+              actionLabel="Review client journeys"
               onReview={setDetailSelection}
             />
             <QueueLink

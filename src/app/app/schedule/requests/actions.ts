@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { requireAppointmentCreateAccess } from "@/lib/auth/serverRoleGuard";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
+import { queueOutboundDelivery } from "@/lib/notifications/outbound";
+import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -209,7 +211,7 @@ async function queueBookingDecisionEmail(params: {
   const [{ data: studio }, { data: settingsRow }] = await Promise.all([
     params.supabase
       .from("studios")
-      .select("name")
+      .select("name, public_name, public_logo_url, slug")
       .eq("id", params.studioId)
       .maybeSingle(),
     params.supabase
@@ -219,7 +221,14 @@ async function queueBookingDecisionEmail(params: {
       .maybeSingle(),
   ]);
 
-  const studioName = (studio as { name?: string | null } | null)?.name ?? "The studio";
+  const studioRow = studio as {
+    name?: string | null;
+    public_name?: string | null;
+    public_logo_url?: string | null;
+    slug?: string | null;
+  } | null;
+  const studioName =
+    studioRow?.public_name?.trim() || studioRow?.name?.trim() || "The studio";
   const studioTimeZone = getStudioTimeZone(
     (settingsRow as { timezone?: string | null } | null)?.timezone,
   );
@@ -252,25 +261,52 @@ async function queueBookingDecisionEmail(params: {
         studioName,
       ].filter(Boolean).join("\n");
 
-  const { error } = await params.supabase.from("outbound_deliveries").insert({
-    studio_id: params.studioId,
-    channel: "email",
-    template_key: isApproved
-      ? "booking_request_approved_client"
-      : "booking_request_declined_client",
-    recipient_email: recipientEmail,
-    subject,
-    body_text: bodyText,
-    body_html: null,
-    related_table: "booking_requests",
-    related_id: params.bookingRequestId,
-    dedupe_key: `booking-request-${params.status}:${params.bookingRequestId}`,
-    status: "queued",
-    updated_at: new Date().toISOString(),
-  });
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
+  const portalUrl = studioRow?.slug
+    ? `${siteUrl}/portal/${encodeURIComponent(studioRow.slug)}`
+    : null;
 
-  if (error && error.code !== "23505") {
-    console.error(`Failed to queue booking request ${params.status} email`, error.message);
+  const bodyHtml = renderStudioBrandedEmail(
+    {
+      name: studioName,
+      logoUrl: studioRow?.public_logo_url ?? null,
+    },
+    {
+      previewText: subject,
+      eyebrow: isApproved ? "Lesson Request Approved" : "Lesson Request Update",
+      heading: isApproved ? "Your lesson request is approved" : "Your lesson request was reviewed",
+      greeting: `Hi ${firstName},`,
+      intro: isApproved
+        ? `${studioName} approved your requested lesson time.`
+        : `${studioName} could not approve the requested time.`,
+      bodyText,
+      detailRows: [{ label: "Requested time", value: requestedTime }],
+      actionLabel: portalUrl ? "Open Client Portal" : undefined,
+      actionUrl: portalUrl ?? undefined,
+      footerText: `Sent by ${studioName} through DanceFlow.`,
+    },
+  );
+
+  try {
+    await queueOutboundDelivery({
+      studioId: params.studioId,
+      channel: "email",
+      templateKey: isApproved
+        ? "booking_request_approved_client"
+        : "booking_request_declined_client",
+      recipientEmail,
+      subject,
+      bodyText,
+      bodyHtml,
+      relatedTable: "booking_requests",
+      relatedId: params.bookingRequestId,
+      dedupeKey: `booking-request-${params.status}:${params.bookingRequestId}`,
+    });
+  } catch (error) {
+    console.error(
+      `Failed to queue booking request ${params.status} email`,
+      error instanceof Error ? error.message : error,
+    );
   }
 }
 
@@ -294,7 +330,7 @@ async function sendBookingDecisionPush(params: {
         .maybeSingle(),
       params.supabase
         .from("studios")
-        .select("name")
+        .select("name, public_name, public_logo_url, slug")
         .eq("id", params.studioId)
         .maybeSingle(),
       params.supabase
@@ -405,8 +441,14 @@ async function queueApprovedInstructorEmail(params: {
   const clientName =
     [clientRow?.first_name, clientRow?.last_name].filter(Boolean).join(" ") ||
     "a client";
+  const studioRow = studio as {
+    name?: string | null;
+    public_name?: string | null;
+    public_logo_url?: string | null;
+    slug?: string | null;
+  } | null;
   const studioName =
-    (studio as { name?: string | null } | null)?.name ?? "The studio";
+    studioRow?.public_name?.trim() || studioRow?.name?.trim() || "The studio";
   const studioTimeZone = getStudioTimeZone(
     (settingsRow as { timezone?: string | null } | null)?.timezone,
   );
@@ -415,37 +457,59 @@ async function queueApprovedInstructorEmail(params: {
     studioTimeZone,
   );
 
-  const { error } = await params.supabase.from("outbound_deliveries").insert({
-    studio_id: params.studioId,
-    channel: "email",
-    template_key: "booking_request_approved_instructor",
-    recipient_email: recipientEmail,
-    subject: `New appointment assigned: ${clientName}`,
-    body_text: [
-      `Hi ${instructorFirstName},`,
-      "",
-      `${studioName} approved ${params.appointmentTitle} with ${clientName} for ${appointmentTime}.`,
-      "",
-      "The appointment is now on the studio schedule.",
-      params.staffNote ? `Studio note: ${params.staffNote}` : null,
-      "",
-      "Thanks,",
-      studioName,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-    body_html: null,
-    related_table: "booking_requests",
-    related_id: params.bookingRequestId,
-    dedupe_key: `booking-request-approved-instructor:${params.bookingRequestId}:${params.instructorId}`,
-    status: "queued",
-    updated_at: new Date().toISOString(),
-  });
+  const subject = `New appointment assigned: ${clientName}`;
+  const bodyText = [
+    `Hi ${instructorFirstName},`,
+    "",
+    `${studioName} approved ${params.appointmentTitle} with ${clientName} for ${appointmentTime}.`,
+    "",
+    "The appointment is now on the studio schedule.",
+    params.staffNote ? `Studio note: ${params.staffNote}` : null,
+    "",
+    "Thanks,",
+    studioName,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  if (error && error.code !== "23505") {
+  const bodyHtml = renderStudioBrandedEmail(
+    {
+      name: studioName,
+      logoUrl: studioRow?.public_logo_url ?? null,
+    },
+    {
+      previewText: subject,
+      eyebrow: "Schedule Assignment",
+      heading: "A new appointment was assigned to you",
+      greeting: `Hi ${instructorFirstName},`,
+      intro: `${studioName} approved a lesson request and added it to the schedule.`,
+      bodyText,
+      detailRows: [
+        { label: "Client", value: clientName },
+        { label: "Appointment", value: params.appointmentTitle },
+        { label: "Time", value: appointmentTime },
+      ],
+      footerText: `Sent by ${studioName} through DanceFlow.`,
+    },
+  );
+
+  try {
+    await queueOutboundDelivery({
+      studioId: params.studioId,
+      channel: "email",
+      templateKey: "booking_request_approved_instructor",
+      recipientEmail,
+      subject,
+      bodyText,
+      bodyHtml,
+      relatedTable: "booking_requests",
+      relatedId: params.bookingRequestId,
+      dedupeKey: `booking-request-approved-instructor:${params.bookingRequestId}:${params.instructorId}`,
+    });
+  } catch (error) {
     console.error(
       "Failed to queue approved booking request instructor email",
-      error.message,
+      error instanceof Error ? error.message : error,
     );
   }
 }

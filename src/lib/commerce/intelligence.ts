@@ -210,7 +210,6 @@ export async function getCommerceIntelligence(input: {
     ["order items", orderItemsResult.error],
     ["catalog", catalogResult.error],
     ["entitlements", entitlementsResult.error],
-    ["playback progress", progressResult.error],
     ["inventory", inventoryResult.error],
   ] as const;
 
@@ -218,6 +217,13 @@ export async function getCommerceIntelligence(input: {
   if (failed) {
     throw new Error(
       `Commerce intelligence failed to load ${failed[0]}: ${failed[1]?.message}`,
+    );
+  }
+
+  if (progressResult.error) {
+    console.warn(
+      "Commerce intelligence playback progress is unavailable:",
+      progressResult.error.message,
     );
   }
 
@@ -230,9 +236,11 @@ export async function getCommerceIntelligence(input: {
   );
   const entitlements = (entitlementsResult.data ?? []) as EntitlementRow[];
   const entitlementIds = new Set(entitlements.map((item) => item.id));
-  const progress = ((progressResult.data ?? []) as ProgressRow[]).filter(
-    (item) => entitlementIds.has(item.entitlement_id),
-  );
+  const progress = (
+    progressResult.error
+      ? []
+      : ((progressResult.data ?? []) as ProgressRow[])
+  ).filter((item) => entitlementIds.has(item.entitlement_id));
   const inventory = (inventoryResult.data ?? []) as InventoryRow[];
 
   const completedOrders = orders.filter(

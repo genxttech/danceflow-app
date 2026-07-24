@@ -16,6 +16,7 @@ import {
 import ResponsiveDetailPanel from "@/components/app/workspace/ResponsiveDetailPanel";
 import { archiveClientAction } from "./actions";
 import type { ClientRow } from "./page";
+import { getClientLifecycleAction } from "@/lib/clients/lifecycle";
 
 function statusBadgeClass(status: string) {
   if (status === "lead") return "border-sky-200 bg-sky-50 text-sky-700";
@@ -203,7 +204,13 @@ export default function ClientWorkspaceList({
           ) : null
         }
       >
-        {selectedClient ? (
+        {selectedClient ? (() => {
+          const lifecycleAction = getClientLifecycleAction({
+            clientId: selectedClient.id,
+            stage: selectedClient.lifecycle_stage,
+          });
+
+          return (
           <div className="space-y-4 p-5">
             <section className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
               <div className="flex items-start gap-3">
@@ -333,6 +340,27 @@ export default function ClientWorkspaceList({
               </dl>
             </section>
 
+            <section className="rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#eff6ff_0%,#faf5ff_100%)] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+                Journey action
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {selectedClient.lifecycle_next_step}
+              </p>
+              <p className="mt-2 text-xs font-medium text-violet-700">
+                ARIA: {lifecycleAction.ariaPrompt}
+              </p>
+              {lifecycleAction.href ? (
+                <Link
+                  href={lifecycleAction.href}
+                  className="mt-3 inline-flex items-center gap-2 rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-110"
+                >
+                  {lifecycleAction.label}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              ) : null}
+            </section>
+
             <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
                 Quick actions
@@ -369,7 +397,8 @@ export default function ClientWorkspaceList({
               </div>
             </section>
           </div>
-        ) : null}
+          );
+        })() : null}
       </ResponsiveDetailPanel>
     </>
   );

@@ -25,6 +25,7 @@ import { dismissWorkspaceOnboardingAction } from "@/app/app/onboarding-actions";
 import { OnboardingCompletionRecorder } from "@/app/app/OnboardingCompletionRecorder";
 import type { SuggestedFollowUpItem } from "./SuggestedFollowUpsCard";
 import TodayActionQueue from "@/components/app/today/TodayActionQueue";
+import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 import {
   getAccessibleStudios,
   getCurrentStudioContext,
@@ -2395,6 +2396,11 @@ export default async function AppDashboardPage({
       .filter((id): id is string => Boolean(id)),
   );
 
+  const lifecycleSnapshot = await loadStudioLifecycleSnapshot({
+    supabase,
+    studioId,
+  });
+
   const suggestedFollowUps: SuggestedFollowUpItem[] = [];
   const suggestedFollowUpKeys = new Set<string>();
 
@@ -2508,6 +2514,37 @@ export default async function AppDashboardPage({
         : "/app/events/registrations",
       priority: "low",
       type: "event_attendee",
+    });
+  }
+
+  for (const lifecycleItem of lifecycleSnapshot.queue.slice(0, 25)) {
+    if (
+      ![
+        "retention_risk",
+        "conversion_pending",
+        "needs_rebooking",
+        "new_lead",
+        "contacted",
+        "inactive",
+      ].includes(lifecycleItem.stage)
+    ) {
+      continue;
+    }
+
+    addSuggestedFollowUp({
+      id: `lifecycle-${lifecycleItem.clientId}-${lifecycleItem.stage}`,
+      personName: lifecycleItem.clientName,
+      reason: lifecycleItem.riskReason ?? lifecycleItem.description,
+      suggestedAction: lifecycleItem.nextExpectedStep,
+      context: `Journey: ${lifecycleItem.label}`,
+      href: lifecycleItem.action.href ?? `/app/clients/${lifecycleItem.clientId}`,
+      priority:
+        lifecycleItem.risk === "high"
+          ? "high"
+          : lifecycleItem.risk === "watch"
+            ? "medium"
+            : "low",
+      type: "client",
     });
   }
 
@@ -2942,6 +2979,12 @@ export default async function AppDashboardPage({
           missingAddress: missingMailingAddressCount,
         }}
         planLabel={planBadge}
+        lifecycle={{
+          conversionPending: lifecycleSnapshot.counts.conversion_pending,
+          needsRebooking: lifecycleSnapshot.counts.needs_rebooking,
+          retentionRisk: lifecycleSnapshot.counts.retention_risk,
+          inactive: lifecycleSnapshot.counts.inactive,
+        }}
       />
       </div>
     </main>

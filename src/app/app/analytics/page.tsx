@@ -18,6 +18,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
+import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 
 type SearchParams = Promise<{
   range?: string;
@@ -744,6 +745,11 @@ export default async function AnalyticsPage({
     },
   ];
 
+  const lifecycleSnapshot = await loadStudioLifecycleSnapshot({
+    supabase,
+    studioId,
+  });
+
   const commerceIntelligence = await getCommerceIntelligence({
     supabase,
     studioId,
@@ -798,6 +804,47 @@ export default async function AnalyticsPage({
         must happen within {INTRO_PURCHASE_WINDOW_DAYS} days of the completed
         intro. Retention means a second package or membership purchase within{" "}
         {RETENTION_WINDOW_DAYS} days of the first purchase.
+      </section>
+
+      <section className="rounded-lg border border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_70%,#ffffff_100%)] p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+              Client lifecycle
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              Current studio journey health
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              These counts use the same derived lifecycle model shown in Clients, Leads, Today, and ARIA.
+            </p>
+          </div>
+          <Link
+            href="/app/clients"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-violet-800 hover:underline"
+          >
+            Review client journeys
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            ["New leads", lifecycleSnapshot.counts.new_lead + lifecycleSnapshot.counts.contacted],
+            ["Intro scheduled", lifecycleSnapshot.counts.intro_scheduled],
+            ["Conversion pending", lifecycleSnapshot.counts.conversion_pending],
+            ["Needs rebooking", lifecycleSnapshot.counts.needs_rebooking],
+            ["Retention risk", lifecycleSnapshot.counts.retention_risk],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="rounded-lg border border-white bg-white/85 p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {label}
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
       </section>
 
       <CommerceIntelligenceSection
