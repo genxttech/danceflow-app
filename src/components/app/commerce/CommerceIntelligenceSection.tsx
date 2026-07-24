@@ -87,9 +87,11 @@ function recommendation(data: CommerceIntelligence) {
 export default function CommerceIntelligenceSection({
   data,
   title = "Commerce and content intelligence",
+  mode = "full",
 }: {
   data: CommerceIntelligence;
   title?: string;
+  mode?: "full" | "overview";
 }) {
   const nextMove = recommendation(data);
 
@@ -154,7 +156,7 @@ export default function CommerceIntelligenceSection({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div className={`mt-5 grid gap-3 sm:grid-cols-2 ${mode === "overview" ? "xl:grid-cols-4" : "xl:grid-cols-6"}`}>
         {[
           {
             label: "Net commerce revenue",
@@ -192,7 +194,7 @@ export default function CommerceIntelligenceSection({
             helper: "Variants at reorder level",
             icon: Boxes,
           },
-        ].map((metric) => {
+        ].slice(0, mode === "overview" ? 4 : 6).map((metric) => {
           const Icon = metric.icon;
           return (
             <div
@@ -299,7 +301,7 @@ export default function CommerceIntelligenceSection({
         </p>
         {attentionRecords.length ? (
           <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {attentionRecords.map((record) => (
+            {attentionRecords.slice(0, mode === "overview" ? 3 : 6).map((record) => (
               <Link
                 key={record.key}
                 href={record.href}

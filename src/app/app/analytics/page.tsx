@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
 import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspaceHeader";
+import AnalyticsWorkspaceNav from "@/components/app/analytics/AnalyticsWorkspaceNav";
 import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 
 type SearchParams = Promise<{
@@ -787,6 +788,8 @@ export default async function AnalyticsPage({
         })}
       />
 
+      <AnalyticsWorkspaceNav activeSection="overview" range={range} />
+
       <section className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
         <span className="font-semibold text-slate-900">How rates work:</span>{" "}
         the lead stage begins when a client record is created. Leads and
@@ -796,7 +799,7 @@ export default async function AnalyticsPage({
         {RETENTION_WINDOW_DAYS} days of the first purchase.
       </section>
 
-      <section className="rounded-3xl border border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_70%,#ffffff_100%)] p-5 shadow-sm">
+      <section id="client-journey" className="scroll-mt-6 rounded-3xl border border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_70%,#ffffff_100%)] p-5 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
@@ -837,10 +840,13 @@ export default async function AnalyticsPage({
         </div>
       </section>
 
-      <CommerceIntelligenceSection
-        data={commerceIntelligence}
-        title={`Commerce performance · ${rangeLabel}`}
-      />
+      <div id="commerce" className="scroll-mt-6">
+        <CommerceIntelligenceSection
+          data={commerceIntelligence}
+          title={`Commerce performance · ${rangeLabel}`}
+          mode="overview"
+        />
+      </div>
 
       <section className="grid gap-4 lg:grid-cols-3">
         <Link
@@ -940,7 +946,7 @@ export default async function AnalyticsPage({
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+      <section id="instructors" className="scroll-mt-6 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5">
             <div className="flex items-center gap-3">
@@ -1080,7 +1086,7 @@ export default async function AnalyticsPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <section id="lead-sources" className="scroll-mt-6 rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-5">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
