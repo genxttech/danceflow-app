@@ -143,6 +143,10 @@ export function canManageRooms(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin"].includes(role ?? "");
 }
 
+export function canViewCommunications(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+}
+
 export function canEditClients(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
 }

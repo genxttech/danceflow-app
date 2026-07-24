@@ -205,6 +205,10 @@ function normalizeNavLabel(item: NavItem) {
     return "Documents";
   }
 
+  if (item.href === "/app/communications") {
+    return "Communications";
+  }
+
   if (item.href === "/app/marketing" || item.href === "/app/campaigns") {
     return "Email Marketing";
   }
@@ -996,6 +1000,52 @@ function injectAriaOperationsLink(
   });
 }
 
+function injectCommunicationsLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioEnhancements(options)) return sections;
+
+  const flatItems = sections.flatMap((section) => section.items);
+  if (flatItems.some((item) => item.href === "/app/communications")) {
+    return sections;
+  }
+
+  const hasCommunicationTools = flatItems.some(
+    (item) =>
+      item.href.startsWith("/app/marketing") ||
+      item.href.startsWith("/app/automations") ||
+      item.href.startsWith("/app/notifications"),
+  );
+
+  if (!hasCommunicationTools) return sections;
+
+  const communicationsItem: NavItem = {
+    label: "Communications",
+    href: "/app/communications",
+    icon: "marketing",
+  };
+
+  const sectionIndex = sections.findIndex((section) =>
+    section.items.some(
+      (item) =>
+        item.href.startsWith("/app/marketing") ||
+        item.href.startsWith("/app/automations") ||
+        item.href.startsWith("/app/notifications"),
+    ),
+  );
+
+  if (sectionIndex < 0) {
+    return [...sections, { title: "Communications", items: [communicationsItem] }];
+  }
+
+  return sections.map((section, index) =>
+    index === sectionIndex
+      ? { ...section, items: [communicationsItem, ...section.items] }
+      : section,
+  );
+}
+
 function injectAutomationsLink(
   sections: NavSectionType[],
   options: NormalizeSectionsOptions = {},
@@ -1606,6 +1656,7 @@ function workspaceForItem(item: NavItem) {
   }
 
   if (
+    href.startsWith("/app/communications") ||
     href.startsWith("/app/marketing") ||
     href.startsWith("/app/organizer-campaigns") ||
     href.startsWith("/app/automations") ||
@@ -1686,6 +1737,7 @@ function itemPriority(section: (typeof WORKSPACE_ORDER)[number], href: string) {
       "/app/events/tickets",
     ],
     Communications: [
+      "/app/communications",
       "/app/marketing/campaigns",
       "/app/organizer-campaigns",
       "/app/automations",
@@ -1813,7 +1865,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
   );
   const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink, options);
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink, options);
-  const withAutomationsLink = injectAutomationsLink(withDocumentsLink, options);
+  const withCommunicationsLink = injectCommunicationsLink(withDocumentsLink, options);
+  const withAutomationsLink = injectAutomationsLink(withCommunicationsLink, options);
   const withCommerceLinks = injectCommerceLinks(withAutomationsLink, options);
   const withPaymentWorkflowLinks = injectPaymentWorkflowLinks(withCommerceLinks, options);
   const withInstructorPayLink = injectInstructorPayLink(withPaymentWorkflowLinks, options);
