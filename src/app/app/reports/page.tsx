@@ -15,6 +15,7 @@ import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import ReportReadinessCard from "@/components/app/reports/ReportReadinessCard";
 import ReportingWorkspaceHeader from "@/components/app/reports/ReportingWorkspaceHeader";
 import AccountingWorkspaceNav from "@/components/app/reports/AccountingWorkspaceNav";
+import AccountingPeriodCloseOverview from "@/components/app/reports/AccountingPeriodCloseOverview";
 import {
   accountingCategoryLabel,
   getStudioAccountingEntries,
@@ -3212,99 +3213,148 @@ export default async function ReportsPage({
 
       <AccountingWorkspaceNav range={range} />
 
-      <div id="commerce" className="scroll-mt-28">
+      <AccountingPeriodCloseOverview
+        rangeLabel={rangeLabel(range)}
+        netResult={profitAfterInstructorCompensation}
+        metrics={[
+          {
+            label: "Net after instructor pay",
+            value: fmtCurrency(profitAfterInstructorCompensation),
+            helper: "Revenue minus refunds, fees, expenses, and instructor compensation.",
+          },
+          {
+            label: "Gross revenue",
+            value: fmtCurrency(accountingSummary.revenue),
+            helper: `${fmtNumber(paidRevenueItemsCount)} paid records`,
+          },
+          {
+            label: "Refunds & fees",
+            value: fmtCurrency(accountingSummary.refunds + accountingSummary.fees),
+            helper: "Total deductions before expenses",
+          },
+          {
+            label: "Expenses",
+            value: fmtCurrency(accountingSummary.expenses),
+            helper: `${fmtNumber(typedExpenses.length)} recorded expenses`,
+          },
+          {
+            label: "Instructor pay",
+            value: fmtCurrency(instructorCompensationExpense),
+            helper: `${fmtCurrency(instructorPayOutstandingTotal)} still outstanding`,
+          },
+          {
+            label: "Payouts",
+            value: fmtCurrency(payoutSummary.totalPayouts),
+            helper: `${fmtNumber(payoutSummary.unmatchedItems)} unmatched items`,
+          },
+        ]}
+        readiness={[
+          {
+            label: "Revenue coverage",
+            detail:
+              revenueTotal > 0
+                ? `${fmtNumber(paidRevenueItemsCount)} paid records support this period.`
+                : "No paid revenue is recorded for this period.",
+            ready: revenueTotal > 0,
+            href: "#revenue",
+            action: "Review revenue",
+          },
+          {
+            label: "Expense coverage",
+            detail:
+              manualExpensesTotal > 0
+                ? `${fmtCurrency(manualExpensesTotal)} in expenses is included.`
+                : "No expenses are recorded, which may overstate profit.",
+            ready: manualExpensesTotal > 0,
+            href: "/app/expenses",
+            action: manualExpensesTotal > 0 ? "Review expenses" : "Add expenses",
+          },
+          {
+            label: "Instructor compensation",
+            detail:
+              instructorPayOutstandingTotal > 0
+                ? `${fmtCurrency(instructorPayOutstandingTotal)} is pending or approved.`
+                : "No instructor pay is currently awaiting payment.",
+            ready: instructorPayOutstandingTotal === 0,
+            href: "/app/instructor-pay",
+            action: "Open instructor pay",
+          },
+          {
+            label: "Payout reconciliation",
+            detail:
+              payoutSummary.unmatchedItems > 0
+                ? `${fmtNumber(payoutSummary.unmatchedItems)} payout items remain unmatched.`
+                : payoutSummary.count > 0
+                  ? "Recent payout items are matched cleanly."
+                  : "No payout data is available for this period.",
+            ready: payoutSummary.count > 0 && payoutSummary.unmatchedItems === 0,
+            href: "#payouts",
+            action: "Review payouts",
+          },
+        ]}
+      />
+
+      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <AriaAccountingInsightsSection
+          insights={ariaAccountingInsights.slice(0, 4)}
+          exportHref={exportHref("/app/reports/export/accounting-map", range)}
+        />
+
+        <ReportReadinessCard
+          revenueDataMessage={
+            revenueTotal > 0
+              ? `${fmtNumber(paidRevenueItemsCount)} paid records are included for ${rangeLabel(range).toLowerCase()}.`
+              : "No paid revenue is recorded for this period yet."
+          }
+          expenseDataMessage={
+            manualExpensesTotal > 0
+              ? `${fmtCurrency(manualExpensesTotal)} in expenses are included in profit previews.`
+              : "No expenses are recorded for this period. Add expenses to improve profit previews."
+          }
+          accountingDepthMessage={
+            accountingEntries.length > 0
+              ? `${fmtNumber(accountingEntries.length)} normalized accounting entries support this view.`
+              : "No normalized accounting entries were found for this period."
+          }
+          operationalCoverageMessage={
+            payoutSummary.count > 0 || activeMemberships.length > 0 || topPackageLiabilityPlans.length > 0
+              ? "Payout, membership, and package sections will display when matching data exists."
+              : "Payouts, memberships, and package balances will appear here after activity is recorded."
+          }
+        />
+      </section>
+
+      <details className="group rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 sm:px-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Deeper intelligence</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">AI report interpretation and revenue guidance</h2>
+          </div>
+          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 group-open:bg-violet-100">Expand</span>
+        </summary>
+        <div className="space-y-6 border-t border-slate-100 p-5 sm:p-6">
+          <ReportInsightsCard
+            canUseAi={canViewGrowthReports || canViewProReports}
+            metrics={reportInsightsMetrics}
+          />
+          <AriaInsightCard
+            eyebrow="ARIA Revenue Insight"
+            title="Revenue focus for this report"
+            insight={ariaReportInsight}
+            recommendation={ariaReportRecommendation}
+            metric={ariaReportMetric}
+            primaryAction={{ href: "/app/packages/client-balances", label: "Review balances" }}
+            secondaryAction={{ href: "/app/marketing/campaigns", label: "Plan campaign" }}
+          />
+        </div>
+      </details>
+
+      <div id="commerce" className="scroll-mt-44">
         <CommerceIntelligenceSection
-        data={commerceIntelligence}
+          data={commerceIntelligence}
           title={`Commerce reporting · ${rangeLabel(range)}`}
         />
       </div>
-
-      <section id="overview" className="scroll-mt-28 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Revenue Collected</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-            {fmtCurrency(revenueTotal)}
-          </p>
-          <p className="mt-2 text-sm text-slate-600">
-            {fmtNumber(paidRevenueItemsCount)} paid revenue records in{" "}
-            {rangeLabel(range).toLowerCase()}.
-          </p>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Expenses Recorded</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-            {fmtCurrency(manualExpensesTotal)}
-          </p>
-          <p className="mt-2 text-sm text-slate-600">
-            Includes {fmtCurrency(floorFeeExpenseTotal)} in floor fees.
-          </p>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Attendance Rate</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-            {attendanceRate}
-          </p>
-          <p className="mt-2 text-sm text-slate-600">
-            {fmtNumber(attendedAppointments.length)} attended,{" "}
-            {fmtNumber(noShows.length)} no-shows.
-          </p>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Active Students</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-            {fmtNumber(activeStudentsCount ?? 0)}
-          </p>
-          <p className="mt-2 text-sm text-slate-600">
-            Current active client records across the studio.
-          </p>
-        </div>
-      </section>
-
-      <ReportInsightsCard
-        canUseAi={canViewGrowthReports || canViewProReports}
-        metrics={reportInsightsMetrics}
-      />
-
-      <AriaInsightCard
-        eyebrow="ARIA Revenue Insight"
-        title="Revenue focus for this report"
-        insight={ariaReportInsight}
-        recommendation={ariaReportRecommendation}
-        metric={ariaReportMetric}
-        primaryAction={{ href: "/app/packages/client-balances", label: "Review balances" }}
-        secondaryAction={{ href: "/app/marketing/campaigns", label: "Plan campaign" }}
-      />
-
-      <AriaAccountingInsightsSection
-        insights={ariaAccountingInsights}
-        exportHref={exportHref("/app/reports/export/accounting-map", range)}
-      />
-
-      <ReportReadinessCard
-        revenueDataMessage={
-          revenueTotal > 0
-            ? `${fmtNumber(paidRevenueItemsCount)} paid records are included for ${rangeLabel(range).toLowerCase()}.`
-            : "No paid revenue is recorded for this period yet."
-        }
-        expenseDataMessage={
-          manualExpensesTotal > 0
-            ? `${fmtCurrency(manualExpensesTotal)} in expenses are included in profit previews.`
-            : "No expenses are recorded for this period. Add expenses to improve profit previews."
-        }
-        accountingDepthMessage={
-          accountingEntries.length > 0
-            ? `${fmtNumber(accountingEntries.length)} normalized accounting entries support this view.`
-            : "No normalized accounting entries were found for this period."
-        }
-        operationalCoverageMessage={
-          payoutSummary.count > 0 || activeMemberships.length > 0 || topPackageLiabilityPlans.length > 0
-            ? "Payout, membership, and package sections will display when matching data exists."
-            : "Payouts, memberships, and package balances will appear here after activity is recorded."
-        }
-      />
 
       <section>
         {canViewProReports ? (
