@@ -20,6 +20,10 @@ import { getCurrentStudioContext, isOrganizerRole } from "@/lib/auth/studio";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import {
+  ARIA_AUTOMATION_PACKS,
+  getAriaAutomationCatalogItem,
+} from "@/lib/aria/automation-catalog";
+import {
   assignAutomationActionOwnerAction,
   executeAriaApprovedActionsAction,
   generateAriaOperationalActionsAction,
@@ -656,6 +660,115 @@ function MiniList({
   );
 }
 
+
+function AriaSupervisionOverview({
+  actions,
+}: {
+  actions: AutomationActionRow[];
+}) {
+  const now = new Date();
+  const handled = actions.filter((action) =>
+    ["completed", "dismissed", "skipped"].includes(action.status ?? "") ||
+    action.execution_status === "sent" ||
+    action.outcome_status === "verified",
+  );
+  const exceptions = actions.filter((action) =>
+    ["failed", "exhausted"].includes(action.execution_status ?? "") ||
+    action.status === "failed" ||
+    action.outcome_status === "expired",
+  );
+  const needsDecision = actions.filter((action) => {
+    const catalogItem = getAriaAutomationCatalogItem(action.rule_key);
+    return (
+      catalogItem?.handling === "approval_required" &&
+      ["suggested", "drafted", "snoozed"].includes(action.status ?? "")
+    );
+  });
+  const upcoming = actions.filter((action) => {
+    if (["approved", "queued", "awaiting_outcome"].includes(action.status ?? "")) {
+      return true;
+    }
+
+    return Boolean(
+      action.status === "snoozed" &&
+        action.snoozed_until &&
+        new Date(action.snoozed_until) > now,
+    );
+  });
+
+  const views = [
+    {
+      key: "handled",
+      eyebrow: "Handled by ARIA",
+      metric: handled.length,
+      detail: "Completed follow-up, verified outcomes, and safely cleared work.",
+      href: "#handled-by-aria",
+      tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
+      icon: CheckCircle2,
+    },
+    {
+      key: "decision",
+      eyebrow: "Needs Your Decision",
+      metric: needsDecision.length,
+      detail: "Judgment-based or higher-risk work that remains approval-gated.",
+      href: "#needs-your-decision",
+      tone: "border-amber-200 bg-amber-50 text-amber-800",
+      icon: ClipboardList,
+    },
+    {
+      key: "exceptions",
+      eyebrow: "Exceptions",
+      metric: exceptions.length,
+      detail: "Failed delivery, expired outcomes, conflicts, or uncertain work.",
+      href: "#aria-exceptions",
+      tone: "border-red-200 bg-red-50 text-red-800",
+      icon: AlertTriangle,
+    },
+    {
+      key: "upcoming",
+      eyebrow: "Upcoming",
+      metric: upcoming.length,
+      detail: "Approved, queued, snoozed, or outcome-check work ARIA expects next.",
+      href: "#aria-upcoming",
+      tone: "border-violet-200 bg-violet-50 text-violet-800",
+      icon: Clock3,
+    },
+    {
+      key: "preferences",
+      eyebrow: "Preferences",
+      metric: ARIA_AUTOMATION_PACKS.length,
+      detail: "Automation packs, communication timing, channels, and exceptions.",
+      href: "#aria-preferences",
+      tone: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800",
+      icon: Sparkles,
+    },
+  ];
+
+  return (
+    <section aria-label="ARIA supervision views">
+      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-5 md:overflow-visible md:pb-0">
+        {views.map((view) => {
+          const Icon = view.icon;
+          return (
+            <a
+              key={view.key}
+              href={view.href}
+              className={`min-w-[250px] snap-start rounded-[24px] border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md md:min-w-0 ${view.tone}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <Icon className="h-5 w-5" />
+                <span className="text-2xl font-semibold">{view.metric}</span>
+              </div>
+              <p className="mt-4 text-sm font-semibold">{view.eyebrow}</p>
+              <p className="mt-1 text-xs leading-5 opacity-80">{view.detail}</p>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function automationStatusLabel(value: string | null | undefined) {
   if (value === "suggested") return "Suggested";
   if (value === "drafted") return "Drafted";
@@ -843,15 +956,13 @@ function AriaActionPolicyPanel({
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#BE185D]">
-            ARIA auto-approval policies
+            Advanced ARIA boundaries
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-            Decide what ARIA can approve automatically
+            Review exceptions to ARIA’s safe defaults
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Keep risky billing and finance work in manual review, or let
-            low-risk operational reminders enter the queue already approved and
-            assigned.
+            Safe, reversible communication runs from DanceFlow defaults. Use these advanced controls only when a studio needs an exception, a different owner, or a stricter approval boundary.
           </p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
@@ -2761,6 +2872,8 @@ export default async function AriaOperationsCenterPage() {
           ))}
         </section>
 
+        <AriaSupervisionOverview actions={organizerAutomationActions} />
+
         <AriaDailyOpsReview
           actions={organizerAutomationActions}
           teamMembers={teamMembers}
@@ -2771,20 +2884,24 @@ export default async function AriaOperationsCenterPage() {
           retentionRiskCount={pastLowCheckInEvents.length}
         />
 
+        <div id="aria-upcoming" className="scroll-mt-24" />
         <AriaStaffOwnershipDashboard
           actions={organizerAutomationActions}
           teamMembers={teamMembers}
           currentUserId={context.userId}
         />
 
+        <div id="needs-your-decision" className="scroll-mt-24" />
         <AriaActionReviewQueue
           actions={organizerAutomationActions}
           teamMembers={teamMembers}
           currentUserId={context.userId}
         />
 
+        <div id="handled-by-aria" className="scroll-mt-24" />
         <AriaExecutionPanel actions={organizerAutomationActions} />
 
+        <div id="aria-exceptions" className="scroll-mt-24" />
         <MiniList
           title="Upcoming organizer events"
           empty="No upcoming organizer events found."
@@ -2795,10 +2912,11 @@ export default async function AriaOperationsCenterPage() {
           }))}
         />
 
+        <div id="aria-preferences" className="scroll-mt-24" />
         <CollapsibleOperationsBlock
-          eyebrow="4. Preferences and safeguards"
-          title="Choose what ARIA may handle and how you receive updates"
-          description="Adjust recommendation policies, team ownership, approval limits, and daily summaries. These settings stay out of the way of your day-to-day action list."
+          eyebrow="Preferences"
+          title="Set boundaries, communication timing, and exceptions"
+          description="Safe automation packs work by default. Use these controls for digest delivery, ownership exceptions, and higher-risk boundaries."
         >
           <AriaActionSourceExpansionPanel signalCount={organizerSignalCount} />
 
@@ -3315,10 +3433,12 @@ export default async function AriaOperationsCenterPage() {
         />
       </section>
 
+      <AriaSupervisionOverview actions={automationActions} />
+
       <CollapsibleOperationsBlock
-        eyebrow="1. Today’s work"
-        title="Review and handle what needs attention"
-        description="Start here each day. Review ARIA’s prioritized work, approve the right next step, and clear or snooze anything that does not need action yet."
+        eyebrow="Needs Your Decision"
+        title="Review judgment-based and higher-risk work"
+        description="ARIA handles safe routine work automatically. Start here for approvals, staff judgment, and actions that should not run without a decision."
         defaultOpen
       >
         <AriaDailyOpsReview
@@ -3331,6 +3451,7 @@ export default async function AriaOperationsCenterPage() {
           retentionRiskCount={retentionRiskCount}
         />
 
+        <div id="needs-your-decision" className="scroll-mt-24" />
         <AriaActionReviewQueue
           actions={automationActions}
           teamMembers={teamMembers}
@@ -3338,10 +3459,11 @@ export default async function AriaOperationsCenterPage() {
         />
       </CollapsibleOperationsBlock>
 
+      <div id="aria-upcoming" className="scroll-mt-24" />
       <CollapsibleOperationsBlock
-        eyebrow="2. Team follow-through"
-        title="Assign work and send approved follow-ups"
-        description="Give each action a clear owner, then queue the client follow-ups your team has approved."
+        eyebrow="Upcoming"
+        title="See what ARIA expects to execute next"
+        description="Review approved, queued, assigned, snoozed, and outcome-check work without rebuilding routine automation."
       >
         <AriaStaffOwnershipDashboard
           actions={automationActions}
@@ -3349,13 +3471,15 @@ export default async function AriaOperationsCenterPage() {
           currentUserId={context.userId}
         />
 
+        <div id="handled-by-aria" className="scroll-mt-24" />
         <AriaExecutionPanel actions={automationActions} />
       </CollapsibleOperationsBlock>
 
+      <div id="aria-exceptions" className="scroll-mt-24" />
       <CollapsibleOperationsBlock
-        eyebrow="3. Business details"
-        title="Explore the issues behind today’s priorities"
-        description="Open this section when you need the underlying payment, package, membership, booking, or retention details."
+        eyebrow="Exceptions and details"
+        title="Investigate conflicts, failures, and source records"
+        description="Open the underlying payment, package, membership, booking, or retention details when ARIA cannot safely resolve an exception."
       >
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {operations.map((item) => (
@@ -3382,10 +3506,11 @@ export default async function AriaOperationsCenterPage() {
         </section>
       </CollapsibleOperationsBlock>
 
+      <div id="aria-preferences" className="scroll-mt-24" />
       <CollapsibleOperationsBlock
-        eyebrow="4. Preferences and safeguards"
-        title="Choose what ARIA may handle and how you receive updates"
-        description="Adjust recommendation policies, team ownership, approval limits, and daily summaries. These settings stay out of the way of your day-to-day action list."
+        eyebrow="Preferences"
+        title="Set boundaries, communication timing, and exceptions"
+        description="Safe automation packs work by default. Use these controls for quiet hours, digest delivery, ownership exceptions, and higher-risk boundaries."
       >
         <AriaActionSourceExpansionPanel
           signalCount={
@@ -3416,19 +3541,17 @@ export default async function AriaOperationsCenterPage() {
               Studio follow-up
             </p>
             <h2 className="mt-2 text-xl font-semibold text-slate-950">
-              Set recurring follow-up once, then monitor the results
+              Advanced templates and legacy rule controls
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Use Automations to choose which routine client follow-ups should
-              remain suggestions, become editable drafts, or send automatically
-              using your studio’s approved message templates.
+              Routine safe follow-up now uses ARIA defaults. Open Automations only to maintain message templates or review legacy rule settings while the two systems are consolidated.
             </p>
           </div>
           <Link
             href="/app/automations"
             className="inline-flex items-center justify-center rounded-2xl bg-[#6B21A8] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87]"
           >
-            Manage automations
+            Open advanced automations
           </Link>
         </div>
       </section>

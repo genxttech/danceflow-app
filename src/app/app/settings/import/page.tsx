@@ -54,6 +54,10 @@ type ImportBatchRow = {
   failed_rows: number;
   created_at: string;
   parent_batch_id: string | null;
+  onboarding_project_id: string | null;
+  stage_key: string | null;
+  sequence_number: number | null;
+  reconciliation_status: string;
   summary: ImportBatchSummary | null;
 };
 
@@ -67,7 +71,7 @@ function statusBadgeClass(status: string) {
   if (status === "uploaded" || status === "validated") return "bg-blue-50 text-blue-700";
   if (status === "processing") return "bg-purple-50 text-purple-700";
   if (status === "failed") return "bg-red-50 text-red-700";
-  return "bg-slate-100 text-slate-700";
+  return "bg-slate-100 text-[#5A4567]";
 }
 
 function formatDateTime(value: string) {
@@ -170,12 +174,12 @@ function smallBadge(
 
 function summaryTone(value: number, kind: "good" | "warn" | "bad") {
   if (kind === "good") {
-    return value > 0 ? "text-green-700" : "text-slate-900";
+    return value > 0 ? "text-green-700" : "text-[#2C1838]";
   }
   if (kind === "warn") {
-    return value > 0 ? "text-amber-700" : "text-slate-900";
+    return value > 0 ? "text-amber-700" : "text-[#2C1838]";
   }
-  return value > 0 ? "text-red-700" : "text-slate-900";
+  return value > 0 ? "text-red-700" : "text-[#2C1838]";
 }
 
 function topActionLabel(importType: string) {
@@ -229,6 +233,10 @@ export default async function ImportSettingsPage({
       failed_rows,
       created_at,
       parent_batch_id,
+      onboarding_project_id,
+      stage_key,
+      sequence_number,
+      reconciliation_status,
       summary
     `)
     .eq("studio_id", studioId)
@@ -273,7 +281,7 @@ export default async function ImportSettingsPage({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-[calc(100vh-4rem)] space-y-6 bg-[#F8F5FC] px-4 py-5 sm:px-6 lg:px-8">
       {banner ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm ${
@@ -286,7 +294,7 @@ export default async function ImportSettingsPage({
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-3xl border bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl border border-[#E9D5FF] bg-white shadow-sm">
         <div className="bg-gradient-to-r from-violet-700 via-fuchsia-600 to-pink-500 p-6 text-white">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-3xl">
@@ -351,76 +359,107 @@ export default async function ImportSettingsPage({
         </div>
 
         <div className="grid gap-4 p-5 md:grid-cols-3">
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-900">1. Upload the CSV</p>
-            <p className="mt-1 text-sm text-slate-600">Choose the import type and upload one file at a time.</p>
+          <div className="rounded-2xl border bg-[#FCF8FF] p-4">
+            <p className="text-sm font-semibold text-[#2C1838]">1. Upload the CSV</p>
+            <p className="mt-1 text-sm text-[#6F5A7A]">Choose the import type and upload one file at a time.</p>
           </div>
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-900">2. Review row issues</p>
-            <p className="mt-1 text-sm text-slate-600">Fix missing fields, duplicates, and invalid values before importing.</p>
+          <div className="rounded-2xl border bg-[#FCF8FF] p-4">
+            <p className="text-sm font-semibold text-[#2C1838]">2. Review row issues</p>
+            <p className="mt-1 text-sm text-[#6F5A7A]">Fix missing fields, duplicates, and invalid values before importing.</p>
           </div>
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-900">3. Execute import</p>
-            <p className="mt-1 text-sm text-slate-600">Only reviewed and ready rows are added to your studio.</p>
+          <div className="rounded-2xl border bg-[#FCF8FF] p-4">
+            <p className="text-sm font-semibold text-[#2C1838]">3. Execute import</p>
+            <p className="mt-1 text-sm text-[#6F5A7A]">Only reviewed and ready rows are added to your studio.</p>
           </div>
         </div>
       </div>
 
+      <section className="overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-sm">
+        <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 via-white to-orange-50 p-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700">Migration Plan</p>
+          <h2 className="mt-2 text-2xl font-semibold text-[#22152E]">Move data in a dependency-safe order</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#6F5A7A]">
+            New batches are linked to the active onboarding project and assigned a migration stage automatically. Retail is optional and follows client identity so products, inventory, orders, and digital access can reconcile cleanly.
+          </p>
+        </div>
+        <div className="overflow-x-auto p-5">
+          <div className="flex min-w-max gap-3">
+            {[
+              ["1", "Clients", "Identity first"],
+              ["2", "Instructors", "Staff relationships"],
+              ["3", "Products", "Retail catalog"],
+              ["4", "Inventory", "Quantity reconciliation"],
+              ["5", "Packages & Memberships", "Balances and access"],
+              ["6", "Appointments", "Future schedule"],
+              ["7", "Payments", "Financial history"],
+              ["8", "Retail Orders", "Historical commerce"],
+              ["9", "Digital Entitlements", "Existing access rights"],
+            ].map(([step, title, description]) => (
+              <div key={step} className="w-52 shrink-0 rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] p-4">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">{step}</span>
+                <p className="mt-3 text-sm font-semibold text-[#22152E]">{title}</p>
+                <p className="mt-1 text-xs leading-5 text-[#6F5A7A]">{description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Recommended Order</p>
-          <p className="mt-2 text-xl font-semibold text-slate-900">
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
+          <p className="text-sm text-[#806F89]">Recommended Order</p>
+          <p className="mt-2 text-xl font-semibold text-[#2C1838]">
             Clients → Instructors → Appointments → Payments
           </p>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-[#6F5A7A]">
             Import people first, then schedules, then payment history.
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Start Safely</p>
-          <p className="mt-2 text-xl font-semibold text-slate-900">Use Dry Run First</p>
-          <p className="mt-2 text-sm text-slate-600">
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
+          <p className="text-sm text-[#806F89]">Start Safely</p>
+          <p className="mt-2 text-xl font-semibold text-[#2C1838]">Use Dry Run First</p>
+          <p className="mt-2 text-sm text-[#6F5A7A]">
             Review the file before making live changes to your data.
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Current Supported Imports</p>
-          <p className="mt-2 text-xl font-semibold text-slate-900">
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
+          <p className="text-sm text-[#806F89]">Current Supported Imports</p>
+          <p className="mt-2 text-xl font-semibold text-[#2C1838]">
             Clients, Instructors, Appointments, Payments
           </p>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-[#6F5A7A]">
             Packages and memberships can be added later.
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Source Presets</p>
-          <p className="mt-2 text-xl font-semibold text-slate-900">
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
+          <p className="text-sm text-[#806F89]">Source Presets</p>
+          <p className="mt-2 text-xl font-semibold text-[#2C1838]">
             Generic CSV, Mindbody, Vagaro
           </p>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-[#6F5A7A]">
             Pick the closest source and upload one CSV per import.
           </p>
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Total Imports</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{totalImports}</p>
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
+          <p className="text-sm text-[#806F89]">Total Imports</p>
+          <p className="mt-2 text-2xl font-semibold text-[#2C1838]">{totalImports}</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Completed</p>
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
+          <p className="text-sm text-[#806F89]">Completed</p>
           <p className={`mt-2 text-2xl font-semibold ${summaryTone(completedImports, "good")}`}>
             {completedImports}
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Need Attention</p>
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
+          <p className="text-sm text-[#806F89]">Need Attention</p>
           <p className={`mt-2 text-2xl font-semibold ${summaryTone(importsNeedingAttention, "warn")}`}>
             {importsNeedingAttention}
           </p>
@@ -432,10 +471,10 @@ export default async function ImportSettingsPage({
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm font-medium text-blue-700">Latest Import</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-900">
+              <h2 className="mt-1 text-xl font-semibold text-[#2C1838]">
                 {plainTypeLabel(latestBatch.import_type)} from {labelize(latestBatch.source_system)}
               </h2>
-              <p className="mt-2 text-sm text-slate-700">
+              <p className="mt-2 text-sm text-[#5A4567]">
                 Created {formatDateTime(latestBatch.created_at)} · Status: {labelize(latestBatch.status)}
               </p>
             </div>
@@ -452,11 +491,11 @@ export default async function ImportSettingsPage({
         </div>
       ) : null}
 
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6 shadow-sm">
         <div className="flex flex-col gap-2">
           <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">New Import</p>
-          <h2 className="text-xl font-semibold text-slate-900">Start with a review batch</h2>
-          <p className="text-sm leading-6 text-slate-600">
+          <h2 className="text-xl font-semibold text-[#2C1838]">Start with a review batch</h2>
+          <p className="text-sm leading-6 text-[#6F5A7A]">
             Choose the source, pick what you are importing, upload the CSV, and start with a review pass. Remember: uploading does not immediately add clients. Review the file, then execute the import.
           </p>
         </div>
@@ -469,50 +508,50 @@ export default async function ImportSettingsPage({
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white p-6">
-        <h2 className="text-xl font-semibold text-slate-900">Quick Start Guides</h2>
+      <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
+        <h2 className="text-xl font-semibold text-[#2C1838]">Quick Start Guides</h2>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-900">Clients</p>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="rounded-xl border bg-[#FCF8FF] p-4">
+            <p className="text-sm font-medium text-[#2C1838]">Clients</p>
+            <p className="mt-2 text-sm text-[#6F5A7A]">
               Best first import. Bring over names, contact info, notes, and studio history.
             </p>
           </div>
 
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-900">Instructors</p>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="rounded-xl border bg-[#FCF8FF] p-4">
+            <p className="text-sm font-medium text-[#2C1838]">Instructors</p>
+            <p className="mt-2 text-sm text-[#6F5A7A]">
               Import teaching staff after clients so schedules and ownership are easier to review.
             </p>
           </div>
 
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-900">Appointments</p>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="rounded-xl border bg-[#FCF8FF] p-4">
+            <p className="text-sm font-medium text-[#2C1838]">Appointments</p>
+            <p className="mt-2 text-sm text-[#6F5A7A]">
               Review conflict warnings carefully before importing schedules into the app.
             </p>
           </div>
 
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-900">Payments</p>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="rounded-xl border bg-[#FCF8FF] p-4">
+            <p className="text-sm font-medium text-[#2C1838]">Payments</p>
+            <p className="mt-2 text-sm text-[#6F5A7A]">
               Import payment history after clients are in place. The importer will normalize payment methods and statuses for you.
             </p>
           </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-xl font-semibold text-slate-900">Recent Imports</h2>
-          <p className="text-sm text-slate-500">{recentBatches.length} shown</p>
+          <h2 className="text-xl font-semibold text-[#2C1838]">Recent Imports</h2>
+          <p className="text-sm text-[#806F89]">{recentBatches.length} shown</p>
         </div>
 
         <div className="mt-5 overflow-hidden rounded-2xl border">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-50">
-              <tr className="text-left text-slate-600">
+            <thead className="bg-[#FCF8FF]">
+              <tr className="text-left text-[#6F5A7A]">
                 <th className="px-4 py-3 font-medium">Created</th>
                 <th className="px-4 py-3 font-medium">Import</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -583,12 +622,22 @@ export default async function ImportSettingsPage({
 
                   return (
                     <tr key={batch.id} className="border-t align-top">
-                      <td className="px-4 py-3 text-slate-600">
+                      <td className="px-4 py-3 text-[#6F5A7A]">
                         <div>{formatDateTime(batch.created_at)}</div>
                         <div className="mt-2 flex flex-wrap gap-2">
-                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-[#5A4567]">
                             {labelize(batch.mode)}
                           </span>
+                          {batch.stage_key ? (
+                            <span className="inline-flex rounded-full bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700">
+                              Stage {batch.sequence_number ?? "—"}: {labelize(batch.stage_key)}
+                            </span>
+                          ) : null}
+                          {batch.onboarding_project_id ? (
+                            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                              Onboarding linked
+                            </span>
+                          ) : null}
                           {isChild ? (
                             <span className="inline-flex rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
                               Retry
@@ -602,14 +651,14 @@ export default async function ImportSettingsPage({
                         </div>
                       </td>
 
-                      <td className="px-4 py-3 text-slate-900">
+                      <td className="px-4 py-3 text-[#2C1838]">
                         <div className="font-medium">
                           {plainTypeLabel(batch.import_type)}
                         </div>
-                        <div className="mt-1 text-slate-600">
+                        <div className="mt-1 text-[#6F5A7A]">
                           {labelize(batch.source_system)}
                         </div>
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs text-[#806F89]">
                           {batch.total_rows} rows
                         </div>
                       </td>
@@ -624,7 +673,7 @@ export default async function ImportSettingsPage({
                         </span>
                       </td>
 
-                      <td className="px-4 py-3 text-slate-600">
+                      <td className="px-4 py-3 text-[#6F5A7A]">
                         <div className="flex flex-wrap gap-2">
                           {readyRows > 0 ? smallBadge("Ready", readyRows, "green") : null}
                           {blockingRows > 0 ? smallBadge("Must Fix", blockingRows, "red") : null}
@@ -653,7 +702,7 @@ export default async function ImportSettingsPage({
                         </div>
                       </td>
 
-                      <td className="px-4 py-3 text-slate-600">
+                      <td className="px-4 py-3 text-[#6F5A7A]">
                         <div>Inserted: {batch.inserted_rows}</div>
                         <div>Updated: {batch.updated_rows}</div>
                         <div>Skipped: {batch.skipped_rows}</div>
@@ -665,7 +714,7 @@ export default async function ImportSettingsPage({
                           {canOpenReview ? (
                             <Link
                               href={`/app/settings/import/${batch.id}`}
-                              className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                              className="rounded-xl border border-[#D8B4FE] bg-white px-3 py-2 text-sm font-semibold text-[#6B21A8] hover:bg-[#FCF8FF]"
                             >
                               Open Review
                             </Link>
@@ -676,7 +725,7 @@ export default async function ImportSettingsPage({
                               <input type="hidden" name="batchId" value={batch.id} />
                               <button
                                 type="submit"
-                                className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                                className="rounded-xl border border-[#D8B4FE] bg-white px-3 py-2 text-sm font-semibold text-[#6B21A8] hover:bg-[#FCF8FF]"
                               >
                                 {topActionLabel(batch.import_type)}
                               </button>
@@ -689,7 +738,7 @@ export default async function ImportSettingsPage({
                 })
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-10 text-center text-[#806F89]">
                     No imports yet. Upload your first CSV above to get started.
                   </td>
                 </tr>
@@ -700,9 +749,9 @@ export default async function ImportSettingsPage({
       </div>
 
       {rootBatches.length > 0 ? (
-        <div className="rounded-2xl border bg-white p-6">
-          <h2 className="text-xl font-semibold text-slate-900">Migration Progress</h2>
-          <p className="mt-2 text-sm text-slate-600">
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
+          <h2 className="text-xl font-semibold text-[#2C1838]">Migration Progress</h2>
+          <p className="mt-2 text-sm text-[#6F5A7A]">
             Use this as a simple checklist while moving studios over.
           </p>
 
@@ -716,9 +765,9 @@ export default async function ImportSettingsPage({
               );
 
               return (
-                <div key={importType} className="rounded-xl border bg-slate-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">{plainTypeLabel(importType)}</p>
-                  <p className="mt-2 text-sm text-slate-600">
+                <div key={importType} className="rounded-xl border bg-[#FCF8FF] p-4">
+                  <p className="text-sm font-medium text-[#2C1838]">{plainTypeLabel(importType)}</p>
+                  <p className="mt-2 text-sm text-[#6F5A7A]">
                     {done
                       ? "Completed"
                       : inProgress
@@ -733,7 +782,7 @@ export default async function ImportSettingsPage({
                           ? "bg-green-50 text-green-700"
                           : inProgress
                             ? "bg-blue-50 text-blue-700"
-                            : "bg-slate-100 text-slate-700"
+                            : "bg-slate-100 text-[#5A4567]"
                       }`}
                     >
                       {done ? "Done" : inProgress ? "In Progress" : "Not Started"}
@@ -741,7 +790,7 @@ export default async function ImportSettingsPage({
                   </div>
 
                   {latestTypeBatch ? (
-                    <div className="mt-3 text-xs text-slate-500">
+                    <div className="mt-3 text-xs text-[#806F89]">
                       Latest: {formatDateTime(latestTypeBatch.created_at)}
                     </div>
                   ) : null}

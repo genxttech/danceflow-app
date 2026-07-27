@@ -67,6 +67,10 @@ type ImportBatchRow = {
   started_at: string | null;
   completed_at: string | null;
   parent_batch_id: string | null;
+  onboarding_project_id: string | null;
+  stage_key: string | null;
+  sequence_number: number | null;
+  reconciliation_status: string;
 };
 
 type ImportBatchFileRow = {
@@ -151,7 +155,7 @@ function statusBadgeClass(status: string) {
   if (status === "uploaded" || status === "validated") return "bg-blue-50 text-blue-700";
   if (status === "processing") return "bg-purple-50 text-purple-700";
   if (status === "failed") return "bg-red-50 text-red-700";
-  return "bg-slate-100 text-slate-700";
+  return "bg-slate-100 text-[#5A4567]";
 }
 
 function errorBadgeClass(errorCode: string) {
@@ -266,11 +270,11 @@ function SummaryCard({
         ? "text-amber-700"
         : tone === "bad"
           ? "text-red-700"
-          : "text-slate-900";
+          : "text-[#2C1838]";
 
   return (
-    <div className="rounded-2xl border bg-white p-5">
-      <p className="text-sm text-slate-500">{label}</p>
+    <div className="min-w-[12rem] snap-start rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:min-w-0">
+      <p className="text-sm text-[#806F89]">{label}</p>
       <p className={`mt-2 text-2xl font-semibold ${toneClass}`}>{value}</p>
     </div>
   );
@@ -292,11 +296,11 @@ function ExecutionMetric({
         ? "text-amber-700"
         : tone === "bad"
           ? "text-red-700"
-          : "text-slate-900";
+          : "text-[#2C1838]";
 
   return (
     <div className="rounded-xl border bg-white p-4">
-      <p className="text-sm text-slate-500">{label}</p>
+      <p className="text-sm text-[#806F89]">{label}</p>
       <p className={`mt-1 text-2xl font-semibold ${toneClass}`}>{value}</p>
     </div>
   );
@@ -340,7 +344,11 @@ export default async function ImportBatchDetailPage({
       created_at,
       started_at,
       completed_at,
-      parent_batch_id
+      parent_batch_id,
+      onboarding_project_id,
+      stage_key,
+      sequence_number,
+      reconciliation_status
     `)
     .eq("id", batchId)
     .eq("studio_id", studioId)
@@ -579,7 +587,7 @@ export default async function ImportBatchDetailPage({
   const isExecuted = Boolean(summary.executed) || isCompleted || isCompletedWithWarnings;
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-[calc(100vh-4rem)] space-y-6 bg-[#F8F5FC] px-4 py-5 sm:px-6 lg:px-8">
       {banner ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm ${
@@ -605,13 +613,14 @@ export default async function ImportBatchDetailPage({
         </div>
       ) : null}
 
-      <div className="rounded-2xl border bg-white p-6">
+      <div className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-white shadow-sm">
+        <div className="bg-gradient-to-br from-[#241033] via-[#5B197A] to-[#F97316] p-6 text-white md:p-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+            <h1 className="text-3xl font-semibold tracking-tight text-white">
               {titleForImportType(typedBatch.import_type)}
             </h1>
-            <p className="mt-2 text-slate-600">
+            <p className="mt-2 max-w-3xl text-white/80">
               Review uploaded file metadata, validation results, preview counts, retry history, and row-level issues.
             </p>
           </div>
@@ -622,7 +631,7 @@ export default async function ImportBatchDetailPage({
                 <input type="hidden" name="batchId" value={typedBatch.id} />
                 <button
                   type="submit"
-                  className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                  className="rounded-xl border border-[#D8B4FE] bg-white px-4 py-2 font-semibold text-[#6B21A8] shadow-sm hover:border-[#C084FC] hover:bg-[#FCF8FF]"
                 >
                   Export Fix Sheet CSV
                 </button>
@@ -637,7 +646,7 @@ export default async function ImportBatchDetailPage({
                 <input type="hidden" name="batchId" value={typedBatch.id} />
                 <button
                   type="submit"
-                  className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+                  className="rounded-xl bg-[#5B197A] px-4 py-2 text-white hover:bg-[#4B1465]"
                 >
                   {executeLabelForImportType(typedBatch.import_type)}
                 </button>
@@ -646,38 +655,39 @@ export default async function ImportBatchDetailPage({
 
             <Link
               href="/app/settings/import"
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+              className="rounded-xl border border-[#D8B4FE] bg-white px-4 py-2 font-semibold text-[#6B21A8] shadow-sm hover:border-[#C084FC] hover:bg-[#FCF8FF]"
             >
               Back to Import
             </Link>
           </div>
         </div>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-6">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Type</p>
-          <p className="mt-2 text-lg font-semibold text-slate-900">
+      <div className="flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-4 md:overflow-visible xl:grid-cols-8">
+        <div className="min-w-[12rem] snap-start rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:min-w-0">
+          <p className="text-sm text-[#806F89]">Type</p>
+          <p className="mt-2 text-lg font-semibold text-[#2C1838]">
             {labelize(typedBatch.import_type)}
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Source</p>
-          <p className="mt-2 text-lg font-semibold text-slate-900">
+        <div className="min-w-[12rem] snap-start rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:min-w-0">
+          <p className="text-sm text-[#806F89]">Source</p>
+          <p className="mt-2 text-lg font-semibold text-[#2C1838]">
             {labelize(typedBatch.source_system)}
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Mode</p>
-          <p className="mt-2 text-lg font-semibold text-slate-900">
+        <div className="min-w-[12rem] snap-start rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:min-w-0">
+          <p className="text-sm text-[#806F89]">Mode</p>
+          <p className="mt-2 text-lg font-semibold text-[#2C1838]">
             {labelize(typedBatch.mode)}
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Status</p>
+        <div className="min-w-[12rem] snap-start rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:min-w-0">
+          <p className="text-sm text-[#806F89]">Status</p>
           <div className="mt-2">
             <span
               className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
@@ -689,25 +699,39 @@ export default async function ImportBatchDetailPage({
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Rows</p>
-          <p className="mt-2 text-lg font-semibold text-slate-900">
+        <div className="min-w-[12rem] snap-start rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:min-w-0">
+          <p className="text-sm text-[#806F89]">Rows</p>
+          <p className="mt-2 text-lg font-semibold text-[#2C1838]">
             {typedBatch.total_rows}
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Execution Ready</p>
-          <p className="mt-2 text-lg font-semibold text-slate-900">
+        <div className="min-w-[12rem] snap-start rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:min-w-0">
+          <p className="text-sm text-[#806F89]">Execution Ready</p>
+          <p className="mt-2 text-lg font-semibold text-[#2C1838]">
             {canExecute ? "Yes" : "No"}
+          </p>
+        </div>
+
+        <div className="min-w-[12rem] snap-start rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:min-w-0">
+          <p className="text-sm text-[#806F89]">Migration Stage</p>
+          <p className="mt-2 text-lg font-semibold text-[#2C1838]">
+            {typedBatch.stage_key ? `${typedBatch.sequence_number ?? "—"} · ${labelize(typedBatch.stage_key)}` : "Not assigned"}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
+          <p className="text-sm text-[#806F89]">Reconciliation</p>
+          <p className="mt-2 text-lg font-semibold text-[#2C1838]">
+            {labelize(typedBatch.reconciliation_status)}
           </p>
         </div>
       </div>
 
       {typedBatch.import_type === "payments" && isExecuted ? (
         <div className="rounded-2xl border border-green-200 bg-green-50 p-6">
-          <h2 className="text-xl font-semibold text-slate-900">Payment Import Results</h2>
-          <p className="mt-2 text-sm text-slate-700">
+          <h2 className="text-xl font-semibold text-[#2C1838]">Payment Import Results</h2>
+          <p className="mt-2 text-sm text-[#5A4567]">
             This batch has executed. Review the outcome counts below, then use the fix sheet and retry workflow for any remaining issues.
           </p>
 
@@ -764,11 +788,11 @@ export default async function ImportBatchDetailPage({
             <SummaryCard label="Status Normalizations" value={paymentStatusNormalizedWarnings} tone={paymentStatusNormalizedWarnings > 0 ? "warn" : "good"} />
           </div>
 
-          <div className="rounded-2xl border bg-white p-6">
-            <h2 className="text-xl font-semibold text-slate-900">Payment Import Notes</h2>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
+            <h2 className="text-xl font-semibold text-[#2C1838]">Payment Import Notes</h2>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">Normalization behavior</p>
+              <div className="rounded-xl border bg-[#FCF8FF] p-4 text-sm text-[#5A4567]">
+                <p className="font-medium text-[#2C1838]">Normalization behavior</p>
                 <p className="mt-2">
                   Imported payment methods are normalized to the app-safe values:
                   <span className="font-medium"> card, cash, check, ach, other</span>.
@@ -779,8 +803,8 @@ export default async function ImportBatchDetailPage({
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">Traceability</p>
+              <div className="rounded-xl border bg-[#FCF8FF] p-4 text-sm text-[#5A4567]">
+                <p className="font-medium text-[#2C1838]">Traceability</p>
                 <p className="mt-2">
                   The original imported payment method, payment status, and any appointment external reference are preserved in payment notes so staff can audit the migration later.
                 </p>
@@ -792,8 +816,8 @@ export default async function ImportBatchDetailPage({
 
       {showAppointmentExecutionConfirmation ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-          <h2 className="text-xl font-semibold text-slate-900">Execution Confirmation</h2>
-          <p className="mt-2 text-sm text-slate-700">
+          <h2 className="text-xl font-semibold text-[#2C1838]">Execution Confirmation</h2>
+          <p className="mt-2 text-sm text-[#5A4567]">
             Review the appointment import impact before executing. Blocking rows will be skipped. Warning rows should be reviewed carefully.
           </p>
 
@@ -815,7 +839,7 @@ export default async function ImportBatchDetailPage({
             <ExecutionMetric label="Room Collisions" value={appointmentRoomConflictWarnings} tone={appointmentRoomConflictWarnings > 0 ? "warn" : "good"} />
           </div>
 
-          <div className="mt-5 rounded-xl border bg-white p-4 text-sm text-slate-700">
+          <div className="mt-5 rounded-xl border bg-white p-4 text-sm text-[#5A4567]">
             <p>
               This execution will attempt to import only the rows that passed blocking validation. Existing appointments matched by external ID may be updated unless the batch is in create-only mode.
             </p>
@@ -826,7 +850,7 @@ export default async function ImportBatchDetailPage({
               <input type="hidden" name="batchId" value={typedBatch.id} />
               <button
                 type="submit"
-                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+                className="rounded-xl bg-[#5B197A] px-4 py-2 text-white hover:bg-[#4B1465]"
               >
                 {executeLabelForImportType(typedBatch.import_type)}
               </button>
@@ -836,7 +860,7 @@ export default async function ImportBatchDetailPage({
               <input type="hidden" name="batchId" value={typedBatch.id} />
               <button
                 type="submit"
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                className="rounded-xl border border-[#D8B4FE] bg-white px-4 py-2 font-semibold text-[#6B21A8] shadow-sm hover:border-[#C084FC] hover:bg-[#FCF8FF]"
               >
                 Export Fix Sheet CSV
               </button>
@@ -847,8 +871,8 @@ export default async function ImportBatchDetailPage({
 
       {showPaymentExecutionConfirmation ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-          <h2 className="text-xl font-semibold text-slate-900">Execution Confirmation</h2>
-          <p className="mt-2 text-sm text-slate-700">
+          <h2 className="text-xl font-semibold text-[#2C1838]">Execution Confirmation</h2>
+          <p className="mt-2 text-sm text-[#5A4567]">
             Review the payment import impact before executing. Blocking rows will be skipped. Warning rows should be reviewed carefully.
           </p>
 
@@ -869,8 +893,8 @@ export default async function ImportBatchDetailPage({
             <ExecutionMetric label="Status Normalizations" value={paymentStatusNormalizedWarnings} tone={paymentStatusNormalizedWarnings > 0 ? "warn" : "good"} />
           </div>
 
-          <div className="mt-5 rounded-xl border bg-white p-4 text-sm text-slate-700">
-            <p className="font-medium text-slate-900">Before you execute</p>
+          <div className="mt-5 rounded-xl border bg-white p-4 text-sm text-[#5A4567]">
+            <p className="font-medium text-[#2C1838]">Before you execute</p>
             <p className="mt-2">
               Imported methods and statuses will be normalized to accepted app values. The original imported values will still be preserved in notes for auditability.
             </p>
@@ -881,7 +905,7 @@ export default async function ImportBatchDetailPage({
               <input type="hidden" name="batchId" value={typedBatch.id} />
               <button
                 type="submit"
-                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+                className="rounded-xl bg-[#5B197A] px-4 py-2 text-white hover:bg-[#4B1465]"
               >
                 {executeLabelForImportType(typedBatch.import_type)}
               </button>
@@ -891,7 +915,7 @@ export default async function ImportBatchDetailPage({
               <input type="hidden" name="batchId" value={typedBatch.id} />
               <button
                 type="submit"
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                className="rounded-xl border border-[#D8B4FE] bg-white px-4 py-2 font-semibold text-[#6B21A8] shadow-sm hover:border-[#C084FC] hover:bg-[#FCF8FF]"
               >
                 Export Fix Sheet CSV
               </button>
@@ -902,17 +926,17 @@ export default async function ImportBatchDetailPage({
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
-          <div className="rounded-2xl border bg-white p-6">
-            <h2 className="text-xl font-semibold text-slate-900">Retry Workflow</h2>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
+            <h2 className="text-xl font-semibold text-[#2C1838]">Retry Workflow</h2>
 
             <div className="mt-5 space-y-4">
               {typedParentBatch ? (
-                <div className="rounded-xl border bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Parent Batch</p>
+                <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                  <p className="text-sm text-[#806F89]">Parent Batch</p>
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <Link
                       href={`/app/settings/import/${typedParentBatch.id}`}
-                      className="font-medium text-slate-900 underline"
+                      className="font-medium text-[#2C1838] underline"
                     >
                       {typedParentBatch.id}
                     </Link>
@@ -923,16 +947,16 @@ export default async function ImportBatchDetailPage({
                     >
                       {labelize(typedParentBatch.status)}
                     </span>
-                    <span className="text-sm text-slate-500">
+                    <span className="text-sm text-[#806F89]">
                       {formatDateTime(typedParentBatch.created_at)}
                     </span>
                   </div>
                 </div>
               ) : null}
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Upload Corrected CSV</p>
-                <p className="mt-1 text-sm text-slate-600">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Upload Corrected CSV</p>
+                <p className="mt-1 text-sm text-[#6F5A7A]">
                   Create a new retry batch linked to this one while preserving history.
                 </p>
 
@@ -948,10 +972,10 @@ export default async function ImportBatchDetailPage({
                 </div>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm font-medium text-slate-900">Child Retry Batches</p>
-                  <p className="text-xs text-slate-500">{typedChildBatches.length} linked</p>
+                  <p className="text-sm font-medium text-[#2C1838]">Child Retry Batches</p>
+                  <p className="text-xs text-[#806F89]">{typedChildBatches.length} linked</p>
                 </div>
 
                 {typedChildBatches.length > 0 ? (
@@ -964,7 +988,7 @@ export default async function ImportBatchDetailPage({
                         <div className="flex flex-wrap items-center gap-3">
                           <Link
                             href={`/app/settings/import/${child.id}`}
-                            className="font-medium text-slate-900 underline"
+                            className="font-medium text-[#2C1838] underline"
                           >
                             {child.id}
                           </Link>
@@ -975,11 +999,11 @@ export default async function ImportBatchDetailPage({
                           >
                             {labelize(child.status)}
                           </span>
-                          <span className="text-sm text-slate-500">
+                          <span className="text-sm text-[#806F89]">
                             {formatDateTime(child.created_at)}
                           </span>
                         </div>
-                        <div className="mt-2 text-xs text-slate-600">
+                        <div className="mt-2 text-xs text-[#6F5A7A]">
                           Inserted: {child.inserted_rows} · Updated: {child.updated_rows} ·
                           Skipped: {child.skipped_rows} · Failed: {child.failed_rows}
                         </div>
@@ -987,150 +1011,150 @@ export default async function ImportBatchDetailPage({
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-3 text-sm text-slate-500">No retry batches yet.</p>
+                  <p className="mt-3 text-sm text-[#806F89]">No retry batches yet.</p>
                 )}
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border bg-white p-6">
-            <h2 className="text-xl font-semibold text-slate-900">Batch Summary</h2>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
+            <h2 className="text-xl font-semibold text-[#2C1838]">Batch Summary</h2>
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Created</p>
-                <p className="mt-1 font-medium text-slate-900">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Created</p>
+                <p className="mt-1 font-medium text-[#2C1838]">
                   {formatDateTime(typedBatch.created_at)}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Started</p>
-                <p className="mt-1 font-medium text-slate-900">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Started</p>
+                <p className="mt-1 font-medium text-[#2C1838]">
                   {formatDateTime(typedBatch.started_at)}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Completed</p>
-                <p className="mt-1 font-medium text-slate-900">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Completed</p>
+                <p className="mt-1 font-medium text-[#2C1838]">
                   {formatDateTime(typedBatch.completed_at)}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Processed Rows</p>
-                <p className="mt-1 font-medium text-slate-900">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Processed Rows</p>
+                <p className="mt-1 font-medium text-[#2C1838]">
                   {typedBatch.processed_rows}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Inserted</p>
-                <p className="mt-1 font-medium text-slate-900">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Inserted</p>
+                <p className="mt-1 font-medium text-[#2C1838]">
                   {typedBatch.inserted_rows}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Updated</p>
-                <p className="mt-1 font-medium text-slate-900">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Updated</p>
+                <p className="mt-1 font-medium text-[#2C1838]">
                   {typedBatch.updated_rows}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Skipped</p>
-                <p className="mt-1 font-medium text-slate-900">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Skipped</p>
+                <p className="mt-1 font-medium text-[#2C1838]">
                   {typedBatch.skipped_rows}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Failed</p>
-                <p className="mt-1 font-medium text-slate-900">
+              <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                <p className="text-sm text-[#806F89]">Failed</p>
+                <p className="mt-1 font-medium text-[#2C1838]">
                   {typedBatch.failed_rows}
                 </p>
               </div>
             </div>
 
-            <div className="mt-5 rounded-xl border bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Raw Summary</p>
-              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-700">
+            <div className="mt-5 rounded-xl border bg-[#FCF8FF] p-4">
+              <p className="text-sm text-[#806F89]">Raw Summary</p>
+              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-[#5A4567]">
                 {JSON.stringify(typedBatch.summary ?? {}, null, 2)}
               </pre>
             </div>
           </div>
 
-          <div className="rounded-2xl border bg-white p-6">
-            <h2 className="text-xl font-semibold text-slate-900">Uploaded File</h2>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
+            <h2 className="text-xl font-semibold text-[#2C1838]">Uploaded File</h2>
 
             {firstFile ? (
               <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <div className="rounded-xl border bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Filename</p>
-                  <p className="mt-1 font-medium text-slate-900">
+                <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                  <p className="text-sm text-[#806F89]">Filename</p>
+                  <p className="mt-1 font-medium text-[#2C1838]">
                     {firstFile.original_filename}
                   </p>
                 </div>
 
-                <div className="rounded-xl border bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Detected Kind</p>
-                  <p className="mt-1 font-medium text-slate-900">
+                <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                  <p className="text-sm text-[#806F89]">Detected Kind</p>
+                  <p className="mt-1 font-medium text-[#2C1838]">
                     {labelize(firstFile.detected_kind)}
                   </p>
                 </div>
 
-                <div className="rounded-xl border bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">File Size</p>
-                  <p className="mt-1 font-medium text-slate-900">
+                <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                  <p className="text-sm text-[#806F89]">File Size</p>
+                  <p className="mt-1 font-medium text-[#2C1838]">
                     {formatFileSize(firstFile.file_size_bytes)}
                   </p>
                 </div>
 
-                <div className="rounded-xl border bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Row Count</p>
-                  <p className="mt-1 font-medium text-slate-900">
+                <div className="rounded-xl border bg-[#FCF8FF] p-4">
+                  <p className="text-sm text-[#806F89]">Row Count</p>
+                  <p className="mt-1 font-medium text-[#2C1838]">
                     {firstFile.row_count}
                   </p>
                 </div>
 
-                <div className="rounded-xl border bg-slate-50 p-4 md:col-span-2">
-                  <p className="text-sm text-slate-500">Storage Path</p>
-                  <p className="mt-1 break-all font-medium text-slate-900">
+                <div className="rounded-xl border bg-[#FCF8FF] p-4 md:col-span-2">
+                  <p className="text-sm text-[#806F89]">Storage Path</p>
+                  <p className="mt-1 break-all font-medium text-[#2C1838]">
                     {firstFile.storage_bucket}/{firstFile.storage_path}
                   </p>
                 </div>
               </div>
             ) : (
-              <p className="mt-4 text-slate-500">No file metadata found.</p>
+              <p className="mt-4 text-[#806F89]">No file metadata found.</p>
             )}
           </div>
 
-          <div className="rounded-2xl border bg-white p-6">
-            <h2 className="text-xl font-semibold text-slate-900">Detected Headers</h2>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
+            <h2 className="text-xl font-semibold text-[#2C1838]">Detected Headers</h2>
 
             {firstFile?.header_columns && firstFile.header_columns.length > 0 ? (
               <div className="mt-5 flex flex-wrap gap-2">
                 {firstFile.header_columns.map((header) => (
                   <span
                     key={header}
-                    className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                    className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-[#5A4567]"
                   >
                     {header}
                   </span>
                 ))}
               </div>
             ) : (
-              <p className="mt-4 text-slate-500">No headers recorded.</p>
+              <p className="mt-4 text-[#806F89]">No headers recorded.</p>
             )}
           </div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-6">
+        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-xl font-semibold text-slate-900">Validation / Import Issues</h2>
-            <p className="text-sm text-slate-500">{typedErrors.length} shown</p>
+            <h2 className="text-xl font-semibold text-[#2C1838]">Validation / Import Issues</h2>
+            <p className="text-sm text-[#806F89]">{typedErrors.length} shown</p>
           </div>
 
           <div className="mt-5 space-y-3">
@@ -1142,7 +1166,7 @@ export default async function ImportBatchDetailPage({
               typedErrors.map((error) => (
                 <div
                   key={error.id}
-                  className="rounded-xl border bg-slate-50 p-4"
+                  className="rounded-xl border bg-[#FCF8FF] p-4"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span
@@ -1162,34 +1186,34 @@ export default async function ImportBatchDetailPage({
                     </span>
 
                     {error.row_number != null ? (
-                      <span className="inline-flex rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">
+                      <span className="inline-flex rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-[#5A4567]">
                         Row {error.row_number}
                       </span>
                     ) : null}
 
                     {error.field_name ? (
-                      <span className="inline-flex rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">
+                      <span className="inline-flex rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-[#5A4567]">
                         {error.field_name}
                       </span>
                     ) : null}
                   </div>
 
-                  <p className="mt-3 text-sm font-medium text-slate-900">
+                  <p className="mt-3 text-sm font-medium text-[#2C1838]">
                     {error.error_message}
                   </p>
 
                   {error.raw_value ? (
-                    <p className="mt-2 text-xs text-slate-600">
+                    <p className="mt-2 text-xs text-[#6F5A7A]">
                       Raw value: {error.raw_value}
                     </p>
                   ) : null}
 
                   {error.row_data && Object.keys(error.row_data).length > 0 ? (
                     <details className="mt-3">
-                      <summary className="cursor-pointer text-xs font-medium text-slate-600">
+                      <summary className="cursor-pointer text-xs font-medium text-[#6F5A7A]">
                         View row data
                       </summary>
-                      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs text-slate-700">
+                      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs text-[#5A4567]">
                         {JSON.stringify(error.row_data, null, 2)}
                       </pre>
                     </details>

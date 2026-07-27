@@ -23,8 +23,20 @@ function sourceHelper(sourceSystem: string) {
   if (sourceSystem === "mindbody") {
     return "Best for exported Mindbody CSV files.";
   }
+  if (sourceSystem === "wellnessliving") {
+    return "Use for WellnessLiving exports; source-specific mappings will be reused as support expands.";
+  }
+  if (sourceSystem === "pike13") {
+    return "Use for Pike13 exports and assisted mapping review.";
+  }
+  if (sourceSystem === "square") {
+    return "Recommended for retail catalog, inventory, order, customer, and payment exports.";
+  }
   if (sourceSystem === "vagaro") {
     return "Best for exported Vagaro CSV files.";
+  }
+  if (sourceSystem === "spreadsheet") {
+    return "Use for studio-prepared spreadsheets or exports combined from multiple systems.";
   }
   if (sourceSystem === "studio_director") {
     return "Use this when the CSV came from Studio Director.";
@@ -52,7 +64,19 @@ function importTypeHelper(importType: string) {
     return "Package import support can be added later.";
   }
   if (importType === "memberships") {
-    return "Membership import support can be added later.";
+    return "Upload for mapping and reconciliation preparation; live execution is added in a later slice.";
+  }
+  if (importType === "products") {
+    return "Import retail catalog basics such as SKU, name, price, category, and active status.";
+  }
+  if (importType === "inventory") {
+    return "Prepare quantity and low-stock reconciliation after products are mapped.";
+  }
+  if (importType === "retail_orders") {
+    return "Prepare historical retail sales after clients, products, and payments are available.";
+  }
+  if (importType === "digital_entitlements") {
+    return "Prepare existing digital-access rights after products and client identities are mapped.";
   }
   return "";
 }
@@ -133,9 +157,13 @@ export default function ImportUploadForm({
           >
             <option value="generic_csv">Generic CSV</option>
             <option value="mindbody">Mindbody</option>
+            <option value="wellnessliving">WellnessLiving</option>
+            <option value="pike13">Pike13</option>
+            <option value="square">Square</option>
             <option value="vagaro">Vagaro</option>
             <option value="studio_director">Studio Director</option>
-            <option value="custom">Custom</option>
+            <option value="spreadsheet">Spreadsheet</option>
+            <option value="custom">Other / Custom</option>
           </select>
           <p className="mt-1 text-xs text-slate-500">{sourceHelper(sourceSystem)}</p>
         </div>
@@ -155,8 +183,12 @@ export default function ImportUploadForm({
             <option value="instructors">Instructors</option>
             <option value="appointments">Appointments</option>
             <option value="payments">Payments</option>
-            <option value="packages">Packages</option>
-            <option value="memberships">Memberships</option>
+            <option value="packages">Packages — mapping preparation</option>
+            <option value="memberships">Memberships — mapping preparation</option>
+            <option value="products">Retail Products — mapping preparation</option>
+            <option value="inventory">Inventory — mapping preparation</option>
+            <option value="retail_orders">Retail Orders — mapping preparation</option>
+            <option value="digital_entitlements">Digital Entitlements — mapping preparation</option>
           </select>
           <p className="mt-1 text-xs text-slate-500">{importTypeHelper(importType)}</p>
         </div>
@@ -187,6 +219,7 @@ export default function ImportUploadForm({
           <li>Start with clients first whenever possible.</li>
           <li>Use Dry Run before importing live data.</li>
           <li>Upload one CSV at a time for the smoothest review.</li>
+          <li>Retail data should follow clients: products, inventory, orders, then digital entitlements.</li>
         </ul>
       </div>
 

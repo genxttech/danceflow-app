@@ -686,8 +686,12 @@ function validateImportInput(params: {
   const allowedSourceSystems = [
     "generic_csv",
     "mindbody",
+    "wellnessliving",
+    "pike13",
+    "square",
     "vagaro",
     "studio_director",
+    "spreadsheet",
     "custom",
   ];
 
@@ -698,6 +702,10 @@ function validateImportInput(params: {
     "payments",
     "packages",
     "memberships",
+    "products",
+    "inventory",
+    "retail_orders",
+    "digital_entitlements",
   ];
 
   const allowedModes = ["dry_run", "create_only", "create_or_update"];
@@ -986,6 +994,26 @@ export async function createImportBatchAction(
     const headerColumns = parseCsvHeaders(csvText);
     const rowCount = countCsvRows(csvText);
 
+    const { data: onboardingProject } = await supabase
+      .from("onboarding_projects")
+      .select("id")
+      .eq("studio_id", studioId)
+      .eq("checklist_type", "studio")
+      .maybeSingle<{ id: string }>();
+
+    const stageSequence: Record<string, number> = {
+      clients: 10,
+      instructors: 20,
+      products: 30,
+      inventory: 40,
+      packages: 50,
+      memberships: 60,
+      appointments: 70,
+      payments: 80,
+      retail_orders: 90,
+      digital_entitlements: 100,
+    };
+
     const { data: batch, error: batchError } = await supabase
       .from("import_batches")
       .insert({
@@ -999,6 +1027,10 @@ export async function createImportBatchAction(
         config: {},
         summary: {},
         parent_batch_id: parentBatchId,
+        onboarding_project_id: onboardingProject?.id ?? null,
+        stage_key: importType,
+        sequence_number: stageSequence[importType] ?? 999,
+        reconciliation_status: "not_started",
       })
       .select("id")
       .single();
