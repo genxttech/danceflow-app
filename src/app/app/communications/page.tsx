@@ -15,8 +15,10 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewCommunications } from "@/lib/auth/permissions";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import CommunicationsWorkspaceHeader from "@/components/app/communications/CommunicationsWorkspaceHeader";
+import CommunicationsWorkspaceEmptyState from "@/components/app/communications/CommunicationsWorkspaceEmptyState";
+import CommunicationsWorkspaceFeedback from "@/components/app/communications/CommunicationsWorkspaceFeedback";
 
-type SearchParams = Promise<{ view?: string }>;
+type SearchParams = Promise<{ view?: string; success?: string; error?: string }>;
 
 type CommunicationsView =
   | "conversations"
@@ -144,26 +146,6 @@ function statusTone(status: string) {
   return "border-violet-200 bg-violet-50 text-violet-800";
 }
 
-function EmptyState({
-  title,
-  description,
-  action,
-}: {
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-[28px] border border-dashed border-violet-200 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] p-8 text-center">
-      <p className="text-base font-semibold text-slate-950">{title}</p>
-      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
-        {description}
-      </p>
-      {action ? <div className="mt-4">{action}</div> : null}
-    </div>
-  );
-}
-
 export default async function CommunicationsPage({
   searchParams,
 }: {
@@ -171,6 +153,16 @@ export default async function CommunicationsPage({
 }) {
   const params = await searchParams;
   const activeView = resolveView(params.view);
+  const successMessage = params.success === "follow_up_completed"
+    ? "Follow-up marked complete."
+    : params.success === "message_sent"
+      ? "Message sent successfully."
+      : null;
+  const errorMessage = params.error === "message_failed"
+    ? "The message could not be sent. Review delivery details and try again."
+    : params.error === "follow_up_failed"
+      ? "The follow-up could not be updated."
+      : null;
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
   const role = context.studioRole ?? "";
@@ -339,6 +331,14 @@ export default async function CommunicationsPage({
 
   return (
     <main className="space-y-6 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.07),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.08),transparent_26%)]">
+      {successMessage ? (
+        <CommunicationsWorkspaceFeedback tone="success" message={successMessage} />
+      ) : null}
+
+      {errorMessage ? (
+        <CommunicationsWorkspaceFeedback tone="error" message={errorMessage} />
+      ) : null}
+
       <CommunicationsWorkspaceHeader
         activeView={activeView}
         views={views}
@@ -419,7 +419,7 @@ export default async function CommunicationsPage({
 
           <div className="mt-4 space-y-2.5">
             {conversationRows.length === 0 ? (
-              <EmptyState
+              <CommunicationsWorkspaceEmptyState
                 title="No communication activity yet"
                 description="Calls, texts, emails, follow-ups, and ARIA outreach will appear here once they are logged against a client."
                 action={
@@ -487,7 +487,7 @@ export default async function CommunicationsPage({
           </div>
           <div className="mt-4 space-y-2.5">
             {sortedFollowUps.length === 0 ? (
-              <EmptyState title="No open follow-ups" description="All currently scheduled communication follow-ups are complete." />
+              <CommunicationsWorkspaceEmptyState title="No open follow-ups" description="All currently scheduled communication follow-ups are complete." />
             ) : (
               sortedFollowUps.map((followUp) => {
                 const client = clientsById.get(followUp.client_id);
@@ -517,7 +517,7 @@ export default async function CommunicationsPage({
                       <p className="mt-2 text-xs text-slate-500">Due {formatDateTime(followUp.follow_up_due_at)}</p>
                     </div>
                     <span className="inline-flex items-center gap-2 text-sm font-semibold text-violet-800">
-                      Review client <ArrowRight className="h-4 w-4" />
+                      Open client <ArrowRight className="h-4 w-4" />
                     </span>
                   </Link>
                 );
@@ -542,15 +542,15 @@ export default async function CommunicationsPage({
               </div>
             </div>
             <Link href="/app/marketing/campaigns" className="inline-flex w-full items-center justify-center rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 sm:w-auto">
-              Open campaign workspace
+              Open campaigns
             </Link>
           </div>
           <div className="mt-4 space-y-2.5">
             {campaigns.length === 0 ? (
-              <EmptyState
+              <CommunicationsWorkspaceEmptyState
                 title="No broadcast campaigns yet"
                 description="Create a branded studio email for leads, active clients, package renewals, or event audiences."
-                action={<Link href="/app/marketing/campaigns" className="text-sm font-semibold text-violet-800 underline">Create the first campaign</Link>}
+                action={<Link href="/app/marketing/campaigns" className="text-sm font-semibold text-violet-800 underline">Create first campaign</Link>}
               />
             ) : (
               campaigns.map((campaign) => (
@@ -572,7 +572,7 @@ export default async function CommunicationsPage({
                     </p>
                   </div>
                   <span className="inline-flex items-center gap-2 text-sm font-semibold text-violet-800">
-                    Review campaign <ArrowRight className="h-4 w-4" />
+                    Open campaign <ArrowRight className="h-4 w-4" />
                   </span>
                 </Link>
               ))
@@ -599,7 +599,7 @@ export default async function CommunicationsPage({
             <div className="space-y-3">
               <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">Email delivery</h3>
               {deliveries.length === 0 ? (
-                <EmptyState title="No email delivery records" description="Outbound email activity will appear here after messages are queued or sent." />
+                <CommunicationsWorkspaceEmptyState title="No email deliveries yet" description="Outbound email activity will appear here after messages are queued or sent." />
               ) : (
                 [...deliveries]
                   .sort((a, b) => Number(b.status === "failed") - Number(a.status === "failed"))
@@ -626,7 +626,7 @@ export default async function CommunicationsPage({
             <div className="space-y-3">
               <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">SMS delivery</h3>
               {smsMessages.length === 0 ? (
-                <EmptyState title="No SMS delivery records" description="Individual text activity will appear here after messages are logged." />
+                <CommunicationsWorkspaceEmptyState title="No text deliveries yet" description="Individual text activity will appear here after a message is sent or received." />
               ) : (
                 [...smsMessages]
                   .sort((a, b) => Number(b.status === "failed") - Number(a.status === "failed"))
