@@ -7,6 +7,10 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  ARIA_AUTOMATION_PACKS,
+  getDefaultAriaPolicyRows,
+} from "@/lib/aria/automation-catalog";
 
 type AutomationDefinition = {
   key: string;
@@ -4831,6 +4835,96 @@ export async function saveAutomationEmailTemplateAction(formData: FormData) {
 }
 
 
+async function ensureDefaultAriaAutomationConfiguration(params: {
+  studioId: string;
+  actorUserId: string;
+}) {
+  const { studioId, actorUserId } = params;
+  const adminSupabase = createAdminClient();
+  const now = new Date().toISOString();
+
+  const { data: existingPacks, error: existingPacksError } = await adminSupabase
+    .from("aria_automation_pack_preferences")
+    .select("pack_key")
+    .eq("studio_id", studioId);
+
+  if (existingPacksError) {
+    throw new Error(existingPacksError.message);
+  }
+
+  const existingPackKeys = new Set(
+    (existingPacks ?? []).map((row) => String(row.pack_key)),
+  );
+  const missingPacks = ARIA_AUTOMATION_PACKS.filter(
+    (pack) => !existingPackKeys.has(pack.key),
+  ).map((pack) => ({
+    studio_id: studioId,
+    pack_key: pack.key,
+    enabled: pack.defaultEnabled,
+    settings: {},
+    updated_by: actorUserId,
+    updated_at: now,
+  }));
+
+  if (missingPacks.length > 0) {
+    const { error } = await adminSupabase
+      .from("aria_automation_pack_preferences")
+      .insert(missingPacks);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  const { data: packPreferences, error: packPreferencesError } =
+    await adminSupabase
+      .from("aria_automation_pack_preferences")
+      .select("pack_key, enabled")
+      .eq("studio_id", studioId);
+
+  if (packPreferencesError) {
+    throw new Error(packPreferencesError.message);
+  }
+
+  const enabledPackKeys = new Set(
+    (packPreferences ?? [])
+      .filter((row) => row.enabled !== false)
+      .map((row) => String(row.pack_key)),
+  );
+
+  const { data: existingPolicies, error: existingPoliciesError } =
+    await adminSupabase
+      .from("aria_action_policies")
+      .select("rule_key")
+      .eq("studio_id", studioId);
+
+  if (existingPoliciesError) {
+    throw new Error(existingPoliciesError.message);
+  }
+
+  const existingRuleKeys = new Set(
+    (existingPolicies ?? []).map((row) => String(row.rule_key)),
+  );
+  const missingPolicies = getDefaultAriaPolicyRows(studioId)
+    .filter((policy) => enabledPackKeys.has(policy.pack_key))
+    .filter((policy) => !existingRuleKeys.has(policy.rule_key))
+    .map((policy) => ({
+      ...policy,
+      updated_by: actorUserId,
+      updated_at: now,
+    }));
+
+  if (missingPolicies.length > 0) {
+    const { error } = await adminSupabase
+      .from("aria_action_policies")
+      .insert(missingPolicies);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+}
+
 export type ScheduledAriaOperationsResult = {
   candidatesCount: number;
   createdCount: number;
@@ -4855,6 +4949,11 @@ export async function runScheduledAriaOperationsForStudio(params: {
   const adminSupabase = createAdminClient();
   const supabase =
     adminSupabase as unknown as Awaited<ReturnType<typeof createClient>>;
+
+  await ensureDefaultAriaAutomationConfiguration({
+    studioId,
+    actorUserId,
+  });
 
   const candidateGroups = await Promise.all([
     includeStudioSignals
