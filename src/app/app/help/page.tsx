@@ -1,49 +1,12 @@
 import Link from "next/link";
 import {
   BookOpen,
-  Building2,
-  CalendarDays,
   CreditCard,
   LifeBuoy,
   MessageSquareWarning,
-  Search,
   ShieldAlert,
-  Users,
   Wrench,
 } from "lucide-react";
-
-const knowledgebaseSections = [
-  {
-    title: "Getting Started",
-    description: "Simple first-step guides for signing in, finding the right workspace, and learning where things live.",
-    icon: BookOpen,
-  },
-  {
-    title: "Studios",
-    description: "Guides for schedule work, clients, packages, memberships, front desk tasks, and daily studio flow.",
-    icon: Building2,
-  },
-  {
-    title: "Organizers",
-    description: "Guides for event setup, registrations, public event pages, and organizer billing.",
-    icon: CalendarDays,
-  },
-  {
-    title: "Staff Roles",
-    description: "Help for studio owners, studio managers, front desk, instructors, and independent instructors.",
-    icon: Users,
-  },
-  {
-    title: "Billing & Payments",
-    description: "Answers for subscriptions, payouts, sales, payment history, and billing questions.",
-    icon: CreditCard,
-  },
-  {
-    title: "Troubleshooting",
-    description: "Step-by-step help for login problems, access issues, common errors, and support requests.",
-    icon: Wrench,
-  },
-];
 
 const supportTypes = [
   {
@@ -82,8 +45,7 @@ export default function HelpCenterPage() {
                 Help, guides, and support in one place
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Use the Help Center to find simple how-to guides, browse future knowledgebase topics,
-                or contact support when something is not working the way it should.
+                Use the Help Center to open the full DanceFlow knowledgebase or contact support when something is not working the way it should.
               </p>
             </div>
 
@@ -121,9 +83,9 @@ export default function HelpCenterPage() {
             </div>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <h2 className="text-lg font-semibold text-amber-950">Keep help easy to use</h2>
+              <h2 className="text-lg font-semibold text-amber-950">Find answers quickly</h2>
               <p className="mt-2 text-sm leading-7 text-amber-900">
-                This area is meant to be simple, practical, and written in user language instead of technical language.
+                Search the full knowledgebase for setup guides, daily workflows, billing help, troubleshooting, and more.
               </p>
             </div>
           </div>
@@ -134,39 +96,29 @@ export default function HelpCenterPage() {
         <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
           <div className="flex items-start gap-3">
             <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-              <Search className="h-5 w-5" />
+              <BookOpen className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-2xl font-semibold text-slate-950">Knowledgebase preview</h2>
+              <h2 className="text-2xl font-semibold text-slate-950">Knowledgebase</h2>
               <p className="mt-2 text-sm leading-7 text-slate-600">
-                These are the help areas planned for the full knowledgebase so users know what kind of guidance is coming.
+                Open the complete DanceFlow knowledgebase for step-by-step guides, setup help, daily workflows, billing information, and troubleshooting.
               </p>
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {knowledgebaseSections.map(({ title, description, icon: Icon }) => (
-              <div key={title} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-2xl bg-white p-3 text-[var(--brand-primary)] shadow-sm">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-                    <p className="mt-2 text-sm leading-7 text-slate-600">{description}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6">
-            <Link
-              href="/app/knowledgebase"
-              className="inline-flex rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Go to Knowledgebase
-            </Link>
+          <div className="mt-6 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 p-5">
+            <h3 className="text-lg font-semibold text-slate-900">Browse all help articles</h3>
+            <p className="mt-2 text-sm leading-7 text-slate-600">
+              Search the full library and open detailed articles whenever you need help with a DanceFlow feature.
+            </p>
+            <div className="mt-5">
+              <Link
+                href="/knowledgebase"
+                className="inline-flex rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95"
+              >
+                Open Knowledgebase
+              </Link>
+            </div>
           </div>
         </section>
 
