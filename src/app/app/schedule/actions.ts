@@ -531,7 +531,17 @@ async function queueAppointmentOutboundDelivery(params: {
         });
       }
 
-      if (recipientPhone && !seenPhones.has(recipientPhone)) {
+      const smsConfigured = Boolean(
+        process.env.TWILIO_ACCOUNT_SID?.trim() &&
+          process.env.TWILIO_AUTH_TOKEN?.trim() &&
+          process.env.TWILIO_FROM_NUMBER?.trim(),
+      );
+
+      if (
+        smsConfigured &&
+        recipientPhone &&
+        !seenPhones.has(recipientPhone)
+      ) {
         seenPhones.add(recipientPhone);
         rows.push({
           studio_id: studioId,
