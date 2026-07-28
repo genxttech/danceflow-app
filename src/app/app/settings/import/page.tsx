@@ -4,12 +4,17 @@ import { createClient } from "@/lib/supabase/server";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import ImportUploadForm from "./ImportUploadForm";
+import SquareMigrationPilotReadiness from "./SquareMigrationPilotReadiness";
 import {
   archiveUnfinishedImportBatchesAction,
   validateAppointmentImportBatchAction,
   validateClientImportBatchAction,
   validateInstructorImportBatchAction,
   validatePaymentImportBatchAction,
+  validateSquareDigitalEntitlementImportBatchAction,
+  validateSquareHistoricalOrderImportBatchAction,
+  validateSquareInventoryImportBatchAction,
+  validateSquareProductImportBatchAction,
 } from "./actions";
 
 type SearchParams = Promise<{
@@ -187,6 +192,7 @@ function topActionLabel(importType: string) {
   if (importType === "instructors") return "Review Instructors File";
   if (importType === "appointments") return "Review Appointments File";
   if (importType === "payments") return "Review Payments File";
+  if (importType === "products") return "Review Square Catalog File";
   return "Review File";
 }
 
@@ -197,6 +203,7 @@ function plainTypeLabel(importType: string) {
   if (importType === "payments") return "Payments";
   if (importType === "packages") return "Packages";
   if (importType === "memberships") return "Memberships";
+  if (importType === "products") return "Retail Products";
   return labelize(importType);
 }
 
@@ -501,7 +508,12 @@ export default async function ImportSettingsPage({
         </div>
 
         <div className="mt-5">
-          <ImportUploadForm
+          <SquareMigrationPilotReadiness
+        supabase={supabase}
+        studioId={context.studioId}
+      />
+
+      <ImportUploadForm
             helperText="For the smoothest migration, upload one CSV at a time and start with Dry Run."
             submitLabel="Upload and Start Review"
           />
@@ -615,7 +627,9 @@ export default async function ImportSettingsPage({
                           ? validateAppointmentImportBatchAction
                           : batch.import_type === "payments"
                             ? validatePaymentImportBatchAction
-                            : null;
+                            : batch.import_type === "products" && batch.source_system === "square"
+                              ? validateSquareProductImportBatchAction
+                              : null;
 
                   const needsReview = ["uploaded"].includes(batch.status);
                   const canOpenReview = ["validated", "completed_with_warnings", "completed", "processing", "uploaded"].includes(batch.status);

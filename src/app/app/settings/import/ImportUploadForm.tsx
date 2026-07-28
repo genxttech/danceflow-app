@@ -47,7 +47,7 @@ function sourceHelper(sourceSystem: string) {
   return "Use this for a standard CSV file.";
 }
 
-function importTypeHelper(importType: string) {
+function importTypeHelper(importType: string, sourceSystem: string) {
   if (importType === "clients") {
     return "Recommended first. Import names, contact info, notes, and client history.";
   }
@@ -67,7 +67,9 @@ function importTypeHelper(importType: string) {
     return "Upload for mapping and reconciliation preparation; live execution is added in a later slice.";
   }
   if (importType === "products") {
-    return "Import retail catalog basics such as SKU, name, price, category, and active status.";
+    return sourceSystem === "square"
+      ? "Square catalog and variation imports now support dry-run validation and live execution."
+      : "Import retail catalog basics such as SKU, name, price, category, and active status.";
   }
   if (importType === "inventory") {
     return "Prepare quantity and low-stock reconciliation after products are mapped.";
@@ -123,8 +125,11 @@ export default function ImportUploadForm({
     if (importType === "payments") {
       return "Best done after clients are already imported.";
     }
+    if (importType === "products" && sourceSystem === "square") {
+      return "Start with Dry Run. Each row should represent one Square item variation.";
+    }
     return "Upload one CSV at a time for the smoothest review.";
-  }, [importType]);
+  }, [importType, sourceSystem]);
 
   return (
     <form action={formAction} className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -185,12 +190,12 @@ export default function ImportUploadForm({
             <option value="payments">Payments</option>
             <option value="packages">Packages — mapping preparation</option>
             <option value="memberships">Memberships — mapping preparation</option>
-            <option value="products">Retail Products — mapping preparation</option>
+            <option value="products">Retail Products{sourceSystem === "square" ? " — supported" : " — mapping preparation"}</option>
             <option value="inventory">Inventory — mapping preparation</option>
             <option value="retail_orders">Retail Orders — mapping preparation</option>
             <option value="digital_entitlements">Digital Entitlements — mapping preparation</option>
           </select>
-          <p className="mt-1 text-xs text-slate-500">{importTypeHelper(importType)}</p>
+          <p className="mt-1 text-xs text-slate-500">{importTypeHelper(importType, sourceSystem)}</p>
         </div>
 
         <div>

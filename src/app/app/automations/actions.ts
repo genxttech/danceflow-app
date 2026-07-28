@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 import {
   ARIA_AUTOMATION_PACKS,
   getDefaultAriaPolicyRows,
@@ -2474,6 +2475,7 @@ type AriaExecutionStudioRow = {
   name: string | null;
   public_name: string | null;
   slug: string | null;
+  public_logo_url: string | null;
 };
 
 function isAriaEmailExecutableRuleKey(
@@ -2523,91 +2525,126 @@ function getAriaExecutionSubject(params: {
   return `${studioName}: follow-up from the studio`;
 }
 
-function getAriaExecutionBody(params: {
+function getAriaExecutionEmail(params: {
   action: AriaApprovedExecutionActionRow;
   client: AriaExecutionClientRow;
   studio: AriaExecutionStudioRow | null;
 }) {
   const { action, client, studio } = params;
   const studioName = getStudioDisplayName(studio);
-  const firstName = client.first_name || compactName(client.first_name, client.last_name) || "there";
+  const firstName =
+    client.first_name ||
+    compactName(client.first_name, client.last_name) ||
+    "there";
   const portalUrl = getPortalUrl(studio);
   const scheduleUrl = getPortalUrl(studio, "/schedule");
-  const actionContext = action.body?.trim();
+
+  let heading = "A note from your studio";
+  let intro = "We wanted to follow up with you.";
+  let bodyText = `Hi ${firstName},
+
+${intro}
+
+Client portal: ${portalUrl}
+
+Thank you,
+${studioName}`;
+  let actionLabel = "Open Client Portal";
+  let actionUrl = portalUrl;
 
   if (action.rule_key === "aria_low_package_balance") {
-    return `Hi ${firstName},
+    heading = "Keep your lessons moving";
+    intro = "You are getting close to the end of your current lesson package.";
+    bodyText = `Hi ${firstName},
 
-You are getting close to the end of your current lesson package.
+${intro}
 
-When you are ready, you can renew your package through your client portal or reply here and we can help you choose the best next option.
+When you are ready, you can renew your package through your client portal or contact us and we can help you choose the best next option.
 
-${actionContext ? `Studio note: ${actionContext}\n\n` : ""}Client portal: ${portalUrl}
-
-Thank you,
-${studioName}`;
-  }
-
-  if (action.rule_key === "aria_stale_active_student") {
-    return `Hi ${firstName},
-
-We noticed you do not currently have your next lesson scheduled.
-
-You can request your next lesson from your client portal, or reply here and we can help you find a time that works.
-
-${actionContext ? `Studio note: ${actionContext}\n\n` : ""}Request your next lesson: ${scheduleUrl}
+Client portal: ${portalUrl}
 
 Thank you,
 ${studioName}`;
-  }
+  } else if (action.rule_key === "aria_stale_active_student") {
+    heading = "Schedule your next lesson";
+    intro = "We noticed you do not currently have your next lesson scheduled.";
+    bodyText = `Hi ${firstName},
 
-  if (action.rule_key === "aria_intro_no_purchase") {
-    return `Hi ${firstName},
+${intro}
 
-Thank you again for starting your dance journey with us. We would love to help you keep that momentum going.
+You can request your next lesson from your client portal or contact us and we can help you find a time that works.
 
-When you are ready, you can request your next lesson from your client portal or reply here and we can help you choose the best next step.
-
-${actionContext ? `Studio note: ${actionContext}\n\n` : ""}Request your next lesson: ${scheduleUrl}
+Request your next lesson: ${scheduleUrl}
 
 Thank you,
 ${studioName}`;
-  }
+    actionLabel = "Request Your Next Lesson";
+    actionUrl = scheduleUrl;
+  } else if (action.rule_key === "aria_intro_no_purchase") {
+    heading = "Take your next dance step";
+    intro =
+      "Thank you again for starting your dance journey with us. We would love to help you keep that momentum going.";
+    bodyText = `Hi ${firstName},
 
-  if (action.rule_key === "aria_membership_past_due") {
-    return `Hi ${firstName},
+${intro}
 
-We wanted to follow up because your membership needs billing attention.
+When you are ready, you can request your next lesson from your client portal or contact us and we can help you choose the best next step.
+
+Request your next lesson: ${scheduleUrl}
+
+Thank you,
+${studioName}`;
+    actionLabel = "Request Your Next Lesson";
+    actionUrl = scheduleUrl;
+  } else if (action.rule_key === "aria_membership_past_due") {
+    heading = "Membership billing follow-up";
+    intro = "We wanted to follow up because your membership needs billing attention.";
+    bodyText = `Hi ${firstName},
+
+${intro}
 
 Please open your client portal or contact us so we can help resolve it and keep your studio access current.
 
-${actionContext ? `Studio note: ${actionContext}\n\n` : ""}Client portal: ${portalUrl}
+Client portal: ${portalUrl}
 
 Thank you,
 ${studioName}`;
+  } else if (action.rule_key === "aria_membership_canceling") {
+    heading = "Membership follow-up";
+    intro =
+      "We noticed your membership is set to end soon and wanted to check in before that happens.";
+    bodyText = `Hi ${firstName},
+
+${intro}
+
+Please contact us with any questions or to discuss the best option for your membership.
+
+Client portal: ${portalUrl}
+
+Thank you,
+${studioName}`;
+    actionLabel = "Review Your Membership";
   }
 
-  if (action.rule_key === "aria_membership_canceling") {
-    return `Hi ${firstName},
+  const bodyHtml = renderStudioBrandedEmail(
+    {
+      name: studioName,
+      logoUrl: studio?.public_logo_url ?? null,
+    },
+    {
+      previewText: heading,
+      eyebrow: studioName,
+      heading,
+      greeting: `Hi ${firstName},`,
+      intro,
+      bodyText,
+      actionLabel,
+      actionUrl,
+      footerText: `Sent by ${studioName} through DanceFlow.`,
+    },
+  );
 
-We noticed your membership is set to end soon and wanted to check in before that happens.
-
-If you have questions or want to adjust your plan, reply here and we can help you find the best option.
-
-${actionContext ? `Studio note: ${actionContext}\n\n` : ""}Client portal: ${portalUrl}
-
-Thank you,
-${studioName}`;
-  }
-
-  return `Hi ${firstName},
-
-We wanted to follow up with you.
-
-${actionContext ? `${actionContext}\n\n` : ""}Client portal: ${portalUrl}
-
-Thank you,
-${studioName}`;
+  return { bodyText, bodyHtml };
 }
 
 export async function executeAriaApprovedActionsAction(formData: FormData) {
@@ -2663,7 +2700,7 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
 
   const { data: studio } = await supabase
     .from("studios")
-    .select("id, name, public_name, slug")
+    .select("id, name, public_name, slug, public_logo_url")
     .eq("id", context.studioId)
     .maybeSingle();
 
@@ -2751,7 +2788,7 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
 
     const studioName = getStudioDisplayName(typedStudio);
     const subject = getAriaExecutionSubject({ action, studioName });
-    const bodyText = getAriaExecutionBody({
+    const { bodyText, bodyHtml } = getAriaExecutionEmail({
       action,
       client,
       studio: typedStudio,
@@ -2782,7 +2819,7 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
               status: "queued",
               subject,
               body_text: bodyText,
-              body_html: null,
+              body_html: bodyHtml,
               updated_at: now,
             })
             .eq("id", existingDelivery.id)
@@ -3203,7 +3240,7 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
   const [{ data: studio }, { data: client }] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, public_name, slug")
+      .select("id, name, public_name, slug, public_logo_url")
       .eq("id", context.studioId)
       .maybeSingle(),
     typedAction.client_id
@@ -4573,7 +4610,7 @@ async function queueAutomaticAutomationEmailsForRun(params: {
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, public_name, slug")
+      .select("id, name, public_name, slug, public_logo_url")
       .eq("id", studioId)
       .maybeSingle(),
     clientIds.length
@@ -5230,7 +5267,7 @@ export async function runScheduledAriaOperationsForStudio(params: {
 
   const { data: studio, error: studioError } = await adminSupabase
     .from("studios")
-    .select("id, name, public_name, slug")
+    .select("id, name, public_name, slug, public_logo_url")
     .eq("id", studioId)
     .maybeSingle();
 
@@ -5321,7 +5358,7 @@ export async function runScheduledAriaOperationsForStudio(params: {
 
     const studioName = getStudioDisplayName(typedStudio);
     const subject = getAriaExecutionSubject({ action, studioName });
-    const bodyText = getAriaExecutionBody({
+    const { bodyText, bodyHtml } = getAriaExecutionEmail({
       action,
       client,
       studio: typedStudio,
@@ -5352,7 +5389,7 @@ export async function runScheduledAriaOperationsForStudio(params: {
               status: "queued",
               subject,
               body_text: bodyText,
-              body_html: renderPlainTextAsHtml(bodyText),
+              body_html: bodyHtml,
               updated_at: now,
             })
             .eq("id", existingDelivery.id)

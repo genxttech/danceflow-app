@@ -9,6 +9,10 @@ import {
   executeClientImportBatchAction,
   executeInstructorImportBatchAction,
   executePaymentImportBatchAction,
+  executeSquareDigitalEntitlementImportBatchAction,
+  executeSquareHistoricalOrderImportBatchAction,
+  executeSquareInventoryImportBatchAction,
+  executeSquareProductImportBatchAction,
 } from "../actions";
 import ImportUploadForm from "../ImportUploadForm";
 
@@ -122,6 +126,10 @@ function titleForImportType(importType: string) {
   if (importType === "instructors") return "Instructor Import";
   if (importType === "appointments") return "Appointment Import";
   if (importType === "payments") return "Payment Import";
+  if (importType === "products") return "Square Catalog Import";
+  if (importType === "inventory") return "Square Inventory Import";
+  if (importType === "retail_orders") return "Square Historical Commerce Import";
+  if (importType === "digital_entitlements") return "Square Digital Access Import";
   return "Import Batch";
 }
 
@@ -130,6 +138,10 @@ function executeLabelForImportType(importType: string) {
   if (importType === "instructors") return "Execute Instructor Import";
   if (importType === "appointments") return "Confirm and Execute Appointment Import";
   if (importType === "payments") return "Confirm and Execute Payment Import";
+  if (importType === "products") return "Execute Square Catalog Import";
+  if (importType === "inventory") return "Reconcile Square Inventory";
+  if (importType === "retail_orders") return "Import Square Historical Commerce";
+  if (importType === "digital_entitlements") return "Grant Square Digital Access";
   return "Execute Import";
 }
 
@@ -556,9 +568,13 @@ export default async function ImportBatchDetailPage({
       : 0;
 
   const canExecute =
-    ["clients", "instructors", "appointments", "payments"].includes(typedBatch.import_type) &&
+    ["clients", "instructors", "appointments", "payments", "products", "inventory", "retail_orders", "digital_entitlements"].includes(typedBatch.import_type) &&
     ["validated", "completed_with_warnings"].includes(typedBatch.status) &&
-    (summaryReadyRows > 0 || dryRunReady || summaryBlockingRows === 0);
+    (summaryReadyRows > 0 || dryRunReady || summaryBlockingRows === 0) &&
+    !(
+      ["products", "inventory"].includes(typedBatch.import_type) &&
+      typedBatch.mode === "dry_run"
+    );
 
   const hasErrorsToDownload = typedErrors.length > 0;
   const downloadHref =
@@ -575,7 +591,15 @@ export default async function ImportBatchDetailPage({
           ? executeAppointmentImportBatchAction
           : typedBatch.import_type === "payments"
             ? executePaymentImportBatchAction
-            : null;
+            : typedBatch.import_type === "products" && typedBatch.source_system === "square"
+              ? executeSquareProductImportBatchAction
+              : typedBatch.import_type === "inventory" && typedBatch.source_system === "square"
+                ? executeSquareInventoryImportBatchAction
+                : typedBatch.import_type === "retail_orders" && typedBatch.source_system === "square"
+                  ? executeSquareHistoricalOrderImportBatchAction
+                  : typedBatch.import_type === "digital_entitlements" && typedBatch.source_system === "square"
+                    ? executeSquareDigitalEntitlementImportBatchAction
+                    : null;
 
   const showAppointmentExecutionConfirmation =
     typedBatch.import_type === "appointments" && canExecute;
@@ -744,7 +768,7 @@ export default async function ImportBatchDetailPage({
         </div>
       ) : null}
 
-      {["clients", "instructors", "appointments", "payments"].includes(typedBatch.import_type) ? (
+      {["clients", "instructors", "appointments", "payments", "products", "inventory", "retail_orders", "digital_entitlements"].includes(typedBatch.import_type) ? (
         <div className="grid gap-4 md:grid-cols-6">
           <SummaryCard label="Create Candidates" value={summaryCreateCandidates} />
           <SummaryCard label="Update Candidates" value={summaryUpdateCandidates} />
