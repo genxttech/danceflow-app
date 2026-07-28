@@ -1364,6 +1364,47 @@ async function insertAriaOperationalActions(params: {
     }
   }
 
+  const lowPackageRelatedIds = candidates
+    .filter(
+      (candidate) =>
+        candidate.ruleKey === "aria_low_package_balance" &&
+        candidate.relatedTable === "client_packages",
+    )
+    .map((candidate) => candidate.relatedId);
+
+  if (lowPackageRelatedIds.length > 0) {
+    const lowPackageCooldownStart = new Date(
+      Date.now() - 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const { data: recentLowPackageActions, error: recentLowPackageError } =
+      await supabase
+        .from("automation_actions")
+        .select("id, rule_key, related_table, related_id, status, assigned_to")
+        .eq("studio_id", studioId)
+        .eq("rule_key", "aria_low_package_balance")
+        .eq("related_table", "client_packages")
+        .in("related_id", lowPackageRelatedIds)
+        .gte("created_at", lowPackageCooldownStart);
+
+    if (recentLowPackageError) {
+      throw new Error(recentLowPackageError.message);
+    }
+
+    for (const row of (recentLowPackageActions ??
+      []) as ExistingAriaOperationalActionRow[]) {
+      if (row.rule_key && row.related_table && row.related_id) {
+        existingActionByKey.set(
+          ariaOperationalDedupeKey({
+            ruleKey: row.rule_key,
+            relatedTable: row.related_table,
+            relatedId: row.related_id,
+          }),
+          row,
+        );
+      }
+    }
+  }
+
   const ruleIdByKey = new Map<string, string>();
   const actionsToInsert: Array<Record<string, unknown>> = [];
   const existingActionUpdates: Array<{
@@ -1618,6 +1659,7 @@ type AriaPackageBalanceRow = {
     | { first_name: string | null; last_name: string | null }[]
     | null;
   client_package_items: {
+    usage_type?: string | null;
     quantity_remaining: number | string | null;
     is_unlimited: boolean | null;
   }[];
@@ -1700,6 +1742,57 @@ function lowestAriaPackageRemaining(pkg: AriaPackageBalanceRow) {
   return remaining.length ? Math.min(...remaining) : null;
 }
 
+function normalizedAriaUsageType(value: string | null | undefined) {
+  return `${value ?? ""}`.trim().toLowerCase() || "__general__";
+}
+
+function ariaPackageIsCurrentlyUsable(pkg: AriaPackageBalanceRow, now: Date) {
+  if (!pkg.expiration_date) return true;
+  const expiration = new Date(`${pkg.expiration_date}T23:59:59.999`);
+  return !Number.isNaN(expiration.getTime()) && expiration >= now;
+}
+
+function ariaPackageHasReplacementCoverage(params: {
+  targetPackage: AriaPackageBalanceRow;
+  allPackages: AriaPackageBalanceRow[];
+  lowItems: AriaPackageBalanceRow["client_package_items"];
+  threshold: number;
+  now: Date;
+}) {
+  const { targetPackage, allPackages, lowItems, threshold, now } = params;
+  if (!targetPackage.client_id || lowItems.length === 0) return false;
+
+  return lowItems.every((lowItem) => {
+    const usageType = normalizedAriaUsageType(
+      (lowItem as { usage_type?: string | null }).usage_type,
+    );
+
+    return allPackages.some((candidate) => {
+      if (
+        candidate.id === targetPackage.id ||
+        candidate.client_id !== targetPackage.client_id ||
+        !ariaPackageIsCurrentlyUsable(candidate, now)
+      ) {
+        return false;
+      }
+
+      return (candidate.client_package_items ?? []).some((item) => {
+        const candidateUsageType = normalizedAriaUsageType(
+          (item as { usage_type?: string | null }).usage_type,
+        );
+        if (candidateUsageType !== usageType) return false;
+        if (item.is_unlimited) return true;
+
+        const remaining = asNumber(
+          item.quantity_remaining,
+          Number.NEGATIVE_INFINITY,
+        );
+        return Number.isFinite(remaining) && remaining > threshold;
+      });
+    });
+  });
+}
+
 function isAriaCanceledStatus(status: string | null | undefined) {
   const normalized = `${status ?? ""}`.toLowerCase();
   return (
@@ -1772,7 +1865,7 @@ async function buildStudioAriaOperationalCandidates(params: {
     supabase
       .from("client_packages")
       .select(
-        "id, client_id, name_snapshot, expiration_date, clients ( first_name, last_name ), client_package_items ( quantity_remaining, is_unlimited )",
+        "id, client_id, name_snapshot, expiration_date, clients ( first_name, last_name ), client_package_items ( usage_type, quantity_remaining, is_unlimited )",
       )
       .eq("studio_id", studioId)
       .eq("active", true)
@@ -1898,14 +1991,35 @@ async function buildStudioAriaOperationalCandidates(params: {
   }
 
   for (const pkg of packages) {
+    const lowItems = (pkg.client_package_items ?? []).filter((item) => {
+      if (item.is_unlimited) return false;
+      const remaining = asNumber(
+        item.quantity_remaining,
+        Number.POSITIVE_INFINITY,
+      );
+      return Number.isFinite(remaining) && remaining <= 2;
+    });
     const remaining = lowestAriaPackageRemaining(pkg);
     const expiringSoon = Boolean(
       pkg.expiration_date &&
       new Date(`${pkg.expiration_date}T00:00:00`) <=
         new Date(nextFourteenDaysIso),
     );
-    if (!(typeof remaining === "number" && remaining <= 2) && !expiringSoon)
+    if (lowItems.length === 0 && !expiringSoon) continue;
+
+    if (
+      lowItems.length > 0 &&
+      ariaPackageHasReplacementCoverage({
+        targetPackage: pkg,
+        allPackages: packages,
+        lowItems,
+        threshold: 2,
+        now,
+      })
+    ) {
       continue;
+    }
+
     const clientName = getAriaRelatedClientName(pkg.clients);
     candidates.push({
       ruleKey: "aria_low_package_balance",
@@ -2270,6 +2384,72 @@ const ARIA_EMAIL_EXECUTABLE_RULE_KEYS = [
 
 type AriaEmailExecutableRuleKey = (typeof ARIA_EMAIL_EXECUTABLE_RULE_KEYS)[number];
 
+const ARIA_EXTERNAL_DELIVERY_RULE_MAP: Record<
+  AriaEmailExecutableRuleKey,
+  string
+> = {
+  aria_low_package_balance: "low_package_balance",
+  aria_stale_active_student: "no_upcoming_lesson",
+  aria_intro_no_purchase: "first_lesson_follow_up",
+  aria_membership_past_due: "membership_past_due",
+  aria_membership_canceling: "membership_canceling",
+};
+
+type AriaExternalDeliveryRuleRow = {
+  rule_key: string;
+  enabled: boolean | null;
+  mode: string | null;
+};
+
+async function loadAriaExternalDeliveryPermissionMap(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+}) {
+  const { supabase, studioId } = params;
+  const ruleKeys = Array.from(
+    new Set(Object.values(ARIA_EXTERNAL_DELIVERY_RULE_MAP)),
+  );
+  const { data, error } = await supabase
+    .from("automation_rules")
+    .select("rule_key, enabled, mode")
+    .eq("studio_id", studioId)
+    .in("rule_key", ruleKeys);
+
+  if (error) {
+    throw new Error(`ARIA delivery permission lookup failed: ${error.message}`);
+  }
+
+  return new Map(
+    ((data ?? []) as AriaExternalDeliveryRuleRow[]).map((rule) => [
+      rule.rule_key,
+      rule,
+    ]),
+  );
+}
+
+function ariaRuleAllowsExternalDelivery(params: {
+  ruleKey: AriaEmailExecutableRuleKey;
+  permissionByRuleKey: Map<string, AriaExternalDeliveryRuleRow>;
+}) {
+  const mappedRuleKey = ARIA_EXTERNAL_DELIVERY_RULE_MAP[params.ruleKey];
+  const rule = params.permissionByRuleKey.get(mappedRuleKey);
+
+  return Boolean(rule?.enabled && rule.mode === "auto_send");
+}
+
+function getAriaExecutionDedupeKey(params: {
+  action: AriaApprovedExecutionActionRow;
+  clientId: string;
+}) {
+  const { action, clientId } = params;
+  const conditionIdentity =
+    action.related_table && action.related_id
+      ? `${action.related_table}:${action.related_id}`
+      : `client:${clientId}`;
+
+  return `aria-execution:${action.rule_key}:${conditionIdentity}:email`;
+}
+
 type AriaApprovedExecutionActionRow = {
   id: string;
   studio_id: string;
@@ -2469,6 +2649,11 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
   }
 
   const actions = (approvedActions ?? []) as AriaApprovedExecutionActionRow[];
+  const externalDeliveryPermissionByRuleKey =
+    await loadAriaExternalDeliveryPermissionMap({
+      supabase,
+      studioId: context.studioId,
+    });
 
   if (!actions.length) {
     redirect(
@@ -2522,6 +2707,30 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
       continue;
     }
 
+    if (
+      !ariaRuleAllowsExternalDelivery({
+        ruleKey: action.rule_key,
+        permissionByRuleKey: externalDeliveryPermissionByRuleKey,
+      })
+    ) {
+      skippedCount += 1;
+      await supabase.from("automation_action_events").insert({
+        studio_id: context.studioId,
+        automation_action_id: action.id,
+        event_type: "execution_skipped",
+        previous_status: action.status,
+        new_status: action.status,
+        note:
+          "ARIA approved the operational action, but external delivery is not enabled for the corresponding automation.",
+        metadata: {
+          rule_key: action.rule_key,
+          reason: "automation_delivery_mode_not_auto_send",
+        },
+        created_by: context.userId,
+      });
+      continue;
+    }
+
     const clientId = getAriaExecutionClientId(action);
     const client = clientId ? clientById.get(clientId) : null;
 
@@ -2555,9 +2764,7 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
           .from("outbound_deliveries")
           .select("id, status")
           .eq("studio_id", context.studioId)
-          .eq("related_table", "automation_actions")
-          .eq("related_id", action.id)
-          .eq("dedupe_key", `aria-execution:${action.id}:email`)
+          .eq("dedupe_key", getAriaExecutionDedupeKey({ action, clientId: client.id }))
           .in("status", ["draft", "queued", "sent"])
           .maybeSingle<{ id: string; status: string | null }>();
 
@@ -2603,7 +2810,7 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
               body_html: null,
               related_table: "automation_actions",
               related_id: action.id,
-              dedupe_key: `aria-execution:${action.id}:email`,
+              dedupe_key: getAriaExecutionDedupeKey({ action, clientId: client.id }),
               status: "queued",
               updated_at: now,
             })
@@ -2611,6 +2818,10 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
             .single<{ id: string }>();
 
         if (deliveryInsertError) {
+          if (deliveryInsertError.code === "23505") {
+            skippedCount += 1;
+            continue;
+          }
           throw new Error(deliveryInsertError.message);
         }
 
@@ -3611,6 +3822,20 @@ async function evaluateLowPackageBalanceAutomation(params: {
       );
 
       if (lowItems.length === 0) return null;
+
+      if (
+        ariaPackageHasReplacementCoverage({
+          targetPackage: clientPackage as unknown as AriaPackageBalanceRow,
+          allPackages:
+            typedPackages as unknown as AriaPackageBalanceRow[],
+          lowItems:
+            lowItems as unknown as AriaPackageBalanceRow["client_package_items"],
+          threshold,
+          now: new Date(),
+        })
+      ) {
+        return null;
+      }
 
       const lowestRemaining = Math.min(
         ...lowItems.map((item) => Number(item.quantity_remaining ?? threshold)),
@@ -4988,6 +5213,11 @@ export async function runScheduledAriaOperationsForStudio(params: {
   }
 
   const actions = (approvedActions ?? []) as AriaApprovedExecutionActionRow[];
+  const externalDeliveryPermissionByRuleKey =
+    await loadAriaExternalDeliveryPermissionMap({
+      supabase,
+      studioId,
+    });
 
   if (!actions.length) {
     return {
@@ -5041,6 +5271,36 @@ export async function runScheduledAriaOperationsForStudio(params: {
   let failedCount = 0;
 
   for (const action of actions) {
+    if (!isAriaEmailExecutableRuleKey(action.rule_key)) {
+      skippedCount += 1;
+      continue;
+    }
+
+    if (
+      !ariaRuleAllowsExternalDelivery({
+        ruleKey: action.rule_key,
+        permissionByRuleKey: externalDeliveryPermissionByRuleKey,
+      })
+    ) {
+      skippedCount += 1;
+      await adminSupabase.from("automation_action_events").insert({
+        studio_id: studioId,
+        automation_action_id: action.id,
+        event_type: "execution_skipped",
+        previous_status: action.status,
+        new_status: action.status,
+        note:
+          "ARIA approved the operational action, but external delivery is not enabled for the corresponding automation.",
+        metadata: {
+          rule_key: action.rule_key,
+          reason: "automation_delivery_mode_not_auto_send",
+          source: "scheduled_aria_operations",
+        },
+        created_by: actorUserId,
+      });
+      continue;
+    }
+
     const clientId = getAriaExecutionClientId(action);
     const client = clientId ? clientById.get(clientId) : null;
 
@@ -5074,9 +5334,7 @@ export async function runScheduledAriaOperationsForStudio(params: {
           .from("outbound_deliveries")
           .select("id, status")
           .eq("studio_id", studioId)
-          .eq("related_table", "automation_actions")
-          .eq("related_id", action.id)
-          .eq("dedupe_key", `aria-execution:${action.id}:email`)
+          .eq("dedupe_key", getAriaExecutionDedupeKey({ action, clientId: client.id }))
           .in("status", ["draft", "queued", "sent"])
           .maybeSingle<{ id: string; status: string | null }>();
 
@@ -5123,7 +5381,7 @@ export async function runScheduledAriaOperationsForStudio(params: {
               body_html: renderPlainTextAsHtml(bodyText),
               related_table: "automation_actions",
               related_id: action.id,
-              dedupe_key: `aria-execution:${action.id}:email`,
+              dedupe_key: getAriaExecutionDedupeKey({ action, clientId: client.id }),
               status: "queued",
               updated_at: now,
             })

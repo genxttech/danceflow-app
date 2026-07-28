@@ -1,6 +1,7 @@
 "use server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
@@ -1234,6 +1235,13 @@ async function syncPackageUsageForAttendedAppointment(params: {
   if (ledgerError) {
     throw new Error(`Could not record package usage: ${ledgerError.message}`);
   }
+
+  await reconcileClientPackageLifecycle({
+    supabase,
+    studioId,
+    clientId,
+    clientPackageId,
+  });
 }
 
 async function recomputeFloorRentalPaymentStatus(params: {
