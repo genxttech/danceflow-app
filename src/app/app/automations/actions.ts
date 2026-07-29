@@ -3005,7 +3005,7 @@ async function buildExpandedStudioAriaOperationalCandidates(params: {
     supabase
       .from("appointments")
       .select(
-        "id, client_id, instructor_id, room_id, starts_at, ends_at, status, clients(first_name,last_name)",
+        "id, client_id, instructor_id, room_id, starts_at, ends_at, status, clients:clients!appointments_client_id_fkey(first_name,last_name)",
       )
       .eq("studio_id", studioId)
       .gte("starts_at", twoDaysAgoIso)
@@ -3414,7 +3414,7 @@ async function buildCompletionAriaOperationalCandidates(params: {
     supabase
       .from("appointments")
       .select(
-        "id, client_id, instructor_id, appointment_type, status, starts_at, payment_status, price_amount, clients(first_name,last_name)",
+        "id, client_id, instructor_id, appointment_type, status, starts_at, payment_status, price_amount, clients:clients!appointments_client_id_fkey(first_name,last_name)",
       )
       .eq("studio_id", studioId)
       .gte("starts_at", oneHundredEightyDaysAgo)
@@ -3424,7 +3424,7 @@ async function buildCompletionAriaOperationalCandidates(params: {
     supabase
       .from("appointments")
       .select(
-        "id, client_id, instructor_id, appointment_type, status, starts_at, payment_status, price_amount, clients(first_name,last_name)",
+        "id, client_id, instructor_id, appointment_type, status, starts_at, payment_status, price_amount, clients:clients!appointments_client_id_fkey(first_name,last_name)",
       )
       .eq("studio_id", studioId)
       .gte("starts_at", nowIso)
