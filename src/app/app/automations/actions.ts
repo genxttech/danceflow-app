@@ -10,8 +10,11 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 import {
   ARIA_AUTOMATION_PACKS,
+  getAriaAutomationCatalogItem,
+  getDefaultAriaAutomationRuleRows,
   getDefaultAriaPolicyRows,
 } from "@/lib/aria/automation-catalog";
+import { getAriaOperationalPack } from "@/lib/aria/operational-default-packs";
 
 type AutomationDefinition = {
   key: string;
@@ -254,13 +257,18 @@ function getDefinition(ruleKey: string) {
   );
 }
 
+
+
 export async function updateAutomationRuleAction(formData: FormData) {
   const ruleKey = String(formData.get("ruleKey") ?? "");
   const enabled = formData.get("enabled") === "on";
-  const modeInput = String(formData.get("mode") ?? "suggestion");
-  const mode = ["suggestion", "draft", "auto_send"].includes(modeInput)
-    ? modeInput
-    : "suggestion";
+  const autonomyInput = String(formData.get("autonomyOverride") ?? "__inherit");
+  const requestedOverride =
+    autonomyInput === "prepare_for_review" ||
+    autonomyInput === "notify_only" ||
+    autonomyInput === "off"
+      ? autonomyInput
+      : null;
 
   const definition = getDefinition(ruleKey);
 
@@ -279,6 +287,66 @@ export async function updateAutomationRuleAction(formData: FormData) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const catalogItem = getAriaAutomationCatalogItem(ruleKey);
+  const packKey = catalogItem?.packKey ?? null;
+  let packMode: AriaPackAutonomyMode = "notify_only";
+
+  if (packKey) {
+    const { data: packPreference, error: packPreferenceError } = await supabase
+      .from("aria_automation_pack_preferences")
+      .select("enabled, settings")
+      .eq("studio_id", context.studioId)
+      .eq("pack_key", packKey)
+      .maybeSingle<{
+        enabled: boolean | null;
+        settings: Record<string, unknown> | null;
+      }>();
+
+    if (packPreferenceError) {
+      redirect(
+        `/app/automations?error=${encodeURIComponent(packPreferenceError.message)}`,
+      );
+    }
+
+    packMode =
+      packPreference?.enabled === false
+        ? "off"
+        : ariaPackAutonomyFromSettings(packPreference?.settings, packKey);
+  }
+
+  const { data: existingRule, error: existingRuleError } = await supabase
+    .from("automation_rules")
+    .select("action_config")
+    .eq("studio_id", context.studioId)
+    .eq("rule_key", ruleKey)
+    .maybeSingle<{ action_config: Record<string, unknown> | null }>();
+
+  if (existingRuleError) {
+    redirect(
+      `/app/automations?error=${encodeURIComponent(existingRuleError.message)}`,
+    );
+  }
+
+  const effectiveAutonomy = ariaEffectiveRuleAutonomy({
+    packMode,
+    overrideMode: requestedOverride,
+  });
+  const safeMode = ariaDeliveryModeForAutonomy({
+    ruleKey,
+    autonomyMode: effectiveAutonomy,
+  });
+  const safeEnabled = enabled && effectiveAutonomy !== "off";
+
+  const actionConfig = ariaActionConfigWithPackOverride({
+    actionConfig:
+      existingRule?.action_config ?? definition.defaultActionConfig,
+    overrideMode:
+      requestedOverride &&
+      ariaAutonomyRank(requestedOverride) < ariaAutonomyRank(packMode)
+        ? requestedOverride
+        : null,
+  });
+
   const { error } = await supabase.from("automation_rules").upsert(
     {
       studio_id: context.studioId,
@@ -287,10 +355,10 @@ export async function updateAutomationRuleAction(formData: FormData) {
       description: definition.description,
       trigger_key: definition.triggerKey,
       action_key: definition.actionKey,
-      enabled,
-      mode,
+      enabled: safeEnabled,
+      mode: safeMode,
       trigger_config: definition.defaultTriggerConfig,
-      action_config: definition.defaultActionConfig,
+      action_config: actionConfig,
       updated_by: user?.id ?? null,
       created_by: user?.id ?? null,
       updated_at: new Date().toISOString(),
@@ -913,6 +981,7 @@ type AriaActionPriority = AriaOperationalActionCandidate["priority"];
 
 type AriaActionPolicyRow = {
   rule_key: string;
+  pack_key?: string | null;
   enabled: boolean | null;
   auto_approve: boolean | null;
   max_auto_approve_priority: string | null;
@@ -1002,26 +1071,87 @@ function canAutoApprovePriority(
   return priorityRank(priority) <= priorityRank(max);
 }
 
-async function loadAriaActionPolicyMap(params: {
+
+async function loadEnabledAriaOperationalPackKeys(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
 }) {
   const { supabase, studioId } = params;
   const { data, error } = await supabase
-    .from("aria_action_policies")
-    .select(
-      "rule_key, enabled, auto_approve, max_auto_approve_priority, default_assigned_to, require_assignment",
-    )
+    .from("aria_automation_pack_preferences")
+    .select("pack_key, enabled")
     .eq("studio_id", studioId);
 
   if (error) {
     throw new Error(error.message);
   }
 
+  const explicit = new Map(
+    (data ?? []).map((row) => [String(row.pack_key), row.enabled !== false]),
+  );
+
+  return new Set(
+    ARIA_AUTOMATION_PACKS.filter(
+      (pack) => explicit.get(pack.key) ?? pack.defaultEnabled,
+    ).map((pack) => pack.key),
+  );
+}
+
+function filterAriaCandidatesByEnabledPacks(params: {
+  candidates: AriaOperationalActionCandidate[];
+  enabledPackKeys: Set<string>;
+}) {
+  return params.candidates.filter((candidate) => {
+    const catalogItem = getAriaAutomationCatalogItem(candidate.ruleKey);
+    return Boolean(
+      catalogItem && params.enabledPackKeys.has(catalogItem.packKey),
+    );
+  });
+}
+
+async function loadAriaActionPolicyMap(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+}) {
+  const { supabase, studioId } = params;
+  const [{ data, error }, { data: packPreferences, error: packError }] =
+    await Promise.all([
+      supabase
+        .from("aria_action_policies")
+        .select(
+          "rule_key, pack_key, enabled, auto_approve, max_auto_approve_priority, default_assigned_to, require_assignment",
+        )
+        .eq("studio_id", studioId),
+      supabase
+        .from("aria_automation_pack_preferences")
+        .select("pack_key, enabled")
+        .eq("studio_id", studioId),
+    ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (packError) {
+    throw new Error(packError.message);
+  }
+
+  const enabledByPack = new Map(
+    (packPreferences ?? []).map((row) => [
+      String(row.pack_key),
+      row.enabled !== false,
+    ]),
+  );
+
   return new Map(
     ((data ?? []) as AriaActionPolicyRow[]).map((policy) => [
       policy.rule_key,
-      policy,
+      {
+        ...policy,
+        enabled:
+          policy.enabled !== false &&
+          (!policy.pack_key || enabledByPack.get(policy.pack_key) !== false),
+      },
     ]),
   );
 }
@@ -1089,6 +1219,7 @@ export async function saveAriaActionPolicyAction(formData: FormData) {
     }
   }
 
+  const catalogItem = getAriaAutomationCatalogItem(ruleKey);
   const now = new Date().toISOString();
   const { error } = await supabase.from("aria_action_policies").upsert(
     {
@@ -1099,6 +1230,14 @@ export async function saveAriaActionPolicyAction(formData: FormData) {
       max_auto_approve_priority: maxAutoApprovePriority,
       default_assigned_to: defaultAssignedTo,
       require_assignment: requireAssignment,
+      pack_key: catalogItem?.packKey ?? null,
+      handling_mode:
+        mode === "auto_approve"
+          ? "automatic"
+          : mode === "disabled"
+            ? "approval_required"
+            : "approval_required",
+      default_source: "studio_override",
       updated_by: context.userId,
       updated_at: now,
     },
@@ -1115,6 +1254,603 @@ export async function saveAriaActionPolicyAction(formData: FormData) {
   revalidatePath("/app/automations");
 
   redirect(appendActionResult(returnTo, "success", "aria_policy_saved"));
+}
+
+
+
+
+
+type AriaPackAutonomyMode =
+  | "handle_automatically"
+  | "prepare_for_review"
+  | "notify_only"
+  | "off";
+
+const ARIA_PACK_AUTONOMY_MODES: AriaPackAutonomyMode[] = [
+  "handle_automatically",
+  "prepare_for_review",
+  "notify_only",
+  "off",
+];
+
+const ARIA_FINANCIAL_MUTATION_RULE_KEYS = new Set([
+  "aria_payment_exception",
+  "aria_event_unpaid_registration",
+  "aria_external_payment_missing",
+]);
+
+function isAriaProhibitedFinancialExecutionRule(
+  ruleKey: string | null | undefined,
+) {
+  return Boolean(ruleKey && ARIA_FINANCIAL_MUTATION_RULE_KEYS.has(ruleKey));
+}
+
+function findAriaProhibitedFinancialExecutionAction(
+  actions: AriaApprovedExecutionActionRow[],
+) {
+  return actions.find((action) =>
+    isAriaProhibitedFinancialExecutionRule(action.rule_key),
+  );
+}
+
+
+function normalizeAriaPackAutonomyMode(
+  value: unknown,
+  fallback: AriaPackAutonomyMode,
+): AriaPackAutonomyMode {
+  return typeof value === "string" &&
+    ARIA_PACK_AUTONOMY_MODES.includes(value as AriaPackAutonomyMode)
+    ? (value as AriaPackAutonomyMode)
+    : fallback;
+}
+
+function ariaPackDefaultAutonomyMode(packKey: string): AriaPackAutonomyMode {
+  const pack = getAriaOperationalPack(packKey as never);
+  return normalizeAriaPackAutonomyMode(
+    pack?.recommendedMode,
+    "notify_only",
+  );
+}
+
+function ariaPackAutonomyFromSettings(
+  settings: Record<string, unknown> | null | undefined,
+  packKey: string,
+) {
+  return normalizeAriaPackAutonomyMode(
+    settings?.autonomy_mode ??
+      // Backward-compatible read only. This field is no longer authoritative.
+      settings?.recommended_setup_choice,
+    ariaPackDefaultAutonomyMode(packKey),
+  );
+}
+
+function ariaRequestedRuleModeWithinPackCeiling(params: {
+  ruleKey: string;
+  requestedMode: string;
+  packMode: AriaPackAutonomyMode;
+}) {
+  const { ruleKey, requestedMode, packMode } = params;
+  const catalogItem = getAriaAutomationCatalogItem(ruleKey);
+
+  if (!catalogItem || packMode === "off") return "suggestion";
+
+  // Hard financial safety boundary:
+  // financial exception/reconciliation rules are never externally executable.
+  if (ARIA_FINANCIAL_MUTATION_RULE_KEYS.has(catalogItem.ruleKey)) {
+    return "suggestion";
+  }
+
+  const emailExecutable = catalogItem.executableChannel === "email";
+
+  if (packMode === "notify_only") return "suggestion";
+
+  if (packMode === "prepare_for_review") {
+    return emailExecutable && requestedMode !== "suggestion"
+      ? "draft"
+      : "suggestion";
+  }
+
+  // handle_automatically = maximum safe autonomy allowed by the rule.
+  if (requestedMode === "auto_send" && emailExecutable) return "auto_send";
+  if (requestedMode === "draft" && emailExecutable) return "draft";
+  return "suggestion";
+}
+
+function ariaDefaultRuleModeForPack(params: {
+  ruleKey: string;
+  packMode: AriaPackAutonomyMode;
+}) {
+  const catalogItem = getAriaAutomationCatalogItem(params.ruleKey);
+  if (!catalogItem) return "suggestion";
+
+  const requestedMode =
+    params.packMode === "handle_automatically"
+      ? "auto_send"
+      : params.packMode === "prepare_for_review"
+        ? "draft"
+        : "suggestion";
+
+  return ariaRequestedRuleModeWithinPackCeiling({
+    ruleKey: params.ruleKey,
+    requestedMode,
+    packMode: params.packMode,
+  });
+}
+
+type AriaRuleAutonomyOverride =
+  | "prepare_for_review"
+  | "notify_only"
+  | "off";
+
+function ariaRuleOverrideFromActionConfig(
+  value: unknown,
+): AriaRuleAutonomyOverride | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const config = value as Record<string, unknown>;
+  const override = config.aria_autonomy_override;
+
+  if (
+    override === "prepare_for_review" ||
+    override === "notify_only" ||
+    override === "off"
+  ) {
+    return override;
+  }
+
+  // One-time backward compatibility for Fix 1 values.
+  const legacy = config.aria_pack_mode_override;
+  if (legacy === "draft") return "prepare_for_review";
+  if (legacy === "suggestion") return "notify_only";
+  return null;
+}
+
+function ariaActionConfigWithPackOverride(params: {
+  actionConfig: unknown;
+  overrideMode: AriaRuleAutonomyOverride | null;
+}) {
+  const base =
+    params.actionConfig &&
+    typeof params.actionConfig === "object" &&
+    !Array.isArray(params.actionConfig)
+      ? { ...(params.actionConfig as Record<string, unknown>) }
+      : {};
+
+  delete base.aria_pack_mode_override;
+
+  if (params.overrideMode) {
+    base.aria_autonomy_override = params.overrideMode;
+  } else {
+    delete base.aria_autonomy_override;
+  }
+
+  return base;
+}
+
+function ariaAutonomyRank(mode: AriaPackAutonomyMode) {
+  if (mode === "handle_automatically") return 3;
+  if (mode === "prepare_for_review") return 2;
+  if (mode === "notify_only") return 1;
+  return 0;
+}
+
+function ariaEffectiveRuleAutonomy(params: {
+  packMode: AriaPackAutonomyMode;
+  overrideMode: AriaRuleAutonomyOverride | null;
+}) {
+  if (!params.overrideMode) return params.packMode;
+
+  return ariaAutonomyRank(params.overrideMode) < ariaAutonomyRank(params.packMode)
+    ? params.overrideMode
+    : params.packMode;
+}
+
+function ariaDeliveryModeForAutonomy(params: {
+  ruleKey: string;
+  autonomyMode: AriaPackAutonomyMode;
+}) {
+  const catalogItem = getAriaAutomationCatalogItem(params.ruleKey);
+  if (!catalogItem || params.autonomyMode === "off") return "suggestion";
+
+  if (ARIA_FINANCIAL_MUTATION_RULE_KEYS.has(params.ruleKey)) {
+    return "suggestion";
+  }
+
+  if (params.autonomyMode === "notify_only") return "suggestion";
+
+  if (params.autonomyMode === "prepare_for_review") {
+    return catalogItem.executableChannel === "email" ? "draft" : "suggestion";
+  }
+
+  // Handle automatically still cannot widen delivery permission.
+  return catalogItem.executableChannel === "email" &&
+    catalogItem.defaultDeliveryMode === "auto_send"
+    ? "auto_send"
+    : catalogItem.executableChannel === "email" &&
+        catalogItem.defaultDeliveryMode === "draft_for_review"
+      ? "draft"
+      : "suggestion";
+}
+
+
+type AriaRecommendedSetupChoice =
+  | "handle_automatically"
+  | "prepare_for_review"
+  | "notify_only"
+  | "off";
+
+function getAriaRecommendedSetupChoice(
+  value: FormDataEntryValue | null,
+  allowed: AriaRecommendedSetupChoice[],
+  fallback: AriaRecommendedSetupChoice,
+) {
+  return typeof value === "string" &&
+    allowed.includes(value as AriaRecommendedSetupChoice)
+    ? (value as AriaRecommendedSetupChoice)
+    : fallback;
+}
+
+function automationRuleModeForRecommendedSetup(
+  ruleKey: string,
+  choice: AriaRecommendedSetupChoice,
+) {
+  return ariaDefaultRuleModeForPack({
+    ruleKey,
+    packMode: choice,
+  });
+}
+
+export async function saveAriaRecommendedSetupAction(formData: FormData) {
+  const returnTo =
+    getAutomationActionReturnTo(formData.get("returnTo")) ??
+    "/app/automations";
+
+  const frontDeskChoice = getAriaRecommendedSetupChoice(
+    formData.get("frontDeskPreference"),
+    [
+      "handle_automatically",
+      "prepare_for_review",
+      "notify_only",
+      "off",
+    ],
+    "prepare_for_review",
+  );
+  const marketingChoice = getAriaRecommendedSetupChoice(
+    formData.get("marketingPreference"),
+    [
+      "handle_automatically",
+      "prepare_for_review",
+      "notify_only",
+      "off",
+    ],
+    "prepare_for_review",
+  );
+  const billingChoice = getAriaRecommendedSetupChoice(
+    formData.get("billingPreference"),
+    [
+      "handle_automatically",
+      "prepare_for_review",
+      "notify_only",
+      "off",
+    ],
+    "notify_only",
+  );
+
+  const context = await getCurrentStudioContext();
+
+  if (!canManageSettings(context.studioRole ?? "")) {
+    redirect(appendActionResult(returnTo, "error", "not-authorized"));
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authUserError,
+  } = await supabase.auth.getUser();
+
+  if (authUserError || !user?.id) {
+    console.error("ARIA recommended setup auth user lookup failed", authUserError);
+    redirect(
+      appendActionResult(
+        returnTo,
+        "error",
+        `aria_recommended_setup_auth_failed:${authUserError?.message ?? "missing authenticated user"}`,
+      ),
+    );
+  }
+
+  const now = new Date().toISOString();
+  const choices = [
+    {
+      packKey: "front_desk",
+      choice: frontDeskChoice,
+    },
+    {
+      packKey: "marketing",
+      choice: marketingChoice,
+    },
+    {
+      packKey: "billing_payments",
+      choice: billingChoice,
+    },
+  ] as const;
+
+  for (const item of choices) {
+    const { data: existingPreference, error: preferenceLookupError } =
+      await supabase
+        .from("aria_automation_pack_preferences")
+        .select("settings")
+        .eq("studio_id", context.studioId)
+        .eq("pack_key", item.packKey)
+        .maybeSingle<{ settings: Record<string, unknown> | null }>();
+
+    if (preferenceLookupError) {
+      console.error("ARIA recommended setup lookup failed", preferenceLookupError);
+      redirect(
+        appendActionResult(
+          returnTo,
+          "error",
+          `aria_recommended_setup_lookup_failed:${preferenceLookupError.message}`,
+        ),
+      );
+    }
+
+    const {
+      recommended_setup_choice: _legacyRecommendedSetupChoice,
+      ...existingSettings
+    } = existingPreference?.settings ?? {};
+    const settings = {
+      ...existingSettings,
+      autonomy_mode: item.choice,
+      setup_reviewed_at: now,
+      setup_reviewed_by: user.id,
+    };
+
+    const { error: preferenceError } = await supabase
+      .from("aria_automation_pack_preferences")
+      .upsert(
+        {
+          studio_id: context.studioId,
+          pack_key: item.packKey,
+          enabled: item.choice !== "off",
+          settings,
+          updated_by: user.id,
+          updated_at: now,
+        },
+        { onConflict: "studio_id,pack_key" },
+      );
+
+    if (preferenceError) {
+      console.error("ARIA recommended setup save failed", preferenceError);
+      redirect(
+        appendActionResult(
+          returnTo,
+          "error",
+          `aria_recommended_setup_save_failed:${preferenceError.message}`,
+        ),
+      );
+    }
+
+    const pack = getAriaOperationalPack(item.packKey);
+    const ruleKeys = pack?.rules.map((rule) => rule.ruleKey) ?? [];
+
+    if (ruleKeys.length > 0) {
+      const { data: existingRules, error: ruleLookupError } = await supabase
+        .from("automation_rules")
+        .select("rule_key, action_config")
+        .eq("studio_id", context.studioId)
+        .in("rule_key", ruleKeys);
+
+      if (ruleLookupError) {
+        console.error("ARIA recommended setup rule lookup failed", ruleLookupError);
+        redirect(
+          appendActionResult(
+            returnTo,
+            "error",
+            `aria_recommended_setup_rule_lookup_failed:${ruleLookupError.message}`,
+          ),
+        );
+      }
+
+      const existingRuleKeys = new Set(
+        (existingRules ?? []).map((rule) => String(rule.rule_key)),
+      );
+
+      for (const ruleKey of ruleKeys) {
+        const catalogItem = getAriaAutomationCatalogItem(ruleKey);
+        if (!catalogItem || !existingRuleKeys.has(ruleKey)) continue;
+
+        const existingRule = (existingRules ?? []).find(
+          (row) => String(row.rule_key) === ruleKey,
+        );
+        const explicitOverride = ariaRuleOverrideFromActionConfig(
+          existingRule?.action_config,
+        );
+        const effectiveAutonomy = ariaEffectiveRuleAutonomy({
+          packMode: item.choice,
+          overrideMode: explicitOverride,
+        });
+        const mode = ariaDeliveryModeForAutonomy({
+          ruleKey,
+          autonomyMode: effectiveAutonomy,
+        });
+
+        const { error: ruleError } = await supabase
+          .from("automation_rules")
+          .update({
+            enabled: item.choice !== "off",
+            mode,
+            updated_by: user.id,
+            updated_at: now,
+          })
+          .eq("studio_id", context.studioId)
+          .eq("rule_key", ruleKey);
+
+        if (ruleError) {
+          console.error("ARIA recommended setup rule update failed", ruleError);
+          redirect(
+            appendActionResult(
+              returnTo,
+              "error",
+              `aria_recommended_setup_rule_update_failed:${ruleError.message}`,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  revalidatePath("/app/automations");
+  revalidatePath("/app/aria");
+  revalidatePath("/app/aria/operations");
+
+  redirect(
+    appendActionResult(returnTo, "success", "aria_recommended_setup_saved"),
+  );
+}
+
+
+export async function saveAriaOperationalPackPreferenceAction(
+  formData: FormData,
+) {
+  const packKey = String(formData.get("packKey") ?? "");
+  const returnTo =
+    getAutomationActionReturnTo(formData.get("returnTo")) ??
+    "/app/automations";
+
+  const pack = getAriaOperationalPack(packKey as never);
+  if (!pack) {
+    redirect(appendActionResult(returnTo, "error", "unknown-aria-pack"));
+  }
+
+  const requestedMode = normalizeAriaPackAutonomyMode(
+    formData.get("autonomyMode"),
+    ariaPackDefaultAutonomyMode(packKey),
+  );
+  const context = await getCurrentStudioContext();
+
+  if (!canManageSettings(context.studioRole ?? "")) {
+    redirect(appendActionResult(returnTo, "error", "not-authorized"));
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const now = new Date().toISOString();
+
+  const { data: existingPreference, error: lookupError } = await supabase
+    .from("aria_automation_pack_preferences")
+    .select("settings")
+    .eq("studio_id", context.studioId)
+    .eq("pack_key", packKey)
+    .maybeSingle<{ settings: Record<string, unknown> | null }>();
+
+  if (lookupError) {
+    console.error("ARIA pack preference lookup failed", lookupError);
+    redirect(
+      appendActionResult(
+        returnTo,
+        "error",
+        `aria_pack_lookup_failed:${lookupError.message}`,
+      ),
+    );
+  }
+
+  const {
+    recommended_setup_choice: _legacyRecommendedSetupChoice,
+    ...existingSettings
+  } = existingPreference?.settings ?? {};
+
+  const { error: preferenceError } = await supabase
+    .from("aria_automation_pack_preferences")
+    .upsert(
+      {
+        studio_id: context.studioId,
+        pack_key: packKey,
+        enabled: requestedMode !== "off",
+        settings: {
+          ...existingSettings,
+          autonomy_mode: requestedMode,
+        },
+        updated_by: user?.id ?? null,
+        updated_at: now,
+      },
+      { onConflict: "studio_id,pack_key" },
+    );
+
+  if (preferenceError) {
+    console.error("ARIA pack preference save failed", preferenceError);
+    redirect(
+      appendActionResult(
+        returnTo,
+        "error",
+        `aria_pack_save_failed:${preferenceError.message}`,
+      ),
+    );
+  }
+
+  const ruleKeys = pack.rules.map((rule) => rule.ruleKey);
+  if (ruleKeys.length > 0) {
+    const { data: existingRules, error: ruleLookupError } = await supabase
+      .from("automation_rules")
+      .select("rule_key, action_config")
+      .eq("studio_id", context.studioId)
+      .in("rule_key", ruleKeys);
+
+    if (ruleLookupError) {
+      console.error("ARIA pack rule lookup failed", ruleLookupError);
+      redirect(
+        appendActionResult(
+          returnTo,
+          "error",
+          `aria_pack_rule_lookup_failed:${ruleLookupError.message}`,
+        ),
+      );
+    }
+
+    for (const row of existingRules ?? []) {
+      const ruleKey = String(row.rule_key);
+      const explicitOverride = ariaRuleOverrideFromActionConfig(
+        row.action_config,
+      );
+      const effectiveAutonomy = ariaEffectiveRuleAutonomy({
+        packMode: requestedMode,
+        overrideMode: explicitOverride,
+      });
+      const mode = ariaDeliveryModeForAutonomy({
+        ruleKey,
+        autonomyMode: effectiveAutonomy,
+      });
+
+      const { error: ruleError } = await supabase
+        .from("automation_rules")
+        .update({
+          enabled: requestedMode !== "off",
+          mode,
+          updated_by: user?.id ?? null,
+          updated_at: now,
+        })
+        .eq("studio_id", context.studioId)
+        .eq("rule_key", ruleKey);
+
+      if (ruleError) {
+        console.error("ARIA pack child rule sync failed", ruleError);
+        redirect(
+          appendActionResult(
+            returnTo,
+            "error",
+            `aria_pack_rule_sync_failed:${ruleError.message}`,
+          ),
+        );
+      }
+    }
+  }
+
+  revalidatePath("/app/automations");
+  revalidatePath("/app/aria");
+  revalidatePath("/app/aria/operations");
+
+  redirect(appendActionResult(returnTo, "success", "aria_pack_saved"));
 }
 
 
@@ -1252,6 +1988,8 @@ async function ensureAriaOperationalRule(params: {
     return existingRule.id;
   }
 
+  const catalogItem = getAriaAutomationCatalogItem(candidate.ruleKey);
+  const deliveryMode = catalogItem?.defaultDeliveryMode ?? "suggestion_only";
   const now = new Date().toISOString();
   const { data: rule, error } = await supabase
     .from("automation_rules")
@@ -1264,9 +2002,19 @@ async function ensureAriaOperationalRule(params: {
         trigger_key: `aria_${candidate.ruleKey}`,
         action_key: "create_aria_operations_action",
         enabled: true,
-        mode: "suggestion",
+        mode:
+          deliveryMode === "auto_send"
+            ? "auto_send"
+            : deliveryMode === "draft_for_review"
+              ? "draft"
+              : "suggestion",
         trigger_config: {},
-        action_config: { source: "aria_operations" },
+        action_config: {
+          source: "aria_operations",
+          delivery_mode: deliveryMode,
+        },
+        pack_key: catalogItem?.packKey ?? null,
+        default_source: "danceflow_default",
         created_by: userId,
         updated_by: userId,
         updated_at: now,
@@ -1307,9 +2055,21 @@ async function insertAriaOperationalActions(params: {
   candidates: AriaOperationalActionCandidate[];
 }) {
   const { supabase, studioId, userId, candidates } = params;
+  const enabledPackKeys = await loadEnabledAriaOperationalPackKeys({
+    supabase,
+    studioId,
+  });
+  const eligibleCandidates = filterAriaCandidatesByEnabledPacks({
+    candidates,
+    enabledPackKeys,
+  });
 
-  if (candidates.length === 0) {
-    return { candidatesCount: 0, createdCount: 0, updatedCount: 0 };
+  if (eligibleCandidates.length === 0) {
+    return {
+      candidatesCount: candidates.length,
+      createdCount: 0,
+      updatedCount: 0,
+    };
   }
 
   const activeStatuses = [
@@ -1322,10 +2082,10 @@ async function insertAriaOperationalActions(params: {
   const policyByRuleKey = await loadAriaActionPolicyMap({ supabase, studioId });
   const groupedRelatedIds = new Map<string, Set<string>>();
   const ruleKeys = Array.from(
-    new Set(candidates.map((candidate) => candidate.ruleKey)),
+    new Set(eligibleCandidates.map((candidate) => candidate.ruleKey)),
   );
 
-  for (const candidate of candidates) {
+  for (const candidate of eligibleCandidates) {
     const current =
       groupedRelatedIds.get(candidate.relatedTable) ?? new Set<string>();
     current.add(candidate.relatedId);
@@ -1365,7 +2125,7 @@ async function insertAriaOperationalActions(params: {
     }
   }
 
-  const lowPackageRelatedIds = candidates
+  const lowPackageRelatedIds = eligibleCandidates
     .filter(
       (candidate) =>
         candidate.ruleKey === "aria_low_package_balance" &&
@@ -1415,7 +2175,7 @@ async function insertAriaOperationalActions(params: {
     assignTo: string | null;
   }> = [];
 
-  for (const candidate of candidates) {
+  for (const candidate of eligibleCandidates) {
     const policy = policyByRuleKey.get(candidate.ruleKey);
 
     if (policy?.enabled === false) {
@@ -2136,6 +2896,940 @@ async function buildStudioAriaOperationalCandidates(params: {
   return candidates;
 }
 
+
+type AriaExpandedAppointmentRow = {
+  id: string;
+  client_id: string | null;
+  instructor_id: string | null;
+  room_id: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  status: string | null;
+  clients:
+    | { first_name: string | null; last_name: string | null }
+    | { first_name: string | null; last_name: string | null }[]
+    | null;
+};
+
+type AriaMarketingCampaignSignalRow = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+type AriaPayrollInstructorSignalRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  active: boolean | null;
+};
+
+type AriaPayrollProfileSignalRow = {
+  id: string;
+  instructor_id: string;
+  worker_classification: string | null;
+  payroll_active: boolean | null;
+};
+
+type AriaCompensationRuleSignalRow = {
+  id: string;
+  instructor_id: string;
+};
+
+type AriaInventorySignalRow = {
+  id: string;
+  catalog_item_id: string | null;
+  name: string | null;
+  quantity_on_hand: number | string | null;
+  reorder_threshold: number | string | null;
+  active: boolean | null;
+};
+
+type AriaImportBatchSignalRow = {
+  id: string;
+  source_system: string | null;
+  import_type: string | null;
+  status: string | null;
+  failed_rows: number | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+function normalizedAriaStatus(value: string | null | undefined) {
+  return `${value ?? ""}`.trim().toLowerCase().replaceAll(" ", "_");
+}
+
+function appointmentsOverlap(
+  left: AriaExpandedAppointmentRow,
+  right: AriaExpandedAppointmentRow,
+) {
+  const leftStart = new Date(left.starts_at).getTime();
+  const rightStart = new Date(right.starts_at).getTime();
+  const leftEnd = new Date(left.ends_at ?? left.starts_at).getTime();
+  const rightEnd = new Date(right.ends_at ?? right.starts_at).getTime();
+
+  if (
+    [leftStart, rightStart, leftEnd, rightEnd].some((value) =>
+      Number.isNaN(value),
+    )
+  ) {
+    return false;
+  }
+
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+async function buildExpandedStudioAriaOperationalCandidates(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+}) {
+  const { supabase, studioId } = params;
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const twoDaysAgoIso = addAriaDays(now, -2).toISOString();
+  const fourteenDaysAgoIso = addAriaDays(now, -14).toISOString();
+  const nextDayIso = addAriaDays(now, 1).toISOString();
+  const nextFourteenDaysIso = addAriaDays(now, 14).toISOString();
+
+  const [
+    appointmentsResult,
+    marketingResult,
+    instructorsResult,
+    payrollProfilesResult,
+    compensationRulesResult,
+    inventoryResult,
+    importBatchesResult,
+  ] = await Promise.all([
+    supabase
+      .from("appointments")
+      .select(
+        "id, client_id, instructor_id, room_id, starts_at, ends_at, status, clients(first_name,last_name)",
+      )
+      .eq("studio_id", studioId)
+      .gte("starts_at", twoDaysAgoIso)
+      .lte("starts_at", nextFourteenDaysIso)
+      .order("starts_at", { ascending: true })
+      .limit(750),
+    supabase
+      .from("marketing_campaigns")
+      .select("id, name, status, created_at, updated_at")
+      .eq("studio_id", studioId)
+      .eq("status", "draft")
+      .lte("created_at", fourteenDaysAgoIso)
+      .order("created_at", { ascending: true })
+      .limit(50),
+    supabase
+      .from("instructors")
+      .select("id, first_name, last_name, active")
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .limit(250),
+    supabase
+      .from("instructor_payroll_profiles")
+      .select("id, instructor_id, worker_classification, payroll_active")
+      .eq("studio_id", studioId)
+      .eq("payroll_active", true)
+      .limit(250),
+    supabase
+      .from("instructor_compensation_rules")
+      .select("id, instructor_id")
+      .eq("studio_id", studioId)
+      .limit(250),
+    supabase
+      .from("commerce_product_variant_inventory")
+      .select(
+        "id, catalog_item_id, name, quantity_on_hand, reorder_threshold, active",
+      )
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .limit(1000),
+    supabase
+      .from("import_batches")
+      .select(
+        "id, source_system, import_type, status, failed_rows, completed_at, created_at",
+      )
+      .eq("studio_id", studioId)
+      .or("status.in.(failed,completed_with_warnings),failed_rows.gt.0")
+      .order("created_at", { ascending: false })
+      .limit(50),
+  ]);
+
+  const criticalErrors = [
+    ["appointments", appointmentsResult.error],
+    ["marketing campaigns", marketingResult.error],
+    ["instructors", instructorsResult.error],
+    ["payroll profiles", payrollProfilesResult.error],
+    ["compensation rules", compensationRulesResult.error],
+    ["inventory", inventoryResult.error],
+    ["import batches", importBatchesResult.error],
+  ] as const;
+
+  const failedQuery = criticalErrors.find(([, error]) => error);
+  if (failedQuery) {
+    throw new Error(
+      `ARIA expanded runtime failed to load ${failedQuery[0]}: ${failedQuery[1]?.message}`,
+    );
+  }
+
+  const candidates: AriaOperationalActionCandidate[] = [];
+  const appointments = (appointmentsResult.data ??
+    []) as AriaExpandedAppointmentRow[];
+
+  const upcomingAppointments = appointments.filter((appointment) => {
+    const start = new Date(appointment.starts_at);
+    const status = normalizedAriaStatus(appointment.status);
+    return (
+      start >= now &&
+      start <= new Date(nextFourteenDaysIso) &&
+      !["cancelled", "canceled", "declined", "no_show"].includes(status)
+    );
+  });
+
+  for (const appointment of upcomingAppointments) {
+    const status = normalizedAriaStatus(appointment.status);
+    const startsAt = new Date(appointment.starts_at);
+
+    if (
+      startsAt <= new Date(nextDayIso) &&
+      ["pending", "requested", "unconfirmed"].includes(status)
+    ) {
+      const clientName = getAriaRelatedClientName(appointment.clients);
+      candidates.push({
+        ruleKey: "aria_appointment_confirmation_gap",
+        ruleName: "ARIA appointment confirmation gap",
+        ruleDescription:
+          "Creates a review item when an upcoming appointment remains unconfirmed inside 24 hours.",
+        title: `Confirm upcoming appointment: ${clientName}`,
+        body: `${clientName}'s appointment starts ${ariaDateLabel(appointment.starts_at)} and is still ${appointment.status ?? "unconfirmed"}. Review recent communication before sending another reminder.`,
+        priority: "high",
+        relatedTable: "appointments",
+        relatedId: appointment.id,
+        clientId: appointment.client_id,
+        dueAt: nowIso,
+      });
+    }
+  }
+
+  for (const appointment of appointments) {
+    const start = new Date(appointment.starts_at);
+    const status = normalizedAriaStatus(appointment.status);
+
+    if (
+      start >= new Date(twoDaysAgoIso) &&
+      start < now &&
+      ["no_show", "noshow"].includes(status)
+    ) {
+      const clientName = getAriaRelatedClientName(appointment.clients);
+      candidates.push({
+        ruleKey: "aria_no_show_service_recovery",
+        ruleName: "ARIA no-show service recovery",
+        ruleDescription:
+          "Creates a review item after a recent no-show so staff can choose an appropriate recovery response.",
+        title: `No-show follow-up: ${clientName}`,
+        body: `${clientName} was marked no-show for ${ariaDateLabel(appointment.starts_at)}. Review attendance history, package impact, notes, and studio policy before following up.`,
+        priority: "high",
+        relatedTable: "appointments",
+        relatedId: appointment.id,
+        clientId: appointment.client_id,
+        dueAt: addAriaDays(now, 1).toISOString(),
+      });
+    }
+  }
+
+  const conflictKeys = new Set<string>();
+  for (let leftIndex = 0; leftIndex < upcomingAppointments.length; leftIndex += 1) {
+    const left = upcomingAppointments[leftIndex];
+
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < upcomingAppointments.length;
+      rightIndex += 1
+    ) {
+      const right = upcomingAppointments[rightIndex];
+      if (!appointmentsOverlap(left, right)) continue;
+
+      const sameInstructor = Boolean(
+        left.instructor_id &&
+          right.instructor_id &&
+          left.instructor_id === right.instructor_id,
+      );
+      const sameRoom = Boolean(
+        left.room_id && right.room_id && left.room_id === right.room_id,
+      );
+
+      if (!sameInstructor && !sameRoom) continue;
+
+      const orderedIds = [left.id, right.id].sort();
+      const conflictKey = orderedIds.join(":");
+      if (conflictKeys.has(conflictKey)) continue;
+      conflictKeys.add(conflictKey);
+
+      const reason =
+        sameInstructor && sameRoom
+          ? "the same instructor and room"
+          : sameInstructor
+            ? "the same instructor"
+            : "the same room";
+
+      candidates.push({
+        ruleKey: "aria_schedule_conflict",
+        ruleName: "ARIA schedule conflict review",
+        ruleDescription:
+          "Creates an urgent internal task for overlapping instructor or room assignments.",
+        title: "Schedule conflict needs resolution",
+        body: `Two upcoming appointments overlap while using ${reason}. Review ${ariaDateLabel(left.starts_at)} and ${ariaDateLabel(right.starts_at)} before moving or cancelling anything.`,
+        priority: "urgent",
+        relatedTable: "appointments",
+        relatedId: left.id,
+        clientId: left.client_id,
+        dueAt: nowIso,
+      });
+    }
+  }
+
+  for (const campaign of (marketingResult.data ??
+    []) as AriaMarketingCampaignSignalRow[]) {
+    candidates.push({
+      ruleKey: "aria_marketing_opportunity",
+      ruleName: "ARIA marketing opportunity review",
+      ruleDescription:
+        "Creates a marketing review item for campaign drafts that have remained unused for two weeks.",
+      title: `Marketing draft needs a decision: ${campaign.name || "Untitled campaign"}`,
+      body: `${campaign.name || "This campaign"} has remained in draft since ${ariaDateLabel(campaign.created_at)}. Review the audience, offer, timing, and consent before deciding whether to finish, revise, or archive it.`,
+      priority: "normal",
+      relatedTable: "marketing_campaigns",
+      relatedId: campaign.id,
+      dueAt: addAriaDays(now, 3).toISOString(),
+    });
+  }
+
+  const payrollProfiles = (payrollProfilesResult.data ??
+    []) as AriaPayrollProfileSignalRow[];
+  const payrollProfileByInstructor = new Map(
+    payrollProfiles.map((profile) => [profile.instructor_id, profile]),
+  );
+  const compensationInstructorIds = new Set(
+    ((compensationRulesResult.data ?? []) as AriaCompensationRuleSignalRow[]).map(
+      (rule) => rule.instructor_id,
+    ),
+  );
+
+  for (const instructor of (instructorsResult.data ??
+    []) as AriaPayrollInstructorSignalRow[]) {
+    const profile = payrollProfileByInstructor.get(instructor.id);
+    if (!profile?.payroll_active) continue;
+
+    const missing: string[] = [];
+    if (!profile.worker_classification) missing.push("worker classification");
+    if (!compensationInstructorIds.has(instructor.id))
+      missing.push("compensation rule");
+
+    if (!missing.length) continue;
+
+    const instructorName = ariaPersonName(
+      instructor.first_name,
+      instructor.last_name,
+      "Instructor",
+    );
+
+    candidates.push({
+      ruleKey: "aria_payroll_missing_data",
+      ruleName: "ARIA payroll readiness gap",
+      ruleDescription:
+        "Creates an internal payroll exception when an active payroll instructor is missing required setup.",
+      title: `Payroll setup incomplete: ${instructorName}`,
+      body: `${instructorName} is active for payroll but is missing ${missing.join(" and ")}. Complete the setup before preparing the next payroll batch.`,
+      priority: "urgent",
+      relatedTable: "instructors",
+      relatedId: instructor.id,
+      dueAt: nowIso,
+    });
+  }
+
+  for (const inventory of (inventoryResult.data ??
+    []) as AriaInventorySignalRow[]) {
+    const onHand = asNumber(inventory.quantity_on_hand, 0);
+    const threshold = asNumber(inventory.reorder_threshold, 0);
+
+    if (onHand > threshold) continue;
+
+    candidates.push({
+      ruleKey: "aria_inventory_low_stock",
+      ruleName: "ARIA low inventory review",
+      ruleDescription:
+        "Creates a reorder suggestion when active inventory reaches its configured threshold.",
+      title: `Low stock: ${inventory.name || "Product variant"}`,
+      body: `${inventory.name || "This product variant"} has ${onHand} on hand with a reorder threshold of ${threshold}. Review recent sales and pending replenishment before placing an order.`,
+      priority: onHand <= 0 ? "urgent" : "high",
+      relatedTable: "commerce_product_variant_inventory",
+      relatedId: inventory.id,
+      dueAt: addAriaDays(now, 1).toISOString(),
+    });
+  }
+
+  for (const batch of (importBatchesResult.data ??
+    []) as AriaImportBatchSignalRow[]) {
+    const failedRows = Number(batch.failed_rows ?? 0);
+    candidates.push({
+      ruleKey: "aria_data_quality_exception",
+      ruleName: "ARIA data quality exception",
+      ruleDescription:
+        "Creates a focused reconciliation task for imports with failed rows or unresolved warnings.",
+      title: `Import reconciliation needed: ${batch.import_type ?? "data"} import`,
+      body: `${batch.source_system ?? "Imported"} ${batch.import_type ?? "data"} batch has status ${batch.status ?? "needs attention"}${failedRows ? ` with ${failedRows} failed row${failedRows === 1 ? "" : "s"}` : ""}. Review the batch before treating migrated records as complete.`,
+      priority: batch.status === "failed" ? "urgent" : "high",
+      relatedTable: "import_batches",
+      relatedId: batch.id,
+      dueAt: nowIso,
+    });
+  }
+
+  return candidates;
+}
+
+
+type AriaCompletionClientRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  status: string | null;
+  created_at: string;
+};
+
+type AriaCompletionAppointmentRow = {
+  id: string;
+  client_id: string | null;
+  instructor_id: string | null;
+  appointment_type: string | null;
+  status: string | null;
+  starts_at: string;
+  payment_status: string | null;
+  price_amount: number | string | null;
+  clients:
+    | { first_name: string | null; last_name: string | null }
+    | { first_name: string | null; last_name: string | null }[]
+    | null;
+};
+
+type AriaLeadActivitySignalRow = {
+  id: string;
+  client_id: string | null;
+  activity_type: string | null;
+  note: string | null;
+  follow_up_due_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+type AriaDocumentExpirationSignalRow = {
+  id: string;
+  client_id: string | null;
+  status: string | null;
+  due_at: string | null;
+  assigned_to_email: string | null;
+  document_templates:
+    | { title: string | null; is_required: boolean | null }
+    | { title: string | null; is_required: boolean | null }[]
+    | null;
+  clients:
+    | { first_name: string | null; last_name: string | null }
+    | { first_name: string | null; last_name: string | null }[]
+    | null;
+};
+
+type AriaEventCapacitySignalRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  event_type: string | null;
+  status: string | null;
+  visibility: string | null;
+  public_directory_enabled: boolean | null;
+  start_date: string;
+  capacity: number | string | null;
+  waitlist_enabled: boolean | null;
+};
+
+type AriaEventRegistrationCountRow = {
+  id: string;
+  event_id: string | null;
+  status: string | null;
+  quantity: number | string | null;
+};
+
+type AriaCommerceOrderSignalRow = {
+  id: string;
+  order_number: string | null;
+  status: string | null;
+  payment_status: string | null;
+  fulfillment_status: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+type AriaClientAccountLinkSignalRow = {
+  client_id: string;
+  status: string | null;
+};
+
+function singleAriaRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+async function buildCompletionAriaOperationalCandidates(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+}) {
+  const { supabase, studioId } = params;
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const twoDaysAgo = addAriaDays(now, -2).toISOString();
+  const oneDayAgo = addAriaDays(now, -1).toISOString();
+  const thirtyDaysAgo = addAriaDays(now, -30).toISOString();
+  const oneHundredEightyDaysAgo = addAriaDays(now, -180).toISOString();
+  const sevenDaysAhead = addAriaDays(now, 7).toISOString();
+  const fourteenDaysAhead = addAriaDays(now, 14).toISOString();
+
+  const [
+    clientsResult,
+    recentAppointmentsResult,
+    futureAppointmentsResult,
+    leadActivitiesResult,
+    overdueDocumentsResult,
+    eventsResult,
+    registrationsResult,
+    commerceOrdersResult,
+    accountLinksResult,
+  ] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id, first_name, last_name, email, status, created_at")
+      .eq("studio_id", studioId)
+      .in("status", ["active", "lead", "inactive"])
+      .limit(1500),
+    supabase
+      .from("appointments")
+      .select(
+        "id, client_id, instructor_id, appointment_type, status, starts_at, payment_status, price_amount, clients(first_name,last_name)",
+      )
+      .eq("studio_id", studioId)
+      .gte("starts_at", oneHundredEightyDaysAgo)
+      .lt("starts_at", nowIso)
+      .order("starts_at", { ascending: false })
+      .limit(2500),
+    supabase
+      .from("appointments")
+      .select(
+        "id, client_id, instructor_id, appointment_type, status, starts_at, payment_status, price_amount, clients(first_name,last_name)",
+      )
+      .eq("studio_id", studioId)
+      .gte("starts_at", nowIso)
+      .lte("starts_at", fourteenDaysAhead)
+      .order("starts_at", { ascending: true })
+      .limit(2500),
+    supabase
+      .from("lead_activities")
+      .select(
+        "id, client_id, activity_type, note, follow_up_due_at, completed_at, created_at",
+      )
+      .eq("studio_id", studioId)
+      .order("created_at", { ascending: false })
+      .limit(2000),
+    supabase
+      .from("document_assignments")
+      .select(
+        "id, client_id, status, due_at, assigned_to_email, document_templates(title,is_required), clients(first_name,last_name)",
+      )
+      .eq("studio_id", studioId)
+      .eq("status", "pending")
+      .not("due_at", "is", null)
+      .lt("due_at", nowIso)
+      .order("due_at", { ascending: true })
+      .limit(250),
+    supabase
+      .from("events")
+      .select(
+        "id, name, slug, event_type, status, visibility, public_directory_enabled, start_date, capacity, waitlist_enabled",
+      )
+      .eq("studio_id", studioId)
+      .gte("start_date", nowIso.slice(0, 10))
+      .lte("start_date", fourteenDaysAhead.slice(0, 10))
+      .limit(250),
+    supabase
+      .from("event_registrations")
+      .select("id, event_id, status, quantity")
+      .eq("studio_id", studioId)
+      .limit(5000),
+    supabase
+      .from("commerce_orders")
+      .select(
+        "id, order_number, status, payment_status, fulfillment_status, created_at, completed_at",
+      )
+      .eq("studio_id", studioId)
+      .in("payment_status", ["paid", "partially_refunded", "refunded"])
+      .neq("fulfillment_status", "fulfilled")
+      .lte("created_at", oneDayAgo)
+      .order("created_at", { ascending: true })
+      .limit(250),
+    supabase
+      .from("client_account_links")
+      .select("client_id, status")
+      .eq("studio_id", studioId)
+      .eq("status", "linked")
+      .limit(3000),
+  ]);
+
+  const namedErrors = [
+    ["clients", clientsResult.error],
+    ["recent appointments", recentAppointmentsResult.error],
+    ["future appointments", futureAppointmentsResult.error],
+    ["lead activities", leadActivitiesResult.error],
+    ["overdue documents", overdueDocumentsResult.error],
+    ["events", eventsResult.error],
+    ["event registrations", registrationsResult.error],
+    ["commerce orders", commerceOrdersResult.error],
+    ["client account links", accountLinksResult.error],
+  ] as const;
+  const failed = namedErrors.find(([, error]) => error);
+  if (failed) {
+    throw new Error(
+      `ARIA coverage completion failed to load ${failed[0]}: ${failed[1]?.message}`,
+    );
+  }
+
+  const candidates: AriaOperationalActionCandidate[] = [];
+  const clients = (clientsResult.data ?? []) as AriaCompletionClientRow[];
+  const clientById = new Map(clients.map((client) => [client.id, client]));
+  const recentAppointments = (recentAppointmentsResult.data ??
+    []) as AriaCompletionAppointmentRow[];
+  const futureAppointments = (futureAppointmentsResult.data ??
+    []) as AriaCompletionAppointmentRow[];
+  const leadActivities = (leadActivitiesResult.data ??
+    []) as AriaLeadActivitySignalRow[];
+
+  const futureClientIds = new Set(
+    futureAppointments
+      .filter(
+        (appointment) =>
+          appointment.client_id &&
+          !isAriaCanceledStatus(appointment.status),
+      )
+      .map((appointment) => appointment.client_id as string),
+  );
+
+  for (const appointment of recentAppointments) {
+    const status = normalizedAriaStatus(appointment.status);
+
+    if (
+      new Date(appointment.starts_at) >= new Date(twoDaysAgo) &&
+      ["cancelled", "canceled"].includes(status) &&
+      appointment.client_id &&
+      !futureClientIds.has(appointment.client_id)
+    ) {
+      const clientName = getAriaRelatedClientName(appointment.clients);
+      candidates.push({
+        ruleKey: "aria_cancellation_follow_up",
+        ruleName: "ARIA cancellation follow-up",
+        ruleDescription:
+          "Creates a review task after a recent cancellation leaves the client without another booking.",
+        title: `Cancellation follow-up: ${clientName}`,
+        body: `${clientName} cancelled an appointment scheduled for ${ariaDateLabel(appointment.starts_at)} and has no future appointment. Review the reason and decide whether a rebooking conversation is appropriate.`,
+        priority: "high",
+        relatedTable: "appointments",
+        relatedId: appointment.id,
+        clientId: appointment.client_id,
+        dueAt: addAriaDays(now, 1).toISOString(),
+      });
+    }
+
+    const amountDue = asNumber(appointment.price_amount, 0);
+    if (
+      amountDue > 0 &&
+      ["unpaid", "partial", "pending"].includes(
+        normalizedAriaStatus(appointment.payment_status),
+      ) &&
+      !["cancelled", "canceled", "no_show"].includes(status)
+    ) {
+      candidates.push({
+        ruleKey: "aria_external_payment_missing",
+        ruleName: "ARIA external payment reconciliation gap",
+        ruleDescription:
+          "Creates a financial reconciliation task when a paid-service appointment remains unpaid or partial after its scheduled time.",
+        title: "Payment reconciliation needed",
+        body: `${getAriaRelatedClientName(appointment.clients)} has a past ${appointment.appointment_type ?? "appointment"} showing ${appointment.payment_status ?? "unpaid"} payment status for ${ariaDateLabel(appointment.starts_at)}. Confirm whether payment occurred outside DanceFlow before changing balances or access.`,
+        priority: "urgent",
+        relatedTable: "appointments",
+        relatedId: appointment.id,
+        clientId: appointment.client_id,
+        dueAt: nowIso,
+      });
+    }
+  }
+
+  for (const appointment of futureAppointments) {
+    const status = normalizedAriaStatus(appointment.status);
+    if (
+      !appointment.instructor_id &&
+      !["cancelled", "canceled", "declined"].includes(status) &&
+      new Date(appointment.starts_at) <= new Date(sevenDaysAhead) &&
+      appointment.appointment_type !== "floor_space_rental"
+    ) {
+      candidates.push({
+        ruleKey: "aria_instructor_coverage_gap",
+        ruleName: "ARIA instructor coverage gap",
+        ruleDescription:
+          "Creates an urgent scheduling task when an upcoming teaching appointment has no instructor.",
+        title: "Instructor coverage needed",
+        body: `${appointment.appointment_type ?? "Appointment"} at ${ariaDateLabel(appointment.starts_at)} has no instructor assigned. Assign coverage before changing the client schedule.`,
+        priority: "urgent",
+        relatedTable: "appointments",
+        relatedId: appointment.id,
+        clientId: appointment.client_id,
+        dueAt: nowIso,
+      });
+    }
+  }
+
+  const activityByClientId = new Map<string, AriaLeadActivitySignalRow[]>();
+  for (const activity of leadActivities) {
+    if (!activity.client_id) continue;
+    const list = activityByClientId.get(activity.client_id) ?? [];
+    list.push(activity);
+    activityByClientId.set(activity.client_id, list);
+
+    if (
+      activity.follow_up_due_at &&
+      !activity.completed_at &&
+      new Date(activity.follow_up_due_at) < now
+    ) {
+      candidates.push({
+        ruleKey: "aria_lead_follow_up_sequence",
+        ruleName: "ARIA lead follow-up sequence",
+        ruleDescription:
+          "Creates a sales follow-up task for overdue lead activities.",
+        title: "Lead follow-up is overdue",
+        body: `${activity.note || activity.activity_type || "Lead follow-up"} was due ${ariaDateLabel(activity.follow_up_due_at)} and is still open.`,
+        priority: "high",
+        relatedTable: "lead_activities",
+        relatedId: activity.id,
+        clientId: activity.client_id,
+        dueAt: nowIso,
+      });
+
+      candidates.push({
+        ruleKey: "aria_staff_task_reminder",
+        ruleName: "ARIA overdue staff follow-up",
+        ruleDescription:
+          "Creates an internal reminder for overdue CRM follow-up work.",
+        title: "Staff follow-up needs attention",
+        body: `An open CRM follow-up was due ${ariaDateLabel(activity.follow_up_due_at)}. Assign or complete the task so the client does not fall through the cracks.`,
+        priority: "high",
+        relatedTable: "lead_activities",
+        relatedId: activity.id,
+        clientId: activity.client_id,
+        dueAt: nowIso,
+      });
+    }
+  }
+
+  for (const client of clients) {
+    const activities = activityByClientId.get(client.id) ?? [];
+
+    if (
+      client.status === "lead" &&
+      new Date(client.created_at) <= new Date(oneDayAgo) &&
+      activities.length === 0
+    ) {
+      candidates.push({
+        ruleKey: "aria_lead_acknowledgement",
+        ruleName: "ARIA new lead acknowledgement gap",
+        ruleDescription:
+          "Creates a client-relations task when a lead has no recorded activity after one day.",
+        title: `New lead still needs acknowledgement: ${ariaPersonName(client.first_name, client.last_name)}`,
+        body: `${ariaPersonName(client.first_name, client.last_name)} became a lead ${ariaDateLabel(client.created_at)} and has no recorded lead activity. Review the source and prepare the first response.`,
+        priority: "high",
+        relatedTable: "clients",
+        relatedId: client.id,
+        clientId: client.id,
+        dueAt: nowIso,
+      });
+    }
+  }
+
+  const recentHistoryClientIds = new Set(
+    recentAppointments
+      .filter(
+        (appointment) =>
+          appointment.client_id &&
+          !isAriaCanceledStatus(appointment.status) &&
+          new Date(appointment.starts_at) >= new Date(thirtyDaysAgo),
+      )
+      .map((appointment) => appointment.client_id as string),
+  );
+
+  for (const client of clients.filter((row) => row.status === "inactive")) {
+    if (
+      recentHistoryClientIds.has(client.id) &&
+      !futureClientIds.has(client.id)
+    ) {
+      candidates.push({
+        ruleKey: "aria_inactive_client_reactivation",
+        ruleName: "ARIA inactive client reactivation",
+        ruleDescription:
+          "Creates a reactivation review for recently active clients now marked inactive with no future booking.",
+        title: `Reactivation opportunity: ${ariaPersonName(client.first_name, client.last_name)}`,
+        body: `${ariaPersonName(client.first_name, client.last_name)} is inactive, had lesson activity in the last 30 days, and has no future booking. Review notes and relationship context before outreach.`,
+        priority: "normal",
+        relatedTable: "clients",
+        relatedId: client.id,
+        clientId: client.id,
+        dueAt: addAriaDays(now, 3).toISOString(),
+      });
+    }
+  }
+
+  for (const assignment of (overdueDocumentsResult.data ??
+    []) as AriaDocumentExpirationSignalRow[]) {
+    const template = singleAriaRelation(assignment.document_templates);
+    if (template?.is_required === false) continue;
+
+    candidates.push({
+      ruleKey: "aria_document_expiration",
+      ruleName: "ARIA overdue document exception",
+      ruleDescription:
+        "Creates an internal exception when a required pending document passes its due date.",
+      title: `Required document overdue: ${template?.title || "Document"}`,
+      body: `${getAriaRelatedClientName(assignment.clients)} still has ${template?.title || "a required document"} pending after its due date ${ariaDateLabel(assignment.due_at)}. Review reminder history and whether the assignment should be revised, waived, or resent.`,
+      priority: "high",
+      relatedTable: "document_assignments",
+      relatedId: assignment.id,
+      clientId: assignment.client_id,
+      dueAt: nowIso,
+    });
+  }
+
+  const registrationCountByEvent = new Map<string, number>();
+  let waitlistedByEvent = new Map<string, number>();
+  for (const registration of (registrationsResult.data ??
+    []) as AriaEventRegistrationCountRow[]) {
+    if (!registration.event_id) continue;
+    const status = normalizedAriaStatus(registration.status);
+    const quantity = Math.max(1, asNumber(registration.quantity, 1));
+
+    if (status === "waitlisted") {
+      waitlistedByEvent.set(
+        registration.event_id,
+        (waitlistedByEvent.get(registration.event_id) ?? 0) + quantity,
+      );
+      continue;
+    }
+    if (["cancelled", "canceled", "declined", "refunded"].includes(status)) {
+      continue;
+    }
+    registrationCountByEvent.set(
+      registration.event_id,
+      (registrationCountByEvent.get(registration.event_id) ?? 0) + quantity,
+    );
+  }
+
+  for (const event of (eventsResult.data ?? []) as AriaEventCapacitySignalRow[]) {
+    const registrationCount = registrationCountByEvent.get(event.id) ?? 0;
+    const waitlisted = waitlistedByEvent.get(event.id) ?? 0;
+    const capacity = asNumber(event.capacity, 0);
+    const eventDate = new Date(`${event.start_date}T00:00:00`);
+    const daysUntil = Math.max(
+      0,
+      Math.floor((eventDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
+    );
+
+    if (event.event_type === "group_class" && capacity > 0) {
+      const utilization = registrationCount / capacity;
+      if (utilization >= 0.8 || waitlisted > 0) {
+        candidates.push({
+          ruleKey: "aria_class_capacity",
+          ruleName: "ARIA class capacity review",
+          ruleDescription:
+            "Creates an internal capacity task when a group class is nearly full or using a waitlist.",
+          title: `Class capacity review: ${event.name}`,
+          body: `${event.name} has ${registrationCount} active registration${registrationCount === 1 ? "" : "s"} against capacity ${capacity}${waitlisted ? ` and ${waitlisted} waitlisted` : ""}. Review room, instructor, and waitlist options before changing capacity.`,
+          priority: waitlisted > 0 || registrationCount >= capacity ? "urgent" : "high",
+          relatedTable: "events",
+          relatedId: event.id,
+          dueAt: nowIso,
+        });
+      }
+    }
+
+    const publicEvent =
+      event.visibility === "public" || event.public_directory_enabled === true;
+    if (
+      publicEvent &&
+      event.event_type !== "group_class" &&
+      daysUntil <= 14 &&
+      registrationCount < 5
+    ) {
+      candidates.push({
+        ruleKey: "aria_event_promotion_gap",
+        ruleName: "ARIA event promotion gap",
+        ruleDescription:
+          "Creates a promotion suggestion for upcoming public events with low registration traction.",
+        title: `Promotion opportunity: ${event.name}`,
+        body: `${event.name} is ${daysUntil} day${daysUntil === 1 ? "" : "s"} away with ${registrationCount} active registration${registrationCount === 1 ? "" : "s"}. Review audience, campaign timing, and event positioning before promoting.`,
+        priority: daysUntil <= 7 ? "high" : "normal",
+        relatedTable: "events",
+        relatedId: event.id,
+        dueAt: addAriaDays(now, 1).toISOString(),
+      });
+    }
+  }
+
+  for (const order of (commerceOrdersResult.data ??
+    []) as AriaCommerceOrderSignalRow[]) {
+    candidates.push({
+      ruleKey: "aria_order_fulfillment_exception",
+      ruleName: "ARIA order fulfillment exception",
+      ruleDescription:
+        "Creates an internal commerce task when a paid order remains unfulfilled after one day.",
+      title: `Order fulfillment needed: ${order.order_number || order.id.slice(0, 8)}`,
+      body: `Paid commerce order ${order.order_number || order.id.slice(0, 8)} is still ${order.fulfillment_status ?? "unfulfilled"} after the normal fulfillment window. Confirm entitlement, pickup, shipment, or manual fulfillment before issuing a refund.`,
+      priority: "urgent",
+      relatedTable: "commerce_orders",
+      relatedId: order.id,
+      dueAt: nowIso,
+    });
+  }
+
+  const linkedClientIds = new Set(
+    ((accountLinksResult.data ?? []) as AriaClientAccountLinkSignalRow[]).map(
+      (link) => link.client_id,
+    ),
+  );
+
+  for (const client of clients.filter((row) => row.status === "active")) {
+    if (!linkedClientIds.has(client.id) && client.email) {
+      candidates.push({
+        ruleKey: "aria_student_app_adoption",
+        ruleName: "ARIA student app adoption gap",
+        ruleDescription:
+          "Creates an adoption suggestion for active clients without a linked DanceFlow account.",
+        title: `Student app invite opportunity: ${ariaPersonName(client.first_name, client.last_name)}`,
+        body: `${ariaPersonName(client.first_name, client.last_name)} is an active client with an email address but no linked DanceFlow account relationship. Review whether a portal/app invitation is appropriate.`,
+        priority: "normal",
+        relatedTable: "clients",
+        relatedId: client.id,
+        clientId: client.id,
+        dueAt: addAriaDays(now, 7).toISOString(),
+      });
+    }
+  }
+
+  return candidates;
+}
+
 async function buildOrganizerAriaOperationalCandidates(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
@@ -2332,10 +4026,22 @@ export async function generateAriaOperationalActionsAction(formData: FormData) {
         supabase,
         studioId: context.studioId,
       })
-    : await buildStudioAriaOperationalCandidates({
-        supabase,
-        studioId: context.studioId,
-      });
+    : (
+        await Promise.all([
+          buildStudioAriaOperationalCandidates({
+            supabase,
+            studioId: context.studioId,
+          }),
+          buildExpandedStudioAriaOperationalCandidates({
+            supabase,
+            studioId: context.studioId,
+          }),
+          buildCompletionAriaOperationalCandidates({
+            supabase,
+            studioId: context.studioId,
+          }),
+        ])
+      ).flat();
 
   let result: {
     candidatesCount: number;
@@ -2389,12 +4095,37 @@ const ARIA_EXTERNAL_DELIVERY_RULE_MAP: Record<
   AriaEmailExecutableRuleKey,
   string
 > = {
-  aria_low_package_balance: "low_package_balance",
-  aria_stale_active_student: "no_upcoming_lesson",
-  aria_intro_no_purchase: "first_lesson_follow_up",
-  aria_membership_past_due: "membership_past_due",
-  aria_membership_canceling: "membership_canceling",
+  aria_low_package_balance: "aria_low_package_balance",
+  aria_stale_active_student: "aria_stale_active_student",
+  aria_intro_no_purchase: "aria_intro_no_purchase",
+  aria_membership_past_due: "aria_membership_past_due",
+  aria_membership_canceling: "aria_membership_canceling",
 };
+
+const ARIA_PROHIBITED_FINANCIAL_EMAIL_RULES =
+  ARIA_EMAIL_EXECUTABLE_RULE_KEYS.filter((ruleKey) =>
+    isAriaProhibitedFinancialExecutionRule(ruleKey),
+  );
+
+if (ARIA_PROHIBITED_FINANCIAL_EMAIL_RULES.length > 0) {
+  throw new Error(
+    `ARIA financial safety invariant failed: prohibited financial rules cannot be email-executable (${ARIA_PROHIBITED_FINANCIAL_EMAIL_RULES.join(", ")})`,
+  );
+}
+
+for (const [executionRuleKey, deliveryRuleKey] of Object.entries(
+  ARIA_EXTERNAL_DELIVERY_RULE_MAP,
+)) {
+  if (
+    isAriaProhibitedFinancialExecutionRule(executionRuleKey) ||
+    isAriaProhibitedFinancialExecutionRule(deliveryRuleKey)
+  ) {
+    throw new Error(
+      `ARIA financial safety invariant failed: prohibited financial rule cannot appear in external delivery map (${executionRuleKey} -> ${deliveryRuleKey})`,
+    );
+  }
+}
+
 
 type AriaExternalDeliveryRuleRow = {
   rule_key: string;
@@ -2597,6 +4328,8 @@ ${studioName}`;
     actionLabel = "Request Your Next Lesson";
     actionUrl = scheduleUrl;
   } else if (action.rule_key === "aria_membership_past_due") {
+    // Communication only: this branch only renders an email. It does not
+    // charge, retry, refund, waive, mark paid, or alter membership access.
     heading = "Membership billing follow-up";
     intro = "We wanted to follow up because your membership needs billing attention.";
     bodyText = `Hi ${firstName},
@@ -2686,6 +4419,27 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
   }
 
   const actions = (approvedActions ?? []) as AriaApprovedExecutionActionRow[];
+
+  // Financial safety invariant:
+  // This execution path is communication-only. Financial exception and
+  // reconciliation rules are categorically prohibited from entering it.
+  const blockedFinancialExecution =
+    findAriaProhibitedFinancialExecutionAction(actions);
+
+  if (blockedFinancialExecution) {
+    console.error(
+      "ARIA blocked prohibited financial auto-execution",
+      blockedFinancialExecution,
+    );
+    redirect(
+      appendActionResult(
+        returnTo,
+        "error",
+        "aria_financial_action_blocked",
+      ),
+    );
+  }
+
   const externalDeliveryPermissionByRuleKey =
     await loadAriaExternalDeliveryPermissionMap({
       supabase,
@@ -2739,6 +4493,15 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
   let failedCount = 0;
 
   for (const action of actions) {
+    if (isAriaProhibitedFinancialExecutionRule(action.rule_key)) {
+      skippedCount += 1;
+      console.error(
+        "ARIA financial safety invariant blocked action inside execution loop",
+        action,
+      );
+      continue;
+    }
+
     if (!isAriaEmailExecutableRuleKey(action.rule_key)) {
       skippedCount += 1;
       continue;
@@ -5185,6 +6948,35 @@ async function ensureDefaultAriaAutomationConfiguration(params: {
       throw new Error(error.message);
     }
   }
+
+  const { data: existingRules, error: existingRulesError } = await adminSupabase
+    .from("automation_rules")
+    .select("rule_key")
+    .eq("studio_id", studioId);
+
+  if (existingRulesError) {
+    throw new Error(existingRulesError.message);
+  }
+
+  const persistedRuleKeys = new Set(
+    (existingRules ?? []).map((row) => String(row.rule_key)),
+  );
+  const missingRules = getDefaultAriaAutomationRuleRows(
+    studioId,
+    actorUserId,
+  )
+    .filter((rule) => enabledPackKeys.has(rule.pack_key))
+    .filter((rule) => !persistedRuleKeys.has(rule.rule_key));
+
+  if (missingRules.length > 0) {
+    const { error } = await adminSupabase
+      .from("automation_rules")
+      .insert(missingRules);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
 }
 
 export type ScheduledAriaOperationsResult = {
@@ -5221,6 +7013,12 @@ export async function runScheduledAriaOperationsForStudio(params: {
     includeStudioSignals
       ? buildStudioAriaOperationalCandidates({ supabase, studioId })
       : Promise.resolve([]),
+    includeStudioSignals
+      ? buildExpandedStudioAriaOperationalCandidates({ supabase, studioId })
+      : Promise.resolve([]),
+    includeStudioSignals
+      ? buildCompletionAriaOperationalCandidates({ supabase, studioId })
+      : Promise.resolve([]),
     includeOrganizerSignals
       ? buildOrganizerAriaOperationalCandidates({ supabase, studioId })
       : Promise.resolve([]),
@@ -5250,6 +7048,20 @@ export async function runScheduledAriaOperationsForStudio(params: {
   }
 
   const actions = (approvedActions ?? []) as AriaApprovedExecutionActionRow[];
+
+  const blockedFinancialExecution =
+    findAriaProhibitedFinancialExecutionAction(actions);
+
+  if (blockedFinancialExecution) {
+    console.error(
+      "ARIA scheduled operations blocked prohibited financial auto-execution",
+      blockedFinancialExecution,
+    );
+    throw new Error(
+      `ARIA financial action blocked: ${blockedFinancialExecution.rule_key}`,
+    );
+  }
+
   const externalDeliveryPermissionByRuleKey =
     await loadAriaExternalDeliveryPermissionMap({
       supabase,
@@ -5308,6 +7120,15 @@ export async function runScheduledAriaOperationsForStudio(params: {
   let failedCount = 0;
 
   for (const action of actions) {
+    if (isAriaProhibitedFinancialExecutionRule(action.rule_key)) {
+      skippedCount += 1;
+      console.error(
+        "ARIA financial safety invariant blocked action inside execution loop",
+        action,
+      );
+      continue;
+    }
+
     if (!isAriaEmailExecutableRuleKey(action.rule_key)) {
       skippedCount += 1;
       continue;

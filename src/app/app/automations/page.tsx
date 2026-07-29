@@ -22,11 +22,18 @@ import {
   evaluateAutomationRuleAction,
   getAutomationDefinitions,
   queueAutomationEmailDraftAction,
+  saveAriaOperationalPackPreferenceAction,
+  saveAriaRecommendedSetupAction,
   saveAutomationEmailDraftAction,
   saveAutomationEmailTemplateAction,
   updateAutomationRuleAction,
   getAutomationTemplateDefaults,
 } from "./actions";
+import {
+  ARIA_AUTOMATION_PACKS,
+  getAriaAutomationCatalogItem,
+} from "@/lib/aria/automation-catalog";
+import { getAriaOperationalPack } from "@/lib/aria/operational-default-packs";
 
 type SearchParams = Promise<{
   success?: string;
@@ -40,7 +47,15 @@ type AutomationRuleRow = {
   rule_key: string;
   enabled: boolean;
   mode: string;
+  action_config: Record<string, unknown> | null;
   last_evaluated_at: string | null;
+  updated_at: string | null;
+};
+
+type AriaPackPreferenceRow = {
+  pack_key: string;
+  enabled: boolean | null;
+  settings: Record<string, unknown> | null;
   updated_at: string | null;
 };
 
@@ -122,10 +137,95 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function modeLabel(mode: string) {
-  if (mode === "draft") return "Draft before send";
-  if (mode === "auto_send") return "Send automatically";
-  return "Suggestion only";
+  if (mode === "auto_send") return "Handle automatically";
+  if (mode === "draft") return "Prepare for my review";
+  return "Notify me only";
 }
+
+function packTone(packKey: string) {
+  if (packKey === "front_desk") return "border-orange-200 bg-orange-50";
+  if (packKey === "client_relations") return "border-pink-200 bg-pink-50";
+  if (packKey === "scheduling") return "border-blue-200 bg-blue-50";
+  if (packKey === "sales_retention") return "border-emerald-200 bg-emerald-50";
+  if (packKey === "marketing") return "border-fuchsia-200 bg-fuchsia-50";
+  if (packKey === "billing_payments") return "border-amber-200 bg-amber-50";
+  if (packKey === "documents") return "border-violet-200 bg-violet-50";
+  if (packKey === "events") return "border-cyan-200 bg-cyan-50";
+  return "border-slate-200 bg-slate-50";
+}
+
+function packModeLabel(mode: string) {
+  if (mode === "handle_automatically") return "Handle automatically";
+  if (mode === "prepare_for_review") return "Prepare for my review";
+  if (mode === "off") return "Off";
+  return "Notify me only";
+}
+
+function packAutonomyMode(
+  packKey: string,
+  preference: AriaPackPreferenceRow | undefined,
+) {
+  if (preference?.enabled === false) return "off";
+
+  const settings = preference?.settings as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const savedMode = settings?.autonomy_mode ?? settings?.recommended_setup_choice;
+
+  if (
+    savedMode === "handle_automatically" ||
+    savedMode === "prepare_for_review" ||
+    savedMode === "notify_only" ||
+    savedMode === "off"
+  ) {
+    return savedMode;
+  }
+
+  return getAriaOperationalPack(packKey as never)?.recommendedMode ?? "notify_only";
+}
+
+
+function ruleOverrideMode(
+  actionConfig: Record<string, unknown> | null | undefined,
+) {
+  const value =
+    actionConfig?.aria_autonomy_override ??
+    actionConfig?.aria_pack_mode_override;
+
+  if (value === "prepare_for_review" || value === "draft") {
+    return "prepare_for_review";
+  }
+  if (value === "notify_only" || value === "suggestion") {
+    return "notify_only";
+  }
+  if (value === "off") return "off";
+  return null;
+}
+
+function autonomyExceptionOptions(packMode: string) {
+  if (packMode === "handle_automatically") {
+    return [
+      ["prepare_for_review", "Prepare for my review"],
+      ["notify_only", "Notify me only"],
+      ["off", "Off"],
+    ] as const;
+  }
+
+  if (packMode === "prepare_for_review") {
+    return [
+      ["notify_only", "Notify me only"],
+      ["off", "Off"],
+    ] as const;
+  }
+
+  if (packMode === "notify_only") {
+    return [["off", "Off"]] as const;
+  }
+
+  return [] as const;
+}
+
 
 function ruleBadge(ruleKey: string) {
   if (ruleKey === "low_package_balance") return "Packages";
@@ -213,10 +313,11 @@ export default async function AutomationsPage({
     { data: templates },
     { data: actionSummary },
     { data: deliverySummary },
+    { data: packPreferences },
   ] = await Promise.all([
     supabase
       .from("automation_rules")
-      .select("id, rule_key, enabled, mode, last_evaluated_at, updated_at")
+      .select("id, rule_key, enabled, mode, action_config, last_evaluated_at, updated_at")
       .eq("studio_id", context.studioId),
     supabase
       .from("automation_actions")
@@ -247,6 +348,10 @@ export default async function AutomationsPage({
       .select("status, related_id, sent_at, error_message, created_at")
       .eq("studio_id", context.studioId)
       .eq("related_table", "automation_actions"),
+    supabase
+      .from("aria_automation_pack_preferences")
+      .select("pack_key, enabled, settings, updated_at")
+      .eq("studio_id", context.studioId),
   ]);
 
   const typedActions = (actions ?? []) as AutomationActionRow[];
@@ -269,6 +374,50 @@ export default async function AutomationsPage({
   const ruleByKey = new Map(
     ((rules ?? []) as AutomationRuleRow[]).map((rule) => [rule.rule_key, rule])
   );
+  const packPreferenceByKey = new Map(
+    ((packPreferences ?? []) as AriaPackPreferenceRow[]).map((preference) => [
+      preference.pack_key,
+      preference,
+    ]),
+  );
+  const definitionsByPack = new Map(
+    ARIA_AUTOMATION_PACKS.map((pack) => [
+      pack.key,
+      automationDefinitions.filter((definition) => {
+        const catalogItem = getAriaAutomationCatalogItem(definition.key);
+        return catalogItem?.packKey === pack.key;
+      }),
+    ]),
+  );
+  const recommendedSetupKeys = [
+    "front_desk",
+    "marketing",
+    "billing_payments",
+  ] as const;
+  const recommendedSetupComplete = recommendedSetupKeys.every((packKey) =>
+    Boolean(
+      (
+        packPreferenceByKey.get(packKey)?.settings as
+          | Record<string, unknown>
+          | null
+          | undefined
+      )?.setup_reviewed_at,
+    ),
+  );
+
+  const setupChoice = (
+    packKey: (typeof recommendedSetupKeys)[number],
+    fallback: string,
+  ) => {
+    const settings = packPreferenceByKey.get(packKey)?.settings as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    const preference = packPreferenceByKey.get(packKey);
+    const mode = packAutonomyMode(packKey, preference);
+    return mode || fallback;
+  };
+
   const templateByRuleKey = new Map(
     ((templates ?? []) as AutomationTemplateRow[]).map((template) => [template.rule_key, template])
   );
@@ -311,78 +460,49 @@ export default async function AutomationsPage({
   return (
     <main className="min-h-screen bg-[#F8F5FF] px-4 py-8 text-slate-950 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-8">
-        <section className="overflow-hidden rounded-[32px] border border-white/70 bg-gradient-to-br from-[#2D0A46] via-[#6B21A8] to-[#DB2777] p-6 text-white shadow-xl sm:p-8">
-          <div className="grid gap-8 lg:grid-cols-[1.4fr_0.8fr] lg:items-end">
+        <section className="overflow-hidden rounded-[34px] border border-[#C4B5FD] bg-gradient-to-br from-[#201033] via-[#5B21B6] to-[#C026D3] text-white shadow-xl">
+          <div className="grid gap-6 p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-end">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-pink-100">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-violet-100">
                 <WandSparkles className="h-3.5 w-3.5" />
-                Studio follow-up
+                ARIA Automation Center
               </div>
               <h1 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight sm:text-4xl">
-                Let DanceFlow handle more of the everyday follow-up.
+                ARIA is ready to help run the studio.
               </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-pink-50 sm:text-base">
-                Choose how DanceFlow handles routine follow-up: flag it for review, prepare an editable draft, or send the approved message automatically.
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-violet-50 sm:text-base">
+                Choose how ARIA should work for your studio here. Then use ARIA Operations to see what ARIA is handling, what needs a decision, and what failed.
               </p>
             </div>
 
             <div className="rounded-3xl border border-white/20 bg-white/10 p-5 backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pink-100">
-                ARIA-ready
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-100">
+                Current coverage
               </p>
-              <p className="mt-2 text-2xl font-semibold">{enabledCount} enabled</p>
-              <p className="mt-1 text-sm text-pink-50">
-                {suggestionCount} suggested actions waiting for review.
+              <p className="mt-2 text-3xl font-semibold">
+                {ARIA_AUTOMATION_PACKS.filter(
+                  (pack) => packPreferenceByKey.get(pack.key)?.enabled !== false,
+                ).length}
+              </p>
+              <p className="mt-1 text-sm text-violet-50">
+                operational packs active
               </p>
               <Link
-                href="/app/notifications?category=automation"
+                href="/app/aria/operations"
                 className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-white underline decoration-white/40 underline-offset-4"
               >
-                View automation alerts
+                Open ARIA Operations
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
           </div>
         </section>
 
-        <section className="grid gap-3 md:grid-cols-3">
-          {[
-            {
-              step: "1",
-              title: "Choose the follow-up",
-              detail: "Turn on only the client situations your studio wants DanceFlow to watch.",
-            },
-            {
-              step: "2",
-              title: "Choose the level of control",
-              detail: "Keep a suggestion, prepare a draft, or send your approved template automatically.",
-            },
-            {
-              step: "3",
-              title: "Review the outcome",
-              detail: "Use the activity and delivery sections to catch failures and see what was completed.",
-            },
-          ].map((item) => (
-            <div
-              key={item.step}
-              className="rounded-3xl border border-violet-100 bg-white p-5 shadow-sm"
-            >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#6B21A8] text-sm font-bold text-white">
-                {item.step}
-              </span>
-              <h2 className="mt-3 text-base font-semibold text-slate-950">
-                {item.title}
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                {item.detail}
-              </p>
-            </div>
-          ))}
-        </section>
-
-        {query.success === "updated" ? (
+        {query.success === "updated" ||
+        query.success === "aria_pack_saved" ||
+        query.success === "aria_recommended_setup_saved" ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-            Automation settings saved.
+            ARIA automation preferences saved.
           </div>
         ) : null}
 
@@ -394,688 +514,428 @@ export default async function AutomationsPage({
 
         {query.error ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-            Could not update automation: {query.error}
+            Could not update ARIA setup: {query.error}
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Enabled rules
-            </p>
-            <p className="mt-2 text-3xl font-semibold">{enabledCount}</p>
-            <p className="mt-1 text-sm text-slate-600">Studio-controlled automations.</p>
+        <section className="rounded-[30px] border border-violet-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+                Recommended setup
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                {recommendedSetupComplete
+                  ? "Your ARIA setup is ready"
+                  : "Review three studio preferences"}
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                {recommendedSetupComplete
+                  ? "These choices control how ARIA prepares routine front-desk, marketing, and payment work. You can change them at any time."
+                  : "DanceFlow already applied safe defaults. Confirm these three choices once, then let ARIA work from them."}
+              </p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+              recommendedSetupComplete
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-violet-100 text-violet-700"
+            }`}>
+              {recommendedSetupComplete ? "Setup complete" : "One-time review"}
+            </span>
           </div>
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Suggested actions
-            </p>
-            <p className="mt-2 text-3xl font-semibold">{suggestionCount}</p>
-            <p className="mt-1 text-sm text-slate-600">Review before sending or completing.</p>
-          </div>
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Last evaluated
-            </p>
-            <p className="mt-2 text-xl font-semibold">{formatDateTime(latestRun?.started_at)}</p>
-            <p className="mt-1 text-sm text-slate-600">
-              See when DanceFlow last checked your enabled follow-up rules.
-            </p>
-          </div>
+
+          <form action={saveAriaRecommendedSetupAction} className="mt-5">
+            <input type="hidden" name="returnTo" value="/app/automations" />
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <label className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">
+                  Front Desk
+                </span>
+                <span className="mt-2 block text-sm font-semibold text-slate-950">
+                  How should ARIA handle routine front-desk follow-up?
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-slate-600">
+                  Booking, confirmation, and cancellation work stays reviewable; schedule changes never happen automatically.
+                </span>
+                <span className="mt-2 block text-[11px] leading-4 text-slate-500">
+                  Automatic mode only applies to front-desk actions whose underlying rule explicitly allows automation.
+                </span>
+                <select
+                  name="frontDeskPreference"
+                  defaultValue={setupChoice("front_desk", "prepare_for_review")}
+                  disabled={!canManage}
+                  className="mt-4 w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+                >
+                  <option value="handle_automatically">
+                    Handle automatically where safe
+                  </option>
+                  <option value="prepare_for_review">
+                    Prepare routine follow-up for review
+                  </option>
+                  <option value="notify_only">
+                    Notify me only
+                  </option>
+                  <option value="off">
+                    Turn this area off
+                  </option>
+                </select>
+                <span className="mt-2 block text-xs font-semibold text-orange-800">
+                  Recommended: Prepare for review
+                </span>
+              </label>
+
+              <label className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-fuchsia-700">
+                  Marketing
+                </span>
+                <span className="mt-2 block text-sm font-semibold text-slate-950">
+                  How should ARIA handle marketing opportunities?
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-slate-600">
+                  ARIA can identify and prepare opportunities automatically, but campaign delivery still follows the underlying rule&apos;s approval and send permissions.
+                </span>
+                <span className="mt-2 block text-[11px] leading-4 text-slate-500">
+                  Automatic mode does not grant blanket marketing send permission.
+                </span>
+                <select
+                  name="marketingPreference"
+                  defaultValue={setupChoice("marketing", "prepare_for_review")}
+                  disabled={!canManage}
+                  className="mt-4 w-full rounded-xl border border-fuchsia-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+                >
+                  <option value="handle_automatically">
+                    Handle automatically where safe
+                  </option>
+                  <option value="prepare_for_review">
+                    Prepare opportunities for review
+                  </option>
+                  <option value="notify_only">
+                    Suggest opportunities only
+                  </option>
+                  <option value="off">
+                    Turn this area off
+                  </option>
+                </select>
+                <span className="mt-2 block text-xs font-semibold text-fuchsia-800">
+                  Recommended: Prepare for review
+                </span>
+              </label>
+
+              <label className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
+                  Billing & Payments
+                </span>
+                <span className="mt-2 block text-sm font-semibold text-slate-950">
+                  How should ARIA handle payment follow-up?
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-slate-600">
+                  Financial decisions are always staff-controlled. ARIA can never automatically charge, retry, refund, waive a balance, mark a payment paid, create a payment transaction, or change financial access/status.
+                </span>
+                <span className="mt-2 block text-[11px] leading-4 text-slate-500">
+                  Automatic mode can handle only safe communication or internal work already permitted by the underlying rule.
+                </span>
+                <select
+                  name="billingPreference"
+                  defaultValue={setupChoice("billing_payments", "notify_only")}
+                  disabled={!canManage}
+                  className="mt-4 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+                >
+                  <option value="handle_automatically">
+                    Handle automatically where safe
+                  </option>
+                  <option value="prepare_for_review">
+                    Prepare follow-up for review
+                  </option>
+                  <option value="notify_only">
+                    Notify me about payment exceptions
+                  </option>
+                  <option value="off">
+                    Turn this area off
+                  </option>
+                </select>
+                <span className="mt-2 block text-xs font-semibold text-amber-800">
+                  Recommended: Notify me
+                </span>
+              </label>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-violet-100 bg-[#FBF9FF] p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">
+                  These preferences set ARIA&apos;s working boundaries.
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  “Handle automatically” means maximum safe autonomy for this area. Higher-risk actions and communications that still require review remain review-only, and a preference can never override a rule that is not allowed to send.
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={!canManage}
+                className="inline-flex shrink-0 items-center justify-center rounded-full bg-violet-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {recommendedSetupComplete ? "Save changes" : "Save ARIA setup"}
+              </button>
+            </div>
+          </form>
         </section>
 
-        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
-                Automation summary
+                Operational packs
               </p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                Workflow health
+                Choose where ARIA should help
               </h2>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                Track how automation opportunities are moving from ARIA suggestions into
-                reviewed drafts, queued email, completed follow-up, or failed delivery that needs attention.
-              </p>
-            </div>
-            <Link
-              href="/app/automations/drafts"
-              className="inline-flex w-fit items-center gap-2 rounded-full border border-[#F9A8D4] bg-white px-4 py-2 text-sm font-semibold text-[#BE185D] shadow-sm hover:bg-pink-50"
-            >
-              Review drafts
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-2xl border border-violet-100 bg-violet-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
-                Suggested
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-violet-950">
-                {summarySuggestedCount}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-violet-700">
-                New recommendations awaiting review.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-pink-100 bg-pink-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#BE185D]">
-                Drafted
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {summaryDraftedCount}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                Emails prepared but not queued yet.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">
-                Queued
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-blue-950">
-                {summaryQueuedCount}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-blue-700">
-                Approved and waiting for outbound sending.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                Sent
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-emerald-950">
-                {summarySentCount}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-emerald-700">
-                Automation emails delivered to the send pipeline.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Completed
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {summaryCompletedCount}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                Staff marked the automation follow-up complete.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Dismissed
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {summaryDismissedCount}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                Recommendations intentionally cleared.
-              </p>
-            </div>
-            <div className={`rounded-2xl border p-4 ${
-              summaryFailedCount > 0
-                ? "border-red-200 bg-red-50"
-                : "border-slate-200 bg-slate-50"
-            }`}>
-              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${
-                summaryFailedCount > 0 ? "text-red-700" : "text-slate-500"
-              }`}>
-                Failed
-              </p>
-              <p className={`mt-2 text-2xl font-semibold ${
-                summaryFailedCount > 0 ? "text-red-950" : "text-slate-950"
-              }`}>
-                {summaryFailedCount}
-              </p>
-              <p className={`mt-1 text-xs leading-5 ${
-                summaryFailedCount > 0 ? "text-red-700" : "text-slate-600"
-              }`}>
-                Delivery failures that may need review.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
-                Rules
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold">Choose what DanceFlow should handle</h2>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
-                Turn on the client follow-ups your studio wants DanceFlow to watch, then choose how much review each one needs.
+                Turn entire areas on or off here. This controls what ARIA watches; use ARIA Operations to review the work it creates.
               </p>
             </div>
           </div>
 
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            {automationDefinitions.map((definition) => {
-              const existing = ruleByKey.get(definition.key);
-              const enabled = existing?.enabled ?? false;
-              const mode = existing?.mode ?? "suggestion";
+            {ARIA_AUTOMATION_PACKS.map((pack) => {
+              const preference = packPreferenceByKey.get(pack.key);
+              const packMode = packAutonomyMode(pack.key, preference);
+              const enabled = packMode !== "off";
+              const packDefinitions = definitionsByPack.get(pack.key) ?? [];
+              const enabledRules = packDefinitions.filter(
+                (definition) => ruleByKey.get(definition.key)?.enabled,
+              ).length;
 
               return (
-                <form
-                  key={definition.key}
-                  action={updateAutomationRuleAction}
-                  className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5"
+                <article
+                  key={pack.key}
+                  className={`rounded-3xl border p-5 ${packTone(pack.key)}`}
                 >
-                  <input type="hidden" name="ruleKey" value={definition.key} />
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <span className="inline-flex rounded-full border border-pink-100 bg-pink-50 px-3 py-1 text-xs font-semibold text-[#BE185D]">
-                        {ruleBadge(definition.key)}
-                      </span>
-                      <h3 className="mt-3 text-lg font-semibold text-slate-950">
-                        {definition.name}
-                      </h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        {definition.description}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          enabled
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-slate-200 text-slate-600"
+                        }`}>
+                          {enabled ? "Active" : "Off"}
+                        </span>
+                        <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                          {packDefinitions.length
+                            ? `${enabledRules}/${packDefinitions.length} current rules active`
+                            : "Coverage expanding"}
+                        </span>
+                      </div>
+                      <h3 className="mt-3 text-lg font-semibold text-slate-950">{pack.label}</h3>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">{pack.description}</p>
+                      <p className="mt-3 text-xs font-semibold text-slate-700">
+                        ARIA autonomy: {packModeLabel(packMode)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Recommended: {packModeLabel(
+                          getAriaOperationalPack(pack.key as never)?.recommendedMode ??
+                            "notify_only",
+                        )}
                       </p>
                     </div>
-                    <div
-                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
-                        enabled
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {enabled ? (
-                        <PlayCircle className="h-3.5 w-3.5" />
-                      ) : (
-                        <PauseCircle className="h-3.5 w-3.5" />
-                      )}
-                      {enabled ? "Enabled" : "Off"}
-                    </div>
-                  </div>
 
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
-                      <span className="block font-semibold text-slate-800">Mode</span>
-                      <select
-                        name="mode"
-                        defaultValue={mode}
-                        disabled={!canManage}
-                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <option value="suggestion">Suggestion only</option>
-                        <option value="draft">Draft before send</option>
-                        <option value="auto_send">Send automatically</option>
-                      </select>
-                      <span className="mt-2 block text-xs leading-5 text-slate-500">
-                        Automatic sends use the saved template and only run when
-                        a valid recipient email is available.
-                      </span>
-                    </label>
-
-                    <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
-                      <input
-                        type="checkbox"
-                        name="enabled"
-                        defaultChecked={enabled}
-                        disabled={!canManage}
-                        className="h-4 w-4 rounded border-slate-300 text-[#DB2777]"
-                      />
-                      <span>
-                        <span className="block font-semibold text-slate-800">Enable rule</span>
-                        <span className="text-xs text-slate-500">
-                          {existing?.last_evaluated_at
-                            ? `Last evaluated ${formatDateTime(existing.last_evaluated_at)}`
-                            : "Not evaluated yet"}
-                        </span>
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs text-slate-500">
-                      Current mode: {modeLabel(mode)}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {["low_package_balance", "no_upcoming_lesson", "pending_booking_request", "unsigned_document", "first_lesson_follow_up"].includes(definition.key) ? (
+                    {canManage ? (
+                      <form action={saveAriaOperationalPackPreferenceAction} className="min-w-[12rem]">
+                        <input type="hidden" name="packKey" value={pack.key} />
+                        <input type="hidden" name="returnTo" value="/app/automations" />
+                        <label className="text-xs font-semibold text-slate-700">
+                          Autonomy
+                          <select
+                            name="autonomyMode"
+                            defaultValue={packMode}
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm"
+                          >
+                            <option value="handle_automatically">
+                              Handle automatically
+                            </option>
+                            <option value="prepare_for_review">
+                              Prepare for my review
+                            </option>
+                            <option value="notify_only">Notify me only</option>
+                            <option value="off">Off</option>
+                          </select>
+                        </label>
                         <button
                           type="submit"
-                          formAction={evaluateAutomationRuleAction}
-                          disabled={!canManage || !enabled}
-                          className="inline-flex items-center gap-2 rounded-full border border-[#F9A8D4] bg-white px-4 py-2 text-sm font-semibold text-[#BE185D] shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                          className="mt-2 w-full rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
                         >
-                          Evaluate now
-                          <Sparkles className="h-4 w-4" />
+                          Save pack
                         </button>
-                      ) : null}
-                      <button
-                        type="submit"
-                        disabled={!canManage}
-                        className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300"
-                      >
-                        Save rule
-                        <Settings2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
-                Email templates
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                Customize automation draft language
-              </h2>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                These messages are used for editable drafts and automatic sends. Review the wording before enabling automatic delivery.
-              </p>
-            </div>
-            <Mail className="h-6 w-6 text-[#DB2777]" />
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            {automationDefinitions.map((definition) => {
-              const savedTemplate = templateByRuleKey.get(definition.key);
-              const defaultTemplate = defaultTemplateByRuleKey.get(definition.key);
-              const subject = savedTemplate?.subject || defaultTemplate?.subject || "";
-              const bodyText = savedTemplate?.body_text || defaultTemplate?.bodyText || "";
-              const variables = defaultTemplate?.variables ?? [];
-              const previewSubject = renderTemplatePreview(subject, variables);
-              const previewBody = renderTemplatePreview(bodyText, variables);
-
-              return (
-                <form
-                  key={`${definition.key}-template`}
-                  action={saveAutomationEmailTemplateAction}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                >
-                  <input type="hidden" name="ruleKey" value={definition.key} />
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#BE185D] ring-1 ring-pink-100">
-                        {ruleBadge(definition.key)}
-                      </span>
-                      <h3 className="mt-2 text-base font-semibold text-slate-950">
-                        {definition.name}
-                      </h3>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">
-                        Used when creating a draft from this automation.
-                      </p>
-                    </div>
-                    {savedTemplate?.updated_at ? (
-                      <span className="text-xs text-slate-500">
-                        Updated {formatDateTime(savedTemplate.updated_at)}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-500">Using default</span>
-                    )}
-                  </div>
-
-                  <label className="mt-4 block text-sm font-semibold text-slate-800">
-                    Subject
-                    <input
-                      name="subject"
-                      defaultValue={subject}
-                      disabled={!canManage}
-                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm"
-                    />
-                  </label>
-
-                  <label className="mt-4 block text-sm font-semibold text-slate-800">
-                    Body
-                    <textarea
-                      name="bodyText"
-                      defaultValue={bodyText}
-                      rows={8}
-                      disabled={!canManage}
-                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm"
-                    />
-                  </label>
-
-                  {variables.length > 0 ? (
-                    <div className="mt-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Available variables
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {variables.map((variable) => (
-                          <code
-                            key={`${definition.key}-${variable}`}
-                            className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200"
-                          >
-                            {"{{"}{variable}{"}}"}
-                          </code>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="mt-4 rounded-2xl border border-pink-100 bg-white p-4">
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#BE185D]">
-                        Sample preview
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        Uses sample values so you can check variable placement before saving.
-                      </p>
-                    </div>
-                    <div className="mt-3 space-y-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                          Subject preview
-                        </p>
-                        <p className="mt-1 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
-                          {previewSubject || "Add a subject to preview it here."}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                          Body preview
-                        </p>
-                        <div className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700">
-                          {previewBody || "Add body text to preview it here."}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={!canManage}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      Save template
-                      <Settings2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </form>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
-                  Suggested actions
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold">3. Review and results</h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Review suggested actions here, or use the draft inbox for a focused send-review workflow.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Link
-                  href="/app/automations/drafts"
-                  className="inline-flex items-center gap-2 rounded-full border border-[#F9A8D4] bg-white px-3 py-1.5 text-xs font-semibold text-[#BE185D] shadow-sm hover:bg-pink-50"
-                >
-                  Review email drafts
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-                <Sparkles className="h-6 w-6 text-[#DB2777]" />
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {typedActions.length > 0 ? (
-                typedActions.map((action) => (
-                  <div
-                    key={action.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  >
-                    {(() => {
-                      const draft = draftByActionId.get(action.id);
-                      return (
-                        <div className="space-y-4">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span
-                                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${priorityClasses(
-                                    action.priority
-                                  )}`}
-                                >
-                                  {action.priority}
-                                </span>
-                                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">
-                                  {ruleBadge(action.rule_key)}
-                                </span>
-                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">
-                                  {draft?.status ?? action.status}
-                                </span>
-                              </div>
-                              <h3 className="mt-3 font-semibold text-slate-950">{action.title}</h3>
-                              {action.body ? (
-                                <p className="mt-1 text-sm leading-6 text-slate-600">
-                                  {action.body}
-                                </p>
-                              ) : null}
-                              <p className="mt-2 text-xs text-slate-500">
-                                Created {formatDateTime(action.created_at)}
-                              </p>
-                            </div>
-
-                            {["suggested", "drafted"].includes(action.status) ? (
-                              <div className="flex flex-wrap gap-2">
-                                {!draft ? (
-                                  <form action={createAutomationEmailDraftAction}>
-                                    <input type="hidden" name="actionId" value={action.id} />
-                                    <button
-                                      type="submit"
-                                      className="inline-flex items-center gap-2 rounded-full bg-[#DB2777] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#BE185D]"
-                                    >
-                                      <Mail className="h-3.5 w-3.5" />
-                                      Create email draft
-                                    </button>
-                                  </form>
-                                ) : null}
-                                <form action={dismissAutomationAction}>
-                                  <input type="hidden" name="actionId" value={action.id} />
-                                  <button
-                                    type="submit"
-                                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                                  >
-                                    Dismiss
-                                  </button>
-                                </form>
-                              </div>
-                            ) : (
-                              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500">
-                                {action.status}
-                              </span>
-                            )}
-                          </div>
-
-                          {draft ? (
-                            <div className="rounded-2xl border border-pink-100 bg-white p-4">
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#DB2777]">
-                                    Email draft
-                                  </p>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    To: {draft.recipient_email ?? "Missing recipient"}
-                                  </p>
-                                  {draft.status === "draft" ? (
-                                    <p className="mt-1 text-xs text-slate-500">
-                                      Review and edit this email before queueing it for send.
-                                    </p>
-                                  ) : null}
-                                  {draft.status === "queued" ? (
-                                    <p className="mt-1 text-xs text-blue-700">
-                                      Queued {formatDateTime(draft.updated_at)}. The normal outbound sender will process it.
-                                    </p>
-                                  ) : null}
-                                  {draft.status === "sent" ? (
-                                    <p className="mt-1 text-xs text-emerald-700">
-                                      Sent {formatDateTime(draft.sent_at ?? draft.updated_at)}.
-                                    </p>
-                                  ) : null}
-                                  {draft.status === "failed" ? (
-                                    <p className="mt-1 text-xs text-red-700">
-                                      Failed{draft.error_message ? `: ${draft.error_message}` : "."}
-                                    </p>
-                                  ) : null}
-                                </div>
-                                <span
-                                  className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${deliveryStatusClasses(
-                                    draft.status
-                                  )}`}
-                                >
-                                  {deliveryStatusLabel(draft.status)}
-                                </span>
-                              </div>
-
-                              {draft.status === "draft" ? (
-                                <form action={saveAutomationEmailDraftAction} className="mt-4 space-y-3">
-                                  <input type="hidden" name="actionId" value={action.id} />
-                                  <input type="hidden" name="deliveryId" value={draft.id} />
-                                  <input type="hidden" name="returnTo" value="/app/automations" />
-                                  <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                    Subject
-                                    <input
-                                      name="subject"
-                                      defaultValue={draft.subject ?? ""}
-                                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal tracking-normal text-slate-900 outline-none focus:border-[#DB2777] focus:ring-2 focus:ring-pink-100"
-                                    />
-                                  </label>
-                                  <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                    Body
-                                    <textarea
-                                      name="bodyText"
-                                      defaultValue={draft.body_text ?? ""}
-                                      rows={7}
-                                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal leading-6 tracking-normal text-slate-900 outline-none focus:border-[#DB2777] focus:ring-2 focus:ring-pink-100"
-                                    />
-                                  </label>
-                                  <div className="flex flex-wrap gap-2">
-                                    <button
-                                      type="submit"
-                                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                    >
-                                      Save draft
-                                    </button>
-                                    <button
-                                      type="submit"
-                                      formAction={queueAutomationEmailDraftAction}
-                                      className="rounded-full bg-[#6B21A8] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#581C87]"
-                                    >
-                                      Queue for send
-                                    </button>
-                                  </div>
-                                </form>
-                              ) : (
-                                <div className="mt-4 space-y-2">
-                                  <p className="text-sm font-semibold text-slate-900">
-                                    {draft.subject ?? "No subject"}
-                                  </p>
-                                  <p className="whitespace-pre-wrap rounded-2xl bg-slate-50 p-3 text-sm leading-6 text-slate-600">
-                                    {draft.body_text ?? "No body text saved."}
-                                  </p>
-                                  {draft.status === "sent" ? (
-                                    <form action={completeAutomationAction} className="pt-2">
-                                      <input type="hidden" name="actionId" value={action.id} />
-                                      <button
-                                        type="submit"
-                                        className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
-                                      >
-                                        Mark action complete
-                                      </button>
-                                    </form>
-                                  ) : null}
-                                  {draft.status === "queued" ? (
-                                    <p className="rounded-2xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
-                                      This draft is queued and waiting for the outbound sender. You can monitor delivery here after it is processed.
-                                    </p>
-                                  ) : null}
-                                </div>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
-                  <Bell className="mx-auto h-7 w-7 text-slate-400" />
-                  <h3 className="mt-3 font-semibold text-slate-900">
-                    No automation actions yet
-                  </h3>
-                  <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-600">
-                    Enable an automation rule, then click Evaluate now to create reviewable
-                    recommendations here.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
-              Run history
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold">Recent checks</h2>
-
-            <div className="mt-5 space-y-3">
-              {typedRuns.length > 0 ? (
-                typedRuns.map((run) => (
-                  <div key={run.id} className="rounded-2xl border border-slate-200 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
-                        {ruleBadge(run.rule_key)}
-                      </span>
-                      <span className="text-xs font-semibold text-slate-500">{run.status}</span>
-                    </div>
-                    <p className="mt-3 text-sm text-slate-600">
-                      {run.candidates_count} candidates · {run.actions_created_count} actions
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Started {formatDateTime(run.started_at)}
-                    </p>
-                    {run.error_message ? (
-                      <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
-                        {run.error_message}
-                      </p>
+                      </form>
                     ) : null}
                   </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
-                  <Clock3 className="mx-auto h-7 w-7 text-slate-400" />
-                  <p className="mt-3 text-sm font-semibold text-slate-900">
-                    No evaluations yet
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">
-                    Rule evaluation will be added after the foundation is in place.
-                  </p>
-                </div>
-              )}
-            </div>
 
-            <div className="mt-5 rounded-2xl bg-[#FFF7ED] p-4 text-sm leading-6 text-orange-800">
-              <div className="flex items-start gap-2">
-                <Mail className="mt-0.5 h-4 w-4" />
-                <p>
-                  Email/SMS sending is intentionally disabled in this foundation. Automations
-                  create suggestions first, then sending rules can be added safely.
-                </p>
-              </div>
-            </div>
+                  {packDefinitions.length ? (
+                    <details className="mt-4 rounded-2xl border border-white/80 bg-white/70 p-4">
+                      <summary className="cursor-pointer text-sm font-semibold text-violet-800">
+                        Review {packDefinitions.length} rule{packDefinitions.length === 1 ? "" : "s"}
+                      </summary>
+                      <div className="mt-4 space-y-3">
+                        {packDefinitions.map((definition) => {
+                          const existing = ruleByKey.get(definition.key);
+                          const ruleEnabled = existing?.enabled ?? false;
+                          const mode = existing?.mode ?? "suggestion";
+                          const overrideMode = ruleOverrideMode(
+                            existing?.action_config,
+                          );
+
+                          return (
+                            <form
+                              key={definition.key}
+                              action={updateAutomationRuleAction}
+                              className="rounded-2xl border border-slate-200 bg-white p-4"
+                            >
+                              <input type="hidden" name="ruleKey" value={definition.key} />
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <h4 className="text-sm font-semibold text-slate-950">{definition.name}</h4>
+                                  <p className="mt-1 text-xs leading-5 text-slate-600">{definition.description}</p>
+                                </div>
+                                <span className={`w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                  ruleEnabled
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-slate-100 text-slate-500"
+                                }`}>
+                                  {ruleEnabled ? "Enabled" : "Off"}
+                                </span>
+                              </div>
+
+                              <input
+                                type="hidden"
+                                name="enabled"
+                                value={ruleEnabled ? "on" : ""}
+                              />
+
+                              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                  <div>
+                                    <p className="text-xs font-semibold text-slate-800">
+                                      {overrideMode
+                                        ? `Exception: ${packModeLabel(overrideMode)}`
+                                        : `Inherits ${pack.label}: ${packModeLabel(packMode)}`}
+                                    </p>
+                                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                                      {overrideMode
+                                        ? `This rule is intentionally more restrictive than the ${pack.label} pack.`
+                                        : "No separate autonomy setting is applied to this rule."}
+                                    </p>
+                                  </div>
+
+                                  {canManage && autonomyExceptionOptions(packMode).length > 0 ? (
+                                    <details className="shrink-0">
+                                      <summary className="cursor-pointer rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-semibold text-violet-700">
+                                        {overrideMode ? "Change exception" : "Set exception"}
+                                      </summary>
+                                      <div className="mt-2 min-w-[13rem] rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+                                        <label className="text-xs font-semibold text-slate-700">
+                                          More restrictive behavior
+                                          <select
+                                            name="autonomyOverride"
+                                            defaultValue={overrideMode ?? autonomyExceptionOptions(packMode)[0]?.[0]}
+                                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                                          >
+                                            {autonomyExceptionOptions(packMode).map(([value, label]) => (
+                                              <option key={value} value={value}>
+                                                {label}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        <button
+                                          type="submit"
+                                          className="mt-3 w-full rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white"
+                                        >
+                                          Save exception
+                                        </button>
+                                      </div>
+                                    </details>
+                                  ) : null}
+                                </div>
+
+                                {overrideMode && canManage ? (
+                                  <button
+                                    type="submit"
+                                    name="autonomyOverride"
+                                    value="__inherit"
+                                    className="mt-3 text-xs font-semibold text-violet-700 underline underline-offset-4"
+                                  >
+                                    Remove exception
+                                  </button>
+                                ) : null}
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                                <div className="flex flex-wrap gap-2">
+                                  {["low_package_balance", "no_upcoming_lesson", "pending_booking_request", "unsigned_document", "first_lesson_follow_up"].includes(definition.key) ? (
+                                    <button
+                                      type="submit"
+                                      formAction={evaluateAutomationRuleAction}
+                                      disabled={!canManage || !ruleEnabled}
+                                      className="rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:cursor-not-allowed disabled:text-slate-400"
+                                    >
+                                      Evaluate now
+                                    </button>
+                                  ) : null}
+
+                                </div>
+                              </div>
+                            </form>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  ) : (
+                    <p className="mt-4 rounded-2xl border border-dashed border-white bg-white/60 p-4 text-xs leading-5 text-slate-600">
+                      ARIA will use this pack as new operational coverage is added. No individual rule settings are required yet.
+                    </p>
+                  )}
+                </article>
+              );
+            })}
           </div>
         </section>
+
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+          <div className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+              Advanced automation settings
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              Change individual rules only when your studio needs an exception
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              The operational packs above are the normal control surface. Expand a pack to change a specific rule&apos;s delivery mode or disable only that rule.
+            </p>
+            <div className="mt-4 rounded-2xl border border-violet-100 bg-violet-50 p-4 text-xs leading-5 text-violet-800">
+              Advanced settings change how ARIA works. They do not show ARIA&apos;s daily activity.
+            </div>
+          </div>
+
+          <div className="rounded-[30px] border border-[#C4B5FD] bg-gradient-to-br from-[#2D0A46] via-[#5B21B6] to-[#BE185D] p-5 text-white shadow-sm sm:p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-100">
+              ARIA Operations
+            </p>
+            <h2 className="mt-2 text-xl font-semibold">
+              See ARIA working day to day
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-violet-50">
+              Operations shows what ARIA handled, what needs your decision, exceptions, upcoming work, delivery status, and outcomes.
+            </p>
+            <Link
+              href="/app/aria/operations"
+              className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-violet-800 shadow-sm"
+            >
+              Open ARIA Operations
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </section>
+
       </div>
     </main>
   );

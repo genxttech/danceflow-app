@@ -737,7 +737,7 @@ function AriaSupervisionOverview({
       key: "preferences",
       eyebrow: "Preferences",
       metric: ARIA_AUTOMATION_PACKS.length,
-      detail: "Automation packs, communication timing, channels, and exceptions.",
+      detail: "Automation boundaries, communication timing, channels, and exceptions.",
       href: "#aria-preferences",
       tone: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800",
       icon: Sparkles,
@@ -832,6 +832,36 @@ function relatedAutomationHref(action: AutomationActionRow) {
 
   if (action.related_table === "event_registrations" && action.related_id) {
     return "/app/events/registrations";
+  }
+
+  if (action.related_table === "marketing_campaigns" && action.related_id) {
+    return `/app/marketing/campaigns/${action.related_id}`;
+  }
+
+  if (
+    action.related_table === "instructors" ||
+    action.related_table === "payroll_pay_periods" ||
+    action.related_table === "payroll_batches"
+  ) {
+    return "/app/instructor-pay";
+  }
+
+  if (action.related_table === "commerce_product_variant_inventory") {
+    return "/app/catalog";
+  }
+
+  if (action.related_table === "import_batches" && action.related_id) {
+    return `/app/settings/import/${action.related_id}`;
+  }
+
+  if (action.related_table === "lead_activities") {
+    return action.client_id
+      ? `/app/clients/${action.client_id}?tab=notes`
+      : "/app/leads";
+  }
+
+  if (action.related_table === "commerce_orders" && action.related_id) {
+    return `/app/sell/orders/${action.related_id}`;
   }
 
   return action.client_id
@@ -1198,6 +1228,150 @@ const ARIA_RECOMMENDATION_DETAILS: Record<
       "ARIA does not edit attendance automatically. Staff should verify scans, no-shows, and registration data.",
     emailExecutable: false,
   },
+  aria_appointment_confirmation_gap: {
+    sourceSignal: "Upcoming appointment confirmation state",
+    trigger:
+      "An appointment is inside 24 hours and remains pending, requested, or unconfirmed.",
+    staffGuardrail:
+      "ARIA creates review work only. It does not cancel, reschedule, or send this communication automatically in this slice.",
+    emailExecutable: false,
+  },
+  aria_no_show_service_recovery: {
+    sourceSignal: "Recent no-show attendance",
+    trigger: "An appointment was marked no-show within the last two days.",
+    staffGuardrail:
+      "ARIA does not assess fees or modify balances automatically. Staff chooses the appropriate service-recovery response.",
+    emailExecutable: false,
+  },
+  aria_schedule_conflict: {
+    sourceSignal: "Overlapping schedule resources",
+    trigger:
+      "Two active upcoming appointments overlap while sharing an instructor or room.",
+    staffGuardrail:
+      "ARIA never moves or cancels an appointment automatically. Staff must resolve the conflict.",
+    emailExecutable: false,
+  },
+  aria_marketing_opportunity: {
+    sourceSignal: "Stale campaign draft",
+    trigger: "A marketing campaign has remained in draft for at least 14 days.",
+    staffGuardrail:
+      "ARIA does not send the campaign. Audience, offer, consent, timing, and brand choices remain staff-reviewed.",
+    emailExecutable: false,
+  },
+  aria_payroll_missing_data: {
+    sourceSignal: "Payroll readiness",
+    trigger:
+      "A payroll-active instructor is missing worker classification or compensation setup.",
+    staffGuardrail:
+      "ARIA does not alter payroll configuration, earnings, batches, or payment status automatically.",
+    emailExecutable: false,
+  },
+  aria_inventory_low_stock: {
+    sourceSignal: "Inventory threshold",
+    trigger: "An active inventory variant has reached or fallen below its reorder threshold.",
+    staffGuardrail:
+      "ARIA does not create purchase orders or spend studio funds automatically.",
+    emailExecutable: false,
+  },
+  aria_data_quality_exception: {
+    sourceSignal: "Import reconciliation",
+    trigger: "An import batch failed, completed with warnings, or contains failed rows.",
+    staffGuardrail:
+      "ARIA does not merge, delete, or rewrite ambiguous migrated records automatically.",
+    emailExecutable: false,
+  },
+  aria_cancellation_follow_up: {
+    sourceSignal: "Recent cancellation without rebooking",
+    trigger:
+      "A recent cancellation left the client with no future appointment.",
+    staffGuardrail:
+      "ARIA does not rebook or send automatically. Staff reviews the cancellation context first.",
+    emailExecutable: false,
+  },
+  aria_document_expiration: {
+    sourceSignal: "Required document due date",
+    trigger: "A required pending document has passed its due date.",
+    staffGuardrail:
+      "ARIA does not waive, void, revise, or supersede documents automatically.",
+    emailExecutable: false,
+  },
+  aria_external_payment_missing: {
+    sourceSignal: "Appointment payment reconciliation",
+    trigger:
+      "A past paid-service appointment still shows unpaid, pending, or partial payment status.",
+    staffGuardrail:
+      "ARIA does not mark a payment paid, create an external payment, charge a card, or alter access automatically.",
+    emailExecutable: false,
+  },
+  aria_lead_acknowledgement: {
+    sourceSignal: "New lead without recorded activity",
+    trigger: "A lead is at least one day old and has no recorded lead activity.",
+    staffGuardrail:
+      "ARIA prepares the need for follow-up; staff should confirm lead source, consent, and context.",
+    emailExecutable: false,
+  },
+  aria_lead_follow_up_sequence: {
+    sourceSignal: "Overdue lead follow-up",
+    trigger: "A lead activity passed its follow-up due time without completion.",
+    staffGuardrail:
+      "ARIA does not send the next sequence step automatically in this slice.",
+    emailExecutable: false,
+  },
+  aria_inactive_client_reactivation: {
+    sourceSignal: "Inactive client with recent lesson history",
+    trigger:
+      "An inactive client attended recently and has no future appointment.",
+    staffGuardrail:
+      "ARIA does not reactivate the client record or send win-back outreach automatically.",
+    emailExecutable: false,
+  },
+  aria_instructor_coverage_gap: {
+    sourceSignal: "Upcoming appointment without instructor",
+    trigger:
+      "A teaching appointment inside seven days has no instructor assigned.",
+    staffGuardrail:
+      "ARIA never assigns, moves, or cancels instructors or appointments automatically.",
+    emailExecutable: false,
+  },
+  aria_class_capacity: {
+    sourceSignal: "Group class registration capacity",
+    trigger:
+      "An upcoming group class is at least 80% full or has waitlisted registrations.",
+    staffGuardrail:
+      "ARIA does not change class capacity, rooms, instructors, or waitlist state automatically.",
+    emailExecutable: false,
+  },
+  aria_event_promotion_gap: {
+    sourceSignal: "Upcoming public event registration pace",
+    trigger:
+      "A public event is within 14 days and has fewer than five active registrations.",
+    staffGuardrail:
+      "ARIA does not send a campaign automatically. Audience, timing, offer, and consent remain staff-reviewed.",
+    emailExecutable: false,
+  },
+  aria_staff_task_reminder: {
+    sourceSignal: "Overdue CRM follow-up work",
+    trigger: "An open CRM follow-up activity is past due.",
+    staffGuardrail:
+      "ARIA surfaces ownership and urgency but does not rewrite the activity history.",
+    emailExecutable: false,
+  },
+  aria_order_fulfillment_exception: {
+    sourceSignal: "Paid order fulfillment state",
+    trigger:
+      "A paid commerce order remains unfulfilled after one day.",
+    staffGuardrail:
+      "ARIA does not fulfill, refund, ship, grant entitlement, or modify inventory automatically.",
+    emailExecutable: false,
+  },
+  aria_student_app_adoption: {
+    sourceSignal: "Active client account relationship",
+    trigger:
+      "An active client has an email address but no linked DanceFlow account relationship.",
+    staffGuardrail:
+      "ARIA does not create or link user accounts automatically. Staff decides whether to invite the client.",
+    emailExecutable: false,
+  },
 };
 
 function getAriaRecommendationExplanation(
@@ -1344,7 +1518,7 @@ function AriaActionReviewQueue({
             href="/app/automations"
             className="inline-flex items-center justify-center rounded-2xl border border-[#F9A8D4] bg-white px-4 py-2 text-sm font-semibold text-[#BE185D] hover:bg-[#FDF2F8]"
           >
-            Automation settings
+            Automation Center
           </Link>
           {snoozedActions.length ? (
             <span className="text-xs font-medium text-slate-500">
@@ -3431,6 +3605,26 @@ export default async function AriaOperationsCenterPage() {
             icon: Sparkles,
           }}
         />
+      </section>
+
+      <section className="rounded-[26px] border border-violet-200 bg-violet-50 p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+              How ARIA works
+            </p>
+            <p className="mt-1 text-sm font-semibold text-slate-950">
+              Operations shows ARIA&apos;s day-to-day work. The Automation Center controls how ARIA is allowed to work.
+            </p>
+          </div>
+          <Link
+            href="/app/automations"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100"
+          >
+            Manage automation preferences
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       </section>
 
       <AriaSupervisionOverview actions={automationActions} />
