@@ -92,9 +92,15 @@ function getLocalDateTimeParts(now: Date, timezone: string) {
 }
 
 function timeToMinutes(value: string | null | undefined) {
-  if (!value || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return null;
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
+  if (!value) return null;
+
+  const match = value.match(
+    /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d(?:\.\d+)?)?$/,
+  );
+
+  if (!match) return null;
+
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
 function isDigestDue(params: {
