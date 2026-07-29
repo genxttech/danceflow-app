@@ -13,6 +13,10 @@ import {
   executeSquareHistoricalOrderImportBatchAction,
   executeSquareInventoryImportBatchAction,
   executeSquareProductImportBatchAction,
+  executeWellnessLivingPackageImportBatchAction,
+  executeWellnessLivingMembershipImportBatchAction,
+  executeWellnessLivingAttendanceImportBatchAction,
+  executeWellnessLivingAccountCreditImportBatchAction,
 } from "../actions";
 import ImportUploadForm from "../ImportUploadForm";
 
@@ -126,6 +130,10 @@ function titleForImportType(importType: string) {
   if (importType === "instructors") return "Instructor Import";
   if (importType === "appointments") return "Appointment Import";
   if (importType === "payments") return "Payment Import";
+  if (importType === "packages") return "WellnessLiving Package Import";
+  if (importType === "memberships") return "WellnessLiving Membership Import";
+  if (importType === "attendance") return "WellnessLiving Attendance Import";
+  if (importType === "account_credits") return "WellnessLiving Account Credit Import";
   if (importType === "products") return "Square Catalog Import";
   if (importType === "inventory") return "Square Inventory Import";
   if (importType === "retail_orders") return "Square Historical Commerce Import";
@@ -138,6 +146,10 @@ function executeLabelForImportType(importType: string) {
   if (importType === "instructors") return "Execute Instructor Import";
   if (importType === "appointments") return "Confirm and Execute Appointment Import";
   if (importType === "payments") return "Confirm and Execute Payment Import";
+  if (importType === "packages") return "Import WellnessLiving Package Balances";
+  if (importType === "memberships") return "Import WellnessLiving Memberships";
+  if (importType === "attendance") return "Import WellnessLiving Attendance";
+  if (importType === "account_credits") return "Import WellnessLiving Account Credits";
   if (importType === "products") return "Execute Square Catalog Import";
   if (importType === "inventory") return "Reconcile Square Inventory";
   if (importType === "retail_orders") return "Import Square Historical Commerce";
@@ -157,6 +169,18 @@ function correctionHelperForImportType(importType: string) {
   }
   if (importType === "payments") {
     return "Upload a corrected payments CSV to create a child retry batch linked to this import.";
+  }
+  if (importType === "packages") {
+    return "Upload a corrected WellnessLiving package balance CSV to create a child retry batch.";
+  }
+  if (importType === "memberships") {
+    return "Upload a corrected WellnessLiving membership CSV to create a child retry batch.";
+  }
+  if (importType === "attendance") {
+    return "Upload corrected WellnessLiving attendance to create a linked retry batch.";
+  }
+  if (importType === "account_credits") {
+    return "Upload corrected WellnessLiving account credits to create a linked retry batch.";
   }
   return "Upload a corrected CSV to create a child retry batch linked to this import.";
 }
@@ -568,11 +592,11 @@ export default async function ImportBatchDetailPage({
       : 0;
 
   const canExecute =
-    ["clients", "instructors", "appointments", "payments", "products", "inventory", "retail_orders", "digital_entitlements"].includes(typedBatch.import_type) &&
+    ["clients", "instructors", "appointments", "attendance", "payments", "account_credits", "packages", "memberships", "products", "inventory", "retail_orders", "digital_entitlements"].includes(typedBatch.import_type) &&
     ["validated", "completed_with_warnings"].includes(typedBatch.status) &&
     (summaryReadyRows > 0 || dryRunReady || summaryBlockingRows === 0) &&
     !(
-      ["products", "inventory"].includes(typedBatch.import_type) &&
+      ["packages", "memberships", "attendance", "account_credits", "products", "inventory"].includes(typedBatch.import_type) &&
       typedBatch.mode === "dry_run"
     );
 
@@ -591,8 +615,16 @@ export default async function ImportBatchDetailPage({
           ? executeAppointmentImportBatchAction
           : typedBatch.import_type === "payments"
             ? executePaymentImportBatchAction
-            : typedBatch.import_type === "products" && typedBatch.source_system === "square"
-              ? executeSquareProductImportBatchAction
+            : typedBatch.import_type === "packages" && typedBatch.source_system === "wellnessliving"
+              ? executeWellnessLivingPackageImportBatchAction
+              : typedBatch.import_type === "memberships" && typedBatch.source_system === "wellnessliving"
+                ? executeWellnessLivingMembershipImportBatchAction
+                : typedBatch.import_type === "attendance" && typedBatch.source_system === "wellnessliving"
+                  ? executeWellnessLivingAttendanceImportBatchAction
+                  : typedBatch.import_type === "account_credits" && typedBatch.source_system === "wellnessliving"
+                    ? executeWellnessLivingAccountCreditImportBatchAction
+              : typedBatch.import_type === "products" && typedBatch.source_system === "square"
+                ? executeSquareProductImportBatchAction
               : typedBatch.import_type === "inventory" && typedBatch.source_system === "square"
                 ? executeSquareInventoryImportBatchAction
                 : typedBatch.import_type === "retail_orders" && typedBatch.source_system === "square"
@@ -768,7 +800,7 @@ export default async function ImportBatchDetailPage({
         </div>
       ) : null}
 
-      {["clients", "instructors", "appointments", "payments", "products", "inventory", "retail_orders", "digital_entitlements"].includes(typedBatch.import_type) ? (
+      {["clients", "instructors", "appointments", "attendance", "payments", "account_credits", "packages", "memberships", "products", "inventory", "retail_orders", "digital_entitlements"].includes(typedBatch.import_type) ? (
         <div className="grid gap-4 md:grid-cols-6">
           <SummaryCard label="Create Candidates" value={summaryCreateCandidates} />
           <SummaryCard label="Update Candidates" value={summaryUpdateCandidates} />

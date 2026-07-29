@@ -5,6 +5,7 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import ImportUploadForm from "./ImportUploadForm";
 import SquareMigrationPilotReadiness from "./SquareMigrationPilotReadiness";
+import WellnessLivingMigrationPilotReadiness from "./WellnessLivingMigrationPilotReadiness";
 import {
   archiveUnfinishedImportBatchesAction,
   validateAppointmentImportBatchAction,
@@ -15,6 +16,10 @@ import {
   validateSquareHistoricalOrderImportBatchAction,
   validateSquareInventoryImportBatchAction,
   validateSquareProductImportBatchAction,
+  validateWellnessLivingPackageImportBatchAction,
+  validateWellnessLivingMembershipImportBatchAction,
+  validateWellnessLivingAttendanceImportBatchAction,
+  validateWellnessLivingAccountCreditImportBatchAction,
 } from "./actions";
 
 type SearchParams = Promise<{
@@ -192,6 +197,10 @@ function topActionLabel(importType: string) {
   if (importType === "instructors") return "Review Instructors File";
   if (importType === "appointments") return "Review Appointments File";
   if (importType === "payments") return "Review Payments File";
+  if (importType === "packages") return "Review Package Balance File";
+  if (importType === "memberships") return "Review Membership File";
+  if (importType === "attendance") return "Review Attendance File";
+  if (importType === "account_credits") return "Review Account Credits File";
   if (importType === "products") return "Review Square Catalog File";
   return "Review File";
 }
@@ -381,6 +390,11 @@ export default async function ImportSettingsPage({
         </div>
       </div>
 
+      <WellnessLivingMigrationPilotReadiness
+        supabase={supabase}
+        studioId={context.studioId}
+      />
+
       <section className="overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-sm">
         <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 via-white to-orange-50 p-6">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700">Migration Plan</p>
@@ -434,7 +448,7 @@ export default async function ImportSettingsPage({
         <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
           <p className="text-sm text-[#806F89]">Current Supported Imports</p>
           <p className="mt-2 text-xl font-semibold text-[#2C1838]">
-            Clients, Instructors, Appointments, Payments
+            Clients, Instructors, Packages, Memberships, Appointments, Payments
           </p>
           <p className="mt-2 text-sm text-[#6F5A7A]">
             Packages and memberships can be added later.
@@ -627,9 +641,17 @@ export default async function ImportSettingsPage({
                           ? validateAppointmentImportBatchAction
                           : batch.import_type === "payments"
                             ? validatePaymentImportBatchAction
-                            : batch.import_type === "products" && batch.source_system === "square"
-                              ? validateSquareProductImportBatchAction
-                              : null;
+                            : batch.import_type === "packages" && batch.source_system === "wellnessliving"
+                              ? validateWellnessLivingPackageImportBatchAction
+                              : batch.import_type === "memberships" && batch.source_system === "wellnessliving"
+                                ? validateWellnessLivingMembershipImportBatchAction
+                                : batch.import_type === "attendance" && batch.source_system === "wellnessliving"
+                                  ? validateWellnessLivingAttendanceImportBatchAction
+                                  : batch.import_type === "account_credits" && batch.source_system === "wellnessliving"
+                                    ? validateWellnessLivingAccountCreditImportBatchAction
+                              : batch.import_type === "products" && batch.source_system === "square"
+                                ? validateSquareProductImportBatchAction
+                                : null;
 
                   const needsReview = ["uploaded"].includes(batch.status);
                   const canOpenReview = ["validated", "completed_with_warnings", "completed", "processing", "uploaded"].includes(batch.status);

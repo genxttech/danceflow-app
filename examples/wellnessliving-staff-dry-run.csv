@@ -1,0 +1,3 @@
+staff_id,first_name,last_name,email,mobile_phone,status,role,specialties
+WL-S-101,Casey,Lee,casey@example.com,614-555-0201,Active,Instructor,"Ballroom, Country"
+WL-S-102,Morgan,Kim,morgan@example.com,614-555-0202,Active,Manager,Operations

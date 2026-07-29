@@ -61,10 +61,24 @@ function importTypeHelper(importType: string, sourceSystem: string) {
     return "Import payment history after clients are already in place.";
   }
   if (importType === "packages") {
-    return "Package import support can be added later.";
+    return sourceSystem === "wellnessliving"
+      ? "Import WellnessLiving session passes and Visits Remaining after clients. Current remaining balances are preserved without re-deducting historical attendance."
+      : "Upload package definitions and balances for mapping preparation.";
   }
   if (importType === "memberships") {
-    return "Upload for mapping and reconciliation preparation; live execution is added in a later slice.";
+    return sourceSystem === "wellnessliving"
+      ? "Import WellnessLiving memberships, current billing periods, and payment state after clients. AutoPay credentials are never imported."
+      : "Upload memberships for mapping and reconciliation preparation.";
+  }
+  if (importType === "attendance") {
+    return sourceSystem === "wellnessliving"
+      ? "Import historical attended, no-show, and cancelled states after appointments. Package and membership balances are not deducted again."
+      : "Upload historical attendance after appointments.";
+  }
+  if (importType === "account_credits") {
+    return sourceSystem === "wellnessliving"
+      ? "Import historical account-credit ledger activity after clients and payments."
+      : "Upload account credits for reconciliation preparation.";
   }
   if (importType === "products") {
     return sourceSystem === "square"
@@ -124,6 +138,12 @@ export default function ImportUploadForm({
     }
     if (importType === "payments") {
       return "Best done after clients are already imported.";
+    }
+    if (importType === "packages" && sourceSystem === "wellnessliving") {
+      return "Start with Dry Run. Import WellnessLiving clients before package balances.";
+    }
+    if (importType === "memberships" && sourceSystem === "wellnessliving") {
+      return "Start with Dry Run. Confirm current periods and payment status before live execution.";
     }
     if (importType === "products" && sourceSystem === "square") {
       return "Start with Dry Run. Each row should represent one Square item variation.";
@@ -188,8 +208,18 @@ export default function ImportUploadForm({
             <option value="instructors">Instructors</option>
             <option value="appointments">Appointments</option>
             <option value="payments">Payments</option>
-            <option value="packages">Packages — mapping preparation</option>
-            <option value="memberships">Memberships — mapping preparation</option>
+            <option value="packages">
+              Packages{sourceSystem === "wellnessliving" ? " — supported" : " — mapping preparation"}
+            </option>
+            <option value="memberships">
+              Memberships{sourceSystem === "wellnessliving" ? " — supported" : " — mapping preparation"}
+            </option>
+            <option value="attendance">
+              Attendance{sourceSystem === "wellnessliving" ? " — supported" : " — mapping preparation"}
+            </option>
+            <option value="account_credits">
+              Account Credits{sourceSystem === "wellnessliving" ? " — supported" : " — mapping preparation"}
+            </option>
             <option value="products">Retail Products{sourceSystem === "square" ? " — supported" : " — mapping preparation"}</option>
             <option value="inventory">Inventory — mapping preparation</option>
             <option value="retail_orders">Retail Orders — mapping preparation</option>

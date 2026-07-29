@@ -1,0 +1,5 @@
+pricing_option_id,client_pricing_option_id,client_id,pricing_option_name,price,purchase_date,expiration_date,usage_type,visits_total,visits_remaining,is_unlimited
+WL-PO-100,WL-CP-1001,WL-C-1001,10 Private Lesson Package,850.00,2026-06-01,2026-12-01,private_lesson,10,6,false
+WL-PO-200,WL-CP-1002,WL-C-1002,Social Dance Bundle,195.00,2026-07-01,2026-10-01,group_class,6,4,false
+WL-PO-200,WL-CP-1002,WL-C-1002,Social Dance Bundle,195.00,2026-07-01,2026-10-01,practice_party,6,5,false
+WL-PO-300,WL-CP-1003,WL-C-1003,Unlimited Group Classes,129.00,2026-07-15,,group_class,,,true

@@ -317,6 +317,80 @@ function normalizeEmail(value: string) {
     : "";
 }
 
+function normalizeImportPhone(value: string) {
+  const raw = value.trim();
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return raw;
+}
+
+function buildWellnessLivingRelationshipCandidate(row: Record<string, string>) {
+  const householdExternalId = getRowValue(row, [
+    "household_id",
+    "family_id",
+    "family_account_id",
+    "account_id",
+  ]);
+  const relationshipType = getRowValue(row, [
+    "relationship_type",
+    "family_relationship",
+    "relationship",
+  ]).toLowerCase();
+  const relatedClientExternalId = getRowValue(row, [
+    "related_client_id",
+    "guardian_client_id",
+    "parent_client_id",
+    "primary_client_id",
+  ]);
+  const relatedFirstName = getRowValue(row, [
+    "related_first_name",
+    "guardian_first_name",
+    "parent_first_name",
+  ]);
+  const relatedLastName = getRowValue(row, [
+    "related_last_name",
+    "guardian_last_name",
+    "parent_last_name",
+  ]);
+  const relatedEmail = normalizeEmail(
+    getRowValue(row, [
+      "related_email",
+      "guardian_email",
+      "parent_email",
+      "primary_email",
+    ]),
+  );
+  const relatedPhone = normalizeImportPhone(
+    getRowValue(row, [
+      "related_phone",
+      "guardian_phone",
+      "parent_phone",
+      "primary_phone",
+    ]),
+  );
+
+  const hasRelationship =
+    Boolean(householdExternalId) ||
+    Boolean(relationshipType) ||
+    Boolean(relatedClientExternalId) ||
+    Boolean(relatedFirstName) ||
+    Boolean(relatedLastName) ||
+    Boolean(relatedEmail) ||
+    Boolean(relatedPhone);
+
+  return {
+    householdExternalId,
+    relationshipType: relationshipType || "household_member",
+    relatedClientExternalId,
+    relatedFirstName,
+    relatedLastName,
+    relatedEmail,
+    relatedPhone,
+    hasRelationship,
+  };
+}
+
 function getRowValue(row: Record<string, string>, headerAliases: string[]) {
   const entries = Object.entries(row);
 
@@ -411,7 +485,9 @@ function buildClientCandidate(row: Record<string, string>) {
   const firstName = getRowValue(row, ["first_name", "firstname", "first"]);
   const lastName = getRowValue(row, ["last_name", "lastname", "last"]);
   const email = getRowValue(row, ["email", "email_address", "emailaddress"]).toLowerCase();
-  const phone = getRowValue(row, ["phone", "phone_number", "mobile", "cell"]);
+  const phone = normalizeImportPhone(
+    getRowValue(row, ["phone", "phone_number", "mobile", "cell", "mobile_phone"]),
+  );
   const danceInterests = getRowValue(row, [
     "dance_interests",
     "interests",
@@ -425,7 +501,10 @@ function buildClientCandidate(row: Record<string, string>) {
     "external_id",
     "source_external_id",
     "client_id",
+    "clientid",
     "customer_id",
+    "wellnessliving_id",
+    "wellness_living_id",
     "mindbody_id",
   ]);
 
@@ -446,7 +525,9 @@ function buildInstructorCandidate(row: Record<string, string>) {
   const firstName = getRowValue(row, ["first_name", "firstname", "first"]);
   const lastName = getRowValue(row, ["last_name", "lastname", "last"]);
   const email = getRowValue(row, ["email", "email_address", "emailaddress"]).toLowerCase();
-  const phone = getRowValue(row, ["phone", "phone_number", "mobile", "cell"]);
+  const phone = normalizeImportPhone(
+    getRowValue(row, ["phone", "phone_number", "mobile", "cell", "mobile_phone"]),
+  );
   const bio = getRowValue(row, ["bio", "description", "notes"]);
   const specialties = getRowValue(row, [
     "specialties",
@@ -460,8 +541,12 @@ function buildInstructorCandidate(row: Record<string, string>) {
     "external_id",
     "source_external_id",
     "instructor_id",
+    "staff_id",
+    "employee_id",
     "teacher_id",
     "trainer_id",
+    "wellnessliving_id",
+    "wellness_living_id",
     "mindbody_id",
   ]);
 
@@ -1103,6 +1188,8 @@ function validateImportInput(params: {
     "payments",
     "packages",
     "memberships",
+    "attendance",
+    "account_credits",
     "products",
     "inventory",
     "retail_orders",
@@ -1307,6 +1394,8 @@ function isBlockingErrorCode(errorCode: string) {
     "missing_required_field",
     "invalid_email",
     "duplicate_in_file",
+    "ambiguous_existing_match",
+    "duplicate_source_identity",
     "missing_header",
     "invalid_datetime",
     "missing_related_record",
@@ -1410,7 +1499,9 @@ export async function createImportBatchAction(
       packages: 50,
       memberships: 60,
       appointments: 70,
+      attendance: 75,
       payments: 80,
+      account_credits: 85,
       retail_orders: 90,
       digital_entitlements: 100,
     };
@@ -1604,131 +1695,232 @@ export async function validateClientImportBatchAction(formData: FormData) {
       ["last_name", "lastname", "last"].includes(h)
     );
 
+    const isWellnessLiving = batch.source_system === "wellnessliving";
     const batchErrors: BatchErrorInsert[] = [];
+    const externalIdSet = new Set<string>();
     const emailSet = new Set<string>();
     const phoneSet = new Set<string>();
     let createCandidates = 0;
     let updateCandidates = 0;
     let readyRows = 0;
+    let sourceIdMatches = 0;
+    let emailMatches = 0;
+    let phoneMatches = 0;
+    let relationshipRows = 0;
+    let relationshipReviewRows = 0;
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       const rowNumber = index + 2;
       const candidate = buildClientCandidate(row);
+      const relationship = isWellnessLiving
+        ? buildWellnessLivingRelationshipCandidate(row)
+        : null;
       let rowHasBlockingError = false;
+      let existingMatch: { id: string } | null = null;
+      let matchMethod = "";
 
-      if (!candidate.firstName) {
+      const addBlocking = (
+        fieldName: string,
+        errorCode: string,
+        errorMessage: string,
+        rawValue: string | null,
+      ) => {
         rowHasBlockingError = true;
         batchErrors.push({
           import_batch_id: batchId,
           import_batch_file_id: fileRow.id,
           row_number: rowNumber,
-          field_name: "first_name",
-          error_code: "missing_required_field",
-          error_message: "First name is required.",
-          raw_value: "",
+          field_name: fieldName,
+          error_code: errorCode,
+          error_message: errorMessage,
+          raw_value: rawValue,
           row_data: row,
         });
+      };
+
+      if (!candidate.firstName) {
+        addBlocking("first_name", "missing_required_field", "First name is required.", "");
       }
 
       if (!candidate.lastName) {
-        rowHasBlockingError = true;
-        batchErrors.push({
-          import_batch_id: batchId,
-          import_batch_file_id: fileRow.id,
-          row_number: rowNumber,
-          field_name: "last_name",
-          error_code: "missing_required_field",
-          error_message: "Last name is required.",
-          raw_value: "",
-          row_data: row,
-        });
+        addBlocking("last_name", "missing_required_field", "Last name is required.", "");
       }
 
-      let existingEmailClient: { id: string } | null = null;
+      if (candidate.externalId) {
+        if (externalIdSet.has(candidate.externalId)) {
+          addBlocking(
+            "source_external_id",
+            "duplicate_source_identity",
+            "The same source client ID appears more than once in this CSV.",
+            candidate.externalId,
+          );
+        } else {
+          externalIdSet.add(candidate.externalId);
+        }
+
+        const { data: sourceMatches, error: sourceMatchError } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("source_system", batch.source_system)
+          .eq("source_external_id", candidate.externalId)
+          .limit(2);
+
+        if (sourceMatchError) {
+          throw new Error(`Client source-ID lookup failed: ${sourceMatchError.message}`);
+        }
+
+        if ((sourceMatches ?? []).length > 1) {
+          addBlocking(
+            "source_external_id",
+            "ambiguous_existing_match",
+            "Multiple clients already use this source ID. Resolve the duplicate before importing.",
+            candidate.externalId,
+          );
+        } else if (sourceMatches?.[0]) {
+          existingMatch = sourceMatches[0];
+          matchMethod = "source_external_id";
+          sourceIdMatches += 1;
+        }
+      }
 
       if (candidate.email) {
         const basicEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
         if (!basicEmailRegex.test(candidate.email)) {
-          rowHasBlockingError = true;
-          batchErrors.push({
-            import_batch_id: batchId,
-            import_batch_file_id: fileRow.id,
-            row_number: rowNumber,
-            field_name: "email",
-            error_code: "invalid_email",
-            error_message: "Email format looks invalid.",
-            raw_value: candidate.email,
-            row_data: row,
-          });
+          addBlocking(
+            "email",
+            "invalid_email",
+            "Email format looks invalid.",
+            candidate.email,
+          );
         }
 
         if (emailSet.has(candidate.email)) {
-          rowHasBlockingError = true;
-          batchErrors.push({
-            import_batch_id: batchId,
-            import_batch_file_id: fileRow.id,
-            row_number: rowNumber,
-            field_name: "email",
-            error_code: "duplicate_in_file",
-            error_message: "Duplicate email found in this CSV batch.",
-            raw_value: candidate.email,
-            row_data: row,
-          });
+          addBlocking(
+            "email",
+            "duplicate_in_file",
+            "Duplicate email found in this CSV batch.",
+            candidate.email,
+          );
         } else {
           emailSet.add(candidate.email);
         }
 
-        const { data, error: existingEmailError } = await supabase
-          .from("clients")
-          .select("id")
-          .eq("studio_id", studioId)
-          .eq("email", candidate.email)
-          .maybeSingle();
+        if (!existingMatch) {
+          const { data: emailMatchesFound, error: emailMatchError } = await supabase
+            .from("clients")
+            .select("id")
+            .eq("studio_id", studioId)
+            .eq("email", candidate.email)
+            .limit(2);
 
-        if (existingEmailError) {
-          throw new Error(`Client duplicate lookup failed: ${existingEmailError.message}`);
-        }
+          if (emailMatchError) {
+            throw new Error(`Client email lookup failed: ${emailMatchError.message}`);
+          }
 
-        existingEmailClient = data;
-
-        if (existingEmailClient) {
-          batchErrors.push({
-            import_batch_id: batchId,
-            import_batch_file_id: fileRow.id,
-            row_number: rowNumber,
-            field_name: "email",
-            error_code: "possible_existing_match",
-            error_message: "A client with this email already exists and may be updated.",
-            raw_value: candidate.email,
-            row_data: row,
-          });
+          if ((emailMatchesFound ?? []).length > 1) {
+            addBlocking(
+              "email",
+              "ambiguous_existing_match",
+              "Multiple clients match this email. Choose the correct client before importing.",
+              candidate.email,
+            );
+          } else if (emailMatchesFound?.[0]) {
+            existingMatch = emailMatchesFound[0];
+            matchMethod = "normalized_email";
+            emailMatches += 1;
+          }
         }
       }
 
       if (candidate.phone) {
         if (phoneSet.has(candidate.phone)) {
-          rowHasBlockingError = true;
           batchErrors.push({
             import_batch_id: batchId,
             import_batch_file_id: fileRow.id,
             row_number: rowNumber,
             field_name: "phone",
-            error_code: "duplicate_in_file",
-            error_message: "Duplicate phone found in this CSV batch.",
+            error_code: "duplicate_phone_in_file",
+            error_message:
+              "This phone appears more than once in the CSV. It will not be used as an automatic match for this row.",
             raw_value: candidate.phone,
             row_data: row,
           });
         } else {
           phoneSet.add(candidate.phone);
         }
+
+        if (isWellnessLiving && !existingMatch && !phoneSet.has(`matched:${candidate.phone}`)) {
+          const { data: phoneMatchesFound, error: phoneMatchError } = await supabase
+            .from("clients")
+            .select("id")
+            .eq("studio_id", studioId)
+            .eq("phone", candidate.phone)
+            .limit(2);
+
+          if (phoneMatchError) {
+            throw new Error(`Client phone lookup failed: ${phoneMatchError.message}`);
+          }
+
+          if ((phoneMatchesFound ?? []).length > 1) {
+            addBlocking(
+              "phone",
+              "ambiguous_existing_match",
+              "Multiple clients match this normalized phone number. Review the client manually.",
+              candidate.phone,
+            );
+          } else if (phoneMatchesFound?.[0]) {
+            existingMatch = phoneMatchesFound[0];
+            matchMethod = "normalized_phone";
+            phoneMatches += 1;
+            phoneSet.add(`matched:${candidate.phone}`);
+          }
+        }
+      }
+
+      if (relationship?.hasRelationship) {
+        relationshipRows += 1;
+        if (
+          !relationship.relatedClientExternalId &&
+          !relationship.relatedEmail &&
+          !relationship.householdExternalId
+        ) {
+          relationshipReviewRows += 1;
+          batchErrors.push({
+            import_batch_id: batchId,
+            import_batch_file_id: fileRow.id,
+            row_number: rowNumber,
+            field_name: "relationship",
+            error_code: "relationship_needs_review",
+            error_message:
+              "A WellnessLiving family relationship was found without a stable related client ID, email, or household ID. It will be preserved for review.",
+            raw_value: relationship.relationshipType,
+            row_data: row,
+          });
+        }
       }
 
       if (!rowHasBlockingError) {
         readyRows += 1;
-        if (existingEmailClient) {
+        if (existingMatch) {
           updateCandidates += 1;
+          batchErrors.push({
+            import_batch_id: batchId,
+            import_batch_file_id: fileRow.id,
+            row_number: rowNumber,
+            field_name: matchMethod || "identity",
+            error_code: "possible_existing_match",
+            error_message: `Existing client match found by ${matchMethod.replaceAll("_", " ")}.`,
+            raw_value:
+              matchMethod === "source_external_id"
+                ? candidate.externalId
+                : matchMethod === "normalized_email"
+                  ? candidate.email
+                  : candidate.phone,
+            row_data: row,
+          });
         } else {
           createCandidates += 1;
         }
@@ -1772,9 +1964,15 @@ export async function validateClientImportBatchAction(formData: FormData) {
         create_candidates: createCandidates,
         update_candidates: updateCandidates,
         ready_rows: readyRows,
+        source_id_matches: sourceIdMatches,
+        email_matches: emailMatches,
+        phone_matches: phoneMatches,
+        relationship_rows: relationshipRows,
+        relationship_review_rows: relationshipReviewRows,
+        source_specific_validation: isWellnessLiving ? "wellnessliving_v1" : "generic",
       },
     });
-   } catch (error) {
+  } catch (error) {
     redirectImportError("/app/settings/import", "validation_failed", error);
   }
 
@@ -1813,103 +2011,146 @@ export async function validateInstructorImportBatchAction(formData: FormData) {
       ["last_name", "lastname", "last"].includes(h)
     );
 
+    const isWellnessLiving = batch.source_system === "wellnessliving";
     const batchErrors: BatchErrorInsert[] = [];
+    const externalIdSet = new Set<string>();
     const emailSet = new Set<string>();
     let createCandidates = 0;
     let updateCandidates = 0;
     let readyRows = 0;
+    let roleReviewRows = 0;
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       const rowNumber = index + 2;
       const candidate = buildInstructorCandidate(row);
+      const sourceRole = getRowValue(row, [
+        "role",
+        "staff_role",
+        "position",
+        "job_title",
+        "title",
+      ]);
       let rowHasBlockingError = false;
+      let existingMatch: { id: string } | null = null;
+
+      const addBlocking = (
+        fieldName: string,
+        errorCode: string,
+        errorMessage: string,
+        rawValue: string | null,
+      ) => {
+        rowHasBlockingError = true;
+        batchErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: fieldName,
+          error_code: errorCode,
+          error_message: errorMessage,
+          raw_value: rawValue,
+          row_data: row,
+        });
+      };
 
       if (!candidate.firstName) {
-        rowHasBlockingError = true;
-        batchErrors.push({
-          import_batch_id: batchId,
-          import_batch_file_id: fileRow.id,
-          row_number: rowNumber,
-          field_name: "first_name",
-          error_code: "missing_required_field",
-          error_message: "First name is required.",
-          raw_value: "",
-          row_data: row,
-        });
+        addBlocking("first_name", "missing_required_field", "First name is required.", "");
       }
-
       if (!candidate.lastName) {
-        rowHasBlockingError = true;
-        batchErrors.push({
-          import_batch_id: batchId,
-          import_batch_file_id: fileRow.id,
-          row_number: rowNumber,
-          field_name: "last_name",
-          error_code: "missing_required_field",
-          error_message: "Last name is required.",
-          raw_value: "",
-          row_data: row,
-        });
+        addBlocking("last_name", "missing_required_field", "Last name is required.", "");
       }
 
-      let existingEmailInstructor: { id: string } | null = null;
+      if (candidate.externalId) {
+        if (externalIdSet.has(candidate.externalId)) {
+          addBlocking(
+            "source_external_id",
+            "duplicate_source_identity",
+            "The same source staff ID appears more than once in this CSV.",
+            candidate.externalId,
+          );
+        } else {
+          externalIdSet.add(candidate.externalId);
+        }
+
+        const { data: sourceMatches, error: sourceError } = await supabase
+          .from("instructors")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("source_system", batch.source_system)
+          .eq("source_external_id", candidate.externalId)
+          .limit(2);
+
+        if (sourceError) throw new Error(`Instructor source-ID lookup failed: ${sourceError.message}`);
+
+        if ((sourceMatches ?? []).length > 1) {
+          addBlocking(
+            "source_external_id",
+            "ambiguous_existing_match",
+            "Multiple instructors already use this source ID.",
+            candidate.externalId,
+          );
+        } else if (sourceMatches?.[0]) {
+          existingMatch = sourceMatches[0];
+        }
+      }
 
       if (candidate.email) {
         const basicEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
         if (!basicEmailRegex.test(candidate.email)) {
-          rowHasBlockingError = true;
-          batchErrors.push({
-            import_batch_id: batchId,
-            import_batch_file_id: fileRow.id,
-            row_number: rowNumber,
-            field_name: "email",
-            error_code: "invalid_email",
-            error_message: "Email format looks invalid.",
-            raw_value: candidate.email,
-            row_data: row,
-          });
+          addBlocking("email", "invalid_email", "Email format looks invalid.", candidate.email);
         }
 
         if (emailSet.has(candidate.email)) {
-          rowHasBlockingError = true;
-          batchErrors.push({
-            import_batch_id: batchId,
-            import_batch_file_id: fileRow.id,
-            row_number: rowNumber,
-            field_name: "email",
-            error_code: "duplicate_in_file",
-            error_message: "Duplicate email found in this CSV batch.",
-            raw_value: candidate.email,
-            row_data: row,
-          });
+          addBlocking(
+            "email",
+            "duplicate_in_file",
+            "Duplicate instructor email found in this CSV batch.",
+            candidate.email,
+          );
         } else {
           emailSet.add(candidate.email);
         }
 
-        const { data, error: existingEmailError } = await supabase
-          .from("instructors")
-          .select("id")
-          .eq("studio_id", studioId)
-          .eq("email", candidate.email)
-          .maybeSingle();
+        if (!existingMatch) {
+          const { data: emailMatches, error: emailError } = await supabase
+            .from("instructors")
+            .select("id")
+            .eq("studio_id", studioId)
+            .eq("email", candidate.email)
+            .limit(2);
 
-        if (existingEmailError) {
-          throw new Error(`Instructor duplicate lookup failed: ${existingEmailError.message}`);
+          if (emailError) throw new Error(`Instructor email lookup failed: ${emailError.message}`);
+
+          if ((emailMatches ?? []).length > 1) {
+            addBlocking(
+              "email",
+              "ambiguous_existing_match",
+              "Multiple instructors match this email. Review the staff record manually.",
+              candidate.email,
+            );
+          } else if (emailMatches?.[0]) {
+            existingMatch = emailMatches[0];
+          }
         }
+      }
 
-        existingEmailInstructor = data;
-
-        if (existingEmailInstructor) {
+      if (isWellnessLiving && sourceRole) {
+        const normalizedRole = sourceRole.toLowerCase();
+        if (
+          !["instructor", "teacher", "coach"].some((role) =>
+            normalizedRole.includes(role),
+          )
+        ) {
+          roleReviewRows += 1;
           batchErrors.push({
             import_batch_id: batchId,
             import_batch_file_id: fileRow.id,
             row_number: rowNumber,
-            field_name: "email",
-            error_code: "possible_existing_match",
-            error_message: "An instructor with this email already exists and may be updated.",
-            raw_value: candidate.email,
+            field_name: "role",
+            error_code: "staff_role_requires_review",
+            error_message:
+              "WellnessLiving staff roles are not granted automatically. Review this role in DanceFlow after import.",
+            raw_value: sourceRole,
             row_data: row,
           });
         }
@@ -1917,8 +2158,18 @@ export async function validateInstructorImportBatchAction(formData: FormData) {
 
       if (!rowHasBlockingError) {
         readyRows += 1;
-        if (existingEmailInstructor) {
+        if (existingMatch) {
           updateCandidates += 1;
+          batchErrors.push({
+            import_batch_id: batchId,
+            import_batch_file_id: fileRow.id,
+            row_number: rowNumber,
+            field_name: candidate.externalId ? "source_external_id" : "email",
+            error_code: "possible_existing_match",
+            error_message: "An instructor match already exists and may be updated.",
+            raw_value: candidate.externalId || candidate.email,
+            row_data: row,
+          });
         } else {
           createCandidates += 1;
         }
@@ -1962,9 +2213,11 @@ export async function validateInstructorImportBatchAction(formData: FormData) {
         create_candidates: createCandidates,
         update_candidates: updateCandidates,
         ready_rows: readyRows,
+        staff_role_review_rows: roleReviewRows,
+        source_specific_validation: isWellnessLiving ? "wellnessliving_v1" : "generic",
       },
     });
-   } catch (error) {
+  } catch (error) {
     redirectImportError("/app/settings/import", "validation_failed", error);
   }
 
@@ -4203,10 +4456,14 @@ export async function executeClientImportBatchAction(formData: FormData) {
       throw new Error(`Could not mark batch processing: ${processingError.message}`);
     }
 
+    const isWellnessLiving = batch.source_system === "wellnessliving";
     let insertedRows = 0;
     let updatedRows = 0;
     let skippedRows = 0;
     let failedRows = 0;
+    let relationshipRows = 0;
+    let resolvedRelationships = 0;
+    let reviewRelationships = 0;
     const executionErrors: BatchErrorInsert[] = [];
 
     for (let index = 0; index < rows.length; index += 1) {
@@ -4219,41 +4476,60 @@ export async function executeClientImportBatchAction(formData: FormData) {
       }
 
       const candidate = buildClientCandidate(row);
+      const relationship = isWellnessLiving
+        ? buildWellnessLivingRelationshipCandidate(row)
+        : null;
 
       try {
         let matchedClientId: string | null = null;
 
         if (candidate.externalId) {
-          const { data: externalMatch, error: externalMatchError } = await supabase
+          const { data: sourceMatches, error: sourceError } = await supabase
             .from("clients")
             .select("id")
             .eq("studio_id", studioId)
             .eq("source_system", batch.source_system)
             .eq("source_external_id", candidate.externalId)
-            .maybeSingle();
+            .limit(2);
 
-          if (externalMatchError) {
-            throw new Error(externalMatchError.message);
+          if (sourceError) throw new Error(sourceError.message);
+          if ((sourceMatches ?? []).length > 1) {
+            throw new Error("Multiple clients use the same source external ID.");
           }
-
-          matchedClientId = externalMatch?.id ?? null;
+          matchedClientId = sourceMatches?.[0]?.id ?? null;
         }
 
         if (!matchedClientId && candidate.email) {
-          const { data: emailMatch, error: emailMatchError } = await supabase
+          const { data: emailMatches, error: emailError } = await supabase
             .from("clients")
             .select("id")
             .eq("studio_id", studioId)
             .eq("email", candidate.email)
-            .maybeSingle();
+            .limit(2);
 
-          if (emailMatchError) {
-            throw new Error(emailMatchError.message);
+          if (emailError) throw new Error(emailError.message);
+          if ((emailMatches ?? []).length > 1) {
+            throw new Error("Multiple clients match this email.");
           }
-
-          matchedClientId = emailMatch?.id ?? null;
+          matchedClientId = emailMatches?.[0]?.id ?? null;
         }
 
+        if (!matchedClientId && isWellnessLiving && candidate.phone) {
+          const { data: phoneMatches, error: phoneError } = await supabase
+            .from("clients")
+            .select("id")
+            .eq("studio_id", studioId)
+            .eq("phone", candidate.phone)
+            .limit(2);
+
+          if (phoneError) throw new Error(phoneError.message);
+          if ((phoneMatches ?? []).length > 1) {
+            throw new Error("Multiple clients match this normalized phone number.");
+          }
+          matchedClientId = phoneMatches?.[0]?.id ?? null;
+        }
+
+        const importedAt = new Date().toISOString();
         const clientPayload = {
           studio_id: studioId,
           first_name: candidate.firstName,
@@ -4267,51 +4543,131 @@ export async function executeClientImportBatchAction(formData: FormData) {
           status: "active",
           source_system: batch.source_system,
           source_external_id: candidate.externalId || null,
-          imported_at: new Date().toISOString(),
+          imported_at: importedAt,
         };
 
         if (!matchedClientId) {
-          const { error: insertError } = await supabase.from("clients").insert({
-            ...clientPayload,
-            created_by: userId,
-          });
+          const { data: insertedClient, error: insertError } = await supabase
+            .from("clients")
+            .insert({
+              ...clientPayload,
+              created_by: userId,
+            })
+            .select("id")
+            .single();
 
-          if (insertError) {
-            throw new Error(insertError.message);
+          if (insertError || !insertedClient) {
+            throw new Error(insertError?.message ?? "Client insert failed.");
           }
 
+          matchedClientId = insertedClient.id;
           insertedRows += 1;
-          continue;
-        }
-
-        if (batch.mode === "create_only") {
+        } else if (batch.mode === "create_only") {
           skippedRows += 1;
-          continue;
+        } else {
+          const { error: updateError } = await supabase
+            .from("clients")
+            .update({
+              first_name: clientPayload.first_name,
+              last_name: clientPayload.last_name,
+              email: clientPayload.email,
+              phone: clientPayload.phone,
+              dance_interests: clientPayload.dance_interests,
+              notes: clientPayload.notes,
+              skill_level: clientPayload.skill_level,
+              referral_source: clientPayload.referral_source,
+              source_system: clientPayload.source_system,
+              source_external_id: clientPayload.source_external_id,
+              imported_at: clientPayload.imported_at,
+            })
+            .eq("id", matchedClientId)
+            .eq("studio_id", studioId);
+
+          if (updateError) throw new Error(updateError.message);
+          updatedRows += 1;
         }
 
-        const { error: updateError } = await supabase
-          .from("clients")
-          .update({
-            first_name: clientPayload.first_name,
-            last_name: clientPayload.last_name,
-            email: clientPayload.email,
-            phone: clientPayload.phone,
-            dance_interests: clientPayload.dance_interests,
-            notes: clientPayload.notes,
-            skill_level: clientPayload.skill_level,
-            referral_source: clientPayload.referral_source,
-            source_system: clientPayload.source_system,
-            source_external_id: clientPayload.source_external_id,
-            imported_at: clientPayload.imported_at,
-          })
-          .eq("id", matchedClientId)
-          .eq("studio_id", studioId);
+        if (relationship?.hasRelationship && matchedClientId) {
+          relationshipRows += 1;
+          let relatedClientId: string | null = null;
 
-        if (updateError) {
-          throw new Error(updateError.message);
+          if (relationship.relatedClientExternalId) {
+            const { data: relatedSourceMatches, error: relatedSourceError } =
+              await supabase
+                .from("clients")
+                .select("id")
+                .eq("studio_id", studioId)
+                .eq("source_system", batch.source_system)
+                .eq("source_external_id", relationship.relatedClientExternalId)
+                .limit(2);
+
+            if (relatedSourceError) throw new Error(relatedSourceError.message);
+            if ((relatedSourceMatches ?? []).length === 1) {
+              relatedClientId = relatedSourceMatches?.[0]?.id ?? null;
+            }
+          }
+
+          if (!relatedClientId && relationship.relatedEmail) {
+            const { data: relatedEmailMatches, error: relatedEmailError } =
+              await supabase
+                .from("clients")
+                .select("id")
+                .eq("studio_id", studioId)
+                .eq("email", relationship.relatedEmail)
+                .limit(2);
+
+            if (relatedEmailError) throw new Error(relatedEmailError.message);
+            if ((relatedEmailMatches ?? []).length === 1) {
+              relatedClientId = relatedEmailMatches?.[0]?.id ?? null;
+            }
+          }
+
+          const resolutionStatus =
+            relatedClientId && relatedClientId !== matchedClientId
+              ? "resolved"
+              : "needs_review";
+
+          const { error: relationshipError } = await supabase
+            .from("client_source_relationships")
+            .upsert(
+              {
+                studio_id: studioId,
+                source_system: batch.source_system,
+                source_relationship_id:
+                  getRowValue(row, ["relationship_id", "family_relationship_id"]) ||
+                  `${candidate.externalId || matchedClientId}:${relationship.relationshipType}:${relationship.relatedClientExternalId || relationship.relatedEmail || relationship.householdExternalId || rowNumber}`,
+                client_id: matchedClientId,
+                source_client_external_id: candidate.externalId || null,
+                related_client_id:
+                  relatedClientId && relatedClientId !== matchedClientId
+                    ? relatedClientId
+                    : null,
+                related_source_external_id:
+                  relationship.relatedClientExternalId || null,
+                household_external_id: relationship.householdExternalId || null,
+                relationship_type: relationship.relationshipType,
+                related_first_name: relationship.relatedFirstName || null,
+                related_last_name: relationship.relatedLastName || null,
+                related_email: relationship.relatedEmail || null,
+                related_phone: relationship.relatedPhone || null,
+                resolution_status: resolutionStatus,
+                import_batch_id: batchId,
+                imported_at: importedAt,
+                updated_at: importedAt,
+              },
+              {
+                onConflict: "studio_id,source_system,source_relationship_id",
+              },
+            );
+
+          if (relationshipError) throw new Error(relationshipError.message);
+
+          if (resolutionStatus === "resolved") {
+            resolvedRelationships += 1;
+          } else {
+            reviewRelationships += 1;
+          }
         }
-
-        updatedRows += 1;
       } catch (error) {
         failedRows += 1;
         executionErrors.push({
@@ -4346,9 +4702,13 @@ export async function executeClientImportBatchAction(formData: FormData) {
         executed: true,
         execution_error_count: executionErrors.length,
         row_count: rows.length,
+        relationship_rows: relationshipRows,
+        relationships_resolved: resolvedRelationships,
+        relationships_needing_review: reviewRelationships,
+        source_specific_execution: isWellnessLiving ? "wellnessliving_v1" : "generic",
       },
     });
-   } catch (error) {
+  } catch (error) {
     redirectImportError(`/app/settings/import/${batchId}`, "execution_failed", error);
   }
 
@@ -4432,34 +4792,40 @@ export async function executeInstructorImportBatchAction(formData: FormData) {
         let matchedInstructorId: string | null = null;
 
         if (candidate.externalId) {
-          const { data: externalMatch, error: externalMatchError } = await supabase
+          const { data: externalMatches, error: externalMatchError } = await supabase
             .from("instructors")
             .select("id")
             .eq("studio_id", studioId)
             .eq("source_system", batch.source_system)
             .eq("source_external_id", candidate.externalId)
-            .maybeSingle();
+            .limit(2);
 
           if (externalMatchError) {
             throw new Error(externalMatchError.message);
           }
+          if ((externalMatches ?? []).length > 1) {
+            throw new Error("Multiple instructors use the same source external ID.");
+          }
 
-          matchedInstructorId = externalMatch?.id ?? null;
+          matchedInstructorId = externalMatches?.[0]?.id ?? null;
         }
 
         if (!matchedInstructorId && candidate.email) {
-          const { data: emailMatch, error: emailMatchError } = await supabase
+          const { data: emailMatches, error: emailMatchError } = await supabase
             .from("instructors")
             .select("id")
             .eq("studio_id", studioId)
             .eq("email", candidate.email)
-            .maybeSingle();
+            .limit(2);
 
           if (emailMatchError) {
             throw new Error(emailMatchError.message);
           }
+          if ((emailMatches ?? []).length > 1) {
+            throw new Error("Multiple instructors match this email.");
+          }
 
-          matchedInstructorId = emailMatch?.id ?? null;
+          matchedInstructorId = emailMatches?.[0]?.id ?? null;
         }
 
         const instructorPayload = {
@@ -6547,4 +6913,2424 @@ export async function downloadImportErrorsCsvAction(formData: FormData) {
       encoded
     )}&filename=${encodeURIComponent(fileName)}`
   );
+}
+
+type WellnessLivingPackageCandidate = {
+  templateExternalId: string;
+  clientPackageExternalId: string;
+  clientExternalId: string;
+  name: string;
+  price: number;
+  purchaseDate: string;
+  expirationDate: string;
+  usageType: "private_lesson" | "group_class" | "practice_party" | "";
+  quantityTotal: number | null;
+  quantityRemaining: number | null;
+  isUnlimited: boolean;
+};
+
+function parseWellnessLivingWholeNumber(value: string) {
+  const normalized = value.replace(/,/g, "").trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number.parseInt(normalized, 10);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function normalizeWellnessLivingPackageUsage(
+  value: string,
+): WellnessLivingPackageCandidate["usageType"] {
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+  if (["private_lesson", "private", "private_session", "appointment"].includes(normalized)) {
+    return "private_lesson";
+  }
+  if (["group_class", "class", "group", "group_session"].includes(normalized)) {
+    return "group_class";
+  }
+  if (["practice_party", "party", "practice", "social", "social_dance"].includes(normalized)) {
+    return "practice_party";
+  }
+  return "";
+}
+
+function buildWellnessLivingPackageCandidate(
+  row: Record<string, string>,
+): WellnessLivingPackageCandidate {
+  const totalRaw = getRowValue(row, [
+    "visits_total",
+    "quantity_total",
+    "sessions_total",
+    "credits_total",
+    "total_visits",
+  ]);
+  const remainingRaw = getRowValue(row, [
+    "visits_remaining",
+    "quantity_remaining",
+    "sessions_remaining",
+    "credits_remaining",
+    "remaining_visits",
+  ]);
+  const unlimitedRaw = getRowValue(row, [
+    "is_unlimited",
+    "unlimited",
+    "unlimited_visits",
+  ]).toLowerCase();
+  const isUnlimited =
+    ["1", "true", "yes", "y", "unlimited"].includes(unlimitedRaw) ||
+    totalRaw.toLowerCase() === "unlimited" ||
+    remainingRaw.toLowerCase() === "unlimited";
+
+  const parsedPrice = parseMoney(
+    getRowValue(row, ["price", "amount", "sale_price"]),
+  );
+
+  return {
+    templateExternalId: getRowValue(row, [
+      "pricing_option_id",
+      "package_template_id",
+      "pricing_id",
+      "product_id",
+    ]),
+    clientPackageExternalId: getRowValue(row, [
+      "client_pricing_option_id",
+      "client_package_id",
+      "package_id",
+      "purchase_id",
+      "pass_id",
+    ]),
+    clientExternalId: getRowValue(row, [
+      "client_id",
+      "customer_id",
+      "member_id",
+    ]),
+    name: getRowValue(row, [
+      "pricing_option_name",
+      "package_name",
+      "name",
+      "pricing_option",
+    ]),
+    price: Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0,
+    purchaseDate: getRowValue(row, [
+      "purchase_date",
+      "purchased_on",
+      "start_date",
+      "date_purchased",
+    ]),
+    expirationDate: getRowValue(row, [
+      "expiration_date",
+      "expires_on",
+      "expiry_date",
+      "end_date",
+    ]),
+    usageType: normalizeWellnessLivingPackageUsage(
+      getRowValue(row, [
+        "usage_type",
+        "service_type",
+        "visit_type",
+        "session_type",
+        "category",
+      ]),
+    ),
+    quantityTotal: isUnlimited ? null : parseWellnessLivingWholeNumber(totalRaw),
+    quantityRemaining: isUnlimited
+      ? null
+      : parseWellnessLivingWholeNumber(remainingRaw),
+    isUnlimited,
+  };
+}
+
+function isValidWellnessLivingDate(value: string) {
+  if (!value) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T12:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime());
+}
+
+export async function validateWellnessLivingPackageImportBatchAction(
+  formData: FormData,
+) {
+  const batchId = getString(formData, "batchId");
+  if (!batchId) redirect("/app/settings/import");
+
+  try {
+    const { supabase, studioId } = await getImportContext();
+    const batch = await getBatchForStudio({ supabase, studioId, batchId });
+    if (!batch) redirect("/app/settings/import?error=batch_not_found");
+    if (
+      batch.source_system !== "wellnessliving" ||
+      batch.import_type !== "packages"
+    ) {
+      redirect("/app/settings/import?error=wrong_import_type");
+    }
+
+    const fileRow = await getPrimaryBatchFile({ supabase, batchId });
+    if (!fileRow?.storage_bucket || !fileRow.storage_path) {
+      redirect("/app/settings/import?error=file_not_found");
+    }
+
+    await clearBatchErrors({ supabase, batchId });
+
+    const csvText = await loadStoredCsvText({
+      supabase,
+      bucket: fileRow.storage_bucket,
+      path: fileRow.storage_path,
+    });
+    const { headers, rows } = parseCsvRows(csvText);
+    const candidates = rows.map(buildWellnessLivingPackageCandidate);
+    const batchErrors: BatchErrorInsert[] = [];
+    const duplicateIds = new Set<string>();
+
+    const clientExternalIds = Array.from(
+      new Set(candidates.map((row) => row.clientExternalId).filter(Boolean)),
+    );
+    const packageExternalIds = Array.from(
+      new Set(
+        candidates
+          .map((row) => row.clientPackageExternalId)
+          .filter(Boolean),
+      ),
+    );
+    const templateExternalIds = Array.from(
+      new Set(candidates.map((row) => row.templateExternalId).filter(Boolean)),
+    );
+
+    let existingClientIds = new Set<string>();
+    let existingPackageIds = new Set<string>();
+    let existingTemplateIds = new Set<string>();
+
+    if (clientExternalIds.length > 0) {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("source_external_id")
+        .eq("studio_id", studioId)
+        .eq("source_system", "wellnessliving")
+        .in("source_external_id", clientExternalIds);
+      if (error) throw new Error(error.message);
+      existingClientIds = new Set(
+        (data ?? [])
+          .map((row) => row.source_external_id)
+          .filter((value): value is string => Boolean(value)),
+      );
+    }
+
+    if (packageExternalIds.length > 0) {
+      const { data, error } = await supabase
+        .from("client_packages")
+        .select("source_external_id")
+        .eq("studio_id", studioId)
+        .eq("source_system", "wellnessliving")
+        .in("source_external_id", packageExternalIds);
+      if (error) throw new Error(error.message);
+      existingPackageIds = new Set(
+        (data ?? [])
+          .map((row) => row.source_external_id)
+          .filter((value): value is string => Boolean(value)),
+      );
+    }
+
+    if (templateExternalIds.length > 0) {
+      const { data, error } = await supabase
+        .from("package_templates")
+        .select("source_external_id")
+        .eq("studio_id", studioId)
+        .eq("source_system", "wellnessliving")
+        .in("source_external_id", templateExternalIds);
+      if (error) throw new Error(error.message);
+      existingTemplateIds = new Set(
+        (data ?? [])
+          .map((row) => row.source_external_id)
+          .filter((value): value is string => Boolean(value)),
+      );
+    }
+
+    let readyRows = 0;
+    let createCandidates = 0;
+    let updateCandidates = 0;
+    let createTemplateCandidates = 0;
+    let currentBalanceUnits = 0;
+    let historicalUsedUnits = 0;
+
+    rows.forEach((row, index) => {
+      const candidate = candidates[index];
+      const rowNumber = index + 2;
+      let blocked = false;
+
+      const addBlocking = (
+        fieldName: string,
+        errorCode: string,
+        errorMessage: string,
+        rawValue: string | null = null,
+      ) => {
+        blocked = true;
+        batchErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: fieldName,
+          error_code: errorCode,
+          error_message: errorMessage,
+          raw_value: rawValue,
+          row_data: row,
+        });
+      };
+
+      if (!candidate.clientExternalId) {
+        addBlocking("client_id", "missing_required_field", "WellnessLiving client ID is required.");
+      } else if (!existingClientIds.has(candidate.clientExternalId)) {
+        addBlocking(
+          "client_id",
+          "missing_related_record",
+          "Import the WellnessLiving client before importing package balances.",
+          candidate.clientExternalId,
+        );
+      }
+
+      if (!candidate.templateExternalId) {
+        addBlocking(
+          "pricing_option_id",
+          "missing_required_field",
+          "WellnessLiving pricing option ID is required.",
+        );
+      }
+
+      if (!candidate.clientPackageExternalId) {
+        addBlocking(
+          "client_pricing_option_id",
+          "missing_required_field",
+          "WellnessLiving client package/pass ID is required.",
+        );
+      } else if (duplicateIds.has(candidate.clientPackageExternalId)) {
+        const samePackageRows = candidates.filter(
+          (item) => item.clientPackageExternalId === candidate.clientPackageExternalId,
+        );
+        const duplicateUsage = samePackageRows.filter(
+          (item) => item.usageType === candidate.usageType,
+        ).length > 1;
+        if (duplicateUsage) {
+          addBlocking(
+            "client_pricing_option_id",
+            "duplicate_source_identity",
+            "The same client package and usage type appear more than once.",
+            candidate.clientPackageExternalId,
+          );
+        }
+      } else {
+        duplicateIds.add(candidate.clientPackageExternalId);
+      }
+
+      if (!candidate.name) {
+        addBlocking(
+          "pricing_option_name",
+          "missing_required_field",
+          "Package name is required.",
+        );
+      }
+
+      if (!candidate.usageType) {
+        addBlocking(
+          "usage_type",
+          "unsupported_package_usage",
+          "Map the visit type to private_lesson, group_class, or practice_party.",
+          getRowValue(row, ["usage_type", "service_type", "visit_type", "category"]),
+        );
+      }
+
+      if (!isValidWellnessLivingDate(candidate.purchaseDate)) {
+        addBlocking(
+          "purchase_date",
+          "invalid_datetime",
+          "Purchase date must use YYYY-MM-DD.",
+          candidate.purchaseDate,
+        );
+      }
+
+      if (!isValidWellnessLivingDate(candidate.expirationDate)) {
+        addBlocking(
+          "expiration_date",
+          "invalid_datetime",
+          "Expiration date must use YYYY-MM-DD.",
+          candidate.expirationDate,
+        );
+      }
+
+      if (!candidate.isUnlimited) {
+        if (candidate.quantityTotal === null) {
+          addBlocking(
+            "visits_total",
+            "invalid_amount",
+            "Total visits must be a whole number.",
+            getRowValue(row, ["visits_total", "quantity_total", "sessions_total"]),
+          );
+        }
+        if (candidate.quantityRemaining === null) {
+          addBlocking(
+            "visits_remaining",
+            "invalid_amount",
+            "Visits remaining must be a whole number.",
+            getRowValue(row, ["visits_remaining", "quantity_remaining", "sessions_remaining"]),
+          );
+        }
+        if (
+          candidate.quantityTotal !== null &&
+          candidate.quantityRemaining !== null &&
+          candidate.quantityRemaining > candidate.quantityTotal
+        ) {
+          addBlocking(
+            "visits_remaining",
+            "invalid_amount",
+            "Visits remaining cannot exceed total visits.",
+            String(candidate.quantityRemaining),
+          );
+        }
+      }
+
+      if (!blocked) {
+        readyRows += 1;
+        if (existingPackageIds.has(candidate.clientPackageExternalId)) {
+          updateCandidates += 1;
+        } else {
+          createCandidates += 1;
+        }
+        if (!existingTemplateIds.has(candidate.templateExternalId)) {
+          createTemplateCandidates += 1;
+          existingTemplateIds.add(candidate.templateExternalId);
+        }
+        if (
+          !candidate.isUnlimited &&
+          candidate.quantityTotal !== null &&
+          candidate.quantityRemaining !== null
+        ) {
+          currentBalanceUnits += candidate.quantityRemaining;
+          historicalUsedUnits +=
+            candidate.quantityTotal - candidate.quantityRemaining;
+        }
+      }
+    });
+
+    await finalizeValidation({
+      supabase,
+      studioId,
+      batchId,
+      headers,
+      rows,
+      batchErrors,
+      extraSummary: {
+        create_candidates: createCandidates,
+        update_candidates: updateCandidates,
+        create_template_candidates: createTemplateCandidates,
+        ready_rows: readyRows,
+        current_balance_units: currentBalanceUnits,
+        historical_used_units: historicalUsedUnits,
+        historical_attendance_deduction: false,
+        source_specific_validation: "wellnessliving_packages_v1",
+      },
+    });
+  } catch (error) {
+    redirectImportError("/app/settings/import", "validation_failed", error);
+  }
+
+  redirect("/app/settings/import?success=validated");
+}
+
+export async function executeWellnessLivingPackageImportBatchAction(
+  formData: FormData,
+) {
+  const batchId = getString(formData, "batchId");
+  if (!batchId) redirect("/app/settings/import");
+
+  try {
+    const { supabase, studioId } = await getImportContext();
+    const batch = await getBatchForStudio({ supabase, studioId, batchId });
+    if (!batch) redirect("/app/settings/import?error=batch_not_found");
+    if (
+      batch.source_system !== "wellnessliving" ||
+      batch.import_type !== "packages"
+    ) {
+      redirect("/app/settings/import?error=wrong_import_type");
+    }
+    if (
+      batch.mode === "dry_run" ||
+      !["validated", "completed_with_warnings"].includes(batch.status)
+    ) {
+      redirect(`/app/settings/import/${batchId}?error=batch_not_ready`);
+    }
+
+    const fileRow = await getPrimaryBatchFile({ supabase, batchId });
+    if (!fileRow?.storage_bucket || !fileRow.storage_path) {
+      redirect(`/app/settings/import/${batchId}?error=file_not_found`);
+    }
+
+    const { data: errors, error: errorsError } = await supabase
+      .from("import_batch_errors")
+      .select("row_number, error_code")
+      .eq("import_batch_id", batchId);
+    if (errorsError) throw new Error(errorsError.message);
+
+    const blockedRows = new Set(
+      (errors ?? [])
+        .filter((row) => isBlockingErrorCode(row.error_code))
+        .map((row) => row.row_number)
+        .filter((value): value is number => typeof value === "number"),
+    );
+
+    const csvText = await loadStoredCsvText({
+      supabase,
+      bucket: fileRow.storage_bucket,
+      path: fileRow.storage_path,
+    });
+    const { headers, rows } = parseCsvRows(csvText);
+
+    const grouped = new Map<
+      string,
+      { firstRow: number; rows: Record<string, string>[]; items: WellnessLivingPackageCandidate[] }
+    >();
+
+    rows.forEach((row, index) => {
+      const rowNumber = index + 2;
+      if (blockedRows.has(rowNumber)) return;
+      const candidate = buildWellnessLivingPackageCandidate(row);
+      if (!candidate.clientPackageExternalId) return;
+      const group = grouped.get(candidate.clientPackageExternalId) ?? {
+        firstRow: rowNumber,
+        rows: [],
+        items: [],
+      };
+      group.rows.push(row);
+      group.items.push(candidate);
+      grouped.set(candidate.clientPackageExternalId, group);
+    });
+
+    const executionErrors: BatchErrorInsert[] = [];
+    let insertedRows = 0;
+    let updatedRows = 0;
+    let skippedRows = blockedRows.size;
+    let failedRows = 0;
+    let templatesCreated = 0;
+    let templatesUpdated = 0;
+    let packageItemsCreated = 0;
+    let currentBalanceUnits = 0;
+    let historicalUsedUnits = 0;
+    const importedAt = new Date().toISOString();
+
+    for (const [clientPackageExternalId, group] of grouped) {
+      const first = group.items[0];
+
+      try {
+        const { data: client, error: clientError } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("source_system", "wellnessliving")
+          .eq("source_external_id", first.clientExternalId)
+          .single();
+        if (clientError || !client) {
+          throw new Error(clientError?.message ?? "Client could not be resolved.");
+        }
+
+        const { data: existingTemplate, error: templateLookupError } =
+          await supabase
+            .from("package_templates")
+            .select("id")
+            .eq("studio_id", studioId)
+            .eq("source_system", "wellnessliving")
+            .eq("source_external_id", first.templateExternalId)
+            .maybeSingle();
+        if (templateLookupError) throw new Error(templateLookupError.message);
+
+        let templateId = existingTemplate?.id ?? null;
+
+        if (!templateId) {
+          const { data: insertedTemplate, error: insertTemplateError } =
+            await supabase
+              .from("package_templates")
+              .insert({
+                studio_id: studioId,
+                name: first.name,
+                description: "Imported from WellnessLiving.",
+                price: first.price,
+                expiration_days: null,
+                active: true,
+                source_system: "wellnessliving",
+                source_external_id: first.templateExternalId,
+                imported_at: importedAt,
+              })
+              .select("id")
+              .single();
+          if (insertTemplateError || !insertedTemplate) {
+            throw new Error(insertTemplateError?.message ?? "Package template insert failed.");
+          }
+          templateId = insertedTemplate.id;
+          templatesCreated += 1;
+        } else if (batch.mode === "create_or_update") {
+          const { error: updateTemplateError } = await supabase
+            .from("package_templates")
+            .update({
+              name: first.name,
+              price: first.price,
+              active: true,
+              imported_at: importedAt,
+            })
+            .eq("id", templateId)
+            .eq("studio_id", studioId);
+          if (updateTemplateError) throw new Error(updateTemplateError.message);
+
+          const { error: deleteTemplateItemsError } = await supabase
+            .from("package_template_items")
+            .delete()
+            .eq("studio_id", studioId)
+            .eq("package_template_id", templateId);
+          if (deleteTemplateItemsError) {
+            throw new Error(deleteTemplateItemsError.message);
+          }
+          templatesUpdated += 1;
+        }
+
+        if (!existingTemplate || batch.mode === "create_or_update") {
+          const templateItems = group.items.map((item) => ({
+            studio_id: studioId,
+            package_template_id: templateId,
+            usage_type: item.usageType,
+            quantity: item.isUnlimited ? null : item.quantityTotal,
+            is_unlimited: item.isUnlimited,
+          }));
+          const { error: templateItemsError } = await supabase
+            .from("package_template_items")
+            .insert(templateItems);
+          if (templateItemsError) throw new Error(templateItemsError.message);
+        }
+
+        const { data: existingPackage, error: packageLookupError } =
+          await supabase
+            .from("client_packages")
+            .select("id")
+            .eq("studio_id", studioId)
+            .eq("source_system", "wellnessliving")
+            .eq("source_external_id", clientPackageExternalId)
+            .maybeSingle();
+        if (packageLookupError) throw new Error(packageLookupError.message);
+
+        let clientPackageId = existingPackage?.id ?? null;
+
+        if (clientPackageId && batch.mode === "create_only") {
+          skippedRows += group.rows.length;
+          continue;
+        }
+
+        const active =
+          !first.expirationDate ||
+          new Date(`${first.expirationDate}T23:59:59.999Z`).getTime() >= Date.now();
+
+        if (!clientPackageId) {
+          const { data: insertedPackage, error: insertPackageError } =
+            await supabase
+              .from("client_packages")
+              .insert({
+                studio_id: studioId,
+                client_id: client.id,
+                package_template_id: templateId,
+                name_snapshot: first.name,
+                price_snapshot: first.price,
+                purchase_date: first.purchaseDate || null,
+                expiration_date: first.expirationDate || null,
+                active,
+                source_system: "wellnessliving",
+                source_external_id: clientPackageExternalId,
+                imported_at: importedAt,
+              })
+              .select("id")
+              .single();
+          if (insertPackageError || !insertedPackage) {
+            throw new Error(insertPackageError?.message ?? "Client package insert failed.");
+          }
+          clientPackageId = insertedPackage.id;
+          insertedRows += group.rows.length;
+        } else {
+          const { error: updatePackageError } = await supabase
+            .from("client_packages")
+            .update({
+              client_id: client.id,
+              package_template_id: templateId,
+              name_snapshot: first.name,
+              price_snapshot: first.price,
+              purchase_date: first.purchaseDate || null,
+              expiration_date: first.expirationDate || null,
+              active,
+              imported_at: importedAt,
+            })
+            .eq("id", clientPackageId)
+            .eq("studio_id", studioId);
+          if (updatePackageError) throw new Error(updatePackageError.message);
+
+          const { error: deleteItemsError } = await supabase
+            .from("client_package_items")
+            .delete()
+            .eq("studio_id", studioId)
+            .eq("client_package_id", clientPackageId);
+          if (deleteItemsError) throw new Error(deleteItemsError.message);
+          updatedRows += group.rows.length;
+        }
+
+        const packageItems = group.items.map((item) => {
+          const used =
+            item.isUnlimited ||
+            item.quantityTotal === null ||
+            item.quantityRemaining === null
+              ? 0
+              : item.quantityTotal - item.quantityRemaining;
+
+          if (!item.isUnlimited && item.quantityRemaining !== null) {
+            currentBalanceUnits += item.quantityRemaining;
+            historicalUsedUnits += used;
+          }
+
+          return {
+            studio_id: studioId,
+            client_package_id: clientPackageId,
+            usage_type: item.usageType,
+            quantity_total: item.isUnlimited ? null : item.quantityTotal,
+            quantity_used: used,
+            quantity_remaining: item.isUnlimited ? null : item.quantityRemaining,
+            is_unlimited: item.isUnlimited,
+          };
+        });
+
+        const { error: packageItemsError } = await supabase
+          .from("client_package_items")
+          .insert(packageItems);
+        if (packageItemsError) throw new Error(packageItemsError.message);
+        packageItemsCreated += packageItems.length;
+      } catch (error) {
+        failedRows += group.rows.length;
+        executionErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: group.firstRow,
+          field_name: "client_pricing_option_id",
+          error_code: "execution_failed",
+          error_message:
+            error instanceof Error ? error.message : "Package import failed.",
+          raw_value: clientPackageExternalId,
+          row_data: group.rows[0] ?? {},
+        });
+      }
+    }
+
+    await writeBatchErrors({ supabase, batchErrors: executionErrors });
+
+    await finalizeBatch({
+      supabase,
+      studioId,
+      batchId,
+      status: failedRows > 0 ? "completed_with_warnings" : "completed",
+      totalRows: rows.length,
+      processedRows: rows.length,
+      insertedRows,
+      updatedRows,
+      skippedRows,
+      failedRows,
+      summary: {
+        headers,
+        executed: true,
+        row_count: rows.length,
+        templates_created: templatesCreated,
+        templates_updated: templatesUpdated,
+        package_items_created: packageItemsCreated,
+        current_balance_units: currentBalanceUnits,
+        historical_used_units: historicalUsedUnits,
+        historical_attendance_deduction: false,
+        source_specific_execution: "wellnessliving_packages_v1",
+      },
+    });
+
+    const { error: reconciliationError } = await supabase
+      .from("import_batches")
+      .update({
+        reconciliation_status: failedRows > 0 ? "needs_review" : "reconciled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", batchId)
+      .eq("studio_id", studioId);
+    if (reconciliationError) throw new Error(reconciliationError.message);
+  } catch (error) {
+    redirectImportError(
+      `/app/settings/import/${batchId}`,
+      "execution_failed",
+      error,
+    );
+  }
+
+  redirect(`/app/settings/import/${batchId}?success=executed`);
+}
+
+
+type WellnessLivingMembershipCandidate = {
+  planExternalId: string;
+  clientMembershipExternalId: string;
+  periodExternalId: string;
+  clientExternalId: string;
+  name: string;
+  status: "active" | "paused" | "cancelled" | "expired" | "pending" | "past_due" | "unpaid";
+  billingInterval: "monthly" | "quarterly" | "yearly" | "";
+  price: number;
+  startsOn: string;
+  periodStart: string;
+  periodEnd: string;
+  amountDue: number;
+  amountPaid: number;
+  paymentStatus: "due" | "paid" | "partial" | "past_due" | "waived" | "void";
+  autoRenew: boolean;
+  includedPrivateLessons: number | null;
+  includedGroupClasses: number | null;
+};
+
+function normalizeWellnessLivingMembershipStatus(value: string): WellnessLivingMembershipCandidate["status"] {
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["active", "paused", "cancelled", "expired", "pending", "past_due", "unpaid"].includes(normalized)) {
+    return normalized as WellnessLivingMembershipCandidate["status"];
+  }
+  if (normalized === "canceled") return "cancelled";
+  return "pending";
+}
+
+function normalizeWellnessLivingBillingInterval(
+  value: string,
+): WellnessLivingMembershipCandidate["billingInterval"] {
+  const normalized = value.trim().toLowerCase();
+  if (["monthly", "month"].includes(normalized)) return "monthly";
+  if (["quarterly", "quarter", "3_months", "three_months"].includes(normalized)) return "quarterly";
+  if (["yearly", "annual", "annually", "year"].includes(normalized)) return "yearly";
+  return "";
+}
+
+function normalizeWellnessLivingPaymentStatus(
+  value: string,
+  amountDue: number,
+  amountPaid: number,
+): WellnessLivingMembershipCandidate["paymentStatus"] {
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["due", "paid", "partial", "past_due", "waived", "void"].includes(normalized)) {
+    return normalized as WellnessLivingMembershipCandidate["paymentStatus"];
+  }
+  if (amountPaid >= amountDue && amountDue > 0) return "paid";
+  if (amountPaid > 0 && amountPaid < amountDue) return "partial";
+  return "due";
+}
+
+function parseWellnessLivingBoolean(value: string) {
+  return ["1", "true", "yes", "y", "active", "enabled"].includes(
+    value.trim().toLowerCase(),
+  );
+}
+
+function parseWellnessLivingCount(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function buildWellnessLivingMembershipCandidate(
+  row: Record<string, string>,
+): WellnessLivingMembershipCandidate {
+  const amountDueRaw = parseMoney(
+    getRowValue(row, ["amount_due", "period_amount_due", "balance_due", "price"]),
+  );
+  const amountPaidRaw = parseMoney(
+    getRowValue(row, ["amount_paid", "period_amount_paid", "paid_amount"]),
+  );
+  const amountDue =
+    Number.isFinite(amountDueRaw) && amountDueRaw >= 0 ? amountDueRaw : 0;
+  const amountPaid =
+    Number.isFinite(amountPaidRaw) && amountPaidRaw >= 0 ? amountPaidRaw : 0;
+  const paymentStatus = normalizeWellnessLivingPaymentStatus(
+    getRowValue(row, ["payment_status", "billing_status", "period_status"]),
+    amountDue,
+    amountPaid,
+  );
+
+  const priceRaw = parseMoney(
+    getRowValue(row, ["price", "membership_price", "amount"]),
+  );
+
+  return {
+    planExternalId: getRowValue(row, [
+      "pricing_option_id",
+      "membership_plan_id",
+      "plan_id",
+      "pricing_id",
+    ]),
+    clientMembershipExternalId: getRowValue(row, [
+      "client_membership_id",
+      "membership_id",
+      "client_pricing_option_id",
+      "subscription_id",
+    ]),
+    periodExternalId: getRowValue(row, [
+      "billing_period_id",
+      "period_id",
+      "membership_period_id",
+      "invoice_id",
+    ]),
+    clientExternalId: getRowValue(row, [
+      "client_id",
+      "customer_id",
+      "member_id",
+    ]),
+    name: getRowValue(row, [
+      "membership_name",
+      "pricing_option_name",
+      "plan_name",
+      "name",
+    ]),
+    status: normalizeWellnessLivingMembershipStatus(
+      getRowValue(row, ["status", "membership_status"]),
+    ),
+    billingInterval: normalizeWellnessLivingBillingInterval(
+      getRowValue(row, ["billing_interval", "interval", "billing_frequency"]),
+    ),
+    price: Number.isFinite(priceRaw) && priceRaw >= 0 ? priceRaw : 0,
+    startsOn: getRowValue(row, [
+      "start_date",
+      "starts_on",
+      "membership_start",
+    ]),
+    periodStart: getRowValue(row, [
+      "period_start",
+      "current_period_start",
+      "billing_period_start",
+    ]),
+    periodEnd: getRowValue(row, [
+      "period_end",
+      "current_period_end",
+      "billing_period_end",
+    ]),
+    amountDue,
+    amountPaid,
+    paymentStatus,
+    autoRenew: parseWellnessLivingBoolean(
+      getRowValue(row, ["auto_renew", "autopay", "renewal_enabled"]),
+    ),
+    includedPrivateLessons: parseWellnessLivingCount(
+      getRowValue(row, [
+        "included_private_lessons",
+        "private_lessons_included",
+        "private_lesson_quantity",
+      ]),
+    ),
+    includedGroupClasses: parseWellnessLivingCount(
+      getRowValue(row, [
+        "included_group_classes",
+        "group_classes_included",
+        "group_class_quantity",
+      ]),
+    ),
+  };
+}
+
+function isValidWellnessLivingMembershipDate(value: string) {
+  if (!value) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T12:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime());
+}
+
+export async function validateWellnessLivingMembershipImportBatchAction(
+  formData: FormData,
+) {
+  const batchId = getString(formData, "batchId");
+  if (!batchId) redirect("/app/settings/import");
+
+  try {
+    const { supabase, studioId } = await getImportContext();
+    const batch = await getBatchForStudio({ supabase, studioId, batchId });
+    if (!batch) redirect("/app/settings/import?error=batch_not_found");
+    if (
+      batch.source_system !== "wellnessliving" ||
+      batch.import_type !== "memberships"
+    ) {
+      redirect("/app/settings/import?error=wrong_import_type");
+    }
+
+    const fileRow = await getPrimaryBatchFile({ supabase, batchId });
+    if (!fileRow?.storage_bucket || !fileRow.storage_path) {
+      redirect("/app/settings/import?error=file_not_found");
+    }
+
+    await clearBatchErrors({ supabase, batchId });
+
+    const csvText = await loadStoredCsvText({
+      supabase,
+      bucket: fileRow.storage_bucket,
+      path: fileRow.storage_path,
+    });
+    const { headers, rows } = parseCsvRows(csvText);
+    const candidates = rows.map(buildWellnessLivingMembershipCandidate);
+    const batchErrors: BatchErrorInsert[] = [];
+
+    const clientExternalIds = Array.from(
+      new Set(candidates.map((row) => row.clientExternalId).filter(Boolean)),
+    );
+    const membershipExternalIds = Array.from(
+      new Set(
+        candidates.map((row) => row.clientMembershipExternalId).filter(Boolean),
+      ),
+    );
+    const planExternalIds = Array.from(
+      new Set(candidates.map((row) => row.planExternalId).filter(Boolean)),
+    );
+    const periodExternalIds = Array.from(
+      new Set(candidates.map((row) => row.periodExternalId).filter(Boolean)),
+    );
+
+    let clientIds = new Set<string>();
+    let membershipIds = new Set<string>();
+    let planIds = new Set<string>();
+    let periodIds = new Set<string>();
+
+    if (clientExternalIds.length > 0) {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("source_external_id")
+        .eq("studio_id", studioId)
+        .eq("source_system", "wellnessliving")
+        .in("source_external_id", clientExternalIds);
+      if (error) throw new Error(error.message);
+      clientIds = new Set(
+        (data ?? [])
+          .map((row) => row.source_external_id)
+          .filter((value): value is string => Boolean(value)),
+      );
+    }
+
+    if (membershipExternalIds.length > 0) {
+      const { data, error } = await supabase
+        .from("client_memberships")
+        .select("source_external_id")
+        .eq("studio_id", studioId)
+        .eq("source_system", "wellnessliving")
+        .in("source_external_id", membershipExternalIds);
+      if (error) throw new Error(error.message);
+      membershipIds = new Set(
+        (data ?? [])
+          .map((row) => row.source_external_id)
+          .filter((value): value is string => Boolean(value)),
+      );
+    }
+
+    if (planExternalIds.length > 0) {
+      const { data, error } = await supabase
+        .from("membership_plans")
+        .select("source_external_id")
+        .eq("studio_id", studioId)
+        .eq("source_system", "wellnessliving")
+        .in("source_external_id", planExternalIds);
+      if (error) throw new Error(error.message);
+      planIds = new Set(
+        (data ?? [])
+          .map((row) => row.source_external_id)
+          .filter((value): value is string => Boolean(value)),
+      );
+    }
+
+    if (periodExternalIds.length > 0) {
+      const { data, error } = await supabase
+        .from("client_membership_periods")
+        .select("source_external_id")
+        .eq("studio_id", studioId)
+        .eq("source_system", "wellnessliving")
+        .in("source_external_id", periodExternalIds);
+      if (error) throw new Error(error.message);
+      periodIds = new Set(
+        (data ?? [])
+          .map((row) => row.source_external_id)
+          .filter((value): value is string => Boolean(value)),
+      );
+    }
+
+    const seenMemberships = new Set<string>();
+    const seenPeriods = new Set<string>();
+    let readyRows = 0;
+    let createCandidates = 0;
+    let updateCandidates = 0;
+    let createPlanCandidates = 0;
+    let createPeriodCandidates = 0;
+    let updatePeriodCandidates = 0;
+    let paidPeriods = 0;
+    let partialPeriods = 0;
+    let pastDuePeriods = 0;
+    let futureBillingSetupRequired = 0;
+
+    rows.forEach((row, index) => {
+      const candidate = candidates[index];
+      const rowNumber = index + 2;
+      let blocked = false;
+
+      const addBlocking = (
+        fieldName: string,
+        errorCode: string,
+        errorMessage: string,
+        rawValue: string | null = null,
+      ) => {
+        blocked = true;
+        batchErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: fieldName,
+          error_code: errorCode,
+          error_message: errorMessage,
+          raw_value: rawValue,
+          row_data: row,
+        });
+      };
+
+      if (!candidate.clientExternalId) {
+        addBlocking("client_id", "missing_required_field", "WellnessLiving client ID is required.");
+      } else if (!clientIds.has(candidate.clientExternalId)) {
+        addBlocking(
+          "client_id",
+          "missing_related_record",
+          "Import the WellnessLiving client before importing memberships.",
+          candidate.clientExternalId,
+        );
+      }
+
+      if (!candidate.planExternalId) {
+        addBlocking(
+          "pricing_option_id",
+          "missing_required_field",
+          "WellnessLiving pricing option ID is required.",
+        );
+      }
+
+      if (!candidate.clientMembershipExternalId) {
+        addBlocking(
+          "client_membership_id",
+          "missing_required_field",
+          "WellnessLiving client membership ID is required.",
+        );
+      } else if (seenMemberships.has(candidate.clientMembershipExternalId)) {
+        addBlocking(
+          "client_membership_id",
+          "duplicate_source_identity",
+          "The same client membership appears more than once in the CSV.",
+          candidate.clientMembershipExternalId,
+        );
+      } else {
+        seenMemberships.add(candidate.clientMembershipExternalId);
+      }
+
+      if (!candidate.periodExternalId) {
+        addBlocking(
+          "billing_period_id",
+          "missing_required_field",
+          "WellnessLiving billing period ID is required.",
+        );
+      } else if (seenPeriods.has(candidate.periodExternalId)) {
+        addBlocking(
+          "billing_period_id",
+          "duplicate_source_identity",
+          "The same billing period appears more than once in the CSV.",
+          candidate.periodExternalId,
+        );
+      } else {
+        seenPeriods.add(candidate.periodExternalId);
+      }
+
+      if (!candidate.name) {
+        addBlocking(
+          "membership_name",
+          "missing_required_field",
+          "Membership name is required.",
+        );
+      }
+
+      if (!candidate.billingInterval) {
+        addBlocking(
+          "billing_interval",
+          "invalid_amount",
+          "Billing interval must be monthly, quarterly, or yearly.",
+          getRowValue(row, ["billing_interval", "interval", "billing_frequency"]),
+        );
+      }
+
+      if (!isValidWellnessLivingMembershipDate(candidate.startsOn)) {
+        addBlocking(
+          "start_date",
+          "invalid_datetime",
+          "Membership start date must use YYYY-MM-DD.",
+          candidate.startsOn,
+        );
+      }
+
+      if (!isValidWellnessLivingMembershipDate(candidate.periodStart)) {
+        addBlocking(
+          "period_start",
+          "invalid_datetime",
+          "Billing period start must use YYYY-MM-DD.",
+          candidate.periodStart,
+        );
+      }
+
+      if (!isValidWellnessLivingMembershipDate(candidate.periodEnd)) {
+        addBlocking(
+          "period_end",
+          "invalid_datetime",
+          "Billing period end must use YYYY-MM-DD.",
+          candidate.periodEnd,
+        );
+      }
+
+      if (
+        candidate.periodStart &&
+        candidate.periodEnd &&
+        candidate.periodEnd < candidate.periodStart
+      ) {
+        addBlocking(
+          "period_end",
+          "invalid_datetime",
+          "Billing period end cannot be before its start.",
+          candidate.periodEnd,
+        );
+      }
+
+      if (candidate.amountPaid > candidate.amountDue && candidate.paymentStatus !== "waived") {
+        addBlocking(
+          "amount_paid",
+          "invalid_amount",
+          "Amount paid cannot exceed amount due.",
+          String(candidate.amountPaid),
+        );
+      }
+
+      if (candidate.autoRenew) {
+        futureBillingSetupRequired += 1;
+        batchErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: "auto_renew",
+          error_code: "external_billing_setup_required",
+          error_message:
+            "WellnessLiving AutoPay credentials are not imported. The studio must intentionally set up future DanceFlow billing.",
+          raw_value: "true",
+          row_data: row,
+        });
+      }
+
+      if (!blocked) {
+        readyRows += 1;
+        if (membershipIds.has(candidate.clientMembershipExternalId)) {
+          updateCandidates += 1;
+        } else {
+          createCandidates += 1;
+        }
+        if (!planIds.has(candidate.planExternalId)) {
+          createPlanCandidates += 1;
+          planIds.add(candidate.planExternalId);
+        }
+        if (periodIds.has(candidate.periodExternalId)) {
+          updatePeriodCandidates += 1;
+        } else {
+          createPeriodCandidates += 1;
+        }
+        if (candidate.paymentStatus === "paid") paidPeriods += 1;
+        if (candidate.paymentStatus === "partial") partialPeriods += 1;
+        if (candidate.paymentStatus === "past_due") pastDuePeriods += 1;
+      }
+    });
+
+    await finalizeValidation({
+      supabase,
+      studioId,
+      batchId,
+      headers,
+      rows,
+      batchErrors,
+      extraSummary: {
+        create_candidates: createCandidates,
+        update_candidates: updateCandidates,
+        create_plan_candidates: createPlanCandidates,
+        create_period_candidates: createPeriodCandidates,
+        update_period_candidates: updatePeriodCandidates,
+        ready_rows: readyRows,
+        paid_periods: paidPeriods,
+        partial_periods: partialPeriods,
+        past_due_periods: pastDuePeriods,
+        future_billing_setup_required: futureBillingSetupRequired,
+        autopay_credentials_imported: false,
+        source_specific_validation: "wellnessliving_memberships_v1",
+      },
+    });
+  } catch (error) {
+    redirectImportError("/app/settings/import", "validation_failed", error);
+  }
+
+  redirect("/app/settings/import?success=validated");
+}
+
+export async function executeWellnessLivingMembershipImportBatchAction(
+  formData: FormData,
+) {
+  const batchId = getString(formData, "batchId");
+  if (!batchId) redirect("/app/settings/import");
+
+  try {
+    const { supabase, studioId } = await getImportContext();
+    const batch = await getBatchForStudio({ supabase, studioId, batchId });
+    if (!batch) redirect("/app/settings/import?error=batch_not_found");
+    if (
+      batch.source_system !== "wellnessliving" ||
+      batch.import_type !== "memberships"
+    ) {
+      redirect("/app/settings/import?error=wrong_import_type");
+    }
+    if (
+      batch.mode === "dry_run" ||
+      !["validated", "completed_with_warnings"].includes(batch.status)
+    ) {
+      redirect(`/app/settings/import/${batchId}?error=batch_not_ready`);
+    }
+
+    const fileRow = await getPrimaryBatchFile({ supabase, batchId });
+    if (!fileRow?.storage_bucket || !fileRow.storage_path) {
+      redirect(`/app/settings/import/${batchId}?error=file_not_found`);
+    }
+
+    const { data: errors, error: errorsError } = await supabase
+      .from("import_batch_errors")
+      .select("row_number, error_code")
+      .eq("import_batch_id", batchId);
+    if (errorsError) throw new Error(errorsError.message);
+
+    const blockedRows = new Set(
+      (errors ?? [])
+        .filter((row) => isBlockingErrorCode(row.error_code))
+        .map((row) => row.row_number)
+        .filter((value): value is number => typeof value === "number"),
+    );
+
+    const csvText = await loadStoredCsvText({
+      supabase,
+      bucket: fileRow.storage_bucket,
+      path: fileRow.storage_path,
+    });
+    const { headers, rows } = parseCsvRows(csvText);
+    const executionErrors: BatchErrorInsert[] = [];
+    let insertedRows = 0;
+    let updatedRows = 0;
+    let skippedRows = blockedRows.size;
+    let failedRows = 0;
+    let plansCreated = 0;
+    let plansUpdated = 0;
+    let periodsCreated = 0;
+    let periodsUpdated = 0;
+    let benefitRowsCreated = 0;
+    let futureBillingSetupRequired = 0;
+    const importedAt = new Date().toISOString();
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      const rowNumber = index + 2;
+      if (blockedRows.has(rowNumber)) continue;
+
+      const candidate = buildWellnessLivingMembershipCandidate(row);
+
+      try {
+        const { data: client, error: clientError } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("source_system", "wellnessliving")
+          .eq("source_external_id", candidate.clientExternalId)
+          .single();
+        if (clientError || !client) {
+          throw new Error(clientError?.message ?? "Client could not be resolved.");
+        }
+
+        const { data: existingPlan, error: planLookupError } = await supabase
+          .from("membership_plans")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("source_system", "wellnessliving")
+          .eq("source_external_id", candidate.planExternalId)
+          .maybeSingle();
+        if (planLookupError) throw new Error(planLookupError.message);
+
+        let planId = existingPlan?.id ?? null;
+
+        if (!planId) {
+          const { data: insertedPlan, error: insertPlanError } = await supabase
+            .from("membership_plans")
+            .insert({
+              studio_id: studioId,
+              name: candidate.name,
+              description: "Imported from WellnessLiving.",
+              active: true,
+              billing_interval: candidate.billingInterval,
+              price: candidate.price,
+              signup_fee: 0,
+              auto_renew_default: false,
+              visibility: "private",
+              sort_order: 0,
+              source_system: "wellnessliving",
+              source_external_id: candidate.planExternalId,
+              imported_at: importedAt,
+            })
+            .select("id")
+            .single();
+          if (insertPlanError || !insertedPlan) {
+            throw new Error(insertPlanError?.message ?? "Membership plan insert failed.");
+          }
+          planId = insertedPlan.id;
+          plansCreated += 1;
+        } else if (batch.mode === "create_or_update") {
+          const { error: updatePlanError } = await supabase
+            .from("membership_plans")
+            .update({
+              name: candidate.name,
+              active: true,
+              billing_interval: candidate.billingInterval,
+              price: candidate.price,
+              auto_renew_default: false,
+              imported_at: importedAt,
+            })
+            .eq("id", planId)
+            .eq("studio_id", studioId);
+          if (updatePlanError) throw new Error(updatePlanError.message);
+          plansUpdated += 1;
+        }
+
+        if (!existingPlan || batch.mode === "create_or_update") {
+          const { error: deleteBenefitsError } = await supabase
+            .from("membership_plan_benefits")
+            .delete()
+            .eq("membership_plan_id", planId);
+          if (deleteBenefitsError) throw new Error(deleteBenefitsError.message);
+
+          const benefitRows = [];
+          if (
+            candidate.includedPrivateLessons !== null &&
+            candidate.includedPrivateLessons > 0
+          ) {
+            benefitRows.push({
+              membership_plan_id: planId,
+              benefit_type: "included_private_lessons",
+              quantity: candidate.includedPrivateLessons,
+              discount_percent: null,
+              discount_amount: null,
+              usage_period: "billing_cycle",
+              applies_to: null,
+              sort_order: 0,
+            });
+          }
+          if (
+            candidate.includedGroupClasses !== null &&
+            candidate.includedGroupClasses > 0
+          ) {
+            benefitRows.push({
+              membership_plan_id: planId,
+              benefit_type: "included_group_classes",
+              quantity: candidate.includedGroupClasses,
+              discount_percent: null,
+              discount_amount: null,
+              usage_period: "billing_cycle",
+              applies_to: null,
+              sort_order: 1,
+            });
+          }
+
+          if (benefitRows.length > 0) {
+            const { error: benefitsError } = await supabase
+              .from("membership_plan_benefits")
+              .insert(benefitRows);
+            if (benefitsError) throw new Error(benefitsError.message);
+            benefitRowsCreated += benefitRows.length;
+          }
+        }
+
+        const { data: existingMembership, error: membershipLookupError } =
+          await supabase
+            .from("client_memberships")
+            .select("id")
+            .eq("studio_id", studioId)
+            .eq("source_system", "wellnessliving")
+            .eq("source_external_id", candidate.clientMembershipExternalId)
+            .maybeSingle();
+        if (membershipLookupError) throw new Error(membershipLookupError.message);
+
+        let membershipId = existingMembership?.id ?? null;
+
+        if (membershipId && batch.mode === "create_only") {
+          skippedRows += 1;
+          continue;
+        }
+
+        const membershipPayload = {
+          client_id: client.id,
+          membership_plan_id: planId,
+          status: candidate.status,
+          starts_on: candidate.startsOn,
+          ends_on:
+            ["cancelled", "expired"].includes(candidate.status)
+              ? candidate.periodEnd
+              : null,
+          current_period_start: candidate.periodStart,
+          current_period_end: candidate.periodEnd,
+          auto_renew: false,
+          cancel_at_period_end:
+            candidate.status === "cancelled" || candidate.status === "expired",
+          name_snapshot: candidate.name,
+          price_snapshot: candidate.price,
+          billing_interval_snapshot: candidate.billingInterval,
+          imported_at: importedAt,
+        };
+
+        if (!membershipId) {
+          const { data: insertedMembership, error: insertMembershipError } =
+            await supabase
+              .from("client_memberships")
+              .insert({
+                studio_id: studioId,
+                ...membershipPayload,
+                source_system: "wellnessliving",
+                source_external_id: candidate.clientMembershipExternalId,
+              })
+              .select("id")
+              .single();
+          if (insertMembershipError || !insertedMembership) {
+            throw new Error(
+              insertMembershipError?.message ?? "Client membership insert failed.",
+            );
+          }
+          membershipId = insertedMembership.id;
+          insertedRows += 1;
+        } else {
+          const { error: updateMembershipError } = await supabase
+            .from("client_memberships")
+            .update(membershipPayload)
+            .eq("id", membershipId)
+            .eq("studio_id", studioId);
+          if (updateMembershipError) throw new Error(updateMembershipError.message);
+          updatedRows += 1;
+        }
+
+        const periodPayload = {
+          studio_id: studioId,
+          client_id: client.id,
+          client_membership_id: membershipId,
+          period_start: candidate.periodStart,
+          period_end: candidate.periodEnd,
+          amount_due: candidate.amountDue,
+          amount_paid: candidate.amountPaid,
+          currency: "usd",
+          payment_status: candidate.paymentStatus,
+          payment_due_at: `${candidate.periodStart}T12:00:00.000Z`,
+          paid_at:
+            candidate.paymentStatus === "paid"
+              ? `${candidate.periodStart}T12:00:00.000Z`
+              : null,
+          source_system: "wellnessliving",
+          source_external_id: candidate.periodExternalId,
+          imported_at: importedAt,
+        };
+
+        const { data: existingPeriod, error: periodLookupError } = await supabase
+          .from("client_membership_periods")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("source_system", "wellnessliving")
+          .eq("source_external_id", candidate.periodExternalId)
+          .maybeSingle();
+        if (periodLookupError) throw new Error(periodLookupError.message);
+
+        if (!existingPeriod) {
+          const { error: insertPeriodError } = await supabase
+            .from("client_membership_periods")
+            .insert(periodPayload);
+          if (insertPeriodError) throw new Error(insertPeriodError.message);
+          periodsCreated += 1;
+        } else if (batch.mode === "create_or_update") {
+          const { error: updatePeriodError } = await supabase
+            .from("client_membership_periods")
+            .update(periodPayload)
+            .eq("id", existingPeriod.id)
+            .eq("studio_id", studioId);
+          if (updatePeriodError) throw new Error(updatePeriodError.message);
+          periodsUpdated += 1;
+        }
+
+        if (candidate.autoRenew) {
+          futureBillingSetupRequired += 1;
+        }
+      } catch (error) {
+        failedRows += 1;
+        executionErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: "client_membership_id",
+          error_code: "execution_failed",
+          error_message:
+            error instanceof Error ? error.message : "Membership import failed.",
+          raw_value: candidate.clientMembershipExternalId,
+          row_data: row,
+        });
+      }
+    }
+
+    await writeBatchErrors({ supabase, batchErrors: executionErrors });
+
+    await finalizeBatch({
+      supabase,
+      studioId,
+      batchId,
+      status: failedRows > 0 ? "completed_with_warnings" : "completed",
+      totalRows: rows.length,
+      processedRows: rows.length,
+      insertedRows,
+      updatedRows,
+      skippedRows,
+      failedRows,
+      summary: {
+        headers,
+        executed: true,
+        row_count: rows.length,
+        plans_created: plansCreated,
+        plans_updated: plansUpdated,
+        periods_created: periodsCreated,
+        periods_updated: periodsUpdated,
+        benefit_rows_created: benefitRowsCreated,
+        future_billing_setup_required: futureBillingSetupRequired,
+        autopay_credentials_imported: false,
+        recurring_billing_recreated: false,
+        source_specific_execution: "wellnessliving_memberships_v1",
+      },
+    });
+
+    const { error: reconciliationError } = await supabase
+      .from("import_batches")
+      .update({
+        reconciliation_status: failedRows > 0 ? "needs_review" : "reconciled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", batchId)
+      .eq("studio_id", studioId);
+    if (reconciliationError) throw new Error(reconciliationError.message);
+  } catch (error) {
+    redirectImportError(
+      `/app/settings/import/${batchId}`,
+      "execution_failed",
+      error,
+    );
+  }
+
+  redirect(`/app/settings/import/${batchId}?success=executed`);
+}
+
+
+type WellnessLivingAttendanceCandidate = {
+  appointmentExternalId: string;
+  status: "attended" | "no_show" | "cancelled" | "";
+  markedAt: string;
+};
+
+function buildWellnessLivingAttendanceCandidate(
+  row: Record<string, string>,
+): WellnessLivingAttendanceCandidate {
+  const rawStatus = getRowValue(row, [
+    "attendance_status",
+    "visit_status",
+    "status",
+  ])
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  const status =
+    rawStatus === "attended" || rawStatus === "completed" || rawStatus === "present"
+      ? "attended"
+      : rawStatus === "no_show" || rawStatus === "noshow" || rawStatus === "absent"
+        ? "no_show"
+        : rawStatus === "cancelled" || rawStatus === "canceled"
+          ? "cancelled"
+          : "";
+
+  return {
+    appointmentExternalId: getRowValue(row, [
+      "appointment_id",
+      "visit_id",
+      "booking_id",
+      "source_external_id",
+    ]),
+    status,
+    markedAt: getRowValue(row, [
+      "attendance_marked_at",
+      "attended_at",
+      "visit_date",
+      "completed_at",
+    ]),
+  };
+}
+
+export async function validateWellnessLivingAttendanceImportBatchAction(
+  formData: FormData,
+) {
+  const batchId = getString(formData, "batchId");
+  if (!batchId) redirect("/app/settings/import");
+
+  try {
+    const { supabase, studioId } = await getImportContext();
+    const batch = await getBatchForStudio({ supabase, studioId, batchId });
+    if (!batch) redirect("/app/settings/import?error=batch_not_found");
+    if (
+      batch.source_system !== "wellnessliving" ||
+      batch.import_type !== "attendance"
+    ) {
+      redirect("/app/settings/import?error=wrong_import_type");
+    }
+
+    const fileRow = await getPrimaryBatchFile({ supabase, batchId });
+    if (!fileRow?.storage_bucket || !fileRow.storage_path) {
+      redirect("/app/settings/import?error=file_not_found");
+    }
+
+    await clearBatchErrors({ supabase, batchId });
+    const csvText = await loadStoredCsvText({
+      supabase,
+      bucket: fileRow.storage_bucket,
+      path: fileRow.storage_path,
+    });
+    const { headers, rows } = parseCsvRows(csvText);
+    const candidates = rows.map(buildWellnessLivingAttendanceCandidate);
+    const externalIds = Array.from(
+      new Set(candidates.map((row) => row.appointmentExternalId).filter(Boolean)),
+    );
+
+    const { data: appointments, error: appointmentsError } = externalIds.length
+      ? await supabase
+          .from("appointments")
+          .select("id, source_external_id, status")
+          .eq("studio_id", studioId)
+          .eq("source_system", "wellnessliving")
+          .in("source_external_id", externalIds)
+      : { data: [], error: null };
+
+    if (appointmentsError) throw new Error(appointmentsError.message);
+
+    const appointmentMap = new Map(
+      (appointments ?? []).map((row) => [String(row.source_external_id), row]),
+    );
+    const seen = new Set<string>();
+    const batchErrors: BatchErrorInsert[] = [];
+    let readyRows = 0;
+    let attendedRows = 0;
+    let noShowRows = 0;
+    let cancelledRows = 0;
+    let alreadyMatchedRows = 0;
+
+    rows.forEach((row, index) => {
+      const candidate = candidates[index];
+      const rowNumber = index + 2;
+      let blocked = false;
+
+      const addBlocking = (
+        fieldName: string,
+        errorCode: string,
+        errorMessage: string,
+        rawValue: string | null = null,
+      ) => {
+        blocked = true;
+        batchErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: fieldName,
+          error_code: errorCode,
+          error_message: errorMessage,
+          raw_value: rawValue,
+          row_data: row,
+        });
+      };
+
+      if (!candidate.appointmentExternalId) {
+        addBlocking(
+          "appointment_id",
+          "missing_required_field",
+          "WellnessLiving appointment ID is required.",
+        );
+      } else if (seen.has(candidate.appointmentExternalId)) {
+        addBlocking(
+          "appointment_id",
+          "duplicate_source_identity",
+          "The same appointment appears more than once in the attendance CSV.",
+          candidate.appointmentExternalId,
+        );
+      } else {
+        seen.add(candidate.appointmentExternalId);
+      }
+
+      const appointment = appointmentMap.get(candidate.appointmentExternalId);
+      if (candidate.appointmentExternalId && !appointment) {
+        addBlocking(
+          "appointment_id",
+          "missing_related_record",
+          "Import the WellnessLiving appointment before importing attendance.",
+          candidate.appointmentExternalId,
+        );
+      }
+
+      if (!candidate.status) {
+        addBlocking(
+          "attendance_status",
+          "missing_required_field",
+          "Attendance status must be attended, no_show, or cancelled.",
+          getRowValue(row, ["attendance_status", "visit_status", "status"]),
+        );
+      }
+
+      if (candidate.markedAt && Number.isNaN(Date.parse(candidate.markedAt))) {
+        addBlocking(
+          "attendance_marked_at",
+          "invalid_datetime",
+          "Attendance timestamp is invalid.",
+          candidate.markedAt,
+        );
+      }
+
+      if (!blocked) {
+        readyRows += 1;
+        if (candidate.status === "attended") attendedRows += 1;
+        if (candidate.status === "no_show") noShowRows += 1;
+        if (candidate.status === "cancelled") cancelledRows += 1;
+        if (appointment?.status === candidate.status) alreadyMatchedRows += 1;
+
+        batchErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: "attendance_status",
+          error_code: "historical_balance_preserved",
+          error_message:
+            "Historical attendance updates appointment status only. It will not deduct package or membership balances again.",
+          raw_value: candidate.status,
+          row_data: row,
+        });
+      }
+    });
+
+    await finalizeValidation({
+      supabase,
+      studioId,
+      batchId,
+      headers,
+      rows,
+      batchErrors,
+      extraSummary: {
+        create_candidates: 0,
+        update_candidates: readyRows,
+        ready_rows: readyRows,
+        attended_rows: attendedRows,
+        no_show_rows: noShowRows,
+        cancelled_rows: cancelledRows,
+        already_matched_rows: alreadyMatchedRows,
+        usage_deduction_enabled: false,
+        source_specific_validation: "wellnessliving_attendance_v1",
+      },
+    });
+  } catch (error) {
+    redirectImportError("/app/settings/import", "validation_failed", error);
+  }
+
+  redirect("/app/settings/import?success=validated");
+}
+
+export async function executeWellnessLivingAttendanceImportBatchAction(
+  formData: FormData,
+) {
+  const batchId = getString(formData, "batchId");
+  if (!batchId) redirect("/app/settings/import");
+
+  try {
+    const { supabase, studioId } = await getImportContext();
+    const batch = await getBatchForStudio({ supabase, studioId, batchId });
+    if (!batch) redirect("/app/settings/import?error=batch_not_found");
+    if (
+      batch.source_system !== "wellnessliving" ||
+      batch.import_type !== "attendance"
+    ) {
+      redirect("/app/settings/import?error=wrong_import_type");
+    }
+    if (
+      batch.mode === "dry_run" ||
+      !["validated", "completed_with_warnings"].includes(batch.status)
+    ) {
+      redirect(`/app/settings/import/${batchId}?error=batch_not_ready`);
+    }
+
+    const fileRow = await getPrimaryBatchFile({ supabase, batchId });
+    if (!fileRow?.storage_bucket || !fileRow.storage_path) {
+      redirect(`/app/settings/import/${batchId}?error=file_not_found`);
+    }
+
+    const { data: errors, error: errorsError } = await supabase
+      .from("import_batch_errors")
+      .select("row_number, error_code")
+      .eq("import_batch_id", batchId);
+    if (errorsError) throw new Error(errorsError.message);
+
+    const blockedRows = new Set(
+      (errors ?? [])
+        .filter((row) => isBlockingErrorCode(row.error_code))
+        .map((row) => row.row_number)
+        .filter((value): value is number => typeof value === "number"),
+    );
+
+    const csvText = await loadStoredCsvText({
+      supabase,
+      bucket: fileRow.storage_bucket,
+      path: fileRow.storage_path,
+    });
+    const { headers, rows } = parseCsvRows(csvText);
+    const executionErrors: BatchErrorInsert[] = [];
+    let updatedRows = 0;
+    let skippedRows = blockedRows.size;
+    let failedRows = 0;
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const rowNumber = index + 2;
+      if (blockedRows.has(rowNumber)) continue;
+      const candidate = buildWellnessLivingAttendanceCandidate(rows[index]);
+
+      try {
+        const markedAt =
+          candidate.markedAt && !Number.isNaN(Date.parse(candidate.markedAt))
+            ? new Date(candidate.markedAt).toISOString()
+            : new Date().toISOString();
+
+        const { data: appointment, error: lookupError } = await supabase
+          .from("appointments")
+          .select("id, status")
+          .eq("studio_id", studioId)
+          .eq("source_system", "wellnessliving")
+          .eq("source_external_id", candidate.appointmentExternalId)
+          .single();
+        if (lookupError || !appointment) {
+          throw new Error(lookupError?.message ?? "Appointment could not be resolved.");
+        }
+
+        if (appointment.status === candidate.status && batch.mode === "create_only") {
+          skippedRows += 1;
+          continue;
+        }
+
+        const { error: updateError } = await supabase
+          .from("appointments")
+          .update({
+            status: candidate.status,
+            attendance_marked_at:
+              candidate.status === "attended" || candidate.status === "no_show"
+                ? markedAt
+                : null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", appointment.id)
+          .eq("studio_id", studioId);
+        if (updateError) throw new Error(updateError.message);
+
+        updatedRows += 1;
+      } catch (error) {
+        failedRows += 1;
+        executionErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: "appointment_id",
+          error_code: "execution_failed",
+          error_message:
+            error instanceof Error ? error.message : "Attendance import failed.",
+          raw_value: candidate.appointmentExternalId,
+          row_data: rows[index],
+        });
+      }
+    }
+
+    await writeBatchErrors({ supabase, batchErrors: executionErrors });
+    await finalizeBatch({
+      supabase,
+      studioId,
+      batchId,
+      status: failedRows > 0 ? "completed_with_warnings" : "completed",
+      totalRows: rows.length,
+      processedRows: rows.length,
+      insertedRows: 0,
+      updatedRows,
+      skippedRows,
+      failedRows,
+      summary: {
+        headers,
+        executed: true,
+        row_count: rows.length,
+        attendance_rows_updated: updatedRows,
+        usage_deduction_enabled: false,
+        package_balances_preserved: true,
+        membership_entitlements_preserved: true,
+        source_specific_execution: "wellnessliving_attendance_v1",
+      },
+    });
+
+    const { error: reconciliationError } = await supabase
+      .from("import_batches")
+      .update({
+        reconciliation_status: failedRows > 0 ? "needs_review" : "reconciled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", batchId)
+      .eq("studio_id", studioId);
+    if (reconciliationError) throw new Error(reconciliationError.message);
+  } catch (error) {
+    redirectImportError(`/app/settings/import/${batchId}`, "execution_failed", error);
+  }
+
+  redirect(`/app/settings/import/${batchId}?success=executed`);
+}
+
+type WellnessLivingCreditCandidate = {
+  externalId: string;
+  clientExternalId: string;
+  entryDate: string;
+  direction: "credit" | "debit" | "";
+  amount: number;
+  entryType:
+    | "credit_added"
+    | "credit_applied"
+    | "payment_received"
+    | "refund_credit"
+    | "manual_adjustment"
+    | "reversal";
+  description: string;
+};
+
+function buildWellnessLivingCreditCandidate(
+  row: Record<string, string>,
+): WellnessLivingCreditCandidate {
+  const directionRaw = getRowValue(row, ["direction", "credit_debit"])
+    .trim()
+    .toLowerCase();
+  const direction =
+    directionRaw === "credit" || directionRaw === "debit" ? directionRaw : "";
+  const entryTypeRaw = getRowValue(row, [
+    "entry_type",
+    "transaction_type",
+    "credit_type",
+  ])
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  const allowedTypes = new Set([
+    "credit_added",
+    "credit_applied",
+    "payment_received",
+    "refund_credit",
+    "manual_adjustment",
+    "reversal",
+  ]);
+
+  const parsedAmount = parseMoney(
+    getRowValue(row, ["amount", "credit_amount", "transaction_amount"]),
+  );
+
+  return {
+    externalId: getRowValue(row, [
+      "ledger_entry_id",
+      "transaction_id",
+      "credit_id",
+      "source_external_id",
+    ]),
+    clientExternalId: getRowValue(row, [
+      "client_id",
+      "customer_id",
+      "member_id",
+    ]),
+    entryDate: getRowValue(row, [
+      "entry_date",
+      "transaction_date",
+      "date",
+    ]),
+    direction,
+    amount: Number.isFinite(parsedAmount) ? Math.abs(parsedAmount) : Number.NaN,
+    entryType: allowedTypes.has(entryTypeRaw)
+      ? (entryTypeRaw as WellnessLivingCreditCandidate["entryType"])
+      : direction === "debit"
+        ? "credit_applied"
+        : "credit_added",
+    description:
+      getRowValue(row, ["description", "notes", "memo"]) ||
+      "Imported WellnessLiving account credit activity.",
+  };
+}
+
+export async function validateWellnessLivingAccountCreditImportBatchAction(
+  formData: FormData,
+) {
+  const batchId = getString(formData, "batchId");
+  if (!batchId) redirect("/app/settings/import");
+
+  try {
+    const { supabase, studioId } = await getImportContext();
+    const batch = await getBatchForStudio({ supabase, studioId, batchId });
+    if (!batch) redirect("/app/settings/import?error=batch_not_found");
+    if (
+      batch.source_system !== "wellnessliving" ||
+      batch.import_type !== "account_credits"
+    ) {
+      redirect("/app/settings/import?error=wrong_import_type");
+    }
+
+    const fileRow = await getPrimaryBatchFile({ supabase, batchId });
+    if (!fileRow?.storage_bucket || !fileRow.storage_path) {
+      redirect("/app/settings/import?error=file_not_found");
+    }
+
+    await clearBatchErrors({ supabase, batchId });
+    const csvText = await loadStoredCsvText({
+      supabase,
+      bucket: fileRow.storage_bucket,
+      path: fileRow.storage_path,
+    });
+    const { headers, rows } = parseCsvRows(csvText);
+    const candidates = rows.map(buildWellnessLivingCreditCandidate);
+    const clientExternalIds = Array.from(
+      new Set(candidates.map((row) => row.clientExternalId).filter(Boolean)),
+    );
+    const entryExternalIds = Array.from(
+      new Set(candidates.map((row) => row.externalId).filter(Boolean)),
+    );
+
+    const [{ data: clients, error: clientsError }, { data: entries, error: entriesError }] =
+      await Promise.all([
+        clientExternalIds.length
+          ? supabase
+              .from("clients")
+              .select("source_external_id")
+              .eq("studio_id", studioId)
+              .eq("source_system", "wellnessliving")
+              .in("source_external_id", clientExternalIds)
+          : Promise.resolve({ data: [], error: null }),
+        entryExternalIds.length
+          ? supabase
+              .from("client_account_ledger")
+              .select("source_external_id")
+              .eq("studio_id", studioId)
+              .eq("source_system", "wellnessliving")
+              .in("source_external_id", entryExternalIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+    const firstError = clientsError || entriesError;
+    if (firstError) throw new Error(firstError.message);
+
+    const clientIds = new Set(
+      (clients ?? []).map((row) => String(row.source_external_id)),
+    );
+    const existingEntryIds = new Set(
+      (entries ?? []).map((row) => String(row.source_external_id)),
+    );
+    const seen = new Set<string>();
+    const batchErrors: BatchErrorInsert[] = [];
+    let readyRows = 0;
+    let createCandidates = 0;
+    let updateCandidates = 0;
+    let creditTotal = 0;
+    let debitTotal = 0;
+
+    rows.forEach((row, index) => {
+      const candidate = candidates[index];
+      const rowNumber = index + 2;
+      let blocked = false;
+
+      const addBlocking = (
+        fieldName: string,
+        errorCode: string,
+        errorMessage: string,
+        rawValue: string | null = null,
+      ) => {
+        blocked = true;
+        batchErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: fieldName,
+          error_code: errorCode,
+          error_message: errorMessage,
+          raw_value: rawValue,
+          row_data: row,
+        });
+      };
+
+      if (!candidate.externalId) {
+        addBlocking(
+          "ledger_entry_id",
+          "missing_required_field",
+          "WellnessLiving ledger entry ID is required.",
+        );
+      } else if (seen.has(candidate.externalId)) {
+        addBlocking(
+          "ledger_entry_id",
+          "duplicate_source_identity",
+          "The same ledger entry appears more than once.",
+          candidate.externalId,
+        );
+      } else {
+        seen.add(candidate.externalId);
+      }
+
+      if (!candidate.clientExternalId) {
+        addBlocking("client_id", "missing_required_field", "WellnessLiving client ID is required.");
+      } else if (!clientIds.has(candidate.clientExternalId)) {
+        addBlocking(
+          "client_id",
+          "missing_related_record",
+          "Import the WellnessLiving client before account credits.",
+          candidate.clientExternalId,
+        );
+      }
+
+      if (!candidate.direction) {
+        addBlocking(
+          "direction",
+          "missing_required_field",
+          "Direction must be credit or debit.",
+          getRowValue(row, ["direction", "credit_debit"]),
+        );
+      }
+
+      if (!Number.isFinite(candidate.amount) || candidate.amount <= 0) {
+        addBlocking(
+          "amount",
+          "invalid_amount",
+          "Account-credit amount must be greater than zero.",
+          getRowValue(row, ["amount", "credit_amount", "transaction_amount"]),
+        );
+      }
+
+      if (!candidate.entryDate || Number.isNaN(Date.parse(candidate.entryDate))) {
+        addBlocking(
+          "entry_date",
+          "invalid_datetime",
+          "Entry date is required and must be valid.",
+          candidate.entryDate,
+        );
+      }
+
+      if (!blocked) {
+        readyRows += 1;
+        if (existingEntryIds.has(candidate.externalId)) updateCandidates += 1;
+        else createCandidates += 1;
+        if (candidate.direction === "credit") creditTotal += candidate.amount;
+        else debitTotal += candidate.amount;
+      }
+    });
+
+    await finalizeValidation({
+      supabase,
+      studioId,
+      batchId,
+      headers,
+      rows,
+      batchErrors,
+      extraSummary: {
+        create_candidates: createCandidates,
+        update_candidates: updateCandidates,
+        ready_rows: readyRows,
+        credit_total: Number(creditTotal.toFixed(2)),
+        debit_total: Number(debitTotal.toFixed(2)),
+        net_credit_change: Number((creditTotal - debitTotal).toFixed(2)),
+        source_specific_validation: "wellnessliving_account_credits_v1",
+      },
+    });
+  } catch (error) {
+    redirectImportError("/app/settings/import", "validation_failed", error);
+  }
+
+  redirect("/app/settings/import?success=validated");
+}
+
+export async function executeWellnessLivingAccountCreditImportBatchAction(
+  formData: FormData,
+) {
+  const batchId = getString(formData, "batchId");
+  if (!batchId) redirect("/app/settings/import");
+
+  try {
+    const { supabase, studioId, userId } = await getImportContext();
+    const batch = await getBatchForStudio({ supabase, studioId, batchId });
+    if (!batch) redirect("/app/settings/import?error=batch_not_found");
+    if (
+      batch.source_system !== "wellnessliving" ||
+      batch.import_type !== "account_credits"
+    ) {
+      redirect("/app/settings/import?error=wrong_import_type");
+    }
+    if (
+      batch.mode === "dry_run" ||
+      !["validated", "completed_with_warnings"].includes(batch.status)
+    ) {
+      redirect(`/app/settings/import/${batchId}?error=batch_not_ready`);
+    }
+
+    const fileRow = await getPrimaryBatchFile({ supabase, batchId });
+    if (!fileRow?.storage_bucket || !fileRow.storage_path) {
+      redirect(`/app/settings/import/${batchId}?error=file_not_found`);
+    }
+
+    const { data: errors, error: errorsError } = await supabase
+      .from("import_batch_errors")
+      .select("row_number, error_code")
+      .eq("import_batch_id", batchId);
+    if (errorsError) throw new Error(errorsError.message);
+
+    const blockedRows = new Set(
+      (errors ?? [])
+        .filter((row) => isBlockingErrorCode(row.error_code))
+        .map((row) => row.row_number)
+        .filter((value): value is number => typeof value === "number"),
+    );
+
+    const csvText = await loadStoredCsvText({
+      supabase,
+      bucket: fileRow.storage_bucket,
+      path: fileRow.storage_path,
+    });
+    const { headers, rows } = parseCsvRows(csvText);
+    const executionErrors: BatchErrorInsert[] = [];
+    let insertedRows = 0;
+    let updatedRows = 0;
+    let skippedRows = blockedRows.size;
+    let failedRows = 0;
+    let creditTotal = 0;
+    let debitTotal = 0;
+    const importedAt = new Date().toISOString();
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const rowNumber = index + 2;
+      if (blockedRows.has(rowNumber)) continue;
+      const candidate = buildWellnessLivingCreditCandidate(rows[index]);
+
+      try {
+        const { data: client, error: clientError } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("source_system", "wellnessliving")
+          .eq("source_external_id", candidate.clientExternalId)
+          .single();
+        if (clientError || !client) {
+          throw new Error(clientError?.message ?? "Client could not be resolved.");
+        }
+
+        const { data: existing, error: existingError } = await supabase
+          .from("client_account_ledger")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("source_system", "wellnessliving")
+          .eq("source_external_id", candidate.externalId)
+          .maybeSingle();
+        if (existingError) throw new Error(existingError.message);
+
+        if (existing && batch.mode === "create_only") {
+          skippedRows += 1;
+          continue;
+        }
+
+        const payload = {
+          client_id: client.id,
+          entry_date: candidate.entryDate.slice(0, 10),
+          entry_type: candidate.entryType,
+          direction: candidate.direction,
+          amount: candidate.amount,
+          description: candidate.description,
+          reference_type: "wellnessliving_import",
+          reference_id: null,
+          source_system: "wellnessliving",
+          source_external_id: candidate.externalId,
+          imported_at: importedAt,
+          updated_at: importedAt,
+        };
+
+        if (existing) {
+          const { error: updateError } = await supabase
+            .from("client_account_ledger")
+            .update(payload)
+            .eq("id", existing.id)
+            .eq("studio_id", studioId);
+          if (updateError) throw new Error(updateError.message);
+          updatedRows += 1;
+        } else {
+          const { error: insertError } = await supabase
+            .from("client_account_ledger")
+            .insert({
+              studio_id: studioId,
+              ...payload,
+              created_by: userId,
+            });
+          if (insertError) throw new Error(insertError.message);
+          insertedRows += 1;
+        }
+
+        if (candidate.direction === "credit") creditTotal += candidate.amount;
+        else debitTotal += candidate.amount;
+      } catch (error) {
+        failedRows += 1;
+        executionErrors.push({
+          import_batch_id: batchId,
+          import_batch_file_id: fileRow.id,
+          row_number: rowNumber,
+          field_name: "ledger_entry_id",
+          error_code: "execution_failed",
+          error_message:
+            error instanceof Error ? error.message : "Account-credit import failed.",
+          raw_value: candidate.externalId,
+          row_data: rows[index],
+        });
+      }
+    }
+
+    await writeBatchErrors({ supabase, batchErrors: executionErrors });
+    await finalizeBatch({
+      supabase,
+      studioId,
+      batchId,
+      status: failedRows > 0 ? "completed_with_warnings" : "completed",
+      totalRows: rows.length,
+      processedRows: rows.length,
+      insertedRows,
+      updatedRows,
+      skippedRows,
+      failedRows,
+      summary: {
+        headers,
+        executed: true,
+        row_count: rows.length,
+        credit_total: Number(creditTotal.toFixed(2)),
+        debit_total: Number(debitTotal.toFixed(2)),
+        net_credit_change: Number((creditTotal - debitTotal).toFixed(2)),
+        source_specific_execution: "wellnessliving_account_credits_v1",
+      },
+    });
+
+    const { error: reconciliationError } = await supabase
+      .from("import_batches")
+      .update({
+        reconciliation_status: failedRows > 0 ? "needs_review" : "reconciled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", batchId)
+      .eq("studio_id", studioId);
+    if (reconciliationError) throw new Error(reconciliationError.message);
+  } catch (error) {
+    redirectImportError(`/app/settings/import/${batchId}`, "execution_failed", error);
+  }
+
+  redirect(`/app/settings/import/${batchId}?success=executed`);
 }

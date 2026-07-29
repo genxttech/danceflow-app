@@ -1,0 +1,4 @@
+ledger_entry_id,client_id,entry_date,direction,amount,entry_type,description
+WL-LEDGER-1001,WL-C-1001,2026-07-01,credit,75.00,credit_added,Opening WellnessLiving account credit
+WL-LEDGER-1002,WL-C-1002,2026-07-08,debit,25.00,credit_applied,Historical credit applied before migration
+WL-LEDGER-1003,WL-C-1003,2026-07-15,credit,40.00,refund_credit,Refund retained as account credit

@@ -1,0 +1,4 @@
+pricing_option_id,client_membership_id,billing_period_id,client_id,membership_name,status,billing_interval,price,start_date,period_start,period_end,amount_due,amount_paid,payment_status,auto_renew,included_private_lessons,included_group_classes
+WL-MP-100,WL-CM-1001,WL-BP-1001,WL-C-1001,Gold Membership,active,monthly,597.00,2026-06-18,2026-07-18,2026-08-17,597.00,597.00,paid,true,2,4
+WL-MP-200,WL-CM-1002,WL-BP-1002,WL-C-1002,Social Membership,past_due,monthly,129.00,2026-07-01,2026-07-01,2026-07-31,129.00,0.00,past_due,false,0,8
+WL-MP-300,WL-CM-1003,WL-BP-1003,WL-C-1003,Annual Practice Membership,active,yearly,999.00,2026-01-01,2026-01-01,2026-12-31,999.00,999.00,paid,false,0,0

@@ -1,0 +1,4 @@
+client_id,first_name,last_name,email,mobile_phone,status,household_id,relationship_type,related_client_id,guardian_email,notes
+WL-C-1001,Avery,Stone,avery@example.com,614-555-0101,Active,WL-H-200,parent,WL-C-1002,,Primary household member
+WL-C-1002,Jordan,Stone,jordan@example.com,614-555-0102,Active,WL-H-200,child,WL-C-1001,avery@example.com,
+WL-C-1003,Sam,Rivera,sam@example.com,614-555-0103,Active,,,,,

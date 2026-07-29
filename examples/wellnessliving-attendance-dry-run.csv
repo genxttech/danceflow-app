@@ -1,0 +1,4 @@
+appointment_id,attendance_status,attendance_marked_at
+WL-APPT-1001,attended,2026-07-12T19:00:00-04:00
+WL-APPT-1002,no_show,2026-07-13T14:00:00-04:00
+WL-APPT-1003,cancelled,2026-07-14T10:00:00-04:00
