@@ -126,6 +126,17 @@ async function queryList<T>(
   return data ?? [];
 }
 
+function isMissingRelationError(message: string) {
+  const normalized = message.toLowerCase();
+
+  return (
+    (normalized.includes("relation") &&
+      normalized.includes("does not exist")) ||
+    (normalized.includes("could not find the table") &&
+      normalized.includes("schema cache"))
+  );
+}
+
 async function hasActiveCredit(
   supabase: SupabaseQueryClient,
   clientId: string,
@@ -160,7 +171,18 @@ async function hasPaymentMethod(
     .limit(1)
     .maybeSingle<{ id: string }>();
 
-  if (error) throw new Error(`Payment method lookup failed: ${error.message}`);
+  if (error) {
+    if (isMissingRelationError(error.message)) {
+      console.warn(
+        "Stored payment-method eligibility is unavailable because client_payment_methods does not exist.",
+        { clientId },
+      );
+      return false;
+    }
+
+    throw new Error(`Payment method lookup failed: ${error.message}`);
+  }
+
   return Boolean(data?.id);
 }
 
