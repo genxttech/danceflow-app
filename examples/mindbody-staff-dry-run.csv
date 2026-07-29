@@ -1,0 +1,4 @@
+staff_id,first_name,last_name,email,phone,active,staff_role
+MB-S-1001,Morgan,Lee,morgan.lee@example.com,6145550201,true,Instructor
+MB-S-1002,Taylor,Kim,taylor.kim@example.com,6145550202,true,Front Desk
+MB-S-1003,Riley,Chen,riley.chen@example.com,6145550203,true,Manager

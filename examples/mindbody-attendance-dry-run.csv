@@ -1,0 +1,5 @@
+visit_id,booking_id,attendance_status,visit_date
+MB-V-1001,MB-B-1001,attended,2026-07-12T19:00:00-04:00
+MB-V-1002,MB-B-2001,no_show,2026-07-13T14:00:00-04:00
+MB-V-1003,MB-B-3001,late_cancel,2026-07-14T10:00:00-04:00
+MB-V-1004,MB-B-4001,waitlisted,2026-07-15T18:00:00-04:00

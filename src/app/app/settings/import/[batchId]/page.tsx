@@ -14,9 +14,13 @@ import {
   executeSquareInventoryImportBatchAction,
   executeSquareProductImportBatchAction,
   executeWellnessLivingPackageImportBatchAction,
+  executeMindbodyPackageImportBatchAction,
   executeWellnessLivingMembershipImportBatchAction,
+  executeMindbodyMembershipImportBatchAction,
   executeWellnessLivingAttendanceImportBatchAction,
+  executeMindbodyAttendanceImportBatchAction,
   executeWellnessLivingAccountCreditImportBatchAction,
+  executeMindbodyAccountCreditImportBatchAction,
 } from "../actions";
 import ImportUploadForm from "../ImportUploadForm";
 
@@ -125,14 +129,17 @@ function labelize(value: string | null | undefined) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function titleForImportType(importType: string) {
+function titleForImportType(importType: string, sourceSystem: string) {
   if (importType === "clients") return "Client Import";
   if (importType === "instructors") return "Instructor Import";
   if (importType === "appointments") return "Appointment Import";
   if (importType === "payments") return "Payment Import";
-  if (importType === "packages") return "WellnessLiving Package Import";
-  if (importType === "memberships") return "WellnessLiving Membership Import";
-  if (importType === "attendance") return "WellnessLiving Attendance Import";
+  if (importType === "packages" && sourceSystem === "wellnessliving") return "WellnessLiving Package Import";
+  if (importType === "packages" && sourceSystem === "mindbody") return "Mindbody Package and Client Service Import";
+  if (importType === "memberships" && sourceSystem === "wellnessliving") return "WellnessLiving Membership Import";
+  if (importType === "memberships" && sourceSystem === "mindbody") return "Mindbody Contract and Membership Import";
+  if (importType === "attendance" && sourceSystem === "wellnessliving") return "WellnessLiving Attendance Import";
+  if (importType === "attendance" && sourceSystem === "mindbody") return "Mindbody Visit and Attendance Import";
   if (importType === "account_credits") return "WellnessLiving Account Credit Import";
   if (importType === "products") return "Square Catalog Import";
   if (importType === "inventory") return "Square Inventory Import";
@@ -141,14 +148,17 @@ function titleForImportType(importType: string) {
   return "Import Batch";
 }
 
-function executeLabelForImportType(importType: string) {
+function executeLabelForImportType(importType: string, sourceSystem: string) {
   if (importType === "clients") return "Execute Client Import";
   if (importType === "instructors") return "Execute Instructor Import";
   if (importType === "appointments") return "Confirm and Execute Appointment Import";
   if (importType === "payments") return "Confirm and Execute Payment Import";
-  if (importType === "packages") return "Import WellnessLiving Package Balances";
-  if (importType === "memberships") return "Import WellnessLiving Memberships";
-  if (importType === "attendance") return "Import WellnessLiving Attendance";
+  if (importType === "packages" && sourceSystem === "wellnessliving") return "Import WellnessLiving Package Balances";
+  if (importType === "packages" && sourceSystem === "mindbody") return "Import Mindbody Package Balances";
+  if (importType === "memberships" && sourceSystem === "wellnessliving") return "Import WellnessLiving Memberships";
+  if (importType === "memberships" && sourceSystem === "mindbody") return "Import Mindbody Contracts and Memberships";
+  if (importType === "attendance" && sourceSystem === "wellnessliving") return "Import WellnessLiving Attendance";
+  if (importType === "attendance" && sourceSystem === "mindbody") return "Import Mindbody Visits and Attendance";
   if (importType === "account_credits") return "Import WellnessLiving Account Credits";
   if (importType === "products") return "Execute Square Catalog Import";
   if (importType === "inventory") return "Reconcile Square Inventory";
@@ -617,12 +627,20 @@ export default async function ImportBatchDetailPage({
             ? executePaymentImportBatchAction
             : typedBatch.import_type === "packages" && typedBatch.source_system === "wellnessliving"
               ? executeWellnessLivingPackageImportBatchAction
+              : typedBatch.import_type === "packages" && typedBatch.source_system === "mindbody"
+                ? executeMindbodyPackageImportBatchAction
               : typedBatch.import_type === "memberships" && typedBatch.source_system === "wellnessliving"
                 ? executeWellnessLivingMembershipImportBatchAction
+                : typedBatch.import_type === "memberships" && typedBatch.source_system === "mindbody"
+                  ? executeMindbodyMembershipImportBatchAction
                 : typedBatch.import_type === "attendance" && typedBatch.source_system === "wellnessliving"
                   ? executeWellnessLivingAttendanceImportBatchAction
+                  : typedBatch.import_type === "attendance" && typedBatch.source_system === "mindbody"
+                    ? executeMindbodyAttendanceImportBatchAction
                   : typedBatch.import_type === "account_credits" && typedBatch.source_system === "wellnessliving"
                     ? executeWellnessLivingAccountCreditImportBatchAction
+                    : typedBatch.import_type === "account_credits" && typedBatch.source_system === "mindbody"
+                      ? executeMindbodyAccountCreditImportBatchAction
               : typedBatch.import_type === "products" && typedBatch.source_system === "square"
                 ? executeSquareProductImportBatchAction
               : typedBatch.import_type === "inventory" && typedBatch.source_system === "square"
@@ -674,7 +692,7 @@ export default async function ImportBatchDetailPage({
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-white">
-              {titleForImportType(typedBatch.import_type)}
+              {titleForImportType(typedBatch.import_type, typedBatch.source_system)}
             </h1>
             <p className="mt-2 max-w-3xl text-white/80">
               Review uploaded file metadata, validation results, preview counts, retry history, and row-level issues.
@@ -704,7 +722,7 @@ export default async function ImportBatchDetailPage({
                   type="submit"
                   className="rounded-xl bg-[#5B197A] px-4 py-2 text-white hover:bg-[#4B1465]"
                 >
-                  {executeLabelForImportType(typedBatch.import_type)}
+                  {executeLabelForImportType(typedBatch.import_type, typedBatch.source_system)}
                 </button>
               </form>
             ) : null}
@@ -908,7 +926,7 @@ export default async function ImportBatchDetailPage({
                 type="submit"
                 className="rounded-xl bg-[#5B197A] px-4 py-2 text-white hover:bg-[#4B1465]"
               >
-                {executeLabelForImportType(typedBatch.import_type)}
+                {executeLabelForImportType(typedBatch.import_type, typedBatch.source_system)}
               </button>
             </form>
 
@@ -963,7 +981,7 @@ export default async function ImportBatchDetailPage({
                 type="submit"
                 className="rounded-xl bg-[#5B197A] px-4 py-2 text-white hover:bg-[#4B1465]"
               >
-                {executeLabelForImportType(typedBatch.import_type)}
+                {executeLabelForImportType(typedBatch.import_type, typedBatch.source_system)}
               </button>
             </form>
 

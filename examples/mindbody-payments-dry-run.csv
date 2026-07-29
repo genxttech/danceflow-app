@@ -1,0 +1,5 @@
+transaction_id,sale_id,client_id,amount,transaction_date,payment_method,transaction_status,reference
+MB-TXN-1001,MB-SALE-1001,MB-C-1001,597.00,2026-07-18T09:00:00-04:00,credit_card,paid,Membership payment
+MB-TXN-1002,MB-SALE-1002,MB-C-1002,129.00,2026-07-20T11:30:00-04:00,cash,paid,Group class package
+MB-REF-1003,MB-SALE-1003,MB-C-1003,-75.00,2026-07-22T15:00:00-04:00,credit_card,refunded,Refund for cancelled service
+MB-CB-1004,MB-SALE-1004,MB-C-1004,-200.00,2026-07-23T10:00:00-04:00,credit_card,chargeback,Chargeback received

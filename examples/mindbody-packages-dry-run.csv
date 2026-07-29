@@ -1,0 +1,4 @@
+pricing_option_id,client_service_id,client_id,pricing_option_name,price,purchase_date,expiration_date,service_type,visits_total,visits_remaining,unlimited
+MB-PO-100,MB-CS-1001,MB-C-1001,10 Private Lessons,850.00,2026-06-01,2026-12-01,private_lesson,10,6,false
+MB-PO-200,MB-CS-1002,MB-C-1002,Monthly Group Class Pass,129.00,2026-07-01,2026-07-31,group_class,8,5,false
+MB-PO-300,MB-CS-1003,MB-C-1003,Unlimited Practice Parties,75.00,2026-07-01,2026-07-31,practice_party,,,true

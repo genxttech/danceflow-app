@@ -1,0 +1,4 @@
+booking_id,booking_kind,client_id,staff_id,service_name,start_time,end_time,booking_status,location_name,room,client_service_id,client_contract_id
+MB-B-1001,private_appointment,MB-C-1001,MB-S-1001,Private Lesson,2026-08-02T14:00:00-04:00,2026-08-02T14:45:00-04:00,scheduled,Main Studio,Room A,MB-CS-1001,
+MB-B-2001,class,MB-C-1002,MB-S-1002,Beginner Group Class,2026-08-03T18:00:00-04:00,2026-08-03T19:00:00-04:00,booked,Main Studio,Ballroom,,MB-CC-1002
+MB-B-3001,enrollment,MB-C-1003,MB-S-1003,Four Week Series,2026-08-05T19:00:00-04:00,2026-08-05T20:00:00-04:00,booked,Annex Studio,Studio 2,MB-CS-1003,

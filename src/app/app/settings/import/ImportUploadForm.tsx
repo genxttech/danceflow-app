@@ -58,27 +58,45 @@ function importTypeHelper(importType: string, sourceSystem: string) {
     return "Import schedules after clients and instructors are already in place.";
   }
   if (importType === "payments") {
-    return "Import payment history after clients are already in place.";
+    return sourceSystem === "mindbody"
+      ? "Import Mindbody sales, payments, refunds, and chargebacks as historical records only. No charge is recreated."
+      : "Import payments after clients and appointments.";
   }
   if (importType === "packages") {
-    return sourceSystem === "wellnessliving"
-      ? "Import WellnessLiving session passes and Visits Remaining after clients. Current remaining balances are preserved without re-deducting historical attendance."
-      : "Upload package definitions and balances for mapping preparation.";
+    if (sourceSystem === "wellnessliving") {
+      return "Import current package and pass balances after clients. Historical attendance will not deduct the imported balance again.";
+    }
+    if (sourceSystem === "mindbody") {
+      return "Import Mindbody pricing options and client services after clients. Visits Remaining is preserved as the current balance, and historical visits will not deduct it again.";
+    }
+    return "Upload packages for mapping and reconciliation preparation.";
   }
   if (importType === "memberships") {
-    return sourceSystem === "wellnessliving"
-      ? "Import WellnessLiving memberships, current billing periods, and payment state after clients. AutoPay credentials are never imported."
-      : "Upload memberships for mapping and reconciliation preparation.";
+    if (sourceSystem === "wellnessliving") {
+      return "Import WellnessLiving memberships, current billing periods, and payment state after clients. AutoPay credentials are never imported.";
+    }
+    if (sourceSystem === "mindbody") {
+      return "Import Mindbody contracts, current billing periods, and payment state after clients. Frozen status is preserved, but stored cards and AutoPay credentials are never imported.";
+    }
+    return "Upload memberships for mapping and reconciliation preparation.";
   }
   if (importType === "attendance") {
-    return sourceSystem === "wellnessliving"
-      ? "Import historical attended, no-show, and cancelled states after appointments. Package and membership balances are not deducted again."
-      : "Upload historical attendance after appointments.";
+    if (sourceSystem === "wellnessliving") {
+      return "Import historical attended, no-show, and cancelled states after appointments. Package and membership balances are not deducted again.";
+    }
+    if (sourceSystem === "mindbody") {
+      return "Import Mindbody visits after appointments, classes, and enrollments. Attended, no-show, late-cancel, and cancelled states are preserved without deducting balances again; waitlist rows are surfaced for review.";
+    }
+    return "Upload historical attendance after appointments.";
   }
   if (importType === "account_credits") {
-    return sourceSystem === "wellnessliving"
-      ? "Import historical account-credit ledger activity after clients and payments."
-      : "Upload account credits for reconciliation preparation.";
+    if (sourceSystem === "wellnessliving") {
+      return "Import historical account-credit ledger activity after clients and payments.";
+    }
+    if (sourceSystem === "mindbody") {
+      return "Import Mindbody account balances, credits, debits, and gift-card activity after clients and payments. Source transaction IDs keep reruns safe.";
+    }
+    return "Upload account credits for reconciliation preparation.";
   }
   if (importType === "products") {
     return sourceSystem === "square"
@@ -142,8 +160,14 @@ export default function ImportUploadForm({
     if (importType === "packages" && sourceSystem === "wellnessliving") {
       return "Start with Dry Run. Import WellnessLiving clients before package balances.";
     }
+    if (importType === "packages" && sourceSystem === "mindbody") {
+      return "Start with Dry Run. Import Mindbody clients first, then review pricing-option, client-service, usage-type, and remaining-visit matches in this same workflow.";
+    }
     if (importType === "memberships" && sourceSystem === "wellnessliving") {
       return "Start with Dry Run. Confirm current periods and payment status before live execution.";
+    }
+    if (importType === "memberships" && sourceSystem === "mindbody") {
+      return "Start with Dry Run. Review contract status, current period, amount due, amount paid, frozen state, and future billing setup in this same workflow.";
     }
     if (importType === "products" && sourceSystem === "square") {
       return "Start with Dry Run. Each row should represent one Square item variation.";
@@ -152,14 +176,17 @@ export default function ImportUploadForm({
   }, [importType, sourceSystem]);
 
   return (
-    <form action={formAction} className="rounded-2xl border bg-white p-6 shadow-sm">
+    <form action={formAction} className="rounded-2xl border border-[#E9D5FF] bg-white p-5 shadow-sm md:p-6">
       {parentBatchId ? (
         <input type="hidden" name="parentBatchId" value={parentBatchId} />
       ) : null}
 
       <div className="flex flex-col gap-2">
-        <h3 className="text-xl font-semibold text-slate-900">
-          {isRetry ? "Upload Corrected File" : "Upload a CSV to Start"}
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+          {isRetry ? "Retry import" : "Next action"}
+        </p>
+        <h3 className="text-xl font-semibold text-[#2C1838]">
+          {isRetry ? "Upload corrected file" : "Choose and upload one CSV"}
         </h3>
         <p className="text-sm text-slate-600">
           {isRetry
@@ -168,7 +195,7 @@ export default function ImportUploadForm({
         </p>
       </div>
 
-      <div className="mt-6 grid gap-6 md:grid-cols-3">
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
         <div>
           <label htmlFor="sourceSystem" className="mb-1 block text-sm font-medium">
             Where is this CSV from?
@@ -209,16 +236,16 @@ export default function ImportUploadForm({
             <option value="appointments">Appointments</option>
             <option value="payments">Payments</option>
             <option value="packages">
-              Packages{sourceSystem === "wellnessliving" ? " — supported" : " — mapping preparation"}
+              Packages{["wellnessliving", "mindbody"].includes(sourceSystem) ? " — supported" : " — mapping preparation"}
             </option>
             <option value="memberships">
-              Memberships{sourceSystem === "wellnessliving" ? " — supported" : " — mapping preparation"}
+              Memberships{["wellnessliving", "mindbody"].includes(sourceSystem) ? " — supported" : " — mapping preparation"}
             </option>
             <option value="attendance">
-              Attendance{sourceSystem === "wellnessliving" ? " — supported" : " — mapping preparation"}
+              Attendance{["wellnessliving", "mindbody"].includes(sourceSystem) ? " — supported" : " — mapping preparation"}
             </option>
             <option value="account_credits">
-              Account Credits{sourceSystem === "wellnessliving" ? " — supported" : " — mapping preparation"}
+              Account Credits{["wellnessliving", "mindbody"].includes(sourceSystem) ? " — supported" : " — mapping preparation"}
             </option>
             <option value="products">Retail Products{sourceSystem === "square" ? " — supported" : " — mapping preparation"}</option>
             <option value="inventory">Inventory — mapping preparation</option>
@@ -228,37 +255,36 @@ export default function ImportUploadForm({
           <p className="mt-1 text-xs text-slate-500">{importTypeHelper(importType, sourceSystem)}</p>
         </div>
 
-        <div>
-          <label htmlFor="mode" className="mb-1 block text-sm font-medium">
-            How should this run?
-          </label>
-          <select
-            id="mode"
-            name="mode"
-            value={mode}
-            onChange={(event) => setMode(event.target.value)}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          >
-            <option value="dry_run">Dry Run</option>
-            <option value="create_only">Create Only</option>
-            <option value="create_or_update">Create or Update</option>
-          </select>
-          <p className="mt-1 text-xs text-slate-500">{modeHelper(mode)}</p>
-        </div>
+        <details className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-[#5B197A]">
+            Advanced import behavior
+          </summary>
+          <div className="mt-4">
+            <label htmlFor="mode" className="mb-1 block text-sm font-medium text-[#2C1838]">
+              How should this run?
+            </label>
+            <select
+              id="mode"
+              name="mode"
+              value={mode}
+              onChange={(event) => setMode(event.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            >
+              <option value="dry_run">Dry Run — review only</option>
+              <option value="create_only">Create Only</option>
+              <option value="create_or_update">Create or Update</option>
+            </select>
+            <p className="mt-1 text-xs text-slate-500">{modeHelper(mode)}</p>
+          </div>
+        </details>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-medium text-slate-900">Recommended next step</p>
-        <p className="mt-2 text-sm text-slate-600">{recommendation}</p>
-        <ul className="mt-3 space-y-1 text-sm text-slate-600">
-          <li>Start with clients first whenever possible.</li>
-          <li>Use Dry Run before importing live data.</li>
-          <li>Upload one CSV at a time for the smoothest review.</li>
-          <li>Retail data should follow clients: products, inventory, orders, then digital entitlements.</li>
-        </ul>
+      <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+        <p className="text-sm font-semibold text-[#2C1838]">What happens next</p>
+        <p className="mt-1 text-sm text-[#6F5A7A]">{recommendation}</p>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-5">
         <label htmlFor="csvFile" className="mb-1 block text-sm font-medium">
           Upload CSV File
         </label>
@@ -283,7 +309,7 @@ export default function ImportUploadForm({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
+          className="rounded-xl bg-[#5B197A] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#491362] disabled:opacity-60"
         >
           {pending ? "Uploading..." : submitLabel}
         </button>

@@ -1,0 +1,4 @@
+contract_template_id,client_contract_id,billing_period_id,client_id,contract_name,contract_status,billing_interval,recurring_amount,contract_start_date,period_start,period_end,amount_due,amount_paid,payment_status,autopay_active,included_private_lessons,included_group_classes
+MB-CT-100,MB-CC-1001,MB-BP-1001,MB-C-1001,Gold Contract,active,monthly,597.00,2026-06-18,2026-07-18,2026-08-17,597.00,597.00,paid,true,2,4
+MB-CT-200,MB-CC-1002,MB-BP-1002,MB-C-1002,Social Contract,frozen,monthly,129.00,2026-07-01,2026-07-01,2026-07-31,129.00,0.00,due,false,0,8
+MB-CT-300,MB-CC-1003,MB-BP-1003,MB-C-1003,Annual Practice Contract,past_due,yearly,999.00,2026-01-01,2026-01-01,2026-12-31,999.00,500.00,partial,true,0,0

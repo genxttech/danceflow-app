@@ -6,6 +6,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import ImportUploadForm from "./ImportUploadForm";
 import SquareMigrationPilotReadiness from "./SquareMigrationPilotReadiness";
 import WellnessLivingMigrationPilotReadiness from "./WellnessLivingMigrationPilotReadiness";
+import MindbodyMigrationPilotReadiness from "./MindbodyMigrationPilotReadiness";
 import {
   archiveUnfinishedImportBatchesAction,
   validateAppointmentImportBatchAction,
@@ -17,9 +18,13 @@ import {
   validateSquareInventoryImportBatchAction,
   validateSquareProductImportBatchAction,
   validateWellnessLivingPackageImportBatchAction,
+  validateMindbodyPackageImportBatchAction,
   validateWellnessLivingMembershipImportBatchAction,
+  validateMindbodyMembershipImportBatchAction,
   validateWellnessLivingAttendanceImportBatchAction,
+  validateMindbodyAttendanceImportBatchAction,
   validateWellnessLivingAccountCreditImportBatchAction,
+  validateMindbodyAccountCreditImportBatchAction,
 } from "./actions";
 
 type SearchParams = Promise<{
@@ -28,6 +33,17 @@ type SearchParams = Promise<{
 }>;
 
 const ACTIVE_IMPORT_STATUSES = new Set(["draft", "uploaded", "validated"]);
+
+const GUIDED_IMPORT_STAGES = [
+  { key: "clients", label: "Clients", description: "Start with identity and contact records.", optional: false },
+  { key: "instructors", label: "Staff", description: "Add instructors before schedule records.", optional: false },
+  { key: "packages", label: "Packages", description: "Preserve remaining visits when packages exist.", optional: true },
+  { key: "memberships", label: "Memberships", description: "Preserve contracts, periods, and billing state.", optional: true },
+  { key: "appointments", label: "Schedule", description: "Bring over appointments, classes, and enrollments.", optional: false },
+  { key: "attendance", label: "Attendance", description: "Add historical visits without reducing balances again.", optional: true },
+  { key: "payments", label: "Payments", description: "Import financial history after clients and schedule.", optional: false },
+  { key: "account_credits", label: "Credits", description: "Reconcile account credits and debits when present.", optional: true },
+] as const;
 
 type ImportBatchSummary = Record<string, unknown> & {
   create_candidates?: number;
@@ -296,6 +312,33 @@ export default async function ImportSettingsPage({
     ACTIVE_IMPORT_STATUSES.has(batch.status)
   );
 
+  const completedStageKeys = new Set(
+    typedBatches
+      .filter(
+        (batch) =>
+          batch.status === "completed" &&
+          batch.reconciliation_status === "reconciled"
+      )
+      .map((batch) => batch.import_type)
+  );
+
+  const activeStageKey =
+    latestReviewableBatch?.import_type ??
+    GUIDED_IMPORT_STAGES.find((stage) => !completedStageKeys.has(stage.key))?.key ??
+    "clients";
+
+  const activeStage =
+    GUIDED_IMPORT_STAGES.find((stage) => stage.key === activeStageKey) ??
+    GUIDED_IMPORT_STAGES[0];
+
+  const activeStageNumber =
+    GUIDED_IMPORT_STAGES.findIndex((stage) => stage.key === activeStage.key) + 1;
+
+  const preferredSourceSystem =
+    latestReviewableBatch?.source_system ??
+    latestBatch?.source_system ??
+    "generic_csv";
+
   return (
     <div className="min-h-[calc(100vh-4rem)] space-y-6 bg-[#F8F5FC] px-4 py-5 sm:px-6 lg:px-8">
       {banner ? (
@@ -390,183 +433,196 @@ export default async function ImportSettingsPage({
         </div>
       </div>
 
-      <WellnessLivingMigrationPilotReadiness
-        supabase={supabase}
-        studioId={context.studioId}
-      />
-
-      <section className="overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-sm">
-        <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 via-white to-orange-50 p-6">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700">Migration Plan</p>
-          <h2 className="mt-2 text-2xl font-semibold text-[#22152E]">Move data in a dependency-safe order</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#6F5A7A]">
-            New batches are linked to the active onboarding project and assigned a migration stage automatically. Retail is optional and follows client identity so products, inventory, orders, and digital access can reconcile cleanly.
-          </p>
-        </div>
-        <div className="overflow-x-auto p-5">
-          <div className="flex min-w-max gap-3">
-            {[
-              ["1", "Clients", "Identity first"],
-              ["2", "Instructors", "Staff relationships"],
-              ["3", "Products", "Retail catalog"],
-              ["4", "Inventory", "Quantity reconciliation"],
-              ["5", "Packages & Memberships", "Balances and access"],
-              ["6", "Appointments", "Future schedule"],
-              ["7", "Payments", "Financial history"],
-              ["8", "Retail Orders", "Historical commerce"],
-              ["9", "Digital Entitlements", "Existing access rights"],
-            ].map(([step, title, description]) => (
-              <div key={step} className="w-52 shrink-0 rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] p-4">
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">{step}</span>
-                <p className="mt-3 text-sm font-semibold text-[#22152E]">{title}</p>
-                <p className="mt-1 text-xs leading-5 text-[#6F5A7A]">{description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
-          <p className="text-sm text-[#806F89]">Recommended Order</p>
-          <p className="mt-2 text-xl font-semibold text-[#2C1838]">
-            Clients → Instructors → Appointments → Payments
-          </p>
-          <p className="mt-2 text-sm text-[#6F5A7A]">
-            Import people first, then schedules, then payment history.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
-          <p className="text-sm text-[#806F89]">Start Safely</p>
-          <p className="mt-2 text-xl font-semibold text-[#2C1838]">Use Dry Run First</p>
-          <p className="mt-2 text-sm text-[#6F5A7A]">
-            Review the file before making live changes to your data.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
-          <p className="text-sm text-[#806F89]">Current Supported Imports</p>
-          <p className="mt-2 text-xl font-semibold text-[#2C1838]">
-            Clients, Instructors, Packages, Memberships, Appointments, Payments
-          </p>
-          <p className="mt-2 text-sm text-[#6F5A7A]">
-            Packages and memberships can be added later.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
-          <p className="text-sm text-[#806F89]">Source Presets</p>
-          <p className="mt-2 text-xl font-semibold text-[#2C1838]">
-            Generic CSV, Mindbody, Vagaro
-          </p>
-          <p className="mt-2 text-sm text-[#6F5A7A]">
-            Pick the closest source and upload one CSV per import.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
-          <p className="text-sm text-[#806F89]">Total Imports</p>
-          <p className="mt-2 text-2xl font-semibold text-[#2C1838]">{totalImports}</p>
-        </div>
-
-        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
-          <p className="text-sm text-[#806F89]">Completed</p>
-          <p className={`mt-2 text-2xl font-semibold ${summaryTone(completedImports, "good")}`}>
-            {completedImports}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-5">
-          <p className="text-sm text-[#806F89]">Need Attention</p>
-          <p className={`mt-2 text-2xl font-semibold ${summaryTone(importsNeedingAttention, "warn")}`}>
-            {importsNeedingAttention}
-          </p>
-        </div>
-      </div>
-
-      {latestBatch ? (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-6">
+      <section className="overflow-hidden rounded-3xl border border-[#E9D5FF] bg-white shadow-sm">
+        <div className="border-b border-[#E9D5FF] bg-gradient-to-r from-[#FCF8FF] via-white to-[#FFF7ED] p-5 md:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-sm font-medium text-blue-700">Latest Import</p>
-              <h2 className="mt-1 text-xl font-semibold text-[#2C1838]">
-                {plainTypeLabel(latestBatch.import_type)} from {labelize(latestBatch.source_system)}
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700">
+                Current migration step
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-[#22152E]">
+                Step {activeStageNumber} of {GUIDED_IMPORT_STAGES.length}: {activeStage.label}
               </h2>
-              <p className="mt-2 text-sm text-[#5A4567]">
-                Created {formatDateTime(latestBatch.created_at)} · Status: {labelize(latestBatch.status)}
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6F5A7A]">
+                {activeStage.description}
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            {latestReviewableBatch ? (
+              <Link
+                href={`/app/settings/import/${latestReviewableBatch.id}`}
+                className="inline-flex w-fit items-center justify-center rounded-xl bg-[#5B197A] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#491362]"
+              >
+                Continue current review
+              </Link>
+            ) : null}
+          </div>
+
+          <div className="mt-5 flex snap-x gap-2 overflow-x-auto pb-2">
+            {GUIDED_IMPORT_STAGES.map((stage, index) => {
+              const completed = completedStageKeys.has(stage.key);
+              const current = stage.key === activeStage.key;
+
+              return (
+                <div
+                  key={stage.key}
+                  className={`min-w-[9.5rem] snap-start rounded-2xl border px-3 py-3 ${
+                    current
+                      ? "border-violet-400 bg-violet-100"
+                      : completed
+                        ? "border-green-200 bg-green-50"
+                        : "border-[#E9D5FF] bg-white"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                        current
+                          ? "bg-violet-700 text-white"
+                          : completed
+                            ? "bg-green-600 text-white"
+                            : "bg-[#F2E8F8] text-[#5B197A]"
+                      }`}
+                    >
+                      {completed ? "✓" : index + 1}
+                    </span>
+                    <p className="text-sm font-semibold text-[#2C1838]">{stage.label}</p>
+                  </div>
+                  <p className="mt-2 text-xs text-[#806F89]">
+                    {completed
+                      ? "Completed"
+                      : current
+                        ? "Current step"
+                        : stage.optional
+                          ? "Optional"
+                          : "Upcoming"}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid gap-5 p-5 md:p-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <div>
+            <div className="rounded-2xl border border-violet-200 bg-[#FCF8FF] p-4">
+              <p className="text-sm font-semibold text-[#2C1838]">
+                {latestReviewableBatch
+                  ? "Finish the current review before starting another file."
+                  : `Upload the ${activeStage.label.toLowerCase()} file next.`}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-[#6F5A7A]">
+                Uploading creates a review batch first. Nothing is added until the file is reviewed and executed.
+              </p>
+            </div>
+
+            {!latestReviewableBatch ? (
+              <div className="mt-4">
+                <ImportUploadForm
+                  defaultSourceSystem={preferredSourceSystem}
+                  defaultImportType={activeStage.key}
+                  defaultMode="dry_run"
+                  helperText="Upload one CSV. DanceFlow will review it before any live changes are made."
+                  submitLabel={`Review ${activeStage.label} File`}
+                />
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+                <p className="text-sm font-semibold text-blue-800">
+                  {plainTypeLabel(latestReviewableBatch.import_type)} review is in progress
+                </p>
+                <p className="mt-2 text-sm text-blue-700">
+                  Resolve only the rows that need attention, then execute the ready records.
+                </p>
+                <Link
+                  href={`/app/settings/import/${latestReviewableBatch.id}`}
+                  className="mt-4 inline-flex rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+                >
+                  Open review
+                </Link>
+              </div>
+            )}
+          </div>
+
+          <aside className="space-y-3">
+            <div className="rounded-2xl border border-[#E9D5FF] bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#806F89]">
+                Overall progress
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-[#2C1838]">
+                {completedStageKeys.size}/{GUIDED_IMPORT_STAGES.length}
+              </p>
+              <p className="mt-1 text-sm text-[#6F5A7A]">stages completed</p>
+            </div>
+
+            <div className="rounded-2xl border border-[#E9D5FF] bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#806F89]">
+                Needs attention
+              </p>
+              <p className={`mt-2 text-2xl font-semibold ${summaryTone(importsNeedingAttention, "warn")}`}>
+                {importsNeedingAttention}
+              </p>
+              <p className="mt-1 text-sm text-[#6F5A7A]">
+                import batch{importsNeedingAttention === 1 ? "" : "es"}
+              </p>
+            </div>
+
+            {latestBatch ? (
               <Link
                 href={`/app/settings/import/${latestBatch.id}`}
-                className="rounded-xl border border-blue-300 bg-white px-4 py-2 text-blue-700 hover:bg-blue-100"
+                className="block rounded-2xl border border-[#E9D5FF] bg-white p-4 hover:bg-[#FCF8FF]"
               >
-                Open Import Review
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#806F89]">
+                  Latest activity
+                </p>
+                <p className="mt-2 text-sm font-semibold text-[#2C1838]">
+                  {plainTypeLabel(latestBatch.import_type)}
+                </p>
+                <p className="mt-1 text-xs text-[#6F5A7A]">
+                  {labelize(latestBatch.status)} · {formatDateTime(latestBatch.created_at)}
+                </p>
               </Link>
-            </div>
+            ) : null}
+          </aside>
+        </div>
+      </section>
+
+      <details className="group overflow-hidden rounded-3xl border border-[#E9D5FF] bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 md:p-6">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-700">
+              Migration health
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-[#2C1838]">
+              Readiness, reconciliation, and source details
+            </h2>
+            <p className="mt-1 text-sm text-[#6F5A7A]">
+              Open this only for migration health or final activation review.
+            </p>
           </div>
-        </div>
-      ) : null}
+          <span className="rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-700 group-open:hidden">
+            Show details
+          </span>
+          <span className="hidden rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-700 group-open:inline-flex">
+            Hide details
+          </span>
+        </summary>
 
-      <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6 shadow-sm">
-        <div className="flex flex-col gap-2">
-          <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">New Import</p>
-          <h2 className="text-xl font-semibold text-[#2C1838]">Start with a review batch</h2>
-          <p className="text-sm leading-6 text-[#6F5A7A]">
-            Choose the source, pick what you are importing, upload the CSV, and start with a review pass. Remember: uploading does not immediately add clients. Review the file, then execute the import.
-          </p>
-        </div>
-
-        <div className="mt-5">
+        <div className="space-y-5 border-t border-[#E9D5FF] bg-[#FBF9FD] p-5 md:p-6">
+          <MindbodyMigrationPilotReadiness
+            supabase={supabase}
+            studioId={context.studioId}
+          />
+          <WellnessLivingMigrationPilotReadiness
+            supabase={supabase}
+            studioId={context.studioId}
+          />
           <SquareMigrationPilotReadiness
-        supabase={supabase}
-        studioId={context.studioId}
-      />
-
-      <ImportUploadForm
-            helperText="For the smoothest migration, upload one CSV at a time and start with Dry Run."
-            submitLabel="Upload and Start Review"
+            supabase={supabase}
+            studioId={context.studioId}
           />
         </div>
-      </div>
-
-      <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6">
-        <h2 className="text-xl font-semibold text-[#2C1838]">Quick Start Guides</h2>
-
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-xl border bg-[#FCF8FF] p-4">
-            <p className="text-sm font-medium text-[#2C1838]">Clients</p>
-            <p className="mt-2 text-sm text-[#6F5A7A]">
-              Best first import. Bring over names, contact info, notes, and studio history.
-            </p>
-          </div>
-
-          <div className="rounded-xl border bg-[#FCF8FF] p-4">
-            <p className="text-sm font-medium text-[#2C1838]">Instructors</p>
-            <p className="mt-2 text-sm text-[#6F5A7A]">
-              Import teaching staff after clients so schedules and ownership are easier to review.
-            </p>
-          </div>
-
-          <div className="rounded-xl border bg-[#FCF8FF] p-4">
-            <p className="text-sm font-medium text-[#2C1838]">Appointments</p>
-            <p className="mt-2 text-sm text-[#6F5A7A]">
-              Review conflict warnings carefully before importing schedules into the app.
-            </p>
-          </div>
-
-          <div className="rounded-xl border bg-[#FCF8FF] p-4">
-            <p className="text-sm font-medium text-[#2C1838]">Payments</p>
-            <p className="mt-2 text-sm text-[#6F5A7A]">
-              Import payment history after clients are in place. The importer will normalize payment methods and statuses for you.
-            </p>
-          </div>
-        </div>
-      </div>
+      </details>
 
       <div className="rounded-2xl border border-[#E9D5FF] bg-white shadow-sm p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4">
@@ -643,12 +699,20 @@ export default async function ImportSettingsPage({
                             ? validatePaymentImportBatchAction
                             : batch.import_type === "packages" && batch.source_system === "wellnessliving"
                               ? validateWellnessLivingPackageImportBatchAction
+                              : batch.import_type === "packages" && batch.source_system === "mindbody"
+                                ? validateMindbodyPackageImportBatchAction
                               : batch.import_type === "memberships" && batch.source_system === "wellnessliving"
                                 ? validateWellnessLivingMembershipImportBatchAction
+                                : batch.import_type === "memberships" && batch.source_system === "mindbody"
+                                  ? validateMindbodyMembershipImportBatchAction
                                 : batch.import_type === "attendance" && batch.source_system === "wellnessliving"
                                   ? validateWellnessLivingAttendanceImportBatchAction
+                                  : batch.import_type === "attendance" && batch.source_system === "mindbody"
+                                    ? validateMindbodyAttendanceImportBatchAction
                                   : batch.import_type === "account_credits" && batch.source_system === "wellnessliving"
                                     ? validateWellnessLivingAccountCreditImportBatchAction
+                                    : batch.import_type === "account_credits" && batch.source_system === "mindbody"
+                                      ? validateMindbodyAccountCreditImportBatchAction
                               : batch.import_type === "products" && batch.source_system === "square"
                                 ? validateSquareProductImportBatchAction
                                 : null;
