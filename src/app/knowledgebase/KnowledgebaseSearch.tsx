@@ -1,235 +1,231 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   BookOpen,
-  Building2,
   CalendarDays,
   CreditCard,
+  FileSignature,
   Megaphone,
   Search,
   ShieldCheck,
-  Ticket,
+  Sparkles,
   Users,
   X,
 } from "lucide-react";
 import type { KnowledgebaseArticle } from "@/content/knowledgebase/articles";
 
-type KnowledgebaseSearchProps = {
+type Props = {
   articles: KnowledgebaseArticle[];
   categories: string[];
-  assistantSlot?: ReactNode;
+  assistantSlot?: React.ReactNode;
 };
 
-const categoryIcons = {
+const categoryIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   "Getting Started": BookOpen,
-  "Sales & Revenue": CreditCard,
-  "Independent Instructors": Users,
+  "AI & Automations": Sparkles,
+  Scheduling: CalendarDays,
   "Billing & Payments": CreditCard,
+  "Clients & CRM": Users,
   "Clients & Portals": Users,
   "Client Portal": Users,
+  Marketing: Megaphone,
   "Public Discovery & Leads": Megaphone,
   "Public Discovery": Megaphone,
-  Scheduling: CalendarDays,
-  Events: Ticket,
-  "Platform Updates": Building2,
-  "Clients & Billing": Users,
-  "Reports & Expenses": CreditCard,
+  "Documents & E-Signatures": FileSignature,
   "Security & Privacy": ShieldCheck,
-  Marketing: Megaphone,
 };
 
 function normalize(value: string) {
-  return value.toLowerCase().trim();
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function getSearchText(article: KnowledgebaseArticle) {
-  return normalize(
-    [
-      article.title,
-      article.category,
-      article.description,
-      article.audience,
-      article.content,
-    ].join(" "),
-  );
+function queryTerms(value: string) {
+  return normalize(value)
+    .split(" ")
+    .filter((term) => term.length > 1);
+}
+
+function scoreArticle(article: KnowledgebaseArticle, rawQuery: string) {
+  const query = normalize(rawQuery);
+  if (!query) return 1;
+
+  const title = normalize(article.title);
+  const slug = normalize(article.slug);
+  const category = normalize(article.category);
+  const description = normalize(article.description);
+  const content = normalize(article.content);
+  const terms = queryTerms(rawQuery);
+
+  let score = 0;
+
+  if (title === query) score += 1000;
+  if (slug === query) score += 900;
+  if (title.startsWith(query)) score += 450;
+  if (title.includes(query)) score += 350;
+  if (description.includes(query)) score += 140;
+  if (category.includes(query)) score += 100;
+  if (content.includes(query)) score += 60;
+
+  for (const term of terms) {
+    if (title === term) score += 80;
+    if (title.includes(term)) score += 40;
+    if (slug.includes(term)) score += 30;
+    if (category.includes(term)) score += 20;
+    if (description.includes(term)) score += 15;
+    if (content.includes(term)) score += 4;
+  }
+
+  const titleTermMatches = terms.filter((term) => title.includes(term)).length;
+  if (terms.length > 0 && titleTermMatches === terms.length) score += 180;
+
+  const allText = `${title} ${slug} ${category} ${description} ${content}`;
+  const allTermsMatch = terms.length > 0 && terms.every((term) => allText.includes(term));
+  if (allTermsMatch) score += 75;
+
+  return score;
 }
 
 export default function KnowledgebaseSearch({
   articles,
   categories,
   assistantSlot,
-}: KnowledgebaseSearchProps) {
+}: Props) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
 
-  const normalizedQuery = normalize(query);
-
-  const filteredArticles = articles.filter((article) => {
-    const matchesCategory =
-      activeCategory === "All" || article.category === activeCategory;
-
-    const matchesSearch =
-      !normalizedQuery || getSearchText(article).includes(normalizedQuery);
-
-    return matchesCategory && matchesSearch;
-  });
+  const filteredArticles = useMemo(() => {
+    return articles
+      .filter(
+        (article) =>
+          activeCategory === "All" || article.category === activeCategory,
+      )
+      .map((article) => ({
+        article,
+        score: scoreArticle(article, query),
+      }))
+      .filter(({ score }) => !query.trim() || score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.article.title.localeCompare(b.article.title);
+      })
+      .map(({ article }) => article);
+  }, [activeCategory, articles, query]);
 
   return (
-    <>
-      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-              <Search className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-semibold text-slate-950">
-                Search articles
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
-                Search by topic, workflow, category, or keyword. Use the category
-                filters to narrow the list to the area you are working on.
-              </p>
-            </div>
+    <div className="space-y-6">
+      <section className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="flex flex-col gap-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+              Search the knowledgebase
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+              Find an article by name or topic
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+              Search checks article titles, categories, descriptions, URLs, and article content.
+            </p>
           </div>
 
-          <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-950">
-            {filteredArticles.length} of {articles.length} articles shown
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div className="flex items-center gap-3 rounded-xl bg-white px-3 py-2 shadow-sm">
-            <Search className="h-5 w-5 shrink-0 text-slate-400" />
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <input
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search events, QR check-in, early bird pricing, campaigns..."
-              className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+              placeholder="Search by exact article name or describe what you need..."
+              className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-12 pr-12 text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
             />
             {query ? (
               <button
                 type="button"
                 onClick={() => setQuery("")}
-                className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 aria-label="Clear search"
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="h-4 w-4" />
               </button>
             ) : null}
           </div>
 
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {["All", ...categories].map((category) => {
-              const active = activeCategory === category;
-
-              return (
-                <button
-                  key={category}
-                  type="button"
-                  onClick={() => setActiveCategory(category)}
-                  className={`shrink-0 rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                    active
-                      ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white shadow-sm"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
-                  }`}
-                >
-                  {category}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {assistantSlot ? <div className="mt-6">{assistantSlot}</div> : null}
-
-        {filteredArticles.length ? (
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {filteredArticles.map((article) => (
-              <Link
-                key={article.slug}
-                href={`/knowledgebase/${article.slug}`}
-                className="group rounded-2xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-[var(--brand-primary)] hover:bg-white hover:shadow-sm"
-              >
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand-primary)]">
-                  {article.category}
-                </p>
-                <h3 className="mt-2 text-lg font-semibold text-slate-950 group-hover:text-[var(--brand-primary)]">
-                  {article.title}
-                </h3>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  {article.description}
-                </p>
-                <p className="mt-4 text-sm font-semibold text-[var(--brand-primary)]">
-                  Read article →
-                </p>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-7 text-amber-950">
-            No articles matched your search. Try a broader term like
-            <span className="font-semibold"> events</span>,
-            <span className="font-semibold"> scheduling</span>,
-            <span className="font-semibold"> tickets</span>, or
-            <span className="font-semibold"> clients</span>.
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
-        <div className="flex items-start gap-3">
-          <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-            <Building2 className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-semibold text-slate-950">
-              Article categories
-            </h2>
-            <p className="mt-2 text-sm leading-7 text-slate-600">
-              Browse the knowledgebase by the area of DanceFlow you are setting
-              up or using.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {categories.map((category) => {
-            const Icon =
-              categoryIcons[category as keyof typeof categoryIcons] ?? BookOpen;
-            const count = articles.filter(
-              (article) => article.category === category,
-            ).length;
-
-            return (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {["All", ...categories].map((category) => (
               <button
                 key={category}
                 type="button"
                 onClick={() => setActiveCategory(category)}
-                className={`rounded-2xl border p-5 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
                   activeCategory === category
-                    ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]"
-                    : "border-slate-200 bg-slate-50 hover:border-[var(--brand-primary)] hover:bg-white"
+                    ? "bg-violet-700 text-white"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                <div className="w-fit rounded-2xl bg-white p-3 text-[var(--brand-primary)] shadow-sm">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <h3 className="mt-4 text-lg font-semibold text-slate-900">
-                  {category}
-                </h3>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  {count} article{count === 1 ? "" : "s"}
-                </p>
+                {category}
               </button>
-            );
-          })}
+            ))}
+          </div>
+
+          {query.trim() ? (
+            <p className="text-xs text-slate-500">
+              {filteredArticles.length} article{filteredArticles.length === 1 ? "" : "s"} found
+              for “{query.trim()}”.
+            </p>
+          ) : null}
         </div>
+
+        {filteredArticles.length > 0 ? (
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filteredArticles.map((article) => {
+              const Icon =
+                categoryIcons[article.category] ?? BookOpen;
+
+              return (
+                <Link
+                  key={article.slug}
+                  href={`/knowledgebase/${article.slug}`}
+                  className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-2xl bg-violet-50 p-2.5 text-violet-700">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-violet-700">
+                        {article.category}
+                      </p>
+                      <h3 className="mt-2 text-base font-semibold leading-6 text-slate-950 group-hover:text-violet-800">
+                        {article.title}
+                      </h3>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">
+                    {article.description}
+                  </p>
+                  <p className="mt-4 text-xs font-semibold text-violet-700">
+                    Read article →
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-7 text-amber-950">
+            No matching article was found. Clear the category filter or try the exact article title, a shorter phrase, or the help search below.
+          </div>
+        )}
       </section>
-    </>
+
+      {assistantSlot}
+    </div>
   );
 }

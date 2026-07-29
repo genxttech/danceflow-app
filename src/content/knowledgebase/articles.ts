@@ -2951,7 +2951,7 @@ Review pending requests daily. If a requested time works, approve it and create 
     slug: "approving-or-declining-booking-requests",
     title: "Approving or Declining Booking Requests",
     category: "Booking Requests",
-    audience: "app",
+    audience: "both",
     description:
       "Learn what happens when staff approves or declines a booking request.",
     content: `
@@ -3035,7 +3035,7 @@ Use portal schedule requests for existing clients who already understand your st
     slug: "booking-availability-rules",
     title: "Setting Booking Availability Rules",
     category: "Booking Requests",
-    audience: "app",
+    audience: "both",
     description:
       "Learn how availability rules control when clients can request lesson times.",
     content: `
@@ -3078,7 +3078,7 @@ Start with conservative windows. For example, allow requests during your normal 
     slug: "client-photo-verification",
     title: "Adding Client Photos for Staff Verification",
     category: "Clients & CRM",
-    audience: "app",
+    audience: "both",
     description:
       "Learn how client photos help staff verify accounts and prepare for future QR check-in workflows.",
     content: `
@@ -3111,7 +3111,7 @@ Client photos are part of the foundation for future client QR identity. When sta
     slug: "staff-photos-and-credentials",
     title: "Adding Staff Photos and Credentials",
     category: "Public Profile",
-    audience: "app",
+    audience: "both",
     description:
       "Learn how to add staff photos, teaching certifications, and titles for instructor profiles.",
     content: `
@@ -3153,7 +3153,7 @@ Use specific credential names and include the issuing organization or event when
     slug: "staff-credential-verification",
     title: "Submitting Staff Credentials for Verification",
     category: "Public Profile",
-    audience: "app",
+    audience: "both",
     description:
       "Learn how credential verification works before certifications and titles appear publicly.",
     content: `
@@ -3234,7 +3234,7 @@ Studios can still view those credentials internally.
     slug: "sms-consent-and-message-history",
     title: "Using SMS Consent and Message History",
     category: "Communication",
-    audience: "app",
+    audience: "both",
     description:
       "Learn how to record SMS consent and review message history on a client profile.",
     content: `
@@ -3310,7 +3310,7 @@ Record consent clearly in the client profile. Use notes when helpful, such as ho
     slug: "documents-and-e-signatures",
     title: "Creating and Sending Documents for E-Signature",
     category: "Documents & E-Signatures",
-    audience: "app",
+    audience: "both",
     description:
       "Learn how documents and e-signatures help studios collect agreements, waivers, and acknowledgments.",
     content: `
@@ -3347,7 +3347,7 @@ Keep document language clear and specific. If a document is legally important, h
     slug: "finding-signed-documents-and-waivers",
     title: "Finding Signed Documents and Waivers",
     category: "Documents & E-Signatures",
-    audience: "app",
+    audience: "both",
     description:
       "Learn where to look when you need to confirm whether a client or event attendee signed a document.",
     content: `
@@ -3379,7 +3379,7 @@ Before allowing participation in activities that require a waiver, confirm the d
     slug: "student-portal-access-and-sign-in-links",
     title: "How Students Access the Portal",
     category: "Client Portal",
-    audience: "app",
+    audience: "both",
     description:
       "Help students and clients sign in to their studio portal using the correct email address and secure sign-in link.",
     content: `
@@ -3458,7 +3458,7 @@ Request a fresh password reset email and use the newest link. If the issue conti
     slug: "resend-event-ticket-confirmation",
     title: "How to Resend a Ticket Confirmation",
     category: "Events & Ticketing",
-    audience: "app",
+    audience: "both",
     description:
       "Resend an event ticket confirmation email when an attendee cannot find their tickets or QR codes.",
     content: `
@@ -3498,7 +3498,7 @@ Common causes include a missing recipient email, invalid email address, missing 
     slug: "review-event-registration-payment-status",
     title: "How to Review Event Registration Payment Status",
     category: "Events & Ticketing",
-    audience: "app",
+    audience: "both",
     description:
       "Use event registration visibility tools to review payment, ticket email, QR ticket, and document status.",
     content: `
@@ -3553,7 +3553,7 @@ This helps reduce check-in delays and avoids last-minute registration confusion.
     slug: "manage-guest-coach-lesson-slots",
     title: "How to Manage Guest Coach Lesson Slots",
     category: "Events & Ticketing",
-    audience: "app",
+    audience: "both",
     description:
       "Manage guest coach private lesson availability, including blocking and unblocking lesson slots.",
     content: `
@@ -3781,7 +3781,7 @@ After the payment succeeds, record it in DanceFlow right away so the studio does
     slug: "registering-a-stripe-card-reader",
     title: "Registering a Stripe Card Reader in DanceFlow",
     category: "Billing & Payments",
-    audience: "app",
+    audience: "both",
     description:
       "Create a Terminal location, register a Stripe reader, and refresh reader status from the Billing & Payouts page.",
     content: `
@@ -3865,7 +3865,7 @@ Register one front desk reader first and test it before adding multiple readers.
     slug: "collecting-in-person-card-payments-in-danceflow",
     title: "Collecting In-Person Card Payments in DanceFlow",
     category: "Billing & Payments",
-    audience: "app",
+    audience: "both",
     description:
       "Use a registered Stripe reader to collect an in-person payment and attach it to the correct DanceFlow payment record.",
     content: `
@@ -3934,15 +3934,15 @@ Use Stripe Dashboard Tap to Pay only as a fallback when there is no registered r
     slug: "using-aria-revenue-insights",
     title: "Using ARIA Revenue Insights",
     category: "AI & Automations",
-    audience: "app",
+    audience: "both",
     description:
       "Learn how ARIA helps studios find revenue opportunities, follow-up priorities, and event closeout risks.",
     content: `
 ## Overview
 
-ARIA is DanceFlow's AI Revenue Insights Assistant.
+ARIA is DanceFlow's automated operations assistant.
 
-ARIA helps studio owners and staff review the opportunities already visible in DanceFlow, such as low package balances, clients with no upcoming lesson, first-lesson follow-ups, pending booking requests, unsigned documents, and event profitability concerns.
+ARIA helps studio owners and staff review the work already visible in DanceFlow, including front-desk follow-up, scheduling issues, client retention opportunities, payment exceptions, documents, events, payroll readiness, inventory, and studio-health concerns.
 
 ## What ARIA can help surface
 
@@ -3969,11 +3969,32 @@ Examples:
 
 After choosing a goal, review the suggested actions and decide which ones your team should handle first.
 
+## Automation Center and Operations
+
+Use **Automation Center** to choose how much autonomy ARIA has in each operational area.
+
+Use **ARIA Operations** to see what ARIA is handling, what needs review, and what needs a staff decision.
+
+Operational packs can be set to:
+
+- Handle automatically
+- Prepare for my review
+- Notify me only
+- Off
+
+Individual rules inherit the pack setting unless the studio creates a stricter exception.
+
+## Financial safety
+
+ARIA can automatically prepare or send certain low-risk communications when the underlying rule explicitly allows it.
+
+ARIA cannot automatically make financial decisions such as charging a payment method, retrying a payment, issuing a refund, waiving a balance, marking a payment paid, creating a payment transaction, or changing financial access/status.
+
 ## What ARIA does not replace
 
-ARIA is a decision-support tool. It does not replace the studio owner's judgment, staff follow-up, or professional accounting advice.
+ARIA does not replace studio-owner judgment, staff review, accounting professionals, or payroll providers.
 
-Use ARIA to find priorities faster, then review the underlying client, schedule, payment, or event records before acting.
+Higher-risk actions remain staff-controlled even when an operational pack is set to Handle automatically.
 
 ## Best practice
 
@@ -3982,54 +4003,81 @@ Review ARIA at the start of the day or week. Use it as a quick revenue and reten
   },
   {
     slug: "using-automations-for-client-follow-up",
-    title: "Using Automations for Client Follow-Up",
+    title: "Using the ARIA Automation Center",
     category: "AI & Automations",
-    audience: "app",
+    audience: "both",
     description:
-      "Set up automation rules for low package balances, no upcoming lessons, pending booking requests, unsigned documents, and first-lesson follow-up.",
+      "Choose how ARIA should work across front desk, client relationships, scheduling, marketing, billing, documents, events, payroll, retail, and studio health.",
     content: `
 ## Overview
 
-Automations help studios spot follow-up opportunities without manually searching every client record.
+The ARIA Automation Center controls **how ARIA is allowed to work**.
 
-An automation can create a suggested action when a client or workflow needs attention.
+Use it to set the normal autonomy level for each operational area. Then use **ARIA Operations** to supervise the work ARIA creates.
 
-## Common automation rules
+## Operational packs
 
-DanceFlow automations may include:
+ARIA groups related work into operational packs such as:
 
-- Low package balance renewal
-- No upcoming lesson
-- Pending booking request
-- Unsigned document
-- First lesson follow-up
+- Front Desk
+- Client Relationships
+- Scheduling
+- Sales and Retention
+- Marketing
+- Billing and Payments
+- Documents
+- Events
+- Staff and Payroll
+- Retail and Inventory
+- Studio Health
 
-## How to use automation drafts
+## Autonomy levels
 
-When an automation creates a suggested action, review the draft or task before contacting the client.
+Each pack has one autonomy setting:
 
-Check:
+- **Handle automatically**: ARIA uses the maximum safe autonomy allowed by the rules in that pack.
+- **Prepare for my review**: ARIA prepares work and stops for staff review when needed.
+- **Notify me only**: ARIA surfaces the issue without taking the next step.
+- **Off**: ARIA does not create new work from that pack.
 
-- The client record
-- Package or membership status
-- Upcoming schedule
-- Recent communication
-- Whether the suggested message still makes sense
+## Rule exceptions
 
-## Manual review matters
+Individual rules inherit their operational pack.
 
-Automations are meant to help staff notice opportunities. They should not replace human review, especially when the client has special circumstances or recent conversations.
+Only create a rule exception when that specific workflow should be more restrictive than the rest of the pack.
+
+A rule can never become more permissive than its pack.
+
+## Autonomy is not the same as delivery permission
+
+Choosing Handle automatically does not automatically give ARIA permission to send an email or text message.
+
+External delivery still depends on the underlying rule being explicitly allowed to send.
+
+## Financial safety
+
+Billing and Payments can be set to Handle automatically for safe detection, preparation, and permitted communication.
+
+ARIA still cannot automatically:
+
+- Charge a payment method
+- Retry a failed payment
+- Issue a refund
+- Waive a balance
+- Mark a payment paid
+- Create a payment transaction
+- Change financial access or payment status
 
 ## Best practice
 
-Start with a small number of automations. Review the results regularly, adjust thresholds when needed, and make sure staff know who is responsible for follow-up.
+Start with DanceFlow's recommended pack settings. Change a pack only when your studio needs a different boundary, and use rule exceptions sparingly.
 `,
   },
   {
     slug: "event-profitability-and-closeout-review",
     title: "Reviewing Event Profitability and Closeout",
     category: "Events & Ticketing",
-    audience: "app",
+    audience: "both",
     description:
       "Use event profitability, refunds, fees, expenses, labor, and check-in data to review an event before settlement.",
     content: `
@@ -4078,7 +4126,7 @@ Do not settle an event until revenue, refunds, fees, labor, and expenses have be
     slug: "using-event-qr-tickets-and-scan-check-in",
     title: "Using Event QR Tickets and Scan Check-In",
     category: "Events & Ticketing",
-    audience: "app",
+    audience: "both",
     description:
       "Issue QR tickets, resend confirmations, and use QR scanning or manual lookup at event check-in.",
     content: `
@@ -4167,7 +4215,7 @@ Use clear waiver names and keep the document language specific to the event. If 
     slug: "organizer-contacts-and-event-audiences",
     title: "Using Organizer Contacts and Event Audiences",
     category: "Marketing",
-    audience: "app",
+    audience: "both",
     description:
       "Understand how organizer event registrations can become useful contact records for future event communication.",
     content: `
@@ -4204,7 +4252,7 @@ After an event, review attendee contacts and decide whether to send a thank-you 
     slug: "using-client-identity-and-qr-verification",
     title: "Using Client Identity and QR Verification",
     category: "Client Portal",
-    audience: "app",
+    audience: "both",
     description:
       "Understand how client identity, headshots, packages, memberships, and future QR check-in workflows work together.",
     content: `
@@ -4543,7 +4591,7 @@ The goal is simple: keep the right information available to the right people, re
     slug: "setting-up-accountant-report-delivery",
     title: "Setting Up Accountant Report Delivery",
     category: "Reports & Expenses",
-    audience: "app",
+    audience: "both",
     description:
       "Save accountant details, choose reports, and decide whether reports should be sent manually or on a recurring schedule.",
     content: `
@@ -4622,7 +4670,7 @@ Pause recurring delivery when the accountant relationship changes or when report
     slug: "sending-secure-reports-to-your-accountant",
     title: "Sending Secure Reports to Your Accountant",
     category: "Reports & Expenses",
-    audience: "app",
+    audience: "both",
     description:
       "Send selected accounting reports through a private, time-limited DanceFlow link and review recent delivery activity.",
     content: `
@@ -4698,7 +4746,7 @@ Do not forward secure accountant links to other people. Create a new authorized 
     slug: "preparing-instructor-payroll",
     title: "Preparing Instructor Payroll",
     category: "Payroll & Instructor Pay",
-    audience: "app",
+    audience: "both",
     description:
       "Review instructor compensation and prepare payroll information before sending it to your payroll or accounting provider.",
     content: `
@@ -4759,7 +4807,7 @@ Use a consistent payroll period and complete schedule closeout before generating
     slug: "connecting-google-calendar",
     title: "Connecting Google Calendar",
     category: "Scheduling",
-    audience: "app",
+    audience: "both",
     description:
       "Connect a shared studio calendar or personal instructor calendar so DanceFlow schedule activity can stay visible in Google Calendar.",
     content: `
@@ -4818,7 +4866,7 @@ Use the shared studio calendar for studio-wide visibility and personal instructo
     slug: "aria-operations-quick-start",
     title: "ARIA Operations Quick Start",
     category: "AI & Automations",
-    audience: "app",
+    audience: "both",
     description:
       "Set up ARIA Operations with a simple first-week workflow that keeps owners in control.",
     content: `
@@ -4895,7 +4943,7 @@ Consistency matters more than clearing the entire screen.
     slug: "aria-operations-expanded-setup",
     title: "ARIA Operations Expanded Setup",
     category: "AI & Automations",
-    audience: "app",
+    audience: "both",
     description:
       "Expand ARIA ownership, digests, policies, and automation after the first-week workflow feels dependable.",
     content: `
@@ -4982,6 +5030,214 @@ Turn off one digest, return a policy to manual review, or lower the auto-approva
 ## Full printable guide
 
 [Download the ARIA Operations Expanded Setup PDF](/guides/DanceFlow_ARIA_Operations_Expanded_Setup_Guide_Revised.pdf)
+`,
+  },
+
+  {
+    slug: "aria-automation-center-and-operations",
+    title: "ARIA Automation Center vs ARIA Operations",
+    category: "AI & Automations",
+    audience: "both",
+    description:
+      "Understand the difference between configuring ARIA in Automation Center and supervising ARIA in Operations.",
+    content: `
+## Overview
+
+ARIA has two related workspaces with different jobs.
+
+**Automation Center = choose how ARIA should work.**
+
+**ARIA Operations = see ARIA working.**
+
+## Use Automation Center for configuration
+
+Open Automation Center when you want to change:
+
+- Operational pack autonomy
+- Whether an operational area is on or off
+- A stricter rule exception
+- Communication and automation boundaries
+
+The normal studio workflow is to set each operational pack once and only return when your preferences change.
+
+## Use ARIA Operations for daily work
+
+Open ARIA Operations when you want to see:
+
+- Work ARIA handled
+- Items that need your decision
+- Exceptions
+- Upcoming operational work
+- Delivery status
+- Failed or retried work
+- Outcomes and follow-up status
+
+## How they work together
+
+Automation Center sets the boundaries.
+
+ARIA Operations shows the work produced inside those boundaries.
+
+For example:
+
+**Front Desk pack = Handle automatically**
+
+ARIA can automatically perform the safe parts of supported Front Desk workflows. A cancellation or schedule conflict that still requires judgment appears in Operations for review instead of being changed automatically.
+
+## Rule exceptions
+
+Individual rules normally inherit the pack setting.
+
+Use a rule exception only when one workflow should be more restrictive than the rest of the operational area.
+
+## Best practice
+
+Keep pack settings simple. Review Operations as part of the normal studio day and only return to Automation Center when your studio's preferred level of autonomy changes.
+`,
+  },
+  {
+    slug: "aria-autonomy-and-safety",
+    title: "How ARIA Autonomy and Safety Work",
+    category: "AI & Automations",
+    audience: "both",
+    description:
+      "Learn what Handle automatically, Prepare for my review, Notify me only, and Off mean—and what ARIA is never allowed to do automatically.",
+    content: `
+## Overview
+
+ARIA is designed to handle routine work while keeping higher-risk decisions under studio control.
+
+Each operational pack has an autonomy level.
+
+## Handle automatically
+
+ARIA handles everything it safely can within that operational area.
+
+This does not mean every action is automatic.
+
+A rule may still require review because of risk, missing information, or delivery restrictions.
+
+## Prepare for my review
+
+ARIA can detect the issue, gather the relevant information, and prepare the next step.
+
+Staff reviews it before the workflow continues where approval is required.
+
+## Notify me only
+
+ARIA surfaces the issue but does not prepare or execute the next step.
+
+## Off
+
+ARIA does not create new work from that operational pack.
+
+## Rule-level exceptions
+
+Rules inherit the pack setting by default.
+
+A rule exception can make one workflow more restrictive.
+
+A rule cannot be more permissive than its operational pack.
+
+## External communication is separate
+
+Autonomy and external delivery are separate permissions.
+
+A pack being set to Handle automatically does not give every rule permission to send email or SMS.
+
+A communication is sent automatically only when the underlying rule explicitly allows external delivery.
+
+## Financial decisions are always staff-controlled
+
+ARIA cannot automatically:
+
+- Charge a card or payment method
+- Retry a failed payment
+- Issue a refund
+- Waive a balance
+- Mark an outside payment as paid
+- Create a payment transaction
+- Change financial access or payment status
+
+ARIA may identify a payment exception, prepare a follow-up, or send a permitted reminder. The financial decision itself remains with studio staff.
+
+## Scheduling and other higher-risk work
+
+ARIA can identify schedule conflicts, missing instructor coverage, or other operational problems.
+
+It does not automatically move or cancel appointments when staff judgment is required.
+
+## Best practice
+
+Use Handle automatically for routine work you trust ARIA to manage safely, and let rule-level safeguards stop ARIA wherever a decision still belongs to your team.
+`,
+  },
+  {
+    slug: "moving-to-danceflow-with-the-migration-center",
+    title: "Moving to DanceFlow with the Migration Center",
+    category: "Getting Started",
+    audience: "both",
+    description:
+      "Use the Migration Center to import, map, review, and reconcile data when moving to DanceFlow from another studio system.",
+    content: `
+## Overview
+
+The Migration Center helps studios move existing business data into DanceFlow with less manual setup.
+
+The goal is to guide the move, identify gaps, and surface only the records that need studio attention.
+
+## Supported migration workflows
+
+Migration tools can support data coming from common studio-management systems and structured exports, including workflows for:
+
+- WellnessLiving
+- Mindbody
+- Square
+- CSV or spreadsheet-based data
+
+Available fields and import depth depend on the source data provided.
+
+## Typical migration flow
+
+1. Open **Settings > Import / Migration Center**.
+2. Choose the source system or import type.
+3. Upload the exported file.
+4. Review detected fields and mappings.
+5. Confirm or correct fields that could not be mapped automatically.
+6. Run the import.
+7. Review failed rows, warnings, duplicates, and reconciliation items.
+8. Confirm the migrated records in DanceFlow.
+
+## Mapping
+
+DanceFlow attempts to connect source fields to the correct DanceFlow records.
+
+Examples include client names, contact details, package information, memberships, payments, and other supported data.
+
+Only ambiguous or unsupported mappings should require manual input.
+
+## Reconciliation
+
+After import, review the reconciliation results.
+
+Pay attention to:
+
+- Failed rows
+- Duplicate records
+- Missing required information
+- Unmatched source values
+- Payment or balance differences
+- Records that need a studio decision
+
+## ARIA and migration support
+
+ARIA can surface import batches with failed rows or unresolved warnings so migration problems do not disappear after the initial upload.
+
+## Best practice
+
+Keep the original export as a backup until the migration has been reviewed and reconciled.
+
+Do not treat a migration as complete until the important client, schedule, package, membership, and financial records have been spot-checked.
 `,
   },
 
