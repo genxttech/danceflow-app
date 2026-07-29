@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { requireClientEditAccess } from "@/lib/auth/serverRoleGuard";
 import { recordManualMembershipPayment } from "@/lib/memberships/manual-payment";
 
@@ -562,6 +563,8 @@ export async function createPaymentAction(
       )}?success=terminal_payment_ready`;
     }
   } catch (error) {
+    if (isRedirectError(error)) throw error;
+
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
     };
