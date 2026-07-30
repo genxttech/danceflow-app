@@ -1,19 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { ComponentType } from "react";
 import {
   ArrowRight,
   CheckCircle2,
   Circle,
-  CreditCard,
   CalendarDays,
   AlertTriangle,
   Bot,
   FileUp,
-  Globe2,
   Layers3,
-  Sparkles,
-  Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -24,6 +19,7 @@ import {
 import { OnboardingCompletionRecorder } from "@/app/app/OnboardingCompletionRecorder";
 import { OnboardingProjectSyncRecorder } from "@/app/app/OnboardingProjectSyncRecorder";
 import { OnboardingPilotReadiness } from "@/app/app/onboarding/OnboardingPilotReadiness";
+import { OnboardingFirst30DaysHealth } from "@/app/app/onboarding/OnboardingFirst30DaysHealth";
 
 type ChecklistType = "studio" | "organizer";
 
@@ -82,220 +78,44 @@ type LaunchTask = {
   group: LaunchGroupKey;
 };
 
-type LaunchGroup = {
-  key: LaunchGroupKey;
-  title: string;
-  description: string;
-  icon: ComponentType<{ className?: string }>;
+
+const STUDIO_STAGE_LABELS: Record<LaunchGroupKey, string> = {
+  essentials: "Essentials",
+  revenue: "Revenue setup",
+  student_experience: "Student access",
+  public_growth: "Public launch",
 };
-
-const LAUNCH_GROUPS: LaunchGroup[] = [
-  {
-    key: "essentials",
-    title: "Essentials",
-    description: "The minimum setup needed to operate the workspace.",
-    icon: Layers3,
-  },
-  {
-    key: "revenue",
-    title: "Revenue Setup",
-    description: "Payment and sales steps that make revenue trackable.",
-    icon: CreditCard,
-  },
-  {
-    key: "student_experience",
-    title: "Student Experience",
-    description: "Access and self-service pieces that reduce front-desk work.",
-    icon: Users,
-  },
-  {
-    key: "public_growth",
-    title: "Public Growth",
-    description: "Discovery settings that help new dancers find you.",
-    icon: Globe2,
-  },
-];
-
-const STUDIO_LAUNCH_GOALS = [
-  {
-    title: "Start scheduling",
-    description: "Get instructors, clients, and the calendar working first.",
-  },
-  {
-    title: "Collect payments",
-    description: "Prioritize packages, billing, payouts, and paid activity.",
-  },
-  {
-    title: "Enable student self-service",
-    description: "Invite students and reduce manual booking work.",
-  },
-  {
-    title: "Grow publicly",
-    description: "Prepare public profile, discovery, classes, and events.",
-  },
-];
-
-const ORGANIZER_LAUNCH_GOALS = [
-  {
-    title: "Publish first event",
-    description: "Create the event, open registration, and verify visibility.",
-  },
-  {
-    title: "Sell tickets",
-    description: "Connect payouts and confirm the paid registration path.",
-  },
-  {
-    title: "Prepare check-in",
-    description: "Make attendee, ticket, and door operations measurable.",
-  },
-  {
-    title: "Promote publicly",
-    description: "Turn on discovery and make the event easy to find.",
-  },
-];
 
 function isOrganizerRole(role: string | null | undefined) {
   const normalized = (role ?? "").trim().toLowerCase();
   return normalized.startsWith("organizer_");
 }
 
-function launchTaskStatusClass(complete: boolean) {
-  return complete
-    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-    : "border-slate-200 bg-white text-slate-900";
+function taskStateLabel(task: LaunchTask, nextTaskKey: string | null) {
+  if (task.complete) return "Complete";
+  if (task.key === nextTaskKey) return "Next";
+  return "Later";
 }
 
-function LaunchTaskCard({ task }: { task: LaunchTask }) {
-  return (
-    <Link
-      href={task.href}
-      className={`group block rounded-2xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-[#D8B4FE] hover:shadow-md ${launchTaskStatusClass(
-        task.complete,
-      )}`}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className={`mt-0.5 rounded-full p-1 ${
-            task.complete
-              ? "bg-emerald-100 text-emerald-700"
-              : "bg-slate-50 text-slate-400 ring-1 ring-slate-200"
-          }`}
-        >
-          {task.complete ? (
-            <CheckCircle2 className="h-4 w-4" />
-          ) : (
-            <Circle className="h-4 w-4" />
-          )}
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="text-sm font-semibold">{task.title}</h3>
-            {!task.complete ? (
-              <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[#6B21A8]" />
-            ) : null}
-          </div>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            {task.description}
-          </p>
-          <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#7C2D92]">
-            {task.complete ? "Ready" : "Needs setup"}
-          </p>
-        </div>
-      </div>
-    </Link>
-  );
-}
+const STUDIO_LAUNCH_BLOCKER_KEYS = new Set([
+  "settings",
+  "instructors",
+  "clients",
+  "schedule",
+  "payouts",
+]);
 
-function LaunchGroupSection({
-  group,
-  tasks,
-}: {
-  group: LaunchGroup;
-  tasks: LaunchTask[];
-}) {
-  const completedCount = tasks.filter((task) => task.complete).length;
-  const Icon = group.icon;
+const ORGANIZER_LAUNCH_BLOCKER_KEYS = new Set([
+  "organizer-profile",
+  "create-event",
+  "payouts",
+  "publish-event",
+]);
 
-  return (
-    <section className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-white shadow-sm">
-      <div className="border-b border-[#F3E8FF] bg-gradient-to-r from-[#FCF8FF] to-white p-5">
-        <div className="flex items-start gap-4">
-          <div className="rounded-2xl bg-[#F3E8FF] p-3 text-[#6B21A8]">
-            <Icon className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-lg font-semibold text-slate-950">
-                {group.title}
-              </h2>
-              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-[#E9D5FF]">
-                {completedCount} of {tasks.length} ready
-              </span>
-            </div>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              {group.description}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-3 p-5 md:grid-cols-2">
-        {tasks.map((task) => (
-          <LaunchTaskCard key={task.key} task={task} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function GoalCards({ checklistType }: { checklistType: ChecklistType }) {
-  const goals =
-    checklistType === "organizer" ? ORGANIZER_LAUNCH_GOALS : STUDIO_LAUNCH_GOALS;
-
-  return (
-    <section className="rounded-[28px] border border-[#E9D5FF] bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
-            Launch Goal
-          </p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-950">
-            What do you want working first?
-          </h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
-            These goals are here to make setup feel directional. The checklist
-            below still updates automatically from real workspace activity.
-          </p>
-        </div>
-        <Sparkles className="hidden h-6 w-6 text-[#F97316] md:block" />
-      </div>
-
-      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {goals.map((goal, index) => (
-          <div
-            key={goal.title}
-            className={`rounded-2xl border p-4 ${
-              index === 0
-                ? "border-[#D8B4FE] bg-[#FCF8FF]"
-                : "border-slate-200 bg-slate-50"
-            }`}
-          >
-            <p className="text-sm font-semibold text-slate-950">
-              {goal.title}
-            </p>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              {goal.description}
-            </p>
-            {index === 0 ? (
-              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#7C2D92]">
-                Recommended
-              </p>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+function isLaunchBlocker(taskKey: string, checklistType: ChecklistType) {
+  return checklistType === "organizer"
+    ? ORGANIZER_LAUNCH_BLOCKER_KEYS.has(taskKey)
+    : STUDIO_LAUNCH_BLOCKER_KEYS.has(taskKey);
 }
 
 export default async function LaunchSetupPage() {
@@ -656,13 +476,36 @@ export default async function LaunchSetupPage() {
   const totalCount = tasks.length;
   const percentComplete =
     totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-  const allComplete = totalCount > 0 && completedCount === totalCount;
+
+  const launchBlockers = tasks.filter((task) =>
+    isLaunchBlocker(task.key, checklistType),
+  );
+  const unresolvedLaunchBlockers = launchBlockers.filter(
+    (task) => !task.complete,
+  );
+  const launchReady =
+    launchBlockers.length > 0 && unresolvedLaunchBlockers.length === 0;
+
+  const recommendedTasks = tasks.filter(
+    (task) => !isLaunchBlocker(task.key, checklistType),
+  );
+  const incompleteRecommendations = recommendedTasks.filter(
+    (task) => !task.complete,
+  );
+
   const shouldRecordComplete =
-    allComplete && !onboardingPreference?.completed_at;
-  const nextTask = tasks.find((task) => !task.complete) ?? null;
+    launchReady && !onboardingPreference?.completed_at;
+  const nextTask =
+    unresolvedLaunchBlockers[0] ??
+    incompleteRecommendations[0] ??
+    null;
+
+  const nextTaskKey = nextTask?.key ?? null;
+  const completedTasks = tasks.filter((task) => task.complete);
+  const attentionCount = typedDecisions.length + typedExceptions.length;
 
   return (
-    <main className="space-y-8 p-6 md:p-8">
+    <main className="space-y-6 p-6 md:p-8">
       <OnboardingProjectSyncRecorder
         checklistType={checklistType}
         readinessScore={percentComplete}
@@ -685,164 +528,367 @@ export default async function LaunchSetupPage() {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow Launch Setup
+                30-day guided onboarding
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                {checklistType === "organizer"
-                  ? "Launch your event workspace"
-                  : "Launch your studio workspace"}
+                {launchReady
+                  ? "Your workspace is ready to launch"
+                  : nextTask
+                    ? nextTask.title
+                    : "Finish your DanceFlow setup"}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Setup should feel fast, useful, and easy to leave. Finish what
-                matters now, skip the rest until the workspace needs it.
+                {launchReady
+                  ? "Your launch blockers are cleared. Recommendations can be completed before or after go-live."
+                  : nextTask?.description ??
+                    "DanceFlow will guide you through the next setup step and keep everything else out of the way until it matters."}
               </p>
             </div>
 
-            <div className="rounded-2xl bg-white/10 p-4 text-sm text-white ring-1 ring-white/15">
-              <span className="text-2xl font-semibold">
-                {completedCount} of {totalCount}
-              </span>
-              <p className="mt-1 text-white/75">ready for launch</p>
+            <div className="min-w-[190px] rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">
+              <div className="flex items-end justify-between gap-3">
+                <span className="text-3xl font-semibold">{percentComplete}%</span>
+                <span className="text-xs font-semibold text-white/70">
+                  {completedCount} of {totalCount} complete
+                </span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/20">
+                <div
+                  className="h-full rounded-full bg-white transition-all"
+                  style={{ width: `${percentComplete}%` }}
+                />
+              </div>
             </div>
-          </div>
-
-          <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/20">
-            <div
-              className="h-full rounded-full bg-white transition-all"
-              style={{ width: `${percentComplete}%` }}
-            />
           </div>
         </div>
 
-        <div className="grid gap-4 bg-[#FCF8FF] p-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+        <div className="flex flex-col gap-4 bg-[#FCF8FF] p-6 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-sm font-semibold text-slate-950">
-              {nextTask
-                ? `Recommended next: ${nextTask.title}`
-                : "Your launch basics are ready."}
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7C2D92]">
+              One next action
             </p>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
+            <p className="mt-1 text-sm font-semibold text-slate-950">
               {nextTask
-                ? nextTask.description
-                : "The setup panel will stop appearing once completion is recorded."}
+                ? `Continue with ${nextTask.title.toLowerCase()}`
+                : "Review final launch readiness"}
             </p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            {nextTask ? (
-              <Link
-                href={nextTask.href}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4B1465]"
+          <Link
+            href={nextTask?.href ?? "/app/onboarding"}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#5B197A] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#4B1465]"
+          >
+            {nextTask ? "Continue setup" : "Review readiness"}
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </section>
+
+      <section className="rounded-[28px] border border-[#E9D5FF] bg-white p-5 shadow-sm md:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+              Implementation path
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              Tell DanceFlow where you are starting
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+              Your source determines the migration guidance, mapping, reconciliation, and launch sequence.
+            </p>
+          </div>
+          <span className="self-start rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 ring-1 ring-orange-200">
+            {daysRemaining(onboardingProject?.target_go_live_date)} days remaining
+          </span>
+        </div>
+
+        <form
+          action={saveOnboardingPathAction}
+          className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+        >
+          <input type="hidden" name="checklistType" value={checklistType} />
+          <select
+            name="sourceSystem"
+            defaultValue={onboardingProject?.source_system ?? "new_studio"}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800"
+          >
+            <option value="new_studio">Starting fresh</option>
+            <option value="mindbody">Mindbody</option>
+            <option value="wellnessliving">WellnessLiving</option>
+            <option value="square">Square</option>
+            <option value="spreadsheets">Spreadsheets / CSV files</option>
+            <option value="pike13" disabled>Pike13 — source-specific support coming soon</option>
+            <option value="vagaro" disabled>Vagaro — source-specific support coming soon</option>
+            <option value="studio_director" disabled>Studio Director — source-specific support coming soon</option>
+            <option value="other">Other system / guided import</option>
+          </select>
+          <button
+            type="submit"
+            className="rounded-2xl bg-[#5B197A] px-5 py-3 text-sm font-semibold text-white hover:bg-[#4B1465]"
+          >
+            Save path
+          </button>
+        </form>
+
+        <div className="mt-5 flex gap-3 overflow-x-auto pb-1">
+          {[
+            { label: "Source", value: labelize(onboardingProject?.source_system), icon: FileUp },
+            { label: "Current phase", value: labelize(onboardingProject?.current_phase ?? "essentials"), icon: Layers3 },
+            { label: "Target launch", value: formatDate(onboardingProject?.target_go_live_date), icon: CalendarDays },
+            {
+              label: "ARIA defaults",
+              value: enabledAriaPacks > 0 ? `${enabledAriaPacks} packs active` : "Activates automatically",
+              icon: Bot,
+            },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={item.label}
+                className="w-60 shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-4"
               >
-                Open next step
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            ) : null}
-            <Link
-              href="/app"
-              className="inline-flex items-center rounded-xl border border-[#E9D5FF] bg-white px-4 py-2 text-sm font-semibold text-[#6B21A8] hover:border-[#D8B4FE] hover:bg-white"
-            >
-              Back to dashboard
-            </Link>
-          </div>
+                <Icon className="h-5 w-5 text-[#6B21A8]" />
+                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  {item.label}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-slate-950">
+                  {item.value}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+
+        {latestImport ? (
+          <p className="mt-4 text-xs text-slate-500">
+            Latest import: {labelize(String(latestImport.import_type))} · {labelize(String(latestImport.status))}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-2">
+        <div
+          className={`rounded-[24px] border p-4 ${
+            launchReady
+              ? "border-emerald-200 bg-emerald-50"
+              : "border-orange-200 bg-orange-50"
+          }`}
+        >
+          <p
+            className={`text-xs font-semibold uppercase tracking-[0.16em] ${
+              launchReady ? "text-emerald-700" : "text-orange-700"
+            }`}
+          >
+            Go-live blockers
+          </p>
+          <p className="mt-1 text-lg font-semibold text-slate-950">
+            {launchReady
+              ? "No blockers remaining"
+              : `${unresolvedLaunchBlockers.length} blocker${
+                  unresolvedLaunchBlockers.length === 1 ? "" : "s"
+                } remaining`}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Only operational requirements can hold launch. Growth and adoption recommendations do not.
+          </p>
+        </div>
+
+        <div className="rounded-[24px] border border-violet-200 bg-violet-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+            Recommendations
+          </p>
+          <p className="mt-1 text-lg font-semibold text-slate-950">
+            {incompleteRecommendations.length} optional improvement{incompleteRecommendations.length === 1 ? "" : "s"}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            These improve adoption, self-service, or growth but do not prevent the studio from going live.
+          </p>
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
-        <div className="rounded-[28px] border border-[#E9D5FF] bg-white p-5 shadow-sm md:p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      {attentionCount > 0 ? (
+        <section className="rounded-[28px] border border-orange-200 bg-orange-50/70 p-5 shadow-sm md:p-6">
+          <div className="flex items-start gap-3">
+            <div className="rounded-full bg-orange-100 p-2 text-orange-700">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">
+                Needs you
+              </p>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                {attentionCount} onboarding item{attentionCount === 1 ? "" : "s"} need attention
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                DanceFlow is keeping routine setup out of the way. These are the exceptions or owner decisions that still need judgment.
+              </p>
+
+              <div className="mt-4 space-y-2">
+                {typedDecisions.map((decision) => (
+                  <div
+                    key={decision.id}
+                    className="rounded-2xl border border-violet-200 bg-white p-4"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                      Owner decision
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-950">
+                      {decision.title}
+                    </p>
+                    {decision.due_at ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Due {formatDate(decision.due_at)}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+                {typedExceptions.map((exception) => (
+                  <div
+                    key={exception.id}
+                    className="rounded-2xl border border-orange-200 bg-white p-4"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">
+                      {exception.severity} exception
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-950">
+                      {exception.title}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-emerald-700" />
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">30-day guided onboarding</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">Your implementation path</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Choose where your data is coming from. DanceFlow will use that choice to organize migration, setup, reconciliation, and launch work.</p>
+              <p className="text-sm font-semibold text-emerald-950">
+                No onboarding exceptions need your attention.
+              </p>
+              <p className="mt-0.5 text-xs text-emerald-800/80">
+                Continue with the recommended next action above.
+              </p>
             </div>
-            <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 ring-1 ring-orange-200">{daysRemaining(onboardingProject?.target_go_live_date)} days remaining</span>
           </div>
+        </section>
+      )}
 
-          <form action={saveOnboardingPathAction} className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">
-            <input type="hidden" name="checklistType" value={checklistType} />
-            <select name="sourceSystem" defaultValue={onboardingProject?.source_system ?? "new_studio"} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800">
-              <option value="new_studio">Starting fresh</option>
-              <option value="mindbody">Mindbody</option>
-              <option value="wellnessliving">WellnessLiving</option>
-              <option value="pike13">Pike13</option>
-              <option value="square">Square</option>
-              <option value="vagaro">Vagaro</option>
-              <option value="studio_director">Studio Director</option>
-              <option value="spreadsheets">Spreadsheets / CSV files</option>
-              <option value="other">Other system</option>
-            </select>
-            <button type="submit" className="rounded-2xl bg-[#5B197A] px-5 py-3 text-sm font-semibold text-white hover:bg-[#4B1465]">Save path</button>
-          </form>
+      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+              Launch path
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              {!launchReady
+                ? `${unresolvedLaunchBlockers.length} launch blocker${
+                    unresolvedLaunchBlockers.length === 1 ? "" : "s"
+                  } remaining`
+                : incompleteRecommendations.length > 0
+                  ? "Launch ready · recommendations remain"
+                  : "Core launch steps complete"}
+            </h2>
+          </div>
+          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+            {completedTasks.length}/{tasks.length}
+          </span>
+        </div>
 
-          <div className="mt-5 overflow-x-auto pb-1">
-            <div className="flex min-w-max gap-3 md:grid md:min-w-0 md:grid-cols-4">
-              {[
-                { label: "Source", value: labelize(onboardingProject?.source_system), icon: FileUp },
-                { label: "Current phase", value: labelize(onboardingProject?.current_phase ?? "essentials"), icon: Layers3 },
-                { label: "Target launch", value: formatDate(onboardingProject?.target_go_live_date), icon: CalendarDays },
-                { label: "ARIA defaults", value: enabledAriaPacks > 0 ? `${enabledAriaPacks} packs active` : "Activates automatically", icon: Bot },
-              ].map((item) => { const Icon = item.icon; return (
-                <div key={item.label} className="w-64 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:w-auto">
-                  <Icon className="h-5 w-5 text-[#6B21A8]" />
-                  <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-950">{item.value}</p>
+        {nextTask ? (
+          <Link
+            href={nextTask.href}
+            className="mt-5 flex items-start gap-3 rounded-2xl border border-[#D8B4FE] bg-[#FCF8FF] p-4 transition hover:border-[#C084FC]"
+          >
+            <div className="rounded-full bg-violet-100 p-1 text-violet-700">
+              <Circle className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                Current step · {STUDIO_STAGE_LABELS[nextTask.group]}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-950">
+                {nextTask.title}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                {nextTask.description}
+              </p>
+            </div>
+            <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-violet-700" />
+          </Link>
+        ) : null}
+
+        <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">
+            View all launch steps
+          </summary>
+          <div className="border-t border-slate-200 px-4 py-2">
+            {tasks.map((task) => (
+              <Link
+                key={task.key}
+                href={task.href}
+                className="flex items-center gap-3 border-b border-slate-200 py-3 last:border-b-0"
+              >
+                {task.complete ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                ) : (
+                  <Circle className="h-4 w-4 shrink-0 text-slate-400" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {task.title}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {STUDIO_STAGE_LABELS[task.group]} ·{" "}
+                    {isLaunchBlocker(task.key, checklistType)
+                      ? "Required for launch"
+                      : "Recommended"}
+                  </p>
                 </div>
-              ); })}
-            </div>
+                <span
+                  className={`text-xs font-semibold ${
+                    task.complete
+                      ? "text-emerald-700"
+                      : task.key === nextTaskKey
+                        ? "text-violet-700"
+                        : "text-slate-400"
+                  }`}
+                >
+                  {taskStateLabel(task, nextTaskKey)}
+                </span>
+              </Link>
+            ))}
           </div>
-        </div>
-
-        <div className="rounded-[28px] border border-[#F9A8D4] bg-gradient-to-br from-white to-[#FDF2F8] p-5 shadow-sm md:p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#BE185D]">Next best action</p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-950">{nextTask?.title ?? "Review launch readiness"}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{nextTask?.description ?? "Your core launch checklist is complete. Review exceptions and approve go-live when ready."}</p>
-          <Link href={nextTask?.href ?? "/app/onboarding"} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#BE185D] px-4 py-2 text-sm font-semibold text-white hover:bg-[#9D174D]">Open next step <ArrowRight className="h-4 w-4" /></Link>
-          {latestImport ? <p className="mt-4 text-xs text-slate-500">Latest import: {labelize(String(latestImport.import_type))} · {labelize(String(latestImport.status))}</p> : null}
-        </div>
+        </details>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">Needs your decision</p><h2 className="mt-2 text-xl font-semibold text-slate-950">Owner choices</h2></div>
-            <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">{typedDecisions.length}</span>
-          </div>
-          <div className="mt-4 space-y-3">{typedDecisions.length ? typedDecisions.map((decision) => <div key={decision.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-950">{decision.title}</p><p className="mt-1 text-xs text-slate-500">{decision.due_at ? `Due ${formatDate(decision.due_at)}` : "Review when ready"}</p></div>) : <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No owner decisions are waiting.</p>}</div>
+      <details className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
+        <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-800 md:px-6">
+          Review detailed go-live readiness
+        </summary>
+        <div className="border-t border-slate-200 p-5 md:p-6">
+          <OnboardingPilotReadiness
+            studioId={studioId}
+            projectId={onboardingProject?.id ?? null}
+            targetGoLiveDate={onboardingProject?.target_go_live_date ?? null}
+          />
         </div>
-        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Exceptions</p><h2 className="mt-2 text-xl font-semibold text-slate-950">Items needing attention</h2></div>
-            <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">{typedExceptions.length}</span>
-          </div>
-          <div className="mt-4 space-y-3">{typedExceptions.length ? typedExceptions.map((exception) => <div key={exception.id} className="flex gap-3 rounded-2xl border border-orange-200 bg-orange-50 p-4"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-700" /><div><p className="text-sm font-semibold text-slate-950">{exception.title}</p><p className="mt-1 text-xs capitalize text-orange-700">{exception.severity} priority</p></div></div>) : <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">No onboarding exceptions are open.</p>}</div>
+      </details>
+
+      <details className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
+        <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-800 md:px-6">
+          Review first 30 days monitoring
+        </summary>
+        <div className="border-t border-slate-200 p-5 md:p-6">
+          <OnboardingFirst30DaysHealth
+            studioId={studioId}
+            projectId={onboardingProject?.id ?? null}
+            startedAt={onboardingProject?.started_at ?? null}
+          />
         </div>
-      </section>
+      </details>
 
-
-      <OnboardingPilotReadiness
-        studioId={studioId}
-        projectId={onboardingProject?.id ?? null}
-        targetGoLiveDate={onboardingProject?.target_go_live_date ?? null}
-      />
-
-      <GoalCards checklistType={checklistType} />
-
-      <div className="space-y-6">
-        {LAUNCH_GROUPS.map((group) => {
-          const groupTasks = tasks.filter((task) => task.group === group.key);
-          if (groupTasks.length === 0) return null;
-
-          return (
-            <LaunchGroupSection
-              key={group.key}
-              group={group}
-              tasks={groupTasks}
-            />
-          );
-        })}
-      </div>
-
-      <section className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
+      <section className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
         <form
           action={dismissWorkspaceOnboardingAction}
           className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
@@ -850,11 +896,10 @@ export default async function LaunchSetupPage() {
           <input type="hidden" name="checklistType" value={checklistType} />
           <div>
             <p className="text-sm font-semibold text-slate-950">
-              Not ready to finish setup?
+              Need to leave setup for now?
             </p>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Hide the dashboard reminder for now. You can still return to
-              Launch Setup from this page link.
+              Hide the dashboard reminder. Your onboarding progress stays saved.
             </p>
           </div>
           <button
@@ -865,6 +910,13 @@ export default async function LaunchSetupPage() {
           </button>
         </form>
       </section>
+
+      <Link
+        href="/app"
+        className="inline-flex text-sm font-semibold text-slate-500 hover:text-[#6B21A8]"
+      >
+        Back to dashboard
+      </Link>
     </main>
   );
 }
