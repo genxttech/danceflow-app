@@ -886,323 +886,229 @@ export default async function DiscoverEventsPage({
       <PublicSiteHeader currentPath="events" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-slate-50">
-        <section className="border-b bg-[linear-gradient(180deg,#f5f3ff_0%,#ffffff_24%,#f8fafc_100%)]">
-          <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-600">
-              Public Events
-            </p>
+        <section className="border-b border-orange-200/70 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] text-white">
+          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
+                  DanceFlow Discovery
+                </p>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                  Find dance events
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80 sm:text-base">
+                  Search public classes, socials, workshops, competitions, and special dance experiences.
+                </p>
+              </div>
 
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-              {user
-                ? "Welcome back — find dance events near you"
-                : "Find dance events near you"}
-            </h1>
-
-            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-              Search by city, state, ZIP code, or your current location to find
-              public events nearby.
-            </p>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                href="/discover/studios"
-                className="inline-flex rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-              >
-                Browse Studios
-              </Link>
-
-              {!user ? (
-                <Link
-                  href="/signup"
-                  className="inline-flex rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Create Free Account
-                </Link>
-              ) : (
-                <div className="inline-flex rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-800">
-                  You are signed in. You can now favorite events while you
-                  browse.
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                    Near-Me Search
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Use your current location, or search by city, state, or ZIP
-                    code.
-                  </p>
-                </div>
-
+              <div className="flex flex-wrap gap-2">
                 <Link
                   href="/discover/studios"
-                  className="inline-flex rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
                 >
-                  Search Studios Near Me
+                  Browse studios
                 </Link>
+                {!user ? (
+                  <Link
+                    href="/signup"
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-orange-50"
+                  >
+                    Create free account
+                  </Link>
+                ) : (
+                  <span className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white backdrop-blur">
+                    Signed in · favorites enabled
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </section>
 
         <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="overflow-hidden rounded-[2rem] border border-violet-200 bg-white shadow-sm">
-              <div className="bg-[linear-gradient(135deg,#f5f3ff_0%,#ffffff_55%,#fff7ed_100%)] p-6">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
-                    Coming Soon
-                  </span>
-                  <span className="rounded-full border border-violet-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
-                    Future placement space
-                  </span>
-                </div>
-
-                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
-                  Featured Events
-                </h2>
-
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Highlighted event placements are coming soon. This space is
-                  reserved for promoted workshops, socials, competitions, and
-                  special events that help dancers find what is next.
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
-                    Newly Added
-                  </p>
-
-                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                    Newly Added Events
-                  </h2>
-
-                  <p className="mt-2 text-sm text-slate-600">
-                    Recently published event listings from studios and
-                    organizers.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-3">
-                {newlyAddedEvents.length > 0 ? (
-                  newlyAddedEvents.map(
-                    ({ event, studio, organizer, eventLocations }) => (
-                      <Link
-                        key={event.id}
-                        href={`/events/${event.slug}`}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-white hover:shadow-sm"
-                      >
-                        <p className="font-medium text-slate-950">
-                          {event.name}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {formatEventScheduleFromLocations(
-                            event,
-                            eventLocations,
-                          )}{" "}
-                          · {organizer?.name || hostStudioName(studio)}
-                        </p>
-                      </Link>
-                    ),
-                  )
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-                    Newly added events will appear here as public events go
-                    live.
-                  </div>
+          {newlyAddedEvents.length > 0 ? (
+            <details className="rounded-3xl border border-violet-200 bg-white shadow-sm">
+              <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-900">
+                Newly added events
+              </summary>
+              <div className="grid gap-3 border-t border-slate-100 p-4 md:grid-cols-3">
+                {newlyAddedEvents.map(
+                  ({ event, studio, organizer, eventLocations }) => (
+                    <Link
+                      key={event.id}
+                      href={`/events/${event.slug}`}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-white hover:shadow-sm"
+                    >
+                      <p className="font-medium text-slate-950">{event.name}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {formatEventScheduleFromLocations(event, eventLocations)} ·{" "}
+                        {organizer?.name || hostStudioName(studio)}
+                      </p>
+                    </Link>
+                  ),
                 )}
               </div>
-            </div>
-          </div>
+            </details>
+          ) : null}
 
-          <form className="mt-8 overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
-            <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#f8fafc_0%,#f5f3ff_100%)] px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
-                Event Search
-              </p>
+          <form className="mt-6 overflow-hidden rounded-3xl border border-orange-200/80 bg-white shadow-[0_18px_50px_rgba(76,29,149,0.10)]">
+            <input
+              id="search-location-mode"
+              type="hidden"
+              name="locationMode"
+              defaultValue={locationMode}
+            />
+            <input
+              id="search-latitude"
+              type="hidden"
+              name="latitude"
+              defaultValue={searchLatitude !== null ? String(searchLatitude) : ""}
+            />
+            <input
+              id="search-longitude"
+              type="hidden"
+              name="longitude"
+              defaultValue={searchLongitude !== null ? String(searchLongitude) : ""}
+            />
 
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                Find your next dance event
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-600">
-                Search by location, style, date-friendly details, and
-                beginner-friendly options.
-              </p>
-            </div>
-
-            <div className="p-6">
-              <input
-                id="search-location-mode"
-                type="hidden"
-                name="locationMode"
-                defaultValue={locationMode}
-              />
-              <input
-                id="search-latitude"
-                type="hidden"
-                name="latitude"
-                defaultValue={searchLatitude !== null ? String(searchLatitude) : ""}
-              />
-              <input
-                id="search-longitude"
-                type="hidden"
-                name="longitude"
-                defaultValue={searchLongitude !== null ? String(searchLongitude) : ""}
-              />
-
-              <div className="grid gap-4 xl:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
-                <div>
-                  <label
-                    htmlFor="q"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Search
-                  </label>
-                  <input
-                    id="q"
-                    name="q"
-                    defaultValue={qRaw}
-                    placeholder="Event name, host, or dance style"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="city"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    City
-                  </label>
-                  <input
-                    id="city"
-                    name="city"
-                    defaultValue={cityRaw}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="state"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    State
-                  </label>
-                  <input
-                    id="state"
-                    name="state"
-                    defaultValue={stateRaw}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="zip"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    ZIP Code
-                  </label>
-                  <input
-                    id="zip"
-                    name="zip"
-                    defaultValue={zipRaw}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="style"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Dance style
-                  </label>
-                  <select
-                    id="style"
-                    name="style"
-                    defaultValue={style}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  >
-                    <option value="">All styles</option>
-                    {STYLE_OPTIONS.map((option) => (
-                      <option key={option.key} value={option.key}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-end">
-                  <button
-                    type="submit"
-                    className="inline-flex w-full justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                  >
-                    Search
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-4 lg:grid-cols-[auto_180px] lg:items-end">
-                <div>
-                  <CurrentLocationButton />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="radius"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Radius
-                  </label>
-                  <select
-                    id="radius"
-                    name="radius"
-                    defaultValue={String(radius)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  >
-                    {RADIUS_OPTIONS.map((value) => (
-                      <option key={value} value={value}>
-                        {value} miles
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <label className="mt-4 inline-flex items-center gap-3 text-sm text-slate-700">
+            <div className="p-4 sm:p-5">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
                 <input
-                  type="checkbox"
-                  name="beginner"
-                  value="1"
-                  defaultChecked={beginner}
-                  className="h-4 w-4 rounded border-slate-300"
+                  id="q"
+                  name="q"
+                  defaultValue={qRaw}
+                  placeholder="Search event, host, style, or location"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
                 />
-                Beginner-friendly only
-              </label>
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  Search events
+                </button>
+              </div>
+
+              <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-800">
+                  <span>More filters</span>
+                  <span className="text-xs font-medium text-slate-500">
+                    Location · style · radius
+                  </span>
+                </summary>
+
+                <div className="border-t border-slate-200 p-4">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                      <label htmlFor="city" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        City
+                      </label>
+                      <input
+                        id="city"
+                        name="city"
+                        defaultValue={cityRaw}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="state" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        State
+                      </label>
+                      <input
+                        id="state"
+                        name="state"
+                        defaultValue={stateRaw}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="zip" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        ZIP
+                      </label>
+                      <input
+                        id="zip"
+                        name="zip"
+                        defaultValue={zipRaw}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="style" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        Dance style
+                      </label>
+                      <select
+                        id="style"
+                        name="style"
+                        defaultValue={style}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      >
+                        <option value="">All styles</option>
+                        {STYLE_OPTIONS.map((option) => (
+                          <option key={option.key} value={option.key}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                      <CurrentLocationButton />
+
+                      <div className="w-full sm:w-40">
+                        <label htmlFor="radius" className="mb-1.5 block text-sm font-medium text-slate-800">
+                          Radius
+                        </label>
+                        <select
+                          id="radius"
+                          name="radius"
+                          defaultValue={String(radius)}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                        >
+                          {RADIUS_OPTIONS.map((value) => (
+                            <option key={value} value={value}>
+                              {value} miles
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <label className="inline-flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          name="beginner"
+                          value="1"
+                          defaultChecked={beginner}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        Beginner-friendly only
+                      </label>
+                    </div>
+
+                    <Link
+                      href="/discover/events"
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Clear filters
+                    </Link>
+                  </div>
+                </div>
+              </details>
             </div>
           </form>
 
           <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                Events
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Event directory</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
+                {filteredEvents.length} event{filteredEvents.length === 1 ? "" : "s"}
               </h2>
 
               <p className="mt-1 text-sm text-slate-600">
-                Showing {filteredEvents.length} organizer-published public
-                events
+                Browse public events
                 {usingCurrentLocation
                   ? ` within ${radius} miles of your location`
                   : ""}
@@ -1236,8 +1142,7 @@ export default async function DiscoverEventsPage({
               </h3>
 
               <p className="mt-2 text-slate-600">
-                Try broadening your filters, resetting filters, or searching by
-                city, state, or ZIP code.
+                Try a broader search or clear filters to see more events.
               </p>
             </div>
           ) : (

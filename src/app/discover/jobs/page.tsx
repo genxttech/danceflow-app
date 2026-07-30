@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { NearMeButton } from "../NearMeButton";
+import PublicSiteHeader from "@/components/public/PublicSiteHeader";
+import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import {
   formatEmploymentType,
   formatJobRole,
@@ -122,120 +124,106 @@ export default async function NowHiringDiscoveryPage({
   });
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <section className="border-b border-indigo-100 bg-gradient-to-br from-white via-white to-indigo-50">
-        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--brand-primary)]">
-            Now Hiring
-          </p>
-          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-                Dance studio openings
-              </h1>
-              <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-                Find instructor, coaching, front desk, event staff, and studio
-                operations opportunities from DanceFlow studios.
-              </p>
-            </div>
-            <Link
-              href="/get-started/studio"
-              className="inline-flex rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Post a studio job
-            </Link>
-          </div>
-        </div>
-      </section>
+    <>
+      <PublicSiteHeader currentPath="jobs" isAuthenticated={false} />
 
-      <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <form className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-3">
-            <input
-              name="q"
-              defaultValue={searchText}
-              placeholder="Search jobs, studios, cities, or styles"
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-3"
-            />
-            <select
-              name="roleType"
-              defaultValue={selectedRoleType}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">Any role</option>
-              {roleOptions.map((role) => (
-                <option key={role} value={role}>
-                  {formatJobRole(role)}
-                </option>
-              ))}
-            </select>
-            <select
-              name="employmentType"
-              defaultValue={selectedEmploymentType}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">Any employment</option>
-              {employmentOptions.map((employment) => (
-                <option key={employment} value={employment}>
-                  {formatEmploymentType(employment)}
-                </option>
-              ))}
-            </select>
-            <select
-              name="locationType"
-              defaultValue={selectedLocationType}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">Any location type</option>
-              {locationOptions.map((locationType) => (
-                <option key={locationType} value={locationType}>
-                  {locationType.replaceAll("_", " ")}
-                </option>
-              ))}
-            </select>
-            <select
-              name="style"
-              defaultValue={selectedStyle}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-2"
-            >
-              <option value="">Any dance style</option>
-              {danceStyleGroups.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  <option value={group.label}>{group.label} - all styles</option>
-                  {group.styles.map((style) => (
-                    <option key={style} value={style}>
-                      {style}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <select
-              name="radius"
-              defaultValue={String(selectedRadius)}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="25">25 miles</option>
-              <option value="50">50 miles</option>
-              <option value="100">100 miles</option>
-            </select>
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.10),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#f8fafc_36%,#ffffff_100%)]">
+        <section className="border-b border-orange-200/70 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] text-white">
+          <div className="mx-auto max-w-7xl px-4 py-9 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
+                  DanceFlow Discovery
+                </p>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+                  Find dance work
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80 sm:text-base">
+                  Browse instructor, coaching, front-desk, event, and studio operations opportunities.
+                </p>
+              </div>
+              <Link
+                href="/get-started/studio"
+                className="inline-flex self-start rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-orange-50 lg:self-auto"
+              >
+                Post a studio job
+              </Link>
+            </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-3">
-            <button
-              type="submit"
-              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
-            >
-              Apply filters
-            </button>
-            <Link
-              href="/discover/jobs"
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Clear
-            </Link>
-            <NearMeButton />
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <form className="rounded-3xl border border-orange-200/80 bg-white shadow-[0_18px_50px_rgba(76,29,149,0.10)]">
+            <div className="p-4 sm:p-5">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                <input
+                  name="q"
+                  defaultValue={searchText}
+                  placeholder="Search jobs, studios, cities, or styles"
+                  className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                />
+                <button
+                  type="submit"
+                  className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  Search jobs
+                </button>
+              </div>
+
+              <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">
+                  More filters
+                </summary>
+                <div className="grid gap-3 border-t border-slate-200 p-4 md:grid-cols-3">
+                  <select name="roleType" defaultValue={selectedRoleType} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                    <option value="">Any role</option>
+                    {roleOptions.map((role) => <option key={role} value={role}>{formatJobRole(role)}</option>)}
+                  </select>
+
+                  <select name="employmentType" defaultValue={selectedEmploymentType} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                    <option value="">Any employment</option>
+                    {employmentOptions.map((employment) => <option key={employment} value={employment}>{formatEmploymentType(employment)}</option>)}
+                  </select>
+
+                  <select name="locationType" defaultValue={selectedLocationType} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                    <option value="">Any location type</option>
+                    {locationOptions.map((locationType) => <option key={locationType} value={locationType}>{locationType.replaceAll("_", " ")}</option>)}
+                  </select>
+
+                  <select name="style" defaultValue={selectedStyle} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm md:col-span-2">
+                    <option value="">Any dance style</option>
+                    {danceStyleGroups.map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        <option value={group.label}>{group.label} — all styles</option>
+                        {group.styles.map((style) => <option key={style} value={style}>{style}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+
+                  <select name="radius" defaultValue={String(selectedRadius)} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                    <option value="25">25 miles</option>
+                    <option value="50">50 miles</option>
+                    <option value="100">100 miles</option>
+                  </select>
+
+                  <div className="md:col-span-3 flex flex-wrap gap-3">
+                    <NearMeButton />
+                    <Link href="/discover/jobs" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                      Clear filters
+                    </Link>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </form>
+
+          <div className="mt-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Now hiring</p>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-950">
+              {postings.length} opening{postings.length === 1 ? "" : "s"}
+            </h2>
           </div>
-        </form>
+
         {postings.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
             <h2 className="text-lg font-semibold text-slate-950">
@@ -332,7 +320,11 @@ export default async function NowHiringDiscoveryPage({
             ))}
           </div>
         )}
-      </section>
-    </main>
+
+        </section>
+      </main>
+
+      <PublicSiteFooter />
+    </>
   );
 }

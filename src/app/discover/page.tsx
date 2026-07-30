@@ -5,7 +5,6 @@ import {
   CalendarDays,
   GraduationCap,
   MapPinned,
-  Sparkles,
   UsersRound,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -169,124 +168,65 @@ export default async function DiscoverLandingPage() {
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#f8fafc_34%,#ffffff_100%)] text-slate-900">
       <section className="relative overflow-hidden border-b border-[var(--brand-border)] bg-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.22),transparent_34%),radial-gradient(circle_at_top_right,rgba(75,46,131,0.16),transparent_30%)]" />
-        <div className="relative mx-auto max-w-7xl px-6 py-16 lg:py-24">
-          <div className="grid gap-10 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
-            <div>
-              <div className="inline-flex items-center rounded-full border border-[var(--brand-border)] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-accent-dark)] shadow-sm">
-                DanceFlow Discovery
-              </div>
-
-              <h1 className="mt-5 max-w-4xl text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
-                {user
-                  ? "Welcome back — keep discovering dance near you"
-                  : "Find studios, events, and your next step into dance"}
-              </h1>
-
-              <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
-                Search studios, explore public events, find partner listings,
-                and browse studio opportunities from one clean directory built
-                for dancers and the communities that serve them.
-              </p>
-
-              <div className="mt-8 flex flex-wrap gap-3">
-                <a
-                  href="#discovery-paths"
-                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800"
-                >
-                  Choose your discovery path
-                  <ArrowRight className="h-4 w-4" />
-                </a>
-
-                {!user ? (
-                  <Link
-                    href="/signup"
-                    className="rounded-2xl border border-[var(--brand-border)] bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
-                  >
-                    Create Free Account
-                  </Link>
-                ) : null}
-              </div>
-
-              <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                <div className="rounded-3xl border border-[var(--brand-border)] bg-white/80 p-5 shadow-sm">
-                  <p className="text-sm font-medium text-slate-500">Public Studios</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {publicStudioCount}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">Published profiles</p>
-                </div>
-
-                <div className="rounded-3xl border border-[var(--brand-border)] bg-white/80 p-5 shadow-sm">
-                  <p className="text-sm font-medium text-slate-500">Public Events</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {publicEventCount}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">Open listings</p>
-                </div>
-
-                <div className="rounded-3xl border border-[var(--brand-border)] bg-white/80 p-5 shadow-sm">
-                  <p className="text-sm font-medium text-slate-500">Partner Listings</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {publicPartnerCount}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">Dancer profiles</p>
-                </div>
-
-                <div className="rounded-3xl border border-[var(--brand-border)] bg-white/80 p-5 shadow-sm">
-                  <p className="text-sm font-medium text-slate-500">Now Hiring</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {publicJobCount}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">Studio openings</p>
-                </div>
-
-                <div className="rounded-3xl border border-[var(--brand-border)] bg-white/80 p-5 shadow-sm">
-                  <p className="text-sm font-medium text-slate-500">Marketplace</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {marketplaceCount}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">Videos and series</p>
-                </div>
-              </div>
-
-              {user ? (
-                <div className="mt-6 rounded-3xl border border-green-200 bg-green-50 px-5 py-4 text-sm text-green-800 shadow-sm">
-                  You are signed in with a free account. Discovery stays open for
-                  browsing even without a studio workspace.
-                </div>
-              ) : null}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.20),transparent_34%),radial-gradient(circle_at_top_right,rgba(75,46,131,0.14),transparent_30%)]" />
+        <div className="relative mx-auto max-w-7xl px-6 py-14 lg:py-20">
+          <div className="max-w-4xl">
+            <div className="inline-flex items-center rounded-full border border-[var(--brand-border)] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-accent-dark)] shadow-sm">
+              DanceFlow Discovery
             </div>
 
-            <div className="relative overflow-hidden rounded-[34px] bg-[linear-gradient(135deg,#2e1065_0%,#6d28d9_50%,#f97316_100%)] p-8 text-white shadow-xl">
-              <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
-              <div className="absolute -bottom-20 -left-12 h-56 w-56 rounded-full bg-orange-300/20 blur-2xl" />
-              <div className="relative">
-                <Sparkles className="h-10 w-10 text-orange-200" />
-                <p className="mt-8 text-xs font-semibold uppercase tracking-[0.22em] text-white/65">
-                  One connected dance world
-                </p>
-                <h2 className="mt-3 text-3xl font-semibold tracking-tight">
-                  Every section is a different doorway into dance.
-                </h2>
-                <p className="mt-4 text-base leading-7 text-white/80">
-                  Start with the need you have today. Find a place to dance, an
-                  event to attend, someone to practice with, an opportunity to
-                  work, or a lesson you can learn from anywhere.
-                </p>
-                <div className="mt-8 grid gap-3 sm:grid-cols-2">
-                  {["Places", "Experiences", "People", "Opportunities", "Learning"].map(
-                    (label) => (
-                      <div
-                        key={label}
-                        className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold backdrop-blur"
-                      >
-                        {label}
-                      </div>
-                    ),
-                  )}
+            <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+              {user
+                ? "Welcome back — what are you looking for today?"
+                : "Find your next place, event, partner, or opportunity in dance"}
+            </h1>
+
+            <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
+              Start with one discovery path. DanceFlow keeps studios, events,
+              partner listings, jobs, and learning in one connected dance directory.
+            </p>
+
+            <div className="mt-7 flex flex-wrap gap-3">
+              <a
+                href="#discovery-paths"
+                className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+              >
+                Explore discovery
+                <ArrowRight className="h-4 w-4" />
+              </a>
+
+              {!user ? (
+                <Link
+                  href="/signup"
+                  className="rounded-2xl border border-[var(--brand-border)] bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                >
+                  Create free account
+                </Link>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-10 overflow-x-auto pb-1">
+            <div className="flex min-w-max gap-3 lg:min-w-0 lg:grid lg:grid-cols-5">
+              {[
+                ["Studios", publicStudioCount],
+                ["Events", publicEventCount],
+                ["Partners", publicPartnerCount],
+                ["Jobs", publicJobCount],
+                ["Marketplace", marketplaceCount],
+              ].map(([label, value]) => (
+                <div
+                  key={String(label)}
+                  className="w-44 rounded-2xl border border-[var(--brand-border)] bg-white/90 p-4 shadow-sm lg:w-auto"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    {label}
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-950">
+                    {value}
+                  </p>
                 </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
@@ -297,22 +237,21 @@ export default async function DiscoverLandingPage() {
             Choose what draws you in
           </p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-            Five ways to step deeper into the dance community
+            Choose what you need today
           </h2>
           <p className="mt-4 text-base leading-7 text-slate-600">
-            Each path is designed to lead somewhere useful—not just another
-            directory. Pick one now, then come back and explore the others.
+            Open the section that matches your goal. You can move between discovery areas without losing the larger DanceFlow experience.
           </p>
         </div>
 
-        <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {discoveryPaths.map((path, index) => {
             const Icon = path.icon;
             return (
               <Link
                 key={path.href}
                 href={path.href}
-                className={`group relative min-h-[330px] overflow-hidden rounded-[30px] bg-gradient-to-br ${path.shell} p-6 text-white shadow-lg transition duration-300 hover:-translate-y-2 hover:shadow-2xl`}
+                className={`group relative min-h-[240px] overflow-hidden rounded-[28px] bg-gradient-to-br ${path.shell} p-5 text-white shadow-md transition duration-300 hover:-translate-y-1 hover:shadow-xl`}
               >
                 <div className={`absolute -right-12 -top-12 h-40 w-40 rounded-full ${path.glow} blur-2xl transition group-hover:scale-125`} />
                 <div className="relative flex h-full flex-col">
@@ -325,14 +264,14 @@ export default async function DiscoverLandingPage() {
                     </div>
                   </div>
 
-                  <h3 className="mt-8 text-2xl font-semibold tracking-tight">
+                  <h3 className="mt-6 text-xl font-semibold tracking-tight">
                     {path.title}
                   </h3>
                   <p className="mt-3 text-sm leading-6 text-white/78">
                     {path.description}
                   </p>
 
-                  <div className="mt-auto flex items-center gap-2 pt-8 text-sm font-semibold">
+                  <div className="mt-auto flex items-center gap-2 pt-6 text-sm font-semibold">
                     {path.cta}
                     <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
                   </div>
@@ -441,108 +380,6 @@ export default async function DiscoverLandingPage() {
         )}
       </section>
 
-      <section className="border-y border-[var(--brand-border)] bg-white/80">
-        <div className="mx-auto max-w-7xl px-6 py-12">
-          <div className="overflow-hidden rounded-[34px] border border-[var(--brand-border)] bg-white shadow-sm">
-            <div className="grid gap-0 lg:grid-cols-[0.92fr_1.08fr]">
-              <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-8 text-white md:p-10">
-                <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white/80">
-                  Coming Soon
-                </span>
-                <p className="mt-5 text-sm font-semibold uppercase tracking-[0.22em] text-white/65">
-                  Featured Events
-                </p>
-                <h2 className="mt-3 text-3xl font-semibold tracking-tight">
-                  Highlighted events without a crowded discovery page
-                </h2>
-                <p className="mt-4 max-w-2xl text-sm leading-7 text-white/78">
-                  We’re preparing a highlighted event section to help dancers find
-                  timely workshops, socials, competitions, and special events without
-                  making discovery feel overwhelming.
-                </p>
-              </div>
-
-              <div className="p-8 md:p-10">
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="rounded-3xl border border-[var(--brand-border)] bg-slate-50 p-5">
-                    <p className="text-sm font-semibold text-slate-950">Workshops</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Timely learning opportunities from studios and organizers.
-                    </p>
-                  </div>
-                  <div className="rounded-3xl border border-[var(--brand-border)] bg-slate-50 p-5">
-                    <p className="text-sm font-semibold text-slate-950">Socials</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Community dance nights, parties, and practice events.
-                    </p>
-                  </div>
-                  <div className="rounded-3xl border border-[var(--brand-border)] bg-slate-50 p-5">
-                    <p className="text-sm font-semibold text-slate-950">Competitions</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Larger public events worth planning ahead for.
-                    </p>
-                  </div>
-                </div>
-
-                <p className="mt-6 text-sm leading-6 text-slate-600">
-                  For launch, browse all public events below. Boosted event placement
-                  will be added later as a clear, limited, and labeled promotion option.
-                </p>
-
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <Link
-                    href="/discover/events"
-                    className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-                  >
-                    Browse Events
-                  </Link>
-                  <Link
-                    href="/discover/studios"
-                    className="rounded-2xl border border-[var(--brand-border)] bg-white px-5 py-3 text-sm font-semibold hover:bg-slate-50"
-                  >
-                    Find Studios
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-6 py-12">
-        <div className="rounded-[34px] border border-[var(--brand-border)] bg-white p-8 shadow-sm md:p-10">
-          <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                Why DanceFlow
-              </p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
-                A true front door into dance
-              </h2>
-              <p className="mt-3 max-w-3xl leading-7 text-slate-600">
-                Instead of hunting across scattered sites and social posts, dancers
-                can discover studios, events, and next steps in one place.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/discover/studios?beginner=1"
-                className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                Start with Beginner Studios
-              </Link>
-
-              <Link
-                href="/discover/events"
-                className="rounded-2xl border border-[var(--brand-border)] px-5 py-3 text-sm font-semibold hover:bg-slate-50"
-              >
-                Explore Events
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
     </main>
   );
 }

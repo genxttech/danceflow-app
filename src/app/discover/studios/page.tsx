@@ -461,199 +461,176 @@ export default async function DiscoverStudiosPage({
 
         <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
           <form className="sticky top-0 z-20 overflow-hidden rounded-3xl border border-orange-200/80 bg-white/95 shadow-[0_18px_50px_rgba(76,29,149,0.10)] backdrop-blur">
-            <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-              <span className="rounded-xl bg-[linear-gradient(135deg,#4c1d95_0%,#f97316_120%)] p-2 text-white shadow-sm">
-                <SlidersHorizontal className="h-4 w-4" />
-              </span>
-              <div>
-                <h2 className="text-sm font-semibold text-slate-950">Search and filters</h2>
-                <p className="text-xs text-slate-500">Refine studio results without leaving the page.</p>
-              </div>
-            </div>
+            <input
+              id="search-location-mode"
+              type="hidden"
+              name="locationMode"
+              defaultValue={locationMode}
+            />
+            <input
+              id="search-latitude"
+              type="hidden"
+              name="latitude"
+              defaultValue={searchLatitude !== null ? String(searchLatitude) : ""}
+            />
+            <input
+              id="search-longitude"
+              type="hidden"
+              name="longitude"
+              defaultValue={searchLongitude !== null ? String(searchLongitude) : ""}
+            />
 
             <div className="p-4 sm:p-5">
-              <input
-                id="search-location-mode"
-                type="hidden"
-                name="locationMode"
-                defaultValue={locationMode}
-              />
-              <input
-                id="search-latitude"
-                type="hidden"
-                name="latitude"
-                defaultValue={searchLatitude !== null ? String(searchLatitude) : ""}
-              />
-              <input
-                id="search-longitude"
-                type="hidden"
-                name="longitude"
-                defaultValue={searchLongitude !== null ? String(searchLongitude) : ""}
-              />
-
-              <div className="grid gap-4 xl:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto]">
-                <div>
-                  <label
-                    htmlFor="q"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Search
-                  </label>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      id="q"
-                      name="q"
-                      defaultValue={qRaw}
-                      placeholder="Studio name, dance style, or offering"
-                      className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="city"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    City
-                  </label>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
-                    id="city"
-                    name="city"
-                    defaultValue={cityRaw}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                    id="q"
+                    name="q"
+                    defaultValue={qRaw}
+                    placeholder="Search studio, dance style, offering, or location"
+                    className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-sm"
                   />
                 </div>
-
-                <div>
-                  <label
-                    htmlFor="state"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    State
-                  </label>
-                  <input
-                    id="state"
-                    name="state"
-                    defaultValue={stateRaw}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="zip"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    ZIP Code
-                  </label>
-                  <input
-                    id="zip"
-                    name="zip"
-                    defaultValue={zipRaw}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="style"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Dance style
-                  </label>
-                  <select
-                    id="style"
-                    name="style"
-                    defaultValue={style}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  >
-                    <option value="">All</option>
-                    {STYLE_OPTIONS.map((option) => (
-                      <option key={option.key} value={option.key}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="offering"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Offering
-                  </label>
-                  <select
-                    id="offering"
-                    name="offering"
-                    defaultValue={offering}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                  >
-                    <option value="">All</option>
-                    {OFFERING_OPTIONS.map((option) => (
-                      <option key={option.key} value={option.key}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-end">
-                  <button
-                    type="submit"
-                    className="inline-flex w-full justify-center rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-110"
-                  >
-                    Search
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 lg:flex-row lg:items-end lg:justify-between">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <CurrentLocationButton />
-
-                  <div className="w-full sm:w-40">
-                    <label
-                      htmlFor="radius"
-                      className="mb-1.5 block text-sm font-medium text-slate-800"
-                    >
-                      Radius
-                    </label>
-                    <select
-                      id="radius"
-                      name="radius"
-                      defaultValue={String(radius)}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                    >
-                      {RADIUS_OPTIONS.map((value) => (
-                        <option key={value} value={value}>
-                          {value} miles
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <label className="inline-flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="beginner"
-                      value="1"
-                      defaultChecked={beginner}
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Beginner-friendly only
-                  </label>
-                </div>
-
-                <Link
-                  href="/discover/studios"
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-110"
                 >
-                  Clear filters
-                </Link>
+                  Search studios
+                </button>
               </div>
+
+              <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-800">
+                  <span className="inline-flex items-center gap-2">
+                    <SlidersHorizontal className="h-4 w-4 text-violet-700" />
+                    More filters
+                  </span>
+                  <span className="text-xs font-medium text-slate-500">
+                    Location · style · offering · radius
+                  </span>
+                </summary>
+
+                <div className="border-t border-slate-200 p-4">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                    <div>
+                      <label htmlFor="city" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        City
+                      </label>
+                      <input
+                        id="city"
+                        name="city"
+                        defaultValue={cityRaw}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="state" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        State
+                      </label>
+                      <input
+                        id="state"
+                        name="state"
+                        defaultValue={stateRaw}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="zip" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        ZIP
+                      </label>
+                      <input
+                        id="zip"
+                        name="zip"
+                        defaultValue={zipRaw}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="style" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        Dance style
+                      </label>
+                      <select
+                        id="style"
+                        name="style"
+                        defaultValue={style}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      >
+                        <option value="">All styles</option>
+                        {STYLE_OPTIONS.map((option) => (
+                          <option key={option.key} value={option.key}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label htmlFor="offering" className="mb-1.5 block text-sm font-medium text-slate-800">
+                        Offering
+                      </label>
+                      <select
+                        id="offering"
+                        name="offering"
+                        defaultValue={offering}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                      >
+                        <option value="">All offerings</option>
+                        {OFFERING_OPTIONS.map((option) => (
+                          <option key={option.key} value={option.key}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                      <CurrentLocationButton />
+
+                      <div className="w-full sm:w-40">
+                        <label htmlFor="radius" className="mb-1.5 block text-sm font-medium text-slate-800">
+                          Radius
+                        </label>
+                        <select
+                          id="radius"
+                          name="radius"
+                          defaultValue={String(radius)}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                        >
+                          {RADIUS_OPTIONS.map((value) => (
+                            <option key={value} value={value}>
+                              {value} miles
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <label className="inline-flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          name="beginner"
+                          value="1"
+                          defaultChecked={beginner}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        Beginner-friendly only
+                      </label>
+                    </div>
+
+                    <Link
+                      href="/discover/studios"
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Clear filters
+                    </Link>
+                  </div>
+                </div>
+              </details>
             </div>
           </form>
 
@@ -663,14 +640,14 @@ export default async function DiscoverStudiosPage({
                 Studio directory
               </p>
               <h2 className="mt-1 text-2xl font-semibold text-slate-950">
-                {filteredStudios.length} studio{filteredStudios.length === 1 ? "" : "s"} found
+                {filteredStudios.length} studio{filteredStudios.length === 1 ? "" : "s"}
               </h2>
               <p className="mt-1 text-sm text-slate-600">
                 {usingCurrentLocation
                   ? `Within ${radius} miles, sorted by available distance data.`
                   : requestedCurrentLocation
                     ? "Location requested; studios without map coordinates remain visible."
-                    : "Browse public profiles and compare styles, offerings, and location."}
+                    : "Compare location, styles, offerings, and beginner-friendly options."}
               </p>
             </div>
 
@@ -688,8 +665,7 @@ export default async function DiscoverStudiosPage({
                 No studios found
               </h3>
               <p className="mt-2 text-slate-600">
-                Try broadening your search, resetting filters, or searching by
-                city, state, or ZIP code.
+                Try a broader search or clear filters to see more studios.
               </p>
             </div>
           ) : (

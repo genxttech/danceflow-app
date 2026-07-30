@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { NearMeButton } from "../NearMeButton";
+import PublicSiteHeader from "@/components/public/PublicSiteHeader";
+import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import {
   formatPartnerIntent,
   formatPartnerRole,
@@ -139,159 +141,127 @@ export default async function PartnerSearchDiscoveryPage({
   });
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <section className="border-b border-indigo-100 bg-gradient-to-br from-white via-white to-indigo-50">
-        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--brand-primary)]">
-            Partner Search
-          </p>
-          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-                Find dancers looking for a partner
-              </h1>
-              <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-                Browse public partner listings for practice, social dancing,
-                showcases, competitions, and ongoing training.
-              </p>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-                Partner Search is for dancers looking for dance partners. Lesson
-                ads, coaching offers, paid services, studio promotions, and
-                external booking links are not allowed.
-              </p>
-            </div>
-            <Link
-              href="/account/partner-search"
-              className="inline-flex rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Create a dancer profile
-            </Link>
-          </div>
-        </div>
-      </section>
+    <>
+      <PublicSiteHeader currentPath="partners" isAuthenticated={false} />
 
-      <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <form className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-3">
-            <input
-              name="q"
-              defaultValue={searchText}
-              placeholder="Search style, city, role, goal, or level"
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-3"
-            />
-            <fieldset className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:col-span-3">
-              <legend className="px-1 text-sm font-semibold text-slate-800">
-                Goals
-              </legend>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {intentOptions.map((intent) => (
-                  <label
-                    key={intent}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
-                  >
-                    <input
-                      type="checkbox"
-                      name="intent"
-                      value={intent}
-                      defaultChecked={selectedIntents.includes(intent)}
-                      className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)]"
-                    />
-                    {formatPartnerIntent(intent)}
-                  </label>
-                ))}
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.10),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#f8fafc_36%,#ffffff_100%)]">
+        <section className="border-b border-orange-200/70 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] text-white">
+          <div className="mx-auto max-w-7xl px-4 py-9 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
+                  DanceFlow Discovery
+                </p>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+                  Find a dance partner
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80 sm:text-base">
+                  Find dancers looking for practice, social dancing, showcases, competitions, and ongoing training.
+                </p>
               </div>
-            </fieldset>
-            <select
-              name="role"
-              defaultValue={selectedRole}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">Any role</option>
-              {roleOptions.map((role) => (
-                <option key={role} value={role}>
-                  {formatPartnerRole(role)}
-                </option>
-              ))}
-            </select>
-            <select
-              name="skill"
-              defaultValue={selectedSkill}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">Any level</option>
-              {skillOptions.map((skill) => (
-                <option key={skill} value={skill}>
-                  {formatPartnerSkill(skill)}
-                </option>
-              ))}
-            </select>
-            <fieldset className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:col-span-3">
-              <legend className="px-1 text-sm font-semibold text-slate-800">
-                Dance styles
-              </legend>
-              <p className="mt-1 text-sm text-slate-500">
-                Select full categories, individual dances, or both.
-              </p>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                {danceStyleGroups.map((group) => (
-                  <div key={group.label} className="rounded-2xl border border-white bg-white p-4 shadow-sm">
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[var(--brand-primary)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-primary)]">
-                      <input
-                        type="checkbox"
-                        name="style"
-                        value={group.label}
-                        defaultChecked={selectedStyles.includes(group.label)}
-                        className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)]"
-                      />
-                      {group.label} - all styles
-                    </label>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {group.styles.map((style) => (
-                        <label
-                          key={`${group.label}-${style}`}
-                          className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
-                        >
-                          <input
-                            type="checkbox"
-                            name="style"
-                            value={style}
-                            defaultChecked={selectedStyles.includes(style)}
-                            className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)]"
-                          />
-                          {style}
+              <Link
+                href="/account/partner-search"
+                className="inline-flex self-start rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-orange-50 lg:self-auto"
+              >
+                Create a dancer profile
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <form className="rounded-3xl border border-orange-200/80 bg-white shadow-[0_18px_50px_rgba(76,29,149,0.10)]">
+            <div className="p-4 sm:p-5">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                <input
+                  name="q"
+                  defaultValue={searchText}
+                  placeholder="Search style, city, role, goal, or level"
+                  className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                />
+                <button
+                  type="submit"
+                  className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  Search partners
+                </button>
+              </div>
+
+              <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">
+                  More filters
+                </summary>
+                <div className="grid gap-4 border-t border-slate-200 p-4 md:grid-cols-3">
+                  <fieldset className="md:col-span-3">
+                    <legend className="text-sm font-semibold text-slate-800">Goals</legend>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {intentOptions.map((intent) => (
+                        <label key={intent} className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">
+                          <input type="checkbox" name="intent" value={intent} defaultChecked={selectedIntents.includes(intent)} className="h-4 w-4 rounded border-slate-300" />
+                          {formatPartnerIntent(intent)}
                         </label>
                       ))}
                     </div>
+                  </fieldset>
+
+                  <select name="role" defaultValue={selectedRole} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                    <option value="">Any role</option>
+                    {roleOptions.map((role) => <option key={role} value={role}>{formatPartnerRole(role)}</option>)}
+                  </select>
+
+                  <select name="skill" defaultValue={selectedSkill} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                    <option value="">Any level</option>
+                    {skillOptions.map((skill) => <option key={skill} value={skill}>{formatPartnerSkill(skill)}</option>)}
+                  </select>
+
+                  <select name="radius" defaultValue={String(selectedRadius)} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                    <option value="25">25 miles</option>
+                    <option value="50">50 miles</option>
+                    <option value="100">100 miles</option>
+                  </select>
+
+                  <fieldset className="md:col-span-3">
+                    <legend className="text-sm font-semibold text-slate-800">Dance styles</legend>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      {danceStyleGroups.map((group) => (
+                        <div key={group.label} className="rounded-2xl border border-slate-200 bg-white p-3">
+                          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-violet-700">
+                            <input type="checkbox" name="style" value={group.label} defaultChecked={selectedStyles.includes(group.label)} className="h-4 w-4 rounded border-slate-300" />
+                            {group.label} — all styles
+                          </label>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {group.styles.map((style) => (
+                              <label key={`${group.label}-${style}`} className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-700">
+                                <input type="checkbox" name="style" value={style} defaultChecked={selectedStyles.includes(style)} className="h-3.5 w-3.5 rounded border-slate-300" />
+                                {style}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <div className="md:col-span-3 flex flex-wrap gap-3">
+                    <NearMeButton />
+                    <Link href="/discover/partners" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                      Clear filters
+                    </Link>
                   </div>
-                ))}
-              </div>
-            </fieldset>
-            <select
-              name="radius"
-              defaultValue={String(selectedRadius)}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="25">25 miles</option>
-              <option value="50">50 miles</option>
-              <option value="100">100 miles</option>
-            </select>
+                </div>
+              </details>
+            </div>
+          </form>
+
+          <div className="mt-7 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Partner directory</p>
+              <h2 className="mt-1 text-2xl font-semibold text-slate-950">
+                {profiles.length} partner listing{profiles.length === 1 ? "" : "s"}
+              </h2>
+            </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-3">
-            <button
-              type="submit"
-              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
-            >
-              Apply filters
-            </button>
-            <Link
-              href="/discover/partners"
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Clear
-            </Link>
-            <NearMeButton />
-          </div>
-        </form>
+
         {profiles.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
             <h2 className="text-lg font-semibold text-slate-950">
@@ -373,7 +343,11 @@ export default async function PartnerSearchDiscoveryPage({
             ))}
           </div>
         )}
-      </section>
-    </main>
+
+        </section>
+      </main>
+
+      <PublicSiteFooter />
+    </>
   );
 }
