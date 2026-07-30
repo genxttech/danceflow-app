@@ -17,7 +17,6 @@ import WorkspaceHeader from "@/components/app/workspace/WorkspaceHeader";
 import ClientWorkspaceTabs from "./ClientWorkspaceTabs";
 import ClientWorkspaceContextPanel from "./ClientWorkspaceContextPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
-import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
 import { ClientSendSmsCard } from "./ClientSendSmsCard";
 import { ClientSmsMessageHistoryCard } from "./ClientSmsMessageHistoryCard";
@@ -1802,6 +1801,10 @@ export default async function ClientDetailPage({
   const canIssuePaymentRefunds = ["studio_owner", "studio_admin"].includes(role);
   const nowIso = new Date().toISOString();
   const returnTo = `/app/clients/${id}`;
+  const billingReturnTo = `/app/clients/${id}?tab=billing`;
+  const takePaymentHref = `/app/payments/take?clientId=${encodeURIComponent(
+    id,
+  )}&returnTo=${encodeURIComponent(billingReturnTo)}`;
 
 
 
@@ -3341,18 +3344,20 @@ export default async function ClientDetailPage({
               </Link>
             ) : null}
 
-            <a
-              href="#quick-sale-payment"
+            <Link
+              href={takePaymentHref}
               className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-center text-sm font-medium hover:bg-[var(--brand-primary-soft)]"
             >
-              Sell Intro Package
-            </a>
+              Take Payment / Sell
+            </Link>
 
             <Link
-              href={`/app/memberships?clientId=${typedClient.id}`}
+              href={`/app/sales/new?clientId=${encodeURIComponent(
+                typedClient.id,
+              )}&returnTo=${encodeURIComponent(billingReturnTo)}`}
               className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-center text-sm font-medium hover:bg-[var(--brand-primary-soft)]"
             >
-              Start Membership
+              Sell Package or Membership
             </Link>
           </div>
 
@@ -4055,12 +4060,23 @@ export default async function ClientDetailPage({
             title="Memberships"
             subtitle="Current recurring membership status and billing details."
             action={
-              <Link
-                href={`/app/memberships?clientId=${typedClient.id}`}
-                className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium hover:bg-[var(--brand-primary-soft)]"
-              >
-                {typedActiveMembership ? "Manage" : "Start"}
-              </Link>
+              typedActiveMembership ? (
+                <Link
+                  href={`/app/memberships?clientId=${typedClient.id}`}
+                  className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium hover:bg-[var(--brand-primary-soft)]"
+                >
+                  Manage
+                </Link>
+              ) : (
+                <Link
+                  href={`/app/sales/new?clientId=${encodeURIComponent(
+                    typedClient.id,
+                  )}&returnTo=${encodeURIComponent(billingReturnTo)}`}
+                  className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium hover:bg-[var(--brand-primary-soft)]"
+                >
+                  Start membership
+                </Link>
+              )
             }
           >
             {typedActiveMembership ? (
@@ -4160,7 +4176,7 @@ export default async function ClientDetailPage({
                 <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
                   <p className="font-medium text-[var(--brand-text)]">No active packages</p>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Use Quick Sale & Payment to sell this client their first package.
+                    Use Take Payment / Sell to choose the full package, membership, or payment workflow for this client.
                   </p>
                 </div>
               ) : (
@@ -4930,29 +4946,60 @@ export default async function ClientDetailPage({
           ) : null}
 
           {activeTab === "billing" ? (
-          <div id="quick-sale-payment">
-            <QuickActionPanel
-              title="Quick Sale & Payment"
-              description="Log a payment, attach it to an existing package, or sell a package and take payment without leaving the page."
-              defaultOpen={typedClient.status === "lead"}
+            <SectionCard
+              title="Take Payment / Sell"
+              subtitle="Use the same front-desk payment workflow from anywhere in DanceFlow. This client will already be selected."
+              action={
+                <Link
+                  href={takePaymentHref}
+                  className="rounded-2xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110"
+                >
+                  Take Payment
+                </Link>
+              }
             >
-              <QuickPaymentPanel
-                clientId={typedClient.id}
-                returnTo={returnTo}
-                packages={activePackages.map((pkg) => ({
-                  id: pkg.id,
-                  name_snapshot: pkg.name_snapshot,
-                }))}
-                packageTemplates={typedPackageTemplates.map((template) => ({
-                  id: template.id,
-                  name: template.name,
-                  price: template.price,
-                }))}
-                activeMembership={typedActiveMembership}
-                accountCreditBalance={Math.max(accountNetBalance, 0)}
-              />
-            </QuickActionPanel>
-          </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Link
+                  href={takePaymentHref}
+                  className="rounded-2xl border border-violet-200 bg-violet-50 p-4 transition hover:border-violet-300"
+                >
+                  <p className="text-sm font-semibold text-violet-950">
+                    Collect or record payment
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-violet-800">
+                    General payments, membership renewals, arrangements, floor rentals, events, and other services.
+                  </p>
+                </Link>
+
+                <Link
+                  href={`/app/sales/new?clientId=${encodeURIComponent(
+                    typedClient.id,
+                  )}&returnTo=${encodeURIComponent(billingReturnTo)}`}
+                  className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 transition hover:border-cyan-300"
+                >
+                  <p className="text-sm font-semibold text-cyan-950">
+                    Sell package or membership
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-cyan-800">
+                    Use the full sale workflow, including package and membership options.
+                  </p>
+                </Link>
+
+                <Link
+                  href={`/app/payments/quick-charge?clientId=${encodeURIComponent(
+                    typedClient.id,
+                  )}&returnTo=${encodeURIComponent(billingReturnTo)}`}
+                  className="rounded-2xl border border-orange-200 bg-orange-50 p-4 transition hover:border-orange-300"
+                >
+                  <p className="text-sm font-semibold text-orange-950">
+                    Quick Charge
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-orange-800">
+                    Use the fast payment path when the transaction does not need a package or membership workflow.
+                  </p>
+                </Link>
+              </div>
+            </SectionCard>
           ) : null}
 
           {activeTab === "billing" && canEditClients(role) ? (

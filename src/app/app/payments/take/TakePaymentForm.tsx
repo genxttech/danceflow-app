@@ -49,14 +49,18 @@ export default function TakePaymentForm({
   clients,
   arrangements,
   memberships,
+  initialClientId = "",
+  returnTo = "/app/payments",
 }: {
   clients: ClientOption[];
   arrangements: PaymentArrangementOption[];
   memberships: MembershipOption[];
+  initialClientId?: string;
+  returnTo?: string;
 }) {
   const [state, formAction, pending] = useActionState(createPaymentAction, initialState);
   const [search, setSearch] = useState("");
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(initialClientId);
   const [paymentAction, setPaymentAction] = useState("manual");
   const [method, setMethod] = useState("card");
   const [serviceType, setServiceType] = useState("general");
@@ -99,7 +103,7 @@ export default function TakePaymentForm({
       <input type="hidden" name="clientMembershipId" value={clientMembershipId} />
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="status" value={paymentAction === "manual" ? "paid" : "pending"} />
-      <input type="hidden" name="returnTo" value="/app/payments" />
+      <input type="hidden" name="returnTo" value={returnTo} />
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-start gap-3">
@@ -112,36 +116,105 @@ export default function TakePaymentForm({
           </div>
         </div>
 
-        <div className="relative mt-5">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by name or email"
-            className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-3 text-sm outline-none focus:border-[var(--brand-primary)]"
-          />
-        </div>
+        {selectedClient && initialClientId ? (
+          <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                  Client selected
+                </p>
+                <p className="mt-1 font-semibold text-slate-950">
+                  {clientName(selectedClient)}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {selectedClient.email || "No email on file"}
+                </p>
+              </div>
 
-        <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
-          {filteredClients.map((client) => {
-            const active = client.id === clientId;
-            return (
-              <button
-                key={client.id}
-                type="button"
-                onClick={() => setClientId(client.id)}
-                className={`w-full rounded-2xl border p-4 text-left transition ${
-                  active
-                    ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]"
-                    : "border-slate-200 bg-slate-50 hover:border-slate-300"
-                }`}
-              >
-                <p className="font-semibold text-slate-950">{clientName(client)}</p>
-                <p className="mt-1 text-sm text-slate-500">{client.email || "No email on file"}</p>
-              </button>
-            );
-          })}
-        </div>
+              <details className="sm:min-w-52">
+                <summary className="cursor-pointer rounded-xl border border-violet-200 bg-white px-3 py-2 text-center text-sm font-semibold text-violet-700">
+                  Change client
+                </summary>
+
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search by name or email"
+                      className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-3 text-sm outline-none focus:border-[var(--brand-primary)]"
+                    />
+                  </div>
+
+                  <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {filteredClients.map((client) => {
+                      const active = client.id === clientId;
+
+                      return (
+                        <button
+                          key={client.id}
+                          type="button"
+                          onClick={() => setClientId(client.id)}
+                          className={`w-full rounded-2xl border p-3 text-left transition ${
+                            active
+                              ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]"
+                              : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                          }`}
+                        >
+                          <p className="font-semibold text-slate-950">
+                            {clientName(client)}
+                          </p>
+                          <p className="mt-1 text-sm text-slate-500">
+                            {client.email || "No email on file"}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="relative mt-5">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by name or email"
+                className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-3 text-sm outline-none focus:border-[var(--brand-primary)]"
+              />
+            </div>
+
+            <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
+              {filteredClients.map((client) => {
+                const active = client.id === clientId;
+
+                return (
+                  <button
+                    key={client.id}
+                    type="button"
+                    onClick={() => setClientId(client.id)}
+                    className={`w-full rounded-2xl border p-4 text-left transition ${
+                      active
+                        ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]"
+                        : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                    }`}
+                  >
+                    <p className="font-semibold text-slate-950">
+                      {clientName(client)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {client.email || "No email on file"}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </section>
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">

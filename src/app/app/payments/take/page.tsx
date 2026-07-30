@@ -6,7 +6,24 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewPayments } from "@/lib/auth/permissions";
 import TakePaymentForm from "./TakePaymentForm";
 
-export default async function TakePaymentPage() {
+type SearchParams = Promise<{
+  clientId?: string;
+  returnTo?: string;
+}>;
+
+function safeReturnTo(value: string | undefined) {
+  const candidate = String(value ?? "").trim();
+  return candidate.startsWith("/app/") ? candidate : "/app/payments";
+}
+
+export default async function TakePaymentPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const query = await searchParams;
+  const requestedClientId = String(query.clientId ?? "").trim();
+  const returnTo = safeReturnTo(query.returnTo);
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
 
@@ -58,6 +75,18 @@ export default async function TakePaymentPage() {
     throw new Error(`Failed to load client memberships: ${membershipsError.message}`);
   }
 
+  const clientOptions = (clients ?? []).map((client) => ({
+    id: client.id,
+    first_name: client.first_name,
+    last_name: client.last_name,
+    email: client.email,
+  }));
+  const initialClientId = clientOptions.some(
+    (client) => client.id === requestedClientId,
+  )
+    ? requestedClientId
+    : "";
+
   return (
     <div className="space-y-6 p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
@@ -75,20 +104,30 @@ export default async function TakePaymentPage() {
               </p>
             </div>
 
-            <Link
-              href="/app/payments"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Payment Ledger
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              {returnTo !== "/app/payments" ? (
+                <Link
+                  href={returnTo}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to client
+                </Link>
+              ) : null}
+              <Link
+                href="/app/payments"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
+              >
+                Payment Ledger
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
       <section className="grid gap-3 md:grid-cols-3">
         <Link
-          href="/app/sales/new"
+          href={`/app/sales/new${initialClientId ? `?clientId=${encodeURIComponent(initialClientId)}&returnTo=${encodeURIComponent(returnTo)}` : ""}`}
           className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 transition hover:border-cyan-300"
         >
           <PackagePlus className="h-5 w-5 text-cyan-700" />
@@ -99,7 +138,7 @@ export default async function TakePaymentPage() {
         </Link>
 
         <Link
-          href="/app/payments/quick-charge"
+          href={`/app/payments/quick-charge${initialClientId ? `?clientId=${encodeURIComponent(initialClientId)}&returnTo=${encodeURIComponent(returnTo)}` : ""}`}
           className="rounded-2xl border border-amber-200 bg-amber-50 p-4 transition hover:border-amber-300"
         >
           <Zap className="h-5 w-5 text-amber-700" />
@@ -122,12 +161,9 @@ export default async function TakePaymentPage() {
       </section>
 
       <TakePaymentForm
-        clients={(clients ?? []).map((client) => ({
-          id: client.id,
-          first_name: client.first_name,
-          last_name: client.last_name,
-          email: client.email,
-        }))}
+        clients={clientOptions}
+        initialClientId={initialClientId}
+        returnTo={returnTo}
         memberships={(memberships ?? []).map((membership) => ({
           id: membership.id,
           client_id: membership.client_id,

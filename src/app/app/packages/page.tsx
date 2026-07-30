@@ -26,6 +26,60 @@ type PackageRow = {
   }[];
 };
 
+type ClientPackageItemRow = {
+  quantity_remaining: number | null;
+  is_unlimited: boolean;
+};
+
+type ClientPackageRow = {
+  id: string;
+  client_id: string;
+  name_snapshot: string;
+  active: boolean;
+  expiration_date: string | null;
+  clients:
+    | { first_name: string; last_name: string }
+    | { first_name: string; last_name: string }[]
+    | null;
+  client_package_items: ClientPackageItemRow[];
+};
+
+function clientName(
+  value:
+    | { first_name: string; last_name: string }
+    | { first_name: string; last_name: string }[]
+    | null,
+) {
+  const client = Array.isArray(value) ? value[0] : value;
+  return client ? `${client.first_name} ${client.last_name}` : "Unknown client";
+}
+
+function packageBalanceState(pkg: ClientPackageRow) {
+  if (!pkg.active) return "inactive";
+
+  if (pkg.expiration_date) {
+    const expiration = new Date(`${pkg.expiration_date}T23:59:59`);
+    if (expiration.getTime() < Date.now()) return "expired";
+  }
+
+  const finite = pkg.client_package_items.filter(
+    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
+  );
+  if (finite.length === 0) return "healthy";
+
+  const lowest = Math.min(...finite.map((item) => Number(item.quantity_remaining ?? 0)));
+  if (lowest <= 0) return "depleted";
+  if (lowest <= 1) return "low";
+  return "healthy";
+}
+
+function packageBalanceBadgeClass(state: string) {
+  if (state === "healthy") return "bg-emerald-50 text-emerald-700";
+  if (state === "low") return "bg-amber-50 text-amber-700";
+  if (state === "depleted") return "bg-rose-50 text-rose-700";
+  return "bg-slate-100 text-slate-700";
+}
+
 function formatPackageItems(items: PackageRow["package_template_items"]) {
   if (!items || items.length === 0) return "No items";
 
@@ -69,32 +123,72 @@ export default async function PackagesPage() {
     redirect("/app");
   }
 
-  const { data, error } = await supabase
-    .from("package_templates")
-    .select(`
-      id,
-      name,
-      price,
-      expiration_days,
-      active,
-      created_at,
-      package_template_items (
-        usage_type,
-        quantity,
-        is_unlimited
-      )
-    `)
-    .eq("studio_id", studioId)
-    .order("active", { ascending: false })
-    .order("created_at", { ascending: false });
+  const [
+    { data: templateData, error: templateError },
+    { data: clientPackageData, error: clientPackageError },
+  ] = await Promise.all([
+    supabase
+      .from("package_templates")
+      .select(`
+        id,
+        name,
+        price,
+        expiration_days,
+        active,
+        created_at,
+        package_template_items (
+          usage_type,
+          quantity,
+          is_unlimited
+        )
+      `)
+      .eq("studio_id", studioId)
+      .order("active", { ascending: false })
+      .order("created_at", { ascending: false }),
 
-  if (error) {
-    throw new Error(`Failed to load package templates: ${error.message}`);
+    supabase
+      .from("client_packages")
+      .select(`
+        id,
+        client_id,
+        name_snapshot,
+        active,
+        expiration_date,
+        clients (
+          first_name,
+          last_name
+        ),
+        client_package_items (
+          quantity_remaining,
+          is_unlimited
+        )
+      `)
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .order("created_at", { ascending: false })
+      .limit(100),
+  ]);
+
+  if (templateError) {
+    throw new Error(`Failed to load package templates: ${templateError.message}`);
   }
 
-  const packageTemplates = (data ?? []) as PackageRow[];
+  if (clientPackageError) {
+    throw new Error(`Failed to load client package balances: ${clientPackageError.message}`);
+  }
+
+  const packageTemplates = (templateData ?? []) as PackageRow[];
+  const clientPackages = (clientPackageData ?? []) as ClientPackageRow[];
   const activeCount = packageTemplates.filter((pkg) => pkg.active).length;
   const archivedCount = packageTemplates.filter((pkg) => !pkg.active).length;
+  const packageBalanceRows = clientPackages.map((pkg) => ({
+    pkg,
+    state: packageBalanceState(pkg),
+  }));
+  const healthyClientPackages = packageBalanceRows.filter((row) => row.state === "healthy");
+  const attentionClientPackages = packageBalanceRows.filter(
+    (row) => row.state === "low" || row.state === "depleted" || row.state === "expired",
+  );
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -102,131 +196,233 @@ export default async function PackagesPage() {
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
         eyebrow="Offer setup"
-        title="Package Templates"
-        description="Build reusable lesson, group class, and party-credit packages for quick sales while preserving historical sales records."
+        title="Packages"
+        description="Monitor client package balances first, then manage the reusable package templates your studio sells."
         actions={(
-          <Link href="/app/packages/new" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
-            New package
-          </Link>
+          <>
+            <Link href="/app/sell?type=package" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
+              Sell package
+            </Link>
+            <Link href="/app/packages/new" className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]">
+              New template
+            </Link>
+          </>
         )}
       />
 
       <CompactSummaryStrip
         className="rounded-2xl border border-[var(--brand-border)] bg-white"
         items={[
-          { key: "total", label: "Templates", value: packageTemplates.length, detail: "Total package templates" },
-          { key: "available", label: "Available", value: activeCount, detail: "Ready for sale", tone: "success" as const },
-          { key: "archived", label: "Archived", value: archivedCount, detail: "Hidden from new sales" },
+          { key: "client-packages", label: "Client packages", value: clientPackages.length, detail: "Active balances" },
+          { key: "healthy", label: "Healthy", value: healthyClientPackages.length, detail: "No immediate attention", tone: "success" as const },
+          { key: "attention", label: "Needs attention", value: attentionClientPackages.length, detail: "Low, depleted, or expired", tone: attentionClientPackages.length ? "warning" as const : "default" as const },
+          { key: "templates", label: "Templates", value: packageTemplates.length, detail: `${activeCount} available · ${archivedCount} archived` },
         ]}
       />
 
-      <div className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50">
-            <tr className="text-left text-slate-600">
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Included Items</th>
-              <th className="px-4 py-3 font-medium">Price</th>
-              <th className="px-4 py-3 font-medium">Expiration</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {packageTemplates.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                  <SellWorkspaceEmptyState
-                    title="No packages yet"
-                    description="Create a reusable package to sell lesson, class, or practice credits."
-                    compact
-                  />
-                </td>
-              </tr>
-            ) : (
-              packageTemplates.map((pkg) => (
-                <tr key={pkg.id} className="border-t align-top">
-                  <td className="px-4 py-3 font-medium text-slate-900">
-                    <Link href={`/app/packages/${pkg.id}`} className="hover:underline">
-                      {pkg.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {formatPackageItems(pkg.package_template_items)}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {formatCurrency(pkg.price)}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {pkg.expiration_days ?? "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${templateBadgeClass(
-                        pkg.active,
-                      )}`}
-                    >
-                      {pkg.active ? "Available" : "Archived"}
+      <section className="rounded-[28px] border border-[var(--brand-border)] bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
+              Client balances
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-[var(--brand-text)]">
+              Active Client Packages
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              See which clients are healthy and which package balances need attention before the next booking.
+            </p>
+          </div>
+          <Link
+            href="/app/packages/client-balances"
+            className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+          >
+            View all balances
+          </Link>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {clientPackages.length === 0 ? (
+            <SellWorkspaceEmptyState
+              title="No active client packages"
+              description="Sell a package from the Sell workspace when a client is ready to purchase credits."
+              compact
+            />
+          ) : (
+            packageBalanceRows.slice(0, 12).map(({ pkg, state }) => (
+              <Link
+                key={pkg.id}
+                href={`/app/clients/${pkg.client_id}?tab=billing`}
+                className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-white hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium text-[var(--brand-text)]">
+                      {clientName(pkg.clients)}
+                    </p>
+                    <span className={`rounded-full px-2 py-1 text-xs font-medium ${packageBalanceBadgeClass(state)}`}>
+                      {state === "healthy"
+                        ? "Healthy"
+                        : state === "low"
+                          ? "Low balance"
+                          : state === "depleted"
+                            ? "Depleted"
+                            : state === "expired"
+                              ? "Expired"
+                              : "Inactive"}
                     </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link
-                        href={`/app/packages/${pkg.id}`}
-                        className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
-                      >
-                        View
-                      </Link>
-                      <Link
-                        href={`/app/packages/${pkg.id}/edit`}
-                        className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
-                      >
-                        Edit
-                      </Link>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">{pkg.name_snapshot}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {pkg.expiration_date ? `Expires ${pkg.expiration_date}` : "No expiration date"}
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-medium text-[var(--brand-primary)]">
+                  Open billing
+                </span>
+              </Link>
+            ))
+          )}
+        </div>
+      </section>
 
-                      {pkg.active ? (
-                        <form action={archivePackageTemplateAction}>
-                          <input type="hidden" name="packageTemplateId" value={pkg.id} />
-                          <input type="hidden" name="returnTo" value="/app/packages" />
-                          <button
-                            type="submit"
-                            className="rounded-lg px-2 py-1 text-sm font-medium text-amber-700 hover:bg-amber-50"
-                          >
-                            Archive
-                          </button>
-                        </form>
-                      ) : (
-                        <form action={reactivatePackageTemplateAction}>
-                          <input type="hidden" name="packageTemplateId" value={pkg.id} />
-                          <input type="hidden" name="returnTo" value="/app/packages" />
-                          <button
-                            type="submit"
-                            className="rounded-lg px-2 py-1 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                          >
-                            Restore
-                          </button>
-                        </form>
-                      )}
+      <section className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
+              Offer setup
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-[var(--brand-text)]">
+              Package Templates
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Manage reusable package offers. Selling remains in the unified Sell workflow.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/app/sell?type=package"
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Sell package
+            </Link>
+            <Link
+              href="/app/packages/new"
+              className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+            >
+              New template
+            </Link>
+          </div>
+        </div>
 
-                      {!pkg.active ? (
-                        <form action={deletePackageTemplateAction}>
-                          <input type="hidden" name="packageTemplateId" value={pkg.id} />
-                          <button
-                            type="submit"
-                            className="rounded-lg px-2 py-1 text-sm font-medium text-rose-700 hover:bg-rose-50"
-                          >
-                            Delete if Unused
-                          </button>
-                        </form>
-                      ) : null}
-                    </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr className="text-left text-slate-600">
+                <th className="px-4 py-3 font-medium">Name</th>
+                <th className="px-4 py-3 font-medium">Included Items</th>
+                <th className="px-4 py-3 font-medium">Price</th>
+                <th className="px-4 py-3 font-medium">Expiration</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {packageTemplates.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                    <SellWorkspaceEmptyState
+                      title="No package templates yet"
+                      description="Create a reusable package to sell lesson, class, or practice credits."
+                      compact
+                    />
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                packageTemplates.map((pkg) => (
+                  <tr key={pkg.id} className="border-t align-top">
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      <Link href={`/app/packages/${pkg.id}`} className="hover:underline">
+                        {pkg.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {formatPackageItems(pkg.package_template_items)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {formatCurrency(pkg.price)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {pkg.expiration_days ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${templateBadgeClass(
+                          pkg.active,
+                        )}`}
+                      >
+                        {pkg.active ? "Available" : "Archived"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/app/packages/${pkg.id}`}
+                          className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
+                        >
+                          View
+                        </Link>
+                        <Link
+                          href={`/app/packages/${pkg.id}/edit`}
+                          className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
+                        >
+                          Edit
+                        </Link>
+
+                        {pkg.active ? (
+                          <form action={archivePackageTemplateAction}>
+                            <input type="hidden" name="packageTemplateId" value={pkg.id} />
+                            <input type="hidden" name="returnTo" value="/app/packages" />
+                            <button
+                              type="submit"
+                              className="rounded-lg px-2 py-1 text-sm font-medium text-amber-700 hover:bg-amber-50"
+                            >
+                              Archive
+                            </button>
+                          </form>
+                        ) : (
+                          <form action={reactivatePackageTemplateAction}>
+                            <input type="hidden" name="packageTemplateId" value={pkg.id} />
+                            <input type="hidden" name="returnTo" value="/app/packages" />
+                            <button
+                              type="submit"
+                              className="rounded-lg px-2 py-1 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                            >
+                              Restore
+                            </button>
+                          </form>
+                        )}
+
+                        {!pkg.active ? (
+                          <form action={deletePackageTemplateAction}>
+                            <input type="hidden" name="packageTemplateId" value={pkg.id} />
+                            <button
+                              type="submit"
+                              className="rounded-lg px-2 py-1 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                            >
+                              Delete if unused
+                            </button>
+                          </form>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

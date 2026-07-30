@@ -217,8 +217,8 @@ export default async function MembershipPlansPage({
         role={context.studioRole}
         isPlatformAdmin={context.isPlatformAdmin}
         eyebrow="Recurring revenue"
-        title="Membership Plans"
-        description="Manage recurring membership offers and monitor active, canceling, pending, and delinquent client memberships."
+        title="Memberships"
+        description="Monitor client memberships first, then manage the plans your studio offers. New sales stay in the unified Sell workflow."
         actions={(
           <>
             <Link href="/app/sell?type=membership" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">Sell membership</Link>
@@ -312,7 +312,7 @@ export default async function MembershipPlansPage({
             filteredMemberships.map((membership) => (
               <Link
                 key={membership.id}
-                href={`/app/clients/${membership.client_id}`}
+                href={`/app/clients/${membership.client_id}?tab=billing`}
                 className="block rounded-xl bg-slate-50 p-4 hover:bg-slate-100"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -357,7 +357,7 @@ export default async function MembershipPlansPage({
                     </p>
                   </div>
 
-                  <span className="text-sm underline">Open client</span>
+                  <span className="text-sm underline">Open billing</span>
                 </div>
               </Link>
             ))
@@ -365,185 +365,134 @@ export default async function MembershipPlansPage({
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold text-[var(--brand-text)]">
-                Membership Plans
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Configure the products staff can sell from the front desk. Available: {availablePlanCount}. Archived: {archivedPlanCount}.
-              </p>
-            </div>
-
-            <Link href="/app/memberships/new" className="text-sm underline">
-              Create plan
-            </Link>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {typedPlans.length === 0 ? (
-              <SellWorkspaceEmptyState
-                title="No membership plans yet"
-                description="Create a recurring offer before selling a membership to a client."
-                compact
-              />
-            ) : (
-              typedPlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className="rounded-xl bg-slate-50 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-[var(--brand-text)]">{plan.name}</p>
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${activeBadgeClass(
-                            plan.active
-                          )}`}
-                        >
-                          {plan.active ? "Available" : "Archived"}
-                        </span>
-                      </div>
-
-                      {plan.description ? (
-                        <p className="mt-1 text-sm text-slate-600">{plan.description}</p>
-                      ) : null}
-
-                      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500">
-                        <span>
-                          {formatCurrency(plan.price)} /{" "}
-                          {billingIntervalLabel(plan.billing_interval)}
-                        </span>
-                        <span>Signup Fee: {formatCurrency(plan.signup_fee)}</span>
-                        <span>{visibilityLabel(plan.visibility)}</span>
-                        <span>
-                          Auto Renew Default: {plan.auto_renew_default ? "Yes" : "No"}
-                        </span>
-                        <span>Benefits: {getBenefitCount(plan.membership_plan_benefits)}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                      <Link
-                        href={`/app/memberships/${plan.id}`}
-                        className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
-                      >
-                        View
-                      </Link>
-
-                      <Link
-                        href={`/app/memberships/${plan.id}/edit`}
-                        className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
-                      >
-                        Edit
-                      </Link>
-
-                      {plan.active ? (
-                        <form action={archiveMembershipPlanAction}>
-                          <input type="hidden" name="membershipPlanId" value={plan.id} />
-                          <input type="hidden" name="returnTo" value="/app/memberships" />
-                          <button
-                            type="submit"
-                            className="rounded-lg px-2 py-1 text-sm font-medium text-amber-700 hover:bg-amber-50"
-                          >
-                            Archive
-                          </button>
-                        </form>
-                      ) : (
-                        <form action={reactivateMembershipPlanAction}>
-                          <input type="hidden" name="membershipPlanId" value={plan.id} />
-                          <input type="hidden" name="returnTo" value="/app/memberships" />
-                          <button
-                            type="submit"
-                            className="rounded-lg px-2 py-1 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                          >
-                            Restore
-                          </button>
-                        </form>
-                      )}
-
-                      {!plan.active ? (
-                        <form action={deleteMembershipPlanAction}>
-                          <input type="hidden" name="membershipPlanId" value={plan.id} />
-                          <button
-                            type="submit"
-                            className="rounded-lg px-2 py-1 text-sm font-medium text-rose-700 hover:bg-rose-50"
-                          >
-                            Delete if Unused
-                          </button>
-                        </form>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-[var(--brand-text)]">
-              Quick Actions
+      <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
+              Offer setup
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-[var(--brand-text)]">
+              Membership Plans
             </h2>
-            <div className="mt-5 grid gap-3">
-              <Link
-                href="/app/memberships/sell"
-                className="rounded-xl border border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-3 hover:bg-white"
-              >
-                Sell membership
-              </Link>
-              <Link
-                href="/app/payments"
-                className="rounded-xl border border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-3 hover:bg-white"
-              >
-                Review Payments
-              </Link>
-              <Link
-                href="/app/clients"
-                className="rounded-xl border border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-3 hover:bg-white"
-              >
-                Find Client
-              </Link>
-              <Link
-                href="/app/memberships/new"
-                className="rounded-xl border border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-3 hover:bg-white"
-              >
-                New membership plan
-              </Link>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-[var(--brand-text)]">
-              Billing Snapshot
-            </h2>
-
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-                <p className="text-sm text-slate-500">Pending</p>
-                <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
-                  {pendingMemberships.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-                <p className="text-sm text-slate-500">Delinquent</p>
-                <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
-                  {pastDueMemberships.length + unpaidMemberships.length}
-                </p>
-              </div>
-            </div>
-
-            <p className="mt-4 text-sm text-slate-600">
-              Use the filter chips above to jump directly into memberships that need staff attention.
+            <p className="mt-1 text-sm text-slate-600">
+              Configure what staff can sell. {availablePlanCount} available and {archivedPlanCount} archived.
             </p>
           </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/app/sell?type=membership"
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Sell membership
+            </Link>
+            <Link
+              href="/app/memberships/new"
+              className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+            >
+              New plan
+            </Link>
+          </div>
         </div>
-      </div>
+
+        <div className="mt-5 space-y-3">
+          {typedPlans.length === 0 ? (
+            <SellWorkspaceEmptyState
+              title="No membership plans yet"
+              description="Create a recurring offer before selling a membership to a client."
+              compact
+            />
+          ) : (
+            typedPlans.map((plan) => (
+              <div
+                key={plan.id}
+                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium text-[var(--brand-text)]">{plan.name}</p>
+                      <span
+                        className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${activeBadgeClass(
+                          plan.active
+                        )}`}
+                      >
+                        {plan.active ? "Available" : "Archived"}
+                      </span>
+                    </div>
+
+                    {plan.description ? (
+                      <p className="mt-1 text-sm text-slate-600">{plan.description}</p>
+                    ) : null}
+
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500">
+                      <span>
+                        {formatCurrency(plan.price)} / {billingIntervalLabel(plan.billing_interval)}
+                      </span>
+                      {Number(plan.signup_fee ?? 0) > 0 ? (
+                        <span>Signup fee {formatCurrency(plan.signup_fee)}</span>
+                      ) : null}
+                      <span>{visibilityLabel(plan.visibility)}</span>
+                      <span>{getBenefitCount(plan.membership_plan_benefits)} benefit{getBenefitCount(plan.membership_plan_benefits) === 1 ? "" : "s"}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Link
+                      href={`/app/memberships/${plan.id}`}
+                      className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
+                    >
+                      View
+                    </Link>
+                    <Link
+                      href={`/app/memberships/${plan.id}/edit`}
+                      className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
+                    >
+                      Edit
+                    </Link>
+
+                    {plan.active ? (
+                      <form action={archiveMembershipPlanAction}>
+                        <input type="hidden" name="membershipPlanId" value={plan.id} />
+                        <input type="hidden" name="returnTo" value="/app/memberships" />
+                        <button
+                          type="submit"
+                          className="rounded-lg px-2 py-1 text-sm font-medium text-amber-700 hover:bg-amber-50"
+                        >
+                          Archive
+                        </button>
+                      </form>
+                    ) : (
+                      <form action={reactivateMembershipPlanAction}>
+                        <input type="hidden" name="membershipPlanId" value={plan.id} />
+                        <input type="hidden" name="returnTo" value="/app/memberships" />
+                        <button
+                          type="submit"
+                          className="rounded-lg px-2 py-1 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                        >
+                          Restore
+                        </button>
+                      </form>
+                    )}
+
+                    {!plan.active ? (
+                      <form action={deleteMembershipPlanAction}>
+                        <input type="hidden" name="membershipPlanId" value={plan.id} />
+                        <button
+                          type="submit"
+                          className="rounded-lg px-2 py-1 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                        >
+                          Delete if unused
+                        </button>
+                      </form>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
     </div>
   );
 }
