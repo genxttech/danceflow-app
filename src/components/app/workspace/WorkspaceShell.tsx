@@ -25,7 +25,7 @@ export default function WorkspaceShell({
   return (
     <div
       className={classNames(
-        "min-h-[calc(100vh-4rem)] bg-[var(--brand-surface)]",
+        "min-h-[calc(100dvh-4rem)] min-w-0 bg-[var(--brand-surface)]",
         className,
       )}
     >
@@ -34,7 +34,7 @@ export default function WorkspaceShell({
       {summary ? <div className="border-b border-[var(--brand-border)] bg-white">{summary}</div> : null}
 
       {hasPaneLayout ? (
-        <div className="grid min-h-0 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)_minmax(18rem,22rem)]">
+        <div className="grid min-h-0 min-w-0 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)_minmax(18rem,22rem)]">
           {list ? (
             <aside className="min-h-0 border-b border-[var(--brand-border)] bg-white lg:border-b-0 lg:border-r">
               {list}

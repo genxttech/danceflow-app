@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 
 type OrganizerPageParams = Promise<{
   id: string;
@@ -285,7 +286,7 @@ export default async function OrganizerDetailPage({
   const showCreateEvent = canManageEvents(context.studioRole, context.isPlatformAdmin);
 
   return (
-    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+    <div className="space-y-6 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div
           className="px-6 py-8 text-white md:px-8"
@@ -343,17 +344,35 @@ export default async function OrganizerDetailPage({
         </div>
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Linked Events" value={typedEvents.length} />
-            <StatCard label="Registrations" value={organizerRegistrations.length} />
-            <StatCard label="Needs Payment Review" value={organizerNeedsPaymentReview.length} />
-            <StatCard
-              label="Ticket Revenue"
-              value={formatCurrency(organizerGrossRevenue, organizerCurrency)}
-            />
-          </div>
+          <CompactSummaryStrip
+            className="bg-white/95"
+            items={[
+              { key: "events", label: "Linked events", value: typedEvents.length, detail: "Organizer-owned events" },
+              { key: "registrations", label: "Registrations", value: organizerRegistrations.length, detail: "Across linked events" },
+              { key: "review", label: "Payment review", value: organizerNeedsPaymentReview.length, detail: "Pending, unpaid, or partial" },
+              { key: "revenue", label: "Ticket revenue", value: formatCurrency(organizerGrossRevenue, organizerCurrency), detail: "Paid registration value" },
+            ]}
+          />
         </div>
       </section>
+      <nav
+        aria-label="Events workspace navigation"
+        className="flex snap-x gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+      >
+          <Link href="/app/events" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Events
+          </Link>
+          <Link href="/app/organizers" className="snap-start whitespace-nowrap rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white">
+            Organizer
+          </Link>
+          <Link href="/app/organizer-contacts" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Contacts
+          </Link>
+          <Link href="/app/organizer-campaigns" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Campaigns
+          </Link>
+      </nav>
+
 
       <section className="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-8">

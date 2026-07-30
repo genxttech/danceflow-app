@@ -159,7 +159,7 @@ export default async function PublicProfileSettingsPage({
   const effectiveSlug = studio.slug ?? buildDefaultSlug(effectivePublicName);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-1">
+    <div className="mx-auto max-w-6xl space-y-5 p-1">
       <section className="rounded-lg border border-white/15 bg-[#2D0B45] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -386,7 +386,12 @@ export default async function PublicProfileSettingsPage({
           </div>
         </section>
 
-        <section className="rounded-lg border border-l-4 border-l-fuchsia-500 bg-white p-6 shadow-sm">
+        <details className="rounded-lg border border-l-4 border-l-fuchsia-500 bg-white p-6 shadow-sm">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-950">
+            Branding assets <span className="ml-2 text-xs font-medium text-slate-500">Logo and hero image</span>
+          </summary>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Branding assets
@@ -423,9 +428,15 @@ export default async function PublicProfileSettingsPage({
               <p className="mt-2 text-xs text-slate-500">PNG, JPG, or WebP. Maximum 5 MB.{studio.public_hero_image_url ? " Your current image remains until replaced." : ""}</p>
             </div>
           </div>
-        </section>
+                  </div>
+        </details>
 
-        <section className="rounded-lg border border-l-4 border-l-indigo-500 bg-white p-6 shadow-sm">
+        <details className="rounded-lg border border-l-4 border-l-indigo-500 bg-white p-6 shadow-sm">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-950">
+            Dance styles <span className="ml-2 text-xs font-medium text-slate-500">Discovery filters</span>
+          </summary>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Dance styles
@@ -452,9 +463,15 @@ export default async function PublicProfileSettingsPage({
               </label>
             ))}
           </div>
-        </section>
+                  </div>
+        </details>
 
-        <section className="rounded-lg border border-l-4 border-l-orange-500 bg-white p-6 shadow-sm">
+        <details className="rounded-lg border border-l-4 border-l-orange-500 bg-white p-6 shadow-sm">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-950">
+            Public offerings <span className="ml-2 text-xs font-medium text-slate-500">What dancers can do</span>
+          </summary>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Public offerings
@@ -481,9 +498,15 @@ export default async function PublicProfileSettingsPage({
               </label>
             ))}
           </div>
-        </section>
+                  </div>
+        </details>
 
-        <section className="rounded-lg border border-l-4 border-l-pink-500 bg-white p-6 shadow-sm">
+        <details className="rounded-lg border border-l-4 border-l-pink-500 bg-white p-6 shadow-sm">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-950">
+            Inquiry page <span className="ml-2 text-xs font-medium text-slate-500">Lead capture content</span>
+          </summary>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">Inquiry page</h2>
             <p className="mt-1 text-sm text-slate-600">This content is shared by your focused lead and intro-booking pages.</p>
@@ -498,9 +521,15 @@ export default async function PublicProfileSettingsPage({
             <label className="text-sm font-medium text-slate-700 md:col-span-2">Supporting message<textarea name="public_lead_description" defaultValue={studio.public_lead_description ?? ""} rows={3} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal" /></label>
             <label className="text-sm font-medium text-slate-700">Brand color<input type="color" name="public_primary_color" defaultValue={studio.public_primary_color ?? "#5B197A"} className="mt-2 h-12 w-full rounded-lg border border-slate-300 p-1" /></label>
           </div>
-        </section>
+                  </div>
+        </details>
 
-        <section className="rounded-lg border border-l-4 border-l-amber-500 bg-white p-6 shadow-sm">
+        <details className="rounded-lg border border-l-4 border-l-amber-500 bg-white p-6 shadow-sm">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-950">
+            Intro lesson booking <span className="ml-2 text-xs font-medium text-slate-500">Request rules and availability</span>
+          </summary>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">Intro lesson booking</h2>
             <p className="mt-1 text-sm text-slate-600">Set the choices new dancers see. Requests still follow the existing staff-review workflow.</p>
@@ -519,13 +548,14 @@ export default async function PublicProfileSettingsPage({
           </div>
           <fieldset className="mt-5"><legend className="text-sm font-medium text-slate-700">Requestable days</legend><div className="mt-2 grid grid-cols-4 gap-2 md:grid-cols-7">{[[1,"Mon"],[2,"Tue"],[3,"Wed"],[4,"Thu"],[5,"Fri"],[6,"Sat"],[0,"Sun"]].map(([value,label]) => <label key={value} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><input type="checkbox" name="booking_request_allowed_weekdays" value={value} defaultChecked={(settings.booking_request_allowed_weekdays ?? [1,2,3,4,5,6]).includes(Number(value))} />{label}</label>)}</div></fieldset>
           <fieldset className="mt-5"><legend className="text-sm font-medium text-slate-700">Available intro instructors</legend><div className="mt-2 grid gap-2 md:grid-cols-2">{(instructors ?? []).map((item) => <label key={item.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><input type="checkbox" name="public_intro_bookable_instructor_ids" value={item.id} defaultChecked={(settings.public_intro_bookable_instructor_ids ?? []).includes(item.id)} />{item.first_name} {item.last_name}</label>)}</div></fieldset>
-        </section>
+                  </div>
+        </details>
 
         <div className="sticky bottom-4 flex justify-end">
           <div className="rounded-2xl border bg-white p-3 shadow-lg">
             <button
               type="submit"
-              className="inline-flex items-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
+              className="inline-flex items-center rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:brightness-110"
             >
               Save public presence
             </button>

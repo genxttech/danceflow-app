@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 
 type EventRow = {
   id: string;
@@ -245,33 +246,25 @@ export default async function ManageTicketsIndexPage() {
           </div>
         </div>
 
-        <div className="grid gap-3 border-t border-white/10 bg-black/10 px-6 py-4 md:grid-cols-4 md:px-8">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">
-              Events
-            </p>
-            <p className="mt-1 text-sm font-semibold">{eventRows.length}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">
-              Ticket types
-            </p>
-            <p className="mt-1 text-sm font-semibold">{totalTicketTypes}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">
-              Active ticket types
-            </p>
-            <p className="mt-1 text-sm font-semibold">{activeTicketTypes}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">
-              Tickets sold
-            </p>
-            <p className="mt-1 text-sm font-semibold">{totalTicketsSold}</p>
-          </div>
-        </div>
       </section>
+
+      <CompactSummaryStrip
+        className="rounded-2xl border border-slate-200 bg-white"
+        items={[
+          { key: "events", label: "Events", value: eventRows.length, detail: "Event records" },
+          { key: "types", label: "Ticket types", value: totalTicketTypes, detail: "Configured ticket options" },
+          { key: "active", label: "Active", value: activeTicketTypes, detail: "Currently available", tone: "success" as const },
+          { key: "sold", label: "Tickets sold", value: totalTicketsSold, detail: "Across registrations" },
+        ]}
+      />
+      <div className="flex snap-x gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3">
+        <Link href="/app/events" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Event workspace</Link>
+        <Link href="/app/events/tickets" className="snap-start whitespace-nowrap rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white">Tickets</Link>
+        <Link href="/app/events/sell-tickets" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Sell tickets</Link>
+        <Link href="/app/events/registrations" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Registrations</Link>
+        <Link href="/app/events/checkin" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Check-in</Link>
+      </div>
+
 
       {eventRows.length === 0 ? (
         <section className="rounded-[28px] border border-dashed border-[#D8B4FE] bg-[#FCF8FF] p-8 text-center shadow-sm">

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import { canManageOrganizerCampaigns } from "@/lib/auth/permissions";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import { createOrganizerCampaignDraftAction } from "./actions";
@@ -668,6 +669,24 @@ export default async function OrganizerCampaignsPage({
           </div>
         </div>
       </section>
+      <nav
+        aria-label="Events workspace navigation"
+        className="flex snap-x gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+      >
+          <Link href="/app/events" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Events
+          </Link>
+          <Link href="/app/organizers" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Organizer
+          </Link>
+          <Link href="/app/organizer-contacts" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Contacts
+          </Link>
+          <Link href="/app/organizer-campaigns" className="snap-start whitespace-nowrap rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white">
+            Campaigns
+          </Link>
+      </nav>
+
 
       {resolvedSearchParams.campaign_saved ? (
         <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
@@ -735,12 +754,15 @@ export default async function OrganizerCampaignsPage({
         </section>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Organizer" value={selectedOrganizer?.name ?? "None"} helper="Current campaign workspace" icon={Megaphone} />
-        <StatCard label="Preview audience" value={eventAudienceNeedsEvent ? "Select event" : preview.count} helper={`${preview.suppressed} suppressed`} icon={Users} />
-        <StatCard label="Drafts" value={draftCount} helper="Saved organizer drafts" icon={Mail} />
-        <StatCard label="Sent" value={sentCount} helper="Campaigns sent" icon={CheckCircle2} />
-      </section>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-slate-200 bg-white"
+        items={[
+          { key: "organizer", label: "Organizer", value: selectedOrganizer?.name ?? "None", detail: "Current campaign workspace" },
+          { key: "audience", label: "Preview audience", value: eventAudienceNeedsEvent ? "Select event" : preview.count, detail: `${preview.suppressed} suppressed` },
+          { key: "drafts", label: "Drafts", value: draftCount, detail: "Saved campaign drafts" },
+          { key: "sent", label: "Sent", value: sentCount, detail: "Campaigns sent" },
+        ]}
+      />
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -1033,6 +1055,15 @@ export default async function OrganizerCampaignsPage({
         )}
       </section>
 
+      <details className="group rounded-[28px] border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5">
+          <span>
+            <span className="block text-sm font-semibold text-slate-950">How organizer campaigns work</span>
+            <span className="mt-1 block text-xs text-slate-600">Audience scope, contact separation, and campaign safeguards.</span>
+          </span>
+          <span aria-hidden="true" className="text-xl text-slate-400 transition group-open:rotate-45">+</span>
+        </summary>
+        <div className="border-t border-slate-200 p-5">
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <Ticket className="h-5 w-5 text-[var(--brand-primary)]" />
@@ -1049,7 +1080,8 @@ export default async function OrganizerCampaignsPage({
           <h3 className="mt-3 font-semibold text-slate-950">Separate from studio CRM</h3>
           <p className="mt-2 text-sm leading-6 text-slate-500">Organizer contacts stay organizer-scoped so event marketing does not pollute studio client records.</p>
         </div>
-      </section>
+      </section>        </div>
+      </details>
     </div>
   );
 }

@@ -12,8 +12,8 @@ export default function WorkspaceEmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[18rem] items-center justify-center p-6">
-      <div className="max-w-md text-center">
+    <div className="flex min-h-[18rem] items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-md rounded-[28px] border border-dashed border-[var(--brand-border)] bg-white/80 px-6 py-8 text-center shadow-sm">
         {icon ? (
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]">
             {icon}

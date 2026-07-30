@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Ticket, ArrowLeft, ClipboardCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import SellTicketsForm from "./SellTicketsForm";
 
 type EventRow = {
@@ -201,10 +202,8 @@ export default async function SellTicketsPage() {
               Sell tickets from the workspace
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/85 md:text-base">
-              Use this for front desk sales, at-the-door purchases, card reader
-              payments, cash payments, external card payments, and comps. Manual
-              sales are confirmed immediately; card reader sales are confirmed
-              after the reader payment succeeds.
+              Use one fast workflow for front-desk and at-the-door ticket sales.
+              Choose the event, ticket, customer, and payment method, then confirm the sale.
             </p>
           </div>
 
@@ -228,29 +227,14 @@ export default async function SellTicketsPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Events with tickets</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">
-            {eventOptions.length}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Available ticket types</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">
-            {eventOptions.reduce((total, event) => total + event.ticketTypes.length, 0)}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Sale mode</p>
-          <p className="mt-2 flex items-center gap-2 text-lg font-semibold text-slate-950">
-            <Ticket className="h-5 w-5 text-violet-700" />
-            Manual / card reader
-          </p>
-        </div>
-      </section>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-slate-200 bg-white"
+        items={[
+          { key: "events", label: "Events with tickets", value: eventOptions.length, detail: "Ready for front-desk sales" },
+          { key: "types", label: "Ticket types", value: eventOptions.reduce((sum, event) => sum + event.ticketTypes.length, 0), detail: "Available ticket choices" },
+          { key: "clients", label: "Clients", value: typedClients.length, detail: "Available for linked sales" },
+        ]}
+      />
 
       {eventOptions.length === 0 ? (
         <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-6">

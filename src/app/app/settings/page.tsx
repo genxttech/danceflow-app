@@ -309,7 +309,7 @@ export default async function SettingsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <section className="overflow-hidden rounded-3xl border border-white/15 bg-[linear-gradient(135deg,#2D0B45_0%,#4C1D95_55%,#7C2D92_100%)] p-6 text-white shadow-sm md:p-8">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
           DanceFlow Settings
@@ -319,8 +319,8 @@ export default async function SettingsPage() {
             Set up how your studio runs
           </h1>
           <p className="mt-3 text-sm leading-6 text-white/80 md:text-base">
-            Start with everyday studio operations. Business connections, public
-            presence, and occasional setup tools are grouped below when you need them.
+            Keep everyday operations simple. Open business connections, public presence,
+            and occasional setup only when you need them.
           </p>
         </div>
       </section>
@@ -353,10 +353,17 @@ export default async function SettingsPage() {
         />
       </section>
 
-      <section
-        aria-labelledby="business-setup-heading"
-        className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6"
-      >
+      <details className="group rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 md:p-6">
+          <span>
+            <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">When you need it</span>
+            <span className="mt-1 block text-xl font-semibold text-slate-950">Business setup</span>
+            <span className="mt-1 block text-sm text-slate-600">Integrations, billing, accountant delivery, and imports.</span>
+          </span>
+          <span aria-hidden="true" className="text-2xl text-slate-400 transition group-open:rotate-45">+</span>
+        </summary>
+        <div className="border-t border-slate-200 p-5 md:p-6">
+
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
             When you need it
@@ -444,7 +451,8 @@ export default async function SettingsPage() {
             </span>
           </Link>
         </div>
-      </section>
+              </div>
+      </details>
 
       <section
         aria-labelledby="public-presence-heading"

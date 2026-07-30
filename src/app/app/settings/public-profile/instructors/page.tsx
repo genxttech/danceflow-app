@@ -91,14 +91,14 @@ export default async function PublicInstructorSettingsPage({
   const typedInstructors = (instructors ?? []) as InstructorRow[];
 
   return (
-    <div className="space-y-8">
-      <div className="rounded-3xl border bg-white p-6 shadow-sm">
+    <div className="space-y-6">
+      <section className="overflow-hidden rounded-[30px] border border-violet-200/80 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] p-6 text-white shadow-[0_20px_55px_rgba(76,29,149,0.12)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+            <h1 className="text-3xl font-semibold tracking-tight text-white">
               Public Instructors
             </h1>
-            <p className="mt-2 max-w-3xl text-slate-600">
+            <p className="mt-2 max-w-3xl text-white/80">
               Choose which instructors appear on your public studio page and control their bios,
               photos, specialties, and display order.
             </p>
@@ -122,7 +122,7 @@ export default async function PublicInstructorSettingsPage({
             ) : null}
           </div>
         </div>
-      </div>
+      </section>
 
       {query.saved === "1" ? (
         <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
@@ -145,11 +145,17 @@ export default async function PublicInstructorSettingsPage({
         ) : (
           <div className="mt-6 space-y-6">
             {typedInstructors.map((instructor) => (
-              <form
-                key={instructor.id}
-                action={savePublicInstructorAction}
-                className="rounded-2xl border bg-slate-50 p-5"
-              >
+              <details key={instructor.id} className="rounded-2xl border border-slate-200 bg-slate-50">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+                  <span>
+                    <span className="block font-semibold text-slate-950">{fullName(instructor)}</span>
+                    <span className="mt-1 block text-xs text-slate-500">
+                      {instructor.public_profile_enabled ? "Visible on public page" : "Hidden from public page"}
+                    </span>
+                  </span>
+                  <span className="text-sm font-semibold text-violet-700">Edit</span>
+                </summary>
+                <form action={savePublicInstructorAction} className="border-t border-slate-200 p-5">
                 <input type="hidden" name="instructor_id" value={instructor.id} />
 
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -310,7 +316,8 @@ export default async function PublicInstructorSettingsPage({
                     </span>
                   )}
                 </div>
-              </form>
+                </form>
+              </details>
             ))}
           </div>
         )}

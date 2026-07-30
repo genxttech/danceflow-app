@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { classNames } from "./classNames";
 
@@ -26,9 +27,9 @@ export default function RecordRow({
     <>
       {leading ? <div className="shrink-0">{leading}</div> : null}
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-[var(--brand-text)]">{title}</div>
+        <div className="line-clamp-2 text-sm font-semibold leading-5 text-[var(--brand-text)]">{title}</div>
         {subtitle ? (
-          <div className="mt-0.5 truncate text-xs text-[var(--brand-muted)]">{subtitle}</div>
+          <div className="mt-0.5 line-clamp-2 text-xs leading-5 text-[var(--brand-muted)]">{subtitle}</div>
         ) : null}
         {meta ? <div className="mt-1 flex flex-wrap gap-1.5">{meta}</div> : null}
       </div>
@@ -46,9 +47,9 @@ export default function RecordRow({
 
   if (href) {
     return (
-      <a href={href} className={classes} aria-current={selected ? "page" : undefined}>
+      <Link href={href} className={classes} aria-current={selected ? "page" : undefined}>
         {content}
-      </a>
+      </Link>
     );
   }
 

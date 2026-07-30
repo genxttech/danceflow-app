@@ -4,9 +4,11 @@ import { redirect } from "next/navigation";
 import { canManagePackages } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 
 type BalanceRow = {
   id: string;
+  client_id: string;
   name_snapshot: string;
   expiration_date: string | null;
   active: boolean;
@@ -56,6 +58,7 @@ export default async function ClientBalancesPage() {
     .from("client_packages")
     .select(`
       id,
+      client_id,
       name_snapshot,
       expiration_date,
       active,
@@ -113,29 +116,25 @@ export default async function ClientBalancesPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Client Balances</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
-              Review active client packages, remaining credits, expiration dates, and payment activity.
+              Review remaining package credits and open the client record when a balance needs attention.
             </p>
           </div>
-          <Link href="/app/packages/sell" className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white/90">Sell Package</Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/app/sell?type=package" className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white/90">Sell Package</Link>
+            <Link href="/app/packages" className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15">Package workspace</Link>
+          </div>
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Client Packages</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{balances.length}</p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Active</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{activeCount}</p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Inactive</p>
-          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{inactiveCount}</p>
-        </div>
-      </div>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-[var(--brand-border)] bg-white"
+        items={[
+          { key: "total", label: "Client packages", value: balances.length, detail: "All package balances" },
+          { key: "active", label: "Active", value: activeCount, detail: "Current package records", tone: "success" as const },
+          { key: "attention", label: "Needs attention", value: lowBalancePackages.length, detail: "2 or fewer credits", tone: lowBalancePackages.length ? "warning" as const : "default" as const },
+          { key: "inactive", label: "Inactive", value: inactiveCount, detail: "Historical package records" },
+        ]}
+      />
 
       <AriaInsightCard
         eyebrow="ARIA Opportunity"
@@ -162,7 +161,7 @@ export default async function ClientBalancesPage() {
           </div>
         ) : (
           balances.map((balance) => (
-            <div key={balance.id} className="rounded-[28px] border border-[var(--brand-border)] bg-white p-6 shadow-sm">
+            <div key={balance.id} className="rounded-[28px] border border-[var(--brand-border)] bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <h3 className="text-xl font-semibold">
@@ -171,9 +170,17 @@ export default async function ClientBalancesPage() {
                   <p className="mt-1 text-slate-600">{balance.name_snapshot}</p>
                 </div>
 
-                <div className="text-sm text-slate-600">
-                  <p>Status: {balance.active ? "active" : "inactive"}</p>
-                  <p>Expires: {balance.expiration_date ?? "—"}</p>
+                <div className="flex flex-col items-start gap-2 text-sm text-slate-600 md:items-end">
+                  <div>
+                    <p>Status: {balance.active ? "active" : "inactive"}</p>
+                    <p>Expires: {balance.expiration_date ?? "—"}</p>
+                  </div>
+                  <Link
+                    href={`/app/clients/${balance.client_id}?tab=billing`}
+                    className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
+                  >
+                    Open client billing
+                  </Link>
                 </div>
               </div>
 

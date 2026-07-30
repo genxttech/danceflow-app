@@ -222,10 +222,27 @@ export default async function PaymentsPage({
         title="Payment Ledger"
         description="Review every payment as a financial transaction with its date, client, description, method, amount, and status."
         actions={(
-          <Link href="/app/payments/take" className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
-            <WalletCards className="h-4 w-4" />
-            Take payment
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/app/payments/take"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              <WalletCards className="h-4 w-4" />
+              Take payment
+            </Link>
+            <Link
+              href="/app/sell"
+              className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+            >
+              Sell
+            </Link>
+            <Link
+              href="/app/sell?type=quick_charge"
+              className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+            >
+              Quick charge
+            </Link>
+          </div>
         )}
       />
 
@@ -245,58 +262,82 @@ export default async function PaymentsPage({
             <Filter className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="font-semibold text-slate-950">Filter ledger</h2>
-            <p className="text-sm text-slate-500">Narrow the visible transaction rows.</p>
+            <h2 className="font-semibold text-slate-950">Find a transaction</h2>
+            <p className="text-sm text-slate-500">
+              Search first, then narrow the ledger only when needed.
+            </p>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[1.5fr_repeat(4,1fr)_auto]">
+        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
           <input
             name="q"
             defaultValue={params.q ?? ""}
             placeholder="Client, description, method, reference..."
             className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
           />
-
-          <select name="range" defaultValue={range} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-            <option value="today">Today</option>
-            <option value="month">This month</option>
-            <option value="last30">Last 30 days</option>
-            <option value="all">All time</option>
-          </select>
-
-          <select name="status" defaultValue={status} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-            <option value="all">All statuses</option>
-            <option value="paid">Paid</option>
-            <option value="pending">Pending</option>
-            <option value="failed">Failed</option>
-            <option value="refunded">Refunded</option>
-          </select>
-
-          <select name="method" defaultValue={method} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-            <option value="all">All methods</option>
-            <option value="card">Card</option>
-            <option value="cash">Cash</option>
-            <option value="check">Check</option>
-            <option value="ach">ACH</option>
-            <option value="venmo">Venmo</option>
-            <option value="zelle">Zelle</option>
-            <option value="other">Other</option>
-          </select>
-
-          <select name="type" defaultValue={type} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-            <option value="all">All payment types</option>
-            <option value="package_sale">Package sales</option>
-            <option value="membership">Memberships</option>
-            <option value="floor_rental">Floor rentals</option>
-            <option value="event_registration">Events</option>
-            <option value="general">General</option>
-          </select>
-
-          <button className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white">
-            Apply
+          <button className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white">
+            Search ledger
           </button>
         </div>
+
+        <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-800">
+            <span>More filters</span>
+            <span className="text-xs font-medium text-slate-500">
+              Date · status · method · type
+            </span>
+          </summary>
+
+          <div className="grid gap-3 border-t border-slate-200 p-4 md:grid-cols-2 xl:grid-cols-[repeat(4,1fr)_auto]">
+            <select name="range" defaultValue={range} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+              <option value="today">Today</option>
+              <option value="month">This month</option>
+              <option value="last30">Last 30 days</option>
+              <option value="all">All time</option>
+            </select>
+
+            <select name="status" defaultValue={status} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+              <option value="all">All statuses</option>
+              <option value="paid">Paid</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+              <option value="refunded">Refunded</option>
+            </select>
+
+            <select name="method" defaultValue={method} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+              <option value="all">All methods</option>
+              <option value="card">Card</option>
+              <option value="cash">Cash</option>
+              <option value="check">Check</option>
+              <option value="ach">ACH</option>
+              <option value="venmo">Venmo</option>
+              <option value="zelle">Zelle</option>
+              <option value="other">Other</option>
+            </select>
+
+            <select name="type" defaultValue={type} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+              <option value="all">All payment types</option>
+              <option value="package_sale">Package sales</option>
+              <option value="membership">Memberships</option>
+              <option value="floor_rental">Floor rentals</option>
+              <option value="event_registration">Events</option>
+              <option value="general">General</option>
+            </select>
+
+            <div className="flex gap-2">
+              <button className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95">
+                Apply
+              </button>
+              <Link
+                href="/app/payments"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Clear
+              </Link>
+            </div>
+          </div>
+        </details>
       </form>
 
       <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">

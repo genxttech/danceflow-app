@@ -319,7 +319,23 @@ export default async function EventTicketsPage({
           </div>
         </div>
       </section>
+      <div className="flex snap-x gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <Link href={`/app/events/${typedEvent.id}`} className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Event dashboard</Link>
+        <Link href={`/app/events/${typedEvent.id}/tickets`} className="snap-start whitespace-nowrap rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white">Tickets</Link>
+        <Link href={`/app/events/${typedEvent.id}/registrations`} className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Registrations</Link>
+        <Link href={`/app/events/${typedEvent.id}/check-in`} className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Check-in</Link>
+      </div>
 
+
+      <details className="group rounded-2xl border border-violet-200 bg-[#FCF8FF] shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-4">
+          <span>
+            <span className="block text-sm font-semibold text-slate-950">Ticket setup guidance</span>
+            <span className="mt-1 block text-xs text-slate-600">Pricing, sale windows, and availability tips.</span>
+          </span>
+          <span aria-hidden="true" className="text-xl text-violet-700 transition group-open:rotate-45">+</span>
+        </summary>
+        <div className="border-t border-violet-100 p-4">
       <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-900">Quick tips</h2>
@@ -382,6 +398,9 @@ export default async function EventTicketsPage({
           You can view tickets, but your current role does not have permission to manage them.
         </div>
       ) : null}
+
+        </div>
+      </details>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between gap-3">

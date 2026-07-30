@@ -1632,9 +1632,7 @@ function workspaceForItem(item: NavItem) {
   if (
     href.startsWith("/app/schedule") ||
     href.startsWith("/app/instructors") ||
-    href.startsWith("/app/rooms") ||
-    href === "/app/events/checkin" ||
-    href === "/app/events/check-in"
+    href.startsWith("/app/rooms")
   ) {
     return "Schedule";
   }
@@ -1648,11 +1646,16 @@ function workspaceForItem(item: NavItem) {
     href.startsWith("/app/packages") ||
     href.startsWith("/app/memberships") ||
     href.startsWith("/app/expenses") ||
-    href.startsWith("/app/instructor-pay") ||
-    href === "/app/events/sell-tickets" ||
-    href === "/app/events/tickets"
+    href.startsWith("/app/instructor-pay")
   ) {
     return "Sell";
+  }
+
+  if (
+    href.startsWith("/app/events") ||
+    href.startsWith("/app/organizers")
+  ) {
+    return "Events";
   }
 
   if (
@@ -1682,8 +1685,6 @@ function workspaceForItem(item: NavItem) {
     href.startsWith("/knowledgebase") ||
     href.startsWith("/account") ||
     href.startsWith("/discover") ||
-    href.startsWith("/app/organizers") ||
-    href.startsWith("/app/events") ||
     href.startsWith("/app/now-hiring")
   ) {
     return "Settings";
@@ -1700,6 +1701,7 @@ const WORKSPACE_ORDER = [
   "Communications",
   "Reports",
   "ARIA",
+  "Events",
   "Settings",
 ] as const;
 
@@ -1720,8 +1722,6 @@ function itemPriority(section: (typeof WORKSPACE_ORDER)[number], href: string) {
       "/app/instructors/my-availability",
       "/app/instructors",
       "/app/rooms",
-      "/app/events/checkin",
-      "/app/events/check-in",
     ],
     Sell: [
       "/app/sell",
@@ -1733,8 +1733,6 @@ function itemPriority(section: (typeof WORKSPACE_ORDER)[number], href: string) {
       "/app/memberships",
       "/app/expenses",
       "/app/instructor-pay",
-      "/app/events/sell-tickets",
-      "/app/events/tickets",
     ],
     Communications: [
       "/app/communications",
@@ -1750,13 +1748,20 @@ function itemPriority(section: (typeof WORKSPACE_ORDER)[number], href: string) {
       "/app/reports/client-birthdays",
     ],
     ARIA: ["/app/aria", "/app/aria/operations"],
+    Events: [
+      "/app/events",
+      "/app/events/new",
+      "/app/events/tickets",
+      "/app/events/sell-tickets",
+      "/app/events/registrations",
+      "/app/events/checkin",
+      "/app/events/check-in",
+      "/app/organizers",
+    ],
     Settings: [
       "/app/settings",
       "/app/settings/team",
       "/app/settings/billing",
-      "/app/organizers",
-      "/app/events",
-      "/app/events/new",
       "/app/now-hiring",
       "/discover",
       "/account",

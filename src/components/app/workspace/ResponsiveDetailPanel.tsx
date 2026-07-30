@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useEffect, useId } from "react";
 import { X } from "lucide-react";
 import { classNames } from "./classNames";
 
@@ -21,6 +22,26 @@ export default function ResponsiveDetailPanel({
   onClose: () => void;
   className?: string;
 }) {
+  const titleId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
@@ -38,11 +59,11 @@ export default function ResponsiveDetailPanel({
         )}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
       >
         <div className="flex items-start justify-between gap-3 border-b border-white/15 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] px-5 py-5 text-white">
           <div className="min-w-0">
-            <h2 className="truncate text-lg font-semibold text-white">{title}</h2>
+            <h2 id={titleId} className="line-clamp-2 text-lg font-semibold leading-6 text-white">{title}</h2>
             {description ? (
               <p className="mt-1 text-sm text-white/80">{description}</p>
             ) : null}
@@ -58,7 +79,7 @@ export default function ResponsiveDetailPanel({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
         {footer ? (
-          <div className="border-t border-violet-200 bg-white/95 px-5 py-4 shadow-[0_-12px_35px_rgba(76,29,149,0.10)] backdrop-blur">{footer}</div>
+          <div className="border-t border-violet-200 bg-white/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-12px_35px_rgba(76,29,149,0.10)] backdrop-blur">{footer}</div>
         ) : null}
       </aside>
     </div>

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import { canManageOrganizerContacts } from "@/lib/auth/permissions";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 
@@ -74,7 +75,7 @@ function isOrganizerWorkspaceRole(role: string | null | undefined) {
 
 function OrganizerSuiteUpgradeCard() {
   return (
-    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+    <div className="space-y-6 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
@@ -102,6 +103,24 @@ function OrganizerSuiteUpgradeCard() {
           </div>
         </div>
       </section>
+      <nav
+        aria-label="Events workspace navigation"
+        className="flex snap-x gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+      >
+          <Link href="/app/events" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Events
+          </Link>
+          <Link href="/app/organizers" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Organizer
+          </Link>
+          <Link href="/app/organizer-contacts" className="snap-start whitespace-nowrap rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white">
+            Contacts
+          </Link>
+          <Link href="/app/organizer-campaigns" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Campaigns
+          </Link>
+      </nav>
+
     </div>
   );
 }
@@ -413,17 +432,15 @@ export default async function OrganizerContactsPage({
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Contacts" value={totalContacts} icon={Users} />
-        <StatCard label="Registrations" value={totalRegistrations} icon={Ticket} />
-        <StatCard label="Paid registrations" value={totalPaidRegistrations} icon={CalendarDays} />
-        <StatCard
-          label="Contact revenue"
-          value={formatCurrency(totalRevenue, filteredContacts[0]?.currency ?? "USD")}
-          helper="Attributed to captured organizer contacts"
-          icon={DollarSign}
-        />
-      </section>
+      <CompactSummaryStrip
+        className="rounded-2xl border border-slate-200 bg-white"
+        items={[
+          { key: "contacts", label: "Contacts", value: totalContacts, detail: "Current filtered audience" },
+          { key: "registrations", label: "Registrations", value: totalRegistrations, detail: "Registration history" },
+          { key: "paid", label: "Paid", value: totalPaidRegistrations, detail: "Paid registrations" },
+          { key: "revenue", label: "Contact revenue", value: formatCurrency(totalRevenue, filteredContacts[0]?.currency ?? "USD"), detail: "Attributed event spend" },
+        ]}
+      />
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
         <form className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px_auto]" action="/app/organizer-contacts">

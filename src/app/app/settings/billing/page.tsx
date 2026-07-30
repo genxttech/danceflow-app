@@ -445,7 +445,7 @@ function InfoCard({
   icon: ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="min-w-[220px] snap-start rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:min-w-0">
       <div className="flex items-start gap-3">
         <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
           <Icon className="h-5 w-5" />
@@ -1667,7 +1667,7 @@ export default async function BillingSettingsPage({
           </div>
 
           <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="flex snap-x gap-3 overflow-x-auto md:grid md:grid-cols-3 md:overflow-visible">
               <InfoCard
                 label="Workspace"
                 value={studio.name ?? "Workspace"}
@@ -1911,6 +1911,16 @@ export default async function BillingSettingsPage({
             </div>
           ) : null}
 
+          <details className="group rounded-[32px] border border-slate-200 bg-white shadow-sm">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-6">
+              <span>
+                <span className="block text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Optional</span>
+                <span className="mt-1 block text-xl font-semibold text-slate-950">Add-ons and AI usage</span>
+                <span className="mt-1 block text-sm text-slate-600">Manage Organizer Suite and additional AI capacity only when needed.</span>
+              </span>
+              <span aria-hidden="true" className="text-2xl text-slate-400 transition group-open:rotate-45">+</span>
+            </summary>
+            <div className="border-t border-slate-200 p-6">
           <div className="space-y-5">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -1949,6 +1959,9 @@ export default async function BillingSettingsPage({
               />
             </div>
           </div>
+
+            </div>
+          </details>
 
           <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

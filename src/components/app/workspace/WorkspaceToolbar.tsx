@@ -21,9 +21,9 @@ export default function WorkspaceToolbar({
     >
       <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-center">
         {primary ? <div className="min-w-0 lg:max-w-md lg:flex-1">{primary}</div> : null}
-        {filters ? <div className="flex flex-wrap items-center gap-2">{filters}</div> : null}
+        {filters ? <div className="flex max-w-full snap-x gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible lg:pb-0">{filters}</div> : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }

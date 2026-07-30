@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 
 type EventRow = {
   id: string;
@@ -566,6 +567,13 @@ export default async function EventCheckInIndexPage() {
           </div>
         </div>
       </section>
+      <div className="flex snap-x gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <Link href="/app/events" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Event workspace</Link>
+        <Link href="/app/events/checkin" className="snap-start whitespace-nowrap rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white">Check-in</Link>
+        <Link href="/app/events/registrations" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Registrations</Link>
+        <Link href="/app/events/sell-tickets" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Door sales</Link>
+      </div>
+
 
       {primaryEvent ? (
         <section className="rounded-[32px] border border-violet-200 bg-violet-50/70 p-4 shadow-sm md:p-6">

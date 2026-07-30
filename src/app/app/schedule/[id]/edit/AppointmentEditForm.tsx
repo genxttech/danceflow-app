@@ -453,7 +453,7 @@ export default function AppointmentEditForm({
   return (
     <form
       action={formAction}
-      className="min-h-screen space-y-8 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-8"
+      className="space-y-6 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.09),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#ffffff_30%)] p-1 text-slate-900"
     >
       <input type="hidden" name="appointmentId" value={appointment.id} />
       <input
@@ -462,15 +462,25 @@ export default function AppointmentEditForm({
         value={showPartnerSection ? partnerClientId : ""}
       />
 
-      <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="space-y-6 rounded-2xl border border-indigo-100 bg-white/95 p-6 shadow-xl shadow-indigo-100/60">
+      <div className="overflow-hidden rounded-[30px] border border-violet-200/80 bg-white shadow-[0_20px_55px_rgba(76,29,149,0.12)]">
+        <div className="bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] px-5 py-6 text-white sm:px-7">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">DanceFlow Schedule</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Edit appointment</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
+            Update scheduling and billing details while keeping package and membership context visible.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="space-y-6 rounded-[28px] border border-violet-200/80 bg-white p-6 shadow-sm">
           <div>
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Edit Appointment
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Appointment details</p>
+            <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
+              Schedule and billing
             </h2>
-            <p className="mt-2 text-slate-600">
-              Update appointment details and review package and membership
-              coverage before saving.
+            <p className="mt-1 text-sm text-slate-600">
+              Make the operational changes here. Coverage context stays alongside the form.
             </p>
           </div>
 
@@ -922,7 +932,7 @@ export default function AppointmentEditForm({
             <button
               type="submit"
               disabled={pending}
-              className="rounded-xl bg-indigo-600 px-4 py-2 font-medium text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60"
+              className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-2.5 font-semibold text-white shadow-sm hover:brightness-110 disabled:opacity-60"
             >
               {pending ? "Saving..." : "Save Appointment"}
             </button>
@@ -930,7 +940,7 @@ export default function AppointmentEditForm({
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-2xl border border-cyan-100 bg-white/95 p-6 shadow-xl shadow-cyan-100/60">
+          <div className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm">
             <h3 className="text-xl font-semibold">Package Health</h3>
             <p className="mt-2 text-sm text-slate-600">
               Review the linked package before saving changes.
@@ -994,7 +1004,7 @@ export default function AppointmentEditForm({
             )}
           </div>
 
-          <div className="rounded-2xl border border-violet-100 bg-white/95 p-6 shadow-xl shadow-violet-100/60">
+          <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
             <h3 className="text-xl font-semibold">Membership Benefits</h3>
             <p className="mt-2 text-sm text-slate-600">
               Check whether the client’s active membership includes or discounts

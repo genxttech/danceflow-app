@@ -111,7 +111,7 @@ const role = context.studioRole ?? "";
   }
 
   return (
-    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+    <div className="space-y-6 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -145,33 +145,12 @@ const role = context.studioRole ?? "";
           </div>
         </div>
 
-        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-              <h2 className="text-lg font-semibold text-sky-950">Contact Ready</h2>
-              <p className="mt-2 text-sm leading-7 text-sky-900">
-                Keep email and phone details accurate for reminders, payments, and follow-up.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-              <h2 className="text-lg font-semibold text-violet-950">Personalized</h2>
-              <p className="mt-2 text-sm leading-7 text-violet-900">
-                Capture interests and skill level so instructors know what matters.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <h2 className="text-lg font-semibold text-amber-950">Follow-Up Clear</h2>
-              <p className="mt-2 text-sm leading-7 text-amber-900">
-                Status and notes help the front desk keep every next step moving.
-              </p>
-            </div>
-          </div>
+        <div className="border-t border-white/10 bg-black/10 px-6 py-3 text-sm text-white/80 md:px-8">
+          Keep contact details, dance profile, and follow-up context accurate here. Billing, documents, and activity stay on the client workspace.
         </div>
       </section>
 
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-5xl">
         <EditClientForm client={client as ClientRow} />
       </div>
     </div>

@@ -1622,7 +1622,7 @@ export default async function EventsPage() {
   ).length;
 
   return (
-    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+    <div className="space-y-6 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -1715,6 +1715,26 @@ export default async function EventsPage() {
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex snap-x gap-2 overflow-x-auto">
+          <Link href="/app/events" className="snap-start whitespace-nowrap rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white">
+            Event workspace
+          </Link>
+          <Link href="/app/events/tickets" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Tickets
+          </Link>
+          <Link href="/app/events/sell-tickets" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Sell tickets
+          </Link>
+          <Link href="/app/events/registrations" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Registrations
+          </Link>
+          <Link href="/app/events/checkin" className="snap-start whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Check-in
+          </Link>
         </div>
       </section>
 

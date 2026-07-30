@@ -28,16 +28,19 @@ export default function CompactSummaryStrip({
 
   return (
     <div
+      role="list"
+      aria-label="Workspace summary"
       className={classNames(
-        "flex gap-0 overflow-x-auto px-4 sm:px-6 lg:px-8",
+        "flex snap-x snap-proximity gap-0 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:px-6 lg:px-8",
         className,
       )}
     >
       {items.map((item, index) => (
         <div
           key={item.key}
+          role="listitem"
           className={classNames(
-            "min-w-[9rem] shrink-0 py-3 pr-5",
+            "min-w-[9rem] shrink-0 snap-start py-3 pr-5",
             index > 0 && "border-l border-[var(--brand-border)] pl-5",
           )}
         >

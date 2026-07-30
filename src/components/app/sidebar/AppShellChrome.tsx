@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { LogOut, Menu, X } from "lucide-react";
+import { useEffect } from "react";
 import NotificationMenu from "@/components/ui/NotificationMenu";
 import WorkspaceSwitcher from "./WorkspaceSwitcher";
 import { DesktopNavSection, MobileNavSection } from "./SidebarNavSection";
@@ -180,10 +181,28 @@ export function MobileSidebar({
   switchWorkspaceAction: (formData: FormData) => void | Promise<void>;
   onClose: () => void;
 }) {
+  useEffect(() => {
+    if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 lg:hidden">
+    <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
       <button
         type="button"
         onClick={onClose}
@@ -191,7 +210,7 @@ export function MobileSidebar({
         aria-label="Close navigation backdrop"
       />
 
-      <div className="absolute inset-y-0 left-0 w-full max-w-sm bg-[var(--brand-surface)] shadow-xl">
+      <div className="absolute inset-y-0 left-0 w-[min(92vw,24rem)] bg-[var(--brand-surface)] shadow-xl">
         <div className="flex h-full flex-col">
           <div className="border-b border-[var(--brand-border)] bg-white px-5 py-5">
             <div className="flex items-start justify-between gap-3">

@@ -316,17 +316,17 @@ export default function ScheduleEventDrawer({
           <div className="flex flex-wrap gap-3">
             {appointment.client_id ? (
               <Link
-                href={`/app/clients/${appointment.client_id}`}
+                href={`/app/clients/${appointment.client_id}?tab=billing`}
                 className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-4 py-2 text-sm font-medium text-fuchsia-800 hover:bg-fuchsia-100"
               >
-                Client Profile
+                Client Billing
               </Link>
             ) : null}
             <Link
               href={`/app/schedule/${appointment.id}`}
               className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              View Details
+              Full Details
             </Link>
 
             <Link

@@ -31,7 +31,7 @@ export default function WorkspaceHeader({
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="truncate text-2xl font-semibold tracking-tight text-[var(--brand-text)] sm:text-3xl">
+          <h1 className="text-2xl font-semibold leading-tight tracking-tight text-[var(--brand-text)] sm:text-3xl">
             {title}
           </h1>
           {description ? (
@@ -43,7 +43,7 @@ export default function WorkspaceHeader({
       </div>
 
       {actions ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+        <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div>
       ) : null}
     </header>
   );

@@ -1266,7 +1266,7 @@ export default async function SchedulePage({
       </section>
 
       <section className="overflow-hidden rounded-3xl border border-orange-200/70 bg-white shadow-sm">
-        <div className="grid grid-cols-2 divide-x divide-y divide-orange-100 sm:grid-cols-3 sm:divide-y-0 xl:grid-cols-6">
+        <div className="flex snap-x gap-0 overflow-x-auto divide-x divide-orange-100 xl:grid xl:grid-cols-6 xl:overflow-visible">
           {[
             { label: "Visible", value: mixedItems.length, icon: ClipboardList },
             { label: "Appointments", value: typedAppointments.length, icon: CalendarDays },
@@ -1278,7 +1278,7 @@ export default async function SchedulePage({
             const Icon = item.icon;
 
             return (
-              <div key={item.label} className="flex items-center gap-3 px-4 py-4">
+              <div key={item.label} className="min-w-[170px] snap-start flex items-center gap-3 px-4 py-4 xl:min-w-0">
                 <span className="rounded-xl bg-[linear-gradient(135deg,#ede9fe_0%,#ffedd5_100%)] p-2 text-violet-800 ring-1 ring-violet-200">
                   <Icon className="h-4 w-4" />
                 </span>
@@ -1309,9 +1309,7 @@ export default async function SchedulePage({
                 Mark eligible lessons attended for {formatDate(baseDate)}
               </h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Use this at the end of the day to quickly close out lessons.
-                Lessons that need payment, package credit, membership coverage,
-                or review are skipped instead of being marked attended.
+                Close eligible lessons in one action. Anything needing payment or billing review is skipped safely.
               </p>
             </div>
           </div>
@@ -1338,401 +1336,369 @@ export default async function SchedulePage({
           ) : null}
         </div>
 
+        <details className="mt-5 rounded-2xl border border-emerald-200/80 bg-white/70">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-800">
+            <span>Review closeout details</span>
+            <span className="text-xs font-medium text-slate-500">
+              {dailyCloseoutReadyCount} ready · {dailyCloseoutNeedsReview.length} need review
+            </span>
+          </summary>
+          <div className="border-t border-emerald-100 p-4">
         <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
-            <p className="text-sm font-medium text-green-800">
-              Ready to close out
-            </p>
-            <p className="mt-2 text-3xl font-semibold text-green-950">
-              {dailyCloseoutReadyCount}
-            </p>
-            <p className="mt-1 text-xs text-green-800">
-              Lessons that appear ready based on this page. The server checks
-              payment and credit rules again before updating.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-            <div className="flex items-center gap-2 text-amber-800">
-              <AlertTriangle className="h-4 w-4" />
-              <p className="text-sm font-medium">May need review</p>
+            <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+              <p className="text-sm font-medium text-green-800">
+                Ready to close out
+              </p>
+              <p className="mt-2 text-3xl font-semibold text-green-950">
+                {dailyCloseoutReadyCount}
+              </p>
+              <p className="mt-1 text-xs text-green-800">
+                Lessons that appear ready based on this page. The server checks
+                payment and credit rules again before updating.
+              </p>
             </div>
-            <p className="mt-2 text-3xl font-semibold text-amber-950">
-              {dailyCloseoutNeedsReview.length}
-            </p>
-            <p className="mt-1 text-xs text-amber-800">
-              Pay-as-you-go or missing-credit lessons should be reviewed before
-              attendance is completed.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-700">
-              Included in today's closeout
-            </p>
-            <p className="mt-2 text-3xl font-semibold text-slate-950">
-              {dailyCloseoutAppointments.length}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Scheduled lessons for the selected date. Floor rentals, cancelled
-              lessons, no-shows, and already attended lessons are not included.
-            </p>
-          </div>
-        </div>
-
-        {dailyCloseoutNeedsReview.length > 0 ? (
-          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-xl bg-amber-100 p-2 text-amber-700">
+  
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-center gap-2 text-amber-800">
                 <AlertTriangle className="h-4 w-4" />
+                <p className="text-sm font-medium">May need review</p>
               </div>
-              <div>
-                <h3 className="text-base font-semibold text-amber-950">
-                  Lessons that need review
-                </h3>
-                <p className="mt-1 text-sm leading-6 text-amber-900">
-                  These lessons are skipped by bulk closeout until payment,
-                  package credit, membership coverage, or billing details are
-                  corrected.
-                </p>
-              </div>
+              <p className="mt-2 text-3xl font-semibold text-amber-950">
+                {dailyCloseoutNeedsReview.length}
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                Pay-as-you-go or missing-credit lessons should be reviewed before
+                attendance is completed.
+              </p>
             </div>
-
-            <div className="mt-4 space-y-3">
-              {dailyCloseoutNeedsReview.map((appointment) => {
-                const reason =
-                  getCloseoutReviewReason(appointment) ??
-                  "This lesson needs review before closeout.";
-                const billingType = normalizeBillingType(appointment.billing_type);
-                const isPayAsYouGo = billingType === "pay_as_you_go";
-                const clientName = getClientName(appointment.clients);
-                const lessonPriceDefault = getPaymentAmountDefault(appointment);
-                const availableAccountCredit = appointment.client_id
-                  ? Math.max(
-                      accountCreditByClientId.get(appointment.client_id) ?? 0,
-                      0,
-                    )
-                  : 0;
-
-                return (
-                  <div
-                    key={appointment.id}
-                    className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
-                          <span>{formatDateTime(appointment.starts_at, studioTimeZone)}</span>
-                          <span>•</span>
-                          <span>{appointmentTypeLabel(appointment.appointment_type)}</span>
-                          <span>•</span>
-                          <span>{billingTypeLabel(appointment.billing_type)}</span>
+  
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-700">
+                Included in today's closeout
+              </p>
+              <p className="mt-2 text-3xl font-semibold text-slate-950">
+                {dailyCloseoutAppointments.length}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Scheduled lessons for the selected date. Floor rentals, cancelled
+                lessons, no-shows, and already attended lessons are not included.
+              </p>
+            </div>
+          </div>
+  
+          {dailyCloseoutNeedsReview.length > 0 ? (
+            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-amber-100 p-2 text-amber-700">
+                  <AlertTriangle className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-amber-950">
+                    Lessons that need review
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-amber-900">
+                    These lessons are skipped by bulk closeout until payment,
+                    package credit, membership coverage, or billing details are
+                    corrected.
+                  </p>
+                </div>
+              </div>
+  
+              <div className="mt-4 space-y-3">
+                {dailyCloseoutNeedsReview.map((appointment) => {
+                  const reason =
+                    getCloseoutReviewReason(appointment) ??
+                    "This lesson needs review before closeout.";
+                  const billingType = normalizeBillingType(appointment.billing_type);
+                  const isPayAsYouGo = billingType === "pay_as_you_go";
+                  const clientName = getClientName(appointment.clients);
+                  const lessonPriceDefault = getPaymentAmountDefault(appointment);
+                  const availableAccountCredit = appointment.client_id
+                    ? Math.max(
+                        accountCreditByClientId.get(appointment.client_id) ?? 0,
+                        0,
+                      )
+                    : 0;
+  
+                  return (
+                    <div
+                      key={appointment.id}
+                      className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm"
+                    >
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+                            <span>{formatDateTime(appointment.starts_at, studioTimeZone)}</span>
+                            <span>•</span>
+                            <span>{appointmentTypeLabel(appointment.appointment_type)}</span>
+                            <span>•</span>
+                            <span>{billingTypeLabel(appointment.billing_type)}</span>
+                          </div>
+                          <h4 className="mt-1 text-base font-semibold text-slate-950">
+                            {clientName}
+                          </h4>
+                          <p className="mt-1 text-sm text-amber-800">{reason}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Instructor: {getInstructorName(appointment.instructors)} • Room: {getRoomName(appointment.rooms)}
+                          </p>
                         </div>
-                        <h4 className="mt-1 text-base font-semibold text-slate-950">
-                          {clientName}
-                        </h4>
-                        <p className="mt-1 text-sm text-amber-800">{reason}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Instructor: {getInstructorName(appointment.instructors)} • Room: {getRoomName(appointment.rooms)}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-col gap-3 xl:min-w-[360px]">
-                        {isPayAsYouGo && appointment.client_id ? (
-                          <form
-                            action={recordPayAsYouGoLessonPaymentAction}
-                            className="rounded-xl border border-slate-200 bg-slate-50 p-3"
-                          >
-                            <input
-                              type="hidden"
-                              name="appointmentId"
-                              value={appointment.id}
-                            />
-                            <input
-                              type="hidden"
-                              name="clientId"
-                              value={appointment.client_id}
-                            />
-                            <input
-                              type="hidden"
-                              name="returnTo"
-                              value={currentScheduleHref}
-                            />
-                            <input
-                              type="hidden"
-                              name="lessonPrice"
-                              value={lessonPriceDefault}
-                            />
-
-                            <div className="mb-3">
-                              <p className="text-sm font-semibold text-slate-900">
-                                Pay now for this lesson
-                              </p>
-                              <p className="mt-1 text-xs leading-5 text-slate-500">
-                                This records a payment directly against the selected pay-as-you-go lesson.
-                              </p>
-                            </div>
-
-                            <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span>Available account credit</span>
-                                <span className="font-semibold text-slate-900">
-                                  {formatCurrency(availableAccountCredit)}
-                                </span>
+  
+                        <div className="flex flex-col gap-3 xl:min-w-[360px]">
+                          {isPayAsYouGo && appointment.client_id ? (
+                            <form
+                              action={recordPayAsYouGoLessonPaymentAction}
+                              className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                            >
+                              <input
+                                type="hidden"
+                                name="appointmentId"
+                                value={appointment.id}
+                              />
+                              <input
+                                type="hidden"
+                                name="clientId"
+                                value={appointment.client_id}
+                              />
+                              <input
+                                type="hidden"
+                                name="returnTo"
+                                value={currentScheduleHref}
+                              />
+                              <input
+                                type="hidden"
+                                name="lessonPrice"
+                                value={lessonPriceDefault}
+                              />
+  
+                              <div className="mb-3">
+                                <p className="text-sm font-semibold text-slate-900">
+                                  Pay now for this lesson
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-slate-500">
+                                  This records a payment directly against the selected pay-as-you-go lesson.
+                                </p>
                               </div>
-                              <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                                Apply credit first, then record only the remaining money collected today.
-                              </p>
-                            </div>
-
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <label className="block text-xs font-medium text-slate-600">
-                                Lesson price
-                                <input
-                                  name="lessonPriceDisplay"
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  defaultValue={lessonPriceDefault}
-                                  placeholder="0.00"
-                                  className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm"
-                                  disabled
-                                />
-                              </label>
-
-                              <label className="block text-xs font-medium text-slate-600">
-                                Apply account credit
-                                <input
-                                  name="accountCreditToApply"
-                                  type="number"
-                                  min="0"
-                                  max={availableAccountCredit || undefined}
-                                  step="0.01"
-                                  defaultValue=""
-                                  placeholder="0.00"
-                                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                />
-                              </label>
-
-                              <label className="block text-xs font-medium text-slate-600">
-                                Money collected today
-                                <input
-                                  name="amount"
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  defaultValue={lessonPriceDefault}
-                                  placeholder="0.00"
-                                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                  required
-                                />
-                              </label>
-
-                              <label className="block text-xs font-medium text-slate-600">
-                                Collection method
-                                <select
-                                  name="paymentMethod"
-                                  defaultValue="cash"
-                                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+  
+                              <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span>Available account credit</span>
+                                  <span className="font-semibold text-slate-900">
+                                    {formatCurrency(availableAccountCredit)}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                                  Apply credit first, then record only the remaining money collected today.
+                                </p>
+                              </div>
+  
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <label className="block text-xs font-medium text-slate-600">
+                                  Lesson price
+                                  <input
+                                    name="lessonPriceDisplay"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    defaultValue={lessonPriceDefault}
+                                    placeholder="0.00"
+                                    className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm"
+                                    disabled
+                                  />
+                                </label>
+  
+                                <label className="block text-xs font-medium text-slate-600">
+                                  Apply account credit
+                                  <input
+                                    name="accountCreditToApply"
+                                    type="number"
+                                    min="0"
+                                    max={availableAccountCredit || undefined}
+                                    step="0.01"
+                                    defaultValue=""
+                                    placeholder="0.00"
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  />
+                                </label>
+  
+                                <label className="block text-xs font-medium text-slate-600">
+                                  Money collected today
+                                  <input
+                                    name="amount"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    defaultValue={lessonPriceDefault}
+                                    placeholder="0.00"
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    required
+                                  />
+                                </label>
+  
+                                <label className="block text-xs font-medium text-slate-600">
+                                  Collection method
+                                  <select
+                                    name="paymentMethod"
+                                    defaultValue="cash"
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  >
+                                    <option value="cash">Cash</option>
+                                    <option value="card">Card outside DanceFlow</option>
+                                    <option value="check">Check</option>
+                                    <option value="venmo">Venmo</option>
+                                    <option value="zelle">Zelle</option>
+                                    <option value="other">Other</option>
+                                  </select>
+                                </label>
+  
+                                <button
+                                  type="submit"
+                                  className="sm:col-span-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
                                 >
-                                  <option value="cash">Cash</option>
-                                  <option value="card">Card outside DanceFlow</option>
-                                  <option value="check">Check</option>
-                                  <option value="venmo">Venmo</option>
-                                  <option value="zelle">Zelle</option>
-                                  <option value="other">Other</option>
-                                </select>
-                              </label>
-
-                              <button
-                                type="submit"
-                                className="sm:col-span-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
-                              >
-                                Record Lesson Payment
-                              </button>
-                            </div>
-                          </form>
-                        ) : null}
-
-                        <div className="flex flex-wrap gap-2 xl:justify-end">
-                          <Link
-                            href={`/app/schedule/${appointment.id}/edit`}
-                            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            Edit lesson
-                          </Link>
-                          {appointment.client_id ? (
+                                  Record Lesson Payment
+                                </button>
+                              </div>
+                            </form>
+                          ) : null}
+  
+                          <div className="flex flex-wrap gap-2 xl:justify-end">
                             <Link
-                              href={`/app/clients/${appointment.client_id}`}
+                              href={`/app/schedule/${appointment.id}/edit`}
                               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                             >
-                              Client details
+                              Edit lesson
                             </Link>
-                          ) : null}
+                            {appointment.client_id ? (
+                              <Link
+                                href={`/app/clients/${appointment.client_id}`}
+                                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                Client details
+                              </Link>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+            </div>
+        </details>
       </section>
 
       <form className="rounded-[28px] border border-violet-200/80 bg-white/95 p-5 shadow-[0_18px_45px_rgba(76,29,149,0.09)]">
-        <div className="mb-4 flex items-start gap-3">
+        <div className="flex items-start gap-3">
           <div className="rounded-2xl bg-[linear-gradient(135deg,#4c1d95_0%,#f97316_130%)] p-3 text-white shadow-sm">
             <Filter className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Filter the schedule
-            </h2>
+            <h2 className="text-lg font-semibold text-slate-900">Find schedule items</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Narrow the view by date scope, source, instructor, room, and
-              status to get the right operational picture quickly.
+              Search by client, instructor, room, type, or event. Open more filters only when needed.
             </p>
           </div>
         </div>
-        <div className="grid gap-4 lg:grid-cols-[1.3fr_repeat(6,minmax(0,1fr))]">
-          <div>
-            <label htmlFor="q" className="mb-1 block text-sm font-medium">
-              Search
-            </label>
-            <input
-              id="q"
-              name="q"
-              defaultValue={params.q ?? ""}
-              placeholder="Client, instructor, room, type, event..."
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
-            />
-          </div>
 
-          <div>
-            <label htmlFor="date" className="mb-1 block text-sm font-medium">
-              Date
-            </label>
-            <input
-              id="date"
-              name="date"
-              type="date"
-              defaultValue={baseDate}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="scope" className="mb-1 block text-sm font-medium">
-              Date Scope
-            </label>
-            <select
-              id="scope"
-              name="scope"
-              defaultValue={scope}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
-            >
-              <option value="today">Today</option>
-              <option value="next7">Next 7 Days</option>
-              <option value="all">All</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="source" className="mb-1 block text-sm font-medium">
-              Source
-            </label>
-            <select
-              id="source"
-              name="source"
-              defaultValue={sourceFilter}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
-            >
-              <option value="all">All</option>
-              <option value="events">Events Only</option>
-              <option value="intro_lessons">Intro Lessons</option>
-              <option value="public_intro">Public Intro</option>
-              <option value="floor_rentals">Floor Rentals</option>
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="instructor"
-              className="mb-1 block text-sm font-medium"
-            >
-              Instructor
-            </label>
-            <select
-              id="instructor"
-              name="instructor"
-              defaultValue={instructorFilter}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
-            >
-              <option value="all">All</option>
-              {(instructors ?? []).map((instructor) => (
-                <option key={instructor.id} value={instructor.id}>
-                  {instructor.first_name} {instructor.last_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="room" className="mb-1 block text-sm font-medium">
-              Room
-            </label>
-            <select
-              id="room"
-              name="room"
-              defaultValue={roomFilter}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
-            >
-              <option value="all">All</option>
-              {(rooms ?? []).map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="status" className="mb-1 block text-sm font-medium">
-              Status
-            </label>
-            <select
-              id="status"
-              name="status"
-              defaultValue={statusFilter}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
-            >
-              <option value="all">All</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="attended">Attended</option>
-              <option value="cancelled">Cancelled</option>
-              <option value="no_show">No Show</option>
-              <option value="rescheduled">Rescheduled</option>
-              <option value="published">Published</option>
-              <option value="draft">Draft</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+          <input
+            id="q"
+            name="q"
+            defaultValue={params.q ?? ""}
+            placeholder="Client, instructor, room, type, event..."
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+          />
+          <input
+            id="date"
+            name="date"
+            type="date"
+            defaultValue={baseDate}
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+          />
           <button
             type="submit"
-            className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-4 py-2 font-semibold text-white shadow-sm hover:brightness-110"
+            className="rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-2.5 font-semibold text-white shadow-sm hover:brightness-110"
           >
-            Apply Filters
+            Search
           </button>
-          <Link
-            href="/app/schedule"
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            Reset
-          </Link>
         </div>
+
+        <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-800">
+            <span>More filters</span>
+            <span className="text-xs font-medium text-slate-500">
+              Scope · source · instructor · room · status
+            </span>
+          </summary>
+
+          <div className="grid gap-4 border-t border-slate-200 p-4 md:grid-cols-2 xl:grid-cols-5">
+            <div>
+              <label htmlFor="scope" className="mb-1 block text-sm font-medium">Date Scope</label>
+              <select id="scope" name="scope" defaultValue={scope} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5">
+                <option value="today">Today</option>
+                <option value="next7">Next 7 Days</option>
+                <option value="all">All</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="source" className="mb-1 block text-sm font-medium">Source</label>
+              <select id="source" name="source" defaultValue={sourceFilter} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5">
+                <option value="all">All</option>
+                <option value="events">Events Only</option>
+                <option value="intro_lessons">Intro Lessons</option>
+                <option value="public_intro">Public Intro</option>
+                <option value="floor_rentals">Floor Rentals</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="instructor" className="mb-1 block text-sm font-medium">Instructor</label>
+              <select id="instructor" name="instructor" defaultValue={instructorFilter} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5">
+                <option value="all">All</option>
+                {(instructors ?? []).map((instructor) => (
+                  <option key={instructor.id} value={instructor.id}>
+                    {instructor.first_name} {instructor.last_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="room" className="mb-1 block text-sm font-medium">Room</label>
+              <select id="room" name="room" defaultValue={roomFilter} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5">
+                <option value="all">All</option>
+                {(rooms ?? []).map((room) => (
+                  <option key={room.id} value={room.id}>{room.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="status" className="mb-1 block text-sm font-medium">Status</label>
+              <select id="status" name="status" defaultValue={statusFilter} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5">
+                <option value="all">All</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="attended">Attended</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="no_show">No Show</option>
+                <option value="rescheduled">Rescheduled</option>
+                <option value="published">Published</option>
+                <option value="draft">Draft</option>
+              </select>
+            </div>
+
+            <div className="flex gap-2 md:col-span-2 xl:col-span-5">
+              <button type="submit" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95">
+                Apply
+              </button>
+              <Link href="/app/schedule" className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                Clear
+              </Link>
+            </div>
+          </div>
+        </details>
       </form>
 
       <section className="rounded-3xl border border-orange-200/70 bg-[linear-gradient(135deg,#ffffff_0%,#fff7ed_55%,#faf5ff_100%)] px-5 py-4 shadow-sm">

@@ -19,6 +19,7 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { studioHasFeature } from "@/lib/billing/access";
 import { createClient } from "@/lib/supabase/server";
+import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 
 type WaveConnectionRow = {
   id: string;
@@ -280,12 +281,16 @@ export default async function StudioIntegrationHubPage() {
             </Link>
           </div>
         </div>
-        <div className="grid border-t border-white/15 bg-white/10 sm:grid-cols-3">
-          <div className="p-5"><p className="text-xs uppercase tracking-[0.18em] text-fuchsia-100">Connected</p><p className="mt-2 text-2xl font-bold">{connectedCount}</p></div>
-          <div className="border-t border-white/15 p-5 sm:border-l sm:border-t-0"><p className="text-xs uppercase tracking-[0.18em] text-fuchsia-100">Needs Attention</p><p className="mt-2 text-2xl font-bold">{attentionCount}</p></div>
-          <div className="border-t border-white/15 p-5 sm:border-l sm:border-t-0"><p className="text-xs uppercase tracking-[0.18em] text-fuchsia-100">Coming Soon</p><p className="mt-2 text-2xl font-bold">3</p></div>
-        </div>
       </section>
+
+      <CompactSummaryStrip
+        className="rounded-2xl border border-slate-200 bg-white"
+        items={[
+          { key: "connected", label: "Connected", value: connectedCount, detail: "Healthy connections", tone: "success" as const },
+          { key: "attention", label: "Needs attention", value: attentionCount, detail: "Connections to review", tone: attentionCount ? "warning" as const : "default" as const },
+          { key: "available", label: "Available", value: Math.max(0, 3 - connectedCount - attentionCount), detail: "Ready to connect" },
+        ]}
+      />
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-6">
@@ -397,6 +402,17 @@ export default async function StudioIntegrationHubPage() {
           <Signal label="Calendar" value={googleConnection?.calendar_summary ?? googleConnection?.calendar_id ?? "Not selected"} />
           <Signal label="Last Sync" value={googleConnection?.last_sync_at ? `${formatDate(googleConnection.last_sync_at)} · ${String(googleConnection.last_sync_status ?? "not synced").replaceAll("_", " ")}` : "No sync yet"} />
         </IntegrationCard>
+      </section>
+      <details className="group rounded-[28px] border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5">
+          <span>
+            <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Roadmap</span>
+            <span className="mt-1 block text-lg font-semibold text-slate-950">Planned integrations</span>
+            <span className="mt-1 block text-sm text-slate-600">QuickBooks Online, Outlook Calendar, and workflow automation.</span>
+          </span>
+          <span aria-hidden="true" className="text-2xl text-slate-400 transition group-open:rotate-45">+</span>
+        </summary>
+        <div className="grid gap-4 border-t border-slate-200 p-5 md:grid-cols-2 xl:grid-cols-3">
         <IntegrationCard eyebrow="Accounting" title="QuickBooks Online" description="Future accounting option for studios that prefer QuickBooks over Wave." status="coming_soon" icon={BadgeCheck} muted>
           <Signal label="Status" value="Planned" />
           <Signal label="Priority" value="Next accounting integration" />
@@ -412,7 +428,8 @@ export default async function StudioIntegrationHubPage() {
           <Signal label="Direction" value="Workflow automation" />
           <Signal label="Setup" value="Coming soon" />
         </IntegrationCard>
-      </section>
+              </div>
+      </details>
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-start gap-3">

@@ -203,8 +203,7 @@ export default function NewClientPage() {
               Add Client or Lead
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/85 md:text-base">
-              Create a client record, save contact details, track dance
-              styles and goals, and keep follow-up notes in one clean place.
+              Start with the contact record. Add dance details now, then open optional onboarding only when it applies.
             </p>
           </div>
 
@@ -217,66 +216,6 @@ export default function NewClientPage() {
           </Link>
         </div>
 
-        <div className="grid gap-3 border-t border-white/10 bg-black/10 px-6 py-4 md:grid-cols-3 md:px-8">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">
-              Use for
-            </p>
-            <p className="mt-1 text-sm font-semibold">Leads and clients</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">
-              Best next step
-            </p>
-            <p className="mt-1 text-sm font-semibold">Add notes, styles, and goals</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">
-              Optional
-            </p>
-            <p className="mt-1 text-sm font-semibold">Independent instructor</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#F3E8FF] text-[#6B21A8]">
-            <Users className="h-5 w-5" />
-          </div>
-          <h2 className="mt-4 text-base font-semibold text-slate-950">
-            Client record
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            Save the basic contact information your team needs for follow-up.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#FEF3C7] text-[#92400E]">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <h2 className="mt-4 text-base font-semibold text-slate-950">
-            Dance details
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            Track level, dance styles, goals, referral source, and notes from the first
-            conversation.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#DBEAFE] text-[#1D4ED8]">
-            <GraduationCap className="h-5 w-5" />
-          </div>
-          <h2 className="mt-4 text-base font-semibold text-slate-950">
-            Instructor option
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            Mark independent instructors when they need floor rental or limited
-            instructor workflows.
-          </p>
-        </div>
       </section>
 
       <form action={formAction} className="space-y-6">
@@ -361,7 +300,7 @@ export default function NewClientPage() {
         </section>
 
 
-        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+        <details className="rounded-[28px] border border-slate-200 bg-white shadow-sm">\n          <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-slate-900 md:px-6">\n            Personal details <span className="ml-2 text-xs font-medium text-slate-500">Birthday and mailing address</span>\n          </summary>\n          <div className="border-t border-slate-100 p-5 md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
             Personal details
           </p>
@@ -480,9 +419,9 @@ export default function NewClientPage() {
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+        </div>
+        </details>
+        <details className="rounded-[28px] border border-slate-200 bg-white shadow-sm">\n          <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-slate-900 md:px-6">\n            Client photo <span className="ml-2 text-xs font-medium text-slate-500">Optional verification photo</span>\n          </summary>\n          <div className="border-t border-slate-100 p-5 md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
             Photo verification
           </p>
@@ -509,7 +448,8 @@ export default function NewClientPage() {
               a photo from the library or take a new one.
             </p>
           </div>
-                </section>  
+                </div>
+        </details>
         <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
             Client profile
@@ -709,7 +649,12 @@ export default function NewClientPage() {
           </p>
         </section>
 
-        <section className="rounded-[28px] border border-[#E9D5FF] bg-[#FAF5FF] p-5 shadow-sm md:p-6">
+        <details className="rounded-[28px] border border-[#E9D5FF] bg-[#FAF5FF] p-5 shadow-sm md:p-6">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-950">
+            Onboarding documents <span className="ml-2 text-xs font-medium text-slate-500">Optional waivers and agreements</span>
+          </summary>
+          <div className="mt-4 border-t border-black/5 pt-4">
+
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
@@ -837,9 +782,15 @@ export default function NewClientPage() {
               </div>
             </div>
           ) : null}
-        </section>
+                  </div>
+        </details>
 
-        <section className="rounded-[28px] border border-[#BFDBFE] bg-[#EFF6FF] p-5 shadow-sm md:p-6">
+        <details className="rounded-[28px] border border-[#BFDBFE] bg-[#EFF6FF] p-5 shadow-sm md:p-6">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-950">
+            Partner <span className="ml-2 text-xs font-medium text-slate-500">Create a linked client only when needed</span>
+          </summary>
+          <div className="mt-4 border-t border-black/5 pt-4">
+
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#1D4ED8]">
@@ -875,7 +826,8 @@ export default function NewClientPage() {
               </p>
             </div>
           </label>
-        </section>
+                  </div>
+        </details>
 
         {state.error ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -895,7 +847,7 @@ export default function NewClientPage() {
             <button
               type="submit"
               disabled={pending}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#5B197A] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#4A1363] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#111827_0%,#4c1d95_62%,#f97316_150%)] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <UserPlus className="h-4 w-4" />
               {pending ? "Creating..." : "Create Client"}
