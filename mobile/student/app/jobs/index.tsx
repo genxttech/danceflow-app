@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Linking, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Linking, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import {
   getPublicJobPostingsForMobile,
   type PublicJobPostingItem
@@ -58,6 +58,8 @@ function milesBetween(
 }
 
 export default function JobsScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [jobs, setJobs] = useState<PublicJobPostingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -348,9 +350,10 @@ export default function JobsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   accentTag: {
-    backgroundColor: "#fff4e7",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
@@ -458,7 +461,7 @@ const styles = StyleSheet.create({
     color: "#fff"
   },
   roleBadge: {
-    backgroundColor: "#fff4e7",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
@@ -519,4 +522,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800"
   }
-});
+  });
+}

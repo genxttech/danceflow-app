@@ -72,23 +72,6 @@ const skillLevelOptions = [
   { label: "Professional", value: "professional" }
 ] as const;
 
-const profileVisibilityOptions = [
-  {
-    label: "Private",
-    value: "private",
-    detail: "Visible only to you."
-  },
-  {
-    label: "Connected studios",
-    value: "connected_studios",
-    detail: "Available to studios connected to your account."
-  },
-  {
-    label: "Public features",
-    value: "public",
-    detail: "Available for DanceFlow public profile features."
-  }
-] as const;
 
 function validBirthday(value: string) {
   if (!value) return true;
@@ -412,48 +395,11 @@ export default function ProfileScreen() {
             value={selectedProfile.bio ?? ""}
           />
 
-          <View style={styles.choiceSection}>
-            <AppText variant="eyebrow">Profile visibility</AppText>
-            <AppText variant="caption">
-              Choose who can use your dancer-owned profile information.
-            </AppText>
-            <View style={styles.visibilityList}>
-              {profileVisibilityOptions.map((option) => {
-                const active =
-                  (selectedProfile.profileVisibility ?? "private") ===
-                  option.value;
 
-                return (
-                  <Pressable
-                    key={option.value}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: active }}
-                    onPress={() =>
-                      updateSelected((profile) => ({
-                        ...profile,
-                        profileVisibility: option.value
-                      }))
-                    }
-                    style={[
-                      styles.visibilityCard,
-                      active && styles.visibilityCardActive
-                    ]}
-                  >
-                    <View style={styles.visibilityHeader}>
-                      <AppText variant="subtitle">{option.label}</AppText>
-                      <View
-                        style={[
-                          styles.radioDot,
-                          active && styles.radioDotActive
-                        ]}
-                      />
-                    </View>
-                    <AppText variant="caption">{option.detail}</AppText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
+          <FeatureCard
+            title="Privacy & sharing"
+            detail="Your DanceFlow profile is not a public student directory. Connected studios keep their own client records. If you choose to join Partner Search, DanceFlow reuses approved profile details only inside that feature."
+          />
 
           <FeatureCard
             title="Profile ownership"
@@ -550,39 +496,9 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     minHeight: 92,
     textAlignVertical: "top"
   },
-  radioDot: {
-    borderColor: colors.border,
-    borderRadius: 999,
-    borderWidth: 2,
-    height: 18,
-    width: 18
-  },
-  radioDotActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
-  },
   row: {
     flexDirection: "row",
     gap: 12
-  },
-  visibilityCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 6,
-    padding: 14
-  },
-  visibilityCardActive: {
-    borderColor: colors.primary
-  },
-  visibilityHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  visibilityList: {
-    gap: 8
   },
   partnerCard: {
     alignItems: "center",

@@ -53,20 +53,40 @@ export async function savePartnerSearchProfileAction(formData: FormData) {
     redirect("/login?next=/account/partner-search");
   }
 
-  const displayName = getString(formData, "displayName", 80);
   const headline = getOptionalString(formData, "headline", 120);
-  const bio = getOptionalString(formData, "bio", 1200);
-  const city = getOptionalString(formData, "city", 80);
-  const state = getOptionalString(formData, "state", 2)?.toUpperCase() ?? null;
   const danceStyles = getMultiList(formData, "danceStyles");
   const goals = getMultiList(formData, "goals");
   const listingIntent = getString(formData, "listingIntent") || "practice";
   const availabilityNotes = getOptionalString(formData, "availabilityNotes", 500);
   const wantsVisible = getString(formData, "profileVisible") === "on";
 
-  if (!displayName) {
-    redirect("/account/partner-search?error=missing_name");
+  const { data: dancerProfile, error: dancerProfileError } = await supabase
+    .from("dancer_profiles")
+    .select("first_name, last_name, preferred_name, bio, city, state, skill_level")
+    .eq("user_id", user.id)
+    .maybeSingle<{
+      first_name: string | null;
+      last_name: string | null;
+      preferred_name: string | null;
+      bio: string | null;
+      city: string | null;
+      state: string | null;
+      skill_level: string | null;
+    }>();
+
+  if (dancerProfileError) {
+    redirect("/account/partner-search?error=save_failed");
   }
+
+  const displayName =
+    dancerProfile?.preferred_name?.trim() ||
+    [dancerProfile?.first_name, dancerProfile?.last_name].filter(Boolean).join(" ").trim() ||
+    user.email?.split("@")[0] ||
+    "DanceFlow dancer";
+  const bio = dancerProfile?.bio?.trim() || null;
+  const city = dancerProfile?.city?.trim() || null;
+  const state = dancerProfile?.state?.trim().toUpperCase() || null;
+  const skillLevel = dancerProfile?.skill_level?.trim() || "social";
 
   const advertisingRisk = hasAdvertisingRisk([
     displayName,
@@ -102,7 +122,7 @@ export async function savePartnerSearchProfileAction(formData: FormData) {
     state,
     lead_follow_role: getString(formData, "leadFollowRole") || "either",
     dance_styles: danceStyles,
-    skill_level: getString(formData, "skillLevel") || "social",
+    skill_level: skillLevel,
     goals,
     listing_intent: listingIntent,
     availability_notes: availabilityNotes,

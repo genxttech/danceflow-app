@@ -9,6 +9,16 @@ type SearchParams = Promise<{
   error?: string;
 }>;
 
+type DancerProfileRow = {
+  first_name: string | null;
+  last_name: string | null;
+  preferred_name: string | null;
+  bio: string | null;
+  city: string | null;
+  state: string | null;
+  skill_level: string | null;
+};
+
 type OwnProfileRow = {
   display_name: string;
   headline: string | null;
@@ -33,14 +43,6 @@ const roleOptions = [
   { label: "Switch", value: "switch" },
 ];
 
-const skillOptions = [
-  { label: "Newcomer", value: "newcomer" },
-  { label: "Beginner", value: "beginner" },
-  { label: "Social", value: "social" },
-  { label: "Intermediate", value: "intermediate" },
-  { label: "Advanced", value: "advanced" },
-  { label: "Professional", value: "professional" },
-];
 
 const goalOptions = [
   { label: "Practice", value: "Practice", intent: "practice" },
@@ -49,82 +51,8 @@ const goalOptions = [
   { label: "Competition", value: "Competition", intent: "competition" },
 ];
 
-const stateOptions = [
-  "AL",
-  "AK",
-  "AZ",
-  "AR",
-  "CA",
-  "CO",
-  "CT",
-  "DE",
-  "DC",
-  "FL",
-  "GA",
-  "HI",
-  "ID",
-  "IL",
-  "IN",
-  "IA",
-  "KS",
-  "KY",
-  "LA",
-  "ME",
-  "MD",
-  "MA",
-  "MI",
-  "MN",
-  "MS",
-  "MO",
-  "MT",
-  "NE",
-  "NV",
-  "NH",
-  "NJ",
-  "NM",
-  "NY",
-  "NC",
-  "ND",
-  "OH",
-  "OK",
-  "OR",
-  "PA",
-  "RI",
-  "SC",
-  "SD",
-  "TN",
-  "TX",
-  "UT",
-  "VT",
-  "VA",
-  "WA",
-  "WV",
-  "WI",
-  "WY",
-];
 
-const cityOptionsByState: Record<string, string[]> = {
-  AZ: ["Phoenix", "Scottsdale", "Tempe", "Tucson"],
-  CA: ["Los Angeles", "Sacramento", "San Diego", "San Francisco", "San Jose"],
-  CO: ["Boulder", "Colorado Springs", "Denver"],
-  DC: ["Washington"],
-  FL: ["Fort Lauderdale", "Jacksonville", "Miami", "Orlando", "Tampa"],
-  GA: ["Atlanta", "Savannah"],
-  IL: ["Chicago", "Naperville"],
-  MA: ["Boston", "Cambridge"],
-  NC: ["Charlotte", "Durham", "Raleigh"],
-  NV: ["Las Vegas", "Reno"],
-  NY: ["Brooklyn", "Buffalo", "New York", "Rochester"],
-  OH: ["Cincinnati", "Cleveland", "Columbus", "Dayton"],
-  PA: ["Philadelphia", "Pittsburgh"],
-  TN: ["Knoxville", "Memphis", "Nashville"],
-  TX: ["Austin", "Dallas", "Fort Worth", "Houston", "San Antonio"],
-  WA: ["Bellevue", "Seattle", "Tacoma"],
-};
 
-const allCityOptions = Object.entries(cityOptionsByState).flatMap(([state, cities]) =>
-  cities.map((city) => ({ city, state })),
-);
 
 const danceStyleGroups = [
   {
@@ -188,20 +116,42 @@ export default async function AccountPartnerSearchPage({
     redirect("/login?next=/account/partner-search");
   }
 
-  const { data: ownProfile, error } = await supabase
-    .from("dancer_partner_profiles")
-    .select(
-      "display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes, visibility, moderation_status, moderation_reason",
-    )
-    .eq("user_id", user.id)
-    .maybeSingle<OwnProfileRow>();
+  const [
+    { data: ownProfile, error },
+    { data: dancerProfile, error: dancerProfileError },
+  ] = await Promise.all([
+    supabase
+      .from("dancer_partner_profiles")
+      .select(
+        "display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes, visibility, moderation_status, moderation_reason",
+      )
+      .eq("user_id", user.id)
+      .maybeSingle<OwnProfileRow>(),
+    supabase
+      .from("dancer_profiles")
+      .select("first_name, last_name, preferred_name, bio, city, state, skill_level")
+      .eq("user_id", user.id)
+      .maybeSingle<DancerProfileRow>(),
+  ]);
 
   if (error) {
     throw new Error(`Failed to load partner profile: ${error.message}`);
   }
 
+  if (dancerProfileError) {
+    throw new Error(`Failed to load DanceFlow profile: ${dancerProfileError.message}`);
+  }
+
+  const sharedDisplayName =
+    dancerProfile?.preferred_name?.trim() ||
+    [dancerProfile?.first_name, dancerProfile?.last_name].filter(Boolean).join(" ").trim() ||
+    user.email?.split("@")[0] ||
+    "DanceFlow dancer";
+  const sharedLocation = [dancerProfile?.city, dancerProfile?.state].filter(Boolean).join(", ");
+  const sharedSkill = dancerProfile?.skill_level || "Not set";
+
   const message = successMessage(query.success);
-  const isVisible = ownProfile?.visibility !== "paused";
+  const isVisible = ownProfile?.visibility === "published";
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
@@ -224,10 +174,10 @@ export default async function AccountPartnerSearchPage({
                 Partner Search
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-                Create your dancer profile
+                Create your Partner Search listing
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                Create a dancer-owned profile for practice, social dance, showcase, or competition partners. Contact stays inside DanceFlow.
+                Use your DanceFlow profile as the starting point, then add only the details that matter for finding a practice, social, showcase, or competition partner. Contact stays inside DanceFlow.
               </p>
             </div>
             <Link
@@ -256,10 +206,10 @@ export default async function AccountPartnerSearchPage({
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-slate-950">
-                Your Partner Profile
+                Your Partner Search listing
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Hide your profile anytime if you found a partner or want to pause requests.
+                Publish this listing only when you want other dancers to find you. Your main DanceFlow profile is not publicly searchable.
               </p>
             </div>
             <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800">
@@ -269,7 +219,7 @@ export default async function AccountPartnerSearchPage({
                 defaultChecked={isVisible}
                 className="h-5 w-5 rounded border-slate-300 text-[var(--brand-primary)]"
               />
-              Visible in Partner Search
+              Show this listing in Partner Search
             </label>
           </div>
 
@@ -279,16 +229,33 @@ export default async function AccountPartnerSearchPage({
             </div>
           ) : null}
 
+          <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50/60 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+                  Using your DanceFlow profile
+                </p>
+                <p className="mt-2 font-semibold text-slate-950">{sharedDisplayName}</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {sharedLocation || "Location not set"} · {sharedSkill}
+                </p>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  {dancerProfile?.bio || "Add a bio to your DanceFlow profile to reuse it here."}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Display name, location, skill level, and bio come from your DanceFlow profile. Saving this listing refreshes those shared details. Partner-specific fields below stay with this listing.
+                </p>
+              </div>
+              <Link
+                href="/account/profile"
+                className="shrink-0 rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100"
+              >
+                Edit DanceFlow profile
+              </Link>
+            </div>
+          </div>
+
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <label className="block text-sm font-medium text-slate-700">
-              Display name
-              <input
-                name="displayName"
-                defaultValue={ownProfile?.display_name ?? user.email?.split("@")[0] ?? ""}
-                required
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-              />
-            </label>
             <label className="block text-sm font-medium text-slate-700">
               Headline
               <input
@@ -299,36 +266,6 @@ export default async function AccountPartnerSearchPage({
               />
             </label>
 
-            <label className="block text-sm font-medium text-slate-700">
-              State
-              <select
-                name="state"
-                defaultValue={ownProfile?.state ?? ""}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-              >
-                <option value="">Any state</option>
-                {stateOptions.map((state) => (
-                  <option key={state} value={state}>
-                    {state}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm font-medium text-slate-700">
-              City
-              <input
-                name="city"
-                defaultValue={ownProfile?.city ?? ""}
-                list="partner-search-city-options"
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                placeholder="Enter your city"
-              />
-              <datalist id="partner-search-city-options">
-                {allCityOptions.map((option) => (
-                  <option key={`${option.state}-${option.city}`} value={option.city} />
-                ))}
-              </datalist>
-            </label>
 
             <label className="block text-sm font-medium text-slate-700">
               Primary goal
@@ -359,20 +296,6 @@ export default async function AccountPartnerSearchPage({
               </select>
             </label>
 
-            <label className="block text-sm font-medium text-slate-700">
-              Skill level
-              <select
-                name="skillLevel"
-                defaultValue={ownProfile?.skill_level ?? "social"}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-              >
-                {skillOptions.map((skill) => (
-                  <option key={skill.value} value={skill.value}>
-                    {skill.label}
-                  </option>
-                ))}
-              </select>
-            </label>
 
             <fieldset className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:col-span-2">
               <legend className="px-1 text-sm font-semibold text-slate-800">
@@ -440,15 +363,6 @@ export default async function AccountPartnerSearchPage({
             </fieldset>
 
             <label className="block text-sm font-medium text-slate-700 md:col-span-2">
-              Bio
-              <textarea
-                name="bio"
-                defaultValue={ownProfile?.bio ?? ""}
-                rows={4}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm font-medium text-slate-700 md:col-span-2">
               Availability
               <textarea
                 name="availabilityNotes"
@@ -463,7 +377,7 @@ export default async function AccountPartnerSearchPage({
             type="submit"
             className="mt-5 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
           >
-            Save Partner Profile
+            Save Partner Search listing
           </button>
         </form>
       </div>

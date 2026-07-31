@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -8,7 +8,7 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicPartnerProfilesForMobile,
@@ -230,6 +230,8 @@ function Field({
   placeholder?: string;
   value: string;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   return (
     <View style={styles.field}>
       <AppText variant="eyebrow">{label}</AppText>
@@ -254,6 +256,8 @@ function OptionRow<T extends string>({
   value: T;
   onChange: (value: T) => void;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   return (
     <View style={styles.optionRow}>
       {options.map((option) => {
@@ -281,6 +285,8 @@ function DanceStylePicker({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [expanded, setExpanded] = useState(false);
   const selected = parseList(value);
 
@@ -353,6 +359,8 @@ function CollapsibleSinglePicker({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -407,6 +415,8 @@ function CollapsibleMultiPicker({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [expanded, setExpanded] = useState(false);
   const selected = parseList(value);
 
@@ -454,6 +464,8 @@ function CollapsibleArrayPicker({
   value: string[];
   onChange: (value: string[]) => void;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [expanded, setExpanded] = useState(false);
 
   function toggle(option: string) {
@@ -498,6 +510,8 @@ function DanceStyleFilterPicker({
   value: string[];
   onChange: (value: string[]) => void;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [expanded, setExpanded] = useState(false);
 
   function toggle(style: string) {
@@ -553,6 +567,8 @@ function DanceStyleFilterPicker({
 }
 
 export default function PartnerSearchScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const { session } = useAuth();
   const router = useRouter();
   const user = session?.user ?? null;
@@ -1023,9 +1039,10 @@ export default function PartnerSearchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   accentTag: {
-    backgroundColor: "#fff4e7",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
@@ -1141,7 +1158,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10
   },
   intentBadge: {
-    backgroundColor: "#fff4e7",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
@@ -1237,8 +1254,8 @@ const styles = StyleSheet.create({
   },
   partnerAvatarFallback: {
     alignItems: "center",
-    backgroundColor: "rgba(244, 63, 142, 0.12)",
-    borderColor: "rgba(244, 63, 142, 0.25)",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
     borderRadius: 24,
     borderWidth: 1,
     height: 64,
@@ -1408,4 +1425,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900"
   }
-});
+  });
+}

@@ -22,7 +22,7 @@ export type StudentProfile = {
   danceGoals?: string[];
   skillLevel?: string;
   bio?: string;
-  profileVisibility?: "private" | "connected_studios" | "public";
+  profileVisibility?: "private";
   isAccountProfile?: boolean;
 };
 
@@ -76,7 +76,7 @@ function toStudentProfile(profile: ApiProfile): StudentProfile {
     danceGoals: profile.danceGoals,
     skillLevel: profile.skillLevel,
     bio: profile.bio,
-    profileVisibility: profile.profileVisibility,
+    profileVisibility: "private",
     isAccountProfile: true,
   };
 }
@@ -120,7 +120,7 @@ export async function updateStudentProfile(profile: StudentProfile) {
         danceGoals: profile.danceGoals ?? [],
         skillLevel: profile.skillLevel ?? "",
         bio: profile.bio ?? "",
-        profileVisibility: profile.profileVisibility ?? "private",
+        profileVisibility: "private",
       }),
     },
   );
