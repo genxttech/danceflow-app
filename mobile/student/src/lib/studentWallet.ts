@@ -120,12 +120,51 @@ export type StudentDigitalEntitlement = {
   imageUrl: string | null;
 };
 
+
+export type StudentReward = {
+  id: string;
+  studioId: string;
+  studioName: string;
+  ruleId: string | null;
+  rewardId: string;
+  status: string;
+  name: string;
+  rewardType: string;
+  rewardValue: number | null;
+  earnedAt: string;
+  availableAt: string;
+  expiresAt: string | null;
+  redeemedAt: string | null;
+};
+
+export type StudentRewardProgress = {
+  id: string;
+  studioId: string;
+  studioName: string;
+  clientId: string;
+  ruleId: string;
+  ruleName: string;
+  triggerType: string;
+  thresholdValue: number;
+  thresholdUnit: string;
+  evaluationWindow: string;
+  repeatable: boolean;
+  progressValue: number;
+  periodKey: string;
+  qualifiedAt: string | null;
+  rewardName: string;
+  rewardType: string;
+  rewardValue: number | null;
+};
+
 export type StudentWallet = {
   digitalEntitlements: StudentDigitalEntitlement[];
   memberships: StudentMembership[];
   packages: StudentPackage[];
   paymentRequests: StudentPaymentRequest[];
   registrations: StudentEventRegistration[];
+  rewards: StudentReward[];
+  rewardProgress: StudentRewardProgress[];
   tickets: StudentTicket[];
 };
 
@@ -214,6 +253,50 @@ type PaymentRequestRow = {
   payment_type: string | null;
   notes: string | null;
   created_at: string;
+};
+
+
+type ClientRewardRow = {
+  id: string;
+  studio_id: string;
+  client_id: string;
+  rule_id: string | null;
+  reward_id: string;
+  status: string;
+  reward_name_snapshot: string;
+  reward_type_snapshot: string;
+  reward_value_snapshot: number | null;
+  earned_at: string;
+  available_at: string;
+  expires_at: string | null;
+  redeemed_at: string | null;
+};
+
+type ClientRewardProgressRow = {
+  id: string;
+  studio_id: string;
+  client_id: string;
+  rule_id: string;
+  progress_value: number | null;
+  period_key: string;
+  qualified_at: string | null;
+  reward_rules: Joined<{
+    id: string;
+    name: string;
+    trigger_type: string;
+    threshold_value: number | null;
+    threshold_unit: string;
+    evaluation_window: string;
+    repeatable: boolean | null;
+    active: boolean | null;
+    studio_rewards: Joined<{
+      id: string;
+      name: string;
+      reward_type: string;
+      reward_value: number | null;
+      active: boolean | null;
+    }>;
+  }>;
 };
 
 function studioNameFor(studioId: string, linkedStudios: LinkedStudioAccess[]) {
@@ -374,7 +457,15 @@ export async function loadStudentWallet(
   const clientIds = linkedStudios.map((item) => item.clientId).filter(Boolean);
   const studioIds = linkedStudios.map((item) => item.studioId).filter(Boolean);
 
-  const [membershipsResult, packagesResult, paymentsResult, clientRegistrationRows, emailRegistrationRows] = await Promise.all([
+  const [
+    membershipsResult,
+    packagesResult,
+    paymentsResult,
+    rewardsResult,
+    rewardProgressResult,
+    clientRegistrationRows,
+    emailRegistrationRows
+  ] = await Promise.all([
     clientIds.length && studioIds.length
       ? supabase
           .from("client_memberships")
@@ -440,6 +531,58 @@ export async function loadStudentWallet(
           .limit(20)
       : Promise.resolve({ data: [], error: null }),
 
+    clientIds.length && studioIds.length
+      ? supabase
+          .from("client_rewards")
+          .select(
+            "id, studio_id, client_id, rule_id, reward_id, status, reward_name_snapshot, reward_type_snapshot, reward_value_snapshot, earned_at, available_at, expires_at, redeemed_at"
+          )
+          .in("studio_id", studioIds)
+          .in("client_id", clientIds)
+          .in("status", ["earned", "redeemed", "expired", "voided"])
+          .order("earned_at", { ascending: false })
+          .limit(100)
+      : Promise.resolve({ data: [], error: null }),
+
+    clientIds.length && studioIds.length
+      ? supabase
+          .from("client_reward_progress")
+          .select(
+            `
+            id,
+            studio_id,
+            client_id,
+            rule_id,
+            progress_value,
+            period_key,
+            qualified_at,
+            reward_rules!inner (
+              id,
+              name,
+              trigger_type,
+              threshold_value,
+              threshold_unit,
+              evaluation_window,
+              repeatable,
+              active,
+              studio_rewards!inner (
+                id,
+                name,
+                reward_type,
+                reward_value,
+                active
+              )
+            )
+          `
+          )
+          .in("studio_id", studioIds)
+          .in("client_id", clientIds)
+          .eq("reward_rules.active", true)
+          .eq("reward_rules.studio_rewards.active", true)
+          .order("updated_at", { ascending: false })
+          .limit(100)
+      : Promise.resolve({ data: [], error: null }),
+
     loadRegistrationsByClient(clientIds, studioIds),
     loadRegistrationsByEmail(accountEmail)
   ]);
@@ -447,6 +590,8 @@ export async function loadStudentWallet(
   if (membershipsResult.error) throw membershipsResult.error;
   if (packagesResult.error) throw packagesResult.error;
   if (paymentsResult.error) throw paymentsResult.error;
+  if (rewardsResult.error) throw rewardsResult.error;
+  if (rewardProgressResult.error) throw rewardProgressResult.error;
 
   const memberships = ((membershipsResult.data ?? []) as MembershipRow[]).map((row) => ({
     id: row.id,
@@ -500,6 +645,51 @@ export async function loadStudentWallet(
     createdAt: row.created_at,
     checkoutUrl: paymentCheckoutUrl(row.id)
   }));
+
+
+  const rewards = ((rewardsResult.data ?? []) as ClientRewardRow[]).map((row) => ({
+    id: row.id,
+    studioId: row.studio_id,
+    studioName: studioNameFor(row.studio_id, linkedStudios),
+    ruleId: row.rule_id,
+    rewardId: row.reward_id,
+    status: row.status,
+    name: row.reward_name_snapshot,
+    rewardType: row.reward_type_snapshot,
+    rewardValue: row.reward_value_snapshot,
+    earnedAt: row.earned_at,
+    availableAt: row.available_at,
+    expiresAt: row.expires_at,
+    redeemedAt: row.redeemed_at
+  }));
+
+  const rewardProgress = ((rewardProgressResult.data ?? []) as unknown as ClientRewardProgressRow[])
+    .map((row) => {
+      const rule = firstJoin(row.reward_rules);
+      const reward = firstJoin(rule?.studio_rewards);
+      if (!rule || !reward) return null;
+
+      return {
+        id: row.id,
+        studioId: row.studio_id,
+        studioName: studioNameFor(row.studio_id, linkedStudios),
+        clientId: row.client_id,
+        ruleId: row.rule_id,
+        ruleName: rule.name,
+        triggerType: rule.trigger_type,
+        thresholdValue: Number(rule.threshold_value ?? 0),
+        thresholdUnit: rule.threshold_unit,
+        evaluationWindow: rule.evaluation_window,
+        repeatable: rule.repeatable === true,
+        progressValue: Number(row.progress_value ?? 0),
+        periodKey: row.period_key,
+        qualifiedAt: row.qualified_at,
+        rewardName: reward.name,
+        rewardType: reward.reward_type,
+        rewardValue: reward.reward_value
+      } satisfies StudentRewardProgress;
+    })
+    .filter((row): row is StudentRewardProgress => Boolean(row));
 
   const registrationIds = registrationRows.map((item) => item.id);
   let tickets: StudentTicket[] = [];
@@ -595,6 +785,8 @@ export async function loadStudentWallet(
     packages,
     paymentRequests,
     registrations,
+    rewards,
+    rewardProgress,
     tickets
   };
   walletCache.set(cacheKey, { expiresAt: Date.now() + WALLET_CACHE_TTL_MS, wallet });

@@ -13,7 +13,7 @@ import {
   type StudentEventOrderTicket,
   type StudentEventOrderStatus
 } from "@/lib/eventCheckout";
-import { getStudentAccess, studentPassQrImageUrl, type LinkedStudioAccess } from "@/lib/studentAccess";
+import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   formatCurrency,
   formatWalletDate,
@@ -50,11 +50,6 @@ function locationLine(ticket: StudentTicket) {
     .join(" · ");
 }
 
-function studentDisplayName(linkedStudios: LinkedStudioAccess[]) {
-  const primary = linkedStudios[0];
-  const name = [primary?.clientFirstName, primary?.clientLastName].filter(Boolean).join(" ").trim();
-  return name || "DanceFlow student";
-}
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -143,77 +138,6 @@ function WalletSummaryChip({
     <View style={styles.summaryChip}>
       <AppText style={styles.summaryChipLabel}>{label}</AppText>
       <AppText style={styles.summaryChipValue}>{value}</AppText>
-    </View>
-  );
-}
-
-function WalletQuickAction({
-  icon,
-  title,
-  detail,
-  onPress,
-  styles,
-  accent = false,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  detail: string;
-  onPress: () => void;
-  styles: ReturnType<typeof createStyles>;
-  accent?: boolean;
-}) {
-  const colors = colorsForScheme(useColorScheme());
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.quickActionCard,
-        accent && styles.quickActionCardAccent,
-        pressed && styles.cardPressed
-      ]}
-    >
-      <View
-        style={[
-          styles.quickActionIcon,
-          { backgroundColor: accent ? colors.accent : colors.primary }
-        ]}
-      >
-        <Ionicons color="#fff" name={icon} size={20} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <AppText style={styles.quickActionTitle}>{title}</AppText>
-        <AppText style={styles.quickActionDetail}>{detail}</AppText>
-      </View>
-      <Ionicons color={colors.muted} name="chevron-forward" size={18} />
-    </Pressable>
-  );
-}
-
-function StudentPassCard({ linkedStudios }: { linkedStudios: LinkedStudioAccess[] }) {
-  const colors = colorsForScheme(useColorScheme());
-  const styles = createStyles(colors);
-  const primary = linkedStudios[0];
-  const name = studentDisplayName(linkedStudios);
-  const studioName = primary?.studioPublicName || primary?.studioName || "Connected studio";
-
-  return (
-    <View style={styles.passCard}>
-      <View style={styles.passInfo}>
-        <AppText variant="eyebrow">My DanceFlow Pass</AppText>
-        <AppText variant="title">{name}</AppText>
-        <AppText variant="caption">{studioName}</AppText>
-        <AppText variant="caption">Use this pass for studio lookup and future student check-ins.</AppText>
-        <AppButton label="Edit profile" onPress={() => router.push("/profile")} variant="secondary" />
-      </View>
-      {primary ? (
-        <Image
-          accessibilityIgnoresInvertColors
-          resizeMode="contain"
-          source={{ uri: studentPassQrImageUrl(primary) }}
-          style={styles.passQrImage}
-        />
-      ) : null}
     </View>
   );
 }
@@ -488,7 +412,7 @@ export default function WalletScreen() {
         <AppText style={styles.heroEyebrow}>Wallet</AppText>
         <AppText style={styles.heroTitle}>Your dance essentials</AppText>
         <AppText style={styles.heroDetail}>
-          Tickets, payments, memberships, packages, documents, and studio access in one place.
+          Payments, packages, memberships, and purchased access in one place.
         </AppText>
 
         {isSignedIn ? (
@@ -497,7 +421,6 @@ export default function WalletScreen() {
             contentContainerStyle={styles.summaryScroller}
             showsHorizontalScrollIndicator={false}
           >
-            <WalletSummaryChip label="Tickets" value={tickets.length} styles={styles} />
             <WalletSummaryChip label="Payments" value={paymentRequests.length} styles={styles} />
             <WalletSummaryChip label="Packages" value={packages.length} styles={styles} />
             <WalletSummaryChip label="Memberships" value={memberships.length} styles={styles} />
@@ -597,35 +520,7 @@ export default function WalletScreen() {
           ) : null}
 
           <View style={styles.section}>
-            <AppText variant="eyebrow">Quick access</AppText>
-            <View style={styles.quickActionList}>
-              <WalletQuickAction
-                icon="ticket-outline"
-                title="Event Tickets"
-                detail={`${tickets.length} ticket${tickets.length === 1 ? "" : "s"} and check-in codes`}
-                onPress={() => router.push("/wallet/event-tickets")}
-                styles={styles}
-                accent
-              />
-              <WalletQuickAction
-                icon="document-text-outline"
-                title="Documents"
-                detail="Review pending signatures and completed studio documents"
-                onPress={() => router.push("/wallet/documents" as never)}
-                styles={styles}
-              />
-              <WalletQuickAction
-                icon="person-circle-outline"
-                title="Profile & Settings"
-                detail={hasPortalAccess ? "DanceFlow pass and connected studio access" : "Account profile and preferences"}
-                onPress={() => router.push("/wallet/profile")}
-                styles={styles}
-              />
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <AppText variant="eyebrow">Balances & access</AppText>
+            <AppText variant="eyebrow">Balances & purchases</AppText>
             <View style={styles.categoryList}>
               <WalletCategoryCard
                 active={false}
@@ -654,7 +549,6 @@ export default function WalletScreen() {
             </View>
           </View>
 
-          {hasPortalAccess ? <StudentPassCard linkedStudios={linkedStudios} /> : null}
 
           <AppButton
             label="Refresh wallet"
@@ -739,40 +633,6 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     overflow: "hidden",
     paddingHorizontal: 10,
     paddingVertical: 5
-  },
-  quickActionList: {
-    gap: 10
-  },
-  quickActionCard: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 20,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 15
-  },
-  quickActionCardAccent: {
-    borderColor: colors.accent
-  },
-  quickActionIcon: {
-    alignItems: "center",
-    borderRadius: 14,
-    height: 42,
-    justifyContent: "center",
-    width: 42
-  },
-  quickActionTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "900"
-  },
-  quickActionDetail: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 3
   },
   ctaCard: {
     backgroundColor: colors.surface,

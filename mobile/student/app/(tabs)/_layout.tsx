@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
 import { ActivityIndicator, Platform, StyleSheet, useColorScheme, View, type ColorValue } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 
@@ -9,7 +10,8 @@ type TabIconName =
   | "calendar-outline"
   | "school-outline"
   | "compass-outline"
-  | "wallet-outline";
+  | "wallet-outline"
+  | "menu-outline";
 
 function tabIcon(name: TabIconName) {
   return function Icon({ color, size }: { color: ColorValue; size: number }) {
@@ -20,6 +22,11 @@ function tabIcon(name: TabIconName) {
 export default function TabsLayout() {
   const { loading, session } = useAuth();
   const colors = colorsForScheme(useColorScheme());
+  const insets = useSafeAreaInsets();
+  const tabBarBottomPadding = Math.max(
+    insets.bottom,
+    Platform.OS === "android" ? 16 : 12,
+  );
 
   if (loading) {
     return (
@@ -53,6 +60,8 @@ export default function TabsLayout() {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
             shadowColor: colors.black,
+            height: 64 + tabBarBottomPadding,
+            paddingBottom: tabBarBottomPadding,
           },
         ]
       }}
@@ -75,7 +84,15 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="wallet"
-        options={{ title: "Wallet", tabBarIcon: tabIcon("wallet-outline") }}
+        options={{
+          href: null,
+          title: "Wallet",
+          tabBarIcon: tabIcon("wallet-outline"),
+        }}
+      />
+      <Tabs.Screen
+        name="more"
+        options={{ title: "More", tabBarIcon: tabIcon("menu-outline") }}
       />
     </Tabs>
   );
@@ -90,16 +107,15 @@ const styles = StyleSheet.create({
   tabBar: {
     borderTopWidth: 1,
     elevation: 14,
-    height: Platform.OS === "ios" ? 84 : 72,
-    paddingBottom: Platform.OS === "ios" ? 20 : 10,
-    paddingTop: 8,
+    paddingTop: 6,
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.08,
     shadowRadius: 18,
   },
   tabItem: {
+    justifyContent: "flex-start",
     minHeight: 48,
-    paddingVertical: 2,
+    paddingTop: 2,
   },
   tabLabel: {
     fontSize: 11,

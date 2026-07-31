@@ -93,6 +93,7 @@ export function isActivePath(pathname: string, href: string) {
     "/app/analytics",
     "/app/payments",
     "/app/payments/take",
+    "/app/rewards",
   ]);
 
   if (exactOnlyRoutes.has(href)) {
@@ -199,6 +200,10 @@ function normalizeNavLabel(item: NavItem) {
 
   if (item.href === "/app/schedule/requests" || item.href === "/app/schedule/self-service") {
     return "Self-service Requests";
+  }
+
+  if (item.href === "/app/rewards") {
+    return "Rewards";
   }
 
   if (item.href === "/app/documents") {
@@ -1147,6 +1152,64 @@ function injectAutomationsLink(
 
 
 
+
+function injectRewardsLink(
+  sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
+): NavSectionType[] {
+  if (!canUseStudioManagementEnhancements(options)) return sections;
+
+  const flatItems = sections.flatMap((section) => section.items);
+  if (flatItems.some((item) => item.href === "/app/rewards")) {
+    return sections;
+  }
+
+  const hasClientOrSalesAccess = flatItems.some(
+    (item) =>
+      item.href === "/app/clients" ||
+      item.href === "/app/sell" ||
+      item.href === "/app/sales/new" ||
+      item.href.startsWith("/app/packages") ||
+      item.href.startsWith("/app/memberships"),
+  );
+
+  if (!hasClientOrSalesAccess) return sections;
+
+  const rewardsItem: NavItem = {
+    label: "Rewards",
+    href: "/app/rewards",
+    icon: "rewards",
+  };
+
+  const salesSectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "sales & payments" ||
+      title === "commerce" ||
+      title === "sell" ||
+      section.items.some(
+        (item) =>
+          item.href === "/app/sell" ||
+          item.href.startsWith("/app/packages") ||
+          item.href.startsWith("/app/memberships"),
+      )
+    );
+  });
+
+  if (salesSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== salesSectionIndex) return section;
+      return {
+        ...section,
+        items: [...section.items, rewardsItem],
+      };
+    });
+  }
+
+  return [...sections, { title: "Growth", items: [rewardsItem] }];
+}
+
 function injectCommerceLinks(
   sections: NavSectionType[],
   options: NormalizeSectionsOptions = {},
@@ -1645,6 +1708,7 @@ function workspaceForItem(item: NavItem) {
     href.startsWith("/app/payments") ||
     href.startsWith("/app/packages") ||
     href.startsWith("/app/memberships") ||
+    href.startsWith("/app/rewards") ||
     href.startsWith("/app/expenses") ||
     href.startsWith("/app/instructor-pay")
   ) {
@@ -1731,6 +1795,7 @@ function itemPriority(section: (typeof WORKSPACE_ORDER)[number], href: string) {
       "/app/payments",
       "/app/packages",
       "/app/memberships",
+      "/app/rewards",
       "/app/expenses",
       "/app/instructor-pay",
     ],
@@ -1872,7 +1937,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink, options);
   const withCommunicationsLink = injectCommunicationsLink(withDocumentsLink, options);
   const withAutomationsLink = injectAutomationsLink(withCommunicationsLink, options);
-  const withCommerceLinks = injectCommerceLinks(withAutomationsLink, options);
+  const withRewardsLink = injectRewardsLink(withAutomationsLink, options);
+  const withCommerceLinks = injectCommerceLinks(withRewardsLink, options);
   const withPaymentWorkflowLinks = injectPaymentWorkflowLinks(withCommerceLinks, options);
   const withInstructorPayLink = injectInstructorPayLink(withPaymentWorkflowLinks, options);
   const withDanceGoalAnalyticsLink = injectDanceGoalAnalyticsLink(withInstructorPayLink, options);
