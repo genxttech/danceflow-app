@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -16,8 +16,10 @@ import {
   type PublicPartnerProfileItem
 } from "@/lib/publicDiscovery";
 import {
+  blockPartnerProfile,
   loadMyPartnerThreads,
   loadMyPartnerProfile,
+  reportPartnerProfile,
   requestPartnerConnection,
   saveMyPartnerProfile,
   uploadPartnerProfilePhoto,
@@ -789,6 +791,73 @@ export default function PartnerSearchScreen() {
     }
   }
 
+  function reportListing(profile: PublicPartnerProfileItem) {
+    if (!user) {
+      setMessage("Sign in to report partner listings.");
+      return;
+    }
+
+    Alert.alert(
+      "Report this listing?",
+      "DanceFlow will record the report for moderation review.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Report",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setMessage(null);
+              setErrorMessage(null);
+              try {
+                await reportPartnerProfile({
+                  partnerProfileId: profile.id,
+                  reason: "Reported from Partner Search mobile listing"
+                });
+                setMessage("Thanks. DanceFlow will review this partner listing.");
+              } catch {
+                setErrorMessage("We could not submit that report yet.");
+              }
+            })();
+          }
+        }
+      ]
+    );
+  }
+
+  function blockListing(profile: PublicPartnerProfileItem) {
+    if (!user) {
+      setMessage("Sign in to block partner listings.");
+      return;
+    }
+
+    Alert.alert(
+      `Block ${profile.displayName}?`,
+      "You will no longer see this dancer in Partner Search, and neither of you will be able to message the other.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setMessage(null);
+              setErrorMessage(null);
+              try {
+                await blockPartnerProfile(profile.id);
+                setProfiles((current) => current.filter((item) => item.id !== profile.id));
+                setMessage(`${profile.displayName} has been blocked.`);
+                setThreads(await loadMyPartnerThreads(user.id));
+              } catch {
+                setErrorMessage("We could not block that dancer yet.");
+              }
+            })();
+          }
+        }
+      ]
+    );
+  }
+
   async function useMyLocationFilter() {
     setMessage(null);
     setErrorMessage(null);
@@ -1000,6 +1069,24 @@ export default function PartnerSearchScreen() {
               {profile.headline || "Looking for a dance partner"}
             </AppText>
             {profile.bio ? <AppText variant="caption">{profile.bio}</AppText> : null}
+            <View style={styles.listingSafetyActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => reportListing(profile)}
+                style={styles.listingSafetyButton}
+              >
+                <Ionicons color={colors.accent} name="flag-outline" size={16} />
+                <AppText style={styles.listingSafetyText}>Report</AppText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => blockListing(profile)}
+                style={styles.listingSafetyButton}
+              >
+                <Ionicons color={colors.danger} name="ban-outline" size={16} />
+                <AppText style={styles.listingSafetyText}>Block</AppText>
+              </Pressable>
+            </View>
             <View style={styles.tagRow}>
               <View style={styles.tag}>
                 <AppText style={styles.tagText}>{labelFor(profile.leadFollowRole)}</AppText>
@@ -1185,6 +1272,27 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     height: 46,
     justifyContent: "center",
     width: 46
+  },
+  listingSafetyActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  listingSafetyButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 8
+  },
+  listingSafetyText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900"
   },
   multilineInput: {
     minHeight: 96,

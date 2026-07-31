@@ -10,12 +10,6 @@ import {
   type StudentMarketplaceItem
 } from "@/lib/studentMarketplace";
 
-function money(value: number, currency: string) {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: currency || "USD"
-  }).format(value);
-}
 
 export default function MarketplaceScreen() {
   const router = useRouter();
@@ -57,7 +51,7 @@ export default function MarketplaceScreen() {
       <AppText variant="eyebrow">Marketplace</AppText>
       <AppText variant="title">Learn from DanceFlow studios</AppText>
       <AppText variant="caption">
-        Browse secure videos and series. Purchases are saved to Wallet and available in Learn.
+        Browse videos and series from DanceFlow studios. Content you already own is available in Digital Purchases and Learn.
       </AppText>
 
       {loading ? (
@@ -79,7 +73,7 @@ export default function MarketplaceScreen() {
         {items.map((item) => (
           <Pressable
             key={item.id}
-            accessibilityLabel={`${item.name}, ${item.owned ? "owned" : money(item.price, item.currency)}`}
+            accessibilityLabel={`${item.name}, ${item.owned ? "owned" : "available from studio"}`}
             accessibilityRole="button"
             onPress={() =>
               item.owned
@@ -122,9 +116,8 @@ export default function MarketplaceScreen() {
               </AppText>
             ) : null}
             <View style={styles.footer}>
-              <AppText variant="subtitle">{money(item.price, item.currency)}</AppText>
               <AppText style={item.owned ? styles.ownedLabel : undefined} variant="caption">
-                {item.owned ? "Open purchases" : "View details"}
+                {item.owned ? "Owned · Open purchases" : "View details"}
               </AppText>
             </View>
             </View>
@@ -166,7 +159,6 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     footer: {
       alignItems: "center",
       flexDirection: "row",
-      justifyContent: "space-between",
       marginTop: 4
     },
     header: {

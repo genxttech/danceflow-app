@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Image, StyleSheet, useColorScheme, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -9,8 +8,6 @@ import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
-  confirmStudentMarketplaceOrder,
-  createStudentMarketplaceCheckout,
   loadStudentMarketplaceItem,
   type StudentMarketplaceItem
 } from "@/lib/studentMarketplace";
@@ -19,32 +16,18 @@ function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-const CONFIRM_RETRY_DELAYS_MS = [0, 1200, 2500, 4000];
 
-function wait(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function money(value: number, currency: string) {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: currency || "USD"
-  }).format(value);
-}
 
 export default function MarketplaceDetailScreen() {
   const { catalogItemId: rawId } = useLocalSearchParams<{ catalogItemId: string }>();
   const catalogItemId = normalizeParam(rawId);
   const router = useRouter();
   const { session } = useAuth();
-  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const colors = colorsForScheme(useColorScheme());
   const styles = createStyles(colors);
   const [item, setItem] = useState<StudentMarketplaceItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!catalogItemId) return;
@@ -68,64 +51,6 @@ export default function MarketplaceDetailScreen() {
     };
   }, [catalogItemId]);
 
-  async function purchase() {
-    if (!catalogItemId || !item || !session) return;
-
-    setSubmitting(true);
-    setErrorMessage(null);
-    setStatusMessage("Preparing secure checkout...");
-
-    try {
-      const checkout = await createStudentMarketplaceCheckout(catalogItemId);
-      const initialized = await initPaymentSheet({
-        defaultBillingDetails: {
-          email: session.user.email ?? undefined
-        },
-        merchantDisplayName: item.studioName,
-        paymentIntentClientSecret: checkout.clientSecret,
-        returnURL: "danceflow://wallet/digital-purchases"
-      });
-
-      if (initialized.error) {
-        throw new Error(initialized.error.message || "Checkout could not be prepared.");
-      }
-
-      const payment = await presentPaymentSheet();
-      if (payment.error) {
-        if (String(payment.error.code ?? "").toLowerCase() === "canceled") {
-          setStatusMessage(null);
-          return;
-        }
-        throw new Error(payment.error.message || "Payment was not completed.");
-      }
-
-      setStatusMessage("Payment received. Granting access...");
-
-      let confirmed = false;
-      for (const delay of CONFIRM_RETRY_DELAYS_MS) {
-        if (delay) await wait(delay);
-        const confirmation = await confirmStudentMarketplaceOrder(checkout.orderId);
-        if (confirmation.confirmed) {
-          confirmed = true;
-          break;
-        }
-      }
-
-      if (!confirmed) {
-        setStatusMessage(
-          "Payment was received. Access is still syncing and should appear in Digital Purchases shortly."
-        );
-        await wait(1800);
-      }
-
-      router.replace("/wallet/digital-purchases" as never);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Purchase could not be completed.");
-      setStatusMessage(null);
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   if (loading) {
     return (
@@ -184,20 +109,23 @@ export default function MarketplaceDetailScreen() {
             </View>
           ) : null}
         </View>
-        <AppText variant="subtitle">{money(item.price, item.currency)}</AppText>
+        {item.owned ? (
+          <AppText variant="subtitle">Owned</AppText>
+        ) : (
+          <AppText variant="caption">
+            This item is available from the studio, but digital purchases are not sold inside the mobile app.
+          </AppText>
+        )}
       </View>
 
-      {statusMessage ? (
-        <FeatureCard title="Purchase in progress" detail={statusMessage} />
-      ) : null}
       {errorMessage ? (
-        <FeatureCard title="Purchase needs attention" detail={errorMessage} />
+        <FeatureCard title="Content needs attention" detail={errorMessage} />
       ) : null}
 
       {!session ? (
-        <AppButton
-          label="Sign in to purchase"
-          onPress={() => router.push("/(auth)/sign-in" as never)}
+        <FeatureCard
+          title="Sign in to check access"
+          detail="Sign in to see whether this content is already available in your DanceFlow account."
         />
       ) : item.owned ? (
         <AppButton
@@ -205,11 +133,17 @@ export default function MarketplaceDetailScreen() {
           onPress={() => router.push("/wallet/digital-purchases" as never)}
         />
       ) : (
-        <AppButton
-          label={submitting ? "Processing..." : `Buy for ${money(item.price, item.currency)}`}
-          disabled={submitting}
-          onPress={() => void purchase()}
-        />
+        <>
+          <FeatureCard
+            title="Mobile purchase unavailable"
+            detail="DanceFlow does not sell digital videos or series inside the mobile app. Content already owned through your studio or DanceFlow account remains available here."
+          />
+          <AppButton
+            label="Back to Marketplace"
+            onPress={() => router.back()}
+            variant="secondary"
+          />
+        </>
       )}
     </Screen>
   );

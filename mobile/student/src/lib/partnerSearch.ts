@@ -306,7 +306,7 @@ export async function saveMyPartnerProfile(userId: string, profile: DancerPartne
 export async function requestPartnerConnection({
   message,
   partnerProfileId,
-  requesterUserId
+  requesterUserId: _requesterUserId
 }: {
   message: string;
   partnerProfileId: string;
@@ -318,98 +318,41 @@ export async function requestPartnerConnection({
     throw new Error("Add a message first.");
   }
 
-  try {
-    const result = await danceflowApiFetch<{ messageId: string; threadId: string }>(
-      "/api/student/partners/messages",
-      {
-        body: JSON.stringify({
-          body: cleanMessage,
-          partnerProfileId
-        }),
-        method: "POST"
-      }
-    );
-
-    return result.threadId;
-  } catch (apiError) {
-    const { data: partnerProfile, error: profileError } = await supabase
-      .from("dancer_partner_profiles")
-      .select("id, user_id")
-      .eq("id", partnerProfileId)
-      .single<{ id: string; user_id: string }>();
-
-    if (profileError) throw profileError;
-
-    if (partnerProfile.user_id === requesterUserId) {
-      throw new Error("You cannot message your own partner listing.");
+  const result = await danceflowApiFetch<{ messageId: string; threadId: string }>(
+    "/api/student/partners/messages",
+    {
+      body: JSON.stringify({
+        body: cleanMessage,
+        partnerProfileId
+      }),
+      method: "POST"
     }
+  );
 
-    const { data: requestRow, error: requestError } = await supabase
-      .from("partner_connection_requests")
-      .insert({
-        partner_profile_id: partnerProfileId,
-        requester_user_id: requesterUserId,
-        message: cleanMessage
-      })
-      .select("id")
-      .single<{ id: string }>();
+  return result.threadId;
+}
 
-    if (requestError) throw requestError;
+export async function reportPartnerProfile({
+  partnerProfileId,
+  reason = "Reported from Partner Search"
+}: {
+  partnerProfileId: string;
+  reason?: string;
+}) {
+  const { error } = await supabase.rpc("report_partner_profile", {
+    target_partner_profile_id: partnerProfileId,
+    report_reason: reason.trim() || "Reported from Partner Search"
+  });
 
-    const { data: existingThread, error: existingThreadError } = await partnerMessagingDb
-      .from("partner_conversation_threads")
-      .select("id")
-      .eq("partner_profile_id", partnerProfileId)
-      .eq("requester_user_id", requesterUserId)
-      .eq("partner_user_id", partnerProfile.user_id)
-      .maybeSingle();
+  if (error) throw error;
+}
 
-    if (existingThreadError) throw existingThreadError;
+export async function blockPartnerProfile(partnerProfileId: string) {
+  const { error } = await supabase.rpc("block_partner_profile", {
+    target_partner_profile_id: partnerProfileId
+  });
 
-    let threadId = existingThread?.id ?? null;
-    const now = new Date().toISOString();
-
-    if (!threadId) {
-      const { data: threadRow, error: threadError } = await partnerMessagingDb
-        .from("partner_conversation_threads")
-        .insert({
-          connection_request_id: requestRow.id,
-          partner_profile_id: partnerProfileId,
-          partner_user_id: partnerProfile.user_id,
-          requester_user_id: requesterUserId,
-          status: "active",
-          last_message_at: now
-        })
-        .select("id")
-        .single();
-
-      if (threadError) throw threadError;
-      threadId = threadRow.id;
-    }
-
-    const { error: messageError } = await partnerMessagingDb.from("partner_conversation_messages").insert({
-      body: cleanMessage,
-      sender_user_id: requesterUserId,
-      thread_id: threadId
-    });
-
-    if (messageError) throw messageError;
-
-    await partnerMessagingDb
-      .from("partner_conversation_threads")
-      .update({
-        last_message_at: now,
-        updated_at: now
-      })
-      .eq("id", threadId);
-
-    console.warn(
-      "Partner message API failed; sent via legacy mobile Supabase path without push.",
-      apiError instanceof Error ? apiError.message : apiError
-    );
-
-    return threadId;
-  }
+  if (error) throw error;
 }
 
 export async function loadPartnerThread(threadId: string, userId: string) {
@@ -459,7 +402,7 @@ export async function loadPartnerThreadMessages(threadId: string, userId: string
 export async function sendPartnerThreadMessage({
   body,
   threadId,
-  userId
+  userId: _userId
 }: {
   body: string;
   threadId: string;
@@ -471,43 +414,16 @@ export async function sendPartnerThreadMessage({
     throw new Error("Add a message first.");
   }
 
-  try {
-    await danceflowApiFetch<{ messageId: string; threadId: string }>(
-      "/api/student/partners/messages",
-      {
-        body: JSON.stringify({
-          body: cleanBody,
-          threadId
-        }),
-        method: "POST"
-      }
-    );
-  } catch (apiError) {
-    await loadPartnerThread(threadId, userId);
-
-    const { error } = await partnerMessagingDb.from("partner_conversation_messages").insert({
-      body: cleanBody,
-      sender_user_id: userId,
-      thread_id: threadId
-    });
-
-    if (error) throw error;
-
-    const now = new Date().toISOString();
-
-    await partnerMessagingDb
-      .from("partner_conversation_threads")
-      .update({
-        last_message_at: now,
-        updated_at: now
-      })
-      .eq("id", threadId);
-
-    console.warn(
-      "Partner message API failed; sent via legacy mobile Supabase path without push.",
-      apiError instanceof Error ? apiError.message : apiError
-    );
-  }
+  await danceflowApiFetch<{ messageId: string; threadId: string }>(
+    "/api/student/partners/messages",
+    {
+      body: JSON.stringify({
+        body: cleanBody,
+        threadId
+      }),
+      method: "POST"
+    }
+  );
 }
 
 export async function reportPartnerThread({
@@ -540,25 +456,17 @@ export async function blockPartnerThread({
   userId: string;
 }) {
   const thread = await loadPartnerThread(threadId, userId);
-  const otherUserId = thread.requesterUserId === userId ? thread.partnerUserId : thread.requesterUserId;
+  const otherUserId =
+    thread.requesterUserId === userId ? thread.partnerUserId : thread.requesterUserId;
 
   if (blockedUserId !== otherUserId) {
     throw new Error("You can only block the other dancer in this conversation.");
   }
 
-  const { error } = await partnerMessagingDb.from("partner_conversation_blocks").insert({
-    blocked_user_id: blockedUserId,
-    blocker_user_id: userId,
-    thread_id: threadId
+  const { error } = await supabase.rpc("block_partner_user", {
+    target_user_id: blockedUserId,
+    target_thread_id: threadId
   });
 
   if (error) throw error;
-
-  await partnerMessagingDb
-    .from("partner_conversation_threads")
-    .update({
-      status: "blocked",
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", threadId);
 }

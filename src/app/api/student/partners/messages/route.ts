@@ -56,6 +56,28 @@ function cleanBody(value: unknown) {
   return cleanInput(value, 2000);
 }
 
+
+async function partnerPairIsBlocked(
+  supabase: ReturnType<typeof createAdminClient>,
+  firstUserId: string,
+  secondUserId: string,
+) {
+  const { data, error } = await supabase
+    .from("partner_user_blocks")
+    .select("id")
+    .or(
+      `and(blocker_user_id.eq.${firstUserId},blocked_user_id.eq.${secondUserId}),and(blocker_user_id.eq.${secondUserId},blocked_user_id.eq.${firstUserId})`
+    )
+    .limit(1);
+
+  if (error) {
+    console.error("Failed to check partner block state", error.message);
+    throw error;
+  }
+
+  return Boolean(data?.length);
+}
+
 function previewMessage(value: string) {
   return value.length > 120 ? `${value.slice(0, 117)}...` : value;
 }
@@ -149,6 +171,14 @@ export async function POST(request: NextRequest) {
 
     if (partnerProfile.user_id === user.id) {
       return jsonError("You cannot message your own partner listing.");
+    }
+
+    try {
+      if (await partnerPairIsBlocked(supabase, user.id, partnerProfile.user_id)) {
+        return jsonError("You cannot contact this dancer.", 409);
+      }
+    } catch {
+      return jsonError("Partner safety controls are temporarily unavailable.", 503);
     }
 
     const profileMessageRateLimit = checkRateLimit(
@@ -262,6 +292,14 @@ export async function POST(request: NextRequest) {
 
   if (thread.status === "blocked") {
     return jsonError("Messaging is paused for this partner conversation.", 409);
+  }
+
+  try {
+    if (await partnerPairIsBlocked(supabase, thread.requester_user_id, thread.partner_user_id)) {
+      return jsonError("Messaging is paused for this partner conversation.", 409);
+    }
+  } catch {
+    return jsonError("Partner safety controls are temporarily unavailable.", 503);
   }
 
   const { data: messageRow, error: messageError } = await supabase

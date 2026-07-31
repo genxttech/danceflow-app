@@ -26,7 +26,7 @@
       ],
       "adaptiveIcon": {
         "backgroundColor": "#071427",
-        "foregroundImage": "./assets/danceflow-logo.png"
+        "foregroundImage": "./assets/danceflow-adaptive-foreground.png"
       },
       "versionCode": 1
     },
@@ -52,7 +52,7 @@
       },
       "router": {}
     },
-    "icon": "./assets/danceflow-logo.png",
+    "icon": "./assets/danceflow-app-icon.png",
     "splash": {
       "image": "./assets/danceflow-logo.png",
       "resizeMode": "contain",

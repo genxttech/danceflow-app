@@ -1,11 +1,13 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Image, StyleSheet, TextInput, useColorScheme, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { loadStudentLearnOverview, type StudentLearnOverview } from "@/lib/studentLearn";
 import {
@@ -56,6 +58,8 @@ export default function LumiScreen() {
   const [schedule, setSchedule] = useState<StudentScheduleOverview>(emptySchedule);
   const [draftPrompt, setDraftPrompt] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const [reportStatus, setReportStatus] = useState<string | null>(null);
 
   const incomingPrompt = useMemo(() => {
     const prompt = Array.isArray(params.prompt) ? params.prompt[0] : params.prompt;
@@ -115,6 +119,7 @@ export default function LumiScreen() {
 
     setDraftPrompt(incomingPrompt);
     setAnswer(null);
+    setReportStatus(null);
   }, [incomingPrompt]);
 
   function buildLocalAnswer(prompt: string) {
@@ -257,7 +262,50 @@ export default function LumiScreen() {
       return;
     }
 
+    setReportStatus(null);
     setAnswer(buildLocalAnswer(prompt));
+  }
+
+  function reportResponse() {
+    const userId = session?.user.id;
+    const prompt = draftPrompt.trim();
+
+    if (!userId || !answer || reporting) return;
+
+    Alert.alert(
+      "Report this LUMI response?",
+      "This sends the response and your prompt to DanceFlow for safety review.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Report",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setReporting(true);
+              setReportStatus(null);
+
+              try {
+                const { error } = await supabase.from("lumi_response_reports").insert({
+                  user_id: userId,
+                  prompt,
+                  response: answer,
+                  source: "student_mobile",
+                  status: "open"
+                });
+
+                if (error) throw error;
+                setReportStatus("Thanks. This LUMI response was reported for review.");
+              } catch {
+                setReportStatus("We could not submit that report yet.");
+              } finally {
+                setReporting(false);
+              }
+            })();
+          }
+        }
+      ]
+    );
   }
 
   if (loadingAccess) {
@@ -391,6 +439,21 @@ export default function LumiScreen() {
         <View style={styles.answerCard}>
           <AppText variant="eyebrow">LUMI response</AppText>
           <AppText variant="caption">{answer}</AppText>
+          <Pressable
+            accessibilityRole="button"
+            disabled={reporting}
+            onPress={reportResponse}
+            style={({ pressed }) => [
+              styles.reportButton,
+              pressed && !reporting ? styles.reportButtonPressed : null
+            ]}
+          >
+            <Ionicons color={colors.accent} name="flag-outline" size={16} />
+            <AppText style={styles.reportButtonText}>
+              {reporting ? "Reporting..." : "Report response"}
+            </AppText>
+          </Pressable>
+          {reportStatus ? <AppText variant="caption">{reportStatus}</AppText> : null}
         </View>
       ) : null}
     </Screen>
@@ -457,6 +520,26 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   promptSection: {
     gap: 10
+  },
+  reportButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 8
+  },
+  reportButtonPressed: {
+    opacity: 0.78
+  },
+  reportButtonText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900"
   }
   });
 }

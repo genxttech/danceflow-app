@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   blockPartnerThread,
@@ -26,6 +26,8 @@ function formatMessageTime(value: string) {
 }
 
 export default function PartnerThreadScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const { threadId } = useLocalSearchParams<{ threadId: string }>();
   const { session } = useAuth();
   const user = session?.user ?? null;
@@ -89,35 +91,65 @@ export default function PartnerThreadScreen() {
     }
   }
 
-  async function reportThread() {
+  function reportThread() {
     if (!threadId || !user) return;
 
-    try {
-      await reportPartnerThread({
-        reason: "Reported from Partner Messages",
-        threadId,
-        userId: user.id
-      });
-      setStatusMessage("Thanks. DanceFlow will review this conversation.");
-    } catch {
-      setErrorMessage("We could not submit that report yet.");
-    }
+    Alert.alert(
+      "Report this conversation?",
+      "DanceFlow will record the conversation for moderation review.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Report",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await reportPartnerThread({
+                  reason: "Reported from Partner Messages",
+                  threadId,
+                  userId: user.id
+                });
+                setStatusMessage("Thanks. DanceFlow will review this conversation.");
+              } catch {
+                setErrorMessage("We could not submit that report yet.");
+              }
+            })();
+          }
+        }
+      ]
+    );
   }
 
-  async function blockThread() {
+  function blockThread() {
     if (!threadId || !user || !otherUserId) return;
 
-    try {
-      await blockPartnerThread({
-        blockedUserId: otherUserId,
-        threadId,
-        userId: user.id
-      });
-      setStatusMessage("This conversation has been blocked.");
-      await loadThread();
-    } catch {
-      setErrorMessage("We could not block this conversation yet.");
-    }
+    Alert.alert(
+      "Block this dancer?",
+      "Neither of you will be able to continue messaging, and this dancer will be removed from your Partner Search results.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await blockPartnerThread({
+                  blockedUserId: otherUserId,
+                  threadId,
+                  userId: user.id
+                });
+                setStatusMessage("This dancer has been blocked.");
+                await loadThread();
+              } catch {
+                setErrorMessage("We could not block this conversation yet.");
+              }
+            })();
+          }
+        }
+      ]
+    );
   }
 
   if (!user) {
@@ -227,7 +259,8 @@ export default function PartnerThreadScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   avatar: {
     borderRadius: 24,
     height: 48,
@@ -308,7 +341,7 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   statusPill: {
-    backgroundColor: "#fff4e7",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
@@ -347,4 +380,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12
   }
-});
+  });
+}
