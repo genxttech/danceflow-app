@@ -1,12 +1,12 @@
 import { Link, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -107,7 +107,13 @@ function entryTone(kind: CalendarEntry["kind"]) {
       };
 }
 
-function CalendarEntryCard({ entry }: { entry: CalendarEntry }) {
+function CalendarEntryCard({
+  entry,
+  styles,
+}: {
+  entry: CalendarEntry;
+  styles: ReturnType<typeof createStyles>;
+}) {
   const router = useRouter();
   const tone = entryTone(entry.kind);
   const subtitle = displayScheduleSubtitle(entry.item);
@@ -180,15 +186,19 @@ function CalendarEntryCard({ entry }: { entry: CalendarEntry }) {
 function SummaryPill({
   icon,
   label,
-  value
+  value,
+  styles,
+  primaryColor,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: number;
+  styles: ReturnType<typeof createStyles>;
+  primaryColor: string;
 }) {
   return (
     <View style={styles.summaryPill}>
-      <Ionicons color={colors.primary} name={icon} size={16} />
+      <Ionicons color={primaryColor} name={icon} size={16} />
       <AppText style={styles.summaryValue}>{value}</AppText>
       <AppText style={styles.summaryLabel}>{label}</AppText>
     </View>
@@ -197,6 +207,9 @@ function SummaryPill({
 
 export default function ScheduleScreen() {
   const { session } = useAuth();
+  const router = useRouter();
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [overview, setOverview] = useState<StudentScheduleOverview | null>(null);
@@ -302,7 +315,7 @@ export default function ScheduleScreen() {
   const signedIn = Boolean(session);
 
   return (
-    <Screen>
+    <Screen refreshing={loading} onRefresh={signedIn ? loadSchedule : undefined}>
       <View style={styles.hero}>
         <View style={styles.heroTopRow}>
           <View>
@@ -330,9 +343,27 @@ export default function ScheduleScreen() {
         </AppText>
 
         <View style={styles.summaryRow}>
-          <SummaryPill icon="person-outline" label="Lessons" value={lessonCount} />
-          <SummaryPill icon="people-outline" label="Classes" value={classCount} />
-          <SummaryPill icon="ticket-outline" label="Events" value={eventCount} />
+          <SummaryPill
+            icon="person-outline"
+            label="Lessons"
+            value={lessonCount}
+            styles={styles}
+            primaryColor={colors.primary}
+          />
+          <SummaryPill
+            icon="people-outline"
+            label="Classes"
+            value={classCount}
+            styles={styles}
+            primaryColor={colors.primary}
+          />
+          <SummaryPill
+            icon="ticket-outline"
+            label="Events"
+            value={eventCount}
+            styles={styles}
+            primaryColor={colors.primary}
+          />
         </View>
       </View>
 
@@ -344,7 +375,10 @@ export default function ScheduleScreen() {
       ) : null}
 
       {!loading && errorMessage ? (
-        <FeatureCard title="Schedule unavailable" detail={errorMessage} />
+        <View style={styles.stateCard}>
+          <FeatureCard title="Schedule unavailable" detail={errorMessage} />
+          <AppButton label="Try again" onPress={loadSchedule} variant="secondary" />
+        </View>
       ) : null}
 
       {!loading && !signedIn ? (
@@ -468,7 +502,7 @@ export default function ScheduleScreen() {
           {entriesForSelectedDate.length > 0 ? (
             <View style={styles.agendaList}>
               {entriesForSelectedDate.map((entry) => (
-                <CalendarEntryCard key={entry.id} entry={entry} />
+                <CalendarEntryCard key={entry.id} entry={entry} styles={styles} />
               ))}
             </View>
           ) : (
@@ -495,6 +529,30 @@ export default function ScheduleScreen() {
               </View>
             </View>
           )}
+
+          {eventCount > 0 ? (
+            <Pressable
+              onPress={() => router.push("/schedule/events")}
+              style={({ pressed }) => [
+                styles.eventActivityCard,
+                pressed && styles.pressed
+              ]}
+            >
+              <View style={styles.eventActivityIcon}>
+                <Ionicons color="#FFFFFF" name="ticket-outline" size={18} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppText style={styles.eventActivityLabel}>Event activity</AppText>
+                <AppText style={styles.eventActivityTitle}>
+                  {eventCount} event {eventCount === 1 ? "item" : "items"} in your DanceFlow account
+                </AppText>
+                <AppText style={styles.eventActivityDetail}>
+                  Open registered events and tickets alongside your lesson and class schedule.
+                </AppText>
+              </View>
+              <Ionicons color={colors.primary} name="chevron-forward" size={18} />
+            </Pressable>
+          ) : null}
 
           {nextEntry ? (
             <View style={styles.nextCard}>
@@ -553,9 +611,10 @@ export default function ScheduleScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   agendaCount: {
-    color: "#64748B",
+    color: colors.muted,
     fontSize: 13,
     fontWeight: "700"
   },
@@ -575,15 +634,15 @@ const styles = StyleSheet.create({
     gap: 12
   },
   agendaTitle: {
-    color: "#0F172A",
+    color: colors.text,
     fontSize: 22,
     fontWeight: "900",
     marginTop: 4
   },
   calendarArrow: {
     alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    borderColor: "#E2E8F0",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
     borderRadius: 14,
     borderWidth: 1,
     height: 42,
@@ -591,13 +650,13 @@ const styles = StyleSheet.create({
     width: 42
   },
   calendarCard: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 24,
     borderWidth: 1,
     elevation: 2,
     padding: 16,
-    shadowColor: "#0F172A",
+    shadowColor: colors.text,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
     shadowRadius: 22
@@ -611,7 +670,7 @@ const styles = StyleSheet.create({
     alignItems: "center"
   },
   calendarMonth: {
-    color: "#0F172A",
+    color: colors.text,
     fontSize: 18,
     fontWeight: "900"
   },
@@ -635,10 +694,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary
   },
   dayDotSelected: {
-    backgroundColor: "#FFFFFF"
+    backgroundColor: colors.white
   },
   dayName: {
-    color: "#94A3B8",
+    color: colors.muted,
     fontSize: 11,
     fontWeight: "800",
     textTransform: "uppercase"
@@ -647,12 +706,12 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.78)"
   },
   dayNumber: {
-    color: "#334155",
+    color: colors.text,
     fontSize: 17,
     fontWeight: "900"
   },
   dayNumberSelected: {
-    color: "#FFFFFF"
+    color: colors.white
   },
   dayNumberToday: {
     color: colors.primary
@@ -664,15 +723,15 @@ const styles = StyleSheet.create({
   },
   emptyDayCard: {
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#CBD5E1",
+    backgroundColor: colors.white,
+    borderColor: colors.borderStrong,
     borderRadius: 24,
     borderStyle: "dashed",
     borderWidth: 1,
     padding: 24
   },
   emptyDayDetail: {
-    color: "#64748B",
+    color: colors.muted,
     fontSize: 14,
     lineHeight: 21,
     marginTop: 6,
@@ -680,14 +739,14 @@ const styles = StyleSheet.create({
   },
   emptyDayIcon: {
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     height: 48,
     justifyContent: "center",
     width: 48
   },
   emptyDayTitle: {
-    color: "#0F172A",
+    color: colors.text,
     fontSize: 18,
     fontWeight: "900",
     marginTop: 14
@@ -704,7 +763,7 @@ const styles = StyleSheet.create({
     padding: 16
   },
   entryCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.white,
     borderRadius: 22,
     borderWidth: 1,
     elevation: 1,
@@ -722,13 +781,13 @@ const styles = StyleSheet.create({
     width: 36
   },
   entryStatus: {
-    color: "#64748B",
+    color: colors.muted,
     fontSize: 11,
     fontWeight: "700",
     marginTop: 2
   },
   entryTitle: {
-    color: "#0F172A",
+    color: colors.text,
     fontSize: 18,
     fontWeight: "900"
   },
@@ -745,14 +804,14 @@ const styles = StyleSheet.create({
   },
   guestCard: {
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 24,
     borderWidth: 1,
     padding: 24
   },
   guestDetail: {
-    color: "#64748B",
+    color: colors.muted,
     fontSize: 14,
     lineHeight: 21,
     marginBottom: 18,
@@ -761,38 +820,38 @@ const styles = StyleSheet.create({
   },
   guestIcon: {
     alignItems: "center",
-    backgroundColor: "#F5F3FF",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     height: 54,
     justifyContent: "center",
     width: 54
   },
   guestTitle: {
-    color: "#0F172A",
+    color: colors.text,
     fontSize: 20,
     fontWeight: "900",
     marginTop: 14
   },
   hero: {
-    backgroundColor: "#17112B",
+    backgroundColor: colors.backgroundSoft,
     borderRadius: 28,
     padding: 20
   },
   heroDetail: {
-    color: "rgba(255,255,255,0.72)",
+    color: colors.muted,
     fontSize: 14,
     lineHeight: 21,
     marginTop: 10
   },
   heroEyebrow: {
-    color: "#C4B5FD",
+    color: colors.accent,
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 1.4,
     textTransform: "uppercase"
   },
   heroTitle: {
-    color: "#FFFFFF",
+    color: colors.text,
     fontSize: 28,
     fontWeight: "900",
     marginTop: 5
@@ -808,21 +867,21 @@ const styles = StyleSheet.create({
     gap: 7
   },
   metaText: {
-    color: "#64748B",
+    color: colors.muted,
     flex: 1,
     fontSize: 13,
     lineHeight: 19
   },
   nextCard: {
     alignItems: "center",
-    backgroundColor: "#17112B",
+    backgroundColor: colors.backgroundSoft,
     borderRadius: 22,
     flexDirection: "row",
     gap: 12,
     padding: 16
   },
   nextDetail: {
-    color: "rgba(255,255,255,0.72)",
+    color: colors.muted,
     fontSize: 12,
     marginTop: 3
   },
@@ -835,14 +894,14 @@ const styles = StyleSheet.create({
     width: 40
   },
   nextLabel: {
-    color: "#C4B5FD",
+    color: colors.accent,
     fontSize: 11,
     fontWeight: "900",
     letterSpacing: 0.8,
     textTransform: "uppercase"
   },
   nextTitle: {
-    color: "#FFFFFF",
+    color: colors.text,
     fontSize: 16,
     fontWeight: "900",
     marginTop: 3
@@ -852,7 +911,7 @@ const styles = StyleSheet.create({
   },
   refreshButton: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: colors.surface,
     borderRadius: 14,
     height: 42,
     justifyContent: "center",
@@ -860,34 +919,36 @@ const styles = StyleSheet.create({
   },
   secondaryLink: {
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 16,
     borderWidth: 1,
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 100,
     gap: 7,
     minWidth: 96,
     paddingHorizontal: 10,
     paddingVertical: 14
   },
   secondaryLinkText: {
-    color: "#334155",
+    color: colors.text,
     fontSize: 12,
     fontWeight: "800",
     textAlign: "center"
   },
   secondaryLinks: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10
   },
   summaryLabel: {
-    color: "rgba(255,255,255,0.64)",
+    color: colors.muted,
     fontSize: 10,
     fontWeight: "700"
   },
   summaryPill: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     flex: 1,
     paddingHorizontal: 8,
@@ -899,7 +960,7 @@ const styles = StyleSheet.create({
     marginTop: 18
   },
   summaryValue: {
-    color: "#FFFFFF",
+    color: colors.text,
     fontSize: 18,
     fontWeight: "900",
     marginTop: 4
@@ -910,9 +971,50 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 3
   },
+  eventActivityCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 16
+  },
+  eventActivityDetail: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3
+  },
+  eventActivityIcon: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  eventActivityLabel: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase"
+  },
+  eventActivityTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  stateCard: {
+    gap: 10
+  },
   weekRow: {
     flexDirection: "row",
     gap: 3,
     marginTop: 16
   }
-});
+  });
+}

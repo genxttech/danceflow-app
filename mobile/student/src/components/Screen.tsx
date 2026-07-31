@@ -1,9 +1,11 @@
 import type React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  RefreshControl,
   ScrollView,
   StyleSheet,
   useColorScheme,
+  useWindowDimensions,
   View,
   type ViewStyle,
 } from "react-native";
@@ -14,12 +16,24 @@ type ScreenProps = {
   children: React.ReactNode;
   scroll?: boolean;
   style?: ViewStyle;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 };
 
-export function Screen({ children, scroll = true, style }: ScreenProps) {
+export function Screen({
+  children,
+  scroll = true,
+  style,
+  refreshing = false,
+  onRefresh,
+}: ScreenProps) {
   const colors = colorsForScheme(useColorScheme());
+  const { width } = useWindowDimensions();
+  const contentWidthStyle = width >= 900 ? styles.contentWide : null;
 
-  const content = <View style={[styles.content, style]}>{children}</View>;
+  const content = (
+    <View style={[styles.content, contentWidthStyle, style]}>{children}</View>
+  );
 
   return (
     <LinearGradient colors={colors.appBackgroundGradient} style={styles.gradient}>
@@ -28,7 +42,20 @@ export function Screen({ children, scroll = true, style }: ScreenProps) {
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             contentInsetAdjustmentBehavior="automatic"
+            keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
+            automaticallyAdjustsScrollIndicatorInsets
+            refreshControl={
+              onRefresh ? (
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
+                />
+              ) : undefined
+            }
             showsVerticalScrollIndicator={false}
           >
             {content}
@@ -53,10 +80,16 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   content: {
+    alignSelf: "center",
     flexGrow: 1,
     gap: 16,
-    paddingBottom: 28,
+    maxWidth: "100%",
+    paddingBottom: 32,
     paddingHorizontal: 18,
     paddingTop: 16,
+    width: "100%",
+  },
+  contentWide: {
+    maxWidth: 760,
   },
 });

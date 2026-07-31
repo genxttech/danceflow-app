@@ -14,6 +14,9 @@ export function FeatureCard({ title, detail, label }: FeatureCardProps) {
 
   return (
     <View
+      accessible
+      accessibilityLabel={[label, title, detail].filter(Boolean).join(". ")}
+      accessibilityRole="summary"
       style={[
         styles.card,
         {

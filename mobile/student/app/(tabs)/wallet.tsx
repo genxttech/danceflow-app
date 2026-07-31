@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Image, Linking, Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
@@ -126,6 +126,66 @@ function WalletCategoryCard({
         </View>
         <AppText style={styles.categoryDetail}>{detail}</AppText>
       </View>
+    </Pressable>
+  );
+}
+
+function WalletSummaryChip({
+  label,
+  value,
+  styles,
+}: {
+  label: string;
+  value: string | number;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.summaryChip}>
+      <AppText style={styles.summaryChipLabel}>{label}</AppText>
+      <AppText style={styles.summaryChipValue}>{value}</AppText>
+    </View>
+  );
+}
+
+function WalletQuickAction({
+  icon,
+  title,
+  detail,
+  onPress,
+  styles,
+  accent = false,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  detail: string;
+  onPress: () => void;
+  styles: ReturnType<typeof createStyles>;
+  accent?: boolean;
+}) {
+  const colors = colorsForScheme(useColorScheme());
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.quickActionCard,
+        accent && styles.quickActionCardAccent,
+        pressed && styles.cardPressed
+      ]}
+    >
+      <View
+        style={[
+          styles.quickActionIcon,
+          { backgroundColor: accent ? colors.accent : colors.primary }
+        ]}
+      >
+        <Ionicons color="#fff" name={icon} size={20} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <AppText style={styles.quickActionTitle}>{title}</AppText>
+        <AppText style={styles.quickActionDetail}>{detail}</AppText>
+      </View>
+      <Ionicons color={colors.muted} name="chevron-forward" size={18} />
     </Pressable>
   );
 }
@@ -423,20 +483,28 @@ export default function WalletScreen() {
           : "Stripe confirmed the purchase. Ticket codes can take a moment to finish issuing, so Wallet will refresh automatically.";
 
   return (
-    <Screen>
-      <AppText variant="eyebrow">Wallet</AppText>
-      <AppText variant="title">Your dance essentials in one place</AppText>
-      <AppText variant="caption">
-        Wallet keeps your event tickets, QR codes, studio pass, memberships, and lesson package balances handy as your DanceFlow account grows.
-      </AppText>
+    <Screen refreshing={loading} onRefresh={isSignedIn ? () => void loadWallet({ force: true }) : undefined}>
+      <View style={styles.hero}>
+        <AppText style={styles.heroEyebrow}>Wallet</AppText>
+        <AppText style={styles.heroTitle}>Your dance essentials</AppText>
+        <AppText style={styles.heroDetail}>
+          Tickets, payments, memberships, packages, documents, and studio access in one place.
+        </AppText>
 
-      {isSignedIn ? (
-        <AppButton
-          label="Documents"
-          onPress={() => router.push("/wallet/documents" as never)}
-          variant="secondary"
-        />
-      ) : null}
+        {isSignedIn ? (
+          <ScrollView
+            horizontal
+            contentContainerStyle={styles.summaryScroller}
+            showsHorizontalScrollIndicator={false}
+          >
+            <WalletSummaryChip label="Tickets" value={tickets.length} styles={styles} />
+            <WalletSummaryChip label="Payments" value={paymentRequests.length} styles={styles} />
+            <WalletSummaryChip label="Packages" value={packages.length} styles={styles} />
+            <WalletSummaryChip label="Memberships" value={memberships.length} styles={styles} />
+            <WalletSummaryChip label="Digital" value={digitalPurchases.length} styles={styles} />
+          </ScrollView>
+        ) : null}
+      </View>
 
       {!isSignedIn || !hasPortalAccess ? (
         <View style={styles.valueList}>
@@ -508,60 +576,93 @@ export default function WalletScreen() {
 
       {!loading && isSignedIn ? (
         <>
-          <View style={styles.categoryList}>
-            <WalletCategoryCard
-              active={false}
-              countLabel={hasPortalAccess ? "Ready" : "Basic"}
-              detail="Your DanceFlow account and connected studio access."
-              icon="person-circle-outline"
-              onPress={() => router.push("/wallet/profile")}
-              title="Profile & Settings"
-            />
-            <WalletCategoryCard
-              active={false}
-              countLabel={`${tickets.length}`}
-              detail="Event tickets, QR codes, and check-in codes."
-              icon="ticket-outline"
-              onPress={() => router.push("/wallet/event-tickets")}
-              title="Event Tickets"
-            />
-            <WalletCategoryCard
-              active={false}
-              countLabel={`${paymentRequests.length}`}
-              detail="Open payment requests from your connected studios."
-              icon="cash-outline"
-              onPress={() => router.push("/wallet/payment-requests")}
-              title="Payment Requests"
-            />
-            <WalletCategoryCard
-              active={false}
-              countLabel={`${packages.length}`}
-              detail="Lesson packages, credits, and remaining balances."
-              icon="albums-outline"
-              onPress={() => router.push("/wallet/packages")}
-              title="Packages"
-            />
-            <WalletCategoryCard
-              active={false}
-              countLabel={`${memberships.length}`}
-              detail="Active memberships, renewal dates, and membership status."
-              icon="card-outline"
-              onPress={() => router.push("/wallet/memberships")}
-              title="Memberships"
-            />
-            <WalletCategoryCard
-              active={false}
-              countLabel={`${digitalPurchases.length}`}
-              detail="Purchased videos, series, downloads, and secure digital access."
-              icon="play-circle-outline"
-              onPress={() => router.push("/wallet/digital-purchases" as never)}
-              title="Digital Purchases"
-            />
+          {paymentRequests.length > 0 ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View style={{ flex: 1 }}>
+                  <AppText variant="eyebrow">Needs your attention</AppText>
+                  <AppText variant="subtitle">Open payment requests</AppText>
+                </View>
+                <AppText style={styles.sectionCount}>{paymentRequests.length}</AppText>
+              </View>
+              {paymentRequests.slice(0, 2).map((payment) => (
+                <PaymentRequestCard key={payment.id} payment={payment} />
+              ))}
+              <AppButton
+                label={paymentRequests.length > 2 ? "View all payment requests" : "Open payment requests"}
+                onPress={() => router.push("/wallet/payment-requests")}
+                variant="secondary"
+              />
+            </View>
+          ) : null}
+
+          <View style={styles.section}>
+            <AppText variant="eyebrow">Quick access</AppText>
+            <View style={styles.quickActionList}>
+              <WalletQuickAction
+                icon="ticket-outline"
+                title="Event Tickets"
+                detail={`${tickets.length} ticket${tickets.length === 1 ? "" : "s"} and check-in codes`}
+                onPress={() => router.push("/wallet/event-tickets")}
+                styles={styles}
+                accent
+              />
+              <WalletQuickAction
+                icon="document-text-outline"
+                title="Documents"
+                detail="Review pending signatures and completed studio documents"
+                onPress={() => router.push("/wallet/documents" as never)}
+                styles={styles}
+              />
+              <WalletQuickAction
+                icon="person-circle-outline"
+                title="Profile & Settings"
+                detail={hasPortalAccess ? "DanceFlow pass and connected studio access" : "Account profile and preferences"}
+                onPress={() => router.push("/wallet/profile")}
+                styles={styles}
+              />
+            </View>
           </View>
+
+          <View style={styles.section}>
+            <AppText variant="eyebrow">Balances & access</AppText>
+            <View style={styles.categoryList}>
+              <WalletCategoryCard
+                active={false}
+                countLabel={`${packages.length}`}
+                detail="Lesson packages, credits, and remaining balances."
+                icon="albums-outline"
+                onPress={() => router.push("/wallet/packages")}
+                title="Packages"
+              />
+              <WalletCategoryCard
+                active={false}
+                countLabel={`${memberships.length}`}
+                detail="Active memberships, renewal dates, and membership status."
+                icon="card-outline"
+                onPress={() => router.push("/wallet/memberships")}
+                title="Memberships"
+              />
+              <WalletCategoryCard
+                active={false}
+                countLabel={`${digitalPurchases.length}`}
+                detail="Purchased videos, series, downloads, and secure digital access."
+                icon="play-circle-outline"
+                onPress={() => router.push("/wallet/digital-purchases" as never)}
+                title="Digital Purchases"
+              />
+            </View>
+          </View>
+
+          {hasPortalAccess ? <StudentPassCard linkedStudios={linkedStudios} /> : null}
+
+          <AppButton
+            label="Refresh wallet"
+            onPress={() => loadWallet({ force: true })}
+            variant="ghost"
+          />
         </>
       ) : null}
-
-{isSignedIn ? <AppButton label="Refresh wallet" onPress={() => loadWallet({ force: true })} variant="secondary" /> : null}
     </Screen>
   );
 }
@@ -570,6 +671,108 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   return StyleSheet.create({
   actionRow: {
     gap: 10
+  },
+  hero: {
+    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.border,
+    borderRadius: 28,
+    borderWidth: 1,
+    gap: 8,
+    overflow: "hidden",
+    padding: 20
+  },
+  heroDetail: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21
+  },
+  heroEyebrow: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase"
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34
+  },
+  summaryScroller: {
+    gap: 8,
+    paddingTop: 10,
+    paddingRight: 8
+  },
+  summaryChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: 92,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  summaryChipLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  summaryChipValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12
+  },
+  sectionCount: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5
+  },
+  quickActionList: {
+    gap: 10
+  },
+  quickActionCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 15
+  },
+  quickActionCardAccent: {
+    borderColor: colors.accent
+  },
+  quickActionIcon: {
+    alignItems: "center",
+    borderRadius: 14,
+    height: 42,
+    justifyContent: "center",
+    width: 42
+  },
+  quickActionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  quickActionDetail: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3
   },
   ctaCard: {
     backgroundColor: colors.surface,
@@ -635,7 +838,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   categoryTitle: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "900"
   },
   countPill: {

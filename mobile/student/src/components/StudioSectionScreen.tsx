@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Image, Linking, Pressable, Share, StyleSheet, View } from "react-native";
+import { Image, Linking, Pressable, Share, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicStudioDetailForMobile,
@@ -94,7 +94,15 @@ function initialsFor(name: string) {
     .join("");
 }
 
-function TagList({ empty, tags }: { empty: string; tags: PublicStudioTag[] }) {
+function TagList({
+  empty,
+  tags,
+  styles,
+}: {
+  empty: string;
+  tags: PublicStudioTag[];
+  styles: ReturnType<typeof createStyles>;
+}) {
   if (!tags.length) {
     return <FeatureCard title="Nothing listed yet" detail={empty} />;
   }
@@ -110,7 +118,13 @@ function TagList({ empty, tags }: { empty: string; tags: PublicStudioTag[] }) {
   );
 }
 
-function StaffCard({ member }: { member: PublicStudioStaffMember }) {
+function StaffCard({
+  member,
+  styles,
+}: {
+  member: PublicStudioStaffMember;
+  styles: ReturnType<typeof createStyles>;
+}) {
   return (
     <View style={styles.staffCard}>
       {member.photoUrl ? (
@@ -145,10 +159,14 @@ function StaffCard({ member }: { member: PublicStudioStaffMember }) {
 
 function EventCard({
   event,
-  onOpen
+  onOpen,
+  styles,
+  primaryColor,
 }: {
   event: PublicEventItem;
   onOpen: (event: PublicEventItem) => void;
+  styles: ReturnType<typeof createStyles>;
+  primaryColor: string;
 }) {
   return (
     <Pressable onPress={() => onOpen(event)} style={({ pressed }) => [styles.eventCard, pressed && styles.pressed]}>
@@ -157,7 +175,7 @@ function EventCard({
         <AppText variant="caption">{event.schedule}</AppText>
         <AppText variant="caption">{event.location}</AppText>
       </View>
-      <Ionicons color={colors.primary} name="chevron-forward" size={20} />
+      <Ionicons color={primaryColor} name="chevron-forward" size={20} />
     </Pressable>
   );
 }
@@ -179,6 +197,8 @@ function formatSlotLabel(slot: StudioSelfServiceSlot) {
 }
 
 export function StudioSectionScreen({ section }: { section: StudioSection }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { session } = useAuth();
@@ -380,7 +400,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
           ]}
         >
           <Ionicons
-            color={studio.favorited ? "#fff" : colors.primary}
+            color={studio.favorited ? colors.white : colors.primary}
             name={studio.favorited ? "heart" : "heart-outline"}
             size={20}
           />
@@ -463,7 +483,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
       {section === "dance-styles" ? (
         <>
           <AppText variant="subtitle">Dance Styles</AppText>
-          <TagList empty="This studio has not selected public dance styles yet." tags={studio.styles} />
+          <TagList empty="This studio has not selected public dance styles yet." tags={studio.styles} styles={styles} />
         </>
       ) : null}
 
@@ -471,7 +491,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
         <>
           <AppText variant="subtitle">Staff</AppText>
           {studio.staff.length ? (
-            studio.staff.map((member) => <StaffCard key={member.id} member={member} />)
+            studio.staff.map((member) => <StaffCard key={member.id} member={member} styles={styles} />)
           ) : (
             <FeatureCard title="No public staff yet" detail="This studio has not published staff profiles." />
           )}
@@ -481,7 +501,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
       {section === "offerings" ? (
         <>
           <AppText variant="subtitle">Offerings</AppText>
-          <TagList empty="This studio has not selected public offerings yet." tags={studio.offerings} />
+          <TagList empty="This studio has not selected public offerings yet." tags={studio.offerings} styles={styles} />
         </>
       ) : null}
 
@@ -490,7 +510,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
           <AppText variant="subtitle">Events</AppText>
           {studio.upcomingEvents.length ? (
             studio.upcomingEvents.map((event) => (
-              <EventCard key={event.id} event={event} onOpen={openEvent} />
+              <EventCard key={event.id} event={event} onOpen={openEvent} styles={styles} primaryColor={colors.primary} />
             ))
           ) : (
             <FeatureCard title="No upcoming events" detail="This studio does not have public events listed right now." />
@@ -604,7 +624,8 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   actionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -613,7 +634,7 @@ const styles = StyleSheet.create({
   },
   badge: {
     alignSelf: "flex-start",
-    backgroundColor: "#fff4e7",
+    backgroundColor: colors.accentSoft,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
@@ -646,7 +667,7 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   choiceChipTextActive: {
-    color: "#fff"
+    color: colors.white
   },
   description: {
     color: colors.text,
@@ -849,4 +870,5 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "900"
   }
-});
+  });
+}

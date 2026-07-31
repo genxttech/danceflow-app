@@ -30,7 +30,14 @@ export function AppButton({
   return (
     <Pressable
       {...props}
+      accessibilityLabel={props.accessibilityLabel ?? label}
+      accessibilityRole={props.accessibilityRole ?? "button"}
+      accessibilityState={{
+        disabled: Boolean(disabled || loading),
+        busy: Boolean(loading),
+      }}
       disabled={disabled || loading}
+      hitSlop={props.hitSlop ?? 4}
       style={({ pressed }) => [
         styles.button,
         isPrimary && {
@@ -46,8 +53,8 @@ export function AppButton({
         pressed && styles.pressed,
         (disabled || loading) && styles.disabled,
         typeof style === "function"
-  ? style({ pressed, hovered: false })
-  : style,
+          ? style({ pressed, hovered: false })
+          : style,
       ]}
     >
       {isPrimary ? (
@@ -80,6 +87,7 @@ const styles = StyleSheet.create({
     elevation: 2,
     justifyContent: "center",
     minHeight: 52,
+    minWidth: 44,
     overflow: "hidden",
     paddingHorizontal: 18,
     shadowOffset: { width: 0, height: 6 },

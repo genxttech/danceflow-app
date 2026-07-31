@@ -1,7 +1,7 @@
 import { Link, router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useState } from "react";
-import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -77,6 +77,23 @@ function LearnCategoryCard({
         <AppText style={styles.categoryDetail}>{detail}</AppText>
       </View>
     </Pressable>
+  );
+}
+
+function LearnSummaryChip({
+  label,
+  value,
+  styles,
+}: {
+  label: string;
+  value: string | number;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.summaryChip}>
+      <AppText style={styles.summaryChipLabel}>{label}</AppText>
+      <AppText style={styles.summaryChipValue}>{value}</AppText>
+    </View>
   );
 }
 
@@ -211,12 +228,27 @@ export default function LearnScreen() {
   const recapCount = recentLessons.length + groupLessonRecaps.length;
 
   return (
-    <Screen>
-      <AppText variant="eyebrow">Learn</AppText>
-      <AppText variant="title">Recaps and practice</AppText>
-      <AppText variant="caption">
-        Connect with a studio to bring lesson recaps, practice focus, progress tracking, and LUMI coaching support into DanceFlow.
-      </AppText>
+    <Screen refreshing={loading} onRefresh={session ? () => void load() : undefined}>
+      <View style={styles.hero}>
+        <AppText style={styles.heroEyebrow}>Learn</AppText>
+        <AppText style={styles.heroTitle}>Recaps, practice, and progress</AppText>
+        <AppText style={styles.heroDetail}>
+          Turn studio feedback, syllabus progress, digital learning, and LUMI guidance into clear next steps.
+        </AppText>
+
+        {!loading && hasPortalAccess ? (
+          <ScrollView
+            horizontal
+            contentContainerStyle={styles.summaryScroller}
+            showsHorizontalScrollIndicator={false}
+          >
+            <LearnSummaryChip label="Recaps" value={recapCount} styles={styles} />
+            <LearnSummaryChip label="Syllabi" value={syllabi.length} styles={styles} />
+            <LearnSummaryChip label="Practice" value={practiceFocus.length} styles={styles} />
+            <LearnSummaryChip label="Digital" value={digitalContent.length} styles={styles} />
+          </ScrollView>
+        ) : null}
+      </View>
 
       {loading ? (
         <FeatureCard
@@ -227,14 +259,14 @@ export default function LearnScreen() {
       ) : null}
 
       {errorMessage ? (
-        <>
+        <View style={styles.stateBlock}>
           <FeatureCard
             label="Needs review"
             title="Learning history unavailable"
             detail={errorMessage}
           />
           <AppButton label="Try again" onPress={() => void load()} variant="secondary" />
-        </>
+        </View>
       ) : null}
 
       {!loading && !hasPortalAccess && digitalContent.length === 0 ? (
@@ -243,9 +275,15 @@ export default function LearnScreen() {
 
       {!loading && digitalContent.length > 0 ? (
         <View style={styles.section}>
-          <AppText variant="subtitle">
-            {continueLearning.length > 0 ? "Continue Learning" : "Digital Learning"}
-          </AppText>
+          <View style={styles.sectionHeader}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="eyebrow">Digital library</AppText>
+              <AppText variant="subtitle">
+                {continueLearning.length > 0 ? "Continue learning" : "Digital learning"}
+              </AppText>
+            </View>
+            <AppText style={styles.sectionCount}>{digitalContent.length}</AppText>
+          </View>
           {digitalContent.slice(0, 6).map((item) => (
             <Pressable
               key={item.entitlementId}
@@ -320,6 +358,12 @@ export default function LearnScreen() {
 
       {!loading && hasPortalAccess ? (
         <>
+          <View style={styles.sectionHeader}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="eyebrow">From your studio</AppText>
+              <AppText variant="subtitle">Your learning workspace</AppText>
+            </View>
+          </View>
           <View style={styles.categoryList}>
             <LearnCategoryCard
               countLabel={`${recapCount}`}
@@ -346,6 +390,29 @@ export default function LearnScreen() {
               styles={styles}
             />
           </View>
+
+          <Pressable
+            onPress={() => router.push("/lumi")}
+            style={({ pressed }) => [
+              styles.lumiActionCard,
+              pressed && styles.cardPressed
+            ]}
+          >
+            <Image
+              accessibilityIgnoresInvertColors
+              resizeMode="cover"
+              source={lumiAvatar}
+              style={styles.lumiActionAvatar}
+            />
+            <View style={{ flex: 1 }}>
+              <AppText style={styles.lumiActionEyebrow}>Ask LUMI</AppText>
+              <AppText style={styles.lumiActionTitle}>Turn feedback into a practice plan</AppText>
+              <AppText style={styles.lumiActionDetail}>
+                Use your recent lesson and progress context to decide what to work on next.
+              </AppText>
+            </View>
+            <Ionicons color={colors.primary} name="chevron-forward" size={18} />
+          </Pressable>
         </>
       ) : null}
     </Screen>
@@ -354,6 +421,111 @@ export default function LearnScreen() {
 
 function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   return StyleSheet.create({
+  hero: {
+    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.border,
+    borderRadius: 28,
+    borderWidth: 1,
+    gap: 8,
+    padding: 20
+  },
+  heroEyebrow: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase"
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34
+  },
+  heroDetail: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21
+  },
+  summaryScroller: {
+    gap: 8,
+    paddingTop: 10,
+    paddingRight: 8
+  },
+  summaryChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: 92,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  summaryChipLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  summaryChipValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  stateBlock: {
+    gap: 10
+  },
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between"
+  },
+  sectionCount: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 999,
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5
+  },
+  lumiActionCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 16
+  },
+  lumiActionAvatar: {
+    borderRadius: 24,
+    height: 48,
+    width: 48
+  },
+  lumiActionEyebrow: {
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase"
+  },
+  lumiActionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    marginTop: 2
+  },
+  lumiActionDetail: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3
+  },
   highlightCard: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: 18,
@@ -424,7 +596,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   categoryTitle: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "900"
   },
   countPill: {

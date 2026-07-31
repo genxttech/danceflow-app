@@ -86,3 +86,26 @@ export const spacing = {
   lg: 24,
   xl: 32
 };
+
+
+export const radii = {
+  sm: 12,
+  md: 16,
+  lg: 22,
+  xl: 28,
+  pill: 999,
+};
+
+export const touchTargets = {
+  minimum: 44,
+  comfortable: 52,
+};
+
+export const shadows = {
+  card: {
+    elevation: 2,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+  },
+};

@@ -1,9 +1,9 @@
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 
 type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
 
@@ -59,12 +59,14 @@ const EVENT_CATEGORY_BUTTONS: Array<{
 
 export default function EventsHubScreen() {
   const router = useRouter();
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
 
   return (
     <Screen>
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
-          <Ionicons color="#fff" name="ticket-outline" size={24} />
+          <Ionicons color={colors.primary} name="ticket-outline" size={24} />
         </View>
         <View style={{ flex: 1 }}>
           <AppText variant="eyebrow">Events</AppText>
@@ -97,7 +99,8 @@ export default function EventsHubScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   cardPressed: {
     opacity: 0.78
   },
@@ -135,29 +138,32 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: "center",
-    backgroundColor: colors.primaryDark,
+    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.border,
+    borderWidth: 1,
     borderRadius: 22,
     flexDirection: "row",
     gap: 14,
     padding: 18
   },
   heroDetail: {
-    color: "rgba(255,255,255,0.8)",
+    color: colors.muted,
     fontSize: 13,
     lineHeight: 19
   },
   heroIcon: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.16)",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     height: 50,
     justifyContent: "center",
     width: 50
   },
   heroTitle: {
-    color: "#fff",
+    color: colors.text,
     fontSize: 22,
     fontWeight: "900",
     marginBottom: 4
   }
-});
+  });
+}

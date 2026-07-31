@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -45,18 +45,37 @@ function firstNameFromSession(session: ReturnType<typeof useAuth>["session"]) {
   return displayName.split(" ")[0] || "Dancer";
 }
 
+function HomeSummaryChip({
+  label,
+  value,
+  styles,
+}: {
+  label: string;
+  value: string | number;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.summaryChip}>
+      <AppText style={styles.summaryChipLabel}>{label}</AppText>
+      <AppText style={styles.summaryChipValue}>{value}</AppText>
+    </View>
+  );
+}
+
 function HomeActionCard({
   detail,
   icon,
   label,
   onPress,
-  title
+  title,
+  styles,
 }: {
   detail: string;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
   title: string;
+  styles: ReturnType<typeof createStyles>;
 }) {
   const colors = colorsForScheme(useColorScheme());
 
@@ -88,6 +107,7 @@ function HomeActionCard({
 export default function HomeScreen() {
   const { session } = useAuth();
   const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [loadingAccess, setLoadingAccess] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -170,18 +190,45 @@ export default function HomeScreen() {
 
   return (
     <Screen>
-      <View style={[styles.hero, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+      <View style={styles.hero}>
         <Image accessibilityIgnoresInvertColors resizeMode="contain" source={danceFlowLogo} style={styles.logo} />
-        <AppText variant="title">
-          {isGuest ? "Welcome to DanceFlow" : `Welcome back, ${greetingName}`}
+        <AppText style={styles.heroEyebrow}>
+          {isGuest ? "DanceFlow" : "Your dance day"}
         </AppText>
-        <AppText variant="caption">
+        <AppText style={styles.heroTitle}>
+          {isGuest ? "Find your next place to dance" : `Welcome back, ${greetingName}`}
+        </AppText>
+        <AppText style={styles.heroDetail}>
           {isGuest
-            ? "Find dance studios, events, lessons, and social dancing near you."
+            ? "Explore studios, events, lessons, and social dancing from one place."
             : hasPortalAccess
-              ? `${session.user.email ?? "DanceFlow"} · ${primaryStudio?.studioPublicName || primaryStudio?.studioName}`
-              : "Your dancer account is ready. Save favorites, keep tickets handy, and complete your profile."}
+              ? `${primaryStudio?.studioPublicName || primaryStudio?.studioName} is connected to your DanceFlow account.`
+              : "Your dancer account is ready. Save favorites, keep tickets handy, and connect with a studio when you're ready."}
         </AppText>
+
+        {!isGuest ? (
+          <ScrollView
+            horizontal
+            contentContainerStyle={styles.summaryScroller}
+            showsHorizontalScrollIndicator={false}
+          >
+            <HomeSummaryChip
+              label="Upcoming"
+              value={scheduleOverview?.upcoming.length ?? 0}
+              styles={styles}
+            />
+            <HomeSummaryChip
+              label="Requests"
+              value={pendingRequests}
+              styles={styles}
+            />
+            <HomeSummaryChip
+              label="Saved"
+              value={favoritePreview.length}
+              styles={styles}
+            />
+          </ScrollView>
+        ) : null}
       </View>
 
       {isGuest ? (
@@ -200,18 +247,29 @@ export default function HomeScreen() {
         </>
       ) : hasPortalAccess ? (
         <>
-          <FeatureCard
-            label="Next"
-            title={loadingSchedule ? "Loading your schedule..." : nextItem?.title || "No upcoming lessons yet"}
-            detail={
-              loadingSchedule
+          <View style={styles.nextCard}>
+            <AppText style={styles.nextEyebrow}>Next up</AppText>
+            <AppText style={styles.nextTitle}>
+              {loadingSchedule ? "Loading your schedule..." : nextItem?.title || "No upcoming lessons yet"}
+            </AppText>
+            <AppText style={styles.nextDetail}>
+              {loadingSchedule
                 ? "Checking your connected studio schedule."
                 : nextItem
                   ? `${formatScheduleTimeRange(nextItem.startsAt, nextItem.endsAt, nextItem.timeZone)} · ${nextItem.studioName}`
-                  : "When your studio schedules a lesson, class, rental, or coaching, it will appear here."
-            }
-          />
+                  : "When your studio schedules a lesson, class, rental, or coaching, it will appear here."}
+            </AppText>
+            <AppButton
+              label={nextItem ? "Open schedule" : "View schedule"}
+              onPress={() => router.push("/(tabs)/schedule")}
+              variant="secondary"
+            />
+          </View>
 
+          <View style={styles.sectionHeader}>
+            <AppText variant="eyebrow">Quick actions</AppText>
+            <AppText variant="subtitle">Keep moving</AppText>
+          </View>
           <View style={styles.actionList}>
             <HomeActionCard
               detail={`${scheduleOverview?.upcoming.length ?? 0} confirmed schedule item${
@@ -221,6 +279,7 @@ export default function HomeScreen() {
               label="Upcoming"
               onPress={() => router.push({ pathname: "/(tabs)/schedule", params: { section: "upcoming" } })}
               title="Go to schedule"
+              styles={styles}
             />
             <HomeActionCard
               detail={`${pendingRequests} pending or approved request${
@@ -230,6 +289,7 @@ export default function HomeScreen() {
               label="Requests"
               onPress={() => router.push({ pathname: "/(tabs)/schedule", params: { section: "requests" } })}
               title="View requests"
+              styles={styles}
             />
             <HomeActionCard
               detail={
@@ -241,6 +301,7 @@ export default function HomeScreen() {
               label="Progress"
               onPress={() => router.push("/(tabs)/learn")}
               title="Open Learn"
+              styles={styles}
             />
           </View>
         </>
@@ -261,7 +322,12 @@ export default function HomeScreen() {
       )}
 
       {!isGuest ? (
-        <View style={[styles.savedCard, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: colors.black }]}>
+        <>
+          <View style={styles.sectionHeader}>
+            <AppText variant="eyebrow">Saved</AppText>
+            <AppText variant="subtitle">Studios and events you follow</AppText>
+          </View>
+          <View style={styles.savedCard}>
           <View style={styles.savedHeader}>
             <View style={{ flex: 1 }}>
               <AppText variant="eyebrow">Saved</AppText>
@@ -282,10 +348,11 @@ export default function HomeScreen() {
           ) : (
             <AppText variant="caption">Tap the heart on studios and events in Discover to keep them here.</AppText>
           )}
-        </View>
+          </View>
+        </>
       ) : null}
 
-      <View style={[styles.lumiCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+      <View style={styles.lumiCard}>
         <Image accessibilityIgnoresInvertColors resizeMode="cover" source={lumiAvatar} style={styles.lumiAvatar} />
         <View style={styles.lumiCopy}>
           <AppText variant="eyebrow">LUMI</AppText>
@@ -308,12 +375,88 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   hero: {
-    borderRadius: 24,
+    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.border,
+    borderRadius: 28,
     borderWidth: 1,
-    gap: 9,
+    gap: 8,
     padding: 20
+  },
+  heroEyebrow: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase"
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 29,
+    fontWeight: "900",
+    lineHeight: 35
+  },
+  heroDetail: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21
+  },
+  summaryScroller: {
+    gap: 8,
+    paddingTop: 8,
+    paddingRight: 8
+  },
+  summaryChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: 94,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  summaryChipLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  summaryChipValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  nextCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 8,
+    padding: 17
+  },
+  nextEyebrow: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase"
+  },
+  nextTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  nextDetail: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19
+  },
+  sectionHeader: {
+    gap: 3,
+    paddingHorizontal: 2
   },
   logo: {
     height: 68,
@@ -327,6 +470,8 @@ const styles = StyleSheet.create({
   },
   lumiCard: {
     alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
     borderRadius: 22,
     borderWidth: 1,
     flexDirection: "row",
@@ -338,11 +483,14 @@ const styles = StyleSheet.create({
     gap: 8
   },
   savedCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 22,
     borderWidth: 1,
     elevation: 1,
     gap: 9,
     padding: 17,
+    shadowColor: colors.black,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.05,
     shadowRadius: 12
@@ -354,12 +502,15 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 20,
     borderWidth: 1,
     elevation: 1,
     flexDirection: "row",
     gap: 14,
     padding: 16,
+    shadowColor: colors.black,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.05,
     shadowRadius: 12
@@ -378,4 +529,5 @@ const styles = StyleSheet.create({
     opacity: 0.88,
     transform: [{ scale: 0.99 }]
   }
-});
+  });
+}

@@ -25,37 +25,30 @@ export default function SettingsScreen() {
   const [newLoginEmail, setNewLoginEmail] = useState("");
   const [securityBusy, setSecurityBusy] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
+  async function loadSettings() {
     const userId = session?.user.id;
 
-    async function load() {
-      if (!userId) {
-        setLinkedStudios([]);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setErrorMessage(null);
-
-      try {
-        const access = await getStudentAccess(userId);
-        if (!mounted) return;
-        setLinkedStudios(access.linkedStudios);
-      } catch {
-        if (!mounted) return;
-        setErrorMessage("Settings could not load connected studio details.");
-      } finally {
-        if (mounted) setLoading(false);
-      }
+    if (!userId) {
+      setLinkedStudios([]);
+      setLoading(false);
+      return;
     }
 
-    load();
+    setLoading(true);
+    setErrorMessage(null);
 
-    return () => {
-      mounted = false;
-    };
+    try {
+      const access = await getStudentAccess(userId);
+      setLinkedStudios(access.linkedStudios);
+    } catch {
+      setErrorMessage("Settings could not load connected studio details.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadSettings();
   }, [session?.user.id]);
 
   async function submitEmailChange() {
@@ -165,34 +158,62 @@ export default function SettingsScreen() {
   }
 
   return (
-    <Screen>
-      <AppText variant="eyebrow">Settings</AppText>
-      <AppText variant="title">Account Settings</AppText>
-      <AppText variant="caption">Manage account access and app preferences.</AppText>
-
-      <View style={styles.card}>
-        <AppText variant="eyebrow">Signed in as</AppText>
-        <AppText variant="subtitle">{session?.user.email ?? "DanceFlow account"}</AppText>
-        <AppText variant="caption">
-          {loading
-            ? "Checking connected studios..."
-            : linkedStudios.length === 1
-              ? "1 connected studio"
-              : `${linkedStudios.length} connected studios`}
+    <Screen refreshing={loading} onRefresh={loadSettings}>
+      <View style={styles.hero}>
+        <AppText style={styles.heroEyebrow}>Settings</AppText>
+        <AppText style={styles.heroTitle}>Account & preferences</AppText>
+        <AppText style={styles.heroDetail}>
+          Manage your DanceFlow login, notifications, connected studios, and account data.
         </AppText>
+
+        <View style={styles.accountSummary}>
+          <View style={{ flex: 1 }}>
+            <AppText style={styles.accountLabel}>Signed in as</AppText>
+            <AppText style={styles.accountEmail}>
+              {session?.user.email ?? "DanceFlow account"}
+            </AppText>
+          </View>
+          <View style={styles.connectedBadge}>
+            <AppText style={styles.connectedBadgeValue}>
+              {loading ? "…" : linkedStudios.length}
+            </AppText>
+            <AppText style={styles.connectedBadgeLabel}>
+              {linkedStudios.length === 1 ? "studio" : "studios"}
+            </AppText>
+          </View>
+        </View>
       </View>
 
-      {session?.user.id ? (
-        <NotificationPreferencesCard userId={session.user.id} />
-      ) : (
-        <FeatureCard title="Notification preferences" detail="Sign in to manage app notification settings." />
-      )}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <AppText variant="eyebrow">Preferences</AppText>
+          <AppText variant="subtitle">Notifications</AppText>
+        </View>
+        {session?.user.id ? (
+          <NotificationPreferencesCard userId={session.user.id} />
+        ) : (
+          <FeatureCard
+            title="Notification preferences"
+            detail="Sign in to manage app notification settings."
+          />
+        )}
+      </View>
 
-      {errorMessage ? <FeatureCard title="Settings update" detail={errorMessage} /> : null}
+      {errorMessage ? (
+        <View style={styles.stateBlock}>
+          <FeatureCard title="Settings update" detail={errorMessage} />
+          <AppButton label="Try again" onPress={loadSettings} variant="secondary" />
+        </View>
+      ) : null}
 
-      <View style={styles.securityCard}>
-        <AppText variant="eyebrow">Account &amp; Security</AppText>
-        <AppText variant="subtitle">Login email</AppText>
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <AppText variant="eyebrow">Account</AppText>
+          <AppText variant="subtitle">Login & security</AppText>
+        </View>
+        <View style={styles.securityCard}>
+        <AppText variant="eyebrow">Login email</AppText>
+        <AppText variant="subtitle">Change your login email</AppText>
         <AppText variant="caption">
           Current login: {session?.user.email ?? "DanceFlow account"}
         </AppText>
@@ -208,7 +229,7 @@ export default function SettingsScreen() {
           value={newLoginEmail}
         />
         <AppButton
-          label={securityBusy ? "Please wait..." : "Request Email Change"}
+          label={securityBusy ? "Please wait..." : "Request email change"}
           onPress={submitEmailChange}
           variant="secondary"
         />
@@ -217,10 +238,16 @@ export default function SettingsScreen() {
           onPress={confirmDeactivateAccount}
           variant="secondary"
         />
+        </View>
       </View>
 
-      <View style={styles.securityCard}>
-        <AppText variant="eyebrow">Your Data</AppText>
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <AppText variant="eyebrow">Privacy</AppText>
+          <AppText variant="subtitle">Your data</AppText>
+        </View>
+        <View style={styles.securityCard}>
+        <AppText variant="eyebrow">Export</AppText>
         <AppText variant="subtitle">Download My Data</AppText>
         <AppText variant="caption">
           Download a copy of your DanceFlow profile, preferences, favorites,
@@ -231,25 +258,110 @@ export default function SettingsScreen() {
           onPress={shareAccountData}
           variant="secondary"
         />
+        </View>
       </View>
 
-      <View style={styles.dangerCard}>
-        <AppText variant="eyebrow">Account Controls</AppText>
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <AppText variant="eyebrow">Account controls</AppText>
+          <AppText variant="subtitle">Deactivate or delete</AppText>
+        </View>
+        <View style={styles.dangerCard}>
+        <AppText variant="eyebrow">Permanent deletion</AppText>
         <AppText variant="subtitle">Delete DanceFlow account</AppText>
         <AppText variant="caption">
           Permanently removes your DanceFlow login and account-owned profile data.
           Studios may retain their business records.
         </AppText>
         <AppButton label="Delete Account" onPress={confirmDeleteAccount} variant="secondary" />
+        </View>
       </View>
 
-      <AppButton label="Sign Out" onPress={signOut} variant="secondary" />
+      <AppButton label="Sign Out" onPress={signOut} variant="ghost" />
     </Screen>
   );
 }
 
 function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   return StyleSheet.create({
+  hero: {
+    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.border,
+    borderRadius: 28,
+    borderWidth: 1,
+    gap: 8,
+    padding: 20
+  },
+  heroEyebrow: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase"
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34
+  },
+  heroDetail: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21
+  },
+  accountSummary: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+    padding: 14
+  },
+  accountLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  accountEmail: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  connectedBadge: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 14,
+    minWidth: 62,
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  connectedBadgeValue: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  connectedBadgeLabel: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  section: {
+    gap: 10
+  },
+  sectionHeader: {
+    gap: 3,
+    paddingHorizontal: 2
+  },
+  stateBlock: {
+    gap: 10
+  },
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -271,15 +383,15 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   securityCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     gap: 10,
     padding: 16
   },
   dangerCard: {
     backgroundColor: colors.surface,
-    borderColor: "#fecaca",
-    borderRadius: 18,
+    borderColor: colors.danger,
+    borderRadius: 20,
     borderWidth: 1,
     gap: 8,
     padding: 16

@@ -109,16 +109,21 @@ export default function DiscoverScreen() {
 
   return (
     <Screen>
-      <View style={[styles.hero, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-        <AppText variant="eyebrow">Discover</AppText>
-        <AppText variant="title">What are you looking for?</AppText>
-        <AppText variant="caption">
-          Choose a category first, then search inside that specific area.
+      <View style={[styles.hero, { backgroundColor: colors.backgroundSoft, borderColor: colors.border }]}>
+        <AppText style={[styles.heroEyebrow, { color: colors.accent }]}>Discover</AppText>
+        <AppText style={[styles.heroTitle, { color: colors.text }]}>Find your next dance connection</AppText>
+        <AppText style={[styles.heroDetail, { color: colors.muted }]}>
+          Start with what you need today, then search inside that category.
         </AppText>
       </View>
 
       {loading ? <FeatureCard title="Loading discovery" detail="Checking available categories." /> : null}
       {errorMessage ? <FeatureCard title="Discovery update" detail={errorMessage} /> : null}
+
+      <View style={styles.sectionHeader}>
+        <AppText variant="eyebrow">Explore DanceFlow</AppText>
+        <AppText variant="subtitle">Choose where to start</AppText>
+      </View>
 
       <View style={styles.categoryList}>
         <DiscoverCard
@@ -184,7 +189,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     elevation: 1,
     gap: 13,
-    minHeight: 170,
+    minHeight: 152,
     padding: 16,
     shadowOffset: { width: 0, height: 7 },
     shadowOpacity: 0.06,
@@ -209,8 +214,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   categoryTitle: {
-    fontSize: 19,
-    fontWeight: "800"
+    fontSize: 18,
+    fontWeight: "900"
   },
   countPill: {
     borderRadius: 999,
@@ -221,9 +226,28 @@ const styles = StyleSheet.create({
     paddingVertical: 5
   },
   hero: {
-    borderRadius: 24,
+    borderRadius: 28,
     borderWidth: 1,
     gap: 8,
     padding: 20
+  },
+  heroEyebrow: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase"
+  },
+  heroTitle: {
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34
+  },
+  heroDetail: {
+    fontSize: 14,
+    lineHeight: 21
+  },
+  sectionHeader: {
+    gap: 3,
+    paddingHorizontal: 2
   }
 });

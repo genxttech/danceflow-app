@@ -1,15 +1,18 @@
 import { useEffect } from "react";
+import { useColorScheme } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { StripeProvider } from "@stripe/stripe-react-native";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { usePushNotificationBootstrap } from "@/lib/pushNotifications";
-import { hydrateAppearanceMode } from "@/constants/theme";
+import { colorsForScheme, hydrateAppearanceMode } from "@/constants/theme";
 
 const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || "";
 
 function AppStack() {
   const { session } = useAuth();
+  const scheme = useColorScheme();
+  const colors = colorsForScheme(scheme);
 
   usePushNotificationBootstrap(session?.user.id);
 
@@ -19,8 +22,18 @@ function AppStack() {
 
   return (
     <>
-      <StatusBar style="auto" />
-      <Stack screenOptions={{ headerShown: false }}>
+      <StatusBar style={scheme === "light" ? "dark" : "light"} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+          animation: "slide_from_right",
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.text,
+          headerTitleStyle: { color: colors.text, fontWeight: "800" },
+          headerShadowVisible: false,
+        }}
+      >
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />

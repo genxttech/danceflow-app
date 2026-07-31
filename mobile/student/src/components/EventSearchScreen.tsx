@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, Share, StyleSheet, TextInput, View } from "react-native";
+import { Image, Pressable, Share, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
@@ -7,7 +7,7 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicEventsForMobile,
@@ -103,6 +103,8 @@ function matchesEventCategory(event: PublicEventItem, category: EventSearchCateg
 
 export function EventSearchScreen({ category = "all" }: { category?: EventSearchCategory }) {
   const router = useRouter();
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
   const [events, setEvents] = useState<PublicEventItem[]>([]);
@@ -244,7 +246,7 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
     <Screen>
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
-          <Ionicons color="#fff" name="ticket-outline" size={24} />
+          <Ionicons color={colors.primary} name="ticket-outline" size={24} />
         </View>
         <View style={{ flex: 1 }}>
           <AppText variant="eyebrow">Events</AppText>
@@ -430,7 +432,8 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   actionRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -438,7 +441,7 @@ const styles = StyleSheet.create({
     gap: 8
   },
   badge: {
-    backgroundColor: "#fff4e7",
+    backgroundColor: colors.accentSoft,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
@@ -516,27 +519,29 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: "center",
-    backgroundColor: colors.primaryDark,
+    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.border,
+    borderWidth: 1,
     borderRadius: 22,
     flexDirection: "row",
     gap: 14,
     padding: 18
   },
   heroDetail: {
-    color: "rgba(255,255,255,0.8)",
+    color: colors.muted,
     fontSize: 13,
     lineHeight: 19
   },
   heroIcon: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.16)",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
     height: 50,
     justifyContent: "center",
     width: 50
   },
   heroTitle: {
-    color: "#fff",
+    color: colors.text,
     fontSize: 22,
     fontWeight: "900",
     marginBottom: 4
@@ -631,7 +636,7 @@ const styles = StyleSheet.create({
     fontWeight: "700"
   },
   radiusTextActive: {
-    color: "#fff"
+    color: colors.white
   },
   sectionHeading: {
     gap: 4,
@@ -658,4 +663,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900"
   }
-});
+  });
+}
