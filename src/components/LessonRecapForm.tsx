@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { upsertLessonRecapAction } from "@/app/app/schedule/actions";
+import SyllabusStepPicker from "@/components/SyllabusStepPicker";
 
 type LessonRecapFormState = {
   error?: string;
@@ -19,12 +20,14 @@ export default function LessonRecapForm({
   defaultHomework,
   defaultNextFocus,
   defaultVisibleToClient,
+  defaultSyllabusStepIds = [],
 }: {
   appointmentId: string;
   defaultSummary?: string | null;
   defaultHomework?: string | null;
   defaultNextFocus?: string | null;
   defaultVisibleToClient?: boolean;
+  defaultSyllabusStepIds?: string[];
 }) {
   const [state, formAction] = useActionState<LessonRecapFormState, FormData>(
     upsertLessonRecapAction,
@@ -82,6 +85,11 @@ export default function LessonRecapForm({
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
         />
       </div>
+
+      <SyllabusStepPicker
+        defaultSelectedIds={defaultSyllabusStepIds}
+        label="Steps covered in this lesson"
+      />
 
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input

@@ -137,6 +137,28 @@ export default function GroupRecapDetailScreen() {
       <RecapSection title="Practice assignment" body={recap.practiceAssignment} />
       <RecapSection title="Safety notes" body={recap.safetyNotes} />
 
+      {recap.syllabusSteps.length > 0 ? (
+        <View style={styles.detailCard}>
+          <AppText variant="subtitle">Curriculum covered</AppText>
+          {recap.syllabusSteps.map((step) => (
+            <View key={step.id} style={styles.stepCard}>
+              <AppText variant="subtitle">{step.title}</AppText>
+              <AppText variant="caption">
+                {step.progressStatus.replaceAll("_", " ")}
+              </AppText>
+              {step.recapNote ? (
+                <AppText style={styles.bodyText}>{step.recapNote}</AppText>
+              ) : null}
+              {step.practiceGuidance ? (
+                <AppText style={styles.practiceText}>
+                  Practice: {step.practiceGuidance}
+                </AppText>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {recap.mediaLinks.length > 0 ? (
         <View style={styles.detailCard}>
           <AppText variant="subtitle">Shared links</AppText>
@@ -175,5 +197,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 8,
     padding: 16
+  },
+  practiceText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 21
+  },
+  stepCard: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 14,
+    gap: 5,
+    padding: 12
   }
 });

@@ -1528,3 +1528,94 @@ export async function removeClientSyllabusAssignmentAction(formData: FormData) {
   redirectWithResult(returnTo, "success", "syllabus_assignment_removed");
 }
 
+export async function assignSyllabusStepToClientAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const stepId = getString(formData, "stepId");
+  const practiceNote = getString(formData, "practiceNote");
+  const targetDate = getString(formData, "targetDate");
+  const priority = getString(formData, "priority") || "normal";
+  const returnTo =
+    getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
+
+  if (!clientId || !stepId || !["low", "normal", "high"].includes(priority)) {
+    redirectWithResult(returnTo, "error", "syllabus_step_assignment_missing");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+  await getStudioClientOrRedirect({ supabase, studioId, clientId, returnTo });
+
+  const { data: step } = await supabase
+    .from("syllabus_steps")
+    .select("id")
+    .eq("id", stepId)
+    .eq("studio_id", studioId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (!step) {
+    redirectWithResult(returnTo, "error", "syllabus_step_assignment_not_found");
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+  const now = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("client_syllabus_step_assignments")
+    .upsert(
+      {
+        studio_id: studioId,
+        client_id: clientId,
+        syllabus_step_id: stepId,
+        assigned_by: userData.user?.id ?? null,
+        assigned_at: now,
+        target_date: targetDate || null,
+        priority,
+        status: "assigned",
+        practice_note: practiceNote || null,
+        student_visible: true,
+        completed_at: null,
+        archived_at: null,
+        updated_at: now,
+      },
+      { onConflict: "client_id,syllabus_step_id" },
+    );
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "syllabus_step_assignment_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", "syllabus_step_assigned");
+}
+
+export async function archiveClientSyllabusStepAssignmentAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const assignmentId = getString(formData, "assignmentId");
+  const returnTo =
+    getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
+
+  if (!clientId || !assignmentId) {
+    redirectWithResult(returnTo, "error", "syllabus_step_assignment_missing");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  const { error } = await supabase
+    .from("client_syllabus_step_assignments")
+    .update({
+      status: "archived",
+      archived_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", assignmentId)
+    .eq("client_id", clientId)
+    .eq("studio_id", studioId);
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "syllabus_step_assignment_archive_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", "syllabus_step_assignment_archived");
+}
+

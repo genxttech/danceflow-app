@@ -113,8 +113,23 @@ export default function SyllabusScreen() {
       <AppText variant="eyebrow">Learn</AppText>
       <AppText variant="title">Syllabus</AppText>
       <AppText variant="caption">
-        Track assigned skills, progress checkpoints, and what your studio wants you to work on next.
+        Track assigned programs, focused practice steps, progress checkpoints, and what your studio wants you to work on next.
       </AppText>
+
+      <Link href={"/learn/curriculum" as Href} asChild>
+        <Pressable style={({ pressed }) => [styles.focusCard, pressed && styles.cardPressed]}>
+          <View style={{ flex: 1 }}>
+            <AppText variant="eyebrow">Focused Practice</AppText>
+            <AppText variant="subtitle">Individual step assignments</AppText>
+            <AppText variant="caption">
+              Open the exact figures and techniques your instructor assigned, including charts and private videos.
+            </AppText>
+          </View>
+          <View style={styles.openBadge}>
+            <AppText style={styles.openBadgeText}>Open</AppText>
+          </View>
+        </Pressable>
+      </Link>
 
       {loading ? <FeatureCard title="Loading syllabus" detail="Checking your assigned progress." /> : null}
       {errorMessage ? <FeatureCard title="Syllabus unavailable" detail={errorMessage} /> : null}
@@ -145,6 +160,27 @@ export default function SyllabusScreen() {
 }
 
 const styles = StyleSheet.create({
+  focusCard: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.primary,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 16
+  },
+  openBadge: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7
+  },
+  openBadgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "800"
+  },
   cardPressed: {
     opacity: 0.78
   },

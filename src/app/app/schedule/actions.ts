@@ -110,6 +110,23 @@ function getBoolean(formData: FormData, key: string) {
   return value === "on" || value === "true" || value === "1";
 }
 
+function getUuidList(formData: FormData, key: string) {
+  const raw = getString(formData, key);
+  if (!raw) return [];
+
+  const uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  return Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => uuidPattern.test(value)),
+    ),
+  );
+}
+
 async function getStudioTimeZone(
   supabase: SupabaseClient,
   studioId: string,
@@ -3401,6 +3418,7 @@ export async function upsertLessonRecapAction(
     const homework = getString(formData, "homework");
     const nextFocus = getString(formData, "nextFocus");
     const visibleToClient = getBoolean(formData, "visibleToClient");
+    const syllabusStepIds = getUuidList(formData, "syllabusStepIds");
 
     if (!appointmentId) {
       return { error: "Missing appointment id." };
@@ -3439,6 +3457,75 @@ export async function upsertLessonRecapAction(
 
     if (updateError) {
       return { error: `Could not save lesson recap: ${updateError.message}` };
+    }
+
+    const { error: clearStepError } = await supabase
+      .from("lesson_recap_syllabus_steps")
+      .delete()
+      .eq("studio_id", studioId)
+      .eq("lesson_recap_id", recapId);
+
+    if (clearStepError) {
+      return { error: `Could not update recap syllabus steps: ${clearStepError.message}` };
+    }
+
+    if (syllabusStepIds.length > 0) {
+      const { data: validSteps, error: stepLookupError } = await supabase
+        .from("syllabus_steps")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("status", "active")
+        .in("id", syllabusStepIds);
+
+      if (stepLookupError) {
+        return { error: `Could not validate recap syllabus steps: ${stepLookupError.message}` };
+      }
+
+      const validStepIds = (validSteps ?? []).map((step) => step.id);
+
+      const { error: insertStepError } = await supabase
+        .from("lesson_recap_syllabus_steps")
+        .insert(
+          validStepIds.map((stepId) => ({
+            studio_id: studioId,
+            lesson_recap_id: recapId,
+            syllabus_step_id: stepId,
+            client_id: validation.appointment?.client_id ?? null,
+            progress_status: "practiced",
+            student_visible: visibleToClient,
+            created_by: user.id,
+          })),
+        );
+
+      if (insertStepError) {
+        return { error: `Could not attach syllabus steps: ${insertStepError.message}` };
+      }
+
+      if (validation.appointment.client_id) {
+        const now = new Date().toISOString();
+
+        const { error: assignmentError } = await supabase
+          .from("client_syllabus_step_assignments")
+          .upsert(
+            validStepIds.map((stepId) => ({
+              studio_id: studioId,
+              client_id: validation.appointment?.client_id,
+              syllabus_step_id: stepId,
+              assigned_by: user.id,
+              assigned_at: now,
+              status: "practicing",
+              practice_note: homework || null,
+              student_visible: visibleToClient,
+              archived_at: null,
+              updated_at: now,
+            })),
+            { onConflict: "client_id,syllabus_step_id" },
+          );
+
+        if (assignmentError) {
+          return { error: `Could not update student syllabus assignments: ${assignmentError.message}` };
+        }
+      }
     }
 
     revalidatePath(`/app/schedule/${appointmentId}`);

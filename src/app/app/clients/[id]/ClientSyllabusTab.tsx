@@ -7,6 +7,8 @@ import {
   assignSyllabusTemplateToClientAction,
   removeClientSyllabusAssignmentAction,
   updateClientSyllabusProgressAction,
+  assignSyllabusStepToClientAction,
+  archiveClientSyllabusStepAssignmentAction,
 } from "./actions";
 
 type TemplateItem = {
@@ -47,12 +49,34 @@ type Assignment = {
   client_syllabus_progress: ProgressRow[] | null;
 };
 
+type CanonicalStepOption = {
+  id: string;
+  name: string;
+  pathLabel: string;
+};
+
+type DirectStepAssignment = {
+  id: string;
+  syllabus_step_id: string;
+  status: string;
+  practice_note: string | null;
+  target_date: string | null;
+  priority: string;
+  archived_at: string | null;
+  syllabus_steps:
+    | { id: string; name: string }
+    | { id: string; name: string }[]
+    | null;
+};
+
 type ClientSyllabusTabProps = {
   clientId: string;
   clientName: string;
   canEdit: boolean;
   templates: SyllabusTemplate[];
   assignments: Assignment[];
+  canonicalSteps?: CanonicalStepOption[];
+  directStepAssignments?: DirectStepAssignment[];
 };
 
 type StatusFilter = "all" | "active" | "not_started" | "mastered";
@@ -155,6 +179,8 @@ export default function ClientSyllabusTab({
   canEdit,
   templates,
   assignments,
+  canonicalSteps = [],
+  directStepAssignments = [],
 }: ClientSyllabusTabProps) {
   const activeAssignments = assignments.filter((assignment) => !assignment.archived_at);
   const assignedTemplateIds = new Set(activeAssignments.map((assignment) => assignment.syllabus_template_id));
@@ -294,6 +320,106 @@ export default function ClientSyllabusTab({
               Assign Syllabus
             </button>
           </form>
+        </section>
+      ) : null}
+
+      {canEdit && canonicalSteps.length > 0 ? (
+        <section className="rounded-[28px] border border-orange-100 bg-white p-5 shadow-sm">
+          <h4 className="text-lg font-semibold text-[var(--brand-text)]">
+            Assign an individual step
+          </h4>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Use this for a focused practice assignment without assigning an entire curriculum program.
+          </p>
+
+          <form
+            action={assignSyllabusStepToClientAction}
+            className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr_0.5fr_auto]"
+          >
+            <input type="hidden" name="clientId" value={clientId} />
+            <input type="hidden" name="returnTo" value={`/app/clients/${clientId}?tab=syllabus`} />
+
+            <select
+              name="stepId"
+              required
+              defaultValue=""
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+            >
+              <option value="" disabled>Choose a curriculum step</option>
+              {canonicalSteps.map((step) => (
+                <option key={step.id} value={step.id}>
+                  {step.pathLabel}
+                </option>
+              ))}
+            </select>
+
+            <input
+              name="practiceNote"
+              placeholder="Practice guidance"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+            />
+
+            <select
+              name="priority"
+              defaultValue="normal"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+            </select>
+
+            <button
+              type="submit"
+              className="rounded-full bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white"
+            >
+              Assign step
+            </button>
+          </form>
+
+          {directStepAssignments.filter((item) => !item.archived_at).length > 0 ? (
+            <div className="mt-5 space-y-2">
+              {directStepAssignments
+                .filter((item) => !item.archived_at)
+                .map((assignment) => {
+                  const step = Array.isArray(assignment.syllabus_steps)
+                    ? assignment.syllabus_steps[0]
+                    : assignment.syllabus_steps;
+
+                  return (
+                    <div
+                      key={assignment.id}
+                      className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <p className="font-medium text-slate-900">
+                          {step?.name ?? "Curriculum step"}
+                        </p>
+                        <p className="mt-1 text-xs capitalize text-slate-500">
+                          {assignment.status.replaceAll("_", " ")} • {assignment.priority} priority
+                        </p>
+                        {assignment.practice_note ? (
+                          <p className="mt-1 text-sm text-slate-600">
+                            {assignment.practice_note}
+                          </p>
+                        ) : null}
+                      </div>
+                      <form action={archiveClientSyllabusStepAssignmentAction}>
+                        <input type="hidden" name="clientId" value={clientId} />
+                        <input type="hidden" name="assignmentId" value={assignment.id} />
+                        <input type="hidden" name="returnTo" value={`/app/clients/${clientId}?tab=syllabus`} />
+                        <button
+                          type="submit"
+                          className="rounded-full border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                        >
+                          Archive
+                        </button>
+                      </form>
+                    </div>
+                  );
+                })}
+            </div>
+          ) : null}
         </section>
       ) : null}
 

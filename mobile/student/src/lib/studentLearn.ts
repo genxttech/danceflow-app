@@ -58,6 +58,15 @@ export type StudentSyllabusDetail = StudentSyllabusSummary & {
   steps: StudentSyllabusStep[];
 };
 
+export type StudentGroupRecapStep = {
+  id: string;
+  stepId: string;
+  title: string;
+  progressStatus: string;
+  recapNote: string | null;
+  practiceGuidance: string | null;
+};
+
 export type StudentGroupLessonRecap = {
   id: string;
   recapId: string;
@@ -72,6 +81,7 @@ export type StudentGroupLessonRecap = {
   mediaLinks: string[];
   publishedAt: string | null;
   source: string;
+  syllabusSteps: StudentGroupRecapStep[];
 };
 
 export type StudentLearnOverview = {
@@ -124,6 +134,20 @@ type GroupLessonRecapRecipientRow = {
         media_links: string[] | null;
         published_at: string | null;
         status: string | null;
+        group_lesson_recap_syllabus_steps:
+          | {
+              id: string;
+              syllabus_step_id: string;
+              progress_status: string;
+              recap_note: string | null;
+              practice_guidance: string | null;
+              student_visible: boolean;
+              syllabus_steps:
+                | { id: string; name: string }
+                | { id: string; name: string }[]
+                | null;
+            }[]
+          | null;
       }
     | {
         id: string;
@@ -136,6 +160,20 @@ type GroupLessonRecapRecipientRow = {
         media_links: string[] | null;
         published_at: string | null;
         status: string | null;
+        group_lesson_recap_syllabus_steps:
+          | {
+              id: string;
+              syllabus_step_id: string;
+              progress_status: string;
+              recap_note: string | null;
+              practice_guidance: string | null;
+              student_visible: boolean;
+              syllabus_steps:
+                | { id: string; name: string }
+                | { id: string; name: string }[]
+                | null;
+            }[]
+          | null;
       }[]
     | null;
 };
@@ -387,7 +425,21 @@ function toGroupLessonRecap(
     practiceAssignment: recap.practice_assignment,
     mediaLinks: recap.media_links ?? [],
     publishedAt: recap.published_at,
-    source: row.source ?? "checked_in"
+    source: row.source ?? "checked_in",
+    syllabusSteps: (recap.group_lesson_recap_syllabus_steps ?? [])
+      .filter((item) => item.student_visible !== false)
+      .map((item) => {
+        const step = firstJoin(item.syllabus_steps);
+
+        return {
+          id: item.id,
+          stepId: item.syllabus_step_id,
+          title: step?.name ?? "Curriculum step",
+          progressStatus: item.progress_status,
+          recapNote: item.recap_note,
+          practiceGuidance: item.practice_guidance
+        };
+      })
   };
 }
 

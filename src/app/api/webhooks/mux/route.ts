@@ -44,23 +44,35 @@ function parsePassthrough(value: string | undefined) {
 
   try {
     const parsed = JSON.parse(value) as {
+      domain?: "commerce" | "syllabus";
       catalogItemId?: string;
       digitalContentId?: string;
+      videoAssetId?: string;
       studioId?: string;
     };
 
-    if (
-      !parsed.digitalContentId ||
-      !parsed.catalogItemId ||
-      !parsed.studioId ||
-      !UUID_PATTERN.test(parsed.digitalContentId) ||
-      !UUID_PATTERN.test(parsed.catalogItemId) ||
-      !UUID_PATTERN.test(parsed.studioId)
-    ) {
+    if (!parsed.studioId || !UUID_PATTERN.test(parsed.studioId)) {
       return null;
     }
 
-    return parsed;
+    if (
+      parsed.domain === "syllabus" &&
+      parsed.videoAssetId &&
+      UUID_PATTERN.test(parsed.videoAssetId)
+    ) {
+      return parsed;
+    }
+
+    if (
+      parsed.digitalContentId &&
+      parsed.catalogItemId &&
+      UUID_PATTERN.test(parsed.digitalContentId) &&
+      UUID_PATTERN.test(parsed.catalogItemId)
+    ) {
+      return { ...parsed, domain: "commerce" as const };
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -197,7 +209,30 @@ export async function POST(request: Request) {
         ? event.data.asset_id
         : event.data.id;
 
-    let contentId = passthrough?.digitalContentId ?? null;
+    const isSyllabus = passthrough?.domain === "syllabus";
+    let contentId = isSyllabus ? null : passthrough?.digitalContentId ?? null;
+    let syllabusVideoAssetId = isSyllabus ? passthrough?.videoAssetId ?? null : null;
+
+    if (syllabusVideoAssetId && passthrough) {
+      const { data: matchedAsset, error: matchedAssetError } = await admin
+        .from("studio_video_assets")
+        .select("id, studio_id, mux_upload_id, mux_asset_id")
+        .eq("id", syllabusVideoAssetId)
+        .eq("studio_id", passthrough.studioId)
+        .maybeSingle();
+
+      if (matchedAssetError || !matchedAsset) {
+        throw new Error("Mux passthrough did not match a curriculum video.");
+      }
+
+      if (uploadId && matchedAsset.mux_upload_id && matchedAsset.mux_upload_id !== uploadId) {
+        throw new Error("Mux upload ID did not match curriculum video.");
+      }
+
+      if (assetId && matchedAsset.mux_asset_id && matchedAsset.mux_asset_id !== assetId) {
+        throw new Error("Mux asset ID did not match curriculum video.");
+      }
+    }
 
     if (contentId && passthrough) {
       const { data: matchedContent, error: matchedContentError } = await admin
@@ -221,58 +256,83 @@ export async function POST(request: Request) {
       }
     }
 
-    if (!contentId && uploadId) {
-      const { data } = await admin
-        .from("commerce_digital_content")
+    if (!contentId && !syllabusVideoAssetId && uploadId) {
+      const { data: syllabusAsset } = await admin
+        .from("studio_video_assets")
         .select("id")
         .eq("mux_upload_id", uploadId)
         .maybeSingle();
-      contentId = data?.id ?? null;
+
+      syllabusVideoAssetId = syllabusAsset?.id ?? null;
+
+      if (!syllabusVideoAssetId) {
+        const { data } = await admin
+          .from("commerce_digital_content")
+          .select("id")
+          .eq("mux_upload_id", uploadId)
+          .maybeSingle();
+        contentId = data?.id ?? null;
+      }
     }
 
-    if (!contentId && assetId) {
-      const { data } = await admin
-        .from("commerce_digital_content")
+    if (!contentId && !syllabusVideoAssetId && assetId) {
+      const { data: syllabusAsset } = await admin
+        .from("studio_video_assets")
         .select("id")
         .eq("mux_asset_id", assetId)
         .maybeSingle();
-      contentId = data?.id ?? null;
+
+      syllabusVideoAssetId = syllabusAsset?.id ?? null;
+
+      if (!syllabusVideoAssetId) {
+        const { data } = await admin
+          .from("commerce_digital_content")
+          .select("id")
+          .eq("mux_asset_id", assetId)
+          .maybeSingle();
+        contentId = data?.id ?? null;
+      }
     }
 
-    if (!contentId) {
-      throw new Error(
-        `No digital content matched Mux event ${event.id}.`,
-      );
+    if (!contentId && !syllabusVideoAssetId) {
+      throw new Error(`No DanceFlow video matched Mux event ${event.id}.`);
     }
 
+    const targetTable = syllabusVideoAssetId
+      ? "studio_video_assets"
+      : "commerce_digital_content";
+    const targetId = syllabusVideoAssetId ?? contentId;
     const now = new Date().toISOString();
 
     if (event.type === "video.upload.created") {
       const { error } = await admin
-        .from("commerce_digital_content")
+        .from(targetTable)
         .update({
           mux_upload_id: event.data.id ?? null,
           mux_upload_status: event.data.status ?? "waiting",
           mux_error_message: null,
-          external_provider: "mux",
           updated_at: now,
         })
-        .eq("id", contentId);
+        .eq("id", targetId);
 
       if (error) throw new Error(error.message);
     } else if (event.type === "video.upload.asset_created") {
       const { error } = await admin
-        .from("commerce_digital_content")
+        .from(targetTable)
         .update({
           mux_upload_status: "asset_created",
           mux_asset_id: event.data.asset_id ?? null,
           mux_asset_status: "preparing",
           mux_error_message: null,
-          external_provider: "mux",
-          external_asset_id: event.data.asset_id ?? null,
+          ...(syllabusVideoAssetId
+            ? {}
+            : {
+                external_provider: "mux",
+                external_asset_id: event.data.asset_id ?? null,
+              }),
           updated_at: now,
         })
-        .eq("id", contentId);
+        .eq("id", targetId);
 
       if (error) throw new Error(error.message);
     } else if (event.type === "video.asset.ready") {
@@ -286,7 +346,7 @@ export async function POST(request: Request) {
       }
 
       const { error } = await admin
-        .from("commerce_digital_content")
+        .from(targetTable)
         .update({
           mux_upload_status: "ready",
           mux_asset_id: event.data.id ?? null,
@@ -298,17 +358,21 @@ export async function POST(request: Request) {
               ? Math.round(event.data.duration)
               : null,
           mux_aspect_ratio: event.data.aspect_ratio ?? null,
-          external_provider: "mux",
-          external_asset_id: event.data.id ?? null,
-          external_playback_id: signedPlaybackId,
+          ...(syllabusVideoAssetId
+            ? { status: "ready" }
+            : {
+                external_provider: "mux",
+                external_asset_id: event.data.id ?? null,
+                external_playback_id: signedPlaybackId,
+              }),
           updated_at: now,
         })
-        .eq("id", contentId);
+        .eq("id", targetId);
 
       if (error) throw new Error(error.message);
     } else if (event.type === "video.asset.errored") {
       const { error } = await admin
-        .from("commerce_digital_content")
+        .from(targetTable)
         .update({
           mux_upload_status: "errored",
           mux_asset_id: event.data.id ?? null,
@@ -316,20 +380,20 @@ export async function POST(request: Request) {
           mux_error_message: webhookErrorMessage(event),
           updated_at: now,
         })
-        .eq("id", contentId);
+        .eq("id", targetId);
 
       if (error) throw new Error(error.message);
     } else if (event.type === "video.asset.deleted") {
       const { error } = await admin
-        .from("commerce_digital_content")
+        .from(targetTable)
         .update({
           mux_upload_status: "deleted",
           mux_asset_status: "deleted",
           mux_playback_id: null,
-          external_playback_id: null,
+          ...(syllabusVideoAssetId ? { status: "archived" } : { external_playback_id: null }),
           updated_at: now,
         })
-        .eq("id", contentId);
+        .eq("id", targetId);
 
       if (error) throw new Error(error.message);
     } else if (
@@ -338,13 +402,13 @@ export async function POST(request: Request) {
       event.type === "video.upload.timed_out"
     ) {
       const { error } = await admin
-        .from("commerce_digital_content")
+        .from(targetTable)
         .update({
           mux_upload_status: event.type.split(".").at(-1) ?? "errored",
           mux_error_message: webhookErrorMessage(event),
           updated_at: now,
         })
-        .eq("id", contentId);
+        .eq("id", targetId);
 
       if (error) throw new Error(error.message);
     }
@@ -353,6 +417,7 @@ export async function POST(request: Request) {
       .from("commerce_mux_webhook_events")
       .update({
         digital_content_id: contentId,
+        syllabus_video_asset_id: syllabusVideoAssetId,
         processing_status: "processed",
         processed_at: now,
       })

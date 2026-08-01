@@ -79,6 +79,173 @@ function firstJoin<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
+type GroupRecapSyllabusInput = {
+  stepId: string;
+  progressStatus: "introduced" | "practiced" | "needs_review" | "assigned" | "mastered";
+  recapNote: string | null;
+  practiceGuidance: string | null;
+  studentVisible: boolean;
+};
+
+function parseGroupRecapSyllabusRows(formData: FormData): GroupRecapSyllabusInput[] {
+  const raw = getString(formData, "syllabusStepRowsJson");
+  if (!raw) return [];
+
+  const uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const statuses = new Set([
+    "introduced",
+    "practiced",
+    "needs_review",
+    "assigned",
+    "mastered",
+  ]);
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    const unique = new Map<string, GroupRecapSyllabusInput>();
+
+    for (const item of parsed) {
+      const stepId = typeof item?.stepId === "string" ? item.stepId.trim() : "";
+      const progressStatus =
+        typeof item?.progressStatus === "string"
+          ? item.progressStatus.trim()
+          : "practiced";
+
+      if (!uuidPattern.test(stepId) || !statuses.has(progressStatus)) continue;
+
+      unique.set(stepId, {
+        stepId,
+        progressStatus: progressStatus as GroupRecapSyllabusInput["progressStatus"],
+        recapNote:
+          typeof item?.recapNote === "string" && item.recapNote.trim()
+            ? item.recapNote.trim()
+            : null,
+        practiceGuidance:
+          typeof item?.practiceGuidance === "string" &&
+          item.practiceGuidance.trim()
+            ? item.practiceGuidance.trim()
+            : null,
+        studentVisible: item?.studentVisible !== false,
+      });
+    }
+
+    return Array.from(unique.values());
+  } catch {
+    return [];
+  }
+}
+
+async function syncGroupRecapSyllabusRows(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  recapId: string;
+  userId: string;
+  rows: GroupRecapSyllabusInput[];
+}) {
+  const { supabase, studioId, recapId, userId, rows } = params;
+
+  const { error: clearError } = await supabase
+    .from("group_lesson_recap_syllabus_steps")
+    .delete()
+    .eq("studio_id", studioId)
+    .eq("group_lesson_recap_id", recapId);
+
+  if (clearError) throw clearError;
+  if (rows.length === 0) return;
+
+  const { data: validSteps, error: lookupError } = await supabase
+    .from("syllabus_steps")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("status", "active")
+    .in("id", rows.map((row) => row.stepId));
+
+  if (lookupError) throw lookupError;
+
+  const validIds = new Set((validSteps ?? []).map((step) => step.id));
+  const insertRows = rows
+    .filter((row) => validIds.has(row.stepId))
+    .map((row) => ({
+      studio_id: studioId,
+      group_lesson_recap_id: recapId,
+      syllabus_step_id: row.stepId,
+      progress_status: row.progressStatus,
+      recap_note: row.recapNote,
+      practice_guidance: row.practiceGuidance,
+      student_visible: row.studentVisible,
+      created_by: userId,
+    }));
+
+  if (insertRows.length === 0) return;
+
+  const { error: insertError } = await supabase
+    .from("group_lesson_recap_syllabus_steps")
+    .insert(insertRows);
+
+  if (insertError) throw insertError;
+}
+
+async function assignGroupRecapStepsToClients(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  recapId: string;
+  clientIds: string[];
+  userId: string;
+}) {
+  const { supabase, studioId, recapId, clientIds, userId } = params;
+  if (clientIds.length === 0) return;
+
+  const { data: stepRows, error: stepError } = await supabase
+    .from("group_lesson_recap_syllabus_steps")
+    .select("syllabus_step_id, progress_status, practice_guidance, student_visible")
+    .eq("studio_id", studioId)
+    .eq("group_lesson_recap_id", recapId)
+    .eq("student_visible", true);
+
+  if (stepError) throw stepError;
+  if (!stepRows?.length) return;
+
+  const now = new Date().toISOString();
+  const assignmentRows = clientIds.flatMap((clientId) =>
+    stepRows.map((step) => ({
+      studio_id: studioId,
+      client_id: clientId,
+      syllabus_step_id: step.syllabus_step_id,
+      assigned_by: userId,
+      assigned_at: now,
+      priority:
+        step.progress_status === "needs_review" ||
+        step.progress_status === "assigned"
+          ? "high"
+          : "normal",
+      status:
+        step.progress_status === "mastered"
+          ? "mastered"
+          : step.progress_status === "introduced"
+            ? "introduced"
+            : "practicing",
+      practice_note: step.practice_guidance ?? null,
+      student_visible: true,
+      completed_at:
+        step.progress_status === "mastered" ? now : null,
+      archived_at: null,
+      updated_at: now,
+    })),
+  );
+
+  const { error: assignmentError } = await supabase
+    .from("client_syllabus_step_assignments")
+    .upsert(assignmentRows, {
+      onConflict: "client_id,syllabus_step_id",
+    });
+
+  if (assignmentError) throw assignmentError;
+}
+
+
 function buildCheckInHref(params: { eventId: string; eventSessionId?: string }) {
   const search = new URLSearchParams();
   if (params.eventSessionId) search.set("sessionId", params.eventSessionId);
@@ -216,15 +383,40 @@ export async function saveEventGroupLessonRecapAction(formData: FormData) {
 
     if (existingError) throw existingError;
 
-    const { error } = existing?.id
-      ? await supabase
-          .from("group_lesson_recaps")
-          .update(payload)
-          .eq("id", existing.id)
-          .eq("studio_id", studioId)
-      : await supabase.from("group_lesson_recaps").insert(payload);
+    const syllabusRows = parseGroupRecapSyllabusRows(formData);
 
-    if (error) throw error;
+    let recapId = existing?.id ?? null;
+
+    if (recapId) {
+      const { error } = await supabase
+        .from("group_lesson_recaps")
+        .update(payload)
+        .eq("id", recapId)
+        .eq("studio_id", studioId);
+
+      if (error) throw error;
+    } else {
+      const { data: inserted, error } = await supabase
+        .from("group_lesson_recaps")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error || !inserted) throw error ?? new Error("Recap could not be saved.");
+      recapId = inserted.id;
+    }
+
+    if (!recapId) {
+      throw new Error("Recap could not be identified after save.");
+    }
+
+    await syncGroupRecapSyllabusRows({
+      supabase,
+      studioId,
+      recapId,
+      userId: user.id,
+      rows: syllabusRows,
+    });
   } catch (error) {
     console.error("Save event group lesson recap failed", error);
     redirect(appendResult(returnTo, "error=recap_save_failed"));
@@ -443,6 +635,14 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
       .insert(recipients);
 
     if (recipientError) throw recipientError;
+
+    await assignGroupRecapStepsToClients({
+      supabase,
+      studioId,
+      recapId: recap.id,
+      clientIds: linkedClientIds,
+      userId: user.id,
+    });
 
     const { error: publishError } = await supabase
       .from("group_lesson_recaps")
