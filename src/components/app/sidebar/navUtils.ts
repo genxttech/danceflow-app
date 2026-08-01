@@ -149,8 +149,13 @@ function normalizeNavLabel(item: NavItem) {
     return "Dance Goal Analytics";
   }
 
-  if (item.href === "/app/reports" || lower === "reports") {
-    return "Reports & Accounting";
+  if (
+    item.href === "/app/reports" ||
+    lower === "reports" ||
+    lower === "reports & accounting" ||
+    lower === "accounting & reports"
+  ) {
+    return "Accounting & Reports";
   }
 
   if (item.href === "/app/payments") {
@@ -158,8 +163,12 @@ function normalizeNavLabel(item: NavItem) {
   }
 
 
-  if (item.href === "/app/sell" || item.href === "/app/sales/new") {
+  if (item.href === "/app/sell") {
     return "Sell";
+  }
+
+  if (item.href === "/app/sales/new" || item.href === "/app/packages/sell") {
+    return "Sell to Client";
   }
 
   if (item.href === "/app/catalog") {
@@ -1031,22 +1040,28 @@ function injectCommunicationsLink(
     icon: "marketing",
   };
 
-  const sectionIndex = sections.findIndex((section) =>
-    section.items.some(
-      (item) =>
-        item.href.startsWith("/app/marketing") ||
-        item.href.startsWith("/app/automations") ||
-        item.href.startsWith("/app/notifications"),
-    ),
-  );
+  const sectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "clients" ||
+      title === "people" ||
+      title === "crm" ||
+      section.items.some(
+        (item) =>
+          item.href === "/app/clients" ||
+          item.href === "/app/leads",
+      )
+    );
+  });
 
   if (sectionIndex < 0) {
-    return [...sections, { title: "Communications", items: [communicationsItem] }];
+    return [...sections, { title: "Clients", items: [communicationsItem] }];
   }
 
   return sections.map((section, index) =>
     index === sectionIndex
-      ? { ...section, items: [communicationsItem, ...section.items] }
+      ? { ...section, items: [...section.items, communicationsItem] }
       : section,
   );
 }
@@ -1072,15 +1087,11 @@ function injectAutomationsLink(
     const title = section.title.trim().toLowerCase();
 
     return (
-      title === "operations" ||
-      title === "growth" ||
-      title === "marketing" ||
+      title === "aria" ||
       section.items.some(
         (item) =>
-          item.href === "/app/marketing" ||
-          item.href === "/app/campaigns" ||
-          item.href === "/app/notifications" ||
-          item.href === "/app/reports",
+          item.href === "/app/aria" ||
+          item.href === "/app/aria/operations",
       )
     );
   });
@@ -1134,7 +1145,7 @@ function injectAutomationsLink(
     return [
       ...sections.slice(0, dashboardIndex + 1),
       {
-        title: "Growth",
+        title: "ARIA",
         items: [automationsItem],
       },
       ...sections.slice(dashboardIndex + 1),
@@ -1143,7 +1154,7 @@ function injectAutomationsLink(
 
   return [
     {
-      title: "Growth",
+      title: "ARIA",
       items: [automationsItem],
     },
     ...sections,
@@ -1185,14 +1196,13 @@ function injectRewardsLink(
     const title = section.title.trim().toLowerCase();
 
     return (
-      title === "sales & payments" ||
-      title === "commerce" ||
-      title === "sell" ||
+      title === "clients" ||
+      title === "people" ||
+      title === "crm" ||
       section.items.some(
         (item) =>
-          item.href === "/app/sell" ||
-          item.href.startsWith("/app/packages") ||
-          item.href.startsWith("/app/memberships"),
+          item.href === "/app/clients" ||
+          item.href === "/app/leads",
       )
     );
   });
@@ -1207,7 +1217,7 @@ function injectRewardsLink(
     });
   }
 
-  return [...sections, { title: "Growth", items: [rewardsItem] }];
+  return [...sections, { title: "Clients", items: [rewardsItem] }];
 }
 
 function injectCommerceLinks(
@@ -1479,14 +1489,6 @@ function injectDirectTaskLinks(
     });
   }
 
-  if ((hasHref("/app/packages") || hasHref("/app/memberships")) && !hasHref("/app/sales/new")) {
-    additions.push({
-      label: "Sell to Client",
-      href: "/app/sales/new",
-      icon: "payments",
-    });
-  }
-
   if (hasHref("/app/reports") && !hasHref("/app/reports/client-birthdays")) {
     additions.push({
       label: "Birthday Outreach",
@@ -1679,6 +1681,7 @@ function makeSection(
 
 function workspaceForItem(item: NavItem) {
   const href = routeKey(item.href);
+  const label = item.label.trim().toLowerCase();
 
   if (href === "/app") return "Today";
 
@@ -1687,7 +1690,9 @@ function workspaceForItem(item: NavItem) {
     href === "/app/leads" ||
     href === "/app/syllabus" ||
     href === "/app/documents" ||
-    href === "/app/organizer-contacts"
+    href === "/app/organizer-contacts" ||
+    href.startsWith("/app/communications") ||
+    href.startsWith("/app/rewards")
   ) {
     return "Clients";
   }
@@ -1702,17 +1707,39 @@ function workspaceForItem(item: NavItem) {
 
   if (
     href === "/app/sell" ||
-    href === "/app/sales/new" ||
     href.startsWith("/app/catalog") ||
     href.startsWith("/app/orders") ||
-    href.startsWith("/app/payments") ||
+    href === "/app/payments/take" ||
     href.startsWith("/app/packages") ||
-    href.startsWith("/app/memberships") ||
-    href.startsWith("/app/rewards") ||
-    href.startsWith("/app/expenses") ||
-    href.startsWith("/app/instructor-pay")
+    href.startsWith("/app/memberships")
   ) {
     return "Sell";
+  }
+
+  if (
+    href === "/app/payments" ||
+    href.startsWith("/app/client-balances") ||
+    href.startsWith("/app/expenses") ||
+    href.startsWith("/app/instructor-pay") ||
+    href.startsWith("/app/analytics") ||
+    href.startsWith("/app/reports")
+  ) {
+    return "Reports & Accounting";
+  }
+
+  if (
+    href.startsWith("/app/marketing") ||
+    href.startsWith("/app/organizer-campaigns") ||
+    href.startsWith("/app/notifications")
+  ) {
+    return "Marketing";
+  }
+
+  if (
+    href.startsWith("/app/aria") ||
+    href.startsWith("/app/automations")
+  ) {
+    return "ARIA";
   }
 
   if (
@@ -1723,33 +1750,32 @@ function workspaceForItem(item: NavItem) {
   }
 
   if (
-    href.startsWith("/app/communications") ||
-    href.startsWith("/app/marketing") ||
-    href.startsWith("/app/organizer-campaigns") ||
-    href.startsWith("/app/automations") ||
-    href.startsWith("/app/notifications")
+    href === "/discover" ||
+    href.startsWith("/discover/") ||
+    href.startsWith("/app/discover") ||
+    href.startsWith("/app/discovery") ||
+    href.startsWith("/app/now-hiring") ||
+    label === "discovery home" ||
+    label === "now hiring" ||
+    label === "view public profile"
   ) {
-    return "Communications";
+    return "Discovery";
   }
 
   if (
-    href.startsWith("/app/analytics") ||
-    href.startsWith("/app/reports")
+    href.startsWith("/app/help") ||
+    href.startsWith("/app/support") ||
+    href.startsWith("/knowledgebase") ||
+    label === "help" ||
+    label === "knowledgebase"
   ) {
-    return "Reports";
+    return "Support";
   }
-
-  if (href.startsWith("/app/aria")) return "ARIA";
 
   if (
     href.startsWith("/app/settings") ||
     href.startsWith("/app/account") ||
-    href.startsWith("/app/help") ||
-    href.startsWith("/app/support") ||
-    href.startsWith("/knowledgebase") ||
-    href.startsWith("/account") ||
-    href.startsWith("/discover") ||
-    href.startsWith("/app/now-hiring")
+    href.startsWith("/account")
   ) {
     return "Settings";
   }
@@ -1762,10 +1788,12 @@ const WORKSPACE_ORDER = [
   "Clients",
   "Schedule",
   "Sell",
-  "Communications",
-  "Reports",
+  "Marketing",
+  "Reports & Accounting",
   "ARIA",
   "Events",
+  "Discovery",
+  "Support",
   "Settings",
 ] as const;
 
@@ -1775,75 +1803,94 @@ function itemPriority(section: (typeof WORKSPACE_ORDER)[number], href: string) {
     Clients: [
       "/app/clients",
       "/app/leads",
-      "/app/clients/new",
+      "/app/communications",
+      "/app/rewards",
       "/app/documents",
       "/app/syllabus",
       "/app/organizer-contacts",
+      "/app/clients/new",
     ],
     Schedule: [
       "/app/schedule",
       "/app/schedule/self-service",
-      "/app/instructors/my-availability",
       "/app/instructors",
+      "/app/instructors/my-availability",
       "/app/rooms",
     ],
     Sell: [
       "/app/sell",
-      "/app/payments/take",
-      "/app/orders",
       "/app/catalog",
-      "/app/payments",
+      "/app/orders",
+      "/app/payments/take",
       "/app/packages",
       "/app/memberships",
-      "/app/rewards",
-      "/app/expenses",
-      "/app/instructor-pay",
     ],
-    Communications: [
-      "/app/communications",
+    Marketing: [
+      "/app/marketing",
       "/app/marketing/campaigns",
       "/app/organizer-campaigns",
-      "/app/automations",
       "/app/notifications",
     ],
-    Reports: [
+    "Reports & Accounting": [
+      "/app/reports",
+      "/app/payments",
+      "/app/client-balances",
+      "/app/expenses",
+      "/app/instructor-pay",
       "/app/analytics",
       "/app/analytics/dance-goals",
-      "/app/reports",
       "/app/reports/client-birthdays",
     ],
-    ARIA: ["/app/aria", "/app/aria/operations"],
+    ARIA: [
+      "/app/aria",
+      "/app/aria/operations",
+      "/app/automations",
+      "/app/automations/drafts",
+    ],
     Events: [
       "/app/events",
       "/app/events/new",
-      "/app/events/tickets",
       "/app/events/sell-tickets",
+      "/app/events/tickets",
       "/app/events/registrations",
       "/app/events/checkin",
       "/app/events/check-in",
       "/app/organizers",
     ],
+    Discovery: [
+      "/discover",
+      "/app/discover",
+      "/app/discovery",
+      "/app/now-hiring",
+    ],
+    Support: [
+      "/app/help",
+      "/knowledgebase",
+      "/app/support",
+    ],
     Settings: [
       "/app/settings",
       "/app/settings/team",
       "/app/settings/billing",
-      "/app/now-hiring",
-      "/discover",
       "/account",
-      "/app/help",
-      "/knowledgebase",
     ],
   };
 
-  const index = priorities[section].indexOf(routeKey(href));
-  return index >= 0 ? index : priorities[section].length + 100;
+  const key = routeKey(href);
+  const index = priorities[section].indexOf(key);
+
+  if (index >= 0) return index;
+
+  // Keep equal-priority links deterministic and readable.
+  return priorities[section].length + 100;
 }
 
 function optimizeNavigationForTasks(
   sections: NavSectionType[],
   _options: NormalizeSectionsOptions = {},
 ): NavSectionType[] {
-  const items = uniqueNavItems(sections.flatMap((section) => section.items));
+  const items = uniqueNavItems(sections.flatMap((section) => section.items))
+    .filter((item) => item.href !== "/app/sales/new");
   const grouped = new Map<string, NavItem[]>();
 
   for (const title of WORKSPACE_ORDER) grouped.set(title, []);
@@ -1860,7 +1907,11 @@ function optimizeNavigationForTasks(
     indexedItems.sort((a, b) => {
       const priorityDelta =
         itemPriority(title, a.item.href) - itemPriority(title, b.item.href);
-      return priorityDelta !== 0 ? priorityDelta : a.index - b.index;
+
+      if (priorityDelta !== 0) return priorityDelta;
+
+      const labelDelta = a.item.label.localeCompare(b.item.label);
+      return labelDelta !== 0 ? labelDelta : a.index - b.index;
     });
 
     return {

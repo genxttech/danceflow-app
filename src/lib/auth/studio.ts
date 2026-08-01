@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isPlatformAdmin, requireAuthenticatedUser } from "./platform";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
@@ -437,17 +438,17 @@ export async function recordWorkspaceAccess(params: {
   userId: string;
   route?: string | null;
 }) {
-  const supabase = await createClient();
-
   try {
-    const { data: studio, error: studioError } = await supabase
+    const admin = createAdminClient();
+
+    const { data: studio, error: studioError } = await admin
       .from("studios")
       .select("last_workspace_access_at")
       .eq("id", params.studioId)
       .maybeSingle<{ last_workspace_access_at: string | null }>();
 
     if (studioError) {
-      console.error("Failed to load workspace access timestamp", studioError);
+      console.warn("Failed to load workspace access timestamp", studioError);
       return;
     }
 
@@ -460,19 +461,21 @@ export async function recordWorkspaceAccess(params: {
       return;
     }
 
-    const { error: updateError } = await supabase
+    const accessedAt = new Date().toISOString();
+
+    const { error: updateError } = await admin
       .from("studios")
       .update({
-        last_workspace_access_at: new Date().toISOString(),
+        last_workspace_access_at: accessedAt,
         last_workspace_access_user_id: params.userId,
       })
       .eq("id", params.studioId);
 
     if (updateError) {
-      console.error("Failed to update workspace last access", updateError);
+      console.warn("Failed to update workspace last access", updateError);
     }
 
-    const { error: insertError } = await supabase
+    const { error: insertError } = await admin
       .from("workspace_access_logs")
       .insert({
         studio_id: params.studioId,
@@ -481,10 +484,10 @@ export async function recordWorkspaceAccess(params: {
       });
 
     if (insertError) {
-      console.error("Failed to insert workspace access log", insertError);
+      console.warn("Failed to insert workspace access log", insertError);
     }
   } catch (error) {
-    console.error("Failed to record workspace access", error);
+    console.warn("Failed to record workspace access", error);
   }
 }
 
