@@ -9,6 +9,7 @@ import {
   assignSingleEarningAction,
   removeEarningFromPeriodAction,
   voidEmptyPayPeriodAction,
+  generateGustoReadinessAction,
 } from "./actions";
 import {
   assignEarningsToPayPeriodAction,
@@ -110,6 +111,10 @@ function banner(status: string | undefined) {
   if (status === "remove_failed") return "The earning could not be removed. No payroll records were changed.";
   if (status === "approve_failed") return "The earning could not be approved. Its status was not changed.";
   if (status === "void_failed") return "The pay period could not be voided. No payroll records were changed.";
+  if (status === "gusto_not_connected") return "Connect Gusto before running payroll readiness.";
+  if (status === "gusto_readiness_ready") return "Gusto readiness passed. This period is ready for shift preparation.";
+  if (status === "gusto_readiness_blocked") return "Gusto readiness found items that need attention before shift preparation.";
+  if (status === "gusto_readiness_failed") return "Gusto readiness could not be completed. No payroll data was sent.";
   return null;
 }
 
@@ -140,7 +145,7 @@ export default async function PayrollPeriodPage({
   if (!periodData) notFound();
   const period = periodData as PeriodRow;
 
-  const [assignedResult, availableResult, batchesResult] = await Promise.all([
+  const [assignedResult, availableResult, batchesResult, gustoReadinessResult] = await Promise.all([
     supabase
       .from("instructor_earnings")
       .select("id, instructor_id, earning_date, appointment_type, source_type, status, taxable_compensation_amount, reimbursement_amount, deduction_amount, earning_amount, payroll_batch_id, worker_classification_snapshot, accounting_category_snapshot, notes, instructors(first_name, last_name)")
@@ -163,15 +168,25 @@ export default async function PayrollPeriodPage({
       .eq("studio_id", studioId)
       .eq("pay_period_id", id)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("studio_gusto_readiness_reviews")
+      .select("id, status, earning_count, ready_count, blocker_count, reviewed_at")
+      .eq("studio_id", studioId)
+      .eq("pay_period_id", id)
+      .order("reviewed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (assignedResult.error) throw new Error(`Failed to load assigned earnings: ${assignedResult.error.message}`);
   if (availableResult.error) throw new Error(`Failed to load available earnings: ${availableResult.error.message}`);
   if (batchesResult.error) throw new Error(`Failed to load payroll batches: ${batchesResult.error.message}`);
+  if (gustoReadinessResult.error) throw new Error(`Failed to load Gusto readiness: ${gustoReadinessResult.error.message}`);
 
   const assigned = (assignedResult.data ?? []) as EarningRow[];
   const available = (availableResult.data ?? []) as EarningRow[];
   const batches = batchesResult.data ?? [];
+  const gustoReadiness = gustoReadinessResult.data;
   const pending = assigned.filter((earning) => earning.status === "pending" && !earning.payroll_batch_id);
   const approved = assigned.filter((earning) => earning.status === "approved" && !earning.payroll_batch_id);
   const batched = assigned.filter((earning) => Boolean(earning.payroll_batch_id));
@@ -293,6 +308,29 @@ export default async function PayrollPeriodPage({
               ) : null}
             </div>
           ) : null}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-orange-50 p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">Gusto readiness</p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              {gustoReadiness ? `${label(gustoReadiness.status)} · ${gustoReadiness.ready_count}/${gustoReadiness.earning_count} ready` : "Review this period before sending time"}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              This checks worker matches, employee jobs, appointment-backed shifts, and Gusto pay-period alignment. It does not create time sheets or alter payroll.
+            </p>
+            {gustoReadiness?.blocker_count ? (
+              <p className="mt-3 text-sm font-semibold text-amber-800">{gustoReadiness.blocker_count} earning{gustoReadiness.blocker_count === 1 ? "" : "s"} need attention.</p>
+            ) : null}
+          </div>
+          <form action={generateGustoReadinessAction}>
+            <input type="hidden" name="payPeriodId" value={period.id} />
+            <button className="rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800">
+              {gustoReadiness ? "Run readiness again" : "Check Gusto readiness"}
+            </button>
+          </form>
         </div>
       </section>
 

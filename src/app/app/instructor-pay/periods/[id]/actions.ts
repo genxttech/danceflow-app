@@ -3,6 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getValidGustoAccessToken } from "@/lib/integrations/gusto/token";
+import {
+  getGustoEmployeeJobs,
+  getGustoPayPeriods,
+  getGustoPaySchedules,
+} from "@/lib/integrations/gusto/client";
 import {
   requirePayrollDisbursementAccess,
   requirePayrollPrepareAccess,
@@ -179,5 +186,189 @@ export async function voidEmptyPayPeriodAction(formData: FormData) {
     if (isRedirectError(error)) throw error;
     logPeriodError("void", error);
     go(payPeriodId || "missing", periodErrorStatus("void", error));
+  }
+}
+
+
+export async function generateGustoReadinessAction(formData: FormData) {
+  const payPeriodId = getString(formData, "payPeriodId");
+  try {
+    if (!payPeriodId) go("missing", "missing_pay_period");
+    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
+    const admin = createAdminClient();
+
+    const [{ data: period }, { data: connection }] = await Promise.all([
+      supabase
+        .from("payroll_pay_periods")
+        .select("id, period_start, period_end")
+        .eq("studio_id", studioId)
+        .eq("id", payPeriodId)
+        .maybeSingle(),
+      supabase
+        .from("studio_gusto_connections")
+        .select("id, status, gusto_company_uuid")
+        .eq("studio_id", studioId)
+        .maybeSingle(),
+    ]);
+
+    if (!period) go(payPeriodId, "pay_period_not_found");
+    if (!connection || connection.status !== "connected" || !connection.gusto_company_uuid) {
+      go(payPeriodId, "gusto_not_connected");
+    }
+
+    const { data: earnings, error: earningsError } = await admin
+      .from("instructor_earnings")
+      .select("id, instructor_id, appointment_id, source_type, earning_date, status, worker_classification_snapshot")
+      .eq("studio_id", studioId)
+      .eq("pay_period_id", payPeriodId)
+      .eq("status", "approved")
+      .is("payroll_batch_id", null);
+    if (earningsError) throw earningsError;
+
+    const instructorIds = Array.from(new Set((earnings ?? []).map((row) => row.instructor_id)));
+    const { data: matches, error: matchError } = instructorIds.length
+      ? await admin
+          .from("studio_gusto_worker_matches")
+          .select("instructor_id, gusto_worker_uuid, gusto_worker_type, match_status")
+          .eq("connection_id", connection.id)
+          .eq("match_status", "confirmed")
+          .in("instructor_id", instructorIds)
+      : { data: [], error: null };
+    if (matchError) throw matchError;
+
+    const token = await getValidGustoAccessToken(connection.id);
+    const [paySchedules, gustoPayPeriods] = await Promise.all([
+      getGustoPaySchedules(token, connection.gusto_company_uuid),
+      getGustoPayPeriods(token, connection.gusto_company_uuid, period.period_start, period.period_end),
+    ]);
+
+    await admin.from("studio_gusto_pay_schedules").delete().eq("connection_id", connection.id);
+    if (paySchedules.length) {
+      await admin.from("studio_gusto_pay_schedules").insert(paySchedules.map((schedule) => ({
+        studio_id: studioId,
+        connection_id: connection.id,
+        gusto_pay_schedule_uuid: schedule.uuid,
+        name: schedule.name,
+        frequency: schedule.frequency,
+        active: schedule.active,
+        synced_at: new Date().toISOString(),
+        raw_summary: {},
+      })));
+    }
+
+    await admin.from("studio_gusto_pay_periods").delete().eq("connection_id", connection.id);
+    if (gustoPayPeriods.length) {
+      await admin.from("studio_gusto_pay_periods").insert(gustoPayPeriods.map((item) => ({
+        studio_id: studioId,
+        connection_id: connection.id,
+        gusto_pay_period_uuid: item.uuid,
+        gusto_pay_schedule_uuid: item.pay_schedule_uuid,
+        period_start: item.start_date,
+        period_end: item.end_date,
+        pay_date: item.pay_date,
+        synced_at: new Date().toISOString(),
+        raw_summary: {},
+      })));
+    }
+
+    const matchByInstructor = new Map((matches ?? []).map((row) => [row.instructor_id, row]));
+    const employeeMatches = (matches ?? []).filter((row) => row.gusto_worker_type === "employee");
+    const jobsByWorker = new Map<string, Awaited<ReturnType<typeof getGustoEmployeeJobs>>>();
+    for (const match of employeeMatches) {
+      const jobs = await getGustoEmployeeJobs(token, match.gusto_worker_uuid);
+      jobsByWorker.set(match.gusto_worker_uuid, jobs);
+      await admin.from("studio_gusto_worker_jobs").delete().eq("connection_id", connection.id).eq("gusto_worker_uuid", match.gusto_worker_uuid);
+      if (jobs.length) {
+        await admin.from("studio_gusto_worker_jobs").insert(jobs.map((job) => ({
+          studio_id: studioId,
+          connection_id: connection.id,
+          gusto_worker_uuid: match.gusto_worker_uuid,
+          gusto_job_uuid: job.uuid,
+          title: job.title,
+          active: job.active,
+          hire_date: job.hire_date,
+          termination_date: job.termination_date,
+          synced_at: new Date().toISOString(),
+          raw_summary: {},
+        })));
+      }
+    }
+
+    const alignedPeriod = gustoPayPeriods.some((item) =>
+      item.start_date === period.period_start && item.end_date === period.period_end,
+    );
+    const itemRows = (earnings ?? []).map((earning) => {
+      const match = matchByInstructor.get(earning.instructor_id);
+      const jobs = match?.gusto_worker_type === "employee"
+        ? jobsByWorker.get(match.gusto_worker_uuid) ?? []
+        : [];
+      const activeJob = jobs.find((job) => job.active) ?? null;
+      const blockers: string[] = [];
+      if (!match) blockers.push("worker_not_matched");
+      if (match?.gusto_worker_type === "contractor") blockers.push("contractor_not_supported_in_time_preview");
+      if (earning.source_type !== "appointment" || !earning.appointment_id) blockers.push("shift_source_missing");
+      if (match?.gusto_worker_type === "employee" && !activeJob) blockers.push("gusto_job_missing");
+      if (!alignedPeriod) blockers.push("gusto_pay_period_not_aligned");
+      return {
+        earning,
+        match,
+        activeJob,
+        blockers,
+      };
+    });
+
+    const blocked = itemRows.filter((item) => item.blockers.length > 0).length;
+    const { data: review, error: reviewError } = await admin
+      .from("studio_gusto_readiness_reviews")
+      .insert({
+        studio_id: studioId,
+        connection_id: connection.id,
+        pay_period_id: payPeriodId,
+        status: blocked ? "blocked" : "ready",
+        earning_count: itemRows.length,
+        ready_count: itemRows.length - blocked,
+        blocker_count: blocked,
+        summary: {
+          pay_schedules: paySchedules.length,
+          aligned_pay_period: alignedPeriod,
+          matched_workers: matches?.length ?? 0,
+        },
+        reviewed_by: user.id,
+        reviewed_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (reviewError || !review) throw reviewError ?? new Error("Readiness review was not created.");
+
+    if (itemRows.length) {
+      const { error: itemError } = await admin.from("studio_gusto_readiness_items").insert(itemRows.map((item) => ({
+        review_id: review.id,
+        studio_id: studioId,
+        earning_id: item.earning.id,
+        instructor_id: item.earning.instructor_id,
+        gusto_worker_uuid: item.match?.gusto_worker_uuid ?? null,
+        gusto_job_uuid: item.activeJob?.uuid ?? null,
+        readiness_status: item.blockers.length ? "blocked" : "ready",
+        blocker_codes: item.blockers,
+        details: { earning_date: item.earning.earning_date, source_type: item.earning.source_type },
+      })));
+      if (itemError) throw itemError;
+    }
+
+    await admin.from("studio_gusto_audit_events").insert({
+      studio_id: studioId,
+      connection_id: connection.id,
+      event_type: "payroll_readiness_review",
+      outcome: blocked ? "blocked" : "succeeded",
+      actor_user_id: user.id,
+      details: { pay_period_id: payPeriodId, earnings: itemRows.length, blockers: blocked },
+    });
+
+    revalidatePath(`/app/instructor-pay/periods/${payPeriodId}`);
+    go(payPeriodId, blocked ? "gusto_readiness_blocked" : "gusto_readiness_ready");
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    console.error("[Instructor Pay Period] Gusto readiness failed", error);
+    go(payPeriodId || "missing", "gusto_readiness_failed");
   }
 }

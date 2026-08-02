@@ -316,3 +316,123 @@ export async function getGustoWorkers(
 
   return [...employeeRows, ...contractorRows];
 }
+
+
+export type GustoPaySchedule = {
+  uuid: string;
+  name: string | null;
+  frequency: string | null;
+  active: boolean;
+};
+
+export type GustoPayPeriod = {
+  uuid: string | null;
+  pay_schedule_uuid: string | null;
+  start_date: string;
+  end_date: string;
+  pay_date: string | null;
+};
+
+export type GustoWorkerJob = {
+  uuid: string;
+  title: string | null;
+  hire_date: string | null;
+  termination_date: string | null;
+  active: boolean;
+};
+
+type GustoPayScheduleApiRow = {
+  uuid?: string;
+  id?: string;
+  name?: string | null;
+  frequency?: string | null;
+  active?: boolean | null;
+  is_active?: boolean | null;
+};
+
+type GustoPayPeriodApiRow = {
+  uuid?: string | null;
+  id?: string | null;
+  pay_schedule_uuid?: string | null;
+  pay_schedule_id?: string | null;
+  start_date?: string;
+  end_date?: string;
+  pay_date?: string | null;
+};
+
+type GustoEmployeeDetailApi = {
+  jobs?: Array<{
+    uuid?: string;
+    id?: string;
+    title?: string | null;
+    hire_date?: string | null;
+    termination_date?: string | null;
+    terminated_on?: string | null;
+    active?: boolean | null;
+  }>;
+};
+
+export async function getGustoPaySchedules(
+  accessToken: string,
+  companyUuid: string,
+): Promise<GustoPaySchedule[]> {
+  const rows = await gustoGet<GustoPayScheduleApiRow[]>(
+    accessToken,
+    `/v1/companies/${encodeURIComponent(companyUuid)}/pay_schedules`,
+  );
+  return rows.flatMap((row) => {
+    const uuid = row.uuid ?? row.id;
+    if (!uuid) return [];
+    return [{
+      uuid,
+      name: row.name ?? null,
+      frequency: row.frequency ?? null,
+      active: row.active ?? row.is_active ?? true,
+    }];
+  });
+}
+
+export async function getGustoPayPeriods(
+  accessToken: string,
+  companyUuid: string,
+  startDate: string,
+  endDate: string,
+): Promise<GustoPayPeriod[]> {
+  const query = new URLSearchParams({ start_date: startDate, end_date: endDate });
+  const rows = await gustoGet<GustoPayPeriodApiRow[]>(
+    accessToken,
+    `/v1/companies/${encodeURIComponent(companyUuid)}/pay_periods?${query.toString()}`,
+  );
+  return rows.flatMap((row) => {
+    if (!row.start_date || !row.end_date) return [];
+    return [{
+      uuid: row.uuid ?? row.id ?? null,
+      pay_schedule_uuid: row.pay_schedule_uuid ?? row.pay_schedule_id ?? null,
+      start_date: row.start_date,
+      end_date: row.end_date,
+      pay_date: row.pay_date ?? null,
+    }];
+  });
+}
+
+export async function getGustoEmployeeJobs(
+  accessToken: string,
+  employeeUuid: string,
+): Promise<GustoWorkerJob[]> {
+  const employee = await gustoGet<GustoEmployeeDetailApi>(
+    accessToken,
+    `/v1/employees/${encodeURIComponent(employeeUuid)}`,
+  );
+  return (employee.jobs ?? []).flatMap((row) => {
+    const uuid = row.uuid ?? row.id;
+    if (!uuid) return [];
+    const terminationDate = row.termination_date ?? row.terminated_on ?? null;
+    return [{
+      uuid,
+      title: row.title ?? null,
+      hire_date: row.hire_date ?? null,
+      termination_date: terminationDate,
+      active: row.active ?? !terminationDate,
+    }];
+  });
+}
