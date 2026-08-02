@@ -19,7 +19,7 @@ function videoHref(assignmentId: string, videoAssetId: string): Href {
   return {
     pathname: "/learn/curriculum/videos/[videoAssetId]",
     params: { assignmentId, videoAssetId },
-  } as Href;
+  } as unknown as Href;
 }
 
 function DetailSection({

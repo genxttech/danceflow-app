@@ -14,6 +14,7 @@ import {
   Sparkles,
   Waves,
   Workflow,
+  BriefcaseBusiness,
 } from "lucide-react";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -46,6 +47,16 @@ type StudioStripeRow = {
   stripe_connect_charges_enabled: boolean | null;
   stripe_connect_payouts_enabled: boolean | null;
   stripe_connect_onboarding_complete: boolean | null;
+};
+
+type GustoConnectionRow = {
+  id: string;
+  status: string | null;
+  environment: string | null;
+  gusto_company_name: string | null;
+  last_health_check_at: string | null;
+  last_health_status: string | null;
+  last_error: string | null;
 };
 
 type GoogleCalendarConnectionRow = {
@@ -192,6 +203,7 @@ export default async function StudioIntegrationHubPage() {
     { data: studio, error: studioError },
     { data: waveConnection, error: waveError },
     { data: googleConnection, error: googleError },
+    { data: gustoConnection, error: gustoError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -210,11 +222,17 @@ export default async function StudioIntegrationHubPage() {
       .select("id, status, google_account_email, calendar_id, calendar_summary, sync_lessons, sync_classes, sync_events, last_sync_at, last_sync_status, last_sync_error")
       .eq("studio_id", context.studioId)
       .maybeSingle<GoogleCalendarConnectionRow>(),
+    supabase
+      .from("studio_gusto_connections")
+      .select("id, status, environment, gusto_company_name, last_health_check_at, last_health_status, last_error")
+      .eq("studio_id", context.studioId)
+      .maybeSingle<GustoConnectionRow>(),
   ]);
 
   if (studioError) throw new Error(`Failed to load Stripe status: ${studioError.message}`);
   if (waveError) throw new Error(`Failed to load Wave status: ${waveError.message}`);
   if (googleError) throw new Error(`Failed to load Google Calendar status: ${googleError.message}`);
+  if (gustoError) throw new Error(`Failed to load Gusto status: ${gustoError.message}`);
 
   const { data: recentWaveRuns, error: runsError } = waveConnection?.id
     ? await supabase
@@ -261,8 +279,17 @@ export default async function StudioIntegrationHubPage() {
       ? "attention"
       : "available";
 
-  const connectedCount = [stripeReady, waveStatus === "connected", googleStatus === "connected"].filter(Boolean).length;
-  const attentionCount = [stripeStatus, waveStatus, googleStatus].filter((status) => status === "attention").length;
+  const gustoConnected = gustoConnection?.status === "connected";
+  const gustoStatus: IntegrationStatus = gustoConnected
+    ? gustoConnection.last_health_status === "failed" || gustoConnection.last_error
+      ? "attention"
+      : "connected"
+    : gustoConnection?.status === "needs_reauth" || gustoConnection?.status === "error"
+      ? "attention"
+      : "available";
+
+  const connectedCount = [stripeReady, waveStatus === "connected", googleStatus === "connected", gustoStatus === "connected"].filter(Boolean).length;
+  const attentionCount = [stripeStatus, waveStatus, googleStatus, gustoStatus].filter((status) => status === "attention").length;
 
   return (
     <main className="space-y-8">
@@ -288,7 +315,7 @@ export default async function StudioIntegrationHubPage() {
         items={[
           { key: "connected", label: "Connected", value: connectedCount, detail: "Healthy connections", tone: "success" as const },
           { key: "attention", label: "Needs attention", value: attentionCount, detail: "Connections to review", tone: attentionCount ? "warning" as const : "default" as const },
-          { key: "available", label: "Available", value: Math.max(0, 3 - connectedCount - attentionCount), detail: "Ready to connect" },
+          { key: "available", label: "Available", value: Math.max(0, 4 - connectedCount - attentionCount), detail: "Ready to connect" },
         ]}
       />
 
@@ -330,6 +357,23 @@ export default async function StudioIntegrationHubPage() {
             <Signal label="Business" value={waveConnection?.wave_business_name ?? "Not selected"} />
             <Signal label="Posting Mode" value={String(waveConnection?.posting_mode ?? "manual_review").replaceAll("_", " ")} />
             <Signal label="Latest Run" value={latestRun ? `${String(latestRun.status ?? "draft").replaceAll("_", " ")} · ${formatDate(latestRun.created_at)}` : "No runs yet"} />
+          </IntegrationCard>
+
+          <IntegrationCard
+            eyebrow="Payroll execution"
+            title="Gusto"
+            description="Connect an existing Gusto company to prepare for reviewed worker mapping and payroll execution. DanceFlow remains the payroll-preparation source of truth."
+            status={gustoStatus}
+            icon={BriefcaseBusiness}
+            action={
+              <ActionLink href="/app/settings/integrations/gusto">
+                {gustoConnected ? "Manage Gusto" : "Connect Gusto"}
+              </ActionLink>
+            }
+          >
+            <Signal label="Company" value={gustoConnection?.gusto_company_name ?? "Not connected"} />
+            <Signal label="Environment" value={String(gustoConnection?.environment ?? "demo")} />
+            <Signal label="Last Health Check" value={gustoConnection?.last_health_check_at ? formatDate(gustoConnection.last_health_check_at) : "Not checked"} />
           </IntegrationCard>
         </div>
 
@@ -374,7 +418,13 @@ export default async function StudioIntegrationHubPage() {
                   <p className="mt-1">Review authorization or the latest sync error.</p>
                 </Link>
               ) : null}
-              {stripeReady && !waveNeedsReauth && failedWaveRuns === 0 && googleStatus !== "attention" ? (
+              {gustoStatus === "attention" ? (
+                <Link href="/app/settings/integrations/gusto" className="block rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 hover:bg-amber-100">
+                  <p className="font-semibold">Gusto needs attention.</p>
+                  <p className="mt-1">Review authorization or the latest connection health error.</p>
+                </Link>
+              ) : null}
+              {stripeReady && !waveNeedsReauth && failedWaveRuns === 0 && googleStatus !== "attention" && gustoStatus !== "attention" ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
                   <p className="font-semibold">Core integrations look healthy.</p>
                   <p className="mt-1">No immediate integration action is needed.</p>
