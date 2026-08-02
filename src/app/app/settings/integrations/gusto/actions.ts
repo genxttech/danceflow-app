@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   createGustoDemoEmployee,
   getGustoCompany,
+  gustoEnvironment,
   getGustoWorkers,
 } from "@/lib/integrations/gusto/client";
 import { getValidGustoAccessToken } from "@/lib/integrations/gusto/token";
@@ -343,7 +344,10 @@ export async function createGustoDemoWorkerAction(formData: FormData) {
   const { studioId, userId, connection } = await gustoContext();
   const instructorId = String(formData.get("instructorId") ?? "").trim();
 
-  if (connection.environment !== "demo") {
+  if (
+    gustoEnvironment() !== "demo" ||
+    connection.environment !== "demo"
+  ) {
     redirect("/app/settings/integrations/gusto?status=demo_worker_forbidden");
   }
   if (!connection.gusto_company_uuid || !instructorId) {

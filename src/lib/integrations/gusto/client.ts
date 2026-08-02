@@ -33,8 +33,16 @@ export type GustoCompany = {
   trade_name?: string | null;
 };
 
-function environment() {
-  return process.env.GUSTO_ENVIRONMENT === "production" ? "production" : "demo";
+function environment(): "demo" | "production" {
+  const value = process.env.GUSTO_ENVIRONMENT?.trim().toLowerCase();
+
+  if (value === "demo" || value === "production") {
+    return value;
+  }
+
+  throw new Error(
+    "GUSTO_ENVIRONMENT must be explicitly set to demo or production.",
+  );
 }
 
 export function gustoEnvironment() {
@@ -435,4 +443,326 @@ export async function getGustoEmployeeJobs(
       active: row.active ?? !terminationDate,
     }];
   });
+}
+
+
+export type GustoTimeSheetPayload = {
+  entity_uuid: string;
+  entity_type: "Employee" | "Contractor";
+  job_uuid?: string | null;
+  time_zone: string;
+  shift_started_at: string;
+  shift_ended_at?: string | null;
+  metadata?: Record<string, string>;
+  entries: Array<{
+    hours_worked: number;
+    pay_classification: "Regular" | "Overtime" | "Double overtime";
+  }>;
+};
+
+export type GustoTimeSheet = {
+  uuid?: string;
+  id?: string;
+  entity_uuid?: string;
+  entity_type?: string;
+  job_uuid?: string | null;
+  shift_started_at?: string;
+  shift_ended_at?: string | null;
+  metadata?: Record<string, string> | null;
+  status?: string | null;
+  synced_at?: string | null;
+  [key: string]: unknown;
+};
+
+export async function createGustoTimeSheet(
+  accessToken: string,
+  companyUuid: string,
+  payload: GustoTimeSheetPayload,
+): Promise<GustoTimeSheet> {
+  const response = await fetch(
+    `${apiBase()}/v1/companies/${encodeURIComponent(companyUuid)}/time_tracking/time_sheets`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Gusto-API-Version": GUSTO_API_VERSION,
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(
+      `Gusto time sheet creation failed (${response.status})${detail ? `: ${detail.slice(0, 700)}` : "."}`,
+    );
+  }
+
+  return (await response.json()) as GustoTimeSheet;
+}
+
+export async function getGustoCompanyTimeSheets(
+  accessToken: string,
+  companyUuid: string,
+  entityUuid?: string,
+): Promise<GustoTimeSheet[]> {
+  const query = new URLSearchParams({
+    sort_by: "created_at",
+    sort_order: "desc",
+    per: "100",
+  });
+  if (entityUuid) query.append("entity_uuids[]", entityUuid);
+
+  return gustoGet<GustoTimeSheet[]>(
+    accessToken,
+    `/v1/companies/${encodeURIComponent(companyUuid)}/time_tracking/time_sheets?${query.toString()}`,
+  );
+}
+
+export async function findGustoTimeSheetByDanceFlowKey(
+  accessToken: string,
+  companyUuid: string,
+  entityUuid: string,
+  deliveryKey: string,
+) {
+  const rows = await getGustoCompanyTimeSheets(
+    accessToken,
+    companyUuid,
+    entityUuid,
+  );
+
+  return (
+    rows.find(
+      (row) =>
+        row.metadata?.danceflow_delivery_key === deliveryKey,
+    ) ?? null
+  );
+}
+
+
+export type GustoJob = {
+  uuid?: string;
+  id?: string;
+  employee_uuid?: string;
+  title?: string;
+  hire_date?: string;
+  primary?: boolean;
+  [key: string]: unknown;
+};
+
+export async function createGustoEmployeeJob(
+  accessToken: string,
+  employeeUuid: string,
+  input: {
+    title: string;
+    hireDate: string;
+  },
+): Promise<GustoJob> {
+  const response = await fetch(
+    `${apiBase()}/v1/employees/${encodeURIComponent(employeeUuid)}/jobs`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Gusto-API-Version": GUSTO_API_VERSION,
+      },
+      body: JSON.stringify({
+        title: input.title,
+        hire_date: input.hireDate,
+      }),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(
+      `Gusto job creation failed (${response.status})${detail ? `: ${detail.slice(0, 700)}` : "."}`,
+    );
+  }
+
+  return (await response.json()) as GustoJob;
+}
+
+
+export type GustoPayrollSync = {
+  uuid?: string;
+  id?: string;
+  status?: string;
+  kind?: string;
+  pay_schedule_uuid?: string;
+  pay_period_start_date?: string;
+  pay_period_end_date?: string;
+  payroll_uuid?: string | null;
+  error?: string | null;
+  errors?: unknown;
+  [key: string]: unknown;
+};
+
+export async function createGustoPayrollSync(
+  accessToken: string,
+  companyUuid: string,
+  input: {
+    payScheduleUuid: string;
+    payPeriodStartDate: string;
+    payPeriodEndDate: string;
+  },
+): Promise<GustoPayrollSync> {
+  const response = await fetch(
+    `${apiBase()}/v1/companies/${encodeURIComponent(companyUuid)}/time_tracking/payroll_syncs`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Gusto-API-Version": GUSTO_API_VERSION,
+      },
+      body: JSON.stringify({
+        kind: "regular",
+        pay_schedule_uuid: input.payScheduleUuid,
+        pay_period_start_date: input.payPeriodStartDate,
+        pay_period_end_date: input.payPeriodEndDate,
+      }),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(
+      `Gusto payroll sync creation failed (${response.status})${detail ? `: ${detail.slice(0, 900)}` : "."}`,
+    );
+  }
+
+  return (await response.json()) as GustoPayrollSync;
+}
+
+export async function getGustoPayrollSync(
+  accessToken: string,
+  payrollSyncUuid: string,
+): Promise<GustoPayrollSync> {
+  return gustoGet<GustoPayrollSync>(
+    accessToken,
+    `/v1/time_tracking/payroll_syncs/${encodeURIComponent(payrollSyncUuid)}`,
+  );
+}
+
+
+export async function getGustoTimeSheet(
+  accessToken: string,
+  timeSheetUuid: string,
+): Promise<GustoTimeSheet> {
+  return gustoGet<GustoTimeSheet>(
+    accessToken,
+    `/v1/time_tracking/time_sheets/${encodeURIComponent(timeSheetUuid)}`,
+  );
+}
+
+export async function approveGustoTimeSheet(
+  accessToken: string,
+  timeSheet: GustoTimeSheet,
+): Promise<GustoTimeSheet> {
+  const timeSheetUuid =
+    typeof timeSheet.uuid === "string"
+      ? timeSheet.uuid
+      : typeof timeSheet.id === "string"
+        ? timeSheet.id
+        : null;
+  const version =
+    typeof timeSheet.version === "string" ? timeSheet.version : null;
+
+  if (!timeSheetUuid || !version) {
+    throw new Error(
+      "Gusto time sheet approval requires the current UUID and version.",
+    );
+  }
+
+  const response = await fetch(
+    `${apiBase()}/v1/time_tracking/time_sheets/${encodeURIComponent(timeSheetUuid)}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Gusto-API-Version": GUSTO_API_VERSION,
+      },
+      body: JSON.stringify({
+        version,
+        status: "approved",
+      }),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(
+      `Gusto time sheet approval failed (${response.status})${detail ? `: ${detail.slice(0, 900)}` : "."}`,
+    );
+  }
+
+  return (await response.json()) as GustoTimeSheet;
+}
+
+
+export type GustoPayrollSummary = {
+  uuid?: string;
+  id?: string;
+  payroll_uuid?: string;
+  pay_period?: {
+    start_date?: string;
+    end_date?: string;
+  } | null;
+  pay_period_start_date?: string;
+  pay_period_end_date?: string;
+  processing_status?: string;
+  payroll_type?: string;
+  [key: string]: unknown;
+};
+
+export async function getGustoUnprocessedPayrolls(
+  accessToken: string,
+  companyUuid: string,
+  startDate: string,
+  endDate: string,
+): Promise<GustoPayrollSummary[]> {
+  const query = new URLSearchParams();
+  query.set("processing_statuses", "unprocessed");
+  query.set("payroll_types", "regular");
+  query.set("start_date", startDate);
+  query.set("end_date", endDate);
+  query.set("per", "100");
+
+  return gustoGet<GustoPayrollSummary[]>(
+    accessToken,
+    `/v1/companies/${encodeURIComponent(companyUuid)}/payrolls?${query.toString()}`,
+  );
+}
+
+export type GustoPayrollEmployee = {
+  uuid?: string;
+  id?: string;
+};
+
+export async function getGustoPayrollEmployees(
+  accessToken: string,
+  companyUuid: string,
+  payrollUuid: string,
+): Promise<GustoPayrollEmployee[]> {
+  const query = new URLSearchParams({
+    payroll_uuid: payrollUuid,
+    per: "100",
+  });
+
+  return gustoGet<GustoPayrollEmployee[]>(
+    accessToken,
+    `/v1/companies/${encodeURIComponent(companyUuid)}/employees?${query.toString()}`,
+  );
 }
