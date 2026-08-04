@@ -208,6 +208,9 @@ function DayColumn({
   gridStartMinutes: number;
   gridEndMinutes: number;
 }) {
+  const [selectedSlotMinutes, setSelectedSlotMinutes] = useState<number | null>(
+    null,
+  );
   const slotCount =
     (gridEndMinutes - gridStartMinutes) / SLOT_MINUTES;
 
@@ -228,7 +231,47 @@ function DayColumn({
             }`}
             style={{ top: index * SLOT_HEIGHT, height: SLOT_HEIGHT }}
           >
-            <div className="absolute inset-0 hidden items-center justify-center gap-1 bg-violet-50/80 px-1 group-hover:flex group-focus-within:flex">
+            <button
+              type="button"
+              aria-label={`Open actions for ${timeLabel(slotMinutes)}`}
+              aria-expanded={selectedSlotMinutes === slotMinutes}
+              onClick={() =>
+                setSelectedSlotMinutes((current) =>
+                  current === slotMinutes ? null : slotMinutes,
+                )
+              }
+              className="absolute inset-0 z-10 block w-full touch-manipulation md:hidden"
+            />
+
+            {selectedSlotMinutes === slotMinutes ? (
+              <div className="absolute left-2 right-2 top-1/2 z-40 flex -translate-y-1/2 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white p-2 shadow-xl md:hidden">
+                <Link
+                  href={buildCreateHref(day, slotMinutes)}
+                  className="min-h-10 flex-1 rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-center text-xs font-semibold text-white"
+                >
+                  Appointment
+                </Link>
+                <Link
+                  href={buildBlockHref(day, slotMinutes, instructorId)}
+                  className="min-h-10 flex-1 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-center text-xs font-semibold text-orange-800"
+                >
+                  Block time
+                </Link>
+                <button
+                  type="button"
+                  aria-label="Close time actions"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedSlotMinutes(null);
+                  }}
+                  className="min-h-10 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
+                >
+                  ×
+                </button>
+              </div>
+            ) : null}
+
+            <div className="absolute inset-0 hidden items-center justify-center gap-1 bg-violet-50/80 px-1 group-hover:flex group-focus-within:flex md:flex md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
               <Link
                 href={buildCreateHref(day, slotMinutes)}
                 className="rounded-md bg-[var(--brand-primary)] px-2 py-1 text-[10px] font-semibold text-white"
@@ -393,9 +436,9 @@ export default function ScheduleCalendarView(props: CommonViewProps) {
           </div>
 
           <div className="border-t border-violet-100 bg-[linear-gradient(135deg,#faf5ff_0%,#fff7ed_100%)] px-4 py-3 text-xs text-slate-600">
-            Hover or focus an open 15-minute interval to schedule an appointment
-            or block instructor time. New items default to one hour and can be
-            adjusted before saving.
+            Tap an open 15-minute interval on mobile, or hover/focus it on
+            desktop, to schedule an appointment or block instructor time. New
+            items default to one hour and can be adjusted before saving.
           </div>
         </section>
       </div>
