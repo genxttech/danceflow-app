@@ -55,6 +55,20 @@ type AppointmentRow = {
   rooms: RoomRelation;
 };
 
+type InstructorScheduleBlockRow = {
+  id: string;
+  studio_id: string;
+  instructor_id: string;
+  room_id: string | null;
+  reason: string;
+  title: string;
+  notes: string | null;
+  starts_at: string;
+  ends_at: string;
+  instructors: InstructorRelation;
+  rooms: RoomRelation;
+};
+
 type EventRow = {
   id: string;
   name: string | null;
@@ -342,6 +356,34 @@ function toCalendarAppointment(
   };
 }
 
+function toCalendarScheduleBlock(
+  row: InstructorScheduleBlockRow,
+  displayDate: string,
+): CalendarItem {
+  return {
+    kind: "appointment",
+    id: row.id,
+    studio_id: row.studio_id,
+    client_id: null,
+    instructor_id: row.instructor_id,
+    room_id: row.room_id,
+    appointment_type: "instructor_unavailable",
+    title: row.title,
+    status: "scheduled",
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    display_date: displayDate,
+    is_recurring: false,
+    notes: row.notes,
+    price_amount: null,
+    payment_status: null,
+    clients: null,
+    partner_client: null,
+    instructors: row.instructors,
+    rooms: row.rooms,
+  };
+}
+
 function sortCalendarItems(items: CalendarItem[]) {
   return [...items].sort((a, b) => {
     const aKey = a.starts_at || `${a.display_date ?? ""}T00:00:00`;
@@ -569,6 +611,39 @@ export default async function ScheduleCalendarPage({
     appointmentsQuery = appointmentsQuery.eq("status", selectedStatus);
   }
 
+  let scheduleBlocksQuery = supabase
+    .from("instructor_schedule_blocks")
+    .select(
+      `
+      id,
+      studio_id,
+      instructor_id,
+      room_id,
+      reason,
+      title,
+      notes,
+      starts_at,
+      ends_at,
+      instructors ( first_name, last_name ),
+      rooms ( name )
+    `,
+    )
+    .eq("studio_id", studioId)
+    .lt("starts_at", rangeEnd)
+    .gt("ends_at", rangeStart)
+    .order("starts_at", { ascending: true });
+
+  if (selectedInstructorId) {
+    scheduleBlocksQuery = scheduleBlocksQuery.eq(
+      "instructor_id",
+      selectedInstructorId,
+    );
+  }
+
+  if (selectedRoomId) {
+    scheduleBlocksQuery = scheduleBlocksQuery.eq("room_id", selectedRoomId);
+  }
+
   let eventsQuery = supabase
     .from("events")
     .select(
@@ -608,6 +683,7 @@ export default async function ScheduleCalendarPage({
 
   const [
     { data: appointments, error: appointmentsError },
+    { data: scheduleBlocks, error: scheduleBlocksError },
     { data: events, error: eventsError },
     { data: instructors, error: instructorsError },
     { data: rooms, error: roomsError },
@@ -616,6 +692,12 @@ export default async function ScheduleCalendarPage({
     selectedSource === "events"
       ? Promise.resolve({ data: [], error: null })
       : appointmentsQuery,
+    selectedSource === "events" ||
+    (selectedAppointmentType &&
+      selectedAppointmentType !== "instructor_unavailable") ||
+    (selectedStatus && selectedStatus !== "scheduled")
+      ? Promise.resolve({ data: [], error: null })
+      : scheduleBlocksQuery,
     selectedSource === "appointments" ||
     selectedInstructorId ||
     selectedRoomId ||
@@ -644,6 +726,12 @@ export default async function ScheduleCalendarPage({
   if (appointmentsError) {
     throw new Error(
       `Failed to load calendar appointments: ${appointmentsError.message}`,
+    );
+  }
+
+  if (scheduleBlocksError) {
+    throw new Error(
+      `Failed to load instructor schedule blocks: ${scheduleBlocksError.message}`,
     );
   }
 
@@ -680,6 +768,18 @@ export default async function ScheduleCalendarPage({
       toCalendarAppointment(appointment, displayDate),
     );
   });
+
+  ((scheduleBlocks ?? []) as InstructorScheduleBlockRow[]).forEach(
+    (block) => {
+      const displayDate = getDateInTimeZone(block.starts_at, studioTimezone);
+
+      if (!groupedAppointments[displayDate]) return;
+
+      groupedAppointments[displayDate].push(
+        toCalendarScheduleBlock(block, displayDate),
+      );
+    },
+  );
 
   ((events ?? []) as EventRow[])
     .filter((event) => eventOverlapsDays(event, days))
