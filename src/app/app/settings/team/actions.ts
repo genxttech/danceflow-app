@@ -38,7 +38,6 @@ const ASSIGNABLE_ROLES = new Set<AppRole>([
   "studio_admin",
   "front_desk",
   "instructor",
-  "independent_instructor",
   "organizer_admin",
 ]);
 
@@ -187,8 +186,7 @@ function roleFitsWorkspaceType(args: {
   if (
     targetRole === "studio_admin" ||
     targetRole === "front_desk" ||
-    targetRole === "instructor" ||
-    targetRole === "independent_instructor"
+    targetRole === "instructor"
   ) {
     return actorInStudioWorkspace || actorRole === "platform_admin";
   }

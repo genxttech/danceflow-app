@@ -72,6 +72,8 @@ export type CommonViewProps = ScheduleFilters & {
   instructors: InstructorOption[];
   rooms: RoomOption[];
   studioTimeZone?: string;
+  gridStartMinutes?: number;
+  gridEndMinutes?: number;
 };
 
 export const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";

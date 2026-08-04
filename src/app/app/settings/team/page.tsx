@@ -24,6 +24,12 @@ type TeamMemberRow = {
   active: boolean;
 };
 
+type TeamMemberProfileRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+};
+
 type TeamInvitationRow = {
   id: string;
   email: string;
@@ -51,7 +57,6 @@ const STUDIO_ROLE_OPTIONS: Array<{ value: AppRole; label: string }> = [
   { value: "studio_admin", label: "Studio Manager" },
   { value: "front_desk", label: "Front Desk" },
   { value: "instructor", label: "Instructor" },
-  { value: "independent_instructor", label: "Independent Instructor" },
 ];
 
 const ORGANIZER_ROLE_OPTIONS: Array<{ value: AppRole; label: string }> = [
@@ -214,6 +219,28 @@ export default async function TeamSettingsPage({
   const typedMembers = ((members ?? []) as TeamMemberRow[]).filter((item) => item.active);
   const typedOverrides = (overrides ?? []) as PermissionOverrideRow[];
   const typedInvitations = (invitations ?? []) as TeamInvitationRow[];
+
+  const memberUserIds = typedMembers.map((member) => member.user_id);
+  const { data: memberProfiles, error: memberProfilesError } =
+    memberUserIds.length > 0
+      ? await supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .in("id", memberUserIds)
+      : { data: [], error: null };
+
+  if (memberProfilesError) {
+    throw new Error(
+      `Failed to load team member profiles: ${memberProfilesError.message}`,
+    );
+  }
+
+  const profileByUserId = new Map(
+    ((memberProfiles ?? []) as TeamMemberProfileRow[]).map((profile) => [
+      profile.id,
+      profile,
+    ]),
+  );
 
   const activeInvitations = typedInvitations.filter(
     (item) =>
@@ -387,7 +414,7 @@ export default async function TeamSettingsPage({
         "Invite team member",
         workspaceType === "organizer"
           ? "Invite an organizer admin by email."
-          : "Invite staff by email and assign the correct workspace role.",
+          : "Invite staff by email. Independent instructors are added from Clients and use portal access instead of the staff workspace.",
         actorIsOwner ? (
           <form
             action={inviteTeamMemberAction}
@@ -527,6 +554,12 @@ export default async function TeamSettingsPage({
           <div className="space-y-4">
             {typedMembers.map((member) => {
               const memberOverrides = overridesByUser.get(member.user_id) ?? new Map();
+              const profile = profileByUserId.get(member.user_id);
+              const displayName =
+                profile?.full_name?.trim() ||
+                profile?.email?.trim() ||
+                "Team member";
+              const displayEmail = profile?.email?.trim() || null;
 
               return (
                 <div
@@ -536,7 +569,9 @@ export default async function TeamSettingsPage({
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-base font-semibold text-slate-950">{member.user_id}</p>
+                        <p className="text-base font-semibold text-slate-950">
+                          {displayName}
+                        </p>
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(
                             member.role
@@ -546,7 +581,7 @@ export default async function TeamSettingsPage({
                         </span>
                       </div>
                       <p className="mt-2 text-sm text-slate-500">
-                        User ID is still shown until the friendly name and email member directory is added.
+                        {displayEmail ?? "No profile email is available for this team member."}
                       </p>
                     </div>
 

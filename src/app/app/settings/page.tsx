@@ -342,6 +342,28 @@ export default async function SettingsPage() {
           </p>
         </div>
 
+        <div className="mb-5 divide-y divide-slate-200 rounded-2xl border border-violet-200 bg-white shadow-sm">
+          <Link
+            href="/app/settings/hours"
+            className="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-violet-50/60 md:px-5"
+          >
+            <span>
+              <span className="block font-semibold text-slate-950">
+                Hours &amp; scheduling
+              </span>
+              <span className="mt-1 block text-sm text-slate-600">
+                Set normal studio operating hours used by the Day and Week calendars.
+              </span>
+            </span>
+            <span
+              aria-hidden="true"
+              className="text-xl font-semibold text-violet-600"
+            >
+              →
+            </span>
+          </Link>
+        </div>
+
         <SettingsForm
           studio={studio as StudioRow}
           settings={settings as StudioSettingsRow}

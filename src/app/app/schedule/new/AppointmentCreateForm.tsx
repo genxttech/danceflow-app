@@ -85,6 +85,8 @@ type AppointmentCreateFormProps = {
   linkedPartnersByClientId: Record<string, LinkedPartnerOption[]>;
   initialClientId?: string;
   initialDate?: string;
+  initialStartTime?: string;
+  initialEndTime?: string;
   canBookHostStudioFloorSpace?: boolean;
   linkedHostStudios?: LinkedHostStudioOption[];
 };
@@ -415,6 +417,8 @@ export default function AppointmentCreateForm({
   linkedPartnersByClientId,
   initialClientId = "",
   initialDate = "",
+  initialStartTime = "",
+  initialEndTime = "",
   canBookHostStudioFloorSpace = false,
   linkedHostStudios = [],
 }: AppointmentCreateFormProps) {
@@ -852,7 +856,11 @@ export default function AppointmentCreateForm({
                   type="datetime-local"
                   required={!isFloorRental}
                   disabled={isFloorRental}
-                  defaultValue={initialDate ? `${initialDate}T09:00` : ""}
+                  defaultValue={
+                    initialDate
+                      ? `${initialDate}T${initialStartTime || "09:00"}`
+                      : ""
+                  }
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 />
               </div>
@@ -870,7 +878,11 @@ export default function AppointmentCreateForm({
                   type="datetime-local"
                   required={!isFloorRental}
                   disabled={isFloorRental}
-                  defaultValue={initialDate ? `${initialDate}T10:00` : ""}
+                  defaultValue={
+                    initialDate
+                      ? `${initialDate}T${initialEndTime || "10:00"}`
+                      : ""
+                  }
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 />
               </div>

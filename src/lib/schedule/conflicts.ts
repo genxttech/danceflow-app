@@ -13,6 +13,7 @@ export async function detectAppointmentConflicts(params: {
   roomId?: string | null;
   clientId?: string | null;
   excludeAppointmentId?: string | null;
+  excludeScheduleBlockId?: string | null;
 }) {
   const supabase = await createClient();
 
@@ -24,6 +25,7 @@ export async function detectAppointmentConflicts(params: {
     roomId,
     clientId,
     excludeAppointmentId,
+    excludeScheduleBlockId,
   } = params;
 
   const activeStatuses = ["scheduled", "rescheduled", "attended"];
@@ -110,6 +112,36 @@ export async function detectAppointmentConflicts(params: {
         message: "That client already has an overlapping appointment.",
       } satisfies ConflictResult;
     }
+  }
+
+
+  if (instructorId) {
+    let blockQuery = supabase
+      .from("instructor_schedule_blocks")
+      .select("id", { count: "exact", head: true })
+      .eq("studio_id", studioId)
+      .eq("instructor_id", instructorId)
+      .lt("starts_at", endsAt)
+      .gt("ends_at", startsAt);
+
+    if (excludeScheduleBlockId) blockQuery = blockQuery.neq("id", excludeScheduleBlockId);
+    const { count, error } = await blockQuery;
+    if (error) throw new Error(`Instructor block conflict check failed: ${error.message}`);
+    if ((count ?? 0) > 0) return { hasConflict: true, message: "That instructor has blocked this time." } satisfies ConflictResult;
+  }
+
+  if (roomId) {
+    let blockQuery = supabase
+      .from("instructor_schedule_blocks")
+      .select("id", { count: "exact", head: true })
+      .eq("studio_id", studioId)
+      .eq("room_id", roomId)
+      .lt("starts_at", endsAt)
+      .gt("ends_at", startsAt);
+    if (excludeScheduleBlockId) blockQuery = blockQuery.neq("id", excludeScheduleBlockId);
+    const { count, error } = await blockQuery;
+    if (error) throw new Error(`Room block conflict check failed: ${error.message}`);
+    if ((count ?? 0) > 0) return { hasConflict: true, message: "That room is reserved by an instructor time block." } satisfies ConflictResult;
   }
 
   return { hasConflict: false } satisfies ConflictResult;

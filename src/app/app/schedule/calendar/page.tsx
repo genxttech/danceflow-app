@@ -113,6 +113,13 @@ type RoomOption = {
   name: string;
 };
 
+type StudioOperatingHoursRow = {
+  weekday: number;
+  is_closed: boolean;
+  opens_at: string | null;
+  closes_at: string | null;
+};
+
 
 function getBaseDate(raw?: string) {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -343,6 +350,95 @@ function sortCalendarItems(items: CalendarItem[]) {
   });
 }
 
+function timeToMinutes(value: string | null) {
+  if (!value) return null;
+  const [hour, minute] = value.slice(0, 5).split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function roundDownToQuarter(value: number) {
+  return Math.floor(value / 15) * 15;
+}
+
+function roundUpToQuarter(value: number) {
+  return Math.ceil(value / 15) * 15;
+}
+
+function getCalendarGridBounds(params: {
+  days: string[];
+  operatingHours: StudioOperatingHoursRow[];
+  groupedAppointments: Record<string, CalendarItem[]>;
+  timeZone: string;
+}) {
+  const { days, operatingHours, groupedAppointments, timeZone } = params;
+  const hoursByWeekday = new Map(
+    operatingHours.map((row) => [row.weekday, row]),
+  );
+
+  const candidatesStart: number[] = [];
+  const candidatesEnd: number[] = [];
+
+  for (const day of days) {
+    const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+    const hours = hoursByWeekday.get(weekday);
+
+    if (hours && !hours.is_closed) {
+      const opens = timeToMinutes(hours.opens_at);
+      const closes = timeToMinutes(hours.closes_at);
+      if (opens !== null) candidatesStart.push(opens - 30);
+      if (closes !== null) candidatesEnd.push(closes + 30);
+    }
+
+    for (const item of groupedAppointments[day] ?? []) {
+      if (item.is_all_day) continue;
+
+      const startParts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(new Date(item.starts_at));
+      const endParts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(new Date(item.ends_at));
+      const startMap = Object.fromEntries(
+        startParts
+          .filter((part) => part.type !== "literal")
+          .map((part) => [part.type, part.value]),
+      );
+      const endMap = Object.fromEntries(
+        endParts
+          .filter((part) => part.type !== "literal")
+          .map((part) => [part.type, part.value]),
+      );
+      candidatesStart.push(
+        Number(startMap.hour === "24" ? "0" : startMap.hour) * 60 +
+          Number(startMap.minute),
+      );
+      candidatesEnd.push(
+        Number(endMap.hour === "24" ? "0" : endMap.hour) * 60 +
+          Number(endMap.minute),
+      );
+    }
+  }
+
+  const start = candidatesStart.length
+    ? Math.max(0, roundDownToQuarter(Math.min(...candidatesStart)))
+    : 7 * 60;
+  const end = candidatesEnd.length
+    ? Math.min(24 * 60, roundUpToQuarter(Math.max(...candidatesEnd)))
+    : 23 * 60;
+
+  return {
+    gridStartMinutes: Math.min(start, end - 60),
+    gridEndMinutes: Math.max(end, start + 60),
+  };
+}
+
 function CompactScheduleHeader() {
   const labels = ["Private lessons", "Floor rentals", "Room unavailable", "Agenda-ready"];
 
@@ -515,6 +611,7 @@ export default async function ScheduleCalendarPage({
     { data: events, error: eventsError },
     { data: instructors, error: instructorsError },
     { data: rooms, error: roomsError },
+    { data: operatingHours, error: operatingHoursError },
   ] = await Promise.all([
     selectedSource === "events"
       ? Promise.resolve({ data: [], error: null })
@@ -537,6 +634,11 @@ export default async function ScheduleCalendarPage({
       .eq("studio_id", studioId)
       .eq("active", true)
       .order("name", { ascending: true }),
+    supabase
+      .from("studio_operating_hours")
+      .select("weekday, is_closed, opens_at, closes_at")
+      .eq("studio_id", studioId)
+      .order("weekday", { ascending: true }),
   ]);
 
   if (appointmentsError) {
@@ -555,6 +657,12 @@ export default async function ScheduleCalendarPage({
 
   if (roomsError) {
     throw new Error(`Failed to load rooms: ${roomsError.message}`);
+  }
+
+  if (operatingHoursError) {
+    throw new Error(
+      `Failed to load studio operating hours: ${operatingHoursError.message}`,
+    );
   }
 
   const groupedAppointments: Record<string, CalendarItem[]> =
@@ -584,6 +692,13 @@ export default async function ScheduleCalendarPage({
 
   Object.keys(groupedAppointments).forEach((day) => {
     groupedAppointments[day] = sortCalendarItems(groupedAppointments[day]);
+  });
+
+  const gridBounds = getCalendarGridBounds({
+    days,
+    operatingHours: (operatingHours ?? []) as StudioOperatingHoursRow[],
+    groupedAppointments,
+    timeZone: studioTimezone,
   });
 
   if (view === "agenda") {
@@ -648,6 +763,8 @@ export default async function ScheduleCalendarPage({
         selectedStatus={selectedStatus}
         selectedSource={selectedSource}
         studioTimeZone={studioTimezone}
+        gridStartMinutes={gridBounds.gridStartMinutes}
+        gridEndMinutes={gridBounds.gridEndMinutes}
       />
     </div>
   );

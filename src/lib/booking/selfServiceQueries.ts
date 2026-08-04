@@ -375,11 +375,47 @@ export async function loadStudentSelfServiceSlots(
     .gt("ends_at", range.startIso)
     .in("status", ["scheduled", "rescheduled"]);
 
-  const [windows, blackouts, appointmentHolds] = await Promise.all([
-    queryList<SelfServiceAvailabilityWindow>(windowsQuery, "Availability lookup failed"),
-    queryList<SelfServiceBlackout>(blackoutsQuery, "Blackout lookup failed"),
-    queryList<SelfServiceAppointmentHold>(appointmentsQuery, "Appointment lookup failed"),
-  ]);
+  const scheduleBlocksQuery = params.supabase
+    .from("instructor_schedule_blocks")
+    .select("id, instructor_id, room_id, starts_at, ends_at")
+    .eq("studio_id", studio.id)
+    .lt("starts_at", range.endIso)
+    .gt("ends_at", range.startIso);
+
+  const [windows, blackouts, appointmentHolds, scheduleBlocks] =
+    await Promise.all([
+      queryList<SelfServiceAvailabilityWindow>(
+        windowsQuery,
+        "Availability lookup failed",
+      ),
+      queryList<SelfServiceBlackout>(
+        blackoutsQuery,
+        "Blackout lookup failed",
+      ),
+      queryList<SelfServiceAppointmentHold>(
+        appointmentsQuery,
+        "Appointment lookup failed",
+      ),
+      queryList<{
+        id: string;
+        instructor_id: string | null;
+        room_id: string | null;
+        starts_at: string;
+        ends_at: string;
+      }>(scheduleBlocksQuery, "Instructor schedule block lookup failed"),
+    ]);
+
+  const combinedAppointmentHolds: SelfServiceAppointmentHold[] = [
+    ...appointmentHolds,
+    ...scheduleBlocks.map((block) => ({
+      id: `schedule-block:${block.id}`,
+      instructor_id: block.instructor_id,
+      room_id: block.room_id,
+      starts_at: block.starts_at,
+      ends_at: block.ends_at,
+      status: "scheduled",
+    })),
+  ];
 
   return {
     studio,
@@ -392,7 +428,7 @@ export async function loadStudentSelfServiceSlots(
       settings,
       windows,
       blackouts,
-      appointmentHolds,
+      appointmentHolds: combinedAppointmentHolds,
       lessonType: params.lessonType ?? "private_lesson",
       instructorId: selectedInstructorId,
       roomId: params.roomId,
