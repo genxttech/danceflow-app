@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCronAuthFailure } from "@/lib/security/cron";
+import { createAppointmentConfirmationToken } from "@/lib/schedule/appointmentConfirmation";
 
 function formatDateKey(date: Date, timeZone = "UTC") {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -243,6 +244,14 @@ instructors:instructors!appointments_instructor_id_fkey (
     if (!client?.email || !appt.client_id) continue;
 
     const studioTz = getStudioTimezone(studioMap, appt.studio_id);
+    const confirmation = await createAppointmentConfirmationToken({
+      supabase,
+      studioId: appt.studio_id,
+      appointmentId: appt.id,
+      clientId: appt.client_id,
+      recipientEmail: client.email,
+      expiresAt: addHours(new Date(appt.starts_at), 1).toISOString(),
+    });
 
     deliveries.push({
       studio_id: appt.studio_id,
@@ -256,7 +265,7 @@ instructors:instructors!appointments_instructor_id_fkey (
       body: `You have an upcoming lesson scheduled for ${formatDateLong(
         appt.starts_at,
         studioTz
-      )} at ${formatTime(appt.starts_at, studioTz)}.`,
+      )} at ${formatTime(appt.starts_at, studioTz)}.\n\nConfirm appointment: ${confirmation.confirmUrl}`,
       metadata: {
         appointmentTitle: appt.title,
         appointmentType: appt.appointment_type,
@@ -264,6 +273,8 @@ instructors:instructors!appointments_instructor_id_fkey (
         clientName: [client.first_name, client.last_name].filter(Boolean).join(" "),
         clientEmail: client.email,
         studioTimezone: studioTz,
+        confirmationUrl: confirmation.confirmUrl,
+        confirmationExpiresAt: confirmation.expiresAt,
       },
       scheduled_for: now.toISOString(),
     });
@@ -274,6 +285,14 @@ instructors:instructors!appointments_instructor_id_fkey (
     if (!client?.email || !appt.client_id) continue;
 
     const studioTz = getStudioTimezone(studioMap, appt.studio_id);
+    const confirmation = await createAppointmentConfirmationToken({
+      supabase,
+      studioId: appt.studio_id,
+      appointmentId: appt.id,
+      clientId: appt.client_id,
+      recipientEmail: client.email,
+      expiresAt: addHours(new Date(appt.starts_at), 1).toISOString(),
+    });
 
     deliveries.push({
       studio_id: appt.studio_id,
@@ -287,7 +306,7 @@ instructors:instructors!appointments_instructor_id_fkey (
       body: `You have an upcoming lesson at ${formatTime(
         appt.starts_at,
         studioTz
-      )} today.`,
+      )} today.\n\nConfirm appointment: ${confirmation.confirmUrl}`,
       metadata: {
         appointmentTitle: appt.title,
         appointmentType: appt.appointment_type,
@@ -295,6 +314,8 @@ instructors:instructors!appointments_instructor_id_fkey (
         clientName: [client.first_name, client.last_name].filter(Boolean).join(" "),
         clientEmail: client.email,
         studioTimezone: studioTz,
+        confirmationUrl: confirmation.confirmUrl,
+        confirmationExpiresAt: confirmation.expiresAt,
       },
       scheduled_for: now.toISOString(),
     });

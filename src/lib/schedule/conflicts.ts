@@ -28,10 +28,15 @@ export async function detectAppointmentConflicts(params: {
     excludeScheduleBlockId,
   } = params;
 
-  const activeStatuses = ["scheduled", "rescheduled", "attended"];
+  const activeStatuses = [
+    "scheduled",
+    "confirmed",
+    "rescheduled",
+    "attended",
+  ];
 
   if (instructorId) {
-    let query = supabase
+    let appointmentQuery = supabase
       .from("appointments")
       .select("id", { count: "exact", head: true })
       .eq("studio_id", studioId)
@@ -41,25 +46,55 @@ export async function detectAppointmentConflicts(params: {
       .gt("ends_at", startsAt);
 
     if (excludeAppointmentId) {
-      query = query.neq("id", excludeAppointmentId);
+      appointmentQuery = appointmentQuery.neq("id", excludeAppointmentId);
     }
 
-    const { count, error } = await query;
+    const { count: appointmentCount, error: appointmentError } =
+      await appointmentQuery;
 
-    if (error) {
-      throw new Error(`Instructor conflict check failed: ${error.message}`);
+    if (appointmentError) {
+      throw new Error(
+        `Instructor conflict check failed: ${appointmentError.message}`,
+      );
     }
 
-    if ((count ?? 0) > 0) {
+    if ((appointmentCount ?? 0) > 0) {
       return {
         hasConflict: true,
         message: "That instructor is already booked during this time.",
       } satisfies ConflictResult;
     }
+
+    let blockQuery = supabase
+      .from("schedule_blocks")
+      .select("id", { count: "exact", head: true })
+      .eq("studio_id", studioId)
+      .eq("instructor_id", instructorId)
+      .lt("starts_at", endsAt)
+      .gt("ends_at", startsAt);
+
+    if (excludeScheduleBlockId) {
+      blockQuery = blockQuery.neq("id", excludeScheduleBlockId);
+    }
+
+    const { count: blockCount, error: blockError } = await blockQuery;
+
+    if (blockError) {
+      throw new Error(
+        `Instructor schedule block check failed: ${blockError.message}`,
+      );
+    }
+
+    if ((blockCount ?? 0) > 0) {
+      return {
+        hasConflict: true,
+        message: "That instructor has a schedule block during this time.",
+      } satisfies ConflictResult;
+    }
   }
 
   if (roomId) {
-    let query = supabase
+    let appointmentQuery = supabase
       .from("appointments")
       .select("id", { count: "exact", head: true })
       .eq("studio_id", studioId)
@@ -69,19 +104,45 @@ export async function detectAppointmentConflicts(params: {
       .gt("ends_at", startsAt);
 
     if (excludeAppointmentId) {
-      query = query.neq("id", excludeAppointmentId);
+      appointmentQuery = appointmentQuery.neq("id", excludeAppointmentId);
     }
 
-    const { count, error } = await query;
+    const { count: appointmentCount, error: appointmentError } =
+      await appointmentQuery;
 
-    if (error) {
-      throw new Error(`Room conflict check failed: ${error.message}`);
+    if (appointmentError) {
+      throw new Error(`Room conflict check failed: ${appointmentError.message}`);
     }
 
-    if ((count ?? 0) > 0) {
+    if ((appointmentCount ?? 0) > 0) {
       return {
         hasConflict: true,
         message: "That room is already booked during this time.",
+      } satisfies ConflictResult;
+    }
+
+    let blockQuery = supabase
+      .from("schedule_blocks")
+      .select("id", { count: "exact", head: true })
+      .eq("studio_id", studioId)
+      .eq("room_id", roomId)
+      .lt("starts_at", endsAt)
+      .gt("ends_at", startsAt);
+
+    if (excludeScheduleBlockId) {
+      blockQuery = blockQuery.neq("id", excludeScheduleBlockId);
+    }
+
+    const { count: blockCount, error: blockError } = await blockQuery;
+
+    if (blockError) {
+      throw new Error(`Room schedule block check failed: ${blockError.message}`);
+    }
+
+    if ((blockCount ?? 0) > 0) {
+      return {
+        hasConflict: true,
+        message: "That room has a schedule block during this time.",
       } satisfies ConflictResult;
     }
   }
@@ -112,36 +173,6 @@ export async function detectAppointmentConflicts(params: {
         message: "That client already has an overlapping appointment.",
       } satisfies ConflictResult;
     }
-  }
-
-
-  if (instructorId) {
-    let blockQuery = supabase
-      .from("instructor_schedule_blocks")
-      .select("id", { count: "exact", head: true })
-      .eq("studio_id", studioId)
-      .eq("instructor_id", instructorId)
-      .lt("starts_at", endsAt)
-      .gt("ends_at", startsAt);
-
-    if (excludeScheduleBlockId) blockQuery = blockQuery.neq("id", excludeScheduleBlockId);
-    const { count, error } = await blockQuery;
-    if (error) throw new Error(`Instructor block conflict check failed: ${error.message}`);
-    if ((count ?? 0) > 0) return { hasConflict: true, message: "That instructor has blocked this time." } satisfies ConflictResult;
-  }
-
-  if (roomId) {
-    let blockQuery = supabase
-      .from("instructor_schedule_blocks")
-      .select("id", { count: "exact", head: true })
-      .eq("studio_id", studioId)
-      .eq("room_id", roomId)
-      .lt("starts_at", endsAt)
-      .gt("ends_at", startsAt);
-    if (excludeScheduleBlockId) blockQuery = blockQuery.neq("id", excludeScheduleBlockId);
-    const { count, error } = await blockQuery;
-    if (error) throw new Error(`Room block conflict check failed: ${error.message}`);
-    if ((count ?? 0) > 0) return { hasConflict: true, message: "That room is reserved by an instructor time block." } satisfies ConflictResult;
   }
 
   return { hasConflict: false } satisfies ConflictResult;

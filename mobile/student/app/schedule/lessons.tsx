@@ -72,7 +72,12 @@ function LessonCard({
         pressed && styles.pressed
       ]}
     >
-      <View style={styles.lessonAccent} />
+      <View
+        style={[
+          styles.lessonAccent,
+          item.status === "confirmed" && styles.lessonAccentConfirmed
+        ]}
+      />
 
       <View style={styles.lessonBody}>
         <View style={styles.lessonTopRow}>
@@ -428,6 +433,9 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 20,
     borderTopLeftRadius: 20,
     width: 5
+  },
+  lessonAccentConfirmed: {
+    backgroundColor: "#06B6D4"
   },
   lessonBody: {
     flex: 1,

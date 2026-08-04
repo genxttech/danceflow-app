@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
+import { confirmPortalAppointmentAction } from "../../actions";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -196,6 +197,7 @@ type AppointmentRow = {
   appointment_type: string;
   title: string | null;
   notes: string | null;
+  confirmed_at: string | null;
 };
 
 function getClientName(client: ClientRow) {
@@ -221,6 +223,7 @@ function formatAppointmentType(value: string) {
 
 function formatStatus(value: string) {
   if (value === "scheduled") return "Scheduled";
+  if (value === "confirmed") return "Confirmed";
   if (value === "attended") return "Completed";
   if (value === "cancelled") return "Cancelled";
   if (value === "no_show") return "Missed";
@@ -229,6 +232,7 @@ function formatStatus(value: string) {
 }
 
 function statusBadgeClass(status: string) {
+  if (status === "confirmed") return "bg-cyan-50 text-cyan-800 ring-cyan-200";
   if (status === "attended") return "bg-green-50 text-green-700 ring-green-100";
   if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-blue-100";
   if (status === "cancelled") return "bg-red-50 text-red-700 ring-red-100";
@@ -308,7 +312,8 @@ export default async function PortalAppointmentDetailPage({
       status,
       appointment_type,
       title,
-      notes
+      notes,
+      confirmed_at
     `)
     .eq("id", id)
     .eq("studio_id", typedStudio.id)
@@ -499,6 +504,49 @@ export default async function PortalAppointmentDetailPage({
           </div>
         </div>
       </section>
+
+      {["scheduled", "rescheduled"].includes(typedAppointment.status) &&
+      new Date(typedAppointment.starts_at).getTime() > Date.now() ? (
+        <section className="rounded-[28px] border border-cyan-200 bg-cyan-50 p-6 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">
+                Attendance confirmation
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-cyan-950">
+                Let the studio know you plan to attend
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-cyan-900">
+                Confirming updates the studio calendar immediately.
+              </p>
+            </div>
+            <form action={confirmPortalAppointmentAction}>
+              <input type="hidden" name="studioSlug" value={studioSlug} />
+              <input type="hidden" name="appointmentId" value={typedAppointment.id} />
+              <input
+                type="hidden"
+                name="returnTo"
+                value={`/portal/${studioSlug}/appointments/${typedAppointment.id}`}
+              />
+              <button
+                type="submit"
+                className="rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-semibold text-white hover:bg-cyan-700"
+              >
+                Confirm appointment
+              </button>
+            </form>
+          </div>
+        </section>
+      ) : typedAppointment.status === "confirmed" ? (
+        <section className="rounded-[28px] border border-cyan-200 bg-cyan-50 p-6 text-cyan-950 shadow-sm">
+          <p className="font-semibold">✓ Appointment confirmed</p>
+          <p className="mt-1 text-sm text-cyan-900">
+            {typedAppointment.confirmed_at
+              ? `Confirmed ${formatUpdatedAt(typedAppointment.confirmed_at, studioTimeZone)}`
+              : "The studio has received your confirmation."}
+          </p>
+        </section>
+      ) : null}
 
       <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">

@@ -524,6 +524,7 @@ function paymentMethodLabel(value: string | null) {
 
 function statusLabel(value: string) {
   if (value === "scheduled") return "Scheduled";
+  if (value === "confirmed") return "Confirmed";
   if (value === "attended") return "Completed";
   if (value === "cancelled") return "Cancelled";
   if (value === "no_show") return "Missed";
@@ -538,6 +539,8 @@ function statusLabel(value: string) {
 function statusBadgeClass(status: string) {
   if (status === "scheduled")
     return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+  if (status === "confirmed")
+    return "bg-cyan-50 text-cyan-800 ring-1 ring-cyan-200";
   if (status === "attended")
     return "bg-green-50 text-green-700 ring-1 ring-green-100";
   if (status === "cancelled")

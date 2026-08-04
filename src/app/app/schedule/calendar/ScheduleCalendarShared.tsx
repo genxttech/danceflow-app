@@ -72,8 +72,6 @@ export type CommonViewProps = ScheduleFilters & {
   instructors: InstructorOption[];
   rooms: RoomOption[];
   studioTimeZone?: string;
-  gridStartMinutes?: number;
-  gridEndMinutes?: number;
 };
 
 export const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";
@@ -166,19 +164,57 @@ export function itemTypeLabel(item: CalendarItem) {
 
 export function itemAccent(item: CalendarItem) {
   const value = item.kind === "event" ? item.event_type : item.appointment_type;
-  if (value === "intro_lesson" || value === "festival") return "border-cyan-500 bg-cyan-50 text-cyan-950";
-  if (value === "group_class" || value === "social_dance") return "border-emerald-500 bg-emerald-50 text-emerald-950";
-  if (value === "coaching" || value === "workshop") return "border-violet-500 bg-violet-50 text-violet-950";
-  if (value === "practice_party") return "border-amber-500 bg-amber-50 text-amber-950";
-  if (value === "floor_space_rental") return "border-indigo-500 bg-indigo-50 text-indigo-950";
-  if (value === "competition") return "border-red-500 bg-red-50 text-red-950";
-  if (value === "showcase") return "border-fuchsia-500 bg-fuchsia-50 text-fuchsia-950";
-  if (item.kind === "event") return "border-orange-500 bg-orange-50 text-orange-950";
+
+  if (value === "private_lesson") {
+    return "border-blue-500 bg-blue-50 text-blue-950";
+  }
+
+  if (value === "instructor_unavailable") {
+    return "border-slate-500 bg-slate-200 text-slate-950";
+  }
+
+  if (value === "room_unavailable") {
+    return "border-slate-700 bg-slate-100 text-slate-950";
+  }
+
+  if (value === "intro_lesson" || value === "festival") {
+    return "border-cyan-500 bg-cyan-50 text-cyan-950";
+  }
+
+  if (value === "group_class" || value === "social_dance") {
+    return "border-emerald-500 bg-emerald-50 text-emerald-950";
+  }
+
+  if (value === "coaching" || value === "workshop") {
+    return "border-violet-500 bg-violet-50 text-violet-950";
+  }
+
+  if (value === "practice_party") {
+    return "border-amber-500 bg-amber-50 text-amber-950";
+  }
+
+  if (value === "floor_space_rental") {
+    return "border-indigo-500 bg-indigo-50 text-indigo-950";
+  }
+
+  if (value === "competition") {
+    return "border-red-500 bg-red-50 text-red-950";
+  }
+
+  if (value === "showcase") {
+    return "border-fuchsia-500 bg-fuchsia-50 text-fuchsia-950";
+  }
+
+  if (item.kind === "event") {
+    return "border-orange-500 bg-orange-50 text-orange-950";
+  }
+
   return "border-slate-500 bg-slate-50 text-slate-950";
 }
 
 export function statusDot(status: string) {
   if (status === "scheduled" || status === "published") return "bg-blue-500";
+  if (status === "confirmed") return "bg-cyan-500";
   if (status === "attended") return "bg-emerald-500";
   if (status === "cancelled") return "bg-red-500";
   if (status === "no_show" || status === "draft") return "bg-amber-500";
@@ -234,7 +270,7 @@ export function ScheduleFilterBar({ view, baseDate, instructors, rooms, ...filte
       <label className="text-xs font-semibold text-slate-600">Instructor<select name="instructorId" defaultValue={filters.selectedInstructorId ?? ""} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"><option value="">All instructors</option>{instructors.map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name}</option>)}</select></label>
       <label className="text-xs font-semibold text-slate-600">Room<select name="roomId" defaultValue={filters.selectedRoomId ?? ""} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"><option value="">All rooms</option>{rooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label className="text-xs font-semibold text-slate-600">Type<select name="appointmentType" defaultValue={filters.selectedAppointmentType ?? ""} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"><option value="">All types</option><option value="private_lesson">Private lesson</option><option value="group_class">Group class</option><option value="intro_lesson">Intro lesson</option><option value="coaching">Coaching</option><option value="practice_party">Practice party</option><option value="floor_space_rental">Floor rental</option><option value="room_unavailable">Room unavailable</option><option value="workshop">Workshop</option><option value="social_dance">Social dance</option><option value="competition">Competition</option><option value="showcase">Showcase</option></select></label>
-      <label className="text-xs font-semibold text-slate-600">Status<select name="status" defaultValue={filters.selectedStatus ?? ""} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"><option value="">All statuses</option><option value="scheduled">Scheduled</option><option value="attended">Attended</option><option value="cancelled">Cancelled</option><option value="no_show">No show</option><option value="rescheduled">Rescheduled</option><option value="published">Published</option><option value="draft">Draft</option></select></label>
+      <label className="text-xs font-semibold text-slate-600">Status<select name="status" defaultValue={filters.selectedStatus ?? ""} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"><option value="">All statuses</option><option value="scheduled">Scheduled</option><option value="confirmed">Confirmed</option><option value="attended">Attended</option><option value="cancelled">Cancelled</option><option value="no_show">No show</option><option value="rescheduled">Rescheduled</option><option value="published">Published</option><option value="draft">Draft</option></select></label>
       {view === "agenda" ? <label className="text-xs font-semibold text-slate-600">Group by<select name="groupBy" defaultValue={filters.groupBy ?? "none"} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900"><option value="none">None</option><option value="instructor">Instructor</option></select></label> : null}
     </div><div className="mt-4 flex gap-2"><button className="rounded-md bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white">Apply filters</button><Link href={`/app/schedule/calendar${buildScheduleQuery({ view, date: baseDate })}`} className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"><RotateCcw className="h-4 w-4" />Reset</Link></div></form>
   </details>;

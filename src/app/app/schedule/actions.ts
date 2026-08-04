@@ -1981,9 +1981,11 @@ export async function updateAppointmentAction(
         ? existingAppointment.status
         : timeChanged
           ? "rescheduled"
-          : existingAppointment.status === "rescheduled"
-            ? "rescheduled"
-            : "scheduled";
+          : existingAppointment.status === "confirmed"
+            ? "confirmed"
+            : existingAppointment.status === "rescheduled"
+              ? "rescheduled"
+              : "scheduled";
 
     const conflict = await validateAppointmentConflicts({
       studioId,
@@ -2026,6 +2028,9 @@ export async function updateAppointmentAction(
     ? "waived"
     : existingAppointment.payment_status ?? "unpaid",
       updated_at: new Date().toISOString(),
+      confirmed_at: timeChanged ? null : undefined,
+      confirmation_source: timeChanged ? null : undefined,
+      confirmation_actor_user_id: timeChanged ? null : undefined,
       ...relations,
     };
 
@@ -2120,6 +2125,12 @@ export async function updateAppointmentAction(
       });
 
       if (timeChanged) {
+        await supabase
+          .from("appointment_confirmation_tokens")
+          .update({ invalidated_at: new Date().toISOString() })
+          .eq("appointment_id", appointmentId)
+          .is("invalidated_at", null);
+
         await queueAppointmentOutboundDelivery({
           supabase,
           studioId,
@@ -2175,7 +2186,7 @@ export async function deleteAppointmentAction(formData: FormData) {
     }
 
     const appointmentStatus = String(appointment.status ?? "");
-    const deletableStatuses = new Set(["scheduled", "rescheduled"]);
+    const deletableStatuses = new Set(["scheduled", "confirmed", "rescheduled"]);
 
     if (!deletableStatuses.has(appointmentStatus)) {
       redirect(getErrorRedirect(formData, fallback, "delete_blocked_status"));
@@ -2807,7 +2818,7 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
   "coaching",
   "practice_party",
 ])
-.eq("status", "scheduled")
+.in("status", ["scheduled", "confirmed", "rescheduled"])
 .order("starts_at", { ascending: true });
 
     if (appointmentsError) {
@@ -2845,7 +2856,7 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
           })
           .eq("id", appointment.id)
           .eq("studio_id", studioId)
-          .eq("status", "scheduled");
+          .in("status", ["scheduled", "confirmed", "rescheduled"]);
 
         if (updateError) {
           skippedCount += 1;

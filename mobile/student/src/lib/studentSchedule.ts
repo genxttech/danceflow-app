@@ -111,6 +111,8 @@ export function appointmentTypeLabel(value: string | null | undefined) {
 
 export function statusLabel(value: string | null | undefined) {
   if (value === "scheduled") return "Scheduled";
+  if (value === "confirmed") return "Confirmed";
+  if (value === "rescheduled") return "Rescheduled";
   if (value === "attended") return "Attended";
   if (value === "cancelled") return "Cancelled";
   if (value === "no_show") return "No show";

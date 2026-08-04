@@ -11,9 +11,13 @@ import {
   ScheduleSummary,
   ScheduleToolbar,
   buildScheduleQuery,
+  clientName,
   getTodayInTimeZone,
+  instructorName,
   itemAccent,
   itemTypeLabel,
+  roomName,
+  statusDot,
   type CalendarItem,
   type CommonViewProps,
 } from "./ScheduleCalendarShared";
@@ -144,14 +148,46 @@ function TimeGridItem({
     item,
   )}`;
 
+  const durationMinutes = Math.max(
+    localMinutes(item.ends_at, item, studioTimeZone) -
+      localMinutes(item.starts_at, item, studioTimeZone),
+    SLOT_MINUTES,
+  );
+  const isScheduleBlock =
+    item.kind === "appointment" &&
+    item.appointment_type === "instructor_unavailable";
+  const primaryLabel =
+    item.kind === "event"
+      ? item.title || itemTypeLabel(item)
+      : isScheduleBlock
+        ? item.title || "Blocked time"
+        : clientName(item);
+  const showSupportingDetails =
+    item.kind === "appointment" &&
+    !isScheduleBlock &&
+    durationMinutes >= 45;
+
   const content = (
     <>
-      <p className="truncate text-[11px] font-bold">
-        {itemTime(item, studioTimeZone)}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span
+          aria-hidden="true"
+          className={`h-2 w-2 shrink-0 rounded-full ${statusDot(item.status)}`}
+        />
+        <p className="min-w-0 truncate text-[11px] font-bold">
+          {itemTime(item, studioTimeZone)} · {itemTypeLabel(item)}
+        </p>
+      </div>
+
+      <p className="mt-0.5 truncate text-xs font-semibold">
+        {primaryLabel}
       </p>
-      <p className="truncate text-xs font-semibold">
-        {item.title || itemTypeLabel(item)}
-      </p>
+
+      {showSupportingDetails ? (
+        <p className="mt-0.5 truncate text-[11px] opacity-70">
+          {instructorName(item)} · {roomName(item)}
+        </p>
+      ) : null}
     </>
   );
 
@@ -303,7 +339,88 @@ function DayColumn({
   );
 }
 
-export default function ScheduleCalendarView(props: CommonViewProps) {
+
+function CalendarLegend() {
+  const typeItems = [
+    { label: "Private lesson", className: "border-blue-500 bg-blue-50" },
+    { label: "Intro lesson", className: "border-cyan-500 bg-cyan-50" },
+    { label: "Group / social", className: "border-emerald-500 bg-emerald-50" },
+    { label: "Coaching / workshop", className: "border-violet-500 bg-violet-50" },
+    { label: "Practice party", className: "border-amber-500 bg-amber-50" },
+    { label: "Rental", className: "border-indigo-500 bg-indigo-50" },
+    { label: "Blocked time", className: "border-slate-500 bg-slate-200" },
+    { label: "Other event", className: "border-orange-500 bg-orange-50" },
+  ];
+
+  const statusItems = [
+    { label: "Scheduled", className: "bg-blue-500" },
+    { label: "Confirmed", className: "bg-cyan-500" },
+    { label: "Attended", className: "bg-emerald-500" },
+    { label: "Cancelled", className: "bg-red-500" },
+    { label: "No-show / draft", className: "bg-amber-500" },
+    { label: "Rescheduled", className: "bg-violet-500" },
+  ];
+
+  return (
+    <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-900">
+        <span>Calendar color legend</span>
+        <span
+          aria-hidden="true"
+          className="text-xl leading-none text-violet-600 transition-transform group-open:rotate-45"
+        >
+          +
+        </span>
+      </summary>
+      <div className="grid gap-5 border-t border-slate-200 px-4 py-4 lg:grid-cols-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Background and left border — item type
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {typeItems.map((item) => (
+              <span
+                key={item.label}
+                className={`inline-flex items-center rounded-lg border-l-4 px-2.5 py-1.5 text-xs font-medium text-slate-800 ${item.className}`}
+              >
+                {item.label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Dot — status
+          </p>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+            {statusItems.map((item) => (
+              <span
+                key={item.label}
+                className="inline-flex items-center gap-2 text-xs font-medium text-slate-700"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`h-2.5 w-2.5 rounded-full ${item.className}`}
+                />
+                {item.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+type ScheduleCalendarViewProps = CommonViewProps & {
+  gridStartMinutes?: number;
+  gridEndMinutes?: number;
+};
+
+export default function ScheduleCalendarView(
+  props: ScheduleCalendarViewProps,
+) {
   const {
     view,
     days,
@@ -336,6 +453,7 @@ export default function ScheduleCalendarView(props: CommonViewProps) {
           days={days}
           groupedAppointments={groupedAppointments}
         />
+        <CalendarLegend />
 
         <section className="overflow-hidden rounded-2xl border border-violet-200/80 bg-white shadow-[0_18px_45px_rgba(76,29,149,0.09)]">
           <div className="overflow-x-auto">

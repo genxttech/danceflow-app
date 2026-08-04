@@ -43,7 +43,7 @@ function checkinWindow(appointment: AppointmentRow, now = new Date()) {
 
   return {
     canCheckIn:
-      ["scheduled", "rescheduled"].includes(appointment.status ?? "") &&
+      ["scheduled", "confirmed", "rescheduled"].includes(appointment.status ?? "") &&
       now >= opensAt &&
       now <= closesAt,
     opensAt: opensAt.toISOString(),

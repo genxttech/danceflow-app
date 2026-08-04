@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
+import { confirmOwnedAppointment } from "@/lib/schedule/appointmentConfirmation";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 import {
   ensurePortalProfileAndClientLinks,
@@ -232,5 +233,45 @@ export async function submitPortalBookingRequestAction(formData: FormData) {
 
     console.error("portal booking request failed", error);
     redirect(appendQueryParam(returnTo, "error", "booking-request-failed"));
+  }
+}
+
+
+export async function confirmPortalAppointmentAction(formData: FormData) {
+  const studioSlug = normalizeSlug(getString(formData, "studioSlug"));
+  const appointmentId = getString(formData, "appointmentId");
+  const returnTo =
+    getString(formData, "returnTo") ||
+    `/portal/${encodeURIComponent(studioSlug)}/appointments/${encodeURIComponent(appointmentId)}`;
+
+  try {
+    if (!studioSlug || !appointmentId) {
+      redirect(appendQueryParam(returnTo, "error", "appointment-confirm-failed"));
+    }
+
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) redirect(buildPortalLoginPath(studioSlug));
+
+    await confirmOwnedAppointment({
+      supabase,
+      userId: user.id,
+      appointmentId,
+      source: "student_portal",
+    });
+
+    revalidatePath(`/portal/${studioSlug}`);
+    revalidatePath(`/portal/${studioSlug}/schedule`);
+    revalidatePath(`/portal/${studioSlug}/appointments/${appointmentId}`);
+    revalidatePath("/app/schedule");
+
+    redirect(appendQueryParam(returnTo, "confirmed", "1"));
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    console.error("portal appointment confirmation failed", error);
+    redirect(appendQueryParam(returnTo, "error", "appointment-confirm-failed"));
   }
 }

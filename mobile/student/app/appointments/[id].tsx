@@ -14,6 +14,7 @@ import {
   loadLessonCheckinStatus,
   type LessonCheckinStatus
 } from "@/lib/lessonCheckin";
+import { confirmStudentAppointment } from "@/lib/lessonConfirmation";
 import {
   formatScheduleTimeRange,
   loadStudentScheduleOverview,
@@ -79,6 +80,8 @@ export default function AppointmentDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState<string | null>(null);
   const [checkinStatus, setCheckinStatus] =
     useState<LessonCheckinStatus | null>(null);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
@@ -154,6 +157,29 @@ export default function AppointmentDetailScreen() {
       await Linking.openURL(url);
     } finally {
       setOpening(false);
+    }
+  }
+
+  async function confirmAppointment() {
+    if (!appointment) return;
+
+    setConfirming(true);
+    setConfirmationMessage(null);
+
+    try {
+      await confirmStudentAppointment(appointment.id);
+      setAppointment((current) =>
+        current ? { ...current, status: "confirmed" } : current
+      );
+      setConfirmationMessage("Your appointment is confirmed.");
+    } catch (nextError) {
+      setConfirmationMessage(
+        nextError instanceof Error
+          ? nextError.message
+          : "Appointment confirmation could not be completed."
+      );
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -256,6 +282,44 @@ export default function AppointmentDetailScreen() {
               value={statusLabel(appointment.status)}
             />
           </View>
+
+          {["scheduled", "rescheduled"].includes(appointment.status) ? (
+            <View style={styles.confirmationCard}>
+              <View style={styles.checkinHeader}>
+                <View style={styles.confirmationIcon}>
+                  <Ionicons color="#0891B2" name="checkmark-circle-outline" size={22} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <AppText style={styles.checkinTitle}>Confirm attendance</AppText>
+                  <AppText style={styles.checkinDetail}>
+                    Let the studio know you plan to attend this appointment.
+                  </AppText>
+                </View>
+              </View>
+              <AppButton
+                label="Confirm appointment"
+                loading={confirming}
+                onPress={confirmAppointment}
+              />
+              {confirmationMessage ? (
+                <AppText style={styles.checkinMessage}>{confirmationMessage}</AppText>
+              ) : null}
+            </View>
+          ) : appointment.status === "confirmed" ? (
+            <View style={styles.confirmationCompleteCard}>
+              <View style={styles.checkinHeader}>
+                <View style={styles.confirmationCompleteIcon}>
+                  <Ionicons color="#0E7490" name="checkmark-circle" size={24} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <AppText style={styles.checkinTitle}>Appointment confirmed</AppText>
+                  <AppText style={styles.checkinDetail}>
+                    Your studio has received your confirmation.
+                  </AppText>
+                </View>
+              </View>
+            </View>
+          ) : null}
 
           {checkinStatus ? (
             <View
@@ -418,6 +482,37 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     fontSize: 17,
     fontWeight: "900"
+  },
+  confirmationCard: {
+    backgroundColor: "#ECFEFF",
+    borderColor: "#A5F3FC",
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 14,
+    padding: 18
+  },
+  confirmationCompleteCard: {
+    backgroundColor: "#CFFAFE",
+    borderColor: "#67E8F9",
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 18
+  },
+  confirmationIcon: {
+    alignItems: "center",
+    backgroundColor: "#CFFAFE",
+    borderRadius: 999,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  confirmationCompleteIcon: {
+    alignItems: "center",
+    backgroundColor: "#A5F3FC",
+    borderRadius: 999,
+    height: 44,
+    justifyContent: "center",
+    width: 44
   },
   detailIcon: {
     alignItems: "center",
