@@ -1464,18 +1464,12 @@ export default async function SchedulePage({
                                 name="returnTo"
                                 value={currentScheduleHref}
                               />
-                              <input
-                                type="hidden"
-                                name="lessonPrice"
-                                value={lessonPriceDefault}
-                              />
-  
-                              <div className="mb-3">
+<div className="mb-3">
                                 <p className="text-sm font-semibold text-slate-900">
                                   Pay now for this lesson
                                 </p>
                                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                                  This records a payment directly against the selected pay-as-you-go lesson.
+                                  Enter the lesson price when it was not set during scheduling, then record the money collected and any account credit applied.
                                 </p>
                               </div>
   
@@ -1495,14 +1489,14 @@ export default async function SchedulePage({
                                 <label className="block text-xs font-medium text-slate-600">
                                   Lesson price
                                   <input
-                                    name="lessonPriceDisplay"
+                                    name="lessonPrice"
                                     type="number"
-                                    min="0"
+                                    min="0.01"
                                     step="0.01"
                                     defaultValue={lessonPriceDefault}
                                     placeholder="0.00"
-                                    className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm"
-                                    disabled
+                                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                                    required
                                   />
                                 </label>
   

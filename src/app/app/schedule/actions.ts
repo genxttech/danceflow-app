@@ -3199,6 +3199,17 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       });
 
       if (insertError) {
+        console.error("Could not record pay-as-you-go lesson payment:", {
+          appointmentId,
+          clientId,
+          paymentMethod,
+          paymentSource,
+          paymentType: "pay_as_you_go_lesson",
+          error: insertError.message,
+          code: insertError.code,
+          details: insertError.details,
+          hint: insertError.hint,
+        });
         redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
       }
     }
