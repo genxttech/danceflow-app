@@ -80,6 +80,7 @@ type Appointment = {
   status: string;
   notes: string | null;
   client_package_id: string | null;
+  client_membership_id: string | null;
   price_amount: number | null;
   payment_status: string | null;
   billing_type: string | null;
@@ -149,6 +150,7 @@ export default async function EditAppointmentPage({
         status,
         notes,
         client_package_id,
+        client_membership_id,
         price_amount,
         payment_status,
         billing_type,
@@ -216,7 +218,7 @@ export default async function EditAppointmentPage({
         membership_plan_id
       `)
       .eq("studio_id", studioId)
-      .eq("status", "active"),
+      .in("status", ["active", "past_due", "cancel_scheduled"]),
 
     supabase
       .from("membership_plan_benefits")

@@ -1643,6 +1643,12 @@ export async function createAppointmentAction(
         return { error: membershipValidation.error ?? "Membership cannot be used." };
       }
       resolvedClientMembershipId = membershipValidation.membershipId ?? null;
+      if (!resolvedClientMembershipId) {
+        return {
+          error:
+            "Select the membership that should cover this appointment.",
+        };
+      }
     }
 
     const isRecurring = getBoolean(formData, "isRecurring");
@@ -1930,6 +1936,12 @@ export async function updateAppointmentAction(
         return { error: membershipValidation.error ?? "Membership cannot be used." };
       }
       resolvedClientMembershipId = membershipValidation.membershipId ?? null;
+      if (!resolvedClientMembershipId) {
+        return {
+          error:
+            "Select the membership that should cover this appointment.",
+        };
+      }
     }
 
     if (isFloorSpaceRental(appointmentType)) {
@@ -3199,17 +3211,6 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       });
 
       if (insertError) {
-        console.error("Could not record pay-as-you-go lesson payment:", {
-          appointmentId,
-          clientId,
-          paymentMethod,
-          paymentSource,
-          paymentType: "pay_as_you_go_lesson",
-          error: insertError.message,
-          code: insertError.code,
-          details: insertError.details,
-          hint: insertError.hint,
-        });
         redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
       }
     }

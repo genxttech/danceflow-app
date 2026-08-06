@@ -3656,7 +3656,7 @@ export default async function ClientDetailPage({
                   value={typedActiveMembership.id}
                 />
                 <input type="hidden" name="clientId" value={typedClient.id} />
-                <input type="hidden" name="returnTo" value={returnTo} />
+                <input type="hidden" name="returnTo" value={billingReturnTo} />
                 <button
                   type="submit"
                   className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-red-700 hover:bg-red-100"
@@ -3672,7 +3672,7 @@ export default async function ClientDetailPage({
                   value={typedActiveMembership.id}
                 />
                 <input type="hidden" name="clientId" value={typedClient.id} />
-                <input type="hidden" name="returnTo" value={returnTo} />
+                <input type="hidden" name="returnTo" value={billingReturnTo} />
                 <button
                   type="submit"
                   className="rounded-2xl border border-green-200 bg-green-50 px-4 py-2 text-green-700 hover:bg-green-100"

@@ -1075,8 +1075,23 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
     }
 
     if (!stripeSubscriptionRow?.stripe_subscription_id) {
+      const { error: localCancelError } = await supabase
+        .from("client_memberships")
+        .update({
+          cancel_at_period_end: true,
+          auto_renew: false,
+          ends_on: membership.current_period_end,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", clientMembershipId)
+        .eq("studio_id", studioId);
+
+      if (localCancelError) {
+        throw new Error(localCancelError.message);
+      }
+
       redirect(
-        addQueryParam(returnTo, "error", "stripe_subscription_not_found"),
+        addQueryParam(returnTo, "success", "membership_cancel_at_period_end"),
       );
     }
 
@@ -1200,8 +1215,23 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
     }
 
     if (!stripeSubscriptionRow?.stripe_subscription_id) {
+      const { error: localReactivateError } = await supabase
+        .from("client_memberships")
+        .update({
+          cancel_at_period_end: false,
+          auto_renew: true,
+          ends_on: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", clientMembershipId)
+        .eq("studio_id", studioId);
+
+      if (localReactivateError) {
+        throw new Error(localReactivateError.message);
+      }
+
       redirect(
-        addQueryParam(returnTo, "error", "stripe_subscription_not_found"),
+        addQueryParam(returnTo, "success", "membership_auto_renew_restored"),
       );
     }
 

@@ -78,6 +78,7 @@ type Appointment = {
   status: string;
   notes: string | null;
   client_package_id: string | null;
+  client_membership_id?: string | null;
   price_amount?: number | null;
   payment_status?: string | null;
   billing_type?: string | null;
@@ -383,6 +384,9 @@ export default function AppointmentEditForm({
   const [linkedPackageId, setLinkedPackageId] = useState(
     appointment.client_package_id ?? "",
   );
+  const [linkedMembershipId, setLinkedMembershipId] = useState(
+    appointment.client_membership_id ?? "",
+  );
   const [billingType, setBillingType] = useState(
     appointment.billing_type ?? "package_credit",
   );
@@ -411,15 +415,23 @@ export default function AppointmentEditForm({
     [selectedPackage],
   );
 
-  const selectedMembership = useMemo(() => {
-    if (!clientId) return null;
-    return (
-      clientMemberships.find(
-        (membership) =>
-          membership.client_id === clientId && membership.status === "active",
-      ) ?? null
+  const selectedMembershipOptions = useMemo(() => {
+    if (!clientId) return [];
+    return clientMemberships.filter(
+      (membership) =>
+        membership.client_id === clientId &&
+        ["active", "past_due", "cancel_scheduled"].includes(membership.status),
     );
   }, [clientId, clientMemberships]);
+
+  const selectedMembership = useMemo(() => {
+    if (!linkedMembershipId) return null;
+    return (
+      selectedMembershipOptions.find(
+        (membership) => membership.id === linkedMembershipId,
+      ) ?? null
+    );
+  }, [linkedMembershipId, selectedMembershipOptions]);
 
   const applicableBenefits = useMemo(() => {
     if (!selectedMembership) return [];
@@ -537,6 +549,7 @@ export default function AppointmentEditForm({
                   setClientId(e.target.value);
                   setPartnerClientId("");
                   setLinkedPackageId("");
+                  setLinkedMembershipId("");
                 }}
                 className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               >
@@ -719,6 +732,9 @@ export default function AppointmentEditForm({
                       if (nextBillingType !== "package_credit") {
                         setLinkedPackageId("");
                       }
+                      if (nextBillingType !== "membership") {
+                        setLinkedMembershipId("");
+                      }
                     }}
                     className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                   >
@@ -727,11 +743,46 @@ export default function AppointmentEditForm({
                     <option value="pay_as_you_go">Pay-as-you-go</option>
                     <option value="free_comped">Free / Comped</option>
                   </select>
-                  <input
-                    type="hidden"
-                    name="clientMembershipId"
-                    value={billingType === "membership" ? selectedMembership?.id ?? "" : ""}
-                  />
+                  {billingType === "membership" ? (
+                    <div className="mt-3">
+                      <label
+                        htmlFor="clientMembershipId"
+                        className="mb-1 block text-sm font-medium"
+                      >
+                        Linked Membership *
+                      </label>
+                      <select
+                        id="clientMembershipId"
+                        name="clientMembershipId"
+                        value={linkedMembershipId}
+                        onChange={(event) =>
+                          setLinkedMembershipId(event.target.value)
+                        }
+                        required
+                        disabled={!clientId}
+                        className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+                      >
+                        <option value="">
+                          {clientId
+                            ? "Select the membership covering this lesson"
+                            : "Select a client first"}
+                        </option>
+                        {selectedMembershipOptions.map((membership) => (
+                          <option key={membership.id} value={membership.id}>
+                            {membership.name_snapshot} —{" "}
+                            {formatShortDate(membership.current_period_start)} to{" "}
+                            {formatShortDate(membership.current_period_end)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <input
+                      type="hidden"
+                      name="clientMembershipId"
+                      value=""
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -758,8 +809,9 @@ export default function AppointmentEditForm({
 
               {showMembershipBillingHint ? (
                 <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-                  Closeout will mark this ready only when active membership
-                  coverage applies.
+                  Select the exact membership that covers this lesson.
+                  Closeout will only mark it ready when that membership and its
+                  renewal period cover the appointment date.
                 </div>
               ) : null}
 

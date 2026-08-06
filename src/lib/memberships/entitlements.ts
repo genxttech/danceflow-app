@@ -160,7 +160,7 @@ export async function validateMembershipEntitlement(params: {
       .eq("client_id", clientId)
       .eq("client_membership_id", membership.id)
       .eq("billing_type", "membership")
-      .in("status", ["scheduled", "confirmed"])
+      .in("status", ["scheduled", "confirmed", "rescheduled"])
       .gte("starts_at", `${membership.current_period_start}T00:00:00.000Z`)
       .lt("starts_at", `${membership.current_period_end}T23:59:59.999Z`);
 
