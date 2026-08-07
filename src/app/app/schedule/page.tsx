@@ -501,7 +501,7 @@ function packageHealthClass(health: PackageHealth) {
 function isCloseoutCandidate(appointment: AppointmentRow) {
   return (
     appointment.appointment_type !== "floor_space_rental" &&
-    appointment.status === "scheduled"
+    ["scheduled", "confirmed", "rescheduled"].includes(appointment.status)
   );
 }
 
@@ -1464,12 +1464,18 @@ export default async function SchedulePage({
                                 name="returnTo"
                                 value={currentScheduleHref}
                               />
-<div className="mb-3">
+                              <input
+                                type="hidden"
+                                name="lessonPrice"
+                                value={lessonPriceDefault}
+                              />
+  
+                              <div className="mb-3">
                                 <p className="text-sm font-semibold text-slate-900">
                                   Pay now for this lesson
                                 </p>
                                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                                  Enter the lesson price when it was not set during scheduling, then record the money collected and any account credit applied.
+                                  This records a payment directly against the selected pay-as-you-go lesson.
                                 </p>
                               </div>
   
@@ -1489,14 +1495,14 @@ export default async function SchedulePage({
                                 <label className="block text-xs font-medium text-slate-600">
                                   Lesson price
                                   <input
-                                    name="lessonPrice"
+                                    name="lessonPriceDisplay"
                                     type="number"
-                                    min="0.01"
+                                    min="0"
                                     step="0.01"
                                     defaultValue={lessonPriceDefault}
                                     placeholder="0.00"
-                                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-                                    required
+                                    className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm"
+                                    disabled
                                   />
                                 </label>
   

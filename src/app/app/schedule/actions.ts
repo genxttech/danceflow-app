@@ -1643,12 +1643,6 @@ export async function createAppointmentAction(
         return { error: membershipValidation.error ?? "Membership cannot be used." };
       }
       resolvedClientMembershipId = membershipValidation.membershipId ?? null;
-      if (!resolvedClientMembershipId) {
-        return {
-          error:
-            "Select the membership that should cover this appointment.",
-        };
-      }
     }
 
     const isRecurring = getBoolean(formData, "isRecurring");
@@ -1936,12 +1930,6 @@ export async function updateAppointmentAction(
         return { error: membershipValidation.error ?? "Membership cannot be used." };
       }
       resolvedClientMembershipId = membershipValidation.membershipId ?? null;
-      if (!resolvedClientMembershipId) {
-        return {
-          error:
-            "Select the membership that should cover this appointment.",
-        };
-      }
     }
 
     if (isFloorSpaceRental(appointmentType)) {
@@ -1982,9 +1970,18 @@ export async function updateAppointmentAction(
       return { error: "Appointment not found." };
     }
 
+    const existingStartsAtMs = new Date(
+      String(existingAppointment.starts_at),
+    ).getTime();
+    const existingEndsAtMs = new Date(
+      String(existingAppointment.ends_at),
+    ).getTime();
+    const submittedStartsAtMs = new Date(startsAt).getTime();
+    const submittedEndsAtMs = new Date(endsAt).getTime();
+
     const timeChanged =
-      String(existingAppointment.starts_at) !== startsAt ||
-      String(existingAppointment.ends_at) !== endsAt;
+      existingStartsAtMs !== submittedStartsAtMs ||
+      existingEndsAtMs !== submittedEndsAtMs;
 
     const status =
       existingAppointment.status === "attended" ||
