@@ -266,6 +266,8 @@ export function canManageEventTickets(
   if (isPlatformAdmin) return true;
   return [
     "platform_admin",
+    "studio_owner",
+    "studio_admin",
     "organizer_owner",
     "organizer_admin",
     "organizer_staff",
