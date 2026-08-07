@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ensureMembershipPeriodForDate } from "@/lib/memberships/renewal";
 
 export type MembershipEntitlementResult = {
   ok: boolean;
@@ -64,23 +65,83 @@ export async function validateMembershipEntitlement(params: {
     .select("id, membership_plan_id, status, current_period_start, current_period_end")
     .eq("studio_id", studioId)
     .eq("client_id", clientId)
-    .lte("current_period_start", usageDate)
-    .gte("current_period_end", usageDate)
     .order("current_period_start", { ascending: false })
     .limit(1);
 
-  if (clientMembershipId) membershipQuery = membershipQuery.eq("id", clientMembershipId);
+  if (clientMembershipId) {
+    membershipQuery = membershipQuery.eq("id", clientMembershipId);
+  } else {
+    membershipQuery = membershipQuery
+      .lte("current_period_start", usageDate)
+      .gte("current_period_end", usageDate);
+  }
 
   const { data: memberships, error: membershipError } = await membershipQuery;
   if (membershipError) return { ok: false, error: membershipError.message };
 
-  const membership = memberships?.[0] ?? null;
+  let membership = memberships?.[0] ?? null;
   if (!membership) {
-    return { ok: false, error: "No membership covers the selected appointment date." };
+    return { ok: false, error: "No membership is available for the selected client." };
   }
 
   if (!["active", "trialing", "past_due", "unpaid"].includes(membership.status)) {
     return { ok: false, error: "The selected membership is not active." };
+  }
+
+  if (
+    clientMembershipId &&
+    membership.current_period_end < usageDate &&
+    membership.status !== "trialing"
+  ) {
+    try {
+      const renewal = await ensureMembershipPeriodForDate({
+        supabase,
+        studioId,
+        membershipId: membership.id,
+        throughDate: usageDate,
+      });
+
+      if (renewal.advanced) {
+        membership = {
+          ...membership,
+          current_period_start: renewal.currentPeriodStart,
+          current_period_end: renewal.currentPeriodEnd,
+        };
+      }
+    } catch (renewalError) {
+      return {
+        ok: false,
+        membershipId: membership.id,
+        error:
+          renewalError instanceof Error
+            ? renewalError.message
+            : "Membership renewal reconciliation failed.",
+      };
+    }
+  }
+
+  const periodCoversAppointment =
+    Boolean(membership.current_period_start) &&
+    Boolean(membership.current_period_end) &&
+    membership.current_period_start <= usageDate &&
+    membership.current_period_end >= usageDate;
+
+  if (!periodCoversAppointment) {
+    if (settings.block_depleted_membership_booking) {
+      return {
+        ok: false,
+        membershipId: membership.id,
+        error: "No membership period covers the selected appointment date.",
+      };
+    }
+
+    return {
+      ok: true,
+      membershipId: membership.id,
+      membershipPeriodId: undefined,
+      remaining: null,
+      paymentStatus: null,
+    };
   }
 
   const { data: period, error: periodError } = await supabase
@@ -123,7 +184,23 @@ export async function validateMembershipEntitlement(params: {
   });
 
   if (!benefit) {
-    return { ok: false, error: "This membership does not include the selected lesson type." };
+    if (settings.block_depleted_membership_booking) {
+      return {
+        ok: false,
+        membershipId: membership.id,
+        membershipPeriodId: period?.id,
+        paymentStatus,
+        error: "This membership does not include the selected lesson type.",
+      };
+    }
+
+    return {
+      ok: true,
+      membershipId: membership.id,
+      membershipPeriodId: period?.id,
+      remaining: 0,
+      paymentStatus,
+    };
   }
 
   if (benefit.quantity == null) {

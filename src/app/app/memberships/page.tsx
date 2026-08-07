@@ -8,6 +8,7 @@ import {
   archiveMembershipPlanAction,
   deleteMembershipPlanAction,
   reactivateMembershipPlanAction,
+  reconcileMembershipRenewalsAction,
 } from "./actions";
 
 type SearchParams = Promise<{
@@ -221,6 +222,15 @@ export default async function MembershipPlansPage({
         description="Monitor client memberships first, then manage the plans your studio offers. New sales stay in the unified Sell workflow."
         actions={(
           <>
+            <form action={reconcileMembershipRenewalsAction}>
+              <input type="hidden" name="returnTo" value="/app/memberships" />
+              <button
+                type="submit"
+                className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+              >
+                Reconcile renewals
+              </button>
+            </form>
             <Link href="/app/sell?type=membership" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">Sell membership</Link>
             <Link href="/app/memberships/new" className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]">New plan</Link>
           </>

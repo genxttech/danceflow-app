@@ -8,6 +8,7 @@ import { ensureConnectedStripeCustomer } from "@/lib/payments/customer";
 import { getStripe } from "@/lib/payments/stripe";
 import { ensureConnectedStripeRecurringPrice } from "@/lib/payments/subscriptions";
 import { recordManualMembershipPayment } from "@/lib/memberships/manual-payment";
+import { reconcileStudioMembershipPeriods } from "@/lib/memberships/renewal";
 
 type CreateState = {
   error: string;
@@ -1794,5 +1795,53 @@ export async function waiveMembershipPeriodAction(formData: FormData) {
   } catch (error) {
     if (isRedirectError(error)) throw error;
     redirect(addQueryParam(returnTo, "error", "membership_waiver_failed"));
+  }
+}
+
+
+export async function reconcileMembershipRenewalsAction(formData: FormData) {
+  const returnTo = safeReturnTo(
+    getString(formData, "returnTo"),
+    "/app/memberships",
+  );
+
+  try {
+    const supabase = await createClient();
+    const context = await getCurrentStudioContext();
+    const role = context.studioRole ?? "";
+
+    if (!["studio_owner", "studio_admin"].includes(role)) {
+      redirect(addQueryParam(returnTo, "error", "membership_reconcile_unauthorized"));
+    }
+
+    const result = await reconcileStudioMembershipPeriods({
+      supabase,
+      studioId: context.studioId,
+    });
+
+    let redirectUrl = addQueryParam(
+      returnTo,
+      "success",
+      "membership_renewals_reconciled",
+    );
+    redirectUrl = addQueryParam(
+      redirectUrl,
+      "renewed",
+      String(result.advancedCount),
+    );
+
+    redirect(redirectUrl);
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+
+    redirect(
+      addQueryParam(
+        returnTo,
+        "error",
+        error instanceof Error
+          ? error.message
+          : "membership_reconcile_failed",
+      ),
+    );
   }
 }

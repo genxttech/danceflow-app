@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ensureMembershipPeriodForDate } from "@/lib/memberships/renewal";
 
 type MembershipPaymentInput = {
   supabase: SupabaseClient;
@@ -33,24 +34,6 @@ type PeriodRow = {
   payment_status: string;
 };
 
-function addDays(dateOnly: string, days: number) {
-  const date = new Date(`${dateOnly}T12:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function calculateNextPeriod(periodEnd: string, billingInterval: string) {
-  const start = addDays(periodEnd, 1);
-  const end = new Date(`${start}T12:00:00.000Z`);
-
-  if (billingInterval === "quarterly") end.setUTCMonth(end.getUTCMonth() + 3);
-  else if (billingInterval === "yearly") end.setUTCFullYear(end.getUTCFullYear() + 1);
-  else end.setUTCMonth(end.getUTCMonth() + 1);
-
-  end.setUTCDate(end.getUTCDate() - 1);
-  return { periodStart: start, periodEnd: end.toISOString().slice(0, 10) };
-}
-
 export async function recordManualMembershipPayment(input: MembershipPaymentInput) {
   const {
     supabase,
@@ -75,7 +58,28 @@ export async function recordManualMembershipPayment(input: MembershipPaymentInpu
     .single();
 
   if (membershipError || !rawMembership) throw new Error("Membership was not found for this client.");
-  const membership = rawMembership as MembershipRow;
+  let membership = rawMembership as MembershipRow;
+
+  if (
+    membership.auto_renew &&
+    !membership.cancel_at_period_end &&
+    membership.current_period_end < paymentDate
+  ) {
+    const renewal = await ensureMembershipPeriodForDate({
+      supabase,
+      studioId,
+      membershipId: membership.id,
+      throughDate: paymentDate,
+    });
+
+    if (renewal.advanced) {
+      membership = {
+        ...membership,
+        current_period_start: renewal.currentPeriodStart,
+        current_period_end: renewal.currentPeriodEnd,
+      };
+    }
+  }
 
   const loadPeriod = async (periodStart: string, periodEnd: string) => {
     const { data, error } = await supabase
@@ -89,24 +93,9 @@ export async function recordManualMembershipPayment(input: MembershipPaymentInpu
     return (data ?? null) as PeriodRow | null;
   };
 
-  let targetStart = membership.current_period_start;
-  let targetEnd = membership.current_period_end;
-  let targetPeriod = await loadPeriod(targetStart, targetEnd);
-  let advancedPeriod = false;
-
-  const currentIsReconciled = ["paid", "waived"].includes(targetPeriod?.payment_status ?? "due");
-  if (
-    currentIsReconciled &&
-    targetEnd < paymentDate &&
-    membership.auto_renew &&
-    !membership.cancel_at_period_end
-  ) {
-    const next = calculateNextPeriod(targetEnd, membership.billing_interval_snapshot);
-    targetStart = next.periodStart;
-    targetEnd = next.periodEnd;
-    targetPeriod = await loadPeriod(targetStart, targetEnd);
-    advancedPeriod = true;
-  }
+  const targetStart = membership.current_period_start;
+  const targetEnd = membership.current_period_end;
+  const targetPeriod = await loadPeriod(targetStart, targetEnd);
 
   if (["paid", "waived"].includes(targetPeriod?.payment_status ?? "")) {
     throw new Error("The membership period covering this payment is already paid or waived.");
@@ -170,18 +159,12 @@ export async function recordManualMembershipPayment(input: MembershipPaymentInpu
     throw new Error(periodError.message);
   }
 
-  const membershipUpdate: Record<string, unknown> = {
-    status: "active",
-    updated_at: new Date().toISOString(),
-  };
-  if (advancedPeriod) {
-    membershipUpdate.current_period_start = targetStart;
-    membershipUpdate.current_period_end = targetEnd;
-  }
-
   const { error: membershipUpdateError } = await supabase
     .from("client_memberships")
-    .update(membershipUpdate)
+    .update({
+      status: "active",
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", membership.id)
     .eq("studio_id", studioId);
   if (membershipUpdateError) throw new Error(membershipUpdateError.message);

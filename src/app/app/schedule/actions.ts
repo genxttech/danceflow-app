@@ -665,10 +665,14 @@ async function validateClientPackageForBooking(params: {
   }
 
   if (!pkg.active) {
-    return {
-      ok: false,
-      error: "Selected package is inactive and cannot be used for booking.",
-    };
+    if (studioSettings.block_depleted_package_booking) {
+      return {
+        ok: false,
+        error: "Selected package is inactive and cannot be used for booking.",
+      };
+    }
+
+    return { ok: true };
   }
 
   const items = Array.isArray(pkg.client_package_items)

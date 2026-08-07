@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
+import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
@@ -270,7 +271,7 @@ function normalizeDuration(value: string) {
   return 45;
 }
 
-async function queuePortalScheduleRequestEmails(params: {
+async function notifyStaffOfPortalScheduleRequest(params: {
   supabase: ReturnType<typeof createAdminClient>;
   studio: StudioRow;
   client: ClientRow;
@@ -281,84 +282,168 @@ async function queuePortalScheduleRequestEmails(params: {
 }) {
   const clientEmail = params.client.email?.trim();
   const clientName =
-    `${params.client.first_name ?? ""} ${params.client.last_name ?? ""}`.trim() || "Portal client";
+    `${params.client.first_name ?? ""} ${params.client.last_name ?? ""}`.trim() ||
+    "Portal client";
   const firstName = params.client.first_name?.trim() || "there";
-  const requestedTime = formatRequestDateTime(params.requestedStartsAt, params.studioTimeZone);
+  const requestedTime = formatRequestDateTime(
+    params.requestedStartsAt,
+    params.studioTimeZone,
+  );
   const lessonType = typeLabel(params.appointmentType);
+  const reviewPath = "/app/schedule/requests?status=pending";
 
   if (clientEmail) {
-    await params.supabase.from("outbound_deliveries").insert({
-      studio_id: params.studio.id,
-      channel: "email",
-      template_key: "booking_request_received_client",
-      recipient_email: clientEmail,
-      subject: `${params.studio.name} received your schedule request`,
-      body_text: [
-        `Hi ${firstName},`,
-        "",
-        `${params.studio.name} received your request for ${lessonType} on ${requestedTime}.`,
-        "",
-        "The studio will review your request and confirm whether the time is available.",
-        "",
-        "Thanks,",
-        params.studio.name,
-      ].join("\n"),
-      body_html: null,
-      related_table: "booking_requests",
-      related_id: params.bookingRequestId,
-      dedupe_key: `portal-schedule-request-client:${params.bookingRequestId}`,
-      status: "queued",
-      updated_at: new Date().toISOString(),
-    });
+    const { error: clientEmailError } = await params.supabase
+      .from("outbound_deliveries")
+      .insert({
+        studio_id: params.studio.id,
+        channel: "email",
+        template_key: "booking_request_received_client",
+        recipient_email: clientEmail,
+        subject: `${params.studio.name} received your schedule request`,
+        body_text: [
+          `Hi ${firstName},`,
+          "",
+          `${params.studio.name} received your request for ${lessonType} on ${requestedTime}.`,
+          "",
+          "The studio will review your request and confirm whether the time is available.",
+          "",
+          "Thanks,",
+          params.studio.name,
+        ].join("\n"),
+        body_html: null,
+        related_table: "booking_requests",
+        related_id: params.bookingRequestId,
+        dedupe_key: `portal-schedule-request-client:${params.bookingRequestId}`,
+        status: "queued",
+        updated_at: new Date().toISOString(),
+      });
+
+    if (clientEmailError) {
+      console.error(
+        "Failed to queue portal schedule request client email",
+        clientEmailError.message,
+      );
+    }
   }
 
-  const { data: staffRows } = await params.supabase
+  const { data: staffRows, error: staffRolesError } = await params.supabase
     .from("user_studio_roles")
     .select("user_id")
     .eq("studio_id", params.studio.id)
     .eq("active", true)
     .in("role", ["studio_owner", "studio_admin", "front_desk"])
-    .limit(10);
+    .limit(25);
 
-  const staffUserIds = (staffRows ?? [])
-    .map((row: { user_id?: string | null }) => row.user_id)
-    .filter(Boolean) as string[];
-
-  if (!staffUserIds.length) return;
-
-  const { data: staffProfiles } = await params.supabase.auth.admin.listUsers();
-  const staffEmails = staffProfiles.users
-    .filter((user) => staffUserIds.includes(user.id))
-    .map((user) => user.email)
-    .filter(Boolean) as string[];
-
-  const uniqueStaffEmails = Array.from(new Set(staffEmails));
-
-  for (const email of uniqueStaffEmails) {
-    await params.supabase.from("outbound_deliveries").insert({
-      studio_id: params.studio.id,
-      channel: "email",
-      template_key: "booking_request_staff_alert",
-      recipient_email: email,
-      subject: `New portal schedule request: ${clientName}`,
-      body_text: [
-        `A portal client requested a lesson time.`,
-        "",
-        `Client: ${clientName}`,
-        `Lesson type: ${lessonType}`,
-        `Requested time: ${requestedTime}`,
-        "",
-        "Review the request in DanceFlow:",
-        `/app/schedule/requests?status=pending`,
-      ].join("\n"),
-      body_html: null,
-      related_table: "booking_requests",
-      related_id: params.bookingRequestId,
-      dedupe_key: `portal-schedule-request-staff:${params.bookingRequestId}:${email}`,
-      status: "queued",
-      updated_at: new Date().toISOString(),
-    });
+  if (staffRolesError) {
+    console.error(
+      "Failed to load staff recipients for portal schedule request",
+      staffRolesError.message,
+    );
+    return;
   }
+
+  const staffUserIds = Array.from(
+    new Set(
+      (staffRows ?? [])
+        .map((row: { user_id?: string | null }) => row.user_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  if (!staffUserIds.length) {
+    console.error(
+      "Portal schedule request created, but no eligible studio staff recipients were found",
+      {
+        studioId: params.studio.id,
+        bookingRequestId: params.bookingRequestId,
+      },
+    );
+    return;
+  }
+
+  const { data: staffProfiles, error: staffProfilesError } =
+    await params.supabase.auth.admin.listUsers();
+
+  if (staffProfilesError) {
+    console.error(
+      "Failed to load staff auth profiles for portal schedule request",
+      staffProfilesError.message,
+    );
+  } else {
+    const staffEmails = staffProfiles.users
+      .filter((user) => staffUserIds.includes(user.id))
+      .map((user) => user.email?.trim())
+      .filter((email): email is string => Boolean(email));
+
+    for (const email of Array.from(new Set(staffEmails))) {
+      const { error: staffEmailError } = await params.supabase
+        .from("outbound_deliveries")
+        .insert({
+          studio_id: params.studio.id,
+          channel: "email",
+          template_key: "booking_request_staff_alert",
+          recipient_email: email,
+          subject: `New portal schedule request: ${clientName}`,
+          body_text: [
+            "A portal client requested a lesson time.",
+            "",
+            `Client: ${clientName}`,
+            `Lesson type: ${lessonType}`,
+            `Requested time: ${requestedTime}`,
+            "",
+            "Review the request in DanceFlow:",
+            reviewPath,
+          ].join("\n"),
+          body_html: null,
+          related_table: "booking_requests",
+          related_id: params.bookingRequestId,
+          dedupe_key: `portal-schedule-request-staff:${params.bookingRequestId}:${email}`,
+          status: "queued",
+          updated_at: new Date().toISOString(),
+        });
+
+      if (staffEmailError) {
+        console.error(
+          "Failed to queue portal schedule request staff email",
+          {
+            bookingRequestId: params.bookingRequestId,
+            recipientEmail: email,
+            error: staffEmailError.message,
+          },
+        );
+      }
+    }
+  }
+
+  await Promise.all(
+    staffUserIds.map(async (userId) => {
+      try {
+        await sendMobilePushToUser({
+          userId,
+          category: "schedule",
+          title: "New schedule request",
+          body: `${clientName} requested ${lessonType} for ${requestedTime}.`,
+          data: {
+            source: "portal_schedule_request_staff",
+            bookingRequestId: params.bookingRequestId,
+            studioId: params.studio.id,
+            reviewPath,
+          },
+        });
+      } catch (pushError) {
+        console.error(
+          "Failed to send portal schedule request staff push",
+          {
+            bookingRequestId: params.bookingRequestId,
+            userId,
+            error:
+              pushError instanceof Error ? pushError.message : pushError,
+          },
+        );
+      }
+    }),
+  );
 }
 
 export async function createPortalScheduleRequestAction(formData: FormData) {
@@ -568,6 +653,8 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
     .insert({
       studio_id: studio.id,
       type: "portal_schedule_request",
+      category: "schedule",
+      priority: "high",
       title: "New portal schedule request",
       body: `${clientName} requested a ${typeLabel(appointmentType)} for ${formatRequestDateTime(requestedStart.toISOString(), studioTimeZone)}.`,
       client_id: client.id,
@@ -575,12 +662,16 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
 
   if (notificationError) {
     console.error(
-      "Failed to create portal schedule request notification",
-      notificationError.message,
+      "Failed to create portal schedule request in-app notification",
+      {
+        studioId: studio.id,
+        bookingRequestId: bookingRequest.id,
+        error: notificationError.message,
+      },
     );
   }
 
-  await queuePortalScheduleRequestEmails({
+  await notifyStaffOfPortalScheduleRequest({
     supabase,
     studio,
     client,

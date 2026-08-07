@@ -161,6 +161,22 @@ function formatTimeOnly(value: string, timeZone = APPOINTMENT_DISPLAY_TIME_ZONE)
   }).format(new Date(value));
 }
 
+function getDateKeyInTimeZone(
+  value: string,
+  timeZone = APPOINTMENT_DISPLAY_TIME_ZONE,
+) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${map.get("year")}-${map.get("month")}-${map.get("day")}`;
+}
+
 function appointmentTypeLabel(value: string) {
   if (value === "private_lesson") return "Private Lesson";
   if (value === "group_class") return "Group Class";
@@ -471,7 +487,13 @@ export default async function AppointmentDetailPage({
   const roomName = getRoomName(typedAppointment.rooms);
   const locationName = typedAppointment.location_name?.trim() || null;
   const referralSource = getClientReferralSource(typedAppointment.clients);
-  const returnTo = `/app/schedule/${typedAppointment.id}`;
+  const appointmentDate = getDateKeyInTimeZone(
+    typedAppointment.starts_at,
+    studioTimeZone,
+  );
+  const returnTo = `/app/schedule?date=${encodeURIComponent(
+    appointmentDate,
+  )}&scope=today`;
   const totalPaid = typedPayments
     .filter((payment) => payment.status === "paid" || payment.status === "completed")
     .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
@@ -561,7 +583,7 @@ export default async function AppointmentDetailPage({
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/app/schedule"
+                href={returnTo}
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
                 Back to Schedule
@@ -578,7 +600,7 @@ export default async function AppointmentDetailPage({
 
               {!isFinalStatus && canEdit ? (
                 <Link
-                  href={`/app/schedule/${typedAppointment.id}/edit`}
+                  href={`/app/schedule/${typedAppointment.id}/edit?returnTo=${encodeURIComponent(returnTo)}`}
                   className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
                 >
                   {isFloorRental ? "Edit Rental" : "Edit Appointment"}
@@ -1429,7 +1451,7 @@ export default async function AppointmentDetailPage({
             <div className="mt-5 flex flex-wrap gap-3">
               {!isFinalStatus && canEdit ? (
                 <Link
-                  href={`/app/schedule/${typedAppointment.id}/edit`}
+                  href={`/app/schedule/${typedAppointment.id}/edit?returnTo=${encodeURIComponent(returnTo)}`}
                   className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   {isFloorRental ? "Edit Rental" : "Edit Appointment"}
