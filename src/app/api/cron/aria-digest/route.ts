@@ -10,8 +10,8 @@ import {
   sanitizeAriaDigestError,
 } from "@/lib/aria/digest-observability";
 
-type DigestType = "morning" | "end_of_day";
-type DigestPreferenceRow = {
+export type DigestType = "morning" | "end_of_day";
+export type DigestPreferenceRow = {
   studio_id: string;
   morning_digest_enabled: boolean | null;
   end_of_day_digest_enabled: boolean | null;
@@ -306,7 +306,7 @@ function buildDigestHtml(params: {
   );
 }
 
-async function processDigestRun(params: {
+export async function processDigestRun(params: {
   preference: DigestPreferenceRow;
   digestType: DigestType;
   digestDate: string;
@@ -347,6 +347,7 @@ async function processDigestRun(params: {
   }
 
   const runId = insertedRun.id;
+  let deliveryIdForFailureContext: string | null = null;
 
   logAriaDigestLifecycleEvent({
     stage: "run_started",
@@ -452,6 +453,8 @@ async function processDigestRun(params: {
         throw new Error(deliveryError.message);
       }
 
+      deliveryIdForFailureContext = delivery.id;
+
       const { error: queuedUpdateError } = await adminSupabase
         .from("aria_digest_runs")
         .update({
@@ -522,6 +525,7 @@ async function processDigestRun(params: {
       .update({
         status: "failed",
         error_message: sanitized.message,
+        delivery_id: deliveryIdForFailureContext,
         processed_at: now.toISOString(),
       })
       .eq("id", runId);
@@ -535,7 +539,7 @@ async function processDigestRun(params: {
 
     const classification = classifyAriaDigestFailure({
       retryCount: 0,
-      hasDeliveryId: false,
+      hasDeliveryId: deliveryIdForFailureContext !== null,
     });
 
     logAriaDigestError(
@@ -566,7 +570,7 @@ async function processDigestRun(params: {
         studioId: preference.studio_id,
         digestType,
         digestDate,
-        deliveryId: null,
+        deliveryId: deliveryIdForFailureContext,
         retryCount: 0,
         error,
       });
