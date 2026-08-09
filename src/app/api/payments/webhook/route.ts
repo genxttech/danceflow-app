@@ -146,11 +146,27 @@ async function handleStudentMarketplacePaymentIntentSucceeded(
   return true;
 }
 
-async function handleTerminalPaymentIntentSucceeded(
+// Every PaymentIntent metadata.source value that represents a DanceFlow
+// Terminal card-present payment and must be fulfilled through
+// fulfillTerminalPayment. "danceflow_terminal" covers the main Take
+// Payment -> Card Reader flow; "danceflow_terminal_quick_charge" covers
+// both Quick Charge and Quick Pay (both start routes use this same
+// source value) so a successfully captured payment is deterministically
+// marked paid even if the browser never returns to poll for status.
+const TERMINAL_PAYMENT_INTENT_SOURCES = new Set<string | null>([
+  "danceflow_terminal",
+  "danceflow_terminal_quick_charge",
+]);
+
+export async function handleTerminalPaymentIntentSucceeded(
   supabase: SupabaseClient,
   paymentIntent: Stripe.PaymentIntent,
 ) {
-  if (getString(paymentIntent.metadata?.source) !== "danceflow_terminal") {
+  if (
+    !TERMINAL_PAYMENT_INTENT_SOURCES.has(
+      getString(paymentIntent.metadata?.source),
+    )
+  ) {
     return false;
   }
 

@@ -25,6 +25,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   appointment_missing: "Appointment could not be found.",
   appointment_cancel_failed: "Could not cancel appointment.",
   appointment_attended_failed: "Could not mark appointment attended.",
+  attendance_sync_failed:
+    "Attendance was recorded, but the package/membership charge needs attention. Try again, or adjust the balance manually.",
   appointment_no_show_failed: "Could not mark appointment no-show.",
   appointment_series_cancel_failed: "Could not cancel the recurring series.",
   client_archive_failed: "Could not archive client.",

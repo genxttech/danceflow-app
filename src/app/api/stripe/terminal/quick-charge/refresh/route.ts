@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
+import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
 
 function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -110,37 +111,21 @@ export async function POST(request: NextRequest) {
       .eq("id", session.id);
 
     if (status === "succeeded") {
-      await supabase
-        .from("payments")
-        .update({
-          status: "paid",
-          paid_at: existingPayment?.paid_at ?? nowIso,
-          payment_method: "card",
-          source: "stripe",
-          payment_channel: "terminal",
-          terminal_payment_session_id: session.id,
-          stripe_payment_intent_id: paymentIntent.id,
-        })
-        .eq("id", paymentId)
-        .eq("studio_id", context.studioId);
-
-      if (existingPayment.commerce_order_id) {
-        const { error: orderCompletionError } = await supabase.rpc(
-          "commerce_complete_terminal_order",
-          {
-            p_studio_id: context.studioId,
-            p_order_id: existingPayment.commerce_order_id,
-            p_payment_id: paymentId,
-            p_actor_user_id: user.id,
-          },
-        );
-
-        if (orderCompletionError) {
-          return jsonError(
-            `Payment succeeded, but order fulfillment needs attention: ${orderCompletionError.message}`,
-            409,
-          );
-        }
+      try {
+        await fulfillTerminalPayment({
+          supabase,
+          studioId: context.studioId,
+          paymentId,
+          sessionId: session.id,
+          paymentIntentId: paymentIntent.id,
+          actorUserId: user.id,
+        });
+      } catch (fulfillmentError) {
+        const message =
+          fulfillmentError instanceof Error
+            ? fulfillmentError.message
+            : "Payment succeeded, but fulfillment needs attention.";
+        return jsonError(message, 409);
       }
     } else if (["canceled", "requires_payment_method"].includes(status)) {
       if (existingPayment?.status !== "paid") {

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
+import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
 
 function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -90,20 +91,22 @@ export async function POST(request: NextRequest) {
       .eq("id", session.id);
 
     if (status === "succeeded") {
-      await supabase
-        .from("payments")
-        .update({
-          status: "paid",
-          paid_at: nowIso,
-          payment_method: "card",
-          source: "stripe",
-          payment_channel: "terminal",
-          terminal_payment_session_id: session.id,
-          stripe_payment_intent_id: paymentIntent.id,
-          updated_at: nowIso,
-        })
-        .eq("id", paymentId)
-        .eq("studio_id", context.studioId);
+      try {
+        await fulfillTerminalPayment({
+          supabase,
+          studioId: context.studioId,
+          paymentId,
+          sessionId: session.id,
+          paymentIntentId: paymentIntent.id,
+          actorUserId: user.id,
+        });
+      } catch (fulfillmentError) {
+        const message =
+          fulfillmentError instanceof Error
+            ? fulfillmentError.message
+            : "Payment succeeded, but fulfillment needs attention.";
+        return jsonError(message, 409);
+      }
     } else if (["canceled", "requires_payment_method"].includes(status)) {
       await supabase
         .from("payments")
