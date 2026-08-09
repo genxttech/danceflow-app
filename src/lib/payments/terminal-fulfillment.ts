@@ -8,6 +8,10 @@ type FulfillTerminalPaymentParams = {
   sessionId: string;
   paymentIntentId: string;
   paidAt?: string;
+  /** Staff user who triggered fulfillment, when known (e.g. a manual refresh
+   * click). Omitted for system-initiated fulfillment such as the Stripe
+   * webhook, which has no acting user. */
+  actorUserId?: string | null;
 };
 
 type TerminalEventRegistration = {
@@ -235,11 +239,12 @@ export async function fulfillTerminalPayment({
   sessionId,
   paymentIntentId,
   paidAt = new Date().toISOString(),
+  actorUserId = null,
 }: FulfillTerminalPaymentParams) {
   const { data: payment, error: paymentLookupError } = await supabase
     .from("payments")
     .select(
-      "id, studio_id, amount, currency, status, client_package_id, payment_type, external_reference",
+      "id, studio_id, amount, currency, status, client_package_id, payment_type, external_reference, commerce_order_id",
     )
     .eq("id", paymentId)
     .eq("studio_id", studioId)
@@ -431,6 +436,27 @@ export async function fulfillTerminalPayment({
           `Terminal payment event payment insert failed: ${eventPaymentInsertError.message}`,
         );
       }
+    }
+  }
+
+  if (payment.commerce_order_id) {
+    // commerce_complete_terminal_order is itself row-locked and idempotent
+    // (it early-returns once the order is already completed/paid), so this
+    // is safe to call on every fulfillment attempt, including replays.
+    const { error: commerceOrderError } = await supabase.rpc(
+      "commerce_complete_terminal_order",
+      {
+        p_studio_id: studioId,
+        p_order_id: payment.commerce_order_id,
+        p_payment_id: paymentId,
+        p_actor_user_id: actorUserId,
+      },
+    );
+
+    if (commerceOrderError) {
+      throw new Error(
+        `Terminal payment commerce order fulfillment failed: ${commerceOrderError.message}`,
+      );
     }
   }
 

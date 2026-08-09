@@ -1085,7 +1085,37 @@ function getPackageUsageTypeForAppointmentType(appointmentType: string) {
   }
 }
 
-async function syncPackageUsageForAttendedAppointment(params: {
+/**
+ * Package credit deduction for an attended appointment is performed
+ * atomically and idempotently by the `deduct_package_credit_when_appointment_attended`
+ * database trigger (fires on `appointments.status -> 'attended'`), which marks
+ * its work with a `lesson_transactions` row of `transaction_type: "lesson_deduction"`.
+ *
+ * This function defers to the `deduct_package_credit_for_appointment` RPC for
+ * the actual deduction, rather than doing its own read-then-write against
+ * `client_package_items`, so the two mechanisms can never deduct
+ * independently for the same appointment and two concurrent deductions
+ * against the same package (e.g. this function running for one appointment
+ * while the trigger fires for a different one) can't race and lose an
+ * update:
+ *   - Normal attendance marking: the trigger already ran (synchronously, as
+ *     part of the preceding `appointments` update) by the time this function
+ *     is called, so the RPC finds its marker already present and only
+ *     mirrors the resulting balance into the legacy `client_packages.lessons_*`
+ *     columns.
+ *   - Missed-appointment charges applied on cancel/no-show (`applyMissedAppointmentCharge`):
+ *     the appointment's status is `cancelled`/`no_show`, not `attended`, so the
+ *     trigger never fires. The RPC performs the single deduction itself,
+ *     under a row lock on the package item, so a later genuine `attended`
+ *     transition (or a replay of this same call) is correctly recognized as
+ *     already handled.
+ *
+ * The RPC recognizes both the current (`lesson_deduction`) and legacy
+ * (`appointment_attendance`) transaction markers as evidence of a prior
+ * deduction, so replaying this for an appointment attended before the
+ * `lesson_deduction` marker existed cannot consume a second credit.
+ */
+export async function syncPackageUsageForAttendedAppointment(params: {
   supabase: Awaited<
     ReturnType<typeof requireAppointmentCreateAccess>
   >["supabase"];
@@ -1109,163 +1139,30 @@ async function syncPackageUsageForAttendedAppointment(params: {
   const usageType = getPackageUsageTypeForAppointmentType(appointmentType);
   if (!usageType) return;
 
-  const { data: existingUsage, error: existingUsageError } = await supabase
-    .from("lesson_transactions")
-    .select("id")
-    .eq("appointment_id", appointmentId)
-    .eq("client_package_id", clientPackageId)
-    .eq("transaction_type", "appointment_attendance")
-    .limit(1);
+  const { data, error } = await supabase.rpc(
+    "deduct_package_credit_for_appointment",
+    {
+      p_studio_id: studioId,
+      p_client_id: clientId,
+      p_client_package_id: clientPackageId,
+      p_appointment_id: appointmentId,
+      p_usage_type: usageType,
+    },
+  );
 
-  if (existingUsageError) {
-    throw new Error(
-      `Could not check package usage history: ${existingUsageError.message}`,
-    );
+  if (error) {
+    throw new Error(error.message);
   }
 
-  if ((existingUsage ?? []).length > 0) return;
+  const result = Array.isArray(data) ? data[0] : data;
 
-  const { data: packageItem, error: packageItemError } = await supabase
-    .from("client_package_items")
-    .select(
-      `
-      id,
-      client_package_id,
-      usage_type,
-      quantity_used,
-      quantity_remaining,
-      is_unlimited,
-      client_packages!inner (
-        id,
-        studio_id,
-        client_id,
-        active,
-        name_snapshot,
-        lessons_used,
-        lessons_remaining
-      )
-    `,
-    )
-    .eq("client_package_id", clientPackageId)
-    .eq("usage_type", usageType)
-    .eq("client_packages.studio_id", studioId)
-    .eq("client_packages.client_id", clientId)
-    .eq("client_packages.active", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (packageItemError) {
-    throw new Error(
-      `Could not load package credit: ${packageItemError.message}`,
-    );
-  }
-
-  if (!packageItem) {
-    throw new Error(
-      "No matching active package credit was found for this appointment.",
-    );
-  }
-
-  const packageRelation = Array.isArray(packageItem.client_packages)
-    ? packageItem.client_packages[0]
-    : packageItem.client_packages;
-
-  if (packageItem.is_unlimited) {
-    const { error: unlimitedLedgerError } = await supabase
-      .from("lesson_transactions")
-      .insert({
-        studio_id: studioId,
-        client_id: clientId,
-        client_package_id: clientPackageId,
-        appointment_id: appointmentId,
-        transaction_type: "appointment_attendance",
-        lessons_delta: 0,
-        balance_after: null,
-        notes: `Auto-recorded attended ${usageType.replaceAll("_", " ")} from unlimited package.`,
-      });
-
-    if (unlimitedLedgerError) {
-      throw new Error(
-        `Could not record unlimited package usage: ${unlimitedLedgerError.message}`,
-      );
-    }
-
+  if (!result?.found_item) {
+    // Already deducted and the package has since been reconciled to
+    // inactive (e.g. it was fully depleted) — nothing left to do.
     return;
   }
 
-  const currentUsed = Number(packageItem.quantity_used ?? 0);
-  const currentRemaining = Number(packageItem.quantity_remaining ?? 0);
-
-  if (!Number.isFinite(currentRemaining) || currentRemaining <= 0) {
-    throw new Error("The selected package has no remaining credits.");
-  }
-
-  const nextUsed = currentUsed + 1;
-  const nextRemaining = currentRemaining - 1;
-
-  const { error: itemUpdateError } = await supabase
-    .from("client_package_items")
-    .update({
-      quantity_used: nextUsed,
-      quantity_remaining: nextRemaining,
-    })
-    .eq("id", packageItem.id)
-    .eq("client_package_id", clientPackageId);
-
-  if (itemUpdateError) {
-    throw new Error(
-      `Could not update package balance: ${itemUpdateError.message}`,
-    );
-  }
-
-  if (usageType === "private_lesson") {
-    const currentLegacyUsed = Number(packageRelation?.lessons_used ?? 0);
-    const currentLegacyRemaining =
-      packageRelation?.lessons_remaining == null
-        ? null
-        : Number(packageRelation.lessons_remaining);
-
-    const legacyPayload: Record<string, number | string> = {
-      lessons_used: currentLegacyUsed + 1,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (
-      currentLegacyRemaining !== null &&
-      Number.isFinite(currentLegacyRemaining)
-    ) {
-      legacyPayload.lessons_remaining = Math.max(currentLegacyRemaining - 1, 0);
-    }
-
-    await supabase
-      .from("client_packages")
-      .update(legacyPayload)
-      .eq("id", clientPackageId)
-      .eq("studio_id", studioId);
-  } else {
-    await supabase
-      .from("client_packages")
-      .update({ updated_at: new Date().toISOString() })
-      .eq("id", clientPackageId)
-      .eq("studio_id", studioId);
-  }
-
-  const { error: ledgerError } = await supabase
-    .from("lesson_transactions")
-    .insert({
-      studio_id: studioId,
-      client_id: clientId,
-      client_package_id: clientPackageId,
-      appointment_id: appointmentId,
-      transaction_type: "appointment_attendance",
-      lessons_delta: -1,
-      balance_after: nextRemaining,
-      notes: `Auto-deducted 1 ${usageType.replaceAll("_", " ")} credit when appointment was marked attended.`,
-    });
-
-  if (ledgerError) {
-    throw new Error(`Could not record package usage: ${ledgerError.message}`);
-  }
+  if (result.is_unlimited) return;
 
   await reconcileClientPackageLifecycle({
     supabase,
@@ -2711,7 +2608,7 @@ export async function markAppointmentAttendedAction(formData: FormData) {
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
       .select(
-        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, client_membership_id, price_amount, payment_status, billing_type",
+        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, client_membership_id, price_amount, payment_status, billing_type, status",
       )
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
@@ -2721,37 +2618,55 @@ export async function markAppointmentAttendedAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
     }
 
-    const canCompleteAttendance =
-      await canMarkAppointmentAttendedWithoutPaymentWarning({
-        supabase,
-        studioId,
-        appointment,
-      });
+    // Already attended: this is a replay (double-submit, retried request,
+    // an intentional re-click after a prior sync failure, etc), not a fresh
+    // attendance decision. Don't re-run the payment-required gate or
+    // rewrite appointments.status/attendance_marked_at — but DO still
+    // attempt the package/membership sync below. That sync is now
+    // idempotent (deduct_package_credit_for_appointment locks and
+    // re-checks its own marker), so replaying it is always safe: a
+    // deduction that already completed is a no-op, and a deduction that
+    // previously failed partway (status flipped to "attended" but the sync
+    // threw) gets a chance to actually complete instead of being silently
+    // stranded forever behind a guard that reports success without
+    // finishing the job.
+    const alreadyAttended = appointment.status === "attended";
 
-    if (!canCompleteAttendance) {
-      redirect(getErrorRedirect(formData, fallback, "payment_required"));
-    }
+    if (!alreadyAttended) {
+      const canCompleteAttendance =
+        await canMarkAppointmentAttendedWithoutPaymentWarning({
+          supabase,
+          studioId,
+          appointment,
+        });
 
-    const attendedAt = new Date().toISOString();
+      if (!canCompleteAttendance) {
+        redirect(getErrorRedirect(formData, fallback, "payment_required"));
+      }
 
-    const { error: updateError } = await supabase
-      .from("appointments")
-      .update({
-        status: "attended",
-        attendance_marked_at: attendedAt,
-        updated_at: attendedAt,
-      })
-      .eq("id", appointmentId)
-      .eq("studio_id", studioId);
+      const attendedAt = new Date().toISOString();
 
-    if (updateError) {
-      redirect(getErrorRedirect(formData, fallback, "attendance_failed"));
+      const { error: updateError } = await supabase
+        .from("appointments")
+        .update({
+          status: "attended",
+          attendance_marked_at: attendedAt,
+          updated_at: attendedAt,
+        })
+        .eq("id", appointmentId)
+        .eq("studio_id", studioId);
+
+      if (updateError) {
+        redirect(getErrorRedirect(formData, fallback, "attendance_failed"));
+      }
     }
 
     const billingType = normalizeLessonBillingType(
       appointment.billing_type,
       appointment.appointment_type,
     );
+
+    let syncFailed = false;
 
     try {
       if (billingType === "membership") {
@@ -2778,7 +2693,13 @@ export async function markAppointmentAttendedAction(formData: FormData) {
         });
       }
     } catch (syncError) {
-      console.error("Attendance was marked, but usage sync failed.", syncError);
+      syncFailed = true;
+      console.error(
+        alreadyAttended
+          ? "Attendance retry could not complete the pending package/membership sync."
+          : "Attendance was marked, but usage sync failed.",
+        syncError,
+      );
     }
 
     try {
@@ -2794,6 +2715,11 @@ export async function markAppointmentAttendedAction(formData: FormData) {
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     revalidatePath(`/app/clients/${appointment.client_id}`);
+
+    if (syncFailed) {
+      redirect(getErrorRedirect(formData, fallback, "attendance_sync_failed"));
+    }
+
     redirect(getSuccessRedirect(formData, fallback, "appointment_attended"));
   } catch (error) {
     rethrowIfRedirect(error);
