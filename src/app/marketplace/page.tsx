@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveCommerceThumbnails } from "@/lib/commerce/thumbnail";
 
+export const dynamic = "force-dynamic";
+
 function one<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
