@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCronAuthFailure } from "@/lib/security/cron";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import {
+  classifyAriaDigestFailure,
+  logAriaDigestError,
+  logAriaDigestLifecycleEvent,
+  recordTerminalAriaDigestFailure,
+  sanitizeAriaDigestError,
+} from "@/lib/aria/digest-observability";
 
 type DigestType = "morning" | "end_of_day";
 type DigestPreferenceRow = {
@@ -326,6 +333,13 @@ async function processDigestRun(params: {
 
   if (runInsertError) {
     if (runInsertError.code === "23505") {
+      logAriaDigestLifecycleEvent({
+        stage: "run_duplicate",
+        studioId: preference.studio_id,
+        digestType,
+        digestDate,
+        deliveryChannel,
+      });
       return { status: "duplicate" as const };
     }
 
@@ -333,6 +347,15 @@ async function processDigestRun(params: {
   }
 
   const runId = insertedRun.id;
+
+  logAriaDigestLifecycleEvent({
+    stage: "run_started",
+    studioId: preference.studio_id,
+    digestType,
+    digestDate,
+    runId,
+    deliveryChannel,
+  });
 
   try {
     const [{ data: studio }, { data: actions, error: actionsError }, { data: profile }] = await Promise.all([
@@ -374,7 +397,7 @@ async function processDigestRun(params: {
 
     if (deliveryChannel === "email") {
       if (!recipientEmail) {
-        await adminSupabase
+        const { error: skippedUpdateError } = await adminSupabase
           .from("aria_digest_runs")
           .update({
             status: "skipped",
@@ -383,6 +406,22 @@ async function processDigestRun(params: {
             processed_at: now.toISOString(),
           })
           .eq("id", runId);
+
+        if (skippedUpdateError) {
+          console.warn("[aria_digest] Failed to persist digest run skipped state", {
+            run_id: runId,
+            error: skippedUpdateError.message,
+          });
+        }
+
+        logAriaDigestLifecycleEvent({
+          stage: "run_skipped",
+          studioId: preference.studio_id,
+          digestType,
+          digestDate,
+          runId,
+          deliveryChannel,
+        });
 
         return { status: "skipped" as const };
       }
@@ -413,7 +452,7 @@ async function processDigestRun(params: {
         throw new Error(deliveryError.message);
       }
 
-      await adminSupabase
+      const { error: queuedUpdateError } = await adminSupabase
         .from("aria_digest_runs")
         .update({
           status: "queued",
@@ -427,10 +466,28 @@ async function processDigestRun(params: {
         })
         .eq("id", runId);
 
+      if (queuedUpdateError) {
+        console.warn("[aria_digest] Failed to persist digest run queued state", {
+          run_id: runId,
+          delivery_id: delivery.id,
+          error: queuedUpdateError.message,
+        });
+      }
+
+      logAriaDigestLifecycleEvent({
+        stage: "run_queued",
+        studioId: preference.studio_id,
+        digestType,
+        digestDate,
+        runId,
+        deliveryChannel,
+        retryCount: 0,
+      });
+
       return { status: "queued" as const };
     }
 
-    await adminSupabase
+    const { error: preparedUpdateError } = await adminSupabase
       .from("aria_digest_runs")
       .update({
         status: "prepared",
@@ -440,17 +497,80 @@ async function processDigestRun(params: {
       })
       .eq("id", runId);
 
+    if (preparedUpdateError) {
+      console.warn("[aria_digest] Failed to persist digest run prepared state", {
+        run_id: runId,
+        error: preparedUpdateError.message,
+      });
+    }
+
+    logAriaDigestLifecycleEvent({
+      stage: "run_prepared",
+      studioId: preference.studio_id,
+      digestType,
+      digestDate,
+      runId,
+      deliveryChannel,
+    });
+
     return { status: "prepared" as const };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "ARIA digest delivery failed";
-    await adminSupabase
+    const sanitized = sanitizeAriaDigestError(error);
+
+    const { error: failedUpdateError } = await adminSupabase
       .from("aria_digest_runs")
       .update({
         status: "failed",
-        error_message: message.slice(0, 1000),
+        error_message: sanitized.message,
         processed_at: now.toISOString(),
       })
       .eq("id", runId);
+
+    if (failedUpdateError) {
+      console.warn("[aria_digest] Failed to persist digest run failure state", {
+        run_id: runId,
+        error: failedUpdateError.message,
+      });
+    }
+
+    const classification = classifyAriaDigestFailure({
+      retryCount: 0,
+      hasDeliveryId: false,
+    });
+
+    logAriaDigestError(
+      {
+        studioId: preference.studio_id,
+        digestType,
+        digestDate,
+        runId,
+        deliveryChannel,
+        retryCount: 0,
+      },
+      error,
+    );
+
+    logAriaDigestLifecycleEvent({
+      stage: classification === "terminal" ? "run_terminal" : "run_retry_scheduled",
+      studioId: preference.studio_id,
+      digestType,
+      digestDate,
+      runId,
+      deliveryChannel,
+      retryCount: 0,
+    });
+
+    if (classification === "terminal") {
+      await recordTerminalAriaDigestFailure(adminSupabase, {
+        runId,
+        studioId: preference.studio_id,
+        digestType,
+        digestDate,
+        deliveryId: null,
+        retryCount: 0,
+        error,
+      });
+    }
 
     throw error;
   }
@@ -570,13 +690,14 @@ async function handleDigestRequest(request: NextRequest) {
       if (result.status === "duplicate") totals.duplicates += 1;
     } catch (error) {
       totals.failed += 1;
-      console.error("ARIA digest delivery failed", {
+      logAriaDigestError(
+        {
+          studioId: job.preference.studio_id,
+          digestType: job.digestType,
+          digestDate: job.digestDate,
+        },
         error,
-        studioId: job.preference.studio_id,
-        digestType: job.digestType,
-        digestDate: job.digestDate,
-        timezone: job.timezone,
-      });
+      );
     }
   }
 

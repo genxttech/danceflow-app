@@ -9,6 +9,13 @@ import {
   getAriaOutcomeExpectation,
   verifyPendingAriaOutcomes,
 } from "@/lib/aria/outcome-verification";
+import {
+  classifyAriaDigestFailure,
+  logAriaDigestError,
+  logAriaDigestLifecycleEvent,
+  recordTerminalAriaDigestFailure,
+  sanitizeAriaDigestError,
+} from "@/lib/aria/digest-observability";
 
 type OutboundPayload = Record<string, unknown> | null;
 
@@ -615,9 +622,12 @@ async function syncAriaDigestRunStatus(params: {
 }) {
   const supabase = createAdminClient();
   const now = new Date();
+  const sanitizedErrorMessage = params.errorMessage
+    ? sanitizeAriaDigestError(new Error(params.errorMessage)).message
+    : null;
   const payload: Record<string, unknown> = {
     status: params.status,
-    error_message: params.errorMessage?.slice(0, 1000) ?? null,
+    error_message: sanitizedErrorMessage,
     last_attempt_at: now.toISOString(),
   };
 
@@ -632,16 +642,80 @@ async function syncAriaDigestRunStatus(params: {
     payload.next_attempt_at = now.toISOString();
   }
 
-  const { error } = await supabase
+  const { data: updatedRun, error } = await supabase
     .from("aria_digest_runs")
     .update(payload)
-    .eq("delivery_id", params.deliveryId);
+    .eq("delivery_id", params.deliveryId)
+    .select("id, studio_id, digest_type, digest_date, retry_count, delivery_id")
+    .maybeSingle<{
+      id: string;
+      studio_id: string;
+      digest_type: "morning" | "end_of_day";
+      digest_date: string;
+      retry_count: number;
+      delivery_id: string | null;
+    }>();
 
   if (error) {
-    console.warn("Failed to synchronize ARIA digest run status", {
+    console.warn("[aria_digest] Failed to synchronize ARIA digest run status", {
       deliveryId: params.deliveryId,
       status: params.status,
-      error,
+      error: error.message,
+    });
+    return;
+  }
+
+  if (!updatedRun) return;
+
+  if (params.status === "sent") {
+    logAriaDigestLifecycleEvent({
+      stage: "run_sent",
+      studioId: updatedRun.studio_id,
+      digestType: updatedRun.digest_type,
+      digestDate: updatedRun.digest_date,
+      runId: updatedRun.id,
+      retryCount: updatedRun.retry_count,
+    });
+    return;
+  }
+
+  if (params.status !== "failed") return;
+
+  const failureError = new Error(params.errorMessage ?? "ARIA digest delivery failed");
+  const classification = classifyAriaDigestFailure({
+    retryCount: updatedRun.retry_count,
+    hasDeliveryId: updatedRun.delivery_id !== null,
+  });
+
+  logAriaDigestError(
+    {
+      studioId: updatedRun.studio_id,
+      digestType: updatedRun.digest_type,
+      digestDate: updatedRun.digest_date,
+      runId: updatedRun.id,
+      retryCount: updatedRun.retry_count,
+    },
+    failureError,
+  );
+
+  logAriaDigestLifecycleEvent({
+    stage: classification === "terminal" ? "run_terminal" : "run_retry_scheduled",
+    studioId: updatedRun.studio_id,
+    digestType: updatedRun.digest_type,
+    digestDate: updatedRun.digest_date,
+    runId: updatedRun.id,
+    retryCount: updatedRun.retry_count,
+  });
+
+  if (classification === "terminal") {
+    await recordTerminalAriaDigestFailure(supabase, {
+      runId: updatedRun.id,
+      studioId: updatedRun.studio_id,
+      digestType: updatedRun.digest_type,
+      digestDate: updatedRun.digest_date,
+      deliveryId: updatedRun.delivery_id,
+      retryCount: updatedRun.retry_count,
+      error: failureError,
     });
   }
 }
@@ -942,7 +1016,7 @@ async function requeueFailedAriaDigestDeliveries(limit = 25) {
 
     if (!delivery) continue;
 
-    await supabase
+    const { error: runUpdateError } = await supabase
       .from("aria_digest_runs")
       .update({
         status: "queued",
@@ -952,6 +1026,13 @@ async function requeueFailedAriaDigestDeliveries(limit = 25) {
         error_message: null,
       })
       .eq("id", run.id);
+
+    if (runUpdateError) {
+      console.warn("[aria_digest] Failed to persist digest retry state", {
+        run_id: run.id,
+        error: runUpdateError.message,
+      });
+    }
 
     requeued += 1;
   }
