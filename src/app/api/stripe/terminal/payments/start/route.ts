@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { ensureConnectedStripeCustomer } from "@/lib/payments/customer";
+import { countTerminalPaymentSessions } from "@/lib/payments/terminal-quick-charge";
 
 function getBaseUrl() {
   return (
@@ -214,6 +215,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Attempt-numbered so a raw network retry of this same sub-attempt is
+    // idempotent at Stripe's layer (the openSession guard above already
+    // rules out a concurrently-open attempt), while a genuinely new
+    // sub-attempt after a prior failure still gets a fresh key.
+    const attemptNumber = await countTerminalPaymentSessions(supabase, studio.id, payment.id);
+    const idempotencyKey = `terminal-payment:${payment.id}:${attemptNumber}`;
+
     const paymentIntent = await stripe.paymentIntents.create(
       {
         amount: amountCents,
@@ -235,7 +243,7 @@ export async function POST(request: NextRequest) {
           membershipEnrollmentId: enrollmentId ?? "",
         },
       },
-      { stripeAccount: connectedAccountId }
+      { stripeAccount: connectedAccountId, idempotencyKey },
     );
 
     const { data: session, error: sessionError } = await supabase

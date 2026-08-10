@@ -3,33 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const CATEGORY_LABELS: Record<string, string> = {
-  group_class: "Group Class",
-  social_party: "Social Party",
-  practice_party: "Practice Party",
-  floor_fee: "Floor Fee",
-  private_lesson_ad_hoc: "Private Lesson",
-  merchandise: "Merchandise",
-  other: "Other",
-};
-
-function clean(value: unknown, maxLength = 500) {
-  return typeof value === "string"
-    ? value
-        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
-        .replace(/[\u200B-\u200D\uFEFF]/g, "")
-        .trim()
-        .slice(0, maxLength)
-    : "";
-}
-
-function isUuid(value: string) {
-  return UUID_PATTERN.test(value);
-}
+import {
+  QUICK_CHARGE_CATEGORY_LABELS as CATEGORY_LABELS,
+  cleanText as clean,
+  isUuid,
+  parseQuickChargeAmount as parseAmount,
+  startQuickCharge,
+} from "@/lib/payments/terminal-quick-charge";
 
 function canCollectTerminal(
   role: string | null | undefined,
@@ -41,14 +21,6 @@ function canCollectTerminal(
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
-}
-
-function parseAmount(value: unknown) {
-  const raw = String(value ?? "").trim();
-  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return null;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100000) return null;
-  return Math.round(parsed * 100) / 100;
 }
 
 async function getRequestJson(request: NextRequest) {
@@ -88,13 +60,13 @@ export async function POST(request: NextRequest) {
 
     const body = await getRequestJson(request);
     const category = clean(body.category, 80) || "other";
-    const categoryLabel = CATEGORY_LABELS[category] ?? CATEGORY_LABELS.other;
     const amount = parseAmount(body.amount);
     const guestName = clean(body.guestName, 120) || null;
     const notes = clean(body.notes, 500) || null;
     const requestedReaderId = clean(body.readerId, 36);
     const existingPaymentId = clean(body.existingPaymentId, 36);
     const commerceOrderId = clean(body.commerceOrderId, 36);
+    const clientRequestId = clean(body.clientRequestId, 64);
 
     if (requestedReaderId && !isUuid(requestedReaderId)) {
       return jsonError("Select a valid Stripe reader.");
@@ -233,170 +205,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const resolvedAmount = preparedOrder
-      ? Number(preparedOrder.total ?? 0)
-      : Number(amount ?? 0);
-    const amountCents = Math.round(resolvedAmount * 100);
-    const noteParts = preparedOrder
-      ? [preparedPayment?.notes || "Commerce retail order"]
-      : [
-          `Quick Charge: ${categoryLabel}`,
-          guestName ? `Guest: ${guestName}` : null,
-          notes,
-        ].filter(Boolean);
-
-    const payment = preparedPayment
-      ? { id: preparedPayment.id }
-      : (
-          await supabase
-            .from("payments")
-            .insert({
-              studio_id: studio.id,
-              client_id: null,
-              amount: resolvedAmount,
-              payment_method: "card",
-              status: "pending",
-              notes: noteParts.join(" | ") || null,
-              paid_at: null,
-              created_by: user.id,
-              payment_type: "other",
-              source: "stripe",
-              payment_channel: "terminal",
-              currency: "usd",
-              quick_charge_category: category,
-              guest_name: guestName,
-            })
-            .select("id")
-            .single()
-        ).data;
-
-    if (!payment) {
-      return jsonError("Payment record could not be created.");
-    }
-
-    const paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: amountCents,
-        currency: "usd",
-        payment_method_types: ["card_present"],
-        capture_method: "automatic",
-        metadata: {
-          source: "danceflow_terminal_quick_charge",
-          studioId: studio.id,
-          paymentId: payment.id,
-          quickChargeCategory: preparedOrder ? "" : category,
-          guestName: guestName ?? "",
-          commerceOrderId: preparedOrder?.id ?? "",
-        },
-      },
-      { stripeAccount: connectedAccountId },
-    );
-
-    const { data: session, error: sessionError } = await supabase
-      .from("terminal_payment_sessions")
-      .insert({
-        studio_id: studio.id,
-        client_id: null,
-        payment_id: payment.id,
-        terminal_reader_id: reader.id,
+    const result = await startQuickCharge({
+      supabase,
+      stripe,
+      studio: { id: studio.id, stripe_connected_account_id: connectedAccountId },
+      reader: {
+        id: reader.id,
+        label: reader.label,
         terminal_location_id: reader.terminal_location_id,
-        source_type: preparedOrder ? "commerce_order" : "quick_charge",
-        source_id: preparedOrder?.id ?? payment.id,
-        amount_cents: amountCents,
-        currency: "usd",
-        stripe_account_id: connectedAccountId,
-        stripe_payment_intent_id: paymentIntent.id,
-        status: paymentIntent.status ?? "created",
-        metadata: {
-          reader_label: reader.label ?? null,
-          quick_charge_category: preparedOrder ? null : category,
-          guest_name: guestName,
-          commerce_order_id: preparedOrder?.id ?? null,
-        },
-        created_by: user.id,
-      })
-      .select("id")
-      .single();
-
-    if (sessionError || !session) {
-      await stripe.paymentIntents
-        .cancel(paymentIntent.id, {}, { stripeAccount: connectedAccountId })
-        .catch(() => null);
-      await supabase
-        .from("payments")
-        .update({ status: "failed" })
-        .eq("id", payment.id)
-        .eq("studio_id", studio.id);
-      return jsonError(
-        `Terminal session could not be created: ${sessionError?.message ?? "Unknown error"}`,
-      );
-    }
-
-    await supabase
-      .from("payments")
-      .update({
-        terminal_payment_session_id: session.id,
-        stripe_terminal_reader_id: reader.stripe_reader_id,
-        stripe_terminal_location_id: reader.stripe_location_id,
-        stripe_payment_intent_id: paymentIntent.id,
-      })
-      .eq("id", payment.id)
-      .eq("studio_id", studio.id);
-
-    try {
-      await stripe.terminal.readers.processPaymentIntent(
-        reader.stripe_reader_id,
-        { payment_intent: paymentIntent.id },
-        { stripeAccount: connectedAccountId },
-      );
-    } catch (processError) {
-      const message =
-        processError instanceof Error
-          ? processError.message
-          : "Stripe could not send the payment to the selected reader.";
-      const nowIso = new Date().toISOString();
-
-      await stripe.paymentIntents
-        .cancel(paymentIntent.id, {}, { stripeAccount: connectedAccountId })
-        .catch(() => null);
-
-      await Promise.all([
-        supabase
-          .from("terminal_payment_sessions")
-          .update({
-            status: "failed",
-            error_message: message,
-            completed_at: nowIso,
-            updated_at: nowIso,
-          })
-          .eq("id", session.id),
-        supabase
-          .from("payments")
-          .update({ status: "failed" })
-          .eq("id", payment.id)
-          .eq("studio_id", studio.id),
-      ]);
-
-      console.error("Quick charge reader processing failed", processError);
-      return jsonError(message, 409);
-    }
-
-    const nowIso = new Date().toISOString();
-    await supabase
-      .from("terminal_payment_sessions")
-      .update({ status: "processing", updated_at: nowIso })
-      .eq("id", session.id);
-
-    return NextResponse.json({
-      ok: true,
-      paymentId: payment.id,
-      sessionId: session.id,
-      status: "processing",
-      amount: resolvedAmount,
-      category: preparedOrder ? "commerce_order" : category,
-      categoryLabel: preparedOrder ? "Retail order" : categoryLabel,
-      readerLabel: reader.label ?? "Stripe reader",
+        stripe_reader_id: reader.stripe_reader_id,
+        stripe_location_id: reader.stripe_location_id,
+      },
+      userId: user.id,
+      clientRequestId,
+      idempotencyNamespace: "quick-charge",
+      input:
+        preparedPayment && preparedOrder
+          ? {
+              kind: "commerce_order",
+              payment: { id: preparedPayment.id, notes: preparedPayment.notes },
+              order: { id: preparedOrder.id, total: preparedOrder.total },
+            }
+          : {
+              kind: "ad_hoc",
+              category,
+              amount: Number(amount ?? 0),
+              guestName,
+              notes,
+            },
     });
+
+    if (!result.ok) {
+      return jsonError(result.error, result.status);
+    }
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Quick charge start failed", error);
     return jsonError(

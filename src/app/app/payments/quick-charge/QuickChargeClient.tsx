@@ -92,6 +92,22 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
   const pollCount = useRef(0);
+  // Stable per-attempt id sent to the server so a double-click or a retry
+  // after a perceived network failure reuses the same idempotency key
+  // instead of creating a second charge. Reused across retries of the same
+  // inputs; cleared once the attempt resolves (paid or cancelled) or when
+  // the inputs change, so a genuinely new charge always gets a fresh id.
+  const attemptRef = useRef<{ id: string; signature: string } | null>(null);
+
+  function clientRequestIdFor(params: { category: string; amount: number }) {
+    const signature = `${params.category}|${params.amount}|${guestName}|${notes}|${readerId}`;
+    if (attemptRef.current?.signature === signature) {
+      return attemptRef.current.id;
+    }
+    const id = crypto.randomUUID();
+    attemptRef.current = { id, signature };
+    return id;
+  }
   const selectedReader = useMemo(
     () => readers.find((reader) => reader.id === readerId) ?? null,
     [readers, readerId]
@@ -126,6 +142,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
         guestName,
         notes,
         readerId,
+        clientRequestId: clientRequestIdFor(params),
       });
 
       setActiveSession({
@@ -199,6 +216,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
         setNotes("");
         setExternalReference("");
         setPolling(false);
+        attemptRef.current = null;
         return;
       }
 
@@ -232,6 +250,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
 
       setActiveSession(null);
       setPolling(false);
+      attemptRef.current = null;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not cancel quick charge.");
     } finally {

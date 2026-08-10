@@ -1,0 +1,41 @@
+-- Partial unique index enforcing terminal Quick Charge / Quick Pay
+-- payment-creation deduplication on (studio_id, client_request_id).
+-- See src/lib/payments/terminal-quick-charge.ts (resolveAdHocPayment) for
+-- how the application uses this: it looks up an existing attempt by
+-- (studio_id, client_request_id) before inserting, and recovers from a
+-- concurrent-insert race by catching a 23505 unique violation and
+-- re-selecting the winning row (same pattern as
+-- platform_error_logs_aria_digest_dedupe_idx).
+--
+-- Depends on 20260809130000_payments_client_request_id_column.sql having
+-- already been applied (this index is built on that column).
+--
+-- ============================================================================
+-- IMPORTANT -- DO NOT RUN THIS INSIDE A TRANSACTION.
+-- ============================================================================
+-- This uses CREATE UNIQUE INDEX CONCURRENTLY specifically so it does not
+-- take a lock that blocks writes to `payments` -- an actively written, live
+-- production table (every terminal charge, invoice payment, refund, etc.
+-- writes to it) -- for the duration of the index build. A plain
+-- CREATE UNIQUE INDEX would block INSERT/UPDATE/DELETE on `payments` for
+-- that whole window; CONCURRENTLY avoids that at the cost of a longer,
+-- non-blocking build.
+--
+-- CREATE INDEX CONCURRENTLY cannot run inside a transaction block --
+-- Postgres will reject it outright ("CREATE INDEX CONCURRENTLY cannot run
+-- inside a transaction block") rather than silently falling back to a
+-- blocking build. Before applying:
+--   1. Confirm how the target migration runner executes this file. If it
+--      implicitly wraps every migration in BEGIN/COMMIT (common default for
+--      many runners, and unconfirmed for this repo -- no migration-runner
+--      config or CI workflow was found to check against), this file must be
+--      run standalone (its own psql/runner invocation), not batched with
+--      other migrations.
+--   2. If a concurrent build fails partway through, Postgres can leave
+--      behind an INVALID index of the same name. Check
+--      pg_index.indisvalid / retry with DROP INDEX CONCURRENTLY first if
+--      re-running.
+
+create unique index concurrently if not exists "payments_studio_client_request_id_key"
+  on "public"."payments" ("studio_id", "client_request_id")
+  where "client_request_id" is not null;
