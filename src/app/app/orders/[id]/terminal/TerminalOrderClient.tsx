@@ -46,6 +46,17 @@ export default function TerminalOrderClient({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pollCount = useRef(0);
+  // Stable per-order id sent to the server so a double-click or a retry
+  // after a perceived network failure reuses the same idempotency key
+  // instead of creating a second charge attempt for this order.
+  const clientRequestIdRef = useRef<string | null>(null);
+
+  function clientRequestId() {
+    if (!clientRequestIdRef.current) {
+      clientRequestIdRef.current = crypto.randomUUID();
+    }
+    return clientRequestIdRef.current;
+  }
 
   async function start() {
     setBusy(true);
@@ -58,6 +69,7 @@ export default function TerminalOrderClient({
           readerId,
           existingPaymentId: order.paymentId,
           commerceOrderId: order.orderId,
+          clientRequestId: clientRequestId(),
         },
       );
 

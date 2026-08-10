@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
+import { startQuickCharge } from "@/lib/payments/terminal-quick-charge";
 
 const CATEGORY_LABELS: Record<string, string> = {
   group_class: "Group Class",
@@ -67,11 +68,11 @@ export async function POST(request: NextRequest) {
 
     const body = await getRequestJson(request);
     const category = clean(body.category) || "other";
-    const categoryLabel = CATEGORY_LABELS[category] ?? CATEGORY_LABELS.other;
     const amount = parseAmount(body.amount);
     const guestName = clean(body.guestName).slice(0, 120) || null;
     const notes = clean(body.notes).slice(0, 500) || null;
     const requestedReaderId = clean(body.readerId);
+    const clientRequestId = clean(body.clientRequestId).slice(0, 64);
 
     if (!Object.keys(CATEGORY_LABELS).includes(category)) {
       return jsonError("Choose a valid quick charge category.");
@@ -120,119 +121,34 @@ export async function POST(request: NextRequest) {
       return jsonError("No active Stripe reader is available. Register or refresh a reader in Settings > Billing.");
     }
 
-    const amountCents = Math.round(amount * 100);
-    const noteParts = [
-      `Quick Charge: ${categoryLabel}`,
-      guestName ? `Guest: ${guestName}` : null,
-      notes,
-    ].filter(Boolean);
-
-    const { data: payment, error: paymentInsertError } = await supabase
-      .from("payments")
-      .insert({
-        studio_id: studio.id,
-        client_id: null,
-        amount,
-        payment_method: "card",
-        status: "pending",
-        notes: noteParts.join(" | ") || null,
-        paid_at: null,
-        created_by: user.id,
-        payment_type: "other",
-        source: "stripe",
-        payment_channel: "terminal",
-        currency: "usd",
-        quick_charge_category: category,
-        guest_name: guestName,
-      })
-      .select("id")
-      .single();
-
-    if (paymentInsertError || !payment) {
-      return jsonError(`Payment record could not be created: ${paymentInsertError?.message ?? "Unknown error"}`);
-    }
-
-    const paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: amountCents,
-        currency: "usd",
-        payment_method_types: ["card_present"],
-        capture_method: "automatic",
-        metadata: {
-          source: "danceflow_terminal_quick_charge",
-          studioId: studio.id,
-          paymentId: payment.id,
-          quickChargeCategory: category,
-          guestName: guestName ?? "",
-        },
-      },
-      { stripeAccount: connectedAccountId }
-    );
-
-    const { data: session, error: sessionError } = await supabase
-      .from("terminal_payment_sessions")
-      .insert({
-        studio_id: studio.id,
-        client_id: null,
-        payment_id: payment.id,
-        terminal_reader_id: reader.id,
+    const result = await startQuickCharge({
+      supabase,
+      stripe,
+      studio: { id: studio.id, stripe_connected_account_id: connectedAccountId },
+      reader: {
+        id: reader.id,
+        label: reader.label,
         terminal_location_id: reader.terminal_location_id,
-        source_type: "quick_charge",
-        source_id: payment.id,
-        amount_cents: amountCents,
-        currency: "usd",
-        stripe_account_id: connectedAccountId,
-        stripe_payment_intent_id: paymentIntent.id,
-        status: paymentIntent.status ?? "created",
-        metadata: {
-          reader_label: reader.label ?? null,
-          quick_charge_category: category,
-          guest_name: guestName,
-        },
-        created_by: user.id,
-      })
-      .select("id")
-      .single();
+        stripe_reader_id: reader.stripe_reader_id,
+        stripe_location_id: reader.stripe_location_id,
+      },
+      userId: user.id,
+      clientRequestId,
+      idempotencyNamespace: "quick-pay",
+      input: {
+        kind: "ad_hoc",
+        category,
+        amount: Number(amount ?? 0),
+        guestName,
+        notes,
+      },
+    });
 
-    if (sessionError || !session) {
-      await stripe.paymentIntents.cancel(paymentIntent.id, {}, { stripeAccount: connectedAccountId }).catch(() => null);
-      await supabase.from("payments").update({ status: "failed" }).eq("id", payment.id).eq("studio_id", studio.id);
-      return jsonError(`Terminal session could not be created: ${sessionError?.message ?? "Unknown error"}`);
+    if (!result.ok) {
+      return jsonError(result.error, result.status);
     }
 
-    await supabase
-      .from("payments")
-      .update({
-        terminal_payment_session_id: session.id,
-        stripe_terminal_reader_id: reader.stripe_reader_id,
-        stripe_terminal_location_id: reader.stripe_location_id,
-        stripe_payment_intent_id: paymentIntent.id,
-      })
-      .eq("id", payment.id)
-      .eq("studio_id", studio.id);
-
-    await stripe.terminal.readers.processPaymentIntent(
-      reader.stripe_reader_id,
-      { payment_intent: paymentIntent.id },
-      { stripeAccount: connectedAccountId }
-    );
-
-    const nowIso = new Date().toISOString();
-    await supabase
-      .from("terminal_payment_sessions")
-      .update({ status: "processing", updated_at: nowIso })
-      .eq("id", session.id);
-
-    return NextResponse.json({
-      ok: true,
-      paymentId: payment.id,
-      sessionId: session.id,
-      status: "processing",
-      amount,
-      category,
-      categoryLabel,
-      readerLabel: reader.label ?? "Stripe reader",
-    });
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Quick charge start failed", error);
     return jsonError(error instanceof Error ? error.message : "Quick charge could not be started.", 500);
