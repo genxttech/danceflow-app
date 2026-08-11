@@ -4,7 +4,7 @@
  * studios, stripe_terminal_readers). Shared across the P0.1 idempotency
  * regression tests so each test file doesn't hand-roll its own chain mock.
  * Not a full Supabase emulation — only the method chains those routes
- * actually call: select/insert/update, eq, order, limit, single,
+ * actually call: select/insert/update/delete, eq, order, limit, single,
  * maybeSingle, and direct awaiting (the count-query and bare-update shapes).
  */
 
@@ -57,7 +57,7 @@ export class FakeQuery {
 
   constructor(
     private table: FakeTable,
-    private op: "select" | "insert" | "update",
+    private op: "select" | "insert" | "update" | "delete",
     private payload?: Row,
   ) {}
 
@@ -102,6 +102,13 @@ export class FakeQuery {
     if (this.op === "update") {
       const matched = this.matchRows();
       matched.forEach((r) => Object.assign(r, this.payload));
+      return { data: matched, error: null };
+    }
+
+    if (this.op === "delete") {
+      const matched = this.matchRows();
+      const matchedIds = new Set(matched);
+      this.table.rows = this.table.rows.filter((r) => !matchedIds.has(r));
       return { data: matched, error: null };
     }
 
@@ -150,6 +157,7 @@ export function createFakeAdminClient(tables: Record<string, FakeTable>) {
         select: (cols: string, opts?: { count?: string }) => new FakeQuery(t, "select").select(cols, opts),
         insert: (payload: Row) => new FakeQuery(t, "insert", payload),
         update: (payload: Row) => new FakeQuery(t, "update", payload),
+        delete: () => new FakeQuery(t, "delete"),
       };
     },
   };
