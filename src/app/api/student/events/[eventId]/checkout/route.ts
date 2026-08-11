@@ -2,9 +2,13 @@ import { randomUUID } from "crypto";
 import { beginEventSigningCheckpoint } from "@/lib/documents/event-signing";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
-import { getStripe } from "@/lib/payments/stripe";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { getStudentApiUser, normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
+import {
+  computeTicketSelectionSignature,
+  resolveEventOrderForCheckout,
+  startEventOrderPayment,
+} from "@/lib/events/event-order-payment";
 import {
   cleanTextValue,
   getValidatedValue,
@@ -29,6 +33,7 @@ type CheckoutBody = {
   buyerFirstName?: string;
   buyerLastName?: string;
   buyerPhone?: string;
+  clientRequestId?: string;
   notes?: string;
   paymentMode?: "checkout" | "payment_sheet";
   returnUrl?: string;
@@ -236,31 +241,91 @@ function activeTicketPrice(ticket: TicketTypeRow) {
   return regularPrice;
 }
 
-function appBaseUrl(request: NextRequest) {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    request.nextUrl.origin
-  ).replace(/\/$/, "");
+/**
+ * Side-effect-free total, computed the same way (same per-ticket rounding)
+ * as the real ticket-registration loop below so the two always agree. Used
+ * only for the idempotency consistency check in resolveEventOrderForCheckout
+ * -- it must be computable before deciding whether to run that loop at all
+ * (a reused order skips it entirely).
+ */
+function computeRequestedTotalCents(
+  selections: TicketSelectionInput[],
+  ticketsById: Map<string, TicketTypeRow>
+): number {
+  let total = 0;
+  for (const selection of selections) {
+    const ticket = ticketsById.get(selection.ticketTypeId);
+    if (!ticket) continue;
+    const quantity = Math.max(1, selection.quantity);
+    const ticketTotal = Number((activeTicketPrice(ticket) * quantity).toFixed(2));
+    total = Number((total + ticketTotal).toFixed(2));
+  }
+  return Math.round(total * 100);
 }
 
-function safeMobileReturnUrl(value: string | undefined, fallback: string) {
-  const trimmed = value?.trim();
-  if (!trimmed) return fallback;
-  if (trimmed.startsWith("danceflow://")) return trimmed;
-  return fallback;
+async function startSigningCheckpointIfRequired(params: {
+  requiredDocumentRows: EventDocumentRequirementRow[];
+  orderId: string;
+  eventId: string;
+  studioId: string;
+  organizerId: string | null;
+  userId: string;
+  buyerEmail: string;
+  registrationIds: string[];
+  paymentMode: "checkout" | "payment_sheet";
+  returnUrl: string | undefined;
+}) {
+  if (params.requiredDocumentRows.length === 0) return null;
+
+  const checkpoint = await beginEventSigningCheckpoint({
+    orderId: params.orderId,
+    eventId: params.eventId,
+    studioId: params.studioId,
+    organizerId: params.organizerId,
+    userId: params.userId,
+    buyerEmail: params.buyerEmail,
+    requirementIds: params.requiredDocumentRows.map((document) => document.id),
+    registrationIds: params.registrationIds,
+    surface: "student_app",
+    paymentMode: params.paymentMode,
+    mobileReturnUrl: params.returnUrl,
+  });
+
+  if (!checkpoint?.signingUrl) {
+    throw new Error("Required event documents could not be started.");
+  }
+
+  return {
+    orderId: params.orderId,
+    registrationIds: params.registrationIds,
+    requiresSignature: true as const,
+    signingUrl: checkpoint.signingUrl,
+  };
 }
 
-function calculateApplicationFeeAmount(amount: number, feePercent: number) {
-  return Math.round(Math.max(0, Math.round(amount * 100)) * Math.max(0, feePercent));
-}
+/**
+ * Cancels a pending order and any pending registrations attached to it.
+ * Used both by the main failure catch-all below and by the capacity check
+ * for a brand new order -- resolveEventOrderForCheckout has already
+ * inserted the order row by the time either of those can fail, so unlike
+ * the pre-idempotency version of this route (which validated capacity and
+ * ran cleanup before any order existed), a failure here must actively roll
+ * the order back rather than simply returning, or it would be left behind
+ * as an orphaned pending event_orders row.
+ */
+async function cancelPendingEventOrder(supabase: SupabaseClient, orderId: string) {
+  const nowIso = new Date().toISOString();
 
-function getStripePublishableKey() {
-  return (
-    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
-    process.env.STRIPE_PUBLISHABLE_KEY ||
-    ""
-  ).trim();
+  await supabase
+    .from("event_registrations")
+    .update({ status: "cancelled", payment_status: "failed", cancelled_at: nowIso })
+    .eq("order_id", orderId)
+    .eq("status", "pending");
+
+  await supabase
+    .from("event_orders")
+    .update({ status: "cancelled", payment_status: "failed", cancelled_at: nowIso })
+    .eq("id", orderId);
 }
 
 async function getOrganizerPlatformFeePercent(supabase: SupabaseClient, studioId: string) {
@@ -420,7 +485,6 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const supabase = getSupabaseAdmin();
-  const stripe = getStripe();
   const user = await getStudentApiUser(request);
   const body = (await request.json().catch(() => null)) as CheckoutBody | null;
 
@@ -446,6 +510,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     120,
     100
   );
+  const clientRequestIdResult = normalizeOptionalUuid(
+    typeof body.clientRequestId === "string" ? body.clientRequestId : "",
+    "Checkout request id"
+  );
 
   const validationError = getValidationError([
     selectionsResult,
@@ -454,6 +522,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     buyerPhoneResult,
     notesResult,
     additionalAttendeeNamesResult,
+    clientRequestIdResult,
   ]);
 
   if (validationError) {
@@ -464,6 +533,11 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   if (!selections.length) {
     return jsonError("Select at least one ticket.");
+  }
+
+  const clientRequestId = getValidatedValue(clientRequestIdResult);
+  if (!clientRequestId) {
+    return jsonError("A checkout request id is required.");
   }
 
   const buyerFirstName = getValidatedValue(buyerFirstNameResult);
@@ -563,51 +637,25 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const ticketsById = new Map((tickets as TicketTypeRow[]).map((ticket) => [ticket.id, ticket]));
 
-  try {
-    await assertTicketCapacityAvailable({
-      supabase,
-      selections,
-      ticketsById,
-    });
-  } catch (error) {
-    return jsonError(
-      error instanceof Error
-        ? error.message
-        : "Selected ticket quantity is no longer available."
-    );
-  }
-
   const additionalAttendeeNames = getValidatedValue(additionalAttendeeNamesResult);
   let additionalAttendeeCursor = 0;
   let totalAmount = 0;
   let currency = "USD";
   const holdUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   const orderHoldToken = randomUUID();
-  const registrationIds: string[] = [];
   const orderItems: Record<string, unknown>[] = [];
+  const paymentMode: "checkout" | "payment_sheet" = body.paymentMode === "payment_sheet" ? "payment_sheet" : "checkout";
+  const requestedTotalCents = computeRequestedTotalCents(selections, ticketsById);
+  const ticketSelectionSignature = computeTicketSelectionSignature(selections);
 
-  const { error: staleRegistrationCleanupError } = await supabase
-    .from("event_registrations")
-    .update({
-      status: "cancelled",
-      payment_status: "failed",
-      cancelled_at: new Date().toISOString(),
-    })
-    .eq("event_id", event.id)
-    .eq("attendee_email", buyerEmail)
-    .eq("status", "pending")
-    .eq("payment_status", "pending")
-    .not("order_id", "is", null);
-
-  if (staleRegistrationCleanupError) {
-    return jsonError("A previous checkout attempt could not be cleared.");
-  }
-
-  const { data: order, error: orderError } = await supabase
-    .from("event_orders")
-    .insert({
-      event_id: event.id,
-      studio_id: event.studio_id,
+  const resolution = await resolveEventOrderForCheckout({
+    supabase,
+    studioId: event.studio_id,
+    eventId: event.id,
+    clientRequestId,
+    requestedTotalCents,
+    ticketSelectionSignature,
+    insertPayload: {
       organizer_id: event.organizer_id,
       buyer_name: buyerName,
       buyer_email: buyerEmail,
@@ -623,16 +671,144 @@ export async function POST(request: NextRequest, { params }: Params) {
         source: "student_app_event_tickets_v1",
         user_id: user.id,
         hold_token: orderHoldToken,
+        requested_total_cents: requestedTotalCents,
+        ticket_selection_signature: ticketSelectionSignature,
       },
-    })
-    .select("id")
-    .single();
+    },
+  });
 
-  if (orderError || !order) {
-    return jsonError("Could not create the event checkout order.");
+  if (!resolution.ok) {
+    return jsonError(resolution.error, resolution.error.includes("different") ? 409 : 400);
   }
 
+  const order = resolution.order;
+
+  if (!resolution.isNew) {
+    // Reused order from a retry/double-tap of this exact checkout attempt
+    // (same clientRequestId) -- do NOT re-run the stale-registration
+    // cleanup below (it would cancel this very order's own pending
+    // registrations) or re-create registrations/order items; this order
+    // already has them from the original attempt.
+    if (order.payment_status === "paid" || order.status === "confirmed") {
+      const { data: registrations } = await supabase
+        .from("event_registrations")
+        .select("id")
+        .eq("order_id", order.id);
+
+      return NextResponse.json({
+        completed: true,
+        orderId: order.id,
+        registrationIds: (registrations ?? []).map((row) => row.id as string),
+      });
+    }
+
+    if (order.status !== "pending" || order.payment_status !== "pending") {
+      return jsonError("This checkout attempt is no longer available. Please start a new checkout.", 409);
+    }
+
+    const { data: reusedRegistrations, error: reusedRegistrationsError } = await supabase
+      .from("event_registrations")
+      .select("id")
+      .eq("order_id", order.id);
+
+    if (reusedRegistrationsError) {
+      return jsonError("Could not load the existing checkout attempt.");
+    }
+
+    const reusedRegistrationIds = (reusedRegistrations ?? []).map((row) => row.id as string);
+
+    try {
+      const signingResponse = await startSigningCheckpointIfRequired({
+        requiredDocumentRows,
+        orderId: order.id,
+        eventId: event.id,
+        studioId: event.studio_id,
+        organizerId: event.organizer_id,
+        userId: user.id,
+        buyerEmail,
+        registrationIds: reusedRegistrationIds,
+        paymentMode,
+        returnUrl: body.returnUrl,
+      });
+
+      if (signingResponse) {
+        return NextResponse.json(signingResponse);
+      }
+
+      const result = await startEventOrderPayment({
+        request,
+        orderId: order.id,
+        surface: "student_app",
+        paymentMode,
+        mobileReturnUrl: body.returnUrl,
+      });
+
+      return NextResponse.json(result);
+    } catch (error) {
+      console.error(
+        "Student event checkout resume failed",
+        error instanceof Error ? error.message : error,
+      );
+      return jsonError(
+        error instanceof Error ? error.message : "Checkout could not be resumed. Please try again.",
+      );
+    }
+  }
+
+  // Capacity is checked here -- after order resolution, only for a brand
+  // new order -- rather than before it. A reused order already holds its
+  // capacity reservation from the original attempt (its own pending
+  // registrations are counted as active holds), so re-running this check
+  // before resolving the order would double-count that order's own hold
+  // against itself on every retry and could spuriously reject a retry of
+  // an already-successfully-held selection as "sold out".
   try {
+    await assertTicketCapacityAvailable({
+      supabase,
+      selections,
+      ticketsById,
+    });
+  } catch (error) {
+    await cancelPendingEventOrder(supabase, order.id);
+    return jsonError(
+      error instanceof Error
+        ? error.message
+        : "Selected ticket quantity is no longer available."
+    );
+  }
+
+  const registrationIds: string[] = [];
+
+  // Runs inside the try block (not before it, as in the pre-idempotency
+  // version of this route) because `order` now already exists in the
+  // database by this point -- resolveEventOrderForCheckout runs before
+  // this cleanup so it can decide whether to skip straight to the reused-
+  // order branch above. A failure here must therefore be caught and rolled
+  // back by the same catch-all below that cancels this order, exactly like
+  // every other failure in this block, rather than silently orphaning a
+  // pending event_orders row with no registrations attached to it.
+  // Excludes this order's own registrations: they don't exist yet for a
+  // brand new order (so the filter is inert), but keeping it here makes
+  // the query correct-by-construction rather than correct-by-coincidence.
+  try {
+    const { error: staleRegistrationCleanupError } = await supabase
+      .from("event_registrations")
+      .update({
+        status: "cancelled",
+        payment_status: "failed",
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq("event_id", event.id)
+      .eq("attendee_email", buyerEmail)
+      .eq("status", "pending")
+      .eq("payment_status", "pending")
+      .not("order_id", "is", null)
+      .neq("order_id", order.id);
+
+    if (staleRegistrationCleanupError) {
+      throw new Error("A previous checkout attempt could not be cleared.");
+    }
+
     for (const selection of selections) {
       const ticket = ticketsById.get(selection.ticketTypeId);
       if (!ticket) throw new Error("Ticket unavailable.");
@@ -768,31 +944,21 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     if (orderAmountError) throw new Error(orderAmountError.message);
 
-    if (requiredDocumentRows.length > 0) {
-      const checkpoint = await beginEventSigningCheckpoint({
-        orderId: order.id,
-        eventId: event.id,
-        studioId: event.studio_id,
-        organizerId: event.organizer_id,
-        userId: user.id,
-        buyerEmail,
-        requirementIds: requiredDocumentRows.map((document) => document.id),
-        registrationIds,
-        surface: "student_app",
-        paymentMode: body.paymentMode === "payment_sheet" ? "payment_sheet" : "checkout",
-        mobileReturnUrl: body.returnUrl,
-      });
+    const signingResponse = await startSigningCheckpointIfRequired({
+      requiredDocumentRows,
+      orderId: order.id,
+      eventId: event.id,
+      studioId: event.studio_id,
+      organizerId: event.organizer_id,
+      userId: user.id,
+      buyerEmail,
+      registrationIds,
+      paymentMode,
+      returnUrl: body.returnUrl,
+    });
 
-      if (!checkpoint?.signingUrl) {
-        throw new Error("Required event documents could not be started.");
-      }
-
-      return NextResponse.json({
-        orderId: order.id,
-        registrationIds,
-        requiresSignature: true,
-        signingUrl: checkpoint.signingUrl,
-      });
+    if (signingResponse) {
+      return NextResponse.json(signingResponse);
     }
 
     if (totalAmount <= 0) {
@@ -844,158 +1010,22 @@ export async function POST(request: NextRequest, { params }: Params) {
       });
     }
 
-    const applicationFeeAmount = calculateApplicationFeeAmount(totalAmount, organizerPlatformFeePercent);
-    const connectedAccountId = studio.stripe_connected_account_id;
-    const baseUrl = appBaseUrl(request);
-    const successUrl = `${baseUrl}/events/${encodeURIComponent(event.slug)}?success=cart_paid&order=${encodeURIComponent(order.id)}`;
-    const orderReturnUrl = `danceflow://events/orders/${encodeURIComponent(order.id)}?checkout=event`;
-    const mobileReturn = safeMobileReturnUrl(
-      body.returnUrl,
-      orderReturnUrl
-    );
-    const stripeSuccessUrl = mobileReturn.startsWith("danceflow://events/orders/") && !mobileReturn.includes("/pending")
-      ? mobileReturn
-      : orderReturnUrl;
-    const checkoutSuccessUrl = stripeSuccessUrl.startsWith("danceflow://")
-      ? stripeSuccessUrl
-      : successUrl;
-    const releaseUrl = `${baseUrl}/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(event.slug)}&holdToken=${encodeURIComponent(orderHoldToken)}`;
-
-    if (body.paymentMode === "payment_sheet") {
-      const paymentIntent = await stripe.paymentIntents.create(
-        {
-          amount: Math.round(totalAmount * 100),
-          currency: currency.toLowerCase(),
-          receipt_email: buyerEmail,
-          automatic_payment_methods: {
-            enabled: true,
-          },
-          ...(applicationFeeAmount > 0
-            ? { application_fee_amount: applicationFeeAmount }
-            : {}),
-          metadata: {
-            source: "event_cart_order",
-            studio_id: event.studio_id,
-            event_id: event.id,
-            event_slug: event.slug,
-            order_id: order.id,
-            registration_id: registrationIds[0] ?? "",
-            registration_ids: registrationIds.join(","),
-            buyer_email: buyerEmail,
-            connected_account_id: connectedAccountId,
-            charge_model: "direct",
-            client_surface: "student_app",
-            mobile_return_url: checkoutSuccessUrl,
-          },
-        },
-        {
-          stripeAccount: connectedAccountId,
-        },
-      );
-
-      if (!paymentIntent.client_secret) {
-        throw new Error("Stripe did not return a native payment secret.");
-      }
-
-      const { error: paymentIntentLinkError } = await supabase
-        .from("event_orders")
-        .update({
-          stripe_payment_intent_id: paymentIntent.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", order.id);
-
-      if (paymentIntentLinkError) throw new Error(paymentIntentLinkError.message);
-
-      await supabase
-        .from("event_registrations")
-        .update({ stripe_payment_intent_id: paymentIntent.id })
-        .in("id", registrationIds);
-
-      return NextResponse.json({
-        clientSecret: paymentIntent.client_secret,
-        orderId: order.id,
-        publishableKey: getStripePublishableKey(),
-        registrationIds,
-      });
-    }
-
-    const session = await stripe.checkout.sessions.create(
-      {
-        mode: "payment",
-        customer_email: buyerEmail,
-        success_url: checkoutSuccessUrl,
-        cancel_url: releaseUrl,
-        line_items: orderItems.map((item) => ({
-          quantity: Number(item.quantity ?? 1),
-          price_data: {
-            currency: currency.toLowerCase(),
-            unit_amount: Math.round(Number(item.unit_price ?? 0) * 100),
-            product_data: {
-              name: String(item.description ?? "Event ticket"),
-            },
-          },
-        })),
-        payment_intent_data: {
-          ...(applicationFeeAmount > 0
-            ? { application_fee_amount: applicationFeeAmount }
-            : {}),
-          metadata: {
-            source: "event_cart_order",
-            studio_id: event.studio_id,
-            event_id: event.id,
-            event_slug: event.slug,
-            order_id: order.id,
-            registration_id: registrationIds[0] ?? "",
-            registration_ids: registrationIds.join(","),
-            buyer_email: buyerEmail,
-            connected_account_id: connectedAccountId,
-            charge_model: "direct",
-            mobile_return_url: checkoutSuccessUrl,
-          },
-        },
-        metadata: {
-          source: "event_cart_order",
-          studio_id: event.studio_id,
-          event_id: event.id,
-          event_slug: event.slug,
-          order_id: order.id,
-          registration_id: registrationIds[0] ?? "",
-          registration_ids: registrationIds.join(","),
-          buyer_email: buyerEmail,
-          connected_account_id: connectedAccountId,
-          charge_model: "direct",
-          client_surface: "student_app",
-          mobile_return_url: checkoutSuccessUrl,
-        },
-      },
-      {
-        stripeAccount: connectedAccountId,
-      },
-    );
-
-    const { error: sessionLinkError } = await supabase
-      .from("event_orders")
-      .update({
-        stripe_checkout_session_id: session.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", order.id);
-
-    if (sessionLinkError) throw new Error(sessionLinkError.message);
-
-    await supabase
-      .from("event_registrations")
-      .update({ stripe_checkout_session_id: session.id })
-      .in("id", registrationIds);
-
-    if (!session.url) throw new Error("Stripe did not return a checkout URL.");
-
-    return NextResponse.json({
-      checkoutUrl: session.url,
+    // Delegate the actual Stripe PaymentIntent/Checkout Session creation to
+    // the shared, already-idempotent helper (src/lib/events/event-order-payment.ts)
+    // instead of duplicating that logic here -- it independently retrieves
+    // and reuses an existing live PaymentIntent/session for this order id
+    // before creating a new one, and uses a deterministic
+    // `event-order:${order.id}:...` Stripe idempotency key either way, so
+    // this call is itself safe to retry.
+    const result = await startEventOrderPayment({
+      request,
       orderId: order.id,
-      registrationIds,
+      surface: "student_app",
+      paymentMode,
+      mobileReturnUrl: body.returnUrl,
     });
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error(
       "Student event checkout failed",

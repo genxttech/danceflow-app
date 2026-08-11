@@ -4,6 +4,32 @@ const CHECKOUT_CREATE_TIMEOUT_MS = 25000;
 const CHECKOUT_CONFIRM_TIMEOUT_MS = 15000;
 const CHECKOUT_STATUS_TIMEOUT_MS = 12000;
 
+/**
+ * A stable per-checkout-attempt id the server uses to deduplicate order
+ * creation (src/app/api/student/events/[eventId]/checkout/route.ts,
+ * resolveEventOrderForCheckout) -- a double-tap or a retry after a dropped
+ * response must reuse the same id so the server returns the *same* order
+ * instead of creating a second one and a second Stripe PaymentIntent/
+ * Checkout Session. Callers own persisting/clearing this across retries
+ * (see checkoutRequestIdRef in app/events/[id]/register.tsx); this module
+ * only generates values in the shape the server requires.
+ */
+export function generateCheckoutRequestId(): string {
+  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (cryptoObj?.randomUUID) {
+    return cryptoObj.randomUUID();
+  }
+
+  // Fallback UUID v4 for Hermes builds without a native crypto.randomUUID.
+  // Not cryptographically strong -- this value is only ever used as a
+  // request-deduplication key, never a secret.
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = (Math.random() * 16) | 0;
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
 
 export function assertSafeEventCheckoutUrl(
   value: string,
@@ -64,6 +90,9 @@ export type CreateEventCheckoutInput = {
   buyerFirstName: string;
   buyerLastName: string;
   buyerPhone?: string;
+  /** See generateCheckoutRequestId() above -- must be the same value for
+   * every retry/fallback call belonging to one logical checkout attempt. */
+  clientRequestId: string;
   eventId: string;
   notes?: string;
   paymentMode?: "checkout" | "payment_sheet";
@@ -133,6 +162,7 @@ export async function createStudentEventCheckout(input: CreateEventCheckoutInput
             buyerFirstName: input.buyerFirstName,
             buyerLastName: input.buyerLastName,
             buyerPhone: input.buyerPhone,
+            clientRequestId: input.clientRequestId,
             notes: input.notes,
             paymentMode: input.paymentMode,
             returnUrl: input.returnUrl,
