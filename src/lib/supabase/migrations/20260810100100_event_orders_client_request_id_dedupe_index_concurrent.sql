@@ -1,0 +1,43 @@
+-- Partial unique index enforcing student mobile event-ticket checkout
+-- order-creation deduplication on (studio_id, client_request_id).
+-- See src/lib/events/event-order-payment.ts (resolveEventOrderForCheckout)
+-- for how the application uses this: it looks up an existing order by
+-- (studio_id, client_request_id) before inserting, and recovers from a
+-- concurrent-insert race by catching a 23505 unique violation and
+-- re-selecting the winning row (same pattern as
+-- payments_studio_client_request_id_key / Payments P0.1).
+--
+-- Depends on 20260810100000_event_orders_client_request_id_column.sql
+-- having already been applied (this index is built on that column).
+--
+-- ============================================================================
+-- IMPORTANT -- DO NOT RUN THIS INSIDE A TRANSACTION.
+-- ============================================================================
+-- This uses CREATE UNIQUE INDEX CONCURRENTLY specifically so it does not
+-- take a lock that blocks writes to `event_orders` -- an actively written,
+-- live production table (every paid and free event-ticket checkout writes
+-- to it) -- for the duration of the index build. A plain
+-- CREATE UNIQUE INDEX would block INSERT/UPDATE/DELETE on `event_orders`
+-- for that whole window; CONCURRENTLY avoids that at the cost of a longer,
+-- non-blocking build.
+--
+-- CREATE INDEX CONCURRENTLY cannot run inside a transaction block --
+-- Postgres will reject it outright ("CREATE INDEX CONCURRENTLY cannot run
+-- inside a transaction block") rather than silently falling back to a
+-- blocking build. Before applying:
+--   1. Confirm how the target migration runner executes this file. If it
+--      implicitly wraps every migration in BEGIN/COMMIT (unconfirmed for
+--      this repo -- same caveat as the payments precedent), this file must
+--      be run standalone (its own psql/runner invocation), not batched
+--      with other migrations.
+--   2. If a concurrent build fails partway through, Postgres can leave
+--      behind an INVALID index of the same name. Check
+--      pg_index.indisvalid / retry with DROP INDEX CONCURRENTLY first if
+--      re-running.
+--
+-- Rollback (not run as part of this migration):
+--   drop index concurrently if exists "event_orders_studio_client_request_id_key";
+
+create unique index concurrently if not exists "event_orders_studio_client_request_id_key"
+  on "public"."event_orders" ("studio_id", "client_request_id")
+  where "client_request_id" is not null;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Linking, StyleSheet, TextInput, View } from "react-native";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
@@ -11,7 +11,9 @@ import {
   assertSafeEventCheckoutUrl,
   confirmStudentEventOrder,
   createStudentEventCheckout,
-  getStudentEventOrderStatus
+  generateCheckoutRequestId,
+  getStudentEventOrderStatus,
+  type CreateEventCheckoutInput
 } from "@/lib/eventCheckout";
 import { useAuth } from "@/lib/auth";
 import {
@@ -88,6 +90,35 @@ export default function EventRegisterScreen() {
   const [notes, setNotes] = useState("");
   const [additionalAttendeeNames, setAdditionalAttendeeNames] = useState<string[]>([]);
   const [signingOrderId, setSigningOrderId] = useState<string | null>(null);
+  // Stable per-attempt id sent to the server so a double-tap, a retry after
+  // a perceived network failure, or the native-payment-sheet-init-failure
+  // fallback call below all reuse the same idempotency key instead of the
+  // server creating a second order/registration/PaymentIntent for what is
+  // logically one checkout attempt. Reused whenever the checkout inputs are
+  // unchanged; a genuinely new attempt (different tickets/buyer info/notes)
+  // always gets a fresh id. Same signature-reuse pattern as
+  // src/app/app/payments/quick-charge/QuickChargeClient.tsx's attemptRef.
+  const checkoutAttemptRef = useRef<{ id: string; signature: string } | null>(null);
+
+  function checkoutRequestIdFor(input: Omit<CreateEventCheckoutInput, "clientRequestId" | "paymentMode">) {
+    const signature = JSON.stringify({
+      eventId: input.eventId,
+      ticketSelections: input.ticketSelections,
+      buyerFirstName: input.buyerFirstName,
+      buyerLastName: input.buyerLastName,
+      buyerPhone: input.buyerPhone,
+      notes: input.notes,
+      additionalAttendeeNames: input.additionalAttendeeNames
+    });
+
+    if (checkoutAttemptRef.current?.signature === signature) {
+      return checkoutAttemptRef.current.id;
+    }
+
+    const id = generateCheckoutRequestId();
+    checkoutAttemptRef.current = { id, signature };
+    return id;
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -189,12 +220,16 @@ export default function EventRegisterScreen() {
         }))
       };
 
+      const clientRequestId = checkoutRequestIdFor(checkoutInput);
+
       const result = await createStudentEventCheckout({
         ...checkoutInput,
+        clientRequestId,
         paymentMode: nativePaymentsEnabled() ? "payment_sheet" : "checkout"
       });
 
       if (result.completed) {
+        checkoutAttemptRef.current = null;
         router.replace(walletCheckoutPath(result.orderId));
         return;
       }
@@ -224,6 +259,7 @@ export default function EventRegisterScreen() {
         if (initialized.error) {
           const fallback = await createStudentEventCheckout({
             ...checkoutInput,
+            clientRequestId: checkoutRequestIdFor(checkoutInput),
             paymentMode: "checkout"
           });
 
@@ -266,6 +302,7 @@ export default function EventRegisterScreen() {
           await wait(1200);
         }
 
+        checkoutAttemptRef.current = null;
         router.replace(walletCheckoutPath(result.orderId));
         return;
       }
