@@ -30,7 +30,15 @@ export class FakeTable {
     }
 
     if (this.uniqueColumns && this.uniqueColumns.every((c) => payload[c] != null)) {
-      const dup = this.rows.find((r) => this.uniqueColumns!.every((c) => r[c] === payload[c]));
+      // Mirrors a partial unique index scoped to `status = 'pending'`: only
+      // an existing row still in `pending` status can conflict, so a row
+      // that has since been voided/paid/etc. never blocks a fresh insert
+      // for the same key columns.
+      const dup = this.rows.find(
+        (r) =>
+          (r.status ?? "pending") === "pending" &&
+          this.uniqueColumns!.every((c) => r[c] === payload[c]),
+      );
       if (dup) return this.duplicateError();
     }
 

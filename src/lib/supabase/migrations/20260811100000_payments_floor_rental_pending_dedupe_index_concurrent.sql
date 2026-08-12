@@ -1,0 +1,52 @@
+-- Partial unique index enforcing at most one in-flight (pending) portal
+-- floor-rental balance payment per (studio_id, client_id).
+--
+-- See src/lib/payments/portal-floor-rental-checkout-session.ts for how the
+-- application uses this: it looks up an existing pending row scoped to
+-- (studio_id, client_id, source='floor_rental', status='pending') before
+-- inserting a new one, and recovers from a concurrent-insert race by
+-- catching a 23505 unique violation and re-selecting the winning row --
+-- same pattern as event_orders_studio_client_request_id_key
+-- (20260810100100_event_orders_client_request_id_dedupe_index_concurrent.sql)
+-- and payments_studio_client_request_id_key (Payments P0.1).
+--
+-- Unlike those two precedents, there is no pre-existing client-supplied
+-- request id to key on here -- the floor-rental flow has no local row at
+-- all until the portal customer's own POST creates one, so the very first
+-- concurrent double-submit has no row yet to compare-and-swap against. This
+-- index is what makes that first-creation race safe rather than merely
+-- probabilistically unlikely: a stale pending row is always transitioned to
+-- 'voided' (see the helper) before a fresh one is inserted, so the
+-- predicate below never blocks a legitimate new attempt once the prior one
+-- is no longer 'pending'.
+--
+-- ============================================================================
+-- IMPORTANT -- DO NOT RUN THIS INSIDE A TRANSACTION.
+-- ============================================================================
+-- This uses CREATE UNIQUE INDEX CONCURRENTLY specifically so it does not
+-- take a lock that blocks writes to `payments` -- an actively written, live
+-- production table (every payment of every kind writes to it) -- for the
+-- duration of the index build. A plain CREATE UNIQUE INDEX would block
+-- INSERT/UPDATE/DELETE on `payments` for that whole window; CONCURRENTLY
+-- avoids that at the cost of a longer, non-blocking build.
+--
+-- CREATE INDEX CONCURRENTLY cannot run inside a transaction block --
+-- Postgres will reject it outright ("CREATE INDEX CONCURRENTLY cannot run
+-- inside a transaction block") rather than silently falling back to a
+-- blocking build. Before applying:
+--   1. Confirm how the target migration runner executes this file. If it
+--      implicitly wraps every migration in BEGIN/COMMIT (unconfirmed for
+--      this repo -- same caveat as the two precedents above), this file
+--      must be run standalone (its own psql/runner invocation), not batched
+--      with other migrations.
+--   2. If a concurrent build fails partway through, Postgres can leave
+--      behind an INVALID index of the same name. Check
+--      pg_index.indisvalid / retry with DROP INDEX CONCURRENTLY first if
+--      re-running.
+--
+-- Rollback (not run as part of this migration):
+--   drop index concurrently if exists "payments_floor_rental_pending_studio_client_key";
+
+create unique index concurrently if not exists "payments_floor_rental_pending_studio_client_key"
+  on "public"."payments" ("studio_id", "client_id")
+  where ("status" = 'pending' and "source" = 'floor_rental');

@@ -2880,7 +2880,7 @@ async function handleChargeRefunded(
   return paymentUpdated || eventPaymentUpdated;
 }
 
-async function handlePortalFloorRentalCheckoutCompleted(
+export async function handlePortalFloorRentalCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session,
 ) {
@@ -2890,8 +2890,9 @@ async function handlePortalFloorRentalCheckoutCompleted(
   const studioId = getString(session.metadata?.studioId);
   const clientId = getString(session.metadata?.clientId);
   const appointmentIdsRaw = getString(session.metadata?.appointmentIds);
+  const paymentId = getString(session.metadata?.paymentId);
 
-  if (!studioId || !clientId || !appointmentIdsRaw) {
+  if (!studioId || !clientId || !appointmentIdsRaw || !paymentId) {
     throw new Error("Portal floor rental balance checkout missing metadata.");
   }
 
@@ -2914,6 +2915,9 @@ async function handlePortalFloorRentalCheckoutCompleted(
   const sessionId = session.id;
   const amountTotal = Number(session.amount_total ?? 0) / 100;
 
+  // Defense in depth against literal webhook redelivery for the same
+  // completed session -- checked first and independent of the pending-row
+  // lookup below.
   const { data: existingPayment, error: existingPaymentError } = await supabase
     .from("payments")
     .select("id")
@@ -2926,6 +2930,46 @@ async function handlePortalFloorRentalCheckoutCompleted(
 
   if (existingPayment) {
     return true;
+  }
+
+  // The route (resolvePortalFloorRentalCheckoutSession) always creates or
+  // reuses exactly one pending `payments` row per (studio, client) before
+  // ever calling Stripe, and stamps that row's id into this session's
+  // metadata. Fulfillment transitions that same row pending -> paid instead
+  // of inserting a second row, so two completed sessions for the same
+  // floor-rental balance can never produce two payments rows.
+  const { data: payment, error: paymentLookupError } = await supabase
+    .from("payments")
+    .select("id, studio_id, client_id, amount, status")
+    .eq("id", paymentId)
+    .maybeSingle();
+
+  if (paymentLookupError) {
+    throw new Error(paymentLookupError.message);
+  }
+
+  if (!payment) {
+    throw new Error("Portal floor rental balance payment record not found.");
+  }
+
+  if (payment.status !== "pending") {
+    // Already transitioned by a prior delivery of this same event, or
+    // superseded (voided) by a later attempt -- either way, there is
+    // nothing left for this delivery to do.
+    return true;
+  }
+
+  if (payment.studio_id !== studioId || payment.client_id !== clientId) {
+    throw new Error(
+      "Portal floor rental balance payment studio/client mismatch.",
+    );
+  }
+
+  const expectedAmount = Number(payment.amount ?? 0);
+  if (Math.abs(expectedAmount - amountTotal) > 0.01) {
+    throw new Error(
+      `Portal floor rental balance amount mismatch. Expected ${expectedAmount}, received ${amountTotal}.`,
+    );
   }
 
   const { data: appointments, error: appointmentsError } = await supabase
@@ -2956,33 +3000,31 @@ async function handlePortalFloorRentalCheckoutCompleted(
     );
   }
 
-  const expectedAmount = payableAppointments.reduce(
-    (sum, appointment) => sum + Number(appointment.price_amount ?? 0),
-    0,
-  );
+  const { data: updatedPayment, error: updatePaymentError } = await supabase
+    .from("payments")
+    .update({
+      status: "paid",
+      payment_method: "card",
+      external_payment_id: sessionId,
+      external_reference: sessionId,
+      stripe_checkout_session_id: sessionId,
+      stripe_payment_intent_id: paymentIntentId,
+      paid_at: new Date().toISOString(),
+      notes: `Floor rental payment for appointments: ${appointmentIds.join(", ")}`,
+    })
+    .eq("id", payment.id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
 
-  if (Math.abs(expectedAmount - amountTotal) > 0.01) {
-    throw new Error(
-      `Portal floor rental balance amount mismatch. Expected ${expectedAmount}, received ${amountTotal}.`,
-    );
+  if (updatePaymentError) {
+    throw new Error(updatePaymentError.message);
   }
 
-  const { error: insertPaymentError } = await supabase.from("payments").insert({
-    studio_id: studioId,
-    client_id: clientId,
-    amount: amountTotal,
-    payment_method: "card",
-    status: "paid",
-    external_payment_id: sessionId,
-    paid_at: new Date().toISOString(),
-    payment_type: "floor_fee",
-    source: "floor_rental",
-    stripe_payment_intent_id: paymentIntentId,
-    notes: `Floor rental payment for appointments: ${appointmentIds.join(", ")}`,
-  });
-
-  if (insertPaymentError) {
-    throw new Error(insertPaymentError.message);
+  if (!updatedPayment) {
+    // Lost a race to another concurrent delivery of this same event, which
+    // already transitioned this row -- nothing left to do.
+    return true;
   }
 
   const { error: updateAppointmentsError } = await supabase
