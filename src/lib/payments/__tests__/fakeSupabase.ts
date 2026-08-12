@@ -58,6 +58,7 @@ export class FakeTable {
 
 export class FakeQuery {
   private filters: [string, unknown][] = [];
+  private negFilters: [string, unknown][] = [];
   private opts: { count?: string } | undefined;
   private orderCol: string | null = null;
   private orderAscending = true;
@@ -79,6 +80,11 @@ export class FakeQuery {
     return this;
   }
 
+  neq(col: string, val: unknown) {
+    this.negFilters.push([col, val]);
+    return this;
+  }
+
   in(col: string, vals: unknown[]) {
     this.filters.push([col, vals as unknown]);
     return this;
@@ -96,8 +102,10 @@ export class FakeQuery {
   }
 
   private matchRows() {
-    return this.table.rows.filter((r) =>
-      this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)),
+    return this.table.rows.filter(
+      (r) =>
+        this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)) &&
+        this.negFilters.every(([c, v]) => r[c] !== v),
     );
   }
 

@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/payments/stripe";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 import { resolvePortalFloorRentalCheckoutSession } from "@/lib/payments/portal-floor-rental-checkout-session";
+import { getPayableFloorRentalAppointments } from "@/lib/payments/portal-floor-rental-balance";
 
 function buildAppUrl(request: NextRequest) {
   return (
@@ -104,31 +105,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: rentals, error: rentalsError } = await supabase
-      .from("appointments")
-      .select(`
-        id,
-        title,
-        starts_at,
-        ends_at,
-        status,
-        payment_status,
-        price_amount
-      `)
-      .eq("studio_id", studio.id)
-      .eq("client_id", client.id)
-      .eq("appointment_type", "floor_space_rental")
-      .neq("status", "cancelled")
-      .in("payment_status", ["unpaid", "partial"])
-      .order("starts_at", { ascending: true });
-
-    if (rentalsError) {
-      throw rentalsError;
-    }
-
-    const payableRentals = (rentals ?? []).filter(
-      (rental) => Number(rental.price_amount ?? 0) > 0
-    );
+    const payableRentals = await getPayableFloorRentalAppointments({
+      supabase,
+      studioId: studio.id,
+      clientId: client.id,
+    });
 
     if (payableRentals.length === 0) {
       return redirectTo(
