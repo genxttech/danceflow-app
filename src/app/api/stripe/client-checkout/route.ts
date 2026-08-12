@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/payments/stripe";
+import { resolveClientCheckoutSession } from "@/lib/payments/client-checkout-session";
 import {
   checkRateLimit,
   getIpFromRequest,
@@ -114,6 +116,7 @@ export async function GET(request: NextRequest) {
       source,
       payment_type,
       stripe_checkout_session_id,
+      checkout_session_attempt_count,
       notes,
       clients:client_id (
         id,
@@ -141,7 +144,11 @@ export async function GET(request: NextRequest) {
     .maybeSingle();
 
   if (paymentError) {
-    return NextResponse.json({ error: paymentError.message }, { status: 500 });
+    console.error("client-checkout: payment lookup failed", paymentError.message);
+    return NextResponse.json(
+      { error: "Payment request could not be loaded." },
+      { status: 500 },
+    );
   }
 
   if (!payment) {
@@ -169,7 +176,11 @@ export async function GET(request: NextRequest) {
     .maybeSingle();
 
   if (roleError) {
-    return NextResponse.json({ error: roleError.message }, { status: 500 });
+    console.error("client-checkout: role lookup failed", roleError.message);
+    return NextResponse.json(
+      { error: "Your access could not be verified." },
+      { status: 500 },
+    );
   }
 
   const clientRow = Array.isArray(payment.clients)
@@ -188,8 +199,12 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
   if (billingRelationshipError) {
+    console.error(
+      "client-checkout: billing relationship lookup failed",
+      billingRelationshipError.message,
+    );
     return NextResponse.json(
-      { error: billingRelationshipError.message },
+      { error: "Your access could not be verified." },
       { status: 500 },
     );
   }
@@ -250,38 +265,25 @@ export async function GET(request: NextRequest) {
     returnTo || "/app/payments?error=payment_cancelled",
   );
 
-  const session = await stripe.checkout.sessions.create(
-    {
-      mode: "payment",
-      customer_email: clientRow?.email || user.email || undefined,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency,
-            unit_amount: amountInCents,
-            product_data: {
-              name: lineItemName,
-              description: payment.notes || undefined,
-            },
+  const createSessionParams = {
+    mode: "payment" as const,
+    customer_email: clientRow?.email || user.email || undefined,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency,
+          unit_amount: amountInCents,
+          product_data: {
+            name: lineItemName,
+            description: payment.notes || undefined,
           },
         },
-      ],
-      payment_intent_data: {
-        metadata: {
-          source: "client_payment_request",
-          paymentId: payment.id,
-          studioId: payment.studio_id,
-          clientId: payment.client_id,
-          clientPackageId: payment.client_package_id || "",
-          clientMembershipId: payment.client_membership_id || "",
-          paymentType: payment.payment_type || "general",
-          connectedAccountId,
-          chargeModel: "direct",
-        },
       },
+    ],
+    payment_intent_data: {
       metadata: {
         source: "client_payment_request",
         paymentId: payment.id,
@@ -294,38 +296,56 @@ export async function GET(request: NextRequest) {
         chargeModel: "direct",
       },
     },
-    {
-      stripeAccount: connectedAccountId,
+    metadata: {
+      source: "client_payment_request",
+      paymentId: payment.id,
+      studioId: payment.studio_id,
+      clientId: payment.client_id,
+      clientPackageId: payment.client_package_id || "",
+      clientMembershipId: payment.client_membership_id || "",
+      paymentType: payment.payment_type || "general",
+      connectedAccountId,
+      chargeModel: "direct",
     },
-  );
+  };
 
-  const { data: updatedPayment, error: updateError } = await supabase
-    .from("payments")
-    .update({
-      stripe_checkout_session_id: session.id,
-      external_reference: session.id,
-    })
-    .eq("id", payment.id)
-    .eq("status", "pending")
-    .select("id")
-    .maybeSingle();
+  // Every authorization/eligibility check above (signed in, role or
+  // client_account_links billing relationship, studio Stripe readiness)
+  // has already passed by this point -- only now is it safe to reach for
+  // the service-role client. It is used exclusively for the idempotency
+  // helper's own narrowly-scoped writes (see the doc comment on
+  // resolveClientCheckoutSession for why a plain user-scoped client can't
+  // perform them for every authorized caller), never for anything that
+  // itself decides who is allowed to pay this payment.
+  const adminSupabase = createAdminClient();
 
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  const result = await resolveClientCheckoutSession({
+    adminSupabase,
+    stripe,
+    paymentId: payment.id,
+    currentAttemptCount: payment.checkout_session_attempt_count ?? 0,
+    existingSessionId: payment.stripe_checkout_session_id ?? null,
+    connectedAccountId,
+    createSessionParams,
+  });
+
+  switch (result.kind) {
+    case "reuse":
+    case "created":
+      return NextResponse.redirect(result.url);
+    case "already_processed":
+      return NextResponse.redirect(
+        absoluteUrl(request, returnTo, "/app/payments?success=already_processed"),
+      );
+    case "retry_needed":
+      return NextResponse.json(
+        {
+          error:
+            "Checkout is already being started for this payment. Please try again in a moment.",
+        },
+        { status: 409 },
+      );
+    case "error":
+      return NextResponse.json({ error: result.message }, { status: 500 });
   }
-
-  if (!updatedPayment) {
-    return NextResponse.redirect(
-      absoluteUrl(request, returnTo, "/app/payments?success=already_processed"),
-    );
-  }
-
-  if (!session.url) {
-    return NextResponse.json(
-      { error: "Stripe did not return a Checkout URL." },
-      { status: 500 },
-    );
-  }
-
-  return NextResponse.redirect(session.url);
 }
