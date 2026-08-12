@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { cancelFloorSpaceRentalAction } from "../actions";
 import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
+import { getPayableFloorRentalAppointments } from "@/lib/payments/portal-floor-rental-balance";
+import { PostPaymentSettlementRefresh } from "./PostPaymentSettlementRefresh";
 
 type Params = Promise<{
   studioSlug: string;
@@ -223,45 +225,60 @@ export default async function MyFloorRentalsPage({
 
   const nowIso = new Date().toISOString();
 
-  const [{ data: upcomingRentals, error: upcomingError }, { data: recentRentals, error: recentError }] =
-    await Promise.all([
-      supabase
-        .from("appointments")
-        .select(`
-          id,
-          title,
-          starts_at,
-          ends_at,
-          status,
-          payment_status,
-          price_amount,
-          rooms ( name )
-        `)
-        .eq("studio_id", studio.id)
-        .eq("client_id", client.id)
-        .eq("appointment_type", "floor_space_rental")
-        .gte("starts_at", nowIso)
-        .order("starts_at", { ascending: true }),
+  const [
+    { data: upcomingRentals, error: upcomingError },
+    { data: recentRentals, error: recentError },
+    payableRentals,
+  ] = await Promise.all([
+    supabase
+      .from("appointments")
+      .select(`
+        id,
+        title,
+        starts_at,
+        ends_at,
+        status,
+        payment_status,
+        price_amount,
+        rooms ( name )
+      `)
+      .eq("studio_id", studio.id)
+      .eq("client_id", client.id)
+      .eq("appointment_type", "floor_space_rental")
+      .gte("starts_at", nowIso)
+      .order("starts_at", { ascending: true }),
 
-      supabase
-        .from("appointments")
-        .select(`
-          id,
-          title,
-          starts_at,
-          ends_at,
-          status,
-          payment_status,
-          price_amount,
-          rooms ( name )
-        `)
-        .eq("studio_id", studio.id)
-        .eq("client_id", client.id)
-        .eq("appointment_type", "floor_space_rental")
-        .lt("starts_at", nowIso)
-        .order("starts_at", { ascending: false })
-        .limit(20),
-    ]);
+    supabase
+      .from("appointments")
+      .select(`
+        id,
+        title,
+        starts_at,
+        ends_at,
+        status,
+        payment_status,
+        price_amount,
+        rooms ( name )
+      `)
+      .eq("studio_id", studio.id)
+      .eq("client_id", client.id)
+      .eq("appointment_type", "floor_space_rental")
+      .lt("starts_at", nowIso)
+      .order("starts_at", { ascending: false })
+      .limit(20),
+
+    // Balance Due, the unpaid-rental count, and the Pay Open Balance button's
+    // enabled state must reflect every collectible floor rental, not just
+    // upcoming ones -- a rental does not stop being owed once its date has
+    // passed. This is the same payable-rental definition the checkout route
+    // charges against (src/lib/payments/portal-floor-rental-balance.ts), so
+    // the two can never disagree about what's owed.
+    getPayableFloorRentalAppointments({
+      supabase,
+      studioId: studio.id,
+      clientId: client.id,
+    }),
+  ]);
 
   if (upcomingError) {
     throw new Error(`Failed to load upcoming rentals: ${upcomingError.message}`);
@@ -278,22 +295,19 @@ export default async function MyFloorRentalsPage({
     `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || "Portal Member";
 
   const nextRental = upcoming[0] ?? null;
-  const unpaidRentals = upcoming.filter(
-    (rental) =>
-      rental.status !== "cancelled" &&
-      (rental.payment_status === "unpaid" ||
-        rental.payment_status === "partial" ||
-        rental.payment_status == null) &&
-      Number(rental.price_amount ?? 0) > 0
-  );
+  const unpaidRentalCount = payableRentals.length;
 
-  const balanceDue = unpaidRentals.reduce(
+  const balanceDue = payableRentals.reduce(
     (sum, rental) => sum + Number(rental.price_amount ?? 0),
     0
   );
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.35)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <PostPaymentSettlementRefresh
+        success={query.success}
+        isSettled={unpaidRentalCount === 0}
+      />
       {banner ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm ${
@@ -336,7 +350,7 @@ export default async function MyFloorRentalsPage({
               <div className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm">
                 <p className="text-sm text-slate-500">Unpaid Rentals</p>
                 <p className="mt-2 text-3xl font-semibold text-slate-950">
-                  {unpaidRentals.length}
+                  {unpaidRentalCount}
                 </p>
               </div>
             </div>
@@ -354,7 +368,7 @@ export default async function MyFloorRentalsPage({
                   {formatCurrency(balanceDue)}
                 </p>
                 <p className="mt-2 text-sm text-slate-600">
-                  {unpaidRentals.length} unpaid rental{unpaidRentals.length === 1 ? "" : "s"}
+                  {unpaidRentalCount} unpaid rental{unpaidRentalCount === 1 ? "" : "s"}
                 </p>
               </div>
 
@@ -593,7 +607,7 @@ export default async function MyFloorRentalsPage({
               <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <span>Unpaid Rentals</span>
                 <span className="font-medium text-slate-900">
-                  {unpaidRentals.length}
+                  {unpaidRentalCount}
                 </span>
               </div>
             </div>

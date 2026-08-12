@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/payments/stripe";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+import { resolvePortalFloorRentalCheckoutSession } from "@/lib/payments/portal-floor-rental-checkout-session";
+import { getPayableFloorRentalAppointments } from "@/lib/payments/portal-floor-rental-balance";
 
 function buildAppUrl(request: NextRequest) {
   return (
@@ -102,31 +105,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: rentals, error: rentalsError } = await supabase
-      .from("appointments")
-      .select(`
-        id,
-        title,
-        starts_at,
-        ends_at,
-        status,
-        payment_status,
-        price_amount
-      `)
-      .eq("studio_id", studio.id)
-      .eq("client_id", client.id)
-      .eq("appointment_type", "floor_space_rental")
-      .neq("status", "cancelled")
-      .in("payment_status", ["unpaid", "partial"])
-      .order("starts_at", { ascending: true });
-
-    if (rentalsError) {
-      throw rentalsError;
-    }
-
-    const payableRentals = (rentals ?? []).filter(
-      (rental) => Number(rental.price_amount ?? 0) > 0
-    );
+    const payableRentals = await getPayableFloorRentalAppointments({
+      supabase,
+      studioId: studio.id,
+      clientId: client.id,
+    });
 
     if (payableRentals.length === 0) {
       return redirectTo(
@@ -164,8 +147,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const checkoutSession = await stripe.checkout.sessions.create(
-      {
+    const myRentalsPath = `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}`;
+
+    // Every authorization/eligibility check above (signed in,
+    // client_account_links billing relationship, independent-instructor
+    // validation, payable-appointment lookup, studio Stripe readiness) has
+    // already passed by this point -- only now is it safe to reach for the
+    // service-role client. It is used exclusively for this route's own
+    // narrowly-scoped idempotency bookkeeping (see the doc comment on
+    // resolvePortalFloorRentalCheckoutSession for why a plain user-scoped
+    // client can't perform these writes for every authorized caller), never
+    // for anything that itself decides who is allowed to pay this balance.
+    const adminSupabase = createAdminClient();
+
+    const result = await resolvePortalFloorRentalCheckoutSession({
+      adminSupabase,
+      stripe,
+      studioId: studio.id,
+      clientId: client.id,
+      amount: totalAmount,
+      connectedAccountId,
+      buildCreateSessionParams: (paymentId) => ({
         mode: "payment",
         customer_email: user.email ?? undefined,
         line_items: [
@@ -183,14 +185,11 @@ export async function POST(request: NextRequest) {
             },
           },
         ],
-        success_url: `${appUrl}/portal/${encodeURIComponent(
-          studio.slug
-        )}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&success=balance_payment_submitted`,
-        cancel_url: `${appUrl}/portal/${encodeURIComponent(
-          studio.slug
-        )}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&error=checkout_cancelled`,
+        success_url: `${appUrl}${myRentalsPath}&success=balance_payment_submitted`,
+        cancel_url: `${appUrl}${myRentalsPath}&error=checkout_cancelled`,
         metadata: {
           source: "portal_floor_rental_balance_payment",
+          paymentId,
           studioId: studio.id,
           clientId: client.id,
           studioSlug: studio.slug,
@@ -204,6 +203,7 @@ export async function POST(request: NextRequest) {
         payment_intent_data: {
           metadata: {
             source: "portal_floor_rental_balance_payment",
+            paymentId,
             studioId: studio.id,
             clientId: client.id,
             studioSlug: studio.slug,
@@ -215,20 +215,19 @@ export async function POST(request: NextRequest) {
             chargeModel: "direct",
           },
         },
-      },
-      {
-        stripeAccount: connectedAccountId,
-      },
-    );
+      }),
+    });
 
-    if (!checkoutSession.url) {
-      return redirectTo(
-        request,
-        `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&error=checkout_failed`
-      );
+    switch (result.kind) {
+      case "reuse":
+      case "created":
+        return NextResponse.redirect(result.url, { status: 303 });
+      case "already_processed":
+        return redirectTo(request, `${myRentalsPath}&success=no_balance_due`);
+      case "retry_needed":
+      case "error":
+        return redirectTo(request, `${myRentalsPath}&error=checkout_failed`);
     }
-
-    return NextResponse.redirect(checkoutSession.url, { status: 303 });
   } catch (error) {
     console.error("portal floor rental balance checkout failed", error);
     return redirectTo(

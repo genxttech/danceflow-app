@@ -30,7 +30,15 @@ export class FakeTable {
     }
 
     if (this.uniqueColumns && this.uniqueColumns.every((c) => payload[c] != null)) {
-      const dup = this.rows.find((r) => this.uniqueColumns!.every((c) => r[c] === payload[c]));
+      // Mirrors a partial unique index scoped to `status = 'pending'`: only
+      // an existing row still in `pending` status can conflict, so a row
+      // that has since been voided/paid/etc. never blocks a fresh insert
+      // for the same key columns.
+      const dup = this.rows.find(
+        (r) =>
+          (r.status ?? "pending") === "pending" &&
+          this.uniqueColumns!.every((c) => r[c] === payload[c]),
+      );
       if (dup) return this.duplicateError();
     }
 
@@ -50,6 +58,7 @@ export class FakeTable {
 
 export class FakeQuery {
   private filters: [string, unknown][] = [];
+  private negFilters: [string, unknown][] = [];
   private opts: { count?: string } | undefined;
   private orderCol: string | null = null;
   private orderAscending = true;
@@ -71,6 +80,11 @@ export class FakeQuery {
     return this;
   }
 
+  neq(col: string, val: unknown) {
+    this.negFilters.push([col, val]);
+    return this;
+  }
+
   in(col: string, vals: unknown[]) {
     this.filters.push([col, vals as unknown]);
     return this;
@@ -88,8 +102,10 @@ export class FakeQuery {
   }
 
   private matchRows() {
-    return this.table.rows.filter((r) =>
-      this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)),
+    return this.table.rows.filter(
+      (r) =>
+        this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)) &&
+        this.negFilters.every(([c, v]) => r[c] !== v),
     );
   }
 
