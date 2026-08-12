@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { cancelFloorSpaceRentalAction } from "../actions";
 import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 import { getPayableFloorRentalAppointments } from "@/lib/payments/portal-floor-rental-balance";
+import { PostPaymentSettlementRefresh } from "./PostPaymentSettlementRefresh";
 
 type Params = Promise<{
   studioSlug: string;
@@ -303,6 +304,10 @@ export default async function MyFloorRentalsPage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.35)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <PostPaymentSettlementRefresh
+        success={query.success}
+        isSettled={unpaidRentalCount === 0}
+      />
       {banner ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm ${
