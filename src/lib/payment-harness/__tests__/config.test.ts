@@ -6,10 +6,14 @@ const ENV_KEYS = [
   "PAYMENT_HARNESS_STUDIO_ID",
   "PAYMENT_HARNESS_CLIENT_ID",
   "PAYMENT_HARNESS_ENVIRONMENT",
+  "PAYMENT_HARNESS_BASE_URL",
+  "PAYMENT_HARNESS_PORTAL_LOGIN_EMAIL",
   "VERCEL_ENV",
   // Application/runtime secrets this module must never fall back to.
   "STRIPE_SECRET_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
+  "NEXT_PUBLIC_APP_URL",
+  "NEXT_PUBLIC_SITE_URL",
   // Production Synthetic Harness variables this module must never fall
   // back to, even though they serve a conceptually similar purpose.
   "SYNTHETIC_STUDIO_ID",
@@ -51,10 +55,15 @@ afterEach(() => {
   }
 });
 
+const VALID_BASE_URL = "https://harness-qa.example.com";
+const VALID_PORTAL_LOGIN_EMAIL = "harness-qa@example.com";
+
 function setValidBase() {
   process.env.PAYMENT_HARNESS_STUDIO_ID = VALID_STUDIO_ID;
   process.env.PAYMENT_HARNESS_CLIENT_ID = VALID_CLIENT_ID;
   process.env.PAYMENT_HARNESS_ENVIRONMENT = "development";
+  process.env.PAYMENT_HARNESS_BASE_URL = VALID_BASE_URL;
+  process.env.PAYMENT_HARNESS_PORTAL_LOGIN_EMAIL = VALID_PORTAL_LOGIN_EMAIL;
 }
 
 describe("loadPaymentHarnessConfig", () => {
@@ -101,7 +110,57 @@ describe("loadPaymentHarnessConfig", () => {
       studioId: VALID_STUDIO_ID,
       clientId: VALID_CLIENT_ID,
       environment: "development",
+      baseUrl: VALID_BASE_URL,
+      portalLoginEmail: VALID_PORTAL_LOGIN_EMAIL,
     });
+  });
+
+  it("fails closed when PAYMENT_HARNESS_BASE_URL is missing", () => {
+    setValidBase();
+    delete process.env.PAYMENT_HARNESS_BASE_URL;
+    expect(() => loadPaymentHarnessConfig()).toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("fails closed on a malformed PAYMENT_HARNESS_BASE_URL", () => {
+    setValidBase();
+    process.env.PAYMENT_HARNESS_BASE_URL = "not-a-url";
+    expect(() => loadPaymentHarnessConfig()).toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("fails closed on a non-http(s) PAYMENT_HARNESS_BASE_URL", () => {
+    setValidBase();
+    process.env.PAYMENT_HARNESS_BASE_URL = "ftp://harness-qa.example.com";
+    expect(() => loadPaymentHarnessConfig()).toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("stores PAYMENT_HARNESS_BASE_URL as a normalized origin, dropping any path/query", () => {
+    setValidBase();
+    process.env.PAYMENT_HARNESS_BASE_URL = "https://harness-qa.example.com/some/path?x=1";
+    const config = loadPaymentHarnessConfig();
+    expect(config.baseUrl).toBe("https://harness-qa.example.com");
+  });
+
+  it("fails closed when PAYMENT_HARNESS_PORTAL_LOGIN_EMAIL is missing", () => {
+    setValidBase();
+    delete process.env.PAYMENT_HARNESS_PORTAL_LOGIN_EMAIL;
+    expect(() => loadPaymentHarnessConfig()).toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("fails closed on a malformed PAYMENT_HARNESS_PORTAL_LOGIN_EMAIL", () => {
+    setValidBase();
+    process.env.PAYMENT_HARNESS_PORTAL_LOGIN_EMAIL = "not-an-email";
+    expect(() => loadPaymentHarnessConfig()).toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("never falls back to the application's own NEXT_PUBLIC_APP_URL/NEXT_PUBLIC_SITE_URL for the base URL", () => {
+    process.env.PAYMENT_HARNESS_STUDIO_ID = VALID_STUDIO_ID;
+    process.env.PAYMENT_HARNESS_CLIENT_ID = VALID_CLIENT_ID;
+    process.env.PAYMENT_HARNESS_ENVIRONMENT = "development";
+    process.env.PAYMENT_HARNESS_PORTAL_LOGIN_EMAIL = VALID_PORTAL_LOGIN_EMAIL;
+    process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
+    process.env.NEXT_PUBLIC_SITE_URL = "https://site.example.com";
+    // PAYMENT_HARNESS_BASE_URL deliberately left unset.
+    expect(() => loadPaymentHarnessConfig()).toThrow(PaymentHarnessSafetyError);
   });
 
   it("succeeds with environment=preview", () => {
@@ -161,25 +220,25 @@ describe("loadPaymentHarnessConfig", () => {
   });
 
   it("accepts an uppercase UUID and stores it lowercase", () => {
+    setValidBase();
     process.env.PAYMENT_HARNESS_STUDIO_ID = HEX_LETTER_ID.toUpperCase();
     process.env.PAYMENT_HARNESS_CLIENT_ID = VALID_CLIENT_ID;
-    process.env.PAYMENT_HARNESS_ENVIRONMENT = "development";
     const config = loadPaymentHarnessConfig();
     expect(config.studioId).toBe(HEX_LETTER_ID);
   });
 
   it("accepts a mixed-case UUID and stores it lowercase", () => {
+    setValidBase();
     process.env.PAYMENT_HARNESS_STUDIO_ID = VALID_STUDIO_ID;
     process.env.PAYMENT_HARNESS_CLIENT_ID = toMixedCase(HEX_LETTER_ID);
-    process.env.PAYMENT_HARNESS_ENVIRONMENT = "development";
     const config = loadPaymentHarnessConfig();
     expect(config.clientId).toBe(HEX_LETTER_ID);
   });
 
   it("lowercase UUID behavior is unchanged", () => {
+    setValidBase();
     process.env.PAYMENT_HARNESS_STUDIO_ID = HEX_LETTER_ID;
     process.env.PAYMENT_HARNESS_CLIENT_ID = VALID_CLIENT_ID;
-    process.env.PAYMENT_HARNESS_ENVIRONMENT = "development";
     const config = loadPaymentHarnessConfig();
     expect(config.studioId).toBe(HEX_LETTER_ID);
   });

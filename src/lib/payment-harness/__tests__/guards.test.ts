@@ -13,6 +13,8 @@ function baseConfig(overrides: Partial<PaymentHarnessConfig> = {}): PaymentHarne
     studioId: "11111111-1111-4111-8111-111111111111",
     clientId: "22222222-2222-4222-8222-222222222222",
     environment: "development",
+    baseUrl: "https://harness-qa.example.com",
+    portalLoginEmail: "harness-qa@example.com",
     ...overrides,
   };
 }

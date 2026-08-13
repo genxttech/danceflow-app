@@ -35,6 +35,10 @@ export type PaymentHarnessConfig = {
   readonly studioId: string;
   readonly clientId: string;
   readonly environment: PaymentHarnessEnvironment;
+  /** Slice 4 addition: the application origin the browser wrapper navigates to. */
+  readonly baseUrl: string;
+  /** Slice 4 addition: email of the Supabase Auth user linked to the configured client. */
+  readonly portalLoginEmail: string;
 };
 
 /**
@@ -159,4 +163,38 @@ export type PaymentHarnessFixtureResult = {
    * one that's part of `payableAppointmentIds`.
    */
   readonly createdRecordRefs: Readonly<Record<string, readonly string[]>>;
+};
+
+/**
+ * Slice 4 addition: what the browser wrapper captured about one Stripe
+ * hosted Checkout navigation. `url` is the full navigated-to URL --
+ * captured only in this structured value, per the Slice 4 design, and
+ * never interpolated into a thrown error message, since its fragment
+ * functions like a single-use capability token for that one pending
+ * Checkout Session. `sessionId` is parsed from the URL path
+ * (`parseStripeCheckoutSessionId` in browser.ts); `null` only if the URL
+ * shape couldn't be parsed -- callers that require a session id fail
+ * closed on that `null` themselves rather than this type forbidding it.
+ */
+export type PaymentHarnessCheckoutCapture = {
+  readonly url: string;
+  readonly sessionId: string | null;
+};
+
+/**
+ * Slice 4 addition: the outcome of running the floor-rental browser
+ * scenario's phases 1-3 (fixture/portal state, first Checkout submit,
+ * reuse verification). Says nothing about payment completion -- this
+ * slice never gets past a hosted Checkout page. Reuses the existing
+ * `PaymentHarnessCheckpoint` shape (from the Slice 2 evidence types) for
+ * per-phase results rather than introducing a parallel one.
+ */
+export type PaymentHarnessBrowserScenarioResult = {
+  /** The balance the portal page displayed before checkout, in cents. */
+  readonly displayedBalanceCents: number | null;
+  readonly firstCheckout: PaymentHarnessCheckoutCapture | null;
+  readonly secondCheckout: PaymentHarnessCheckoutCapture | null;
+  /** True only when both captures parsed and their session ids matched. */
+  readonly checkoutReused: boolean;
+  readonly checkpoints: readonly PaymentHarnessCheckpoint[];
 };

@@ -23,6 +23,8 @@ const CONFIG: PaymentHarnessConfig = Object.freeze({
   studioId: "11111111-1111-4111-8111-111111111111",
   clientId: "22222222-2222-4222-8222-222222222222",
   environment: "development",
+  baseUrl: "https://harness-qa.example.com",
+  portalLoginEmail: "harness-qa@example.com",
 });
 
 const OTHER_STUDIO_ID = "99999999-9999-4999-8999-999999999999";
