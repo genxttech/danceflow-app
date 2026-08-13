@@ -130,3 +130,33 @@ export type PaymentHarnessRunEvidencePatch = {
   redeliveryTriggerMechanism?: string | null;
   redeliveryCheckResult?: PaymentHarnessRedeliveryResult;
 };
+
+/**
+ * Slice 3 addition: the result of establishing the configured Payment
+ * Harness client's floor-rental fixture data (fixture.ts). Deliberately
+ * says nothing about Stripe, Checkout, or browser automation -- this is
+ * purely "does the configured client already have a payable floor rental,
+ * or did we just create exactly one," expressed in the same
+ * canonical-payable-set terms `getPayableFloorRentalAppointments` returns.
+ */
+export type PaymentHarnessFixtureResult = {
+  /** True when at least one payable rental already existed and nothing was created. */
+  readonly reusedExisting: boolean;
+  /** True when this call created exactly one new fixture appointment. */
+  readonly created: boolean;
+  /**
+   * Every payable floor-rental appointment id for the configured client,
+   * as re-read through the canonical `getPayableFloorRentalAppointments`
+   * helper -- never hand-computed, so this can never drift from what the
+   * portal page/checkout route would themselves see.
+   */
+  readonly payableAppointmentIds: readonly string[];
+  /** Sum of the payable set's price_amount (dollars), converted to cents. */
+  readonly expectedBalanceCents: number;
+  /**
+   * Records this call itself created, keyed by table name -- empty when
+   * `reusedExisting` is true. Never includes a pre-existing record, even
+   * one that's part of `payableAppointmentIds`.
+   */
+  readonly createdRecordRefs: Readonly<Record<string, readonly string[]>>;
+};
