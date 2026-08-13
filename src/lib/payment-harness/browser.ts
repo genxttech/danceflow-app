@@ -14,11 +14,17 @@ import {
   startPaymentHarnessRun,
   updatePaymentHarnessRunEvidence,
 } from "@/lib/payment-harness/evidence";
+import {
+  verifyCheckoutSessionIsTestMode,
+  type StripeClientFactory,
+} from "@/lib/payment-harness/stripeVerification";
 import type {
   PaymentHarnessBrowserScenarioResult,
   PaymentHarnessCheckoutCapture,
   PaymentHarnessCheckpoint,
   PaymentHarnessConfig,
+  PaymentHarnessFulfillmentOutcome,
+  PaymentHarnessFulfillmentResult,
 } from "@/lib/payment-harness/types";
 
 /**
@@ -60,6 +66,45 @@ import type {
  * tables `src/lib/auth/portal-linking.ts` itself uses) before any balance
  * check or checkout action is trusted -- `config.portalLoginEmail` alone is
  * never assumed to imply the right client.
+ *
+ * Slice 5 extends this with two opt-in phases (never run unless the
+ * orchestrator's `completePayment` flag is explicitly set to `true` --
+ * the default behavior, and every Slice 4 test, is unchanged): phase 4
+ * completes the already-captured hosted Checkout Session in Stripe test
+ * mode only (real `checkout.stripe.com` card fields, Stripe's published
+ * `4242 4242 4242 4242` test card -- never `PaymentIntent.confirm`, never
+ * the Charge API, never an app-side payment-state write), and phase 5
+ * verifies fulfillment by reading real `payments`/`appointments` rows
+ * through a bounded poll -- never by writing to either table.
+ *
+ * Before any card details are entered, two independent checks run:
+ * `assertAppWebhookRouteReady` probes the real, already-deployed
+ * `/api/payments/webhook` route (no new route) with a deliberately
+ * unsigned request and requires exactly the same 400 "Invalid webhook
+ * request" response the route already gives any unsigned call --
+ * this proves only that the app's own webhook route is reachable and has
+ * a webhook secret configured, nothing about Stripe's Connect delivery
+ * path; and `verifyCheckoutSessionIsTestMode` (stripeVerification.ts)
+ * independently re-confirms `livemode === false` on the Checkout Session
+ * itself via the harness-only Stripe test key.
+ *
+ * A joint safety review of this slice (Maya Reed + Daniel Hayes) found
+ * that neither of those checks -- nor anything else in this codebase --
+ * can currently detect the specific, previously-reproduced operational
+ * failure this slice exists to prevent: a Stripe CLI Connect-webhook
+ * listener that showed "Ready!" at some point but whose websocket later
+ * silently disconnects while the app's own route stays perfectly healthy.
+ * Until a real, deterministic Connect-listener-liveness mechanism exists
+ * (a follow-up discovery spike, not yet started), `runPaymentCompletionPhase`
+ * calls `assertConnectListenerReadinessUnavailable` immediately before any
+ * card data would be entered -- an unconditional, unbypassable fail-closed
+ * gate with no config flag, boolean argument, or caller override capable
+ * of skipping it. Every other Slice 5 piece (test-key guard, session
+ * `livemode` re-verification, connected-account resolution, card-entry
+ * implementation, fulfillment polling, read-only DB verification) remains
+ * fully implemented and independently testable -- it simply cannot be
+ * reached from any real invocation today, by design, until that gate is
+ * replaced.
  */
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -77,6 +122,15 @@ const STRIPE_CHECKOUT_SESSION_ID_PATTERN = /\/(cs_[a-zA-Z0-9_]+)(?:[/?#]|$)/;
 const BALANCE_LABEL = "Balance due right now";
 const CURRENCY_PATTERN = /\$([\d,]+\.\d{2})/;
 const BALANCE_LABEL_SEARCH_WINDOW = 200;
+
+// The real, already-deployed Stripe webhook route (src/app/api/payments/webhook/route.ts)
+// -- never a new route added for this harness.
+const APP_WEBHOOK_ROUTE_PATH = "/api/payments/webhook";
+
+// ~30s total bound (15 attempts x 2s) -- "bounded wait/poll... No infinite
+// polling." Both are overridable per-call for tests.
+const DEFAULT_FULFILLMENT_POLL_MAX_ATTEMPTS = 15;
+const DEFAULT_FULFILLMENT_POLL_INTERVAL_MS = 2000;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -235,6 +289,51 @@ export function assertSameCheckoutSession(
   }
 }
 
+/**
+ * Unconditional, unbypassable fail-closed gate for payment completion.
+ *
+ * A joint safety review of this slice (Maya Reed + Daniel Hayes) confirmed
+ * that no check currently in this codebase -- including
+ * `assertAppWebhookRouteReady` and the Stripe test-mode/session
+ * verification below -- can detect the specific, already-reproduced
+ * operational failure this slice exists to prevent: a Stripe CLI
+ * Connect-webhook listener whose websocket silently disconnects while the
+ * app's own webhook route stays healthy. Until a real, deterministic
+ * Connect-listener-liveness mechanism is designed and implemented (a
+ * separate, not-yet-started discovery spike), this function always
+ * throws -- there is no config flag, boolean argument, environment
+ * variable, or caller override anywhere in this module that can skip or
+ * suppress it. `runPaymentCompletionPhase` calls this immediately before
+ * `page.completeTestPayment()`, so no real invocation of any exported
+ * Payment Harness scenario can reach card entry today. Exported so this
+ * gate itself is directly, independently unit-testable.
+ */
+export function assertConnectListenerReadinessUnavailable(context: string): never {
+  throw new PaymentHarnessSafetyError(
+    `Fail-closed (${context}): no deterministic Stripe Connect webhook listener readiness check ` +
+      `exists yet. Payment completion is disabled until one is implemented -- this is not ` +
+      `bypassable by any configuration, flag, or caller override.`,
+    "CONNECT_LISTENER_READINESS_UNAVAILABLE",
+  );
+}
+
+/**
+ * Computes a card expiry (MM/YY) safely in the future relative to
+ * `referenceDate` -- deliberately computed rather than a hardcoded string
+ * like `"12/34"`, which would itself eventually become a past date, the
+ * same "future by construction, not a fixed date that ages" reasoning
+ * fixture.ts already uses for its own lead time. Exported for direct unit
+ * testing; the real card-entry helper below is the only caller in
+ * non-test code.
+ */
+export function buildFutureTestCardExpiry(referenceDate: Date = new Date()): string {
+  const future = new Date(referenceDate);
+  future.setFullYear(future.getFullYear() + 8);
+  const month = String(future.getMonth() + 1).padStart(2, "0");
+  const year = String(future.getFullYear()).slice(-2);
+  return `${month}/${year}`;
+}
+
 // ---------------------------------------------------------------------------
 // Browser page abstraction -- structural interface + real Playwright-backed
 // implementation. Orchestration functions below depend only on the
@@ -246,6 +345,14 @@ export interface PaymentHarnessBrowserPage {
   url(): string;
   getDisplayedPageText(): Promise<string>;
   submitPayOpenBalance(): Promise<void>;
+  /**
+   * Slice 5: completes the already-loaded hosted Checkout page using
+   * Stripe's published test card only. Narrowly encapsulated here --
+   * no card data is ever a parameter, return value, or logged anywhere;
+   * the real implementation's card constants live entirely inside
+   * `createPaymentHarnessBrowser`'s own closure.
+   */
+  completeTestPayment(): Promise<void>;
 }
 
 export type PaymentHarnessBrowser = {
@@ -276,6 +383,29 @@ export async function createPaymentHarnessBrowser(): Promise<PaymentHarnessBrows
     },
     async submitPayOpenBalance() {
       await playwrightPage.getByRole("button", { name: "Pay Open Balance" }).click();
+      await playwrightPage.waitForLoadState("load");
+    },
+    async completeTestPayment() {
+      // Stripe hosted Checkout's documented field ids for its own
+      // published testing guidance -- unverified against a live page in
+      // this slice (no real browser is launched during implementation
+      // per this slice's own constraints); confirm/adjust these against
+      // the real rendered page before this method is first exercised for
+      // real, the same disclosed-but-unverified status Slice 4's balance
+      // selector already carries.
+      const TEST_CARD_NUMBER = "4242424242424242";
+      const TEST_CARD_CVC = "123";
+
+      await playwrightPage.locator("#cardNumber").fill(TEST_CARD_NUMBER);
+      await playwrightPage.locator("#cardExpiry").fill(buildFutureTestCardExpiry());
+      await playwrightPage.locator("#cardCvc").fill(TEST_CARD_CVC);
+
+      const billingName = playwrightPage.locator("#billingName");
+      if ((await billingName.count()) > 0) {
+        await billingName.fill("Payment Harness QA");
+      }
+
+      await playwrightPage.getByRole("button", { name: /pay|submit/i }).click();
       await playwrightPage.waitForLoadState("load");
     },
   };
@@ -498,6 +628,223 @@ async function verifyExactlyOnePendingFloorRentalPayment(
   }
 }
 
+async function resolveConfiguredStudioConnectedAccountId(
+  adminSupabase: AdminClient,
+  config: PaymentHarnessConfig,
+  context: string,
+): Promise<string> {
+  const { data, error } = await adminSupabase
+    .from("studios")
+    .select("stripe_connected_account_id")
+    .eq("id", config.studioId)
+    .maybeSingle();
+
+  if (error || !data?.stripe_connected_account_id) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): could not resolve the configured studio's connected Stripe ` +
+        `account. Refusing to proceed with an ambiguous session/account context.`,
+      "STUDIO_CONNECTED_ACCOUNT_LOOKUP_FAILED",
+    );
+  }
+
+  return data.stripe_connected_account_id as string;
+}
+
+/** Read-only: resolves and returns the id of the single pending
+ * floor-rental payment row, so later phases can verify the *same* row
+ * transitions to paid -- never creates or modifies it. */
+async function resolvePendingFloorRentalPaymentId(
+  adminSupabase: AdminClient,
+  config: PaymentHarnessConfig,
+  context: string,
+): Promise<string> {
+  const { data, error } = await adminSupabase
+    .from("payments")
+    .select("id")
+    .eq("studio_id", config.studioId)
+    .eq("client_id", config.clientId)
+    .eq("source", "floor_rental")
+    .eq("status", "pending");
+
+  if (error) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): failed to resolve the pending floor-rental payment row before payment.`,
+      "PENDING_PAYMENT_LOOKUP_FAILED",
+    );
+  }
+
+  const rows = data ?? [];
+  if (rows.length !== 1) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): expected exactly one pending floor-rental payment row before ` +
+        `payment, found ${rows.length}.`,
+      "PENDING_PAYMENT_COUNT_MISMATCH",
+    );
+  }
+
+  return rows[0].id as string;
+}
+
+type AppointmentSnapshot = ReadonlyMap<string, { status: string; paymentStatus: string }>;
+
+/** Read-only: snapshots every floor-rental appointment's status/payment_status
+ * for the configured client, so a later phase can prove any appointment
+ * *outside* the charged payable set was never touched by fulfillment. */
+async function snapshotFloorRentalAppointments(
+  adminSupabase: AdminClient,
+  config: PaymentHarnessConfig,
+  context: string,
+): Promise<AppointmentSnapshot> {
+  const { data, error } = await adminSupabase
+    .from("appointments")
+    .select("id, status, payment_status")
+    .eq("studio_id", config.studioId)
+    .eq("client_id", config.clientId)
+    .eq("appointment_type", "floor_space_rental");
+
+  if (error) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): failed to snapshot floor-rental appointments.`,
+      "APPOINTMENT_SNAPSHOT_FAILED",
+    );
+  }
+
+  const snapshot = new Map<string, { status: string; paymentStatus: string }>();
+  for (const row of data ?? []) {
+    snapshot.set(row.id as string, {
+      status: row.status as string,
+      paymentStatus: row.payment_status as string,
+    });
+  }
+  return snapshot;
+}
+
+function snapshotToEvidenceRecord(snapshot: AppointmentSnapshot): Record<string, string> {
+  return Object.fromEntries([...snapshot].map(([id, value]) => [id, value.paymentStatus]));
+}
+
+/**
+ * App webhook route reachability/configuration check -- **not** a Stripe
+ * Connect listener readiness check, and must never be described or relied
+ * on as one (see this slice's own safety-review finding, in the module
+ * doc comment above). Sends a real, deliberately unsigned POST to the
+ * real, already-deployed webhook route and requires exactly the same 400
+ * "Invalid webhook request" response the route already gives any request
+ * with no `stripe-signature` header (see
+ * src/app/api/payments/webhook/route.ts's own `if (!signature)` branch,
+ * checked before any DB access, so this probe has no side effects).
+ *
+ * What this proves: the app's own webhook route is deployed, reachable,
+ * and has a webhook secret configured (a 503 means the secret itself is
+ * missing). What it does **not** prove: that Stripe's actual Connect
+ * delivery mechanism is connected to that route -- for a `development`
+ * run that depends on an operator-managed
+ * `stripe listen --forward-connect-to` process entirely outside this
+ * app's own infrastructure, which this check never observes in any way.
+ * A dead/disconnected listener and a healthy one produce the identical
+ * response here. Kept as one useful, narrowly-scoped precondition layer,
+ * not the payment-completion safety gate -- see
+ * `assertConnectListenerReadinessUnavailable` for that.
+ */
+export type AppWebhookRouteReadinessFetch = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body: string },
+) => Promise<{ status: number }>;
+
+async function assertAppWebhookRouteReady(params: {
+  config: PaymentHarnessConfig;
+  context: string;
+  fetchImpl?: AppWebhookRouteReadinessFetch;
+}): Promise<void> {
+  const { config, context } = params;
+  const fetchImpl =
+    params.fetchImpl ?? (globalThis.fetch as unknown as AppWebhookRouteReadinessFetch);
+  const url = `${config.baseUrl}${APP_WEBHOOK_ROUTE_PATH}`;
+
+  let response: { status: number };
+  try {
+    response = await fetchImpl(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+  } catch {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): the app's Stripe webhook route was not reachable. Refusing to ` +
+        `proceed.`,
+      "APP_WEBHOOK_ROUTE_UNREACHABLE",
+    );
+  }
+
+  if (response.status === 503) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): the app's Stripe webhook route reports it is not configured ` +
+        `(missing webhook secret). Refusing to proceed.`,
+      "APP_WEBHOOK_ROUTE_NOT_CONFIGURED",
+    );
+  }
+
+  if (response.status !== 400) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): the app's Stripe webhook route did not respond as expected to a ` +
+        `reachability probe (status ${response.status}). Refusing to proceed.`,
+      "APP_WEBHOOK_ROUTE_UNEXPECTED_RESPONSE",
+    );
+  }
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Bounded poll (never infinite) of the payment row's own status --
+ * read-only, never writes. Distinguishes a confident `"fulfilled"` read
+ * from a confident-but-still-pending `"not_fulfilled_within_timeout"` read
+ * from a genuinely ambiguous `"verification_error"` (a DB error, or a
+ * status other than the two expected transitional values) -- see
+ * `PaymentHarnessFulfillmentResult`'s own doc comment in types.ts for why
+ * these three are never collapsed into a boolean.
+ */
+async function pollForPaymentRowStatus(params: {
+  adminSupabase: AdminClient;
+  paymentId: string;
+  maxAttempts: number;
+  intervalMs: number;
+  sleepFn: (ms: number) => Promise<void>;
+}): Promise<{ result: PaymentHarnessFulfillmentResult; row: Record<string, unknown> | null }> {
+  const { adminSupabase, paymentId, maxAttempts, intervalMs, sleepFn } = params;
+  let lastRow: Record<string, unknown> | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const { data, error } = await adminSupabase
+      .from("payments")
+      .select("*")
+      .eq("id", paymentId)
+      .maybeSingle();
+
+    if (error) {
+      return { result: "verification_error", row: null };
+    }
+
+    lastRow = (data as Record<string, unknown> | null) ?? null;
+
+    if (lastRow?.status === "paid") {
+      return { result: "fulfilled", row: lastRow };
+    }
+
+    if (lastRow?.status && lastRow.status !== "pending") {
+      return { result: "verification_error", row: lastRow };
+    }
+
+    if (attempt < maxAttempts - 1) {
+      await sleepFn(intervalMs);
+    }
+  }
+
+  return { result: "not_fulfilled_within_timeout", row: lastRow };
+}
+
 // ---------------------------------------------------------------------------
 // Phases
 // ---------------------------------------------------------------------------
@@ -515,6 +862,7 @@ export async function runFixtureAndPortalStatePhase(params: {
   expectedBalanceCents: number;
   displayedBalanceCents: number;
   myRentalsUrl: string;
+  payableAppointmentIds: readonly string[];
   checkpoint: PaymentHarnessCheckpoint;
 }> {
   const { page, adminSupabase, config } = params;
@@ -543,6 +891,7 @@ export async function runFixtureAndPortalStatePhase(params: {
     expectedBalanceCents: fixtureResult.expectedBalanceCents,
     displayedBalanceCents,
     myRentalsUrl,
+    payableAppointmentIds: fixtureResult.payableAppointmentIds,
     checkpoint: checkpoint(
       "phase1_fixture_and_portal_state",
       "passed",
@@ -628,13 +977,261 @@ export async function runReuseVerificationPhase(params: {
   };
 }
 
+/**
+ * Phase 4 -- completes the already-captured hosted Checkout Session in
+ * Stripe test mode only.
+ *
+ * Runs the app webhook route reachability check and an independent Stripe
+ * test-mode session re-verification first -- both are real, useful
+ * scaffolding-layer preconditions and are allowed to execute normally --
+ * but neither of them, individually or together, is a Connect-listener
+ * readiness proof (see this file's module doc comment and
+ * `assertAppWebhookRouteReady`'s own doc comment for why). Immediately
+ * before any card data would be entered, `assertConnectListenerReadinessUnavailable`
+ * unconditionally fails closed, so `page.completeTestPayment()` and
+ * everything after it (post-payment redirect validation) are currently
+ * unreachable from any real call -- intact scaffolding, not deleted,
+ * ready to be re-enabled once a real listener-liveness gate replaces this
+ * block.
+ */
+export async function runPaymentCompletionPhase(params: {
+  page: PaymentHarnessBrowserPage;
+  adminSupabase: AdminClient;
+  config: PaymentHarnessConfig;
+  firstCheckout: PaymentHarnessCheckoutCapture;
+  fetchImpl?: AppWebhookRouteReadinessFetch;
+  createStripeClient?: StripeClientFactory;
+}): Promise<{ paymentId: string; checkpoint: PaymentHarnessCheckpoint }> {
+  const { page, adminSupabase, config, firstCheckout, fetchImpl, createStripeClient } = params;
+  const context = "runPaymentCompletionPhase";
+
+  assertPaymentHarnessEnvironmentAllowed(config.environment, context);
+
+  await assertAppWebhookRouteReady({ config, context, fetchImpl });
+
+  const connectedAccountId = await resolveConfiguredStudioConnectedAccountId(
+    adminSupabase,
+    config,
+    context,
+  );
+  const paymentId = await resolvePendingFloorRentalPaymentId(adminSupabase, config, context);
+
+  if (!firstCheckout.sessionId) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): no Checkout Session id was captured to verify before payment.`,
+      "CHECKOUT_SESSION_ID_UNPARSEABLE",
+    );
+  }
+
+  await verifyCheckoutSessionIsTestMode({
+    sessionId: firstCheckout.sessionId,
+    connectedAccountId,
+    context,
+    createStripeClient,
+  });
+
+  // Unconditional fail-closed gate -- see this function's doc comment and
+  // assertConnectListenerReadinessUnavailable's own doc comment. Always
+  // throws; no config/flag/override reaches past this line today.
+  assertConnectListenerReadinessUnavailable(context);
+
+  await page.completeTestPayment();
+
+  const landedOrigin = assertAllowedNavigationOrigin(page.url(), config, context);
+  if (landedOrigin !== "app") {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): the post-payment redirect did not land back in the configured ` +
+        `application. Refusing to proceed.`,
+      "PAYMENT_REDIRECT_FAILED",
+    );
+  }
+
+  return {
+    paymentId,
+    checkpoint: checkpoint("phase4_payment_completion", "passed", `paymentId=${paymentId}`),
+  };
+}
+
+/**
+ * Phase 5 -- bounded, read-only verification that the real webhook
+ * actually fulfilled the payment: the payment row transitioned to `paid`
+ * with every expected field, every payable appointment is `paid`, no
+ * non-payable appointment changed, and no duplicate payment row exists.
+ * Never throws for a `not_fulfilled_within_timeout`/`verification_error`
+ * outcome -- returns it, so the caller (the orchestrator) can record it as
+ * evidence before deciding how to fail. Structural field/duplicate checks
+ * only run once the poll itself confirms `"fulfilled"`.
+ */
+export async function runFulfillmentVerificationPhase(params: {
+  adminSupabase: AdminClient;
+  config: PaymentHarnessConfig;
+  paymentId: string;
+  expectedSessionId: string;
+  expectedBalanceCents: number;
+  payableAppointmentIds: readonly string[];
+  appointmentSnapshotBefore: AppointmentSnapshot;
+  maxAttempts?: number;
+  intervalMs?: number;
+  sleepFn?: (ms: number) => Promise<void>;
+}): Promise<PaymentHarnessFulfillmentOutcome> {
+  const {
+    adminSupabase,
+    config,
+    paymentId,
+    expectedSessionId,
+    expectedBalanceCents,
+    payableAppointmentIds,
+    appointmentSnapshotBefore,
+    maxAttempts = DEFAULT_FULFILLMENT_POLL_MAX_ATTEMPTS,
+    intervalMs = DEFAULT_FULFILLMENT_POLL_INTERVAL_MS,
+    sleepFn = defaultSleep,
+  } = params;
+  const context = "runFulfillmentVerificationPhase";
+
+  assertPaymentHarnessEnvironmentAllowed(config.environment, context);
+
+  const poll = await pollForPaymentRowStatus({
+    adminSupabase,
+    paymentId,
+    maxAttempts,
+    intervalMs,
+    sleepFn,
+  });
+
+  if (poll.result !== "fulfilled") {
+    return Object.freeze({
+      result: poll.result,
+      paymentId,
+      paymentIntentId: (poll.row?.stripe_payment_intent_id as string | undefined) ?? null,
+      checkpoint: checkpoint("phase5_fulfillment_verification", "failed", `result=${poll.result}`),
+    });
+  }
+
+  const paidRow = poll.row as Record<string, unknown>;
+
+  if (paidRow.id !== paymentId) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): the paid payment row is not the same row created before payment.`,
+      "FULFILLMENT_PAYMENT_ID_MISMATCH",
+    );
+  }
+
+  const paidCents = Math.round(Number(paidRow.amount) * 100);
+  if (paidCents !== expectedBalanceCents) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): paid amount (${paidCents} cents) does not match the expected ` +
+        `fixture balance (${expectedBalanceCents} cents).`,
+      "FULFILLMENT_AMOUNT_MISMATCH",
+    );
+  }
+
+  if (paidRow.stripe_checkout_session_id !== expectedSessionId) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): the paid row's Checkout Session id does not match the captured session.`,
+      "FULFILLMENT_SESSION_MISMATCH",
+    );
+  }
+
+  const paymentIntentId = (paidRow.stripe_payment_intent_id as string | null) ?? null;
+  if (!paymentIntentId) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): the paid row is missing a PaymentIntent id.`,
+      "FULFILLMENT_PAYMENT_INTENT_MISSING",
+    );
+  }
+
+  const { data: allPaymentRows, error: allPaymentsError } = await adminSupabase
+    .from("payments")
+    .select("id, status")
+    .eq("studio_id", config.studioId)
+    .eq("client_id", config.clientId)
+    .eq("source", "floor_rental");
+
+  if (allPaymentsError) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): failed to verify no duplicate payment row exists.`,
+      "FULFILLMENT_PAYMENT_LOOKUP_FAILED",
+    );
+  }
+
+  const paidRows = (allPaymentRows ?? []).filter((row) => row.status === "paid");
+  if (paidRows.length !== 1) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): expected exactly one paid floor-rental payment row, found ${paidRows.length}.`,
+      "FULFILLMENT_DUPLICATE_PAYMENT",
+    );
+  }
+
+  const { data: appointmentRows, error: appointmentsError } = await adminSupabase
+    .from("appointments")
+    .select("id, status, payment_status")
+    .eq("studio_id", config.studioId)
+    .eq("client_id", config.clientId)
+    .eq("appointment_type", "floor_space_rental");
+
+  if (appointmentsError) {
+    throw new PaymentHarnessSafetyError(
+      `Fail-closed (${context}): failed to verify appointment payment state after fulfillment.`,
+      "FULFILLMENT_APPOINTMENTS_LOOKUP_FAILED",
+    );
+  }
+
+  const payableIdSet = new Set(payableAppointmentIds);
+  for (const appt of appointmentRows ?? []) {
+    const id = appt.id as string;
+
+    if (payableIdSet.has(id)) {
+      if (appt.payment_status !== "paid") {
+        throw new PaymentHarnessSafetyError(
+          `Fail-closed (${context}): payable appointment ${id} was not marked paid after fulfillment.`,
+          "FULFILLMENT_APPOINTMENT_NOT_PAID",
+        );
+      }
+      continue;
+    }
+
+    const before = appointmentSnapshotBefore.get(id);
+    if (
+      before &&
+      (before.status !== appt.status || before.paymentStatus !== appt.payment_status)
+    ) {
+      throw new PaymentHarnessSafetyError(
+        `Fail-closed (${context}): non-payable appointment ${id} changed unexpectedly during fulfillment.`,
+        "FULFILLMENT_UNRELATED_APPOINTMENT_CHANGED",
+      );
+    }
+  }
+
+  return Object.freeze({
+    result: "fulfilled" as const,
+    paymentId,
+    paymentIntentId,
+    checkpoint: checkpoint(
+      "phase5_fulfillment_verification",
+      "passed",
+      `paymentIntentId=${paymentIntentId}`,
+    ),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Top-level orchestrator
 // ---------------------------------------------------------------------------
 
 /**
- * Runs phases 1-3 of the floor-rental browser scenario end to end. Stops
- * before payment completion -- there is no phase 4 here.
+ * Runs the floor-rental browser scenario end to end. By default (and for
+ * every Slice 4 caller/test, unchanged) this stops after phase 3 --
+ * reuse verification -- and never touches Stripe payment completion.
+ *
+ * Passing `completePayment: true` additionally attempts Slice 5's phase 4
+ * (payment completion) and phase 5 (fulfillment verification). This is a
+ * second, independent opt-in on top of `confirmed` -- exactly the kind of
+ * distinct, more consequential gate a future Slice 8 CLI is expected to
+ * expose as its own flag (e.g. `--complete-payment`), not something this
+ * function defaults to. Today, setting it still cannot complete a real
+ * payment: `runPaymentCompletionPhase` unconditionally fails closed via
+ * `assertConnectListenerReadinessUnavailable` before any card data is
+ * entered, until a real Connect-listener-liveness gate exists.
  *
  * `confirmed` mirrors the Slice 1 `assertConfirmed` guard: this slice has
  * no CLI yet, so the caller (a future Slice 8 CLI) is expected to pass
@@ -643,22 +1240,42 @@ export async function runReuseVerificationPhase(params: {
  *
  * `evidence` is optional and purely DI-based -- when provided, this
  * records expected balance, first/second Checkout Session ids, and one
- * checkpoint per phase via the real (unmodified) Slice 2 evidence.ts
- * functions, which already work against fakes with no migration applied.
- * When omitted, the scenario runs with no evidence writes at all.
+ * checkpoint per phase (plus, when `completePayment` is set, payment id,
+ * PaymentIntent id, and appointment before/after snapshots) via the real
+ * (unmodified) Slice 2 evidence.ts functions, which already work against
+ * fakes with no migration applied. When omitted, the scenario runs with
+ * no evidence writes at all.
  */
 export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
   page: PaymentHarnessBrowserPage;
   adminSupabase: AdminClient;
   config: PaymentHarnessConfig;
   confirmed: boolean;
+  completePayment?: boolean;
+  fetchImpl?: AppWebhookRouteReadinessFetch;
+  createStripeClient?: StripeClientFactory;
+  fulfillmentPoll?: {
+    maxAttempts?: number;
+    intervalMs?: number;
+    sleepFn?: (ms: number) => Promise<void>;
+  };
   evidence?: {
     runId: string;
     scenario: string;
     deploymentSha: string;
   };
 }): Promise<PaymentHarnessBrowserScenarioResult> {
-  const { page, adminSupabase, config, confirmed, evidence } = params;
+  const {
+    page,
+    adminSupabase,
+    config,
+    confirmed,
+    completePayment = false,
+    fetchImpl,
+    createStripeClient,
+    fulfillmentPoll,
+    evidence,
+  } = params;
   const context = "runPaymentHarnessFloorRentalBrowserScenario";
 
   assertConfirmed(confirmed, context);
@@ -717,6 +1334,100 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
         patch: { reusedSessionId: phase3.checkout.sessionId },
         checkpoint: phase3.checkpoint,
       });
+    }
+
+    if (!completePayment) {
+      if (evidence) {
+        await markPaymentHarnessRunPassed({ adminSupabase, config, runId: evidence.runId });
+      }
+
+      return Object.freeze({
+        displayedBalanceCents: phase1.displayedBalanceCents,
+        firstCheckout: phase2.checkout,
+        secondCheckout: phase3.checkout,
+        checkoutReused: true,
+        checkpoints: Object.freeze([...checkpoints]),
+        fulfillment: null,
+      });
+    }
+
+    const appointmentSnapshotBefore = await snapshotFloorRentalAppointments(
+      adminSupabase,
+      config,
+      context,
+    );
+
+    const phase4 = await runPaymentCompletionPhase({
+      page,
+      adminSupabase,
+      config,
+      firstCheckout: phase2.checkout,
+      fetchImpl,
+      createStripeClient,
+    });
+    checkpoints.push(phase4.checkpoint);
+
+    if (evidence) {
+      await updatePaymentHarnessRunEvidence({
+        adminSupabase,
+        config,
+        runId: evidence.runId,
+        patch: { paymentId: phase4.paymentId },
+        checkpoint: phase4.checkpoint,
+      });
+    }
+
+    const outcome = await runFulfillmentVerificationPhase({
+      adminSupabase,
+      config,
+      paymentId: phase4.paymentId,
+      expectedSessionId: phase3.checkout.sessionId ?? "",
+      expectedBalanceCents: phase1.expectedBalanceCents,
+      payableAppointmentIds: phase1.payableAppointmentIds,
+      appointmentSnapshotBefore,
+      maxAttempts: fulfillmentPoll?.maxAttempts,
+      intervalMs: fulfillmentPoll?.intervalMs,
+      sleepFn: fulfillmentPoll?.sleepFn,
+    });
+    checkpoints.push(outcome.checkpoint);
+
+    if (evidence) {
+      const appointmentSnapshotAfter =
+        outcome.result === "fulfilled"
+          ? await snapshotFloorRentalAppointments(adminSupabase, config, context)
+          : null;
+
+      await updatePaymentHarnessRunEvidence({
+        adminSupabase,
+        config,
+        runId: evidence.runId,
+        patch: {
+          stripePaymentIntentId: outcome.paymentIntentId,
+          appointmentIdsBefore: snapshotToEvidenceRecord(appointmentSnapshotBefore),
+          ...(appointmentSnapshotAfter
+            ? { appointmentIdsAfter: snapshotToEvidenceRecord(appointmentSnapshotAfter) }
+            : {}),
+        },
+        checkpoint: outcome.checkpoint,
+      });
+    }
+
+    if (outcome.result !== "fulfilled") {
+      // Per this slice's explicit failure-handling requirements: do not
+      // retry payment, do not create another Checkout session, do not
+      // mutate the payment row -- report failure and preserve the
+      // identifiers already recorded above (paymentId, session ids) for
+      // manual investigation.
+      throw new PaymentHarnessSafetyError(
+        `Fail-closed (${context}): fulfillment verification did not confirm success within the ` +
+          `bounded window (result=${outcome.result}, paymentId=${outcome.paymentId}). Do not retry ` +
+          `payment or create another Checkout session -- investigate this payment/appointment ` +
+          `state manually.`,
+        "FULFILLMENT_NOT_CONFIRMED",
+      );
+    }
+
+    if (evidence) {
       await markPaymentHarnessRunPassed({ adminSupabase, config, runId: evidence.runId });
     }
 
@@ -726,6 +1437,7 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
       secondCheckout: phase3.checkout,
       checkoutReused: true,
       checkpoints: Object.freeze([...checkpoints]),
+      fulfillment: outcome,
     });
   } catch (scenarioError) {
     if (evidence) {

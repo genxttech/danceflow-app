@@ -197,4 +197,44 @@ export type PaymentHarnessBrowserScenarioResult = {
   /** True only when both captures parsed and their session ids matched. */
   readonly checkoutReused: boolean;
   readonly checkpoints: readonly PaymentHarnessCheckpoint[];
+  /**
+   * Slice 5 addition: `null` when payment completion was not requested
+   * (the default -- see `runPaymentHarnessFloorRentalBrowserScenario`'s
+   * `completePayment` flag) or not reached; populated only when phases 4-5
+   * actually ran.
+   */
+  readonly fulfillment: PaymentHarnessFulfillmentOutcome | null;
+};
+
+/**
+ * Slice 5 addition: the three, deliberately distinguishable outcomes of
+ * bounded post-payment DB polling -- never collapsed into a boolean, the
+ * same "absence of proof is not proof of success" discipline the Slice 2
+ * redelivery design already established for a related concern.
+ *
+ *   - `fulfilled`: the payment row transitioned to `paid` (with every
+ *     expected field matching) within the bounded poll.
+ *   - `not_fulfilled_within_timeout`: Stripe confirmed the payment (the
+ *     harness reached the real success redirect), but the payment row was
+ *     still `pending` when the bounded poll ran out -- a real, reportable
+ *     problem (the exact "payment completed at Stripe but webhook not
+ *     fulfilled" operational failure this slice exists to catch), not
+ *     something to retry or paper over.
+ *   - `verification_error`: the poll itself could not produce a reliable
+ *     read (a DB error, or the row transitioned to something other than
+ *     `paid`/`pending`) -- genuinely ambiguous, distinct from a confident
+ *     "still pending" read.
+ */
+export const PAYMENT_HARNESS_FULFILLMENT_RESULTS = [
+  "fulfilled",
+  "not_fulfilled_within_timeout",
+  "verification_error",
+] as const;
+export type PaymentHarnessFulfillmentResult = (typeof PAYMENT_HARNESS_FULFILLMENT_RESULTS)[number];
+
+export type PaymentHarnessFulfillmentOutcome = {
+  readonly result: PaymentHarnessFulfillmentResult;
+  readonly paymentId: string;
+  readonly paymentIntentId: string | null;
+  readonly checkpoint: PaymentHarnessCheckpoint;
 };

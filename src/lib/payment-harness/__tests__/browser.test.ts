@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { FakeTable, createFakeAdminClient } from "@/lib/payments/__tests__/fakeSupabase";
 import {
   assertAllowedNavigationOrigin,
@@ -9,8 +9,11 @@ import {
   assertStripeCheckoutUrlIsTestMode,
   parseDisplayedBalanceCents,
   parseStripeCheckoutSessionId,
+  assertConnectListenerReadinessUnavailable,
   runFirstCheckoutSubmitPhase,
   runFixtureAndPortalStatePhase,
+  runFulfillmentVerificationPhase,
+  runPaymentCompletionPhase,
   runPaymentHarnessFloorRentalBrowserScenario,
   runReuseVerificationPhase,
   type PaymentHarnessBrowserPage,
@@ -194,8 +197,10 @@ class FakePage implements PaymentHarnessBrowserPage {
   private currentUrl: string;
   private pageText = "";
   private nextCheckoutUrl: string | null = null;
+  private successRedirectUrl: string | null = null;
   readonly gotoUrls: string[] = [];
   submitCount = 0;
+  completeTestPaymentCount = 0;
 
   constructor(startUrl: string) {
     this.currentUrl = startUrl;
@@ -219,6 +224,11 @@ class FakePage implements PaymentHarnessBrowserPage {
     if (this.nextCheckoutUrl) this.currentUrl = this.nextCheckoutUrl;
   }
 
+  async completeTestPayment() {
+    this.completeTestPaymentCount += 1;
+    if (this.successRedirectUrl) this.currentUrl = this.successRedirectUrl;
+  }
+
   setPageText(text: string) {
     this.pageText = text;
   }
@@ -226,6 +236,20 @@ class FakePage implements PaymentHarnessBrowserPage {
   setNextCheckoutUrl(url: string | null) {
     this.nextCheckoutUrl = url;
   }
+
+  setSuccessRedirectUrl(url: string | null) {
+    this.successRedirectUrl = url;
+  }
+}
+
+function readyWebhookFetch(status = 400) {
+  return async () => ({ status });
+}
+
+function testModeStripeClient(livemode = false) {
+  return () => ({
+    checkout: { sessions: { retrieve: async () => ({ livemode }) } },
+  });
 }
 
 const AUTH_USER_ID = "auth-user-1";
@@ -288,6 +312,9 @@ function fakeAdminWithFailingTable(failingTable: "profiles" | "client_account_li
   } as never;
 }
 
+const STRIPE_ENV_KEYS = ["PAYMENT_HARNESS_STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"] as const;
+let savedStripeEnv: Partial<Record<(typeof STRIPE_ENV_KEYS)[number], string | undefined>>;
+
 beforeEach(() => {
   clientsTable = new FakeTable();
   appointmentsTable = new FakeTable();
@@ -298,7 +325,11 @@ beforeEach(() => {
   clientAccountLinksTable = new FakeTable();
 
   clientsTable.rows.push({ id: CONFIG.clientId, studio_id: CONFIG.studioId });
-  studiosTable.rows.push({ id: CONFIG.studioId, slug: "qa-studio" });
+  studiosTable.rows.push({
+    id: CONFIG.studioId,
+    slug: "qa-studio",
+    stripe_connected_account_id: "acct_test_fake_not_real",
+  });
   profilesTable.rows.push({ id: AUTH_USER_ID, email: CONFIG.portalLoginEmail });
   clientAccountLinksTable.rows.push({
     user_id: AUTH_USER_ID,
@@ -306,6 +337,19 @@ beforeEach(() => {
     studio_id: CONFIG.studioId,
     status: "linked",
   });
+
+  savedStripeEnv = {};
+  for (const key of STRIPE_ENV_KEYS) {
+    savedStripeEnv[key] = process.env[key];
+  }
+  process.env.PAYMENT_HARNESS_STRIPE_SECRET_KEY = "sk_test_fake_harness_key_not_real";
+});
+
+afterEach(() => {
+  for (const key of STRIPE_ENV_KEYS) {
+    if (savedStripeEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = savedStripeEnv[key];
+  }
 });
 
 function seedPayableAppointment(overrides: Record<string, unknown> = {}) {
@@ -325,12 +369,22 @@ function seedPayableAppointment(overrides: Record<string, unknown> = {}) {
 }
 
 function seedPendingPayment(overrides: Record<string, unknown> = {}) {
-  paymentsTable.rows.push({
+  const row = {
     id: `pay-${paymentsTable.rows.length + 1}`,
     studio_id: CONFIG.studioId,
     client_id: CONFIG.clientId,
     source: "floor_rental",
     status: "pending",
+    ...overrides,
+  };
+  paymentsTable.rows.push(row);
+  return row;
+}
+
+function markPaymentPaid(paymentRow: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
+  Object.assign(paymentRow, {
+    status: "paid",
+    stripe_payment_intent_id: "pi_test_fake123",
     ...overrides,
   });
 }
@@ -719,6 +773,461 @@ describe("runPaymentHarnessFloorRentalBrowserScenario", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Slice 5: payment completion + fulfillment verification
+// ---------------------------------------------------------------------------
+
+describe("assertConnectListenerReadinessUnavailable", () => {
+  it("always throws PaymentHarnessSafetyError with the CONNECT_LISTENER_READINESS_UNAVAILABLE code", () => {
+    expect(() => assertConnectListenerReadinessUnavailable("t")).toThrow(PaymentHarnessSafetyError);
+    try {
+      assertConnectListenerReadinessUnavailable("t");
+      throw new Error("expected to throw");
+    } catch (error) {
+      expect((error as PaymentHarnessSafetyError).code).toBe("CONNECT_LISTENER_READINESS_UNAVAILABLE");
+    }
+  });
+});
+
+describe("runPaymentCompletionPhase", () => {
+  function readyPage() {
+    const page = new FakePage(FIRST_CHECKOUT_URL);
+    page.setSuccessRedirectUrl(
+      `${CONFIG.baseUrl}/portal/qa-studio/floor-space/my-rentals?client=${CONFIG.clientId}&success=balance_payment_submitted`,
+    );
+    return page;
+  }
+
+  const firstCheckout: PaymentHarnessCheckoutCapture = {
+    url: FIRST_CHECKOUT_URL,
+    sessionId: "cs_test_a1B2c3D4E5F6G7H8I9J0",
+  };
+
+  it("fails closed before entering card details when the app webhook route is not ready", async () => {
+    seedPendingPayment();
+    const page = readyPage();
+
+    await expect(
+      runPaymentCompletionPhase({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        firstCheckout,
+        fetchImpl: readyWebhookFetch(503),
+        createStripeClient: testModeStripeClient(false),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+    expect(page.completeTestPaymentCount).toBe(0);
+  });
+
+  it("fails closed before entering card details when the app webhook route probe responds unexpectedly", async () => {
+    seedPendingPayment();
+    const page = readyPage();
+
+    await expect(
+      runPaymentCompletionPhase({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        firstCheckout,
+        fetchImpl: readyWebhookFetch(200),
+        createStripeClient: testModeStripeClient(false),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+    expect(page.completeTestPaymentCount).toBe(0);
+  });
+
+  it("fails closed before entering card details when the Checkout Session resolves to livemode", async () => {
+    seedPendingPayment();
+    const page = readyPage();
+
+    await expect(
+      runPaymentCompletionPhase({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        firstCheckout,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(true),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+    expect(page.completeTestPaymentCount).toBe(0);
+  });
+
+  // Slice 5 safety correction: even when the app webhook route check and
+  // the Stripe test-mode session check both succeed -- proving those two
+  // pieces of scaffolding are independently sound -- payment completion
+  // must still fail closed, unconditionally, because no deterministic
+  // Connect-listener-liveness mechanism exists yet.
+  it("fails closed with CONNECT_LISTENER_READINESS_UNAVAILABLE even when app-route readiness and test-mode verification both succeed, and never calls completeTestPayment", async () => {
+    seedPendingPayment();
+    const page = readyPage();
+
+    try {
+      await runPaymentCompletionPhase({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        firstCheckout,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(false),
+      });
+      throw new Error("expected runPaymentCompletionPhase to throw");
+    } catch (error) {
+      expect((error as PaymentHarnessSafetyError).code).toBe("CONNECT_LISTENER_READINESS_UNAVAILABLE");
+    }
+    expect(page.completeTestPaymentCount).toBe(0);
+  });
+});
+
+describe("runFulfillmentVerificationPhase", () => {
+  const expectedSessionId = "cs_test_a1B2c3D4E5F6G7H8I9J0";
+
+  function noopSleep() {
+    return async () => {};
+  }
+
+  it("reports fulfilled immediately when the payment row is already paid", async () => {
+    const payable = seedPayableAppointment({ payment_status: "paid" });
+    const paid = seedPendingPayment({
+      status: "paid",
+      amount: 40,
+      stripe_checkout_session_id: expectedSessionId,
+      stripe_payment_intent_id: "pi_test_fake123",
+    });
+    const snapshotBefore = new Map<string, { status: string; paymentStatus: string }>();
+
+    const outcome = await runFulfillmentVerificationPhase({
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      paymentId: paid.id,
+      expectedSessionId,
+      expectedBalanceCents: 4000,
+      payableAppointmentIds: [payable.id],
+      appointmentSnapshotBefore: snapshotBefore,
+      maxAttempts: 1,
+      intervalMs: 0,
+      sleepFn: noopSleep(),
+    });
+
+    expect(outcome.result).toBe("fulfilled");
+    expect(outcome.paymentIntentId).toBe("pi_test_fake123");
+    expect(outcome.checkpoint.status).toBe("passed");
+  });
+
+  it("reports fulfilled when the payment row transitions to paid partway through the poll", async () => {
+    const payable = seedPayableAppointment({ payment_status: "unpaid" });
+    const pending = seedPendingPayment({ amount: 40 });
+    let sleepCalls = 0;
+    const sleepFn = async () => {
+      sleepCalls += 1;
+      if (sleepCalls === 1) {
+        markPaymentPaid(pending, { stripe_checkout_session_id: expectedSessionId });
+        payable.payment_status = "paid";
+      }
+    };
+
+    const outcome = await runFulfillmentVerificationPhase({
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      paymentId: pending.id,
+      expectedSessionId,
+      expectedBalanceCents: 4000,
+      payableAppointmentIds: [payable.id],
+      appointmentSnapshotBefore: new Map(),
+      maxAttempts: 5,
+      intervalMs: 0,
+      sleepFn,
+    });
+
+    expect(outcome.result).toBe("fulfilled");
+    expect(sleepCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it("times out (not_fulfilled_within_timeout) and preserves the payment id when the row never transitions", async () => {
+    const pending = seedPendingPayment();
+
+    const outcome = await runFulfillmentVerificationPhase({
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      paymentId: pending.id,
+      expectedSessionId,
+      expectedBalanceCents: 4000,
+      payableAppointmentIds: [],
+      appointmentSnapshotBefore: new Map(),
+      maxAttempts: 3,
+      intervalMs: 0,
+      sleepFn: noopSleep(),
+    });
+
+    expect(outcome.result).toBe("not_fulfilled_within_timeout");
+    expect(outcome.paymentId).toBe(pending.id);
+    expect(outcome.checkpoint.status).toBe("failed");
+    // The harness never mutated the row while "waiting".
+    expect(pending.status).toBe("pending");
+  });
+
+  it("requires a PaymentIntent id after the row transitions to paid", async () => {
+    const pending = seedPendingPayment({
+      status: "paid",
+      amount: 40,
+      stripe_checkout_session_id: expectedSessionId,
+      stripe_payment_intent_id: null,
+    });
+
+    await expect(
+      runFulfillmentVerificationPhase({
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        paymentId: pending.id,
+        expectedSessionId,
+        expectedBalanceCents: 4000,
+        payableAppointmentIds: [],
+        appointmentSnapshotBefore: new Map(),
+        maxAttempts: 1,
+        intervalMs: 0,
+        sleepFn: noopSleep(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("fails closed when a non-payable appointment changed unexpectedly during fulfillment", async () => {
+    const unrelated = seedPayableAppointment({ status: "cancelled", payment_status: "unpaid" });
+    const before = new Map([[unrelated.id, { status: "cancelled", paymentStatus: "unpaid" }]]);
+    const pending = seedPendingPayment({
+      status: "paid",
+      amount: 40,
+      stripe_checkout_session_id: expectedSessionId,
+      stripe_payment_intent_id: "pi_test_fake123",
+    });
+    // Simulates a bug/regression: this cancelled appointment was mutated
+    // even though it is not part of the payable set.
+    unrelated.status = "scheduled";
+
+    await expect(
+      runFulfillmentVerificationPhase({
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        paymentId: pending.id,
+        expectedSessionId,
+        expectedBalanceCents: 4000,
+        payableAppointmentIds: [],
+        appointmentSnapshotBefore: before,
+        maxAttempts: 1,
+        intervalMs: 0,
+        sleepFn: noopSleep(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("fails closed when a duplicate paid payment row exists", async () => {
+    const pending = seedPendingPayment({
+      status: "paid",
+      amount: 40,
+      stripe_checkout_session_id: expectedSessionId,
+      stripe_payment_intent_id: "pi_test_fake123",
+    });
+    seedPendingPayment({ status: "paid", amount: 40, stripe_payment_intent_id: "pi_test_other" });
+
+    await expect(
+      runFulfillmentVerificationPhase({
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        paymentId: pending.id,
+        expectedSessionId,
+        expectedBalanceCents: 4000,
+        payableAppointmentIds: [],
+        appointmentSnapshotBefore: new Map(),
+        maxAttempts: 1,
+        intervalMs: 0,
+        sleepFn: noopSleep(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("fails closed when the paid amount does not match the expected fixture balance", async () => {
+    const pending = seedPendingPayment({
+      status: "paid",
+      amount: 99,
+      stripe_checkout_session_id: expectedSessionId,
+      stripe_payment_intent_id: "pi_test_fake123",
+    });
+
+    await expect(
+      runFulfillmentVerificationPhase({
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        paymentId: pending.id,
+        expectedSessionId,
+        expectedBalanceCents: 4000,
+        payableAppointmentIds: [],
+        appointmentSnapshotBefore: new Map(),
+        maxAttempts: 1,
+        intervalMs: 0,
+        sleepFn: noopSleep(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+  });
+});
+
+describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", () => {
+  function scriptedCompletePaymentPage() {
+    const page = new FakePage("about:blank");
+    page.setPageText("Balance due right now\n$40.00");
+    page.setNextCheckoutUrl(FIRST_CHECKOUT_URL);
+    page.setSuccessRedirectUrl(
+      `${CONFIG.baseUrl}/portal/qa-studio/floor-space/my-rentals?client=${CONFIG.clientId}&success=balance_payment_submitted`,
+    );
+    return page;
+  }
+
+  function seedHappyPathState() {
+    const payable = seedPayableAppointment({ price_amount: 40 });
+    const pending = seedPendingPayment({ amount: 40 });
+    return { payable, pending };
+  }
+
+  function fulfillOnFirstSleep(pending: Record<string, unknown>, payable: Record<string, unknown>) {
+    let calls = 0;
+    return async () => {
+      calls += 1;
+      if (calls === 1) {
+        markPaymentPaid(pending, {
+          stripe_checkout_session_id: "cs_test_a1B2c3D4E5F6G7H8I9J0",
+        });
+        payable.payment_status = "paid";
+      }
+    };
+  }
+
+  // Slice 5 safety correction: no current public Payment Harness scenario
+  // can complete a real payment. Even a fully valid happy-path setup
+  // (fixture, checkout capture, reuse verification, app-route readiness,
+  // test-mode session verification, and a fulfillment poll primed to
+  // succeed) is blocked before card entry, unconditionally.
+  it("cannot complete a real payment even with a fully valid happy-path setup", async () => {
+    const { payable, pending } = seedHappyPathState();
+    const page = scriptedCompletePaymentPage();
+
+    try {
+      await runPaymentHarnessFloorRentalBrowserScenario({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        confirmed: true,
+        completePayment: true,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(false),
+        fulfillmentPoll: { maxAttempts: 5, intervalMs: 0, sleepFn: fulfillOnFirstSleep(pending, payable) },
+      });
+      throw new Error("expected runPaymentHarnessFloorRentalBrowserScenario to throw");
+    } catch (error) {
+      expect((error as PaymentHarnessSafetyError).code).toBe("CONNECT_LISTENER_READINESS_UNAVAILABLE");
+    }
+
+    expect(page.completeTestPaymentCount).toBe(0);
+    // The pending row is untouched -- fulfillment (which would have
+    // marked it paid via this test's own sleepFn simulation) was never
+    // reached.
+    expect(pending.status).toBe("pending");
+  });
+
+  it("stops before any card entry when the app webhook route is not ready", async () => {
+    seedHappyPathState();
+    const page = scriptedCompletePaymentPage();
+
+    await expect(
+      runPaymentHarnessFloorRentalBrowserScenario({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        confirmed: true,
+        completePayment: true,
+        fetchImpl: readyWebhookFetch(503),
+        createStripeClient: testModeStripeClient(false),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+    expect(page.completeTestPaymentCount).toBe(0);
+  });
+
+  it("stops before any card entry when the Checkout Session is live-mode", async () => {
+    seedHappyPathState();
+    const page = scriptedCompletePaymentPage();
+
+    await expect(
+      runPaymentHarnessFloorRentalBrowserScenario({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        confirmed: true,
+        completePayment: true,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(true),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+    expect(page.completeTestPaymentCount).toBe(0);
+  });
+
+  it("marks the evidence run failed with CONNECT_LISTENER_READINESS_UNAVAILABLE, preserving the session ids already recorded by earlier phases", async () => {
+    seedHappyPathState();
+    const page = scriptedCompletePaymentPage();
+
+    await expect(
+      runPaymentHarnessFloorRentalBrowserScenario({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        confirmed: true,
+        completePayment: true,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(false),
+        evidence: { runId: "run-listener-unavailable", scenario: "floor-rental-open-balance", deploymentSha: "abc123" },
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+
+    expect(page.completeTestPaymentCount).toBe(0);
+
+    const record = await readPaymentHarnessRunById({
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      runId: "run-listener-unavailable",
+    });
+    expect(record?.status).toBe("failed");
+    expect(record?.failureReason ?? "").toContain("no deterministic Stripe Connect webhook listener readiness check");
+    // Earlier phases' session ids are still recorded -- nothing already
+    // written is cleared just because a later phase failed closed.
+    expect(record?.firstSessionId).toBe("cs_test_a1B2c3D4E5F6G7H8I9J0");
+    expect(record?.reusedSessionId).toBe("cs_test_a1B2c3D4E5F6G7H8I9J0");
+    // Payment completion never ran, so no payment id was ever captured to record.
+    expect(record?.paymentId).toBeNull();
+  });
+
+  it("never includes card details in evidence, even on this fail-closed path", async () => {
+    seedHappyPathState();
+    const page = scriptedCompletePaymentPage();
+
+    await expect(
+      runPaymentHarnessFloorRentalBrowserScenario({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        confirmed: true,
+        completePayment: true,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(false),
+        evidence: { runId: "run-no-card-data", scenario: "floor-rental-open-balance", deploymentSha: "abc123" },
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+
+    const record = await readPaymentHarnessRunById({
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      runId: "run-no-card-data",
+    });
+    expect(JSON.stringify(record)).not.toContain("4242424242424242");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Structural: no payment-completion code exists in this slice
 // ---------------------------------------------------------------------------
 
@@ -735,15 +1244,17 @@ describe("browser.ts source", () => {
     expect(codeOnly.includes('require("stripe")')).toBe(false);
   });
 
-  it("contains no card-entry or payment-completion calls", () => {
+  it("contains no PaymentIntent-confirmation or Charge-creation calls", () => {
+    // Slice 5 legitimately adds real card-entry code (see the next two
+    // tests) -- what must never exist, in this file or any other in this
+    // module tree (confirmed above: no `stripe` import at all), is a
+    // lower-level payment-completion primitive that bypasses hosted
+    // Checkout itself.
     const forbidden = [
       "confirmCardPayment",
       "confirmPayment(",
       "PaymentIntent.confirm",
       "paymentIntents.confirm",
-      "card_number",
-      "cardNumber",
-      "fill(\"#card",
       "stripe.charges.create",
       "charges.create(",
     ];
@@ -751,5 +1262,23 @@ describe("browser.ts source", () => {
     for (const term of forbidden) {
       expect(codeOnly.includes(term)).toBe(false);
     }
+  });
+
+  it("contains no direct write (insert/update/delete) to any database table", () => {
+    expect(/\.update\(/.test(codeOnly)).toBe(false);
+    expect(/\.insert\(/.test(codeOnly)).toBe(false);
+    expect(/\.delete\(/.test(codeOnly)).toBe(false);
+  });
+
+  it("the test card number appears exactly once, encapsulated inside the real browser's card-entry helper", () => {
+    const occurrences = (codeOnly.match(/4242424242424242/g) ?? []).length;
+    expect(occurrences).toBe(1);
+
+    const helperStart = codeOnly.indexOf("export async function createPaymentHarnessBrowser");
+    const nextExportAfter = codeOnly.indexOf("\nexport ", helperStart + 1);
+    const helperBody = codeOnly.slice(helperStart, nextExportAfter === -1 ? undefined : nextExportAfter);
+
+    expect(helperStart).toBeGreaterThanOrEqual(0);
+    expect(helperBody.includes("4242424242424242")).toBe(true);
   });
 });
