@@ -42,7 +42,10 @@ import type { PaymentHarnessEnvironment } from "@/lib/payment-harness/types";
  *      client, scoped to the same connected account;
  *   5. verify the retrieved event's id/type/livemode/account all match
  *      expectations, using the real Slice 2 `assertStripeObjectIsTestMode`
- *      for the livemode check.
+ *      for the livemode check; only once every check has passed does this
+ *      return a frozen `ConnectListenerReadinessResult` -- safe evidence
+ *      (ids, a status string, a timestamp) with no secret or card data,
+ *      consumed by `runPrePaymentReadinessPhase` (browser.ts).
  *
  * Proves the full Stripe -> operator's `stripe listen --forward-connect-to`
  * -> real webhook route -> real signature verification ->
@@ -161,11 +164,30 @@ function defaultNow(): Date {
 }
 
 /**
+ * Safe, minimal evidence that the readiness gate passed -- returned only
+ * after every check succeeds. Structurally incapable of carrying a Stripe
+ * secret or card data: every field is a Stripe id, a DB status string, a
+ * literal `false`, or a timestamp. `dbStatus`/`livemode` are narrowed to
+ * their single possible value here (`"processed"`/`false`) rather than
+ * `string`/`boolean`, since by the time this is constructed both are
+ * structural invariants already proven by the checks above.
+ */
+export type ConnectListenerReadinessResult = {
+  readonly providerEventId: string;
+  readonly eventType: string;
+  readonly dbStatus: "processed";
+  readonly stripeEventAccount: string;
+  readonly livemode: false;
+  readonly verifiedAt: string;
+};
+
+/**
  * Fails closed (throws `PaymentHarnessSafetyError`) unless a fresh,
  * verifiable, Connect-scoped test event was observed traveling the real
  * delivery path within a bounded window. Never returns a "maybe" --
- * either every check passes, or it throws with a specific, distinguishable
- * code (see the module doc comment's five-step description).
+ * either every check passes and a frozen `ConnectListenerReadinessResult`
+ * is returned, or it throws with a specific, distinguishable code (see the
+ * module doc comment's five-step description).
  */
 export async function assertConnectListenerReady(params: {
   adminSupabase: AdminClient;
@@ -178,7 +200,7 @@ export async function assertConnectListenerReady(params: {
   pollMaxAttempts?: number;
   pollIntervalMs?: number;
   createStripeEventClient?: StripeEventClientFactory;
-}): Promise<void> {
+}): Promise<ConnectListenerReadinessResult> {
   const {
     adminSupabase,
     connectedAccountId,
@@ -374,4 +396,19 @@ export async function assertConnectListenerReady(params: {
       "CONNECT_LISTENER_READINESS_EVENT_ACCOUNT_MISMATCH",
     );
   }
+
+  // Every field below is already a proven structural invariant at this
+  // point (id/type/account matched, livemode confirmed false by
+  // assertStripeObjectIsTestMode) -- using the already-verified local
+  // values (providerEventId, PROBE_EVENT_TYPE, connectedAccountId) rather
+  // than re-reading them off `event` avoids an unnecessary unknown-typed
+  // cast.
+  return Object.freeze({
+    providerEventId,
+    eventType: PROBE_EVENT_TYPE,
+    dbStatus: "processed" as const,
+    stripeEventAccount: connectedAccountId,
+    livemode: false as const,
+    verifiedAt: now().toISOString(),
+  });
 }

@@ -200,10 +200,83 @@ export type PaymentHarnessBrowserScenarioResult = {
   /**
    * Slice 5 addition: `null` when payment completion was not requested
    * (the default -- see `runPaymentHarnessFloorRentalBrowserScenario`'s
-   * `completePayment` flag) or not reached; populated only when phases 4-5
-   * actually ran.
+   * `executionMode`) or not reached; populated only when phases 4-5
+   * actually ran (`executionMode: "complete_payment"`).
    */
   readonly fulfillment: PaymentHarnessFulfillmentOutcome | null;
+  /**
+   * Slice 6 addition: populated once `runPrePaymentReadinessPhase` has run
+   * (`executionMode: "pre_payment_readiness"` or `"complete_payment"`);
+   * `null` for `"checkout_reuse_only"` (the default), where phase 4 never
+   * runs at all.
+   */
+  readonly prePaymentReadiness: PaymentHarnessPrePaymentReadinessResult | null;
+};
+
+/**
+ * Slice 6 addition: explicit, mutually exclusive execution modes for
+ * `runPaymentHarnessFloorRentalBrowserScenario` -- replaces the prior
+ * `completePayment: boolean` flag, which could only express two of the
+ * three scopes this scenario now supports and left "ran pre-payment
+ * readiness but did not complete payment" unrepresentable by any boolean
+ * value. A positive, explicit allowlist (the same pattern
+ * `PAYMENT_HARNESS_ALLOWED_ENVIRONMENTS` already uses), not a boolean
+ * combination -- there is exactly one way to ask for each scope.
+ *
+ *   - `checkout_reuse_only` (default): phases 1-3 only -- fixture, first
+ *     Checkout submit, reuse verification. Never touches Stripe payment
+ *     completion or the Connect-listener readiness gate. Identical to the
+ *     prior `completePayment: false` behavior.
+ *   - `pre_payment_readiness`: phases 1-3, then
+ *     `runPrePaymentReadinessPhase` (app-route readiness, Checkout Session
+ *     test-mode verification, the real Connect-listener readiness gate) --
+ *     then stops. Never calls `page.completeTestPayment()`, never enters
+ *     card data. Safe to run on its own during manual QA against a real
+ *     dev environment.
+ *   - `complete_payment`: phases 1-5 -- pre-payment readiness, then real
+ *     card entry via `page.completeTestPayment()`, then fulfillment
+ *     verification. Identical to the prior `completePayment: true`
+ *     behavior.
+ */
+export const PAYMENT_HARNESS_EXECUTION_MODES = [
+  "checkout_reuse_only",
+  "pre_payment_readiness",
+  "complete_payment",
+] as const;
+export type PaymentHarnessExecutionMode = (typeof PAYMENT_HARNESS_EXECUTION_MODES)[number];
+
+/**
+ * Slice 6 addition: safe evidence proving the real, deterministic
+ * Connect-listener readiness gate passed -- structurally incapable of
+ * carrying a Stripe secret or card data, since every field here is a
+ * Stripe id, a DB status string, a literal `false`, or a timestamp. Mirrors
+ * `connectListenerReadiness.ts`'s own `ConnectListenerReadinessResult`
+ * (kept as a separate, structurally-identical type here rather than
+ * imported, so this leaf types module never depends on that one).
+ */
+export type PaymentHarnessConnectReadinessEvidence = {
+  readonly providerEventId: string;
+  readonly eventType: string;
+  readonly dbStatus: "processed";
+  readonly stripeEventAccount: string;
+  readonly livemode: false;
+  readonly verifiedAt: string;
+};
+
+/**
+ * Slice 6 addition: the result of `runPrePaymentReadinessPhase` --
+ * app-route readiness, Checkout Session test-mode verification, and the
+ * real Connect-listener readiness gate, all independently confirmed
+ * *before* any card data is ever entered. Structurally cannot include
+ * card details or a Stripe secret -- every field here is an id, a status
+ * string, a boolean, a timestamp, or a `PaymentHarnessCheckpoint`.
+ */
+export type PaymentHarnessPrePaymentReadinessResult = {
+  readonly paymentId: string;
+  readonly connectedAccountId: string;
+  readonly checkoutSessionId: string;
+  readonly connectReadiness: PaymentHarnessConnectReadinessEvidence;
+  readonly checkpoint: PaymentHarnessCheckpoint;
 };
 
 /**

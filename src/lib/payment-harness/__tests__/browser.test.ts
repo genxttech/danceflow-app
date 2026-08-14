@@ -14,6 +14,7 @@ import {
   runFulfillmentVerificationPhase,
   runPaymentCompletionPhase,
   runPaymentHarnessFloorRentalBrowserScenario,
+  runPrePaymentReadinessPhase,
   runReuseVerificationPhase,
   type PaymentHarnessBrowserPage,
 } from "@/lib/payment-harness/browser";
@@ -964,6 +965,148 @@ describe("runPaymentCompletionPhase", () => {
   });
 });
 
+describe("runPrePaymentReadinessPhase", () => {
+  const firstCheckout: PaymentHarnessCheckoutCapture = {
+    url: FIRST_CHECKOUT_URL,
+    sessionId: "cs_test_a1B2c3D4E5F6G7H8I9J0",
+  };
+
+  it("executes app-route readiness, Checkout Session test-mode verification, and Connect listener readiness, and returns matching evidence", async () => {
+    seedPendingPayment();
+    seedReadinessProbeRow();
+
+    const result = await runPrePaymentReadinessPhase({
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      firstCheckout,
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+    });
+
+    expect(result.paymentId).toBeTruthy();
+    expect(result.connectedAccountId).toBe(STUDIO_CONNECTED_ACCOUNT_ID);
+    expect(result.checkoutSessionId).toBe(firstCheckout.sessionId);
+    expect(result.connectReadiness).toEqual({
+      providerEventId: CONNECT_READINESS_EVENT_ID,
+      eventType: "product.updated",
+      dbStatus: "processed",
+      stripeEventAccount: STUDIO_CONNECTED_ACCOUNT_ID,
+      livemode: false,
+      verifiedAt: expect.any(String),
+    });
+    expect(result.checkpoint.status).toBe("passed");
+  });
+
+  it("fails closed (before returning) when the app webhook route is not ready", async () => {
+    seedPendingPayment();
+    await expect(
+      runPrePaymentReadinessPhase({
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        firstCheckout,
+        fetchImpl: readyWebhookFetch(503),
+        createStripeClient: testModeStripeClient(false),
+        connectReadiness: validConnectReadiness(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("fails closed (before returning) when the Checkout Session resolves to livemode", async () => {
+    seedPendingPayment();
+    await expect(
+      runPrePaymentReadinessPhase({
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        firstCheckout,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(true),
+        connectReadiness: validConnectReadiness(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("fails closed (before returning) when the Connect listener readiness gate fails, even though the earlier checks succeeded", async () => {
+    seedPendingPayment();
+    await expect(
+      runPrePaymentReadinessPhase({
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        firstCheckout,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(false),
+        connectReadiness: failingConnectReadiness(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+  });
+
+  it("never mutates the payments or appointments tables", async () => {
+    seedPendingPayment();
+    seedReadinessProbeRow();
+    const payableAppointment = seedPayableAppointment({ price_amount: 40 });
+    const paymentsBefore = JSON.parse(JSON.stringify(paymentsTable.rows));
+    const appointmentsBefore = JSON.parse(JSON.stringify(appointmentsTable.rows));
+
+    await runPrePaymentReadinessPhase({
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      firstCheckout,
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+    });
+
+    expect(paymentsTable.rows).toEqual(paymentsBefore);
+    expect(appointmentsTable.rows).toEqual(appointmentsBefore);
+    // Sanity: the fixture row really was in scope, not accidentally absent.
+    expect(payableAppointment.id).toBeTruthy();
+  });
+
+  it("the returned evidence never contains the Stripe secret key or card data", async () => {
+    seedPendingPayment();
+    seedReadinessProbeRow();
+    const secretMarker = "sk_test_marked_secret_value_prepayment_zzz";
+    const savedKey = process.env.PAYMENT_HARNESS_STRIPE_SECRET_KEY;
+    process.env.PAYMENT_HARNESS_STRIPE_SECRET_KEY = secretMarker;
+
+    try {
+      const result = await runPrePaymentReadinessPhase({
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        firstCheckout,
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(false),
+        connectReadiness: validConnectReadiness(),
+      });
+
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain(secretMarker);
+      expect(serialized).not.toContain("4242424242424242");
+    } finally {
+      process.env.PAYMENT_HARNESS_STRIPE_SECRET_KEY = savedKey;
+    }
+  });
+
+  it("takes no `page` parameter -- structurally incapable of calling completeTestPayment or touching card fields", () => {
+    const source = readFileSync(join(__dirname, "..", "browser.ts"), "utf8");
+    const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+    const fnStart = codeOnly.indexOf("export async function runPrePaymentReadinessPhase");
+    expect(fnStart).toBeGreaterThanOrEqual(0);
+    const nextExportAfter = codeOnly.indexOf("\nexport ", fnStart + 1);
+    const fnBody = codeOnly.slice(fnStart, nextExportAfter === -1 ? undefined : nextExportAfter);
+
+    // No `page:` parameter in the signature, and no reference to
+    // completeTestPayment/card fields anywhere in the function body -- this
+    // is a structural guarantee, not just a runtime observation, that a
+    // caller of this specific function can never reach card entry through
+    // it, however it's invoked.
+    expect(fnBody).not.toContain("page:");
+    expect(fnBody).not.toContain("completeTestPayment");
+    expect(fnBody).not.toContain("cardNumber");
+  });
+});
+
 describe("runFulfillmentVerificationPhase", () => {
   const expectedSessionId = "cs_test_a1B2c3D4E5F6G7H8I9J0";
 
@@ -1154,7 +1297,140 @@ describe("runFulfillmentVerificationPhase", () => {
   });
 });
 
-describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", () => {
+describe('runPaymentHarnessFloorRentalBrowserScenario (executionMode: "pre_payment_readiness")', () => {
+  function scriptedReadinessPage() {
+    const page = new FakePage("about:blank");
+    page.setPageText("Balance due right now\n$40.00");
+    page.setNextCheckoutUrl(FIRST_CHECKOUT_URL);
+    return page;
+  }
+
+  function seedHappyPathState() {
+    const payable = seedPayableAppointment({ price_amount: 40 });
+    const pending = seedPendingPayment({ amount: 40 });
+    return { payable, pending };
+  }
+
+  it("runs phases 1-3 then pre-payment readiness, and returns without ever calling completeTestPayment()", async () => {
+    seedHappyPathState();
+    seedReadinessProbeRow();
+    const page = scriptedReadinessPage();
+
+    const result = await runPaymentHarnessFloorRentalBrowserScenario({
+      page,
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      confirmed: true,
+      executionMode: "pre_payment_readiness",
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+    });
+
+    expect(page.completeTestPaymentCount).toBe(0);
+    expect(result.fulfillment).toBeNull();
+    expect(result.prePaymentReadiness).not.toBeNull();
+    expect(result.prePaymentReadiness?.connectReadiness.dbStatus).toBe("processed");
+    expect(result.checkpoints).toHaveLength(4);
+  });
+
+  it("card-entry call count remains zero even on a fully valid happy-path setup", async () => {
+    seedHappyPathState();
+    seedReadinessProbeRow();
+    const page = scriptedReadinessPage();
+
+    await runPaymentHarnessFloorRentalBrowserScenario({
+      page,
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      confirmed: true,
+      executionMode: "pre_payment_readiness",
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+    });
+
+    expect(page.completeTestPaymentCount).toBe(0);
+  });
+
+  it("fails closed (and never calls completeTestPayment) when the Connect listener readiness gate fails", async () => {
+    seedHappyPathState();
+    const page = scriptedReadinessPage();
+
+    await expect(
+      runPaymentHarnessFloorRentalBrowserScenario({
+        page,
+        adminSupabase: fakeAdmin(),
+        config: CONFIG,
+        confirmed: true,
+        executionMode: "pre_payment_readiness",
+        fetchImpl: readyWebhookFetch(400),
+        createStripeClient: testModeStripeClient(false),
+        connectReadiness: failingConnectReadiness(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
+
+    expect(page.completeTestPaymentCount).toBe(0);
+  });
+
+  it("records pre-payment readiness evidence (payment id, connected account, provider event id) without marking fulfillment", async () => {
+    seedHappyPathState();
+    seedReadinessProbeRow();
+    const page = scriptedReadinessPage();
+
+    await runPaymentHarnessFloorRentalBrowserScenario({
+      page,
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      confirmed: true,
+      executionMode: "pre_payment_readiness",
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+      evidence: { runId: "run-pre-payment-readiness", scenario: "floor-rental-open-balance", deploymentSha: "abc123" },
+    });
+
+    const record = await readPaymentHarnessRunById({
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      runId: "run-pre-payment-readiness",
+    });
+    expect(record?.status).toBe("passed");
+    expect(record?.paymentId).toBeTruthy();
+    expect(record?.stripeConnectedAccountId).toBe(STUDIO_CONNECTED_ACCOUNT_ID);
+    expect(record?.stripeWebhookEventId).toBe(CONNECT_READINESS_EVENT_ID);
+    // Never records a PaymentIntent id -- payment was never completed.
+    expect(record?.stripePaymentIntentId).toBeNull();
+  });
+
+  // Distinguishes this mode's result shape from a completed payment at the
+  // type/structural level, not just by convention: `fulfillment` (which
+  // only a genuinely completed-and-verified payment ever populates) must
+  // stay null, while `prePaymentReadiness` (which only readiness having
+  // run ever populates) must be set -- a caller cannot mistake one for the
+  // other by checking either field.
+  it("cannot be mistaken for payment completion: fulfillment stays null while prePaymentReadiness is populated", async () => {
+    seedHappyPathState();
+    seedReadinessProbeRow();
+    const page = scriptedReadinessPage();
+
+    const result = await runPaymentHarnessFloorRentalBrowserScenario({
+      page,
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      confirmed: true,
+      executionMode: "pre_payment_readiness",
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+    });
+
+    expect(result.fulfillment).toBeNull();
+    expect(result.prePaymentReadiness).not.toBeNull();
+  });
+});
+
+describe('runPaymentHarnessFloorRentalBrowserScenario (executionMode: "complete_payment")', () => {
   function scriptedCompletePaymentPage() {
     const page = new FakePage("about:blank");
     page.setPageText("Balance due right now\n$40.00");
@@ -1198,7 +1474,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
       adminSupabase: fakeAdmin(),
       config: CONFIG,
       confirmed: true,
-      completePayment: true,
+      executionMode: "complete_payment",
       fetchImpl: readyWebhookFetch(400),
       createStripeClient: testModeStripeClient(false),
       connectReadiness: validConnectReadiness(),
@@ -1224,7 +1500,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
         adminSupabase: fakeAdmin(),
         config: CONFIG,
         confirmed: true,
-        completePayment: true,
+        executionMode: "complete_payment",
         fetchImpl: readyWebhookFetch(400),
         createStripeClient: testModeStripeClient(false),
         connectReadiness: failingConnectReadiness(),
@@ -1249,7 +1525,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
         adminSupabase: fakeAdmin(),
         config: CONFIG,
         confirmed: true,
-        completePayment: true,
+        executionMode: "complete_payment",
         fetchImpl: readyWebhookFetch(503),
         createStripeClient: testModeStripeClient(false),
       }),
@@ -1267,7 +1543,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
         adminSupabase: fakeAdmin(),
         config: CONFIG,
         confirmed: true,
-        completePayment: true,
+        executionMode: "complete_payment",
         fetchImpl: readyWebhookFetch(400),
         createStripeClient: testModeStripeClient(true),
       }),
@@ -1285,7 +1561,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
         adminSupabase: fakeAdmin(),
         config: CONFIG,
         confirmed: true,
-        completePayment: true,
+        executionMode: "complete_payment",
         fetchImpl: readyWebhookFetch(400),
         createStripeClient: testModeStripeClient(false),
         connectReadiness: failingConnectReadiness(),
@@ -1320,7 +1596,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
         adminSupabase: fakeAdmin(),
         config: CONFIG,
         confirmed: true,
-        completePayment: true,
+        executionMode: "complete_payment",
         fetchImpl: readyWebhookFetch(400),
         createStripeClient: testModeStripeClient(false),
         connectReadiness: failingConnectReadiness(),

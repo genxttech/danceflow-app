@@ -28,8 +28,10 @@ import type {
   PaymentHarnessCheckoutCapture,
   PaymentHarnessCheckpoint,
   PaymentHarnessConfig,
+  PaymentHarnessExecutionMode,
   PaymentHarnessFulfillmentOutcome,
   PaymentHarnessFulfillmentResult,
+  PaymentHarnessPrePaymentReadinessResult,
 } from "@/lib/payment-harness/types";
 
 /**
@@ -72,9 +74,9 @@ import type {
  * check or checkout action is trusted -- `config.portalLoginEmail` alone is
  * never assumed to imply the right client.
  *
- * Slice 5 extends this with two opt-in phases (never run unless the
- * orchestrator's `completePayment` flag is explicitly set to `true` --
- * the default behavior, and every Slice 4 test, is unchanged): phase 4
+ * Slice 5 extends this with two opt-in phases, controlled by the
+ * orchestrator's `executionMode` (default `"checkout_reuse_only"`, under
+ * which neither ever runs -- every Slice 4 test is unchanged): phase 4
  * completes the already-captured hosted Checkout Session in Stripe test
  * mode only (real `checkout.stripe.com` card fields, Stripe's published
  * `4242 4242 4242 4242` test card -- never `PaymentIntent.confirm`, never
@@ -82,25 +84,36 @@ import type {
  * verifies fulfillment by reading real `payments`/`appointments` rows
  * through a bounded poll -- never by writing to either table.
  *
- * Before any card details are entered, `runPaymentCompletionPhase` runs three
- * independent checks in order: `assertAppWebhookRouteReady` probes the real,
- * already-deployed `/api/payments/webhook` route (no new route) with a
- * deliberately unsigned request and requires exactly the same 400 "Invalid
- * webhook request" response the route already gives any unsigned call --
- * this proves only that the app's own webhook route is reachable and has a
- * webhook secret configured, nothing about Stripe's Connect delivery path;
- * `verifyCheckoutSessionIsTestMode` (stripeVerification.ts) independently
- * re-confirms `livemode === false` on the Checkout Session itself via the
- * harness-only Stripe test key; and `assertConnectListenerReady`
- * (connectListenerReadiness.ts) is the real, deterministic Connect-listener
- * readiness gate -- it triggers exactly one harmless, Connect-scoped test
- * event, requires a matching `payment_provider_events` row to appear within
- * a bounded window, and independently re-retrieves that exact Stripe Event
- * (id/type/livemode/account all verified) before treating the delivery
- * path as alive. Only after all three pass does execution reach
- * `page.completeTestPayment()` -- there is no code path around this
- * ordering, no config flag, boolean argument, or caller override that
- * skips the listener-readiness check.
+ * Slice 6 splits what was previously the first half of phase 4 into its
+ * own, independently callable phase: `runPrePaymentReadinessPhase` runs
+ * three independent checks in order -- `assertAppWebhookRouteReady`
+ * probes the real, already-deployed `/api/payments/webhook` route (no new
+ * route) with a deliberately unsigned request and requires exactly the
+ * same 400 "Invalid webhook request" response the route already gives any
+ * unsigned call -- this proves only that the app's own webhook route is
+ * reachable and has a webhook secret configured, nothing about Stripe's
+ * Connect delivery path; `verifyCheckoutSessionIsTestMode`
+ * (stripeVerification.ts) independently re-confirms `livemode === false`
+ * on the Checkout Session itself via the harness-only Stripe test key; and
+ * `assertConnectListenerReady` (connectListenerReadiness.ts) is the real,
+ * deterministic Connect-listener readiness gate -- it triggers exactly one
+ * harmless, Connect-scoped test event, requires a matching
+ * `payment_provider_events` row to appear within a bounded window, and
+ * independently re-retrieves that exact Stripe Event (id/type/livemode/
+ * account all verified) before treating the delivery path as alive. This
+ * phase takes no `page` parameter at all -- it is structurally incapable
+ * of calling `page.completeTestPayment()` or touching card fields, since
+ * it never receives a page reference to call anything on. It returns a
+ * frozen `PaymentHarnessPrePaymentReadinessResult` (safe evidence -- ids,
+ * a DB status, `livemode`, a timestamp; never a secret or card data) and
+ * control to the caller.
+ *
+ * `runPaymentCompletionPhase` is the *only* place `page.completeTestPayment()`
+ * is ever called in this module: it calls `runPrePaymentReadinessPhase`
+ * first and only proceeds to card entry if that resolves without
+ * throwing. There is no code path around this ordering, no config flag,
+ * boolean argument, or caller override that skips the listener-readiness
+ * check before payment completion.
  *
  * A joint safety review of an earlier revision of this slice (Maya Reed +
  * Daniel Hayes) found that the first two checks alone cannot detect the
@@ -956,23 +969,27 @@ export async function runReuseVerificationPhase(params: {
 }
 
 /**
- * Phase 4 -- completes the already-captured hosted Checkout Session in
- * Stripe test mode only.
+ * Phase 4a -- pre-payment readiness. Runs the three independent checks
+ * that must all pass before any card data is ever entered, in this exact
+ * order: (1) `assertAppWebhookRouteReady` -- the app's own webhook route
+ * is reachable and configured; (2) `verifyCheckoutSessionIsTestMode` --
+ * the captured Checkout Session is independently re-confirmed test-mode
+ * via a fresh Stripe API call; (3) `assertConnectListenerReady` -- the
+ * real, deterministic Connect-listener readiness gate
+ * (connectListenerReadiness.ts), which triggers one harmless
+ * Connect-scoped test event and requires proof it actually traveled the
+ * real delivery path within a bounded window.
  *
- * Card entry is only ever reached after three independent checks pass, in
- * this exact order: (1) `assertAppWebhookRouteReady` -- the app's own
- * webhook route is reachable and configured; (2)
- * `verifyCheckoutSessionIsTestMode` -- the captured Checkout Session is
- * independently re-confirmed test-mode via a fresh Stripe API call; (3)
- * `assertConnectListenerReady` -- the real, deterministic Connect-listener
- * readiness gate (connectListenerReadiness.ts), which triggers one
- * harmless Connect-scoped test event and requires proof it actually
- * traveled the real delivery path within a bounded window. Any of the
- * three failing throws before `page.completeTestPayment()` is ever
- * called -- there is no code path around this ordering.
+ * Deliberately takes no `page` parameter -- there is no card-entry action
+ * this function could call even by mistake, since it never receives a
+ * page reference at all. Never mutates `payments`/`appointments` (every
+ * DB call it makes, directly or via the checks above, is a `.select()`).
+ * Safe to call on its own during manual QA against a real dev
+ * environment, independent of `runPaymentCompletionPhase` -- see
+ * `runPaymentHarnessFloorRentalBrowserScenario`'s `"pre_payment_readiness"`
+ * execution mode.
  */
-export async function runPaymentCompletionPhase(params: {
-  page: PaymentHarnessBrowserPage;
+export async function runPrePaymentReadinessPhase(params: {
   adminSupabase: AdminClient;
   config: PaymentHarnessConfig;
   firstCheckout: PaymentHarnessCheckoutCapture;
@@ -986,17 +1003,10 @@ export async function runPaymentCompletionPhase(params: {
     pollIntervalMs?: number;
     createStripeEventClient?: StripeEventClientFactory;
   };
-}): Promise<{ paymentId: string; checkpoint: PaymentHarnessCheckpoint }> {
-  const {
-    page,
-    adminSupabase,
-    config,
-    firstCheckout,
-    fetchImpl,
-    createStripeClient,
-    connectReadiness,
-  } = params;
-  const context = "runPaymentCompletionPhase";
+}): Promise<PaymentHarnessPrePaymentReadinessResult> {
+  const { adminSupabase, config, firstCheckout, fetchImpl, createStripeClient, connectReadiness } =
+    params;
+  const context = "runPrePaymentReadinessPhase";
 
   assertPaymentHarnessEnvironmentAllowed(config.environment, context);
 
@@ -1027,7 +1037,7 @@ export async function runPaymentCompletionPhase(params: {
   // prior unconditional CONNECT_LISTENER_READINESS_UNAVAILABLE block.
   // Throws unless a freshly-triggered, freshly-verified event proves the
   // delivery path is alive right now.
-  await assertConnectListenerReady({
+  const connectReadinessResult = await assertConnectListenerReady({
     adminSupabase,
     connectedAccountId,
     environment: config.environment,
@@ -1038,6 +1048,59 @@ export async function runPaymentCompletionPhase(params: {
     pollMaxAttempts: connectReadiness?.pollMaxAttempts,
     pollIntervalMs: connectReadiness?.pollIntervalMs,
     createStripeEventClient: connectReadiness?.createStripeEventClient,
+  });
+
+  return Object.freeze({
+    paymentId,
+    connectedAccountId,
+    checkoutSessionId: firstCheckout.sessionId,
+    connectReadiness: connectReadinessResult,
+    checkpoint: checkpoint(
+      "phase4a_pre_payment_readiness",
+      "passed",
+      `paymentId=${paymentId} providerEventId=${connectReadinessResult.providerEventId}`,
+    ),
+  });
+}
+
+/**
+ * Phase 4b -- completes the already-captured hosted Checkout Session in
+ * Stripe test mode only. The *only* function in this module that ever
+ * calls `page.completeTestPayment()`, and it does so exactly once, and
+ * only after `runPrePaymentReadinessPhase` resolves without throwing --
+ * there is no code path around this ordering.
+ */
+export async function runPaymentCompletionPhase(params: {
+  page: PaymentHarnessBrowserPage;
+  adminSupabase: AdminClient;
+  config: PaymentHarnessConfig;
+  firstCheckout: PaymentHarnessCheckoutCapture;
+  fetchImpl?: AppWebhookRouteReadinessFetch;
+  createStripeClient?: StripeClientFactory;
+  connectReadiness?: {
+    triggerFn?: ConnectTriggerFn;
+    now?: () => Date;
+    sleepFn?: (ms: number) => Promise<void>;
+    pollMaxAttempts?: number;
+    pollIntervalMs?: number;
+    createStripeEventClient?: StripeEventClientFactory;
+  };
+}): Promise<{
+  paymentId: string;
+  checkpoint: PaymentHarnessCheckpoint;
+  readiness: PaymentHarnessPrePaymentReadinessResult;
+}> {
+  const { page, adminSupabase, config, firstCheckout, fetchImpl, createStripeClient, connectReadiness } =
+    params;
+  const context = "runPaymentCompletionPhase";
+
+  const readiness = await runPrePaymentReadinessPhase({
+    adminSupabase,
+    config,
+    firstCheckout,
+    fetchImpl,
+    createStripeClient,
+    connectReadiness,
   });
 
   await page.completeTestPayment();
@@ -1052,8 +1115,9 @@ export async function runPaymentCompletionPhase(params: {
   }
 
   return {
-    paymentId,
-    checkpoint: checkpoint("phase4_payment_completion", "passed", `paymentId=${paymentId}`),
+    paymentId: readiness.paymentId,
+    checkpoint: checkpoint("phase4_payment_completion", "passed", `paymentId=${readiness.paymentId}`),
+    readiness,
   };
 }
 
@@ -1224,20 +1288,24 @@ export async function runFulfillmentVerificationPhase(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Runs the floor-rental browser scenario end to end. By default (and for
- * every Slice 4 caller/test, unchanged) this stops after phase 3 --
- * reuse verification -- and never touches Stripe payment completion.
+ * Runs the floor-rental browser scenario end to end. `executionMode`
+ * (default `"checkout_reuse_only"`, unchanged for every Slice 4 caller/
+ * test) controls how far it goes -- see
+ * `PaymentHarnessExecutionMode`'s own doc comment in types.ts for the
+ * three explicit, mutually exclusive scopes:
  *
- * Passing `completePayment: true` additionally attempts Slice 5's phase 4
- * (payment completion) and phase 5 (fulfillment verification). This is a
- * second, independent opt-in on top of `confirmed` -- exactly the kind of
- * distinct, more consequential gate a future Slice 8 CLI is expected to
- * expose as its own flag (e.g. `--complete-payment`), not something this
- * function defaults to. `runPaymentCompletionPhase` only reaches card
- * entry after the real, deterministic Connect-listener readiness gate
- * (`assertConnectListenerReady`, connectListenerReadiness.ts) passes --
- * see that module and this file's own doc comment for how it proves the
- * delivery path is alive right now, not assumed.
+ *   - `"checkout_reuse_only"`: stops after phase 3 (reuse verification).
+ *     Never touches Stripe payment completion or the Connect-listener
+ *     readiness gate.
+ *   - `"pre_payment_readiness"`: additionally runs
+ *     `runPrePaymentReadinessPhase` (phase 4a) and stops -- proves the app
+ *     route, the Checkout Session, and the real Connect-listener delivery
+ *     path are all ready, without ever calling `page.completeTestPayment()`
+ *     or entering card data. Safe to run against a real dev environment on
+ *     its own.
+ *   - `"complete_payment"`: additionally runs `runPaymentCompletionPhase`
+ *     (phase 4b, which itself calls `runPrePaymentReadinessPhase` first)
+ *     and phase 5 (fulfillment verification).
  *
  * `confirmed` mirrors the Slice 1 `assertConfirmed` guard: this slice has
  * no CLI yet, so the caller (a future Slice 8 CLI) is expected to pass
@@ -1246,18 +1314,19 @@ export async function runFulfillmentVerificationPhase(params: {
  *
  * `evidence` is optional and purely DI-based -- when provided, this
  * records expected balance, first/second Checkout Session ids, and one
- * checkpoint per phase (plus, when `completePayment` is set, payment id,
- * PaymentIntent id, and appointment before/after snapshots) via the real
- * (unmodified) Slice 2 evidence.ts functions, which already work against
- * fakes with no migration applied. When omitted, the scenario runs with
- * no evidence writes at all.
+ * checkpoint per phase (plus, once pre-payment readiness has run, the
+ * payment id and connected account id; plus, when `"complete_payment"`
+ * actually completes, the PaymentIntent id and appointment before/after
+ * snapshots) via the real (unmodified) Slice 2 evidence.ts functions,
+ * which already work against fakes with no migration applied. When
+ * omitted, the scenario runs with no evidence writes at all.
  */
 export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
   page: PaymentHarnessBrowserPage;
   adminSupabase: AdminClient;
   config: PaymentHarnessConfig;
   confirmed: boolean;
-  completePayment?: boolean;
+  executionMode?: PaymentHarnessExecutionMode;
   fetchImpl?: AppWebhookRouteReadinessFetch;
   createStripeClient?: StripeClientFactory;
   connectReadiness?: {
@@ -1284,7 +1353,7 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
     adminSupabase,
     config,
     confirmed,
-    completePayment = false,
+    executionMode = "checkout_reuse_only",
     fetchImpl,
     createStripeClient,
     connectReadiness,
@@ -1351,7 +1420,7 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
       });
     }
 
-    if (!completePayment) {
+    if (executionMode === "checkout_reuse_only") {
       if (evidence) {
         await markPaymentHarnessRunPassed({ adminSupabase, config, runId: evidence.runId });
       }
@@ -1363,9 +1432,48 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
         checkoutReused: true,
         checkpoints: Object.freeze([...checkpoints]),
         fulfillment: null,
+        prePaymentReadiness: null,
       });
     }
 
+    if (executionMode === "pre_payment_readiness") {
+      const readiness = await runPrePaymentReadinessPhase({
+        adminSupabase,
+        config,
+        firstCheckout: phase2.checkout,
+        fetchImpl,
+        createStripeClient,
+        connectReadiness,
+      });
+      checkpoints.push(readiness.checkpoint);
+
+      if (evidence) {
+        await updatePaymentHarnessRunEvidence({
+          adminSupabase,
+          config,
+          runId: evidence.runId,
+          patch: {
+            paymentId: readiness.paymentId,
+            stripeConnectedAccountId: readiness.connectedAccountId,
+            stripeWebhookEventId: readiness.connectReadiness.providerEventId,
+          },
+          checkpoint: readiness.checkpoint,
+        });
+        await markPaymentHarnessRunPassed({ adminSupabase, config, runId: evidence.runId });
+      }
+
+      return Object.freeze({
+        displayedBalanceCents: phase1.displayedBalanceCents,
+        firstCheckout: phase2.checkout,
+        secondCheckout: phase3.checkout,
+        checkoutReused: true,
+        checkpoints: Object.freeze([...checkpoints]),
+        fulfillment: null,
+        prePaymentReadiness: readiness,
+      });
+    }
+
+    // executionMode === "complete_payment"
     const appointmentSnapshotBefore = await snapshotFloorRentalAppointments(
       adminSupabase,
       config,
@@ -1388,7 +1496,11 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
         adminSupabase,
         config,
         runId: evidence.runId,
-        patch: { paymentId: phase4.paymentId },
+        patch: {
+          paymentId: phase4.paymentId,
+          stripeConnectedAccountId: phase4.readiness.connectedAccountId,
+          stripeWebhookEventId: phase4.readiness.connectReadiness.providerEventId,
+        },
         checkpoint: phase4.checkpoint,
       });
     }
@@ -1454,6 +1566,7 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
       checkoutReused: true,
       checkpoints: Object.freeze([...checkpoints]),
       fulfillment: outcome,
+      prePaymentReadiness: phase4.readiness,
     });
   } catch (scenarioError) {
     if (evidence) {

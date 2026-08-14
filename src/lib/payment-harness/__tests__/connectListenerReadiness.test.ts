@@ -129,9 +129,17 @@ afterEach(() => {
 });
 
 describe("assertConnectListenerReady", () => {
-  it("passes when a fresh, valid readiness proof is found", async () => {
+  it("passes when a fresh, valid readiness proof is found, and returns matching evidence", async () => {
     seedRow();
-    await expect(assertConnectListenerReady(baseParams())).resolves.toBeUndefined();
+    const result = await assertConnectListenerReady(baseParams());
+    expect(result).toEqual({
+      providerEventId: EVENT_ID,
+      eventType: "product.updated",
+      dbStatus: "processed",
+      stripeEventAccount: CONNECTED_ACCOUNT_ID,
+      livemode: false,
+      verifiedAt: expect.any(String),
+    });
   });
 
   it("does not require the CLI to expose an event id -- generic success text is enough to proceed to DB correlation", async () => {
@@ -140,7 +148,7 @@ describe("assertConnectListenerReady", () => {
       assertConnectListenerReady(
         baseParams({ triggerFn: async () => ({ exitCode: 0, stdout: "Trigger succeeded!", stderr: "" }) }),
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ providerEventId: EVENT_ID });
   });
 
   it("fails closed when the CLI trigger exits non-zero", async () => {
@@ -236,7 +244,7 @@ describe("assertConnectListenerReady", () => {
       assertConnectListenerReady(
         baseParams({ pollMaxAttempts: 5, sleepFn: transitionOnFirstSleep }),
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ dbStatus: "processed" });
     expect(sleepCalls).toBeGreaterThanOrEqual(1);
   });
 
@@ -436,5 +444,19 @@ describe("assertConnectListenerReady", () => {
       message = error instanceof Error ? error.message : String(error);
     }
     expect(message).not.toContain(secretMarker);
+  });
+
+  it("the returned readiness evidence never contains the Stripe secret key", async () => {
+    const secretMarker = "sk_test_marked_secret_value_evidence_zzz";
+    process.env.PAYMENT_HARNESS_STRIPE_SECRET_KEY = secretMarker;
+    seedRow();
+
+    const result = await assertConnectListenerReady(baseParams());
+    expect(JSON.stringify(result)).not.toContain(secretMarker);
+    // The evidence is a small, fixed set of ids/status/booleans/timestamp --
+    // never anything shaped like a Stripe secret key.
+    expect(Object.keys(result).sort()).toEqual(
+      ["dbStatus", "eventType", "livemode", "providerEventId", "stripeEventAccount", "verifiedAt"].sort(),
+    );
   });
 });
