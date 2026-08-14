@@ -27,7 +27,7 @@ export type StripeCheckoutRetrievalClient = {
         id: string,
         params: Record<string, never>,
         options: { stripeAccount: string },
-      ) => Promise<{ livemode?: unknown }>;
+      ) => Promise<{ livemode?: unknown; url?: unknown }>;
     };
   };
 };
@@ -38,6 +38,20 @@ const defaultStripeClientFactory: StripeClientFactory = (apiKey) =>
   new Stripe(apiKey) as unknown as StripeCheckoutRetrievalClient;
 
 /**
+ * Slice 7 addition: the only safe, non-secret piece of data this
+ * verification hands back to its caller -- the Checkout Session's own
+ * hosted-payment URL, for the manual-payment handoff (see
+ * `runPrePaymentReadinessPhase`'s module doc comment for the two-stage
+ * workflow). `null` when Stripe's response doesn't include one (e.g. an
+ * already-completed or expired session) -- a missing URL is an
+ * operational inconvenience for the manual handoff, not a safety failure,
+ * so it never causes this function to throw.
+ */
+export type CheckoutSessionVerificationResult = {
+  readonly checkoutUrl: string | null;
+};
+
+/**
  * Re-verifies, from Stripe's own API response (not from anything the
  * harness assumed earlier), that the given Checkout Session is genuinely
  * test-mode and resolves cleanly through the configured connected account
@@ -45,21 +59,21 @@ const defaultStripeClientFactory: StripeClientFactory = (apiKey) =>
  * environment where practical." A retrieval failure (wrong account,
  * session not found, network error) is exactly the "mode/account context
  * is ambiguous" case the caller must fail closed on, so it's treated the
- * same as a livemode mismatch: refuse to proceed to card entry.
+ * same as a livemode mismatch: refuse to proceed.
  */
 export async function verifyCheckoutSessionIsTestMode(params: {
   sessionId: string;
   connectedAccountId: string;
   context: string;
   createStripeClient?: StripeClientFactory;
-}): Promise<void> {
+}): Promise<CheckoutSessionVerificationResult> {
   const { sessionId, connectedAccountId, context } = params;
   const createStripeClient = params.createStripeClient ?? defaultStripeClientFactory;
 
   const testModeKey = assertPaymentHarnessStripeTestModeKey();
   const stripeClient = createStripeClient(testModeKey);
 
-  let session: { livemode?: unknown };
+  let session: { livemode?: unknown; url?: unknown };
   try {
     session = await stripeClient.checkout.sessions.retrieve(
       sessionId,
@@ -77,4 +91,8 @@ export async function verifyCheckoutSessionIsTestMode(params: {
   }
 
   assertStripeObjectIsTestMode(session, context);
+
+  return Object.freeze({
+    checkoutUrl: typeof session.url === "string" ? session.url : null,
+  });
 }

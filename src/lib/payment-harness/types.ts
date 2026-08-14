@@ -198,51 +198,48 @@ export type PaymentHarnessBrowserScenarioResult = {
   readonly checkoutReused: boolean;
   readonly checkpoints: readonly PaymentHarnessCheckpoint[];
   /**
-   * Slice 5 addition: `null` when payment completion was not requested
-   * (the default -- see `runPaymentHarnessFloorRentalBrowserScenario`'s
-   * `executionMode`) or not reached; populated only when phases 4-5
-   * actually ran (`executionMode: "complete_payment"`).
-   */
-  readonly fulfillment: PaymentHarnessFulfillmentOutcome | null;
-  /**
    * Slice 6 addition: populated once `runPrePaymentReadinessPhase` has run
-   * (`executionMode: "pre_payment_readiness"` or `"complete_payment"`);
-   * `null` for `"checkout_reuse_only"` (the default), where phase 4 never
-   * runs at all.
+   * (`executionMode: "pre_payment_readiness"`); `null` for
+   * `"checkout_reuse_only"` (the default), where phase 4a never runs at
+   * all. This is as far as this scenario/orchestrator ever goes -- see
+   * `PaymentHarnessExecutionMode`'s doc comment for why actual payment
+   * completion and its verification are a separate, manual, standalone
+   * step (`runVerifyCompletedPaymentPhase`) rather than a third mode here.
    */
   readonly prePaymentReadiness: PaymentHarnessPrePaymentReadinessResult | null;
 };
 
 /**
- * Slice 6 addition: explicit, mutually exclusive execution modes for
- * `runPaymentHarnessFloorRentalBrowserScenario` -- replaces the prior
- * `completePayment: boolean` flag, which could only express two of the
- * three scopes this scenario now supports and left "ran pre-payment
- * readiness but did not complete payment" unrepresentable by any boolean
- * value. A positive, explicit allowlist (the same pattern
- * `PAYMENT_HARNESS_ALLOWED_ENVIRONMENTS` already uses), not a boolean
- * combination -- there is exactly one way to ask for each scope.
+ * Slice 7 revision: explicit, mutually exclusive execution modes for
+ * `runPaymentHarnessFloorRentalBrowserScenario`. A positive, explicit
+ * allowlist (the same pattern `PAYMENT_HARNESS_ALLOWED_ENVIRONMENTS`
+ * already uses), not a boolean combination -- there is exactly one way to
+ * ask for each scope.
+ *
+ * Slice 5/6 also had a `"complete_payment"` mode that drove a real
+ * Playwright browser through Stripe's hosted Checkout card fields.
+ * Empirical testing against the live page (see this slice's own
+ * investigation history) confirmed Stripe's hosted Checkout/Payment
+ * Element resists exactly this kind of automation, matching Stripe's own
+ * published guidance that these frontend surfaces have security measures
+ * against automated testing. That mode, `runPaymentCompletionPhase`, and
+ * `PaymentHarnessBrowserPage.completeTestPayment()` have been removed
+ * outright -- not disabled, not stubbed -- so the public API can no
+ * longer imply Stripe-hosted card entry is something this harness
+ * automates. See `runPrePaymentReadinessPhase`'s doc comment for the
+ * two-stage manual-payment workflow that replaces it.
  *
  *   - `checkout_reuse_only` (default): phases 1-3 only -- fixture, first
- *     Checkout submit, reuse verification. Never touches Stripe payment
- *     completion or the Connect-listener readiness gate. Identical to the
- *     prior `completePayment: false` behavior.
+ *     Checkout submit, reuse verification. Never touches the
+ *     Connect-listener readiness gate.
  *   - `pre_payment_readiness`: phases 1-3, then
  *     `runPrePaymentReadinessPhase` (app-route readiness, Checkout Session
  *     test-mode verification, the real Connect-listener readiness gate) --
- *     then stops. Never calls `page.completeTestPayment()`, never enters
- *     card data. Safe to run on its own during manual QA against a real
- *     dev environment.
- *   - `complete_payment`: phases 1-5 -- pre-payment readiness, then real
- *     card entry via `page.completeTestPayment()`, then fulfillment
- *     verification. Identical to the prior `completePayment: true`
- *     behavior.
+ *     then stops, returning everything an operator needs to complete the
+ *     payment by hand. Safe to run on its own during manual QA against a
+ *     real dev environment.
  */
-export const PAYMENT_HARNESS_EXECUTION_MODES = [
-  "checkout_reuse_only",
-  "pre_payment_readiness",
-  "complete_payment",
-] as const;
+export const PAYMENT_HARNESS_EXECUTION_MODES = ["checkout_reuse_only", "pre_payment_readiness"] as const;
 export type PaymentHarnessExecutionMode = (typeof PAYMENT_HARNESS_EXECUTION_MODES)[number];
 
 /**
@@ -264,25 +261,69 @@ export type PaymentHarnessConnectReadinessEvidence = {
 };
 
 /**
- * Slice 6 addition: the result of `runPrePaymentReadinessPhase` --
- * app-route readiness, Checkout Session test-mode verification, and the
- * real Connect-listener readiness gate, all independently confirmed
- * *before* any card data is ever entered. Structurally cannot include
- * card details or a Stripe secret -- every field here is an id, a status
- * string, a boolean, a timestamp, or a `PaymentHarnessCheckpoint`.
+ * Slice 7.1 addition: one appointment's relevant state as observed by
+ * Stage A, before payment -- the minimum needed for Stage B
+ * (`runVerifyCompletedPaymentPhase`) to prove "appointments outside the
+ * payable set were not touched by this payment" without incorrectly
+ * banning appointments that were legitimately already `paid` or
+ * `cancelled` before this run even started. No client PII -- id, status,
+ * payment_status, and payable-set membership only.
+ */
+export type PaymentHarnessAppointmentSnapshotEntry = {
+  readonly id: string;
+  readonly status: string;
+  readonly paymentStatus: string;
+  readonly payable: boolean;
+};
+
+export type PaymentHarnessAppointmentSnapshot = readonly PaymentHarnessAppointmentSnapshotEntry[];
+
+/**
+ * Slice 6 addition, extended in Slice 7 for the manual-payment handoff:
+ * the result of `runPrePaymentReadinessPhase` -- app-route readiness,
+ * Checkout Session test-mode verification, and the real Connect-listener
+ * readiness gate, all independently confirmed *before* any card data is
+ * ever entered. Structurally cannot include card details or a Stripe
+ * secret -- every field here is an id, a status string, a boolean, a
+ * dollar amount, a URL, a timestamp, a `PaymentHarnessCheckpoint`, or a
+ * snapshot built only from those same safe primitives.
+ *
+ * Slice 7 adds `checkoutUrl`, `expectedBalanceCents`, and
+ * `payableAppointmentIds` -- exactly the identifiers Stage B needs to
+ * verify the payment an operator completes by hand against this same
+ * Checkout Session, and `checkoutUrl` itself is what the operator opens
+ * in a normal browser to pay.
+ *
+ * Slice 7.1 adds `appointmentSnapshot` and `paidPaymentIdsSnapshot` --
+ * the actual "before" state Stage B compares against, so it can tell a
+ * genuine contamination (an excluded appointment or an unrelated payment
+ * changing because of *this* payment) apart from pre-existing, legitimate
+ * historical state (an appointment or payment that was already
+ * paid/cancelled/voided long before Stage A ever ran). See
+ * `runPrePaymentReadinessPhase`'s doc comment in browser.ts for the full
+ * two-stage workflow.
  */
 export type PaymentHarnessPrePaymentReadinessResult = {
   readonly paymentId: string;
   readonly connectedAccountId: string;
   readonly checkoutSessionId: string;
+  /** The Stripe-hosted Checkout URL for the operator to open manually --
+   * `null` only if Stripe's own response didn't include one (e.g. an
+   * already-completed/expired session), never a reason to fail closed. */
+  readonly checkoutUrl: string | null;
+  readonly expectedBalanceCents: number;
+  readonly payableAppointmentIds: readonly string[];
+  readonly appointmentSnapshot: PaymentHarnessAppointmentSnapshot;
+  readonly paidPaymentIdsSnapshot: readonly string[];
   readonly connectReadiness: PaymentHarnessConnectReadinessEvidence;
   readonly checkpoint: PaymentHarnessCheckpoint;
 };
 
 /**
- * Slice 5 addition: the three, deliberately distinguishable outcomes of
- * bounded post-payment DB polling -- never collapsed into a boolean, the
- * same "absence of proof is not proof of success" discipline the Slice 2
+ * Slice 5 addition, now returned by Stage B (`runVerifyCompletedPaymentPhase`,
+ * Slice 7): the three, deliberately distinguishable outcomes of bounded
+ * post-payment DB polling -- never collapsed into a boolean, the same
+ * "absence of proof is not proof of success" discipline the Slice 2
  * redelivery design already established for a related concern.
  *
  *   - `fulfilled`: the payment row transitioned to `paid` (with every

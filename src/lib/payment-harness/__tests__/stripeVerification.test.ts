@@ -29,7 +29,9 @@ afterEach(() => {
   }
 });
 
-function fakeStripeClient(session: { livemode?: unknown } | (() => Promise<{ livemode?: unknown }>)) {
+function fakeStripeClient(
+  session: { livemode?: unknown; url?: unknown } | (() => Promise<{ livemode?: unknown; url?: unknown }>),
+) {
   return () => ({
     checkout: {
       sessions: {
@@ -40,7 +42,21 @@ function fakeStripeClient(session: { livemode?: unknown } | (() => Promise<{ liv
 }
 
 describe("verifyCheckoutSessionIsTestMode", () => {
-  it("passes when the retrieved session has livemode === false", async () => {
+  it("passes when the retrieved session has livemode === false, and returns the session's checkoutUrl", async () => {
+    await expect(
+      verifyCheckoutSessionIsTestMode({
+        sessionId: "cs_test_abc",
+        connectedAccountId: "acct_123",
+        context: "t",
+        createStripeClient: fakeStripeClient({
+          livemode: false,
+          url: "https://checkout.stripe.com/c/pay/cs_test_abc",
+        }),
+      }),
+    ).resolves.toEqual({ checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_abc" });
+  });
+
+  it("returns a null checkoutUrl (without throwing) when Stripe's response has no url", async () => {
     await expect(
       verifyCheckoutSessionIsTestMode({
         sessionId: "cs_test_abc",
@@ -48,7 +64,7 @@ describe("verifyCheckoutSessionIsTestMode", () => {
         context: "t",
         createStripeClient: fakeStripeClient({ livemode: false }),
       }),
-    ).resolves.not.toThrow();
+    ).resolves.toEqual({ checkoutUrl: null });
   });
 
   it("fails closed when the retrieved session has livemode === true", async () => {
