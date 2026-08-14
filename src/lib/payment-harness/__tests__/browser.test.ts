@@ -9,7 +9,6 @@ import {
   assertStripeCheckoutUrlIsTestMode,
   parseDisplayedBalanceCents,
   parseStripeCheckoutSessionId,
-  assertConnectListenerReadinessUnavailable,
   runFirstCheckoutSubmitPhase,
   runFixtureAndPortalStatePhase,
   runFulfillmentVerificationPhase,
@@ -252,6 +251,64 @@ function testModeStripeClient(livemode = false) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Slice 5 Connect-listener readiness DI fakes -- never touches the real
+// Stripe CLI or Stripe API. seedReadinessProbeRow() must be called (with a
+// created_at at/after CONNECT_READINESS_FIXED_NOW) for validConnectReadiness()
+// to find a match; failingConnectReadiness() fails at the CLI-trigger step,
+// before any DB lookup, so it needs no seeded row.
+// ---------------------------------------------------------------------------
+
+const CONNECT_READINESS_EVENT_ID = "evt_test_fake_readiness_probe";
+const CONNECT_READINESS_FIXED_NOW = new Date("2026-01-01T00:00:00.000Z");
+const STUDIO_CONNECTED_ACCOUNT_ID = "acct_test_fake_not_real";
+
+type ConnectReadinessDI = NonNullable<
+  Parameters<typeof runPaymentCompletionPhase>[0]["connectReadiness"]
+>;
+
+function seedReadinessProbeRow(overrides: Record<string, unknown> = {}) {
+  paymentProviderEventsTable.rows.push({
+    id: `readiness-row-${paymentProviderEventsTable.rows.length + 1}`,
+    provider: "stripe",
+    event_type: "product.updated",
+    status: "processed",
+    provider_event_id: CONNECT_READINESS_EVENT_ID,
+    created_at: "2026-01-01T00:00:05.000Z",
+    ...overrides,
+  });
+}
+
+function validConnectReadiness(): ConnectReadinessDI {
+  return {
+    triggerFn: async () => ({ exitCode: 0, stdout: "Trigger succeeded!", stderr: "" }),
+    now: () => CONNECT_READINESS_FIXED_NOW,
+    sleepFn: async () => {},
+    pollMaxAttempts: 1,
+    pollIntervalMs: 0,
+    createStripeEventClient: () => ({
+      events: {
+        retrieve: async () => ({
+          id: CONNECT_READINESS_EVENT_ID,
+          type: "product.updated",
+          livemode: false,
+          account: STUDIO_CONNECTED_ACCOUNT_ID,
+        }),
+      },
+    }),
+  };
+}
+
+function failingConnectReadiness(): ConnectReadinessDI {
+  return {
+    triggerFn: async () => ({ exitCode: 1, stdout: "", stderr: "simulated CLI failure" }),
+    now: () => CONNECT_READINESS_FIXED_NOW,
+    sleepFn: async () => {},
+    pollMaxAttempts: 1,
+    pollIntervalMs: 0,
+  };
+}
+
 const AUTH_USER_ID = "auth-user-1";
 const FAKE_TOKEN_HASH = "fake-token-hash-not-a-real-secret";
 
@@ -262,6 +319,7 @@ let paymentsTable: FakeTable;
 let runsTable: FakeTable;
 let profilesTable: FakeTable;
 let clientAccountLinksTable: FakeTable;
+let paymentProviderEventsTable: FakeTable;
 
 function fakeAdmin() {
   const base = createFakeAdminClient({
@@ -272,6 +330,7 @@ function fakeAdmin() {
     payment_harness_runs: runsTable,
     profiles: profilesTable,
     client_account_links: clientAccountLinksTable,
+    payment_provider_events: paymentProviderEventsTable,
   });
 
   return {
@@ -323,6 +382,7 @@ beforeEach(() => {
   runsTable = new FakeTable();
   profilesTable = new FakeTable();
   clientAccountLinksTable = new FakeTable();
+  paymentProviderEventsTable = new FakeTable();
 
   clientsTable.rows.push({ id: CONFIG.clientId, studio_id: CONFIG.studioId });
   studiosTable.rows.push({
@@ -776,18 +836,6 @@ describe("runPaymentHarnessFloorRentalBrowserScenario", () => {
 // Slice 5: payment completion + fulfillment verification
 // ---------------------------------------------------------------------------
 
-describe("assertConnectListenerReadinessUnavailable", () => {
-  it("always throws PaymentHarnessSafetyError with the CONNECT_LISTENER_READINESS_UNAVAILABLE code", () => {
-    expect(() => assertConnectListenerReadinessUnavailable("t")).toThrow(PaymentHarnessSafetyError);
-    try {
-      assertConnectListenerReadinessUnavailable("t");
-      throw new Error("expected to throw");
-    } catch (error) {
-      expect((error as PaymentHarnessSafetyError).code).toBe("CONNECT_LISTENER_READINESS_UNAVAILABLE");
-    }
-  });
-});
-
 describe("runPaymentCompletionPhase", () => {
   function readyPage() {
     const page = new FakePage(FIRST_CHECKOUT_URL);
@@ -853,29 +901,66 @@ describe("runPaymentCompletionPhase", () => {
     expect(page.completeTestPaymentCount).toBe(0);
   });
 
-  // Slice 5 safety correction: even when the app webhook route check and
-  // the Stripe test-mode session check both succeed -- proving those two
-  // pieces of scaffolding are independently sound -- payment completion
-  // must still fail closed, unconditionally, because no deterministic
-  // Connect-listener-liveness mechanism exists yet.
-  it("fails closed with CONNECT_LISTENER_READINESS_UNAVAILABLE even when app-route readiness and test-mode verification both succeed, and never calls completeTestPayment", async () => {
+  // Slice 5 real gate: even when the app webhook route check and the
+  // Stripe test-mode session check both succeed, payment completion must
+  // still fail closed if the real, deterministic Connect-listener
+  // readiness gate does not independently prove the delivery path is
+  // alive -- and only calls completeTestPayment() once it does.
+  it("fails closed before entering card details when the Connect listener readiness gate fails, even though app-route readiness and test-mode verification both succeeded", async () => {
     seedPendingPayment();
     const page = readyPage();
 
-    try {
-      await runPaymentCompletionPhase({
+    await expect(
+      runPaymentCompletionPhase({
         page,
         adminSupabase: fakeAdmin(),
         config: CONFIG,
         firstCheckout,
         fetchImpl: readyWebhookFetch(400),
         createStripeClient: testModeStripeClient(false),
-      });
-      throw new Error("expected runPaymentCompletionPhase to throw");
-    } catch (error) {
-      expect((error as PaymentHarnessSafetyError).code).toBe("CONNECT_LISTENER_READINESS_UNAVAILABLE");
-    }
+        connectReadiness: failingConnectReadiness(),
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
     expect(page.completeTestPaymentCount).toBe(0);
+  });
+
+  it("calls completeTestPayment only after the Connect listener readiness gate independently passes", async () => {
+    seedPendingPayment();
+    seedReadinessProbeRow();
+    const page = readyPage();
+
+    const result = await runPaymentCompletionPhase({
+      page,
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      firstCheckout,
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+    });
+
+    expect(page.completeTestPaymentCount).toBe(1);
+    expect(result.paymentId).toBeTruthy();
+    expect(result.checkpoint.status).toBe("passed");
+  });
+
+  it("never writes to payment_provider_events itself during readiness verification", async () => {
+    seedPendingPayment();
+    seedReadinessProbeRow();
+    const page = readyPage();
+    const rowsBefore = paymentProviderEventsTable.rows.length;
+
+    await runPaymentCompletionPhase({
+      page,
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      firstCheckout,
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+    });
+
+    expect(paymentProviderEventsTable.rows).toHaveLength(rowsBefore);
   });
 });
 
@@ -1099,17 +1184,42 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
     };
   }
 
-  // Slice 5 safety correction: no current public Payment Harness scenario
-  // can complete a real payment. Even a fully valid happy-path setup
-  // (fixture, checkout capture, reuse verification, app-route readiness,
-  // test-mode session verification, and a fulfillment poll primed to
-  // succeed) is blocked before card entry, unconditionally.
-  it("cannot complete a real payment even with a fully valid happy-path setup", async () => {
+  // Slice 5 real gate: a fully valid happy-path setup (fixture, checkout
+  // capture, reuse verification, app-route readiness, test-mode session
+  // verification, a passing Connect-listener readiness proof, and a
+  // fulfillment poll primed to succeed) now genuinely completes.
+  it("completes a real (test-mode, faked) payment end to end when every check -- including Connect listener readiness -- passes", async () => {
+    const { payable, pending } = seedHappyPathState();
+    seedReadinessProbeRow();
+    const page = scriptedCompletePaymentPage();
+
+    const result = await runPaymentHarnessFloorRentalBrowserScenario({
+      page,
+      adminSupabase: fakeAdmin(),
+      config: CONFIG,
+      confirmed: true,
+      completePayment: true,
+      fetchImpl: readyWebhookFetch(400),
+      createStripeClient: testModeStripeClient(false),
+      connectReadiness: validConnectReadiness(),
+      fulfillmentPoll: { maxAttempts: 5, intervalMs: 0, sleepFn: fulfillOnFirstSleep(pending, payable) },
+    });
+
+    expect(page.completeTestPaymentCount).toBe(1);
+    expect(result.fulfillment?.result).toBe("fulfilled");
+    expect(pending.status).toBe("paid");
+  });
+
+  // Even with app-route readiness and test-mode session verification both
+  // succeeding, a fully valid happy-path setup still fails closed before
+  // card entry when the Connect-listener readiness gate itself fails --
+  // proving the ordering is structural, not incidental to the other checks.
+  it("cannot complete a real payment when the Connect listener readiness gate fails, even with an otherwise fully valid happy-path setup", async () => {
     const { payable, pending } = seedHappyPathState();
     const page = scriptedCompletePaymentPage();
 
-    try {
-      await runPaymentHarnessFloorRentalBrowserScenario({
+    await expect(
+      runPaymentHarnessFloorRentalBrowserScenario({
         page,
         adminSupabase: fakeAdmin(),
         config: CONFIG,
@@ -1117,12 +1227,10 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
         completePayment: true,
         fetchImpl: readyWebhookFetch(400),
         createStripeClient: testModeStripeClient(false),
+        connectReadiness: failingConnectReadiness(),
         fulfillmentPoll: { maxAttempts: 5, intervalMs: 0, sleepFn: fulfillOnFirstSleep(pending, payable) },
-      });
-      throw new Error("expected runPaymentHarnessFloorRentalBrowserScenario to throw");
-    } catch (error) {
-      expect((error as PaymentHarnessSafetyError).code).toBe("CONNECT_LISTENER_READINESS_UNAVAILABLE");
-    }
+      }),
+    ).rejects.toThrow(PaymentHarnessSafetyError);
 
     expect(page.completeTestPaymentCount).toBe(0);
     // The pending row is untouched -- fulfillment (which would have
@@ -1167,7 +1275,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
     expect(page.completeTestPaymentCount).toBe(0);
   });
 
-  it("marks the evidence run failed with CONNECT_LISTENER_READINESS_UNAVAILABLE, preserving the session ids already recorded by earlier phases", async () => {
+  it("marks the evidence run failed when the Connect listener readiness gate fails, preserving the session ids already recorded by earlier phases", async () => {
     seedHappyPathState();
     const page = scriptedCompletePaymentPage();
 
@@ -1180,6 +1288,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
         completePayment: true,
         fetchImpl: readyWebhookFetch(400),
         createStripeClient: testModeStripeClient(false),
+        connectReadiness: failingConnectReadiness(),
         evidence: { runId: "run-listener-unavailable", scenario: "floor-rental-open-balance", deploymentSha: "abc123" },
       }),
     ).rejects.toThrow(PaymentHarnessSafetyError);
@@ -1192,7 +1301,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
       runId: "run-listener-unavailable",
     });
     expect(record?.status).toBe("failed");
-    expect(record?.failureReason ?? "").toContain("no deterministic Stripe Connect webhook listener readiness check");
+    expect(record?.failureReason ?? "").toContain("Connect-listener readiness probe");
     // Earlier phases' session ids are still recorded -- nothing already
     // written is cleared just because a later phase failed closed.
     expect(record?.firstSessionId).toBe("cs_test_a1B2c3D4E5F6G7H8I9J0");
@@ -1214,6 +1323,7 @@ describe("runPaymentHarnessFloorRentalBrowserScenario (completePayment: true)", 
         completePayment: true,
         fetchImpl: readyWebhookFetch(400),
         createStripeClient: testModeStripeClient(false),
+        connectReadiness: failingConnectReadiness(),
         evidence: { runId: "run-no-card-data", scenario: "floor-rental-open-balance", deploymentSha: "abc123" },
       }),
     ).rejects.toThrow(PaymentHarnessSafetyError);

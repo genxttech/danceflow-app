@@ -18,6 +18,11 @@ import {
   verifyCheckoutSessionIsTestMode,
   type StripeClientFactory,
 } from "@/lib/payment-harness/stripeVerification";
+import {
+  assertConnectListenerReady,
+  type ConnectTriggerFn,
+  type StripeEventClientFactory,
+} from "@/lib/payment-harness/connectListenerReadiness";
 import type {
   PaymentHarnessBrowserScenarioResult,
   PaymentHarnessCheckoutCapture,
@@ -77,34 +82,35 @@ import type {
  * verifies fulfillment by reading real `payments`/`appointments` rows
  * through a bounded poll -- never by writing to either table.
  *
- * Before any card details are entered, two independent checks run:
- * `assertAppWebhookRouteReady` probes the real, already-deployed
- * `/api/payments/webhook` route (no new route) with a deliberately
- * unsigned request and requires exactly the same 400 "Invalid webhook
- * request" response the route already gives any unsigned call --
- * this proves only that the app's own webhook route is reachable and has
- * a webhook secret configured, nothing about Stripe's Connect delivery
- * path; and `verifyCheckoutSessionIsTestMode` (stripeVerification.ts)
- * independently re-confirms `livemode === false` on the Checkout Session
- * itself via the harness-only Stripe test key.
+ * Before any card details are entered, `runPaymentCompletionPhase` runs three
+ * independent checks in order: `assertAppWebhookRouteReady` probes the real,
+ * already-deployed `/api/payments/webhook` route (no new route) with a
+ * deliberately unsigned request and requires exactly the same 400 "Invalid
+ * webhook request" response the route already gives any unsigned call --
+ * this proves only that the app's own webhook route is reachable and has a
+ * webhook secret configured, nothing about Stripe's Connect delivery path;
+ * `verifyCheckoutSessionIsTestMode` (stripeVerification.ts) independently
+ * re-confirms `livemode === false` on the Checkout Session itself via the
+ * harness-only Stripe test key; and `assertConnectListenerReady`
+ * (connectListenerReadiness.ts) is the real, deterministic Connect-listener
+ * readiness gate -- it triggers exactly one harmless, Connect-scoped test
+ * event, requires a matching `payment_provider_events` row to appear within
+ * a bounded window, and independently re-retrieves that exact Stripe Event
+ * (id/type/livemode/account all verified) before treating the delivery
+ * path as alive. Only after all three pass does execution reach
+ * `page.completeTestPayment()` -- there is no code path around this
+ * ordering, no config flag, boolean argument, or caller override that
+ * skips the listener-readiness check.
  *
- * A joint safety review of this slice (Maya Reed + Daniel Hayes) found
- * that neither of those checks -- nor anything else in this codebase --
- * can currently detect the specific, previously-reproduced operational
- * failure this slice exists to prevent: a Stripe CLI Connect-webhook
- * listener that showed "Ready!" at some point but whose websocket later
- * silently disconnects while the app's own route stays perfectly healthy.
- * Until a real, deterministic Connect-listener-liveness mechanism exists
- * (a follow-up discovery spike, not yet started), `runPaymentCompletionPhase`
- * calls `assertConnectListenerReadinessUnavailable` immediately before any
- * card data would be entered -- an unconditional, unbypassable fail-closed
- * gate with no config flag, boolean argument, or caller override capable
- * of skipping it. Every other Slice 5 piece (test-key guard, session
- * `livemode` re-verification, connected-account resolution, card-entry
- * implementation, fulfillment polling, read-only DB verification) remains
- * fully implemented and independently testable -- it simply cannot be
- * reached from any real invocation today, by design, until that gate is
- * replaced.
+ * A joint safety review of an earlier revision of this slice (Maya Reed +
+ * Daniel Hayes) found that the first two checks alone cannot detect the
+ * specific, previously-reproduced operational failure this gate exists to
+ * prevent: a Stripe CLI Connect-webhook listener that showed "Ready!" at
+ * some point but whose websocket later silently disconnects while the
+ * app's own route stays perfectly healthy. `assertConnectListenerReady`
+ * closes that gap by proving a *freshly generated* event actually
+ * traveled the real delivery path moments ago, rather than trusting any
+ * cached/assumed state.
  */
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -287,34 +293,6 @@ export function assertSameCheckoutSession(
       "CHECKOUT_SESSION_NOT_REUSED",
     );
   }
-}
-
-/**
- * Unconditional, unbypassable fail-closed gate for payment completion.
- *
- * A joint safety review of this slice (Maya Reed + Daniel Hayes) confirmed
- * that no check currently in this codebase -- including
- * `assertAppWebhookRouteReady` and the Stripe test-mode/session
- * verification below -- can detect the specific, already-reproduced
- * operational failure this slice exists to prevent: a Stripe CLI
- * Connect-webhook listener whose websocket silently disconnects while the
- * app's own webhook route stays healthy. Until a real, deterministic
- * Connect-listener-liveness mechanism is designed and implemented (a
- * separate, not-yet-started discovery spike), this function always
- * throws -- there is no config flag, boolean argument, environment
- * variable, or caller override anywhere in this module that can skip or
- * suppress it. `runPaymentCompletionPhase` calls this immediately before
- * `page.completeTestPayment()`, so no real invocation of any exported
- * Payment Harness scenario can reach card entry today. Exported so this
- * gate itself is directly, independently unit-testable.
- */
-export function assertConnectListenerReadinessUnavailable(context: string): never {
-  throw new PaymentHarnessSafetyError(
-    `Fail-closed (${context}): no deterministic Stripe Connect webhook listener readiness check ` +
-      `exists yet. Payment completion is disabled until one is implemented -- this is not ` +
-      `bypassable by any configuration, flag, or caller override.`,
-    "CONNECT_LISTENER_READINESS_UNAVAILABLE",
-  );
 }
 
 /**
@@ -744,7 +722,7 @@ function snapshotToEvidenceRecord(snapshot: AppointmentSnapshot): Record<string,
  * A dead/disconnected listener and a healthy one produce the identical
  * response here. Kept as one useful, narrowly-scoped precondition layer,
  * not the payment-completion safety gate -- see
- * `assertConnectListenerReadinessUnavailable` for that.
+ * `assertConnectListenerReady` (connectListenerReadiness.ts) for that.
  */
 export type AppWebhookRouteReadinessFetch = (
   url: string,
@@ -981,18 +959,17 @@ export async function runReuseVerificationPhase(params: {
  * Phase 4 -- completes the already-captured hosted Checkout Session in
  * Stripe test mode only.
  *
- * Runs the app webhook route reachability check and an independent Stripe
- * test-mode session re-verification first -- both are real, useful
- * scaffolding-layer preconditions and are allowed to execute normally --
- * but neither of them, individually or together, is a Connect-listener
- * readiness proof (see this file's module doc comment and
- * `assertAppWebhookRouteReady`'s own doc comment for why). Immediately
- * before any card data would be entered, `assertConnectListenerReadinessUnavailable`
- * unconditionally fails closed, so `page.completeTestPayment()` and
- * everything after it (post-payment redirect validation) are currently
- * unreachable from any real call -- intact scaffolding, not deleted,
- * ready to be re-enabled once a real listener-liveness gate replaces this
- * block.
+ * Card entry is only ever reached after three independent checks pass, in
+ * this exact order: (1) `assertAppWebhookRouteReady` -- the app's own
+ * webhook route is reachable and configured; (2)
+ * `verifyCheckoutSessionIsTestMode` -- the captured Checkout Session is
+ * independently re-confirmed test-mode via a fresh Stripe API call; (3)
+ * `assertConnectListenerReady` -- the real, deterministic Connect-listener
+ * readiness gate (connectListenerReadiness.ts), which triggers one
+ * harmless Connect-scoped test event and requires proof it actually
+ * traveled the real delivery path within a bounded window. Any of the
+ * three failing throws before `page.completeTestPayment()` is ever
+ * called -- there is no code path around this ordering.
  */
 export async function runPaymentCompletionPhase(params: {
   page: PaymentHarnessBrowserPage;
@@ -1001,8 +978,24 @@ export async function runPaymentCompletionPhase(params: {
   firstCheckout: PaymentHarnessCheckoutCapture;
   fetchImpl?: AppWebhookRouteReadinessFetch;
   createStripeClient?: StripeClientFactory;
+  connectReadiness?: {
+    triggerFn?: ConnectTriggerFn;
+    now?: () => Date;
+    sleepFn?: (ms: number) => Promise<void>;
+    pollMaxAttempts?: number;
+    pollIntervalMs?: number;
+    createStripeEventClient?: StripeEventClientFactory;
+  };
 }): Promise<{ paymentId: string; checkpoint: PaymentHarnessCheckpoint }> {
-  const { page, adminSupabase, config, firstCheckout, fetchImpl, createStripeClient } = params;
+  const {
+    page,
+    adminSupabase,
+    config,
+    firstCheckout,
+    fetchImpl,
+    createStripeClient,
+    connectReadiness,
+  } = params;
   const context = "runPaymentCompletionPhase";
 
   assertPaymentHarnessEnvironmentAllowed(config.environment, context);
@@ -1030,10 +1023,22 @@ export async function runPaymentCompletionPhase(params: {
     createStripeClient,
   });
 
-  // Unconditional fail-closed gate -- see this function's doc comment and
-  // assertConnectListenerReadinessUnavailable's own doc comment. Always
-  // throws; no config/flag/override reaches past this line today.
-  assertConnectListenerReadinessUnavailable(context);
+  // Real, deterministic Connect-listener readiness gate -- replaces the
+  // prior unconditional CONNECT_LISTENER_READINESS_UNAVAILABLE block.
+  // Throws unless a freshly-triggered, freshly-verified event proves the
+  // delivery path is alive right now.
+  await assertConnectListenerReady({
+    adminSupabase,
+    connectedAccountId,
+    environment: config.environment,
+    context,
+    triggerFn: connectReadiness?.triggerFn,
+    now: connectReadiness?.now,
+    sleepFn: connectReadiness?.sleepFn,
+    pollMaxAttempts: connectReadiness?.pollMaxAttempts,
+    pollIntervalMs: connectReadiness?.pollIntervalMs,
+    createStripeEventClient: connectReadiness?.createStripeEventClient,
+  });
 
   await page.completeTestPayment();
 
@@ -1228,10 +1233,11 @@ export async function runFulfillmentVerificationPhase(params: {
  * second, independent opt-in on top of `confirmed` -- exactly the kind of
  * distinct, more consequential gate a future Slice 8 CLI is expected to
  * expose as its own flag (e.g. `--complete-payment`), not something this
- * function defaults to. Today, setting it still cannot complete a real
- * payment: `runPaymentCompletionPhase` unconditionally fails closed via
- * `assertConnectListenerReadinessUnavailable` before any card data is
- * entered, until a real Connect-listener-liveness gate exists.
+ * function defaults to. `runPaymentCompletionPhase` only reaches card
+ * entry after the real, deterministic Connect-listener readiness gate
+ * (`assertConnectListenerReady`, connectListenerReadiness.ts) passes --
+ * see that module and this file's own doc comment for how it proves the
+ * delivery path is alive right now, not assumed.
  *
  * `confirmed` mirrors the Slice 1 `assertConfirmed` guard: this slice has
  * no CLI yet, so the caller (a future Slice 8 CLI) is expected to pass
@@ -1254,6 +1260,14 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
   completePayment?: boolean;
   fetchImpl?: AppWebhookRouteReadinessFetch;
   createStripeClient?: StripeClientFactory;
+  connectReadiness?: {
+    triggerFn?: ConnectTriggerFn;
+    now?: () => Date;
+    sleepFn?: (ms: number) => Promise<void>;
+    pollMaxAttempts?: number;
+    pollIntervalMs?: number;
+    createStripeEventClient?: StripeEventClientFactory;
+  };
   fulfillmentPoll?: {
     maxAttempts?: number;
     intervalMs?: number;
@@ -1273,6 +1287,7 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
     completePayment = false,
     fetchImpl,
     createStripeClient,
+    connectReadiness,
     fulfillmentPoll,
     evidence,
   } = params;
@@ -1364,6 +1379,7 @@ export async function runPaymentHarnessFloorRentalBrowserScenario(params: {
       firstCheckout: phase2.checkout,
       fetchImpl,
       createStripeClient,
+      connectReadiness,
     });
     checkpoints.push(phase4.checkpoint);
 

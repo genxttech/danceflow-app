@@ -59,6 +59,7 @@ export class FakeTable {
 export class FakeQuery {
   private filters: [string, unknown][] = [];
   private negFilters: [string, unknown][] = [];
+  private gteFilters: [string, unknown][] = [];
   private opts: { count?: string } | undefined;
   private orderCol: string | null = null;
   private orderAscending = true;
@@ -90,6 +91,11 @@ export class FakeQuery {
     return this;
   }
 
+  gte(col: string, val: unknown) {
+    this.gteFilters.push([col, val]);
+    return this;
+  }
+
   order(col: string, opts?: { ascending?: boolean }) {
     this.orderCol = col;
     this.orderAscending = opts?.ascending ?? true;
@@ -105,7 +111,12 @@ export class FakeQuery {
     return this.table.rows.filter(
       (r) =>
         this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)) &&
-        this.negFilters.every(([c, v]) => r[c] !== v),
+        this.negFilters.every(([c, v]) => r[c] !== v) &&
+        this.gteFilters.every(
+          ([c, v]) =>
+            (r[c] as string | number | undefined) !== undefined &&
+            (r[c] as string | number) >= (v as string | number),
+        ),
     );
   }
 
