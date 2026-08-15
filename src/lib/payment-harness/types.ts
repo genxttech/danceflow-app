@@ -352,3 +352,122 @@ export type PaymentHarnessFulfillmentOutcome = {
   readonly paymentIntentId: string | null;
   readonly checkpoint: PaymentHarnessCheckpoint;
 };
+
+/**
+ * Slice 6 addition: mechanism-agnostic redelivery-idempotency verification
+ * -- proving "a second delivery of the same logical webhook event produced
+ * no additional financial/application state transition" without this
+ * module ever knowing or caring how that second delivery happened. The
+ * trigger mechanism itself remains a later slice's separate, unresolved
+ * problem (see redeliverySnapshot.ts's module doc comment); these types
+ * only cover capturing and comparing state.
+ *
+ * `payment` is `null` only when the expected payment row could not be
+ * found at capture time -- a legitimate, comparable state for a plain
+ * (post-baseline, "after") read: the row having disappeared since the
+ * baseline was established is itself one of the mismatches comparison
+ * exists to detect, never a reason for `captureFloorRentalRedeliverySnapshot`
+ * itself to throw. A *baseline* read is a stricter concept -- see
+ * `PaymentHarnessRedeliveryBaselineSnapshot` immediately below.
+ */
+export type PaymentHarnessRedeliveryPaymentSnapshotEntry = {
+  readonly paymentId: string;
+  /** Count of payment rows scoped to this transaction's Checkout Session
+   * -- 1 in the healthy case; detects an additional row appearing for the
+   * same transaction without assuming anything about unrelated, historical
+   * sessions. */
+  readonly relatedPaymentRowCount: number;
+  readonly status: string;
+  readonly amount: number;
+  readonly stripeCheckoutSessionId: string | null;
+  readonly stripePaymentIntentId: string | null;
+  readonly paidAt: string | null;
+};
+
+export type PaymentHarnessRedeliveryAppointmentSnapshotEntry = {
+  readonly id: string;
+  readonly status: string;
+  readonly paymentStatus: string;
+};
+
+export type PaymentHarnessRedeliverySnapshot = {
+  readonly payment: PaymentHarnessRedeliveryPaymentSnapshotEntry | null;
+  readonly appointments: readonly PaymentHarnessRedeliveryAppointmentSnapshotEntry[];
+  readonly capturedAt: string;
+};
+
+/**
+ * A `PaymentHarnessRedeliverySnapshot` that has additionally been proven,
+ * at capture time, to be a *valid post-first-fulfillment baseline*: the
+ * exact expected payment exists, matches the expected id and Checkout
+ * Session, is already `paid`, and has a populated PaymentIntent id (see
+ * `captureFloorRentalRedeliveryBaseline` in redeliverySnapshot.ts, the
+ * only function that legitimately produces this type). `payment` is
+ * non-nullable here on purpose -- a redelivery baseline without the
+ * completed payment it exists to verify is not a valid baseline at all,
+ * so this is a compile-time guarantee, not just a runtime check: nothing
+ * can be passed as `compareFloorRentalRedeliverySnapshots`'s `baseline`
+ * parameter without having gone through that validation first. This is
+ * exactly what makes `resolveFloorRentalRedeliveryCheckResult` structurally
+ * incapable of reporting `"passed"` from a "payment missing" baseline --
+ * there is no code path that can construct one.
+ */
+export type PaymentHarnessRedeliveryBaselineSnapshot = Omit<PaymentHarnessRedeliverySnapshot, "payment"> & {
+  readonly payment: PaymentHarnessRedeliveryPaymentSnapshotEntry;
+};
+
+export const PAYMENT_HARNESS_REDELIVERY_MISMATCH_CODES = [
+  "REDELIVERY_PAYMENT_MISSING",
+  "REDELIVERY_PAYMENT_ROW_COUNT_CHANGED",
+  "REDELIVERY_PAYMENT_ID_CHANGED",
+  "REDELIVERY_PAYMENT_STATUS_CHANGED",
+  "REDELIVERY_PAYMENT_AMOUNT_CHANGED",
+  "REDELIVERY_CHECKOUT_SESSION_CHANGED",
+  "REDELIVERY_PAYMENT_INTENT_CHANGED",
+  "REDELIVERY_APPOINTMENT_MISSING",
+  "REDELIVERY_UNEXPECTED_APPOINTMENT",
+  "REDELIVERY_APPOINTMENT_CHANGED",
+] as const;
+export type PaymentHarnessRedeliveryMismatchCode = (typeof PAYMENT_HARNESS_REDELIVERY_MISMATCH_CODES)[number];
+
+export type PaymentHarnessRedeliveryMismatch = {
+  readonly code: PaymentHarnessRedeliveryMismatchCode;
+  readonly detail: string;
+};
+
+export const PAYMENT_HARNESS_REDELIVERY_COMPARISON_OUTCOMES = ["unchanged", "changed"] as const;
+export type PaymentHarnessRedeliveryComparisonOutcome =
+  (typeof PAYMENT_HARNESS_REDELIVERY_COMPARISON_OUTCOMES)[number];
+
+export type PaymentHarnessRedeliveryStateComparison = {
+  readonly outcome: PaymentHarnessRedeliveryComparisonOutcome;
+  readonly mismatches: readonly PaymentHarnessRedeliveryMismatch[];
+};
+
+/**
+ * Whether a caller can actually prove a duplicate delivery was triggered
+ * -- deliberately separate from, and required alongside,
+ * `PaymentHarnessRedeliveryStateComparison`'s "did state change" result.
+ * `"not_available"`: no redelivery mechanism/trigger exists yet for this
+ * run (Slice 6's honest starting point -- the trigger problem is
+ * unresolved). `"unverified"`: a trigger was attempted but a caller
+ * couldn't independently confirm it actually happened. `"confirmed"`: a
+ * caller has independent proof the duplicate delivery occurred. Only
+ * `"confirmed"` can ever combine with an `"unchanged"` comparison to
+ * produce `"passed"` -- see `resolveFloorRentalRedeliveryCheckResult`.
+ */
+export const PAYMENT_HARNESS_REDELIVERY_TRIGGER_STATUSES = ["not_available", "unverified", "confirmed"] as const;
+export type PaymentHarnessRedeliveryTriggerStatus = (typeof PAYMENT_HARNESS_REDELIVERY_TRIGGER_STATUSES)[number];
+
+/**
+ * The final, honest outcome `resolveFloorRentalRedeliveryCheckResult`
+ * produces -- `result` reuses the existing `PaymentHarnessRedeliveryResult`
+ * enum (the same one `payment_harness_runs.redelivery_check_result` is
+ * constrained to) but never returns `"not_run"`, since that value is the
+ * column's own pre-call default, not something a completed check reports.
+ */
+export type PaymentHarnessRedeliveryVerificationOutcome = {
+  readonly result: PaymentHarnessRedeliveryResult;
+  readonly comparison: PaymentHarnessRedeliveryStateComparison;
+  readonly checkpoint: PaymentHarnessCheckpoint;
+};
