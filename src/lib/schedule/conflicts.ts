@@ -66,7 +66,7 @@ export async function detectAppointmentConflicts(params: {
     }
 
     let blockQuery = supabase
-      .from("schedule_blocks")
+      .from("instructor_schedule_blocks")
       .select("id", { count: "exact", head: true })
       .eq("studio_id", studioId)
       .eq("instructor_id", instructorId)
@@ -122,7 +122,7 @@ export async function detectAppointmentConflicts(params: {
     }
 
     let blockQuery = supabase
-      .from("schedule_blocks")
+      .from("instructor_schedule_blocks")
       .select("id", { count: "exact", head: true })
       .eq("studio_id", studioId)
       .eq("room_id", roomId)
