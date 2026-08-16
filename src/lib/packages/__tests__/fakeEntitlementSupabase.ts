@@ -25,7 +25,8 @@ export type FakeError = { message: string; code?: string };
 
 type Filter =
   | { type: "eq" | "neq" | "gte" | "lte" | "lt" | "gt" | "is"; col: string; val: unknown }
-  | { type: "in"; col: string; vals: unknown[] };
+  | { type: "in"; col: string; vals: unknown[] }
+  | { type: "not"; col: string; innerType: "eq" | "is"; val: unknown };
 
 /**
  * Supports Supabase's `relation.column` filter syntax (e.g.
@@ -47,6 +48,11 @@ function resolveFieldValue(row: Row, col: string): unknown {
 
 function compare(rowValue: unknown, filter: Filter): boolean {
   if (filter.type === "in") return filter.vals.includes(rowValue);
+  // `.not(col, "is", null)` -- the only real-world usage in this codebase --
+  // negates the inner comparison. Mirrors Postgres `NOT (col IS NULL)`.
+  if (filter.type === "not") {
+    return !compare(rowValue, { type: filter.innerType, col: filter.col, val: filter.val });
+  }
   // `.is()` (used for null/true/false comparisons via Postgres `IS`) must
   // be checked before the null/undefined short-circuit below, since it's
   // specifically meant to match null -- unlike `.eq()`, which never
@@ -144,6 +150,11 @@ class FakeQuery {
 
   in(col: string, vals: unknown[]) {
     this.filters.push({ type: "in", col, vals });
+    return this;
+  }
+
+  not(col: string, operator: "eq" | "is", val: unknown) {
+    this.filters.push({ type: "not", col, innerType: operator, val });
     return this;
   }
 

@@ -11,6 +11,11 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
+import {
+  getClientPackageStatus,
+  getItemWarningLevel,
+  getUnsuppressedWarningUsageTypes,
+} from "@/lib/packages/entitlement";
 
 type PackageRow = {
   id: string;
@@ -27,6 +32,7 @@ type PackageRow = {
 };
 
 type ClientPackageItemRow = {
+  usage_type: string;
   quantity_remaining: number | null;
   is_unlimited: boolean;
 };
@@ -36,6 +42,7 @@ type ClientPackageRow = {
   client_id: string;
   name_snapshot: string;
   active: boolean;
+  archived_at: string | null;
   expiration_date: string | null;
   clients:
     | { first_name: string; last_name: string }
@@ -54,23 +61,33 @@ function clientName(
   return client ? `${client.first_name} ${client.last_name}` : "Unknown client";
 }
 
-function packageBalanceState(pkg: ClientPackageRow) {
+/**
+ * Schedule Stabilization Slice 1b-b: canonical status + replacement-coverage
+ * suppression, replacing the previous independent threshold-1/lowest-item
+ * reimplementation. `otherPackages` should be the same client's other
+ * loaded packages (see call site) -- a healthy same-usage-type package
+ * suppresses down to "healthy"; an unrelated-usage-type or archived/
+ * expired/inactive/depleted "replacement" never does.
+ */
+function packageBalanceState(pkg: ClientPackageRow, otherPackages: ClientPackageRow[]) {
   if (!pkg.active) return "inactive";
 
-  if (pkg.expiration_date) {
-    const expiration = new Date(`${pkg.expiration_date}T23:59:59`);
-    if (expiration.getTime() < Date.now()) return "expired";
-  }
+  const status = getClientPackageStatus(pkg);
+  if (status === "archived") return "inactive";
+  if (status === "expired") return "expired";
 
-  const finite = pkg.client_package_items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
-  );
-  if (finite.length === 0) return "healthy";
+  const unsuppressed = getUnsuppressedWarningUsageTypes({
+    targetPackage: pkg,
+    otherClientPackages: otherPackages,
+  });
+  if (unsuppressed.length === 0) return "healthy";
 
-  const lowest = Math.min(...finite.map((item) => Number(item.quantity_remaining ?? 0)));
-  if (lowest <= 0) return "depleted";
-  if (lowest <= 1) return "low";
-  return "healthy";
+  const worstIsDepleted = unsuppressed.some((usageType) => {
+    const item = pkg.client_package_items.find((candidate) => candidate.usage_type === usageType);
+    return item ? getItemWarningLevel(item) === "depleted" : false;
+  });
+
+  return worstIsDepleted ? "depleted" : "low";
 }
 
 function packageBalanceBadgeClass(state: string) {
@@ -153,12 +170,14 @@ export default async function PackagesPage() {
         client_id,
         name_snapshot,
         active,
+        archived_at,
         expiration_date,
         clients (
           first_name,
           last_name
         ),
         client_package_items (
+          usage_type,
           quantity_remaining,
           is_unlimited
         )
@@ -181,10 +200,21 @@ export default async function PackagesPage() {
   const clientPackages = (clientPackageData ?? []) as ClientPackageRow[];
   const activeCount = packageTemplates.filter((pkg) => pkg.active).length;
   const archivedCount = packageTemplates.filter((pkg) => !pkg.active).length;
-  const packageBalanceRows = clientPackages.map((pkg) => ({
-    pkg,
-    state: packageBalanceState(pkg),
-  }));
+  const clientPackagesByClientId = new Map<string, ClientPackageRow[]>();
+  for (const pkg of clientPackages) {
+    const list = clientPackagesByClientId.get(pkg.client_id);
+    if (list) {
+      list.push(pkg);
+    } else {
+      clientPackagesByClientId.set(pkg.client_id, [pkg]);
+    }
+  }
+  const packageBalanceRows = clientPackages.map((pkg) => {
+    const otherPackages = (clientPackagesByClientId.get(pkg.client_id) ?? []).filter(
+      (candidate) => candidate.id !== pkg.id,
+    );
+    return { pkg, state: packageBalanceState(pkg, otherPackages) };
+  });
   const healthyClientPackages = packageBalanceRows.filter((row) => row.state === "healthy");
   const attentionClientPackages = packageBalanceRows.filter(
     (row) => row.state === "low" || row.state === "depleted" || row.state === "expired",

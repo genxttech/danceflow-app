@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext, isOrganizerRole } from "@/lib/auth/studio";
+import { hasUnsuppressedPackageWarning, type PackageWithItems } from "@/lib/packages/entitlement";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import {
@@ -63,6 +64,7 @@ type ClientPackageRow = {
   created_at: string;
   client_package_items?:
     | {
+        usage_type?: string | null;
         quantity_remaining: number | string | null;
         is_unlimited: boolean | null;
       }[]
@@ -3152,7 +3154,7 @@ export default async function AriaOperationsCenterPage() {
     supabase
       .from("client_packages")
       .select(
-        "id, client_id, name_snapshot, active, expiration_date, purchase_date, created_at, client_package_items ( quantity_remaining, is_unlimited )",
+        "id, client_id, name_snapshot, active, expiration_date, purchase_date, created_at, client_package_items ( usage_type, quantity_remaining, is_unlimited )",
       )
       .eq("studio_id", studioId)
       .eq("active", true)
@@ -3283,9 +3285,42 @@ export default async function AriaOperationsCenterPage() {
     );
   });
 
+  // Schedule Stabilization Slice 1b-b: canonical status (this is a
+  // display tile, not the proactive-automation trigger, so it always
+  // reflects the same Low/Depleted definition every other surface uses)
+  // plus replacement-coverage suppression.
+  const packagesByClientIdForHealth = new Map<string, PackageWithItems[]>();
+  for (const pkg of packages) {
+    if (!pkg.client_id) continue;
+    const asPackageWithItems: PackageWithItems = {
+      id: pkg.id,
+      active: true, // query already scopes to active=true
+      archived_at: null,
+      expiration_date: pkg.expiration_date,
+      client_package_items: (pkg.client_package_items ?? []).map((item) => ({
+        usage_type: item.usage_type ?? "",
+        quantity_remaining: item.quantity_remaining === null ? null : Number(item.quantity_remaining),
+        is_unlimited: Boolean(item.is_unlimited),
+      })),
+    };
+    const list = packagesByClientIdForHealth.get(pkg.client_id);
+    if (list) {
+      list.push(asPackageWithItems);
+    } else {
+      packagesByClientIdForHealth.set(pkg.client_id, [asPackageWithItems]);
+    }
+  }
+
   const lowBalancePackages = packages.filter((pkg) => {
-    const remaining = lowestRemainingPackageCredit(pkg);
-    return typeof remaining === "number" && remaining <= 2;
+    if (!pkg.client_id) return false;
+    const targetPackage = packagesByClientIdForHealth
+      .get(pkg.client_id)
+      ?.find((candidate) => candidate.id === pkg.id);
+    if (!targetPackage) return false;
+    const otherPackages = (packagesByClientIdForHealth.get(pkg.client_id) ?? []).filter(
+      (candidate) => candidate.id !== pkg.id,
+    );
+    return hasUnsuppressedPackageWarning({ targetPackage, otherClientPackages: otherPackages });
   });
   const expiringPackages = packages.filter((pkg) => {
     if (!pkg.expiration_date) return false;

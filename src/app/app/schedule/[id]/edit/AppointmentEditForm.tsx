@@ -3,6 +3,11 @@
 import { useActionState, useMemo, useState } from "react";
 import { updateAppointmentAction } from "../../actions";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
+import {
+  getItemWarningLevel,
+  getUnsuppressedWarningUsageTypes,
+  type PackageWithItems,
+} from "@/lib/packages/entitlement";
 
 const initialState = { error: "" };
 
@@ -36,6 +41,7 @@ type ClientPackageOption = {
   client_id: string;
   name_snapshot: string;
   active: boolean;
+  archived_at?: string | null;
   expiration_date?: string | null;
   client_package_items: ClientPackageItem[];
 };
@@ -130,19 +136,18 @@ function toStudioDateTimeInputValue(
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
-function getLowestRemainingValue(items: ClientPackageItem[]) {
-  const finiteItems = items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
-  );
-
-  if (finiteItems.length === 0) return null;
-
-  return Math.min(
-    ...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)),
-  );
-}
-
-function getPackageHealth(pkg: ClientPackageOption | null): PackageHealth {
+/**
+ * Schedule Stabilization Slice 1b-b: canonical status + per-usage-type
+ * replacement-coverage suppression, replacing the previous independent
+ * min-based reimplementation. `otherPackages` is the same client's other
+ * loaded packages (already available via the `clientPackages` prop --
+ * see the `selectedPackages` memo at the call site -- so no new query is
+ * needed on this client-side form).
+ */
+function getPackageHealth(
+  pkg: ClientPackageOption | null,
+  otherPackages: PackageWithItems[] = [],
+): PackageHealth {
   if (!pkg) return "unknown";
   if (!pkg.active) return "inactive";
 
@@ -152,13 +157,29 @@ function getPackageHealth(pkg: ClientPackageOption | null): PackageHealth {
     if (expiration < now) return "expired";
   }
 
-  const lowestRemaining = getLowestRemainingValue(pkg.client_package_items);
+  const items = pkg.client_package_items;
+  if (items.length === 0) return "healthy";
 
-  if (lowestRemaining === null) return "healthy";
-  if (lowestRemaining <= 0) return "depleted";
-  if (lowestRemaining === 1) return "low_balance";
+  const targetPackage: PackageWithItems = {
+    id: pkg.id,
+    active: pkg.active,
+    archived_at: pkg.archived_at ?? null,
+    expiration_date: pkg.expiration_date ?? null,
+    client_package_items: items,
+  };
 
-  return "healthy";
+  const unsuppressed = getUnsuppressedWarningUsageTypes({
+    targetPackage,
+    otherClientPackages: otherPackages,
+  });
+  if (unsuppressed.length === 0) return "healthy";
+
+  const worstIsDepleted = unsuppressed.some((usageType) => {
+    const item = items.find((candidate) => candidate.usage_type === usageType);
+    return item ? getItemWarningLevel(item) === "depleted" : false;
+  });
+
+  return worstIsDepleted ? "depleted" : "low_balance";
 }
 
 function packageHealthLabel(health: PackageHealth) {
@@ -410,9 +431,22 @@ export default function AppointmentEditForm({
     return selectedPackages.find((pkg) => pkg.id === linkedPackageId) ?? null;
   }, [linkedPackageId, selectedPackages]);
 
+  const otherPackagesForHealth = useMemo<PackageWithItems[]>(() => {
+    if (!selectedPackage) return [];
+    return selectedPackages
+      .filter((pkg) => pkg.id !== selectedPackage.id)
+      .map((pkg) => ({
+        id: pkg.id,
+        active: pkg.active,
+        archived_at: pkg.archived_at ?? null,
+        expiration_date: pkg.expiration_date ?? null,
+        client_package_items: pkg.client_package_items,
+      }));
+  }, [selectedPackage, selectedPackages]);
+
   const packageHealth = useMemo(
-    () => getPackageHealth(selectedPackage),
-    [selectedPackage],
+    () => getPackageHealth(selectedPackage, otherPackagesForHealth),
+    [selectedPackage, otherPackagesForHealth],
   );
 
   const selectedMembershipOptions = useMemo(() => {

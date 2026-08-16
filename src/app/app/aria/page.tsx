@@ -17,6 +17,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { getItemWarningLevel, getUnsuppressedWarningUsageTypes, type PackageWithItems } from "@/lib/packages/entitlement";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
@@ -30,8 +31,10 @@ type ClientPackageRow = {
   client_id: string | null;
   name_snapshot: string | null;
   active: boolean | null;
+  expiration_date?: string | null;
   client_package_items?:
     | {
+        usage_type?: string | null;
         quantity_remaining: number | string | null;
         is_unlimited: boolean | null;
       }[]
@@ -288,17 +291,6 @@ function isOrganizerRole(role: string | null | undefined) {
     role === "organizer_admin" ||
     role === "organizer_staff"
   );
-}
-
-function packageLowestRemaining(row: ClientPackageRow) {
-  const finiteItems = (row.client_package_items ?? [])
-    .filter((item) => !item.is_unlimited)
-    .map((item) => asNumber(item.quantity_remaining))
-    .filter((value): value is number => typeof value === "number");
-
-  if (finiteItems.length === 0) return null;
-
-  return Math.min(...finiteItems);
 }
 
 function priorityClass(priority: string) {
@@ -1042,7 +1034,9 @@ export default async function AriaOpportunityHubPage() {
         client_id,
         name_snapshot,
         active,
+        expiration_date,
         client_package_items (
+          usage_type,
           quantity_remaining,
           is_unlimited
         )
@@ -1246,14 +1240,63 @@ export default async function AriaOpportunityHubPage() {
     range: "90",
   });
 
-  const lowBalancePackages = packages.filter((pkg) => {
-    const lowestRemaining = packageLowestRemaining(pkg);
-    return typeof lowestRemaining === "number" && lowestRemaining <= 2;
-  });
+  // Schedule Stabilization Slice 1b-b: canonical status (display tile,
+  // not the proactive-automation trigger, so always canonical) plus
+  // replacement-coverage suppression.
+  const packagesByClientIdForHealth = new Map<string, PackageWithItems[]>();
+  for (const pkg of packages) {
+    if (!pkg.client_id) continue;
+    const asPackageWithItems: PackageWithItems = {
+      id: pkg.id,
+      active: true, // query already scopes to active=true
+      archived_at: null,
+      expiration_date: pkg.expiration_date ?? null,
+      client_package_items: (pkg.client_package_items ?? []).map((item) => ({
+        usage_type: item.usage_type ?? "",
+        quantity_remaining: item.quantity_remaining === null ? null : Number(item.quantity_remaining),
+        is_unlimited: Boolean(item.is_unlimited),
+      })),
+    };
+    const list = packagesByClientIdForHealth.get(pkg.client_id);
+    if (list) {
+      list.push(asPackageWithItems);
+    } else {
+      packagesByClientIdForHealth.set(pkg.client_id, [asPackageWithItems]);
+    }
+  }
 
-  const depletedPackages = lowBalancePackages.filter(
-    (pkg) => packageLowestRemaining(pkg) === 0,
+  function unsuppressedLevelsForAriaDashboard(pkg: ClientPackageRow) {
+    if (!pkg.client_id) return [] as string[];
+    const targetPackage = packagesByClientIdForHealth
+      .get(pkg.client_id)
+      ?.find((candidate) => candidate.id === pkg.id);
+    if (!targetPackage) return [] as string[];
+    const otherPackages = (packagesByClientIdForHealth.get(pkg.client_id) ?? []).filter(
+      (candidate) => candidate.id !== pkg.id,
+    );
+    return getUnsuppressedWarningUsageTypes({ targetPackage, otherClientPackages: otherPackages });
+  }
+
+  const lowBalancePackages = packages.filter(
+    (pkg) => unsuppressedLevelsForAriaDashboard(pkg).length > 0,
   );
+
+  const depletedPackages = lowBalancePackages.filter((pkg) => {
+    const unsuppressed = unsuppressedLevelsForAriaDashboard(pkg);
+    return unsuppressed.some((usageType) => {
+      const item = (pkg.client_package_items ?? []).find(
+        (candidate) => (candidate.usage_type ?? "") === usageType,
+      );
+      if (!item) return false;
+      return (
+        getItemWarningLevel({
+          usage_type: usageType,
+          quantity_remaining: item.quantity_remaining === null ? null : Number(item.quantity_remaining),
+          is_unlimited: Boolean(item.is_unlimited),
+        }) === "depleted"
+      );
+    });
+  });
 
   const futureClientIds = new Set(
     futureAppointments

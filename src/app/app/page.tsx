@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { hasUnsuppressedPackageWarning, type PackageWithItems } from "@/lib/packages/entitlement";
 import { syncStudioNotifications } from "@/lib/notifications/sync";
 import { dismissPlatformBroadcastAlertAction } from "@/app/platform/actions";
 import { dismissWorkspaceOnboardingAction } from "@/app/app/onboarding-actions";
@@ -175,6 +176,7 @@ type FollowUpLeadActivityRow = {
 };
 
 type FollowUpPackageItemRow = {
+  usage_type?: string | null;
   quantity_remaining: number | string | null;
   is_unlimited: boolean | null;
 };
@@ -2315,6 +2317,7 @@ export default async function AppDashboardPage({
           name_snapshot,
           active,
           client_package_items (
+            usage_type,
             quantity_remaining,
             is_unlimited
           )
@@ -2433,17 +2436,52 @@ export default async function AppDashboardPage({
     });
   }
 
+  // Schedule Stabilization Slice 1b-b: canonical status + replacement-
+  // coverage suppression, replacing the previous independent
+  // lowest-item/threshold-2 reimplementation.
+  const followUpPackagesByClientId = new Map<string, PackageWithItems[]>();
   for (const pkg of followUpPackages) {
     if (!pkg.client_id) continue;
+    const asPackageWithItems: PackageWithItems = {
+      id: pkg.id,
+      active: true, // query already scopes to active=true
+      archived_at: null,
+      expiration_date: null,
+      client_package_items: (pkg.client_package_items ?? []).map((item) => ({
+        usage_type: item.usage_type ?? "",
+        quantity_remaining:
+          item.quantity_remaining === null ? null : Number(item.quantity_remaining),
+        is_unlimited: Boolean(item.is_unlimited),
+      })),
+    };
+    const list = followUpPackagesByClientId.get(pkg.client_id);
+    if (list) {
+      list.push(asPackageWithItems);
+    } else {
+      followUpPackagesByClientId.set(pkg.client_id, [asPackageWithItems]);
+    }
+  }
+
+  for (const pkg of followUpPackages) {
+    if (!pkg.client_id) continue;
+
     const finiteRemaining = (pkg.client_package_items ?? [])
       .filter((item) => !item.is_unlimited)
       .map((item) => toNumericValue(item.quantity_remaining))
       .filter((value): value is number => value !== null);
-
     if (finiteRemaining.length === 0) continue;
-
     const lowestRemaining = Math.min(...finiteRemaining);
-    if (lowestRemaining > 2) continue;
+
+    const targetPackage = followUpPackagesByClientId
+      .get(pkg.client_id)
+      ?.find((candidate) => candidate.id === pkg.id);
+    if (!targetPackage) continue;
+    const otherPackages = (followUpPackagesByClientId.get(pkg.client_id) ?? []).filter(
+      (candidate) => candidate.id !== pkg.id,
+    );
+    if (!hasUnsuppressedPackageWarning({ targetPackage, otherClientPackages: otherPackages })) {
+      continue;
+    }
 
     const client = followUpClientMap.get(pkg.client_id);
     if (!client) continue;

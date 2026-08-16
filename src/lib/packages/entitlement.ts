@@ -58,7 +58,7 @@ function usageTypesForAppointment(appointmentType: string): readonly string[] {
   return [appointmentType];
 }
 
-type PackageItemRow = {
+export type PackageItemRow = {
   usage_type: string;
   quantity_remaining: number | null;
   is_unlimited: boolean;
@@ -397,4 +397,147 @@ export function isPackageEligibleForReactivation(pkg: {
   const today = new Date().toISOString().slice(0, 10);
   if (pkg.expiration_date && pkg.expiration_date < today) return false;
   return hasUsableBalance(balanceItemsOf(pkg.client_package_items));
+}
+
+/**
+ * Schedule Stabilization Slice 1b-b: canonical package-warning and
+ * replacement-coverage helpers, shared by every low/depleted-package
+ * warning surface (portal, staff pages, notifications, ARIA, Marketing).
+ * Before this, each surface reimplemented its own threshold (1, 2, a
+ * purchased-quantity ratio, or a sum-across-items variant) and only one
+ * surface (ARIA) suppressed a warning when the client had replacement
+ * coverage elsewhere.
+ *
+ * `getClientPackageStatus` above remains the sole authority for a
+ * package's single aggregate precedence label (Archived > Depleted >
+ * Expired > Low > Active) -- nothing here changes it. What's added is a
+ * finer, per-usage-type layer underneath it: a multi-item package can have
+ * one usage type that's genuinely warning-worthy and another that isn't,
+ * and a single replacement package must never be allowed to
+ * blanket-suppress both. Every "is this warning suppressed" call site MUST
+ * go through `getUnsuppressedWarningUsageTypes`/`hasUnsuppressedPackageWarning`
+ * -- never call `hasReplacementCoverage` once for a package and apply the
+ * result to the whole thing, or a package with e.g. a low private-lesson
+ * item and a separately-depleted group-class item could have its
+ * group-class warning silently swallowed by a replacement that only
+ * covers private lessons.
+ *
+ * All coverage/suppression functions here return booleans or usage-type
+ * lists only -- never a package reference. Multiple qualifying
+ * replacement packages remaining an unresolved ambiguity for booking
+ * (Slice 1) is a deliberate, preserved invariant; these helpers must never
+ * become a mechanism for auto-selecting a package.
+ */
+export type PackageUsageType = string;
+
+export type PackageWithItems = {
+  id: string;
+  active: boolean;
+  archived_at: string | null;
+  expiration_date: string | null;
+  client_package_items: PackageItemRow[] | PackageItemRow | null;
+};
+
+/**
+ * Per-item primitive: is this one item, in isolation, warning-worthy right
+ * now? Mirrors `getClientPackageStatus`'s existing per-item thresholds
+ * (finite, remaining<=0 => depleted; finite, remaining===1 => low), just
+ * exposed per item instead of only folded into a package-level aggregate.
+ * Unlimited items are never themselves low or depleted.
+ */
+export function getItemWarningLevel(item: PackageItemRow): "depleted" | "low" | null {
+  if (item.is_unlimited) return null;
+  const remaining = Number(item.quantity_remaining ?? 0);
+  if (remaining <= 0) return "depleted";
+  if (remaining === 1) return "low";
+  return null;
+}
+
+/**
+ * Every usage type on this package that is currently warning-worthy
+ * (deduplicated), independent of the package's single aggregate status
+ * label -- a package can have one low/depleted usage type and one
+ * perfectly healthy one at the same time.
+ */
+export function getWarningCausingUsageTypes(pkg: PackageWithItems): PackageUsageType[] {
+  const seen = new Set<PackageUsageType>();
+  for (const item of itemsOf(pkg.client_package_items)) {
+    if (getItemWarningLevel(item) !== null) seen.add(item.usage_type);
+  }
+  return Array.from(seen);
+}
+
+/**
+ * Does this one candidate package provide usable replacement coverage for
+ * a specific usage type right now? Not archived, active, not expired, and
+ * that usage type's item is unlimited or has balance strictly greater
+ * than zero -- deliberately >0, not above any low threshold: a
+ * replacement that's itself "low" (but not depleted) still counts as
+ * legitimate coverage.
+ */
+export function packageProvidesCoverageForUsageType(
+  pkg: PackageWithItems,
+  usageType: PackageUsageType,
+): boolean {
+  if (pkg.archived_at) return false;
+  if (!pkg.active) return false;
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (pkg.expiration_date && pkg.expiration_date < today) return false;
+
+  return itemsOf(pkg.client_package_items).some(
+    (item) =>
+      item.usage_type === usageType &&
+      (item.is_unlimited || Number(item.quantity_remaining ?? 0) > 0),
+  );
+}
+
+/**
+ * Does ANY candidate package provide replacement coverage for usageType?
+ * Single-usage-type primitive -- boolean only, never selects or returns a
+ * specific package. Fine to use directly when a caller already knows it's
+ * dealing with exactly one usage type; multi-item callers must go through
+ * `getUnsuppressedWarningUsageTypes` instead (see module doc comment).
+ */
+export function hasReplacementCoverage(params: {
+  candidatePackages: readonly PackageWithItems[];
+  usageType: PackageUsageType;
+}): boolean {
+  return params.candidatePackages.some((pkg) =>
+    packageProvidesCoverageForUsageType(pkg, params.usageType),
+  );
+}
+
+/**
+ * Of `targetPackage`'s warning-causing usage types, which ones remain
+ * uncovered after checking replacement coverage separately for each one?
+ * A warning is only fully suppressed when this returns an empty array --
+ * suppression requires every warning-causing usage type to be
+ * individually covered, not just one of several. Different replacement
+ * packages may collectively cover different usage types; none of them are
+ * selected or returned. Defensively excludes `targetPackage.id` from the
+ * candidate set even if a caller's `otherClientPackages` accidentally
+ * includes it.
+ */
+export function getUnsuppressedWarningUsageTypes(params: {
+  targetPackage: PackageWithItems;
+  otherClientPackages: readonly PackageWithItems[];
+}): PackageUsageType[] {
+  const { targetPackage, otherClientPackages } = params;
+  const candidates = otherClientPackages.filter((pkg) => pkg.id !== targetPackage.id);
+
+  return getWarningCausingUsageTypes(targetPackage).filter(
+    (usageType) => !hasReplacementCoverage({ candidatePackages: candidates, usageType }),
+  );
+}
+
+/**
+ * Package-level convenience for surfaces that render one badge per
+ * package rather than one per usage type.
+ */
+export function hasUnsuppressedPackageWarning(params: {
+  targetPackage: PackageWithItems;
+  otherClientPackages: readonly PackageWithItems[];
+}): boolean {
+  return getUnsuppressedWarningUsageTypes(params).length > 0;
 }

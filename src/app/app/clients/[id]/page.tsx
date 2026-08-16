@@ -24,6 +24,8 @@ import ClientCommunicationWorkspace from "./ClientCommunicationWorkspace";
 import PackageArchiveControls from "./PackageArchiveControls";
 import {
   getClientPackageStatus,
+  getItemWarningLevel,
+  getUnsuppressedWarningUsageTypes,
   isPackageEligibleForReactivation,
   type ClientPackageStatus,
 } from "@/lib/packages/entitlement";
@@ -160,7 +162,7 @@ type LinkedPartnerRecord = {
   status: string;
 };
 
-type ClientPackageItemRow = {
+export type ClientPackageItemRow = {
   id: string;
   usage_type: string;
   quantity_total: number | null;
@@ -169,7 +171,7 @@ type ClientPackageItemRow = {
   is_unlimited: boolean;
 };
 
-type ClientPackageRow = {
+export type ClientPackageRow = {
   id: string;
   name_snapshot: string;
   expiration_date: string | null;
@@ -509,7 +511,7 @@ function getClientDetailTab(value: string | undefined): ClientDetailTab {
     : "overview";
 }
 
-type PackageHealth = ClientPackageStatus;
+export type PackageHealth = ClientPackageStatus;
 
 type HostStudioPortalLink = {
   client_id: string;
@@ -841,8 +843,35 @@ function getUnderlyingStatusIfArchived(pkg: ClientPackageRow): ClientPackageStat
   return getClientPackageStatus({ ...pkg, archived_at: null });
 }
 
-function getPackageHealth(pkg: ClientPackageRow): PackageHealth {
-  return getClientPackageStatus(pkg);
+/**
+ * Schedule Stabilization Slice 1b-b: layers replacement-coverage suppression
+ * on top of the canonical `getClientPackageStatus` precedence label.
+ * Archived/Expired are never affected (those precedence states always win
+ * regardless of any usage-type warning). For everything else, the real
+ * per-usage-type warning set is recomputed directly (not derived from the
+ * aggregate label, which can under-report a mixed low+depleted multi-item
+ * package as "active" -- see `getWarningCausingUsageTypes`'s doc comment)
+ * and checked against the client's other packages: fully covered -> shows
+ * Active; still uncovered -> shows Low or Depleted, whichever is the worst
+ * severity among the usage types that remain genuinely unsuppressed.
+ */
+export function getPackageHealth(pkg: ClientPackageRow, otherPackages: ClientPackageRow[]): PackageHealth {
+  const aggregate = getClientPackageStatus(pkg);
+  if (aggregate === "archived" || aggregate === "expired") return aggregate;
+
+  const unsuppressed = getUnsuppressedWarningUsageTypes({
+    targetPackage: pkg,
+    otherClientPackages: otherPackages,
+  });
+
+  if (unsuppressed.length === 0) return "active";
+
+  const worstIsDepleted = unsuppressed.some((usageType) => {
+    const item = pkg.client_package_items.find((candidate) => candidate.usage_type === usageType);
+    return item ? getItemWarningLevel(item) === "depleted" : false;
+  });
+
+  return worstIsDepleted ? "depleted" : "low";
 }
 
 function packageHealthLabel(health: PackageHealth) {
@@ -4168,7 +4197,8 @@ export default async function ClientDetailPage({
                 </div>
               ) : (
                 typedPackages.map((pkg) => {
-                  const health = getPackageHealth(pkg);
+                  const otherPackages = typedPackages.filter((candidate) => candidate.id !== pkg.id);
+                  const health = getPackageHealth(pkg, otherPackages);
                   const warning = packageWarningMessage(health);
                   const underlyingStatus = getUnderlyingStatusIfArchived(pkg);
                   const isArchived = health === "archived";

@@ -5,6 +5,7 @@ import { canManagePackages } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
+import { getItemWarningLevel, getUnsuppressedWarningUsageTypes } from "@/lib/packages/entitlement";
 
 type BalanceRow = {
   id: string;
@@ -12,6 +13,7 @@ type BalanceRow = {
   name_snapshot: string;
   expiration_date: string | null;
   active: boolean;
+  archived_at: string | null;
   clients:
     | { first_name: string; last_name: string }
     | { first_name: string; last_name: string }[]
@@ -62,6 +64,7 @@ export default async function ClientBalancesPage() {
       name_snapshot,
       expiration_date,
       active,
+      archived_at,
       clients (
         first_name,
         last_name
@@ -85,28 +88,51 @@ export default async function ClientBalancesPage() {
   const balances = (data ?? []) as BalanceRow[];
   const activeCount = balances.filter((balance) => balance.active).length;
   const inactiveCount = balances.filter((balance) => !balance.active).length;
-  const lowBalancePackages = balances.filter((balance) =>
-    balance.active &&
-    balance.client_package_items.some(
-      (item) =>
-        !item.is_unlimited &&
-        item.quantity_remaining !== null &&
-        Number(item.quantity_remaining) <= 2,
-    ),
-  );
-  const depletedPackages = balances.filter((balance) =>
-    balance.active &&
-    balance.client_package_items.some(
-      (item) =>
-        !item.is_unlimited &&
-        item.quantity_remaining !== null &&
-        Number(item.quantity_remaining) <= 0,
-    ),
-  );
+
+  // Schedule Stabilization Slice 1b-b: canonical per-usage-type warning
+  // detection + replacement-coverage suppression, replacing the previous
+  // independent threshold-2 reimplementation. A package with a healthy
+  // same-usage-type sibling package no longer counts here.
+  const today = new Date().toISOString().slice(0, 10);
+  const balancesByClientId = new Map<string, BalanceRow[]>();
+  for (const balance of balances) {
+    const list = balancesByClientId.get(balance.client_id);
+    if (list) {
+      list.push(balance);
+    } else {
+      balancesByClientId.set(balance.client_id, [balance]);
+    }
+  }
+
+  function hasUnsuppressedLevel(balance: BalanceRow, level: "low" | "depleted") {
+    const otherPackages = (balancesByClientId.get(balance.client_id) ?? []).filter(
+      (candidate) => candidate.id !== balance.id,
+    );
+    const unsuppressed = getUnsuppressedWarningUsageTypes({
+      targetPackage: balance,
+      otherClientPackages: otherPackages,
+    });
+    return unsuppressed.some((usageType) => {
+      const item = balance.client_package_items.find((candidate) => candidate.usage_type === usageType);
+      return item ? getItemWarningLevel(item) === level : false;
+    });
+  }
+
+  // Archived packages never count (Archived precedes Depleted/Low); an
+  // expired-but-not-depleted package shows as Expired elsewhere, not Low,
+  // so it's excluded from the low-balance bucket specifically (Depleted
+  // still outranks Expired, so depleted counting is unaffected by it).
+  const eligibleBalances = balances.filter((balance) => balance.active && !balance.archived_at);
+  const depletedPackages = eligibleBalances.filter((balance) => hasUnsuppressedLevel(balance, "depleted"));
+  const lowBalancePackages = eligibleBalances.filter((balance) => {
+    const isExpired = Boolean(balance.expiration_date) && (balance.expiration_date as string) < today;
+    if (isExpired) return false;
+    return hasUnsuppressedLevel(balance, "low");
+  });
   const ariaBalanceInsight =
     lowBalancePackages.length > 0
-      ? `${lowBalancePackages.length} active package${lowBalancePackages.length === 1 ? " is" : "s are"} at 2 or fewer remaining credits.`
-      : "No active packages are currently at the low-balance threshold.";
+      ? `${lowBalancePackages.length} active package${lowBalancePackages.length === 1 ? " is" : "s are"} low on remaining credits.`
+      : "No active packages are currently low on credits.";
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -131,7 +157,7 @@ export default async function ClientBalancesPage() {
         items={[
           { key: "total", label: "Client packages", value: balances.length, detail: "All package balances" },
           { key: "active", label: "Active", value: activeCount, detail: "Current package records", tone: "success" as const },
-          { key: "attention", label: "Needs attention", value: lowBalancePackages.length, detail: "2 or fewer credits", tone: lowBalancePackages.length ? "warning" as const : "default" as const },
+          { key: "attention", label: "Needs attention", value: lowBalancePackages.length, detail: "Low on credits, no replacement coverage", tone: lowBalancePackages.length ? "warning" as const : "default" as const },
           { key: "inactive", label: "Inactive", value: inactiveCount, detail: "Historical package records" },
         ]}
       />

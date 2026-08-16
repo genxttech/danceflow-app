@@ -19,6 +19,71 @@ import { createClient } from "@/lib/supabase/server";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { createAriaGoalAction, updateAriaGoalStatusAction } from "./actions";
+import { hasUnsuppressedPackageWarning, type PackageWithItems } from "@/lib/packages/entitlement";
+
+type GoalsClientPackageItemRow = {
+  usage_type?: string | null;
+  quantity_remaining: number | string | null;
+  is_unlimited: boolean | null;
+};
+
+type GoalsClientPackageRow = {
+  id: string;
+  client_id: string | null;
+  active: boolean | null;
+  archived_at: string | null;
+  expiration_date: string | null;
+  client_package_items: GoalsClientPackageItemRow[] | null;
+};
+
+/**
+ * Schedule Stabilization Slice 1b-b: canonical status + replacement-
+ * coverage suppression for the ARIA Goals page's low-balance package
+ * metric, replacing the previous independent threshold-2 reimplementation
+ * (no usage-type awareness, no suppression). This is a display-only
+ * surface, not the ARIA proactive-automation trigger, so it always uses
+ * canonical status -- no configurable threshold involved here.
+ */
+export function getLowBalancePackagesForAriaGoals(
+  packages: GoalsClientPackageRow[],
+): GoalsClientPackageRow[] {
+  const packagesByClientId = new Map<string, PackageWithItems[]>();
+  for (const pkg of packages) {
+    if (!pkg.client_id) continue;
+    const asPackageWithItems: PackageWithItems = {
+      id: pkg.id,
+      active: true, // query already scopes to active=true
+      archived_at: pkg.archived_at,
+      expiration_date: pkg.expiration_date,
+      client_package_items: (pkg.client_package_items ?? []).map((item) => ({
+        usage_type: item.usage_type ?? "",
+        quantity_remaining:
+          item.quantity_remaining === null || item.quantity_remaining === undefined
+            ? null
+            : Number(item.quantity_remaining),
+        is_unlimited: Boolean(item.is_unlimited),
+      })),
+    };
+    const list = packagesByClientId.get(pkg.client_id);
+    if (list) {
+      list.push(asPackageWithItems);
+    } else {
+      packagesByClientId.set(pkg.client_id, [asPackageWithItems]);
+    }
+  }
+
+  return packages.filter((pkg) => {
+    if (!pkg.client_id) return false;
+    const targetPackage = packagesByClientId
+      .get(pkg.client_id)
+      ?.find((candidate) => candidate.id === pkg.id);
+    if (!targetPackage) return false;
+    const otherPackages = (packagesByClientId.get(pkg.client_id) ?? []).filter(
+      (candidate) => candidate.id !== pkg.id,
+    );
+    return hasUnsuppressedPackageWarning({ targetPackage, otherClientPackages: otherPackages });
+  });
+}
 
 type AriaGoalRow = {
   id: string;
@@ -219,7 +284,12 @@ export default async function AriaGoalsPage({
       .select(
         `
         id,
+        client_id,
+        active,
+        archived_at,
+        expiration_date,
         client_package_items (
+          usage_type,
           quantity_remaining,
           is_unlimited
         )
@@ -262,14 +332,9 @@ export default async function AriaGoalsPage({
   const sentAutomationActions = automationActions.filter((action) => action.status === "completed" || action.status === "sent");
   const enabledRules = automationRules.filter((rule) => rule.enabled);
   const pendingBookingCount = pendingRequestsResult.count ?? 0;
-  const lowBalancePackages = (lowBalanceResult.data ?? []).filter((pkg: any) => {
-    const items = Array.isArray(pkg.client_package_items) ? pkg.client_package_items : [];
-    return items.some((item: any) => {
-      if (item?.is_unlimited) return false;
-      const remaining = Number(item?.quantity_remaining);
-      return Number.isFinite(remaining) && remaining <= 2;
-    });
-  });
+  const lowBalancePackages = getLowBalancePackagesForAriaGoals(
+    (lowBalanceResult.data ?? []) as GoalsClientPackageRow[],
+  );
 
   const latestGoal = activeGoals[0] ?? goals[0] ?? null;
 

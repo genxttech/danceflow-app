@@ -5,6 +5,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
 import {
   generateMarketingCampaignRecipientsAction,
+  getLowPackageCreditClientIds,
   sendMarketingCampaignAction,
   sendMarketingCampaignTestEmailAction,
 } from "../actions";
@@ -297,29 +298,8 @@ async function getClientRecipients(params: {
   }
 
   if (audienceType === "low_package_credits") {
-    const { data: packages, error: packagesError } = await supabase
-      .from("client_packages")
-      .select("client_id, lessons_remaining, active")
-      .eq("studio_id", studioId)
-      .eq("active", true)
-      .lte("lessons_remaining", 2)
-      .not("client_id", "is", null)
-      .limit(10000);
-
-    if (packagesError) {
-      console.error(
-        "Failed to load low-credit package audience",
-        packagesError,
-      );
-      return [];
-    }
-
     const lowCreditClientIds = Array.from(
-      new Set(
-        (packages ?? [])
-          .map((pkg) => String(pkg.client_id ?? ""))
-          .filter(Boolean),
-      ),
+      await getLowPackageCreditClientIds(supabase, studioId),
     );
 
     if (lowCreditClientIds.length === 0) {

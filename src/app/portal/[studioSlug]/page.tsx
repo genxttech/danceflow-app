@@ -2,6 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
+  getItemWarningLevel,
+  getUnsuppressedWarningUsageTypes,
+  type PackageWithItems,
+} from "@/lib/packages/entitlement";
+import {
   ensurePortalProfileAndClientLinks,
   getAuthUserFullName,
 } from "@/lib/auth/portal-linking";
@@ -1135,20 +1140,51 @@ export default async function PortalHomePage({
     const diffDays = Math.ceil((dueTime - Date.now()) / 86_400_000);
     return diffDays >= 0 && diffDays <= 7;
   }).length;
-  const lowCreditItems = typedPackages.flatMap((clientPackage) =>
-    (clientPackage.client_package_items ?? [])
-      .filter(
-        (item) =>
-          !item.is_unlimited &&
-          toNumber(item.quantity_remaining) > 0 &&
-          toNumber(item.quantity_remaining) <= 1,
-      )
-      .map((item) => ({
-        packageName: clientPackage.name_snapshot,
-        label: packageUsageTypeLabel(item.usage_type),
-        remaining: toNumber(item.quantity_remaining),
-      })),
-  );
+  // Schedule Stabilization Slice 1b-b: canonical per-usage-type warning
+  // detection + replacement-coverage suppression, replacing the two
+  // previously-independent (and mutually inconsistent) reimplementations
+  // in this file -- a finite 0<remaining<=1 item filter here, and a
+  // purchased-quantity-ratio package filter below. This client's packages
+  // are already the full candidate set (the query scopes to this one
+  // client), so no grouping/lookup is needed.
+  const packagesForHealth: PackageWithItems[] = typedPackages.map((clientPackage) => ({
+    id: clientPackage.id,
+    active: true, // query already scopes to active=true
+    archived_at: null,
+    expiration_date: clientPackage.expiration_date,
+    client_package_items: (clientPackage.client_package_items ?? []).map((item) => ({
+      usage_type: item.usage_type ?? "",
+      quantity_remaining: item.is_unlimited ? null : toNumber(item.quantity_remaining),
+      is_unlimited: Boolean(item.is_unlimited),
+    })),
+  }));
+
+  const lowCreditItems = typedPackages.flatMap((clientPackage) => {
+    const targetPackage = packagesForHealth.find((candidate) => candidate.id === clientPackage.id);
+    if (!targetPackage) return [];
+    const otherPackages = packagesForHealth.filter((candidate) => candidate.id !== clientPackage.id);
+    const unsuppressed = getUnsuppressedWarningUsageTypes({ targetPackage, otherClientPackages: otherPackages });
+
+    return unsuppressed
+      .map((usageType) => {
+        const item = (clientPackage.client_package_items ?? []).find(
+          (candidate) => candidate.usage_type === usageType,
+        );
+        if (!item) return null;
+        const level = getItemWarningLevel({
+          usage_type: usageType,
+          quantity_remaining: toNumber(item.quantity_remaining),
+          is_unlimited: Boolean(item.is_unlimited),
+        });
+        if (level !== "low") return null;
+        return {
+          packageName: clientPackage.name_snapshot,
+          label: packageUsageTypeLabel(item.usage_type),
+          remaining: toNumber(item.quantity_remaining),
+        };
+      })
+      .filter((entry): entry is { packageName: string; label: string; remaining: number } => entry !== null);
+  });
   const remainingCreditTotal = typedPackages.reduce(
     (packageTotal, clientPackage) => {
       return (
@@ -1182,10 +1218,33 @@ export default async function PortalHomePage({
       daysUntilExpiration !== null &&
       daysUntilExpiration >= 0 &&
       daysUntilExpiration <= 30;
-    const isLowBalance =
-      !hasUnlimited &&
-      totalRemaining > 0 &&
-      totalRemaining <= Math.max(1, Math.ceil(totalPurchased * 0.2));
+
+    // Schedule Stabilization Slice 1b-b: canonical status + replacement-
+    // coverage suppression, replacing the previous purchased-quantity-
+    // ratio threshold -- and introducing a Depleted distinction this
+    // wallet display didn't previously have.
+    const targetPackage = packagesForHealth.find((candidate) => candidate.id === clientPackage.id);
+    const otherPackagesForBalance = packagesForHealth.filter(
+      (candidate) => candidate.id !== clientPackage.id,
+    );
+    const unsuppressedUsageTypes = targetPackage
+      ? getUnsuppressedWarningUsageTypes({
+          targetPackage,
+          otherClientPackages: otherPackagesForBalance,
+        })
+      : [];
+    const isDepleted = unsuppressedUsageTypes.some((usageType) => {
+      const item = items.find((candidate) => candidate.usage_type === usageType);
+      if (!item) return false;
+      return (
+        getItemWarningLevel({
+          usage_type: usageType,
+          quantity_remaining: toNumber(item.quantity_remaining),
+          is_unlimited: Boolean(item.is_unlimited),
+        }) === "depleted"
+      );
+    });
+    const isLowBalance = !isDepleted && unsuppressedUsageTypes.length > 0;
 
     return {
       clientPackage,
@@ -1198,6 +1257,7 @@ export default async function PortalHomePage({
       daysUntilExpiration,
       isExpiringSoon,
       isLowBalance,
+      isDepleted,
     };
   });
   const hasUnlimitedCredits = packageWalletItems.some((item) => item.hasUnlimited);
@@ -2311,7 +2371,11 @@ export default async function PortalHomePage({
                             >
                               {expirationLabel(clientPackage.expiration_date)}
                             </span>
-                            {walletItem.isLowBalance ? (
+                            {walletItem.isDepleted ? (
+                              <span className="inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-800 ring-1 ring-rose-200">
+                                Depleted
+                              </span>
+                            ) : walletItem.isLowBalance ? (
                               <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700 ring-1 ring-rose-100">
                                 Low balance
                               </span>
@@ -2418,15 +2482,17 @@ export default async function PortalHomePage({
                         })}
                       </div>
 
-                      {walletItem.isLowBalance || walletItem.isExpiringSoon ? (
+                      {walletItem.isDepleted || walletItem.isLowBalance || walletItem.isExpiringSoon ? (
                         <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                           <p className="text-sm font-semibold text-amber-950">
                             Ask the studio about this package
                           </p>
                           <p className="mt-1 text-sm leading-6 text-amber-900">
-                            {walletItem.isLowBalance
-                              ? "Your credits are running low. The studio can help you renew, purchase another package, or schedule your next lesson."
-                              : "This package expires soon. Check with the studio if you need to use or renew it."}
+                            {walletItem.isDepleted
+                              ? "You've used all of your credits. The studio can help you renew or purchase another package."
+                              : walletItem.isLowBalance
+                                ? "Your credits are running low. The studio can help you renew, purchase another package, or schedule your next lesson."
+                                : "This package expires soon. Check with the studio if you need to use or renew it."}
                           </p>
                         </div>
                       ) : null}
