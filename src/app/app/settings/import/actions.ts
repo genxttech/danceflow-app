@@ -8,6 +8,7 @@ import {
   safeOriginalFileName,
   validateUploadFile,
 } from "@/lib/security/uploads";
+import { hasUsableImportedPackageBalance } from "@/lib/packages/importBalance";
 
 const IMPORT_BUCKET = "imports";
 
@@ -7570,8 +7571,9 @@ export async function executeWellnessLivingPackageImportBatchAction(
         }
 
         const active =
-          !first.expirationDate ||
-          new Date(`${first.expirationDate}T23:59:59.999Z`).getTime() >= Date.now();
+          hasUsableImportedPackageBalance(group.items) &&
+          (!first.expirationDate ||
+            new Date(`${first.expirationDate}T23:59:59.999Z`).getTime() >= Date.now());
 
         if (!clientPackageId) {
           const { data: insertedPackage, error: insertPackageError } =
@@ -8324,8 +8326,9 @@ export async function executeMindbodyPackageImportBatchAction(
         }
 
         const active =
-          !first.expirationDate ||
-          new Date(`${first.expirationDate}T23:59:59.999Z`).getTime() >= Date.now();
+          hasUsableImportedPackageBalance(group.items) &&
+          (!first.expirationDate ||
+            new Date(`${first.expirationDate}T23:59:59.999Z`).getTime() >= Date.now());
 
         if (!clientPackageId) {
           const { data: insertedPackage, error: insertPackageError } =

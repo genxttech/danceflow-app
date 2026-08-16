@@ -53,6 +53,7 @@ function makeChain(resolve: () => FakeResult | Promise<FakeResult>) {
   const chain: {
     eq: (...args: unknown[]) => typeof chain;
     in: (...args: unknown[]) => typeof chain;
+    is: (...args: unknown[]) => typeof chain;
     order: (...args: unknown[]) => typeof chain;
     limit: (...args: unknown[]) => typeof chain;
     maybeSingle: () => Promise<FakeResult>;
@@ -64,6 +65,7 @@ function makeChain(resolve: () => FakeResult | Promise<FakeResult>) {
   } = {
     eq: () => chain,
     in: () => chain,
+    is: () => chain,
     order: () => chain,
     limit: () => chain,
     async maybeSingle() {

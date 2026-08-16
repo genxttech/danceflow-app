@@ -16,6 +16,8 @@ import {
   linkExistingClientAccount,
   resolveClientAccountConflict,
 } from "@/lib/student-identity/lifecycle";
+import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
+import { isPackageEligibleForReactivation } from "@/lib/packages/entitlement";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -1043,6 +1045,17 @@ export async function adjustLessonCountCorrectionAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "package_correction_update_failed");
   }
 
+  try {
+    await reconcileClientPackageLifecycle({
+      supabase,
+      studioId,
+      clientId,
+      clientPackageId: packageItem.client_package_id,
+    });
+  } catch {
+    redirectWithResult(returnTo, "error", "package_correction_lifecycle_failed");
+  }
+
   const packageRelation = Array.isArray(packageItem.client_packages)
     ? packageItem.client_packages[0]
     : packageItem.client_packages;
@@ -1076,6 +1089,158 @@ export async function adjustLessonCountCorrectionAction(formData: FormData) {
   redirectWithResult(returnTo, "success", "package_correction_saved");
 }
 
+function sanitizeArchiveReason(value: string): string | null {
+  const cleaned = value
+    .replace(new RegExp("[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]", "g"), "")
+    .trim()
+    .slice(0, 500);
+  return cleaned || null;
+}
+
+/**
+ * Schedule Stabilization Slice 1b-a. Archives any balance state -- staff
+ * may retire a package regardless of remaining balance. Never mutates
+ * balance, never deletes the package or its history. Returns `{error}`
+ * (rather than redirecting) so the calling client component can show a
+ * clear, inline, non-technical message via useActionState, matching
+ * BalanceAdjustmentForm.tsx's established pattern.
+ */
+export async function archiveClientPackageAction(
+  prevState: { error: string },
+  formData: FormData,
+): Promise<{ error: string }> {
+  const clientId = getString(formData, "clientId");
+  const clientPackageId = getString(formData, "clientPackageId");
+  const reasonRaw = getString(formData, "archiveReason");
+
+  if (!clientId || !clientPackageId) {
+    return { error: "Missing client or package." };
+  }
+
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const studioId = context.studioId;
+  const role = context.studioRole ?? "";
+
+  if (!canEditClients(role)) {
+    return { error: "You do not have permission to archive packages." };
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+  const actorId = userData.user?.id ?? null;
+
+  const { data: pkg, error: pkgError } = await supabase
+    .from("client_packages")
+    .select("id")
+    .eq("id", clientPackageId)
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+
+  if (pkgError || !pkg) {
+    return { error: "Package not found." };
+  }
+
+  const { error: updateError } = await supabase
+    .from("client_packages")
+    .update({
+      active: false,
+      archived_at: new Date().toISOString(),
+      archived_by: actorId,
+      archive_reason: sanitizeArchiveReason(reasonRaw),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", clientPackageId)
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId);
+
+  if (updateError) {
+    return { error: "Could not archive this package. Please try again." };
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  revalidatePath("/app/packages/client-balances");
+
+  return { error: "" };
+}
+
+/**
+ * Schedule Stabilization Slice 1b-a. Only allowed when the package would
+ * currently pass the real-state eligibility check (not expired, has
+ * usable balance) -- reuses `isPackageEligibleForReactivation` rather than
+ * duplicating that predicate. On success clears all archive metadata; on
+ * failure (or any lookup error) makes no partial update.
+ */
+export async function reactivateClientPackageAction(
+  prevState: { error: string },
+  formData: FormData,
+): Promise<{ error: string }> {
+  const clientId = getString(formData, "clientId");
+  const clientPackageId = getString(formData, "clientPackageId");
+
+  if (!clientId || !clientPackageId) {
+    return { error: "Missing client or package." };
+  }
+
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const studioId = context.studioId;
+  const role = context.studioRole ?? "";
+
+  if (!canEditClients(role)) {
+    return { error: "You do not have permission to reactivate packages." };
+  }
+
+  const { data: pkg, error: pkgError } = await supabase
+    .from("client_packages")
+    .select(
+      `
+      id,
+      expiration_date,
+      client_package_items (
+        quantity_remaining,
+        is_unlimited
+      )
+    `,
+    )
+    .eq("id", clientPackageId)
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+
+  if (pkgError || !pkg) {
+    return { error: "Package not found." };
+  }
+
+  if (!isPackageEligibleForReactivation(pkg)) {
+    return {
+      error:
+        "This package has no remaining balance or is expired, so it cannot be reactivated.",
+    };
+  }
+
+  const { error: updateError } = await supabase
+    .from("client_packages")
+    .update({
+      active: true,
+      archived_at: null,
+      archived_by: null,
+      archive_reason: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", clientPackageId)
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId);
+
+  if (updateError) {
+    return { error: "Could not reactivate this package. Please try again." };
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  revalidatePath("/app/packages/client-balances");
+
+  return { error: "" };
+}
 
 type AccountLedgerEntryConfig = {
   entryType: string;
