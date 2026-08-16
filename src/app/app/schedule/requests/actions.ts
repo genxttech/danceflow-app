@@ -5,6 +5,10 @@ import { redirect } from "next/navigation";
 import { requireAppointmentCreateAccess } from "@/lib/auth/serverRoleGuard";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
+import {
+  resolveEntitlementForBooking,
+  type EntitlementResolutionOutcome,
+} from "@/lib/booking/entitlementResolution";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
@@ -180,6 +184,24 @@ function getConflictErrorMessage(conflict: unknown) {
   return "Scheduling conflict detected.";
 }
 
+/**
+ * Safe, non-technical text for each fail-closed entitlement outcome --
+ * never forwards internal outcome identifiers or any DB error text.
+ */
+function entitlementFailureMessage(
+  outcome: Exclude<EntitlementResolutionOutcome, { outcome: "resolved" }>,
+): string {
+  switch (outcome.outcome) {
+    case "no_eligible_entitlement":
+      return "This client has no active package or membership with remaining credit to cover this booking.";
+    case "multiple_eligible_packages":
+      return "More than one package could cover this booking. Resolve which package to use, then approve the request.";
+    case "ambiguous_entitlement_type":
+      return "Both a package and a membership could cover this booking. Confirm how to bill it, then approve the request.";
+    case "lookup_failed":
+      return "Could not verify the client's booking eligibility. Please try again shortly.";
+  }
+}
 
 function formatBookingRequestDateTime(value: string, timeZone: string) {
   return formatStudioDateTime(value, timeZone, { weekday: "short" });
@@ -526,7 +548,22 @@ type BookingRequestRow = {
   requested_ends_at: string;
   notes: string | null;
   status: string;
+  source: string | null;
 };
+
+/**
+ * `source: "public_intro"` requests come from `createPublicIntroBookingAction`
+ * (the unauthenticated public form) and are, by construction, brand-new
+ * leads (`clients.status = "lead"`) who never have a pre-existing package
+ * or membership -- that's the entire point of a trial/intro funnel.
+ * Entitlement resolution must not gate these; approval behaves exactly as
+ * it did before Slice 1 (billing is handled out-of-band). Every other
+ * source (`"portal_schedule"`, an authenticated existing client) keeps the
+ * full entitlement gate.
+ */
+function requestRequiresEntitlement(source: string | null) {
+  return source !== "public_intro";
+}
 
 export async function approveBookingRequestAction(formData: FormData) {
   const requestId = getString(formData, "requestId");
@@ -551,7 +588,8 @@ export async function approveBookingRequestAction(formData: FormData) {
       requested_starts_at,
       requested_ends_at,
       notes,
-      status
+      status,
+      source
     `)
     .eq("id", requestId)
     .eq("studio_id", studioId)
@@ -569,6 +607,34 @@ export async function approveBookingRequestAction(formData: FormData) {
 
   if (!typedRequest.client_id) {
     redirect("/app/schedule/requests?error=missing_client");
+  }
+
+  let billingFields: {
+    billing_type: string;
+    client_package_id: string | null;
+    client_membership_id: string | null;
+  } | null = null;
+
+  if (requestRequiresEntitlement(typedRequest.source)) {
+    const entitlement = await resolveEntitlementForBooking({
+      supabase,
+      studioId,
+      clientId: typedRequest.client_id as string,
+      appointmentType: typedRequest.appointment_type,
+      appointmentDateIso: typedRequest.requested_starts_at,
+    });
+
+    if (entitlement.outcome !== "resolved") {
+      redirect(
+        `/app/schedule/requests?error=${encodeURIComponent(entitlementFailureMessage(entitlement))}`,
+      );
+    }
+
+    billingFields = {
+      billing_type: entitlement.billingType,
+      client_package_id: entitlement.clientPackageId,
+      client_membership_id: entitlement.clientMembershipId,
+    };
   }
 
   const conflict = await detectAppointmentConflicts({
@@ -608,6 +674,7 @@ export async function approveBookingRequestAction(formData: FormData) {
       ends_at: typedRequest.requested_ends_at,
       status: "scheduled",
       is_recurring: false,
+      ...(billingFields ?? {}),
       created_by: user.id,
     })
     .select("id")

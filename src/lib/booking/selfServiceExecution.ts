@@ -1,25 +1,26 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { appendStudentBookingActionAuditEvent } from "@/lib/booking/selfServiceActionRequests";
+import {
+  resolveEntitlementForBooking,
+  resolveEntitlementForReschedule,
+  type EntitlementResolutionOutcome,
+} from "@/lib/booking/entitlementResolution";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
 
-type SupabaseError = { message: string };
-
-type QueryResult<T> = PromiseLike<{
-  data: T | null;
-  error: SupabaseError | null;
-}>;
-
-type SupabaseBuilder = {
-  eq(column: string, value: unknown): SupabaseBuilder;
-  select(columns?: string): SupabaseBuilder;
-  single<T>(): QueryResult<T>;
-  maybeSingle<T>(): QueryResult<T>;
-  update(values: Record<string, unknown>): SupabaseBuilder;
-  insert(values: Record<string, unknown>): SupabaseBuilder;
-};
-
-export type SelfServiceExecutionClient = {
-  from(table: string): SupabaseBuilder;
-};
+/**
+ * Every real caller passes a genuine `createAdminClient()` /
+ * session-scoped `SupabaseClient` here (see
+ * `src/app/api/student/self-service/actions/route.ts`,
+ * `src/app/api/student/self-service/requests/route.ts`, and
+ * `src/app/app/schedule/self-service/actions.ts`, all of which cast into
+ * this type via `as unknown as SelfServiceExecutionClient`). Typed
+ * against the real client (rather than a narrow hand-rolled structural
+ * subset) so the shared entitlement resolver -- itself typed against
+ * `SupabaseClient` to match `validateMembershipEntitlement`'s existing
+ * signature -- can be called directly without further casts.
+ */
+export type SelfServiceExecutionClient = SupabaseClient;
 
 export type StudentBookingActionRequestRow = {
   id: string;
@@ -62,6 +63,25 @@ function getConflictErrorMessage(conflict: unknown) {
   }
 
   return "Scheduling conflict detected.";
+}
+
+/**
+ * Safe, non-technical text for each fail-closed entitlement outcome --
+ * never forwards internal outcome identifiers or any DB error text.
+ */
+function entitlementFailureMessage(
+  outcome: Exclude<EntitlementResolutionOutcome, { outcome: "resolved" }>,
+): string {
+  switch (outcome.outcome) {
+    case "no_eligible_entitlement":
+      return "This booking requires an active package or membership with remaining credit. Please contact the studio to book this appointment.";
+    case "multiple_eligible_packages":
+      return "More than one package on file could cover this booking. Please contact the studio so staff can confirm which one to use.";
+    case "ambiguous_entitlement_type":
+      return "Both a package and a membership on file could cover this booking. Please contact the studio so staff can confirm how to bill it.";
+    case "lookup_failed":
+      return "We couldn't verify your booking eligibility right now. Please try again shortly.";
+  }
 }
 
 export async function executeApprovedStudentBookingAction(params: {
@@ -128,6 +148,53 @@ export async function executeApprovedStudentBookingAction(params: {
     throw new Error("Missing requested appointment time.");
   }
 
+  const appointmentType = request.lesson_type ?? "private_lesson";
+  const isReschedule = request.action_type === "reschedule" && !!request.appointment_id;
+
+  let entitlement: EntitlementResolutionOutcome;
+
+  if (isReschedule) {
+    const { data: existingAppointment, error: existingAppointmentError } = await params.supabase
+      .from("appointments")
+      .select("billing_type, client_package_id, client_membership_id")
+      .eq("id", request.appointment_id as string)
+      .eq("studio_id", request.studio_id)
+      .eq("client_id", request.client_id)
+      .maybeSingle<{
+        billing_type: string | null;
+        client_package_id: string | null;
+        client_membership_id: string | null;
+      }>();
+
+    if (existingAppointmentError) {
+      throw new Error("We couldn't verify your booking eligibility right now. Please try again shortly.");
+    }
+
+    entitlement = await resolveEntitlementForReschedule({
+      supabase: params.supabase,
+      studioId: request.studio_id,
+      clientId: request.client_id,
+      appointmentType,
+      newAppointmentDateIso: request.requested_starts_at,
+      existingBillingType: existingAppointment?.billing_type ?? null,
+      existingClientPackageId: existingAppointment?.client_package_id ?? null,
+      existingClientMembershipId: existingAppointment?.client_membership_id ?? null,
+      excludeAppointmentId: request.appointment_id,
+    });
+  } else {
+    entitlement = await resolveEntitlementForBooking({
+      supabase: params.supabase,
+      studioId: request.studio_id,
+      clientId: request.client_id,
+      appointmentType,
+      appointmentDateIso: request.requested_starts_at,
+    });
+  }
+
+  if (entitlement.outcome !== "resolved") {
+    throw new Error(entitlementFailureMessage(entitlement));
+  }
+
   const conflict = await detectAppointmentConflicts({
     studioId: request.studio_id,
     startsAt: request.requested_starts_at,
@@ -141,35 +208,40 @@ export async function executeApprovedStudentBookingAction(params: {
     throw new Error(getConflictErrorMessage(conflict));
   }
 
-  const appointmentMutation =
-    request.action_type === "reschedule" && request.appointment_id
-      ? params.supabase
-          .from("appointments")
-          .update({
-            instructor_id: request.instructor_id,
-            room_id: request.room_id,
-            starts_at: request.requested_starts_at,
-            ends_at: request.requested_ends_at,
-            status: "scheduled",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", request.appointment_id)
-          .eq("studio_id", request.studio_id)
-          .eq("client_id", request.client_id)
-      : params.supabase.from("appointments").insert({
-          studio_id: request.studio_id,
-          client_id: request.client_id,
+  const appointmentMutation = isReschedule
+    ? params.supabase
+        .from("appointments")
+        .update({
           instructor_id: request.instructor_id,
           room_id: request.room_id,
-          appointment_type: request.lesson_type ?? "private_lesson",
-          title: "Self-Service Booking",
-          notes: request.reason ? `Student note: ${request.reason}` : null,
           starts_at: request.requested_starts_at,
           ends_at: request.requested_ends_at,
           status: "scheduled",
-          is_recurring: false,
-          created_by: params.actorUserId,
-        });
+          billing_type: entitlement.billingType,
+          client_package_id: entitlement.clientPackageId,
+          client_membership_id: entitlement.clientMembershipId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", request.appointment_id as string)
+        .eq("studio_id", request.studio_id)
+        .eq("client_id", request.client_id)
+    : params.supabase.from("appointments").insert({
+        studio_id: request.studio_id,
+        client_id: request.client_id,
+        instructor_id: request.instructor_id,
+        room_id: request.room_id,
+        appointment_type: appointmentType,
+        title: "Self-Service Booking",
+        notes: request.reason ? `Student note: ${request.reason}` : null,
+        starts_at: request.requested_starts_at,
+        ends_at: request.requested_ends_at,
+        status: "scheduled",
+        is_recurring: false,
+        billing_type: entitlement.billingType,
+        client_package_id: entitlement.clientPackageId,
+        client_membership_id: entitlement.clientMembershipId,
+        created_by: params.actorUserId,
+      });
 
   const { data: appointment, error: appointmentError } = await appointmentMutation
     .select("id")

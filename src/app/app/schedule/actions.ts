@@ -9,6 +9,7 @@ import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
 import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
 import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
 import { validateMembershipEntitlement } from "@/lib/memberships/entitlements";
+import { validateClientPackageForBooking } from "@/lib/packages/entitlement";
 import { sendAppointmentSchedulePush } from "@/lib/notifications/schedulePush";
 import {
   requireAppointmentCreateAccess,
@@ -24,11 +25,6 @@ import {
 type ActionState = {
   error?: string;
   success?: string;
-};
-
-type PackageValidationResult = {
-  ok: boolean;
-  error?: string;
 };
 
 type LessonRecapValidationResult = {
@@ -609,95 +605,6 @@ async function queueAppointmentOutboundDelivery(params: {
       error,
     );
   }
-}
-
-async function validateClientPackageForBooking(params: {
-  supabase: Awaited<
-    ReturnType<typeof requireAppointmentCreateAccess>
-  >["supabase"];
-  studioId: string;
-  clientId: string;
-  clientPackageId: string | null;
-}): Promise<PackageValidationResult> {
-  const { supabase, studioId, clientId, clientPackageId } = params;
-
-  if (!clientPackageId) return { ok: true };
-
-  const { data: studioSettings, error: settingsError } = await supabase
-    .from("studio_settings")
-    .select("block_depleted_package_booking")
-    .eq("studio_id", studioId)
-    .single();
-
-  if (settingsError || !studioSettings) {
-    return { ok: false, error: "Studio settings could not be loaded." };
-  }
-
-  const { data: pkg, error } = await supabase
-    .from("client_packages")
-    .select(
-      `
-      id,
-      studio_id,
-      client_id,
-      active,
-      client_package_items (
-        usage_type,
-        quantity_remaining,
-        quantity_total,
-        is_unlimited
-      )
-    `,
-    )
-    .eq("id", clientPackageId)
-    .eq("studio_id", studioId)
-    .single();
-
-  if (error || !pkg) {
-    return { ok: false, error: "Selected package was not found." };
-  }
-
-  if (pkg.client_id !== clientId) {
-    return {
-      ok: false,
-      error: "Selected package does not belong to the chosen client.",
-    };
-  }
-
-  if (!pkg.active) {
-    if (studioSettings.block_depleted_package_booking) {
-      return {
-        ok: false,
-        error: "Selected package is inactive and cannot be used for booking.",
-      };
-    }
-
-    return { ok: true };
-  }
-
-  const items = Array.isArray(pkg.client_package_items)
-    ? pkg.client_package_items
-    : [];
-  const finiteItems = items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
-  );
-
-  if (finiteItems.length === 0) {
-    return { ok: true };
-  }
-
-  const lowestRemaining = Math.min(
-    ...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)),
-  );
-
-  if (lowestRemaining <= 0 && studioSettings.block_depleted_package_booking) {
-    return {
-      ok: false,
-      error: "Selected package has no remaining balance.",
-    };
-  }
-
-  return { ok: true };
 }
 
 async function validateFloorRentalClient(params: {
