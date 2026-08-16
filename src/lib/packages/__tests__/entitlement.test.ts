@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  getClientPackageStatus,
+  isPackageEligibleForReactivation,
   isPackageStillEligible,
   resolveEligiblePackage,
   validateClientPackageForBooking,
@@ -335,5 +337,144 @@ describe("validateClientPackageForBooking (staff explicit-selection validator, u
     });
 
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("resolveEligiblePackage -- archived packages (Slice 1b-a regression guard)", () => {
+  it("2. an archived package (active=false) with real remaining balance is still excluded from booking entitlement", async () => {
+    const { fake } = buildClient([
+      privateLessonPackage({
+        active: false,
+        archived_at: "2026-09-01T00:00:00.000Z",
+        client_package_items: [
+          { usage_type: "private_lesson", quantity_remaining: 5, is_unlimited: false },
+        ],
+      }),
+    ]);
+
+    const result = await resolveEligiblePackage({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      appointmentType: "private_lesson",
+      appointmentDateIso: APPOINTMENT_DATE_ISO,
+    });
+
+    expect(result.outcome).toBe("none_eligible");
+  });
+});
+
+describe("getClientPackageStatus", () => {
+  it("archived_at set takes precedence over every other state", () => {
+    const status = getClientPackageStatus({
+      archived_at: "2026-09-01T00:00:00.000Z",
+      expiration_date: "2020-01-01",
+      client_package_items: [{ quantity_remaining: 0, is_unlimited: false }],
+    });
+    expect(status).toBe("archived");
+  });
+
+  it("6. a manually archived package that was already depleted shows Archived, not Depleted", () => {
+    const status = getClientPackageStatus({
+      archived_at: "2026-09-01T00:00:00.000Z",
+      expiration_date: null,
+      client_package_items: [{ quantity_remaining: 0, is_unlimited: false }],
+    });
+    expect(status).toBe("archived");
+  });
+
+  it("6b. a manually archived package that was already expired shows Archived, not Expired", () => {
+    const status = getClientPackageStatus({
+      archived_at: "2026-09-01T00:00:00.000Z",
+      expiration_date: "2020-01-01",
+      client_package_items: [{ quantity_remaining: 3, is_unlimited: false }],
+    });
+    expect(status).toBe("archived");
+  });
+
+  it("4. a naturally depleted package (never archived) shows Depleted, not Archived", () => {
+    const status = getClientPackageStatus({
+      archived_at: null,
+      expiration_date: null,
+      client_package_items: [{ quantity_remaining: 0, is_unlimited: false }],
+    });
+    expect(status).toBe("depleted");
+  });
+
+  it("depleted is computed from real balance across items (OR), not a single item", () => {
+    const status = getClientPackageStatus({
+      archived_at: null,
+      expiration_date: null,
+      client_package_items: [
+        { quantity_remaining: 0, is_unlimited: false },
+        { quantity_remaining: null, is_unlimited: true },
+      ],
+    });
+    expect(status).toBe("active");
+  });
+
+  it("5. an expired, non-archived, non-depleted package shows Expired", () => {
+    const status = getClientPackageStatus({
+      archived_at: null,
+      expiration_date: "2020-01-01",
+      client_package_items: [{ quantity_remaining: 3, is_unlimited: false }],
+    });
+    expect(status).toBe("expired");
+  });
+
+  it("a package with exactly 1 remaining on its lowest finite item shows Low", () => {
+    const status = getClientPackageStatus({
+      archived_at: null,
+      expiration_date: null,
+      client_package_items: [{ quantity_remaining: 1, is_unlimited: false }],
+    });
+    expect(status).toBe("low");
+  });
+
+  it("a healthy package with balance above the low threshold shows Active", () => {
+    const status = getClientPackageStatus({
+      archived_at: null,
+      expiration_date: null,
+      client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+    });
+    expect(status).toBe("active");
+  });
+});
+
+describe("isPackageEligibleForReactivation", () => {
+  it("7. a package with usable balance and no expiration is eligible", () => {
+    expect(
+      isPackageEligibleForReactivation({
+        expiration_date: null,
+        client_package_items: [{ quantity_remaining: 3, is_unlimited: false }],
+      }),
+    ).toBe(true);
+  });
+
+  it("8. a zero-balance package is not eligible for reactivation", () => {
+    expect(
+      isPackageEligibleForReactivation({
+        expiration_date: null,
+        client_package_items: [{ quantity_remaining: 0, is_unlimited: false }],
+      }),
+    ).toBe(false);
+  });
+
+  it("9. an expired package is not eligible for reactivation even with remaining balance", () => {
+    expect(
+      isPackageEligibleForReactivation({
+        expiration_date: "2020-01-01",
+        client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+      }),
+    ).toBe(false);
+  });
+
+  it("an unlimited package is eligible regardless of quantity_remaining", () => {
+    expect(
+      isPackageEligibleForReactivation({
+        expiration_date: null,
+        client_package_items: [{ quantity_remaining: null, is_unlimited: true }],
+      }),
+    ).toBe(true);
   });
 });

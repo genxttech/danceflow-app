@@ -21,6 +21,12 @@ import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
 import { ClientSendSmsCard } from "./ClientSendSmsCard";
 import { ClientSmsMessageHistoryCard } from "./ClientSmsMessageHistoryCard";
 import ClientCommunicationWorkspace from "./ClientCommunicationWorkspace";
+import PackageArchiveControls from "./PackageArchiveControls";
+import {
+  getClientPackageStatus,
+  isPackageEligibleForReactivation,
+  type ClientPackageStatus,
+} from "@/lib/packages/entitlement";
 import ClientSyllabusTab from "./ClientSyllabusTab";
 import type { SmsMessageLogRow, SmsPermissionRow } from "@/lib/sms/compliance";
 import {
@@ -170,6 +176,9 @@ type ClientPackageRow = {
   purchase_date: string | null;
   created_at: string | null;
   active: boolean;
+  archived_at: string | null;
+  archived_by: string | null;
+  archive_reason: string | null;
   client_package_items: ClientPackageItemRow[];
 };
 
@@ -500,13 +509,7 @@ function getClientDetailTab(value: string | undefined): ClientDetailTab {
     : "overview";
 }
 
-type PackageHealth =
-  | "healthy"
-  | "low_balance"
-  | "depleted"
-  | "inactive"
-  | "expired"
-  | "unknown";
+type PackageHealth = ClientPackageStatus;
 
 type HostStudioPortalLink = {
   client_id: string;
@@ -827,61 +830,42 @@ function getAuthorName(
   return author?.full_name || author?.email || "Unknown";
 }
 
-function getLowestRemainingValue(items: ClientPackageItemRow[]) {
-  const finiteItems = items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number"
-  );
-
-  if (finiteItems.length === 0) return null;
-
-  return Math.min(...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)));
+/**
+ * A package that's archived might also independently be depleted/expired
+ * -- this computes what the status would read as if it weren't archived,
+ * purely for optional secondary "Archived — was already depleted" UI text.
+ * Never used to decide the primary badge itself.
+ */
+function getUnderlyingStatusIfArchived(pkg: ClientPackageRow): ClientPackageStatus | null {
+  if (!pkg.archived_at) return null;
+  return getClientPackageStatus({ ...pkg, archived_at: null });
 }
 
 function getPackageHealth(pkg: ClientPackageRow): PackageHealth {
-  if (!pkg.active) return "inactive";
-
-  if (pkg.expiration_date) {
-    const expiration = new Date(pkg.expiration_date);
-    const now = new Date();
-
-    if (expiration < now) {
-      return "expired";
-    }
-  }
-
-  const lowestRemaining = getLowestRemainingValue(pkg.client_package_items);
-
-  if (lowestRemaining === null) return "healthy";
-  if (lowestRemaining <= 0) return "depleted";
-  if (lowestRemaining === 1) return "low_balance";
-
-  return "healthy";
+  return getClientPackageStatus(pkg);
 }
 
 function packageHealthLabel(health: PackageHealth) {
-  if (health === "healthy") return "Active";
-  if (health === "low_balance") return "Low Balance";
+  if (health === "active") return "Active";
+  if (health === "low") return "Low Balance";
   if (health === "depleted") return "Depleted";
-  if (health === "inactive") return "Inactive";
+  if (health === "archived") return "Archived";
   if (health === "expired") return "Expired";
   return "Unknown";
 }
 
 function packageHealthClass(health: PackageHealth) {
-  if (health === "healthy") return "bg-green-50 text-green-700";
-  if (health === "low_balance") return "bg-amber-50 text-amber-700";
+  if (health === "active") return "bg-green-50 text-green-700";
+  if (health === "low") return "bg-amber-50 text-amber-700";
   if (health === "depleted") return "bg-red-50 text-red-700";
-  if (health === "inactive" || health === "expired") {
-    return "bg-slate-100 text-slate-700";
-  }
   return "bg-slate-100 text-slate-700";
 }
 
 function packageWarningMessage(health: PackageHealth) {
-  if (health === "inactive") return "This package is inactive.";
+  if (health === "archived") return "This package has been archived and is not available for booking.";
   if (health === "expired") return "This package is expired.";
   if (health === "depleted") return "This package has no remaining balance.";
-  if (health === "low_balance") return "This package is low on remaining balance.";
+  if (health === "low") return "This package is low on remaining balance.";
   return "";
 }
 
@@ -1889,6 +1873,9 @@ export default async function ClientDetailPage({
         purchase_date,
         created_at,
         active,
+        archived_at,
+        archived_by,
+        archive_reason,
         client_package_items (
           id,
           usage_type,
@@ -4183,6 +4170,10 @@ export default async function ClientDetailPage({
                 typedPackages.map((pkg) => {
                   const health = getPackageHealth(pkg);
                   const warning = packageWarningMessage(health);
+                  const underlyingStatus = getUnderlyingStatusIfArchived(pkg);
+                  const isArchived = health === "archived";
+                  const canReactivate =
+                    isArchived && isPackageEligibleForReactivation(pkg);
 
                   return (
                     <div
@@ -4205,17 +4196,36 @@ export default async function ClientDetailPage({
                           <p className="mt-1 text-sm text-slate-500">
                             Expires: {fmtShortDate(pkg.expiration_date)}
                           </p>
+
+                          {isArchived ? (
+                            <p className="mt-1 text-sm text-slate-500">
+                              Archived {fmtShortDate(pkg.archived_at)}
+                              {underlyingStatus && underlyingStatus !== "active"
+                                ? ` — was already ${packageHealthLabel(underlyingStatus).toLowerCase()}`
+                                : ""}
+                              {pkg.archive_reason ? `. Reason: ${pkg.archive_reason}` : ""}
+                            </p>
+                          ) : null}
                         </div>
+
+                        {canEditClients(role) ? (
+                          <PackageArchiveControls
+                            clientId={typedClient.id}
+                            clientPackageId={pkg.id}
+                            isArchived={isArchived}
+                            canReactivate={canReactivate}
+                          />
+                        ) : null}
                       </div>
 
                       {warning ? (
                         <div
                           className={`mt-3 rounded-2xl border px-3 py-2 text-sm ${
-                            health === "depleted" ||
-                            health === "inactive" ||
-                            health === "expired"
+                            health === "depleted" || health === "expired"
                               ? "border-red-200 bg-red-50 text-red-800"
-                              : "border-amber-200 bg-amber-50 text-amber-800"
+                              : health === "archived"
+                                ? "border-slate-200 bg-slate-100 text-slate-700"
+                                : "border-amber-200 bg-amber-50 text-amber-800"
                           }`}
                         >
                           {warning}

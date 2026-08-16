@@ -24,11 +24,38 @@ export type Row = Record<string, unknown>;
 export type FakeError = { message: string; code?: string };
 
 type Filter =
-  | { type: "eq" | "neq" | "gte" | "lte" | "lt" | "gt"; col: string; val: unknown }
+  | { type: "eq" | "neq" | "gte" | "lte" | "lt" | "gt" | "is"; col: string; val: unknown }
   | { type: "in"; col: string; vals: unknown[] };
+
+/**
+ * Supports Supabase's `relation.column` filter syntax (e.g.
+ * `.eq("client_packages.client_id", id)` against a `client_package_items`
+ * row that embeds a `client_packages` relation) by resolving the dotted
+ * path against the row's embedded relation object/array. Falls back to a
+ * literal top-level key lookup for ordinary (non-dotted) columns.
+ */
+function resolveFieldValue(row: Row, col: string): unknown {
+  if (!col.includes(".")) return row[col];
+
+  const [relation, ...rest] = col.split(".");
+  const relationValue = row[relation];
+  const relationRow = Array.isArray(relationValue) ? relationValue[0] : relationValue;
+  if (!relationRow || typeof relationRow !== "object") return undefined;
+
+  return resolveFieldValue(relationRow as Row, rest.join("."));
+}
 
 function compare(rowValue: unknown, filter: Filter): boolean {
   if (filter.type === "in") return filter.vals.includes(rowValue);
+  // `.is()` (used for null/true/false comparisons via Postgres `IS`) must
+  // be checked before the null/undefined short-circuit below, since it's
+  // specifically meant to match null -- unlike `.eq()`, which never
+  // matches null (mirrors the real Supabase/PostgREST distinction between
+  // `IS NULL` and `= NULL`, the latter of which never matches anything).
+  if (filter.type === "is") {
+    const normalized = rowValue === undefined ? null : rowValue;
+    return normalized === filter.val;
+  }
   if (rowValue === undefined || rowValue === null) return filter.type === "neq";
 
   switch (filter.type) {
@@ -90,6 +117,11 @@ class FakeQuery {
     return this;
   }
 
+  is(col: string, val: unknown) {
+    this.filters.push({ type: "is", col, val });
+    return this;
+  }
+
   gte(col: string, val: unknown) {
     this.filters.push({ type: "gte", col, val });
     return this;
@@ -128,7 +160,7 @@ class FakeQuery {
 
   private matchRows(): Row[] {
     let matched = this.table.rows.filter((row) =>
-      this.filters.every((filter) => compare(row[filter.col], filter)),
+      this.filters.every((filter) => compare(resolveFieldValue(row, filter.col), filter)),
     );
 
     if (this.orderCol) {

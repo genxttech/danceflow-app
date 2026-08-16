@@ -32,6 +32,17 @@ function hasUsablePackageCredit(pkg: PackageLifecycleRow) {
   });
 }
 
+/**
+ * Reconciles `active` against real balance for every non-archived package
+ * a client has (or one specific package, if `clientPackageId` is given).
+ * Bidirectional: a currently-active package with no usable balance is
+ * deactivated (existing behavior), and -- Schedule Stabilization Slice
+ * 1b-a correction -- a currently-inactive, non-archived package that has
+ * regained usable balance (e.g. via a manual credit restoration) is
+ * reactivated. Archived packages (`archived_at IS NOT NULL`) are excluded
+ * from the query entirely, so ordinary reconciliation can never reactivate
+ * one or touch its archive metadata, in either direction.
+ */
 export async function reconcileClientPackageLifecycle(params: {
   supabase: SupabaseClient;
   studioId: string;
@@ -54,7 +65,7 @@ export async function reconcileClientPackageLifecycle(params: {
     )
     .eq("studio_id", studioId)
     .eq("client_id", clientId)
-    .eq("active", true);
+    .is("archived_at", null);
 
   if (clientPackageId) {
     query = query.eq("id", clientPackageId);
@@ -66,32 +77,64 @@ export async function reconcileClientPackageLifecycle(params: {
     throw new Error(`Could not reconcile package lifecycle: ${error.message}`);
   }
 
-  const depletedPackageIds = ((data ?? []) as PackageLifecycleRow[])
+  const rows = (data ?? []) as PackageLifecycleRow[];
+
+  const toDeactivate = rows
     .filter((pkg) => pkg.active !== false)
     .filter((pkg) => !hasUsablePackageCredit(pkg))
     .map((pkg) => pkg.id);
 
-  if (depletedPackageIds.length === 0) {
-    return { completedPackageIds: [] as string[] };
-  }
+  const toReactivate = rows
+    .filter((pkg) => pkg.active === false)
+    .filter((pkg) => hasUsablePackageCredit(pkg))
+    .map((pkg) => pkg.id);
 
   const now = new Date().toISOString();
 
-  const { error: packageUpdateError } = await supabase
-    .from("client_packages")
-    .update({
-      active: false,
-      updated_at: now,
-    })
-    .eq("studio_id", studioId)
-    .eq("client_id", clientId)
-    .eq("active", true)
-    .in("id", depletedPackageIds);
+  if (toDeactivate.length > 0) {
+    const { error: deactivateError } = await supabase
+      .from("client_packages")
+      .update({
+        active: false,
+        updated_at: now,
+      })
+      .eq("studio_id", studioId)
+      .eq("client_id", clientId)
+      .eq("active", true)
+      .is("archived_at", null)
+      .in("id", toDeactivate);
 
-  if (packageUpdateError) {
-    throw new Error(
-      `Could not complete depleted package: ${packageUpdateError.message}`,
-    );
+    if (deactivateError) {
+      throw new Error(
+        `Could not complete depleted package: ${deactivateError.message}`,
+      );
+    }
+  }
+
+  if (toReactivate.length > 0) {
+    const { error: reactivateError } = await supabase
+      .from("client_packages")
+      .update({
+        active: true,
+        updated_at: now,
+      })
+      .eq("studio_id", studioId)
+      .eq("client_id", clientId)
+      .eq("active", false)
+      .is("archived_at", null)
+      .in("id", toReactivate);
+
+    if (reactivateError) {
+      throw new Error(
+        `Could not restore package to active: ${reactivateError.message}`,
+      );
+    }
+  }
+
+  const depletedPackageIds = toDeactivate;
+
+  if (depletedPackageIds.length === 0) {
+    return { completedPackageIds: [] as string[] };
   }
 
   const { data: staleActions, error: staleActionsError } = await supabase

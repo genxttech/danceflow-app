@@ -73,12 +73,8 @@ type PackageRow = {
   client_package_items: PackageItemRow[] | PackageItemRow | null;
 };
 
-function itemsOf(pkg: PackageRow): PackageItemRow[] {
-  return Array.isArray(pkg.client_package_items)
-    ? pkg.client_package_items
-    : pkg.client_package_items
-      ? [pkg.client_package_items]
-      : [];
+function itemsOf(relation: PackageItemRow[] | PackageItemRow | null): PackageItemRow[] {
+  return Array.isArray(relation) ? relation : relation ? [relation] : [];
 }
 
 /**
@@ -101,7 +97,7 @@ function isPackageEligibleNow(
   if (!pkg.active) return false;
   if (pkg.expiration_date && pkg.expiration_date < appointmentDate) return false;
 
-  return itemsOf(pkg).some(
+  return itemsOf(pkg.client_package_items).some(
     (item) =>
       usageTypes.includes(item.usage_type) &&
       (item.is_unlimited || Number(item.quantity_remaining ?? 0) > 0),
@@ -166,7 +162,9 @@ export async function resolveEligiblePackage(params: {
   }
 
   const only = eligible[0];
-  const matchingItem = itemsOf(only).find((item) => usageTypes.includes(item.usage_type));
+  const matchingItem = itemsOf(only.client_package_items).find((item) =>
+    usageTypes.includes(item.usage_type),
+  );
 
   return {
     outcome: "single_eligible",
@@ -311,4 +309,92 @@ export async function validateClientPackageForBooking(params: {
   }
 
   return { ok: true };
+}
+
+/**
+ * Schedule Stabilization Slice 1b-a: staff-visible package lifecycle
+ * status, shared so it can be reused by both the client detail page and
+ * (in a later slice) warning-consistency logic. Distinct from
+ * `isPackageEligibleNow` above (which answers "can THIS appointment use
+ * this package") -- this answers "what should staff see as this
+ * package's current state," independent of any appointment context.
+ */
+export type ClientPackageStatus = "archived" | "depleted" | "expired" | "low" | "active";
+
+/**
+ * Narrower than `PackageItemRow` -- status derivation and reactivation
+ * eligibility are both usage-type-agnostic (they answer "does this
+ * package have ANY usable balance," not "does it cover THIS appointment
+ * type"), so they don't require `usage_type` to be selected/present.
+ */
+type BalanceItemRow = {
+  quantity_remaining: number | null;
+  is_unlimited: boolean | null;
+};
+
+function balanceItemsOf(
+  relation: BalanceItemRow[] | BalanceItemRow | null,
+): BalanceItemRow[] {
+  return Array.isArray(relation) ? relation : relation ? [relation] : [];
+}
+
+function hasUsableBalance(items: readonly BalanceItemRow[]): boolean {
+  return items.some(
+    (item) => item.is_unlimited || Number(item.quantity_remaining ?? 0) > 0,
+  );
+}
+
+function lowestFiniteRemaining(items: readonly BalanceItemRow[]): number | null {
+  const finite = items.filter(
+    (item) => !item.is_unlimited && item.quantity_remaining !== null,
+  );
+  if (finite.length === 0) return null;
+  return Math.min(...finite.map((item) => Number(item.quantity_remaining ?? 0)));
+}
+
+/**
+ * Precedence: archived_at set (deliberate staff action) always wins, even
+ * over a package that's also naturally depleted or expired -- the
+ * underlying balance/expiration facts remain queryable in the package's
+ * own fields regardless of which single status this returns. "Depleted"
+ * is computed from real balance (OR across items, matching
+ * `hasUsablePackageCredit` in lifecycle.ts), not from the stored `active`
+ * flag, so this self-heals against any pre-fix data drift rather than
+ * propagating it.
+ */
+export function getClientPackageStatus(pkg: {
+  archived_at: string | null;
+  expiration_date: string | null;
+  client_package_items: BalanceItemRow[] | BalanceItemRow | null;
+}): ClientPackageStatus {
+  if (pkg.archived_at) return "archived";
+
+  const items = balanceItemsOf(pkg.client_package_items);
+
+  if (!hasUsableBalance(items)) return "depleted";
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (pkg.expiration_date && pkg.expiration_date < today) return "expired";
+
+  const lowest = lowestFiniteRemaining(items);
+  if (lowest !== null && lowest === 1) return "low";
+
+  return "active";
+}
+
+/**
+ * Reactivation safety rule: only allow reactivating a manually-archived
+ * package when it would currently pass the same real-state check as fresh
+ * eligibility resolution -- not expired, and has usable balance on at
+ * least one item. Deliberately does not check `active` (the caller is
+ * deciding whether to set it) or usage type (reactivation has no
+ * appointment context to filter by).
+ */
+export function isPackageEligibleForReactivation(pkg: {
+  expiration_date: string | null;
+  client_package_items: BalanceItemRow[] | BalanceItemRow | null;
+}): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  if (pkg.expiration_date && pkg.expiration_date < today) return false;
+  return hasUsableBalance(balanceItemsOf(pkg.client_package_items));
 }

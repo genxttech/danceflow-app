@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { requireBalanceAdjustmentAccess } from "@/lib/auth/serverRoleGuard";
+import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -115,6 +116,13 @@ export async function createBalanceAdjustmentAction(
     if (updateError) {
       return { error: `Balance update failed: ${updateError.message}` };
     }
+
+    await reconcileClientPackageLifecycle({
+      supabase,
+      studioId,
+      clientId: clientPackage.client_id,
+      clientPackageId: clientPackage.id,
+    });
 
     const transactionType =
       adjustmentType === "add" ? "manual_credit" : "manual_debit";
