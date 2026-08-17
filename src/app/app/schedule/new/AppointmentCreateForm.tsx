@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { createAppointmentAction } from "../actions";
+import { hasReplacementCoverage, type PackageWithItems } from "@/lib/packages/entitlement";
 
 type InstructorOption = {
   id: string;
@@ -27,14 +28,14 @@ type LinkedPartnerOption = {
   last_name: string;
 };
 
-type ClientPackageItem = {
+export type ClientPackageItem = {
   usage_type: string | null;
   quantity_remaining: number | string | null;
   quantity_total: number | string | null;
   is_unlimited: boolean | null;
 };
 
-type ClientPackageOption = {
+export type ClientPackageOption = {
   id: string;
   name_snapshot: string | null;
   active: boolean | null;
@@ -337,9 +338,22 @@ function packageSupportsAppointmentType(
   );
 }
 
-function computePackageHealth(
+/**
+ * Schedule Stabilization Slice 1b-b: canonical per-item thresholds
+ * (finite <=0 -> depleted, finite ===1 -> low; unlimited never warns) plus
+ * replacement-coverage suppression, replacing the previous sum-across-
+ * items/threshold-2 reimplementation. Scoped to the single usage type
+ * `appointmentType` maps to (this badge only ever cares about the one
+ * usage type relevant to the appointment being created), so this uses the
+ * single-usage-type `hasReplacementCoverage` primitive directly rather
+ * than the multi-usage-type orchestration helpers used elsewhere. This
+ * only changes the warning badge shown while picking a package -- actual
+ * package eligibility/selection for booking is unchanged.
+ */
+export function computePackageHealth(
   appointmentType: string,
   clientPackage: ClientPackageOption | null,
+  otherPackages: PackageWithItems[] = [],
 ): "healthy" | "low" | "depleted" | "expired" | "inactive" {
   if (!clientPackage) return "inactive";
 
@@ -370,19 +384,27 @@ function computePackageHealth(
     return "healthy";
   }
 
-  const totalRemaining = relevantItems.reduce((sum, item) => {
-    return sum + (toNumber(item.quantity_remaining) ?? 0);
-  }, 0);
+  const isDepleted = relevantItems.every(
+    (item) => (toNumber(item.quantity_remaining) ?? 0) <= 0,
+  );
+  const isLow =
+    !isDepleted &&
+    relevantItems.some((item) => (toNumber(item.quantity_remaining) ?? 0) === 1);
 
-  if (totalRemaining <= 0) {
-    return "depleted";
+  if (!isDepleted && !isLow) {
+    return "healthy";
   }
 
-  if (totalRemaining <= 2) {
-    return "low";
-  }
+  const stillUncovered = supportedUsageTypes.some((usageType) => {
+    const item = relevantItems.find((candidate) => candidate.usage_type === usageType);
+    if (!item || item.is_unlimited) return false;
+    const remaining = toNumber(item.quantity_remaining) ?? 0;
+    if (remaining > 1) return false; // not itself warning-worthy
+    return !hasReplacementCoverage({ candidatePackages: otherPackages, usageType });
+  });
 
-  return "healthy";
+  if (!stillUncovered) return "healthy";
+  return isDepleted ? "depleted" : "low";
 }
 
 function billingTypeLabel(value: string) {
@@ -513,9 +535,26 @@ export default function AppointmentCreateForm({
       (clientPackage) => clientPackage.id === linkedPackageId,
     ) ?? null;
 
+  const otherPackagesForHealth = useMemo<PackageWithItems[]>(() => {
+    if (!selectedPackage) return [];
+    return selectedPackages
+      .filter((pkg) => pkg.id !== selectedPackage.id)
+      .map((pkg) => ({
+        id: pkg.id,
+        active: pkg.active === true,
+        archived_at: null,
+        expiration_date: pkg.expiration_date,
+        client_package_items: pkg.client_package_items.map((item) => ({
+          usage_type: item.usage_type ?? "",
+          quantity_remaining: toNumber(item.quantity_remaining),
+          is_unlimited: Boolean(item.is_unlimited),
+        })),
+      }));
+  }, [selectedPackage, selectedPackages]);
+
   const packageHealth = useMemo(
-    () => computePackageHealth(appointmentType, selectedPackage),
-    [appointmentType, selectedPackage],
+    () => computePackageHealth(appointmentType, selectedPackage, otherPackagesForHealth),
+    [appointmentType, selectedPackage, otherPackagesForHealth],
   );
 
   const applicableBenefits = useMemo(() => {

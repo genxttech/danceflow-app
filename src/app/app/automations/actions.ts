@@ -15,6 +15,10 @@ import {
   getDefaultAriaPolicyRows,
 } from "@/lib/aria/automation-catalog";
 import { getAriaOperationalPack } from "@/lib/aria/operational-default-packs";
+import {
+  ariaLowItemsIncludeCanonicalWarning,
+  ariaPackageHasReplacementCoverage,
+} from "./ariaPackageWarnings";
 
 type AutomationDefinition = {
   key: string;
@@ -2503,56 +2507,6 @@ function lowestAriaPackageRemaining(pkg: AriaPackageBalanceRow) {
   return remaining.length ? Math.min(...remaining) : null;
 }
 
-function normalizedAriaUsageType(value: string | null | undefined) {
-  return `${value ?? ""}`.trim().toLowerCase() || "__general__";
-}
-
-function ariaPackageIsCurrentlyUsable(pkg: AriaPackageBalanceRow, now: Date) {
-  if (!pkg.expiration_date) return true;
-  const expiration = new Date(`${pkg.expiration_date}T23:59:59.999`);
-  return !Number.isNaN(expiration.getTime()) && expiration >= now;
-}
-
-function ariaPackageHasReplacementCoverage(params: {
-  targetPackage: AriaPackageBalanceRow;
-  allPackages: AriaPackageBalanceRow[];
-  lowItems: AriaPackageBalanceRow["client_package_items"];
-  threshold: number;
-  now: Date;
-}) {
-  const { targetPackage, allPackages, lowItems, threshold, now } = params;
-  if (!targetPackage.client_id || lowItems.length === 0) return false;
-
-  return lowItems.every((lowItem) => {
-    const usageType = normalizedAriaUsageType(
-      (lowItem as { usage_type?: string | null }).usage_type,
-    );
-
-    return allPackages.some((candidate) => {
-      if (
-        candidate.id === targetPackage.id ||
-        candidate.client_id !== targetPackage.client_id ||
-        !ariaPackageIsCurrentlyUsable(candidate, now)
-      ) {
-        return false;
-      }
-
-      return (candidate.client_package_items ?? []).some((item) => {
-        const candidateUsageType = normalizedAriaUsageType(
-          (item as { usage_type?: string | null }).usage_type,
-        );
-        if (candidateUsageType !== usageType) return false;
-        if (item.is_unlimited) return true;
-
-        const remaining = asNumber(
-          item.quantity_remaining,
-          Number.NEGATIVE_INFINITY,
-        );
-        return Number.isFinite(remaining) && remaining > threshold;
-      });
-    });
-  });
-}
 
 function isAriaCanceledStatus(status: string | null | undefined) {
   const normalized = `${status ?? ""}`.toLowerCase();
@@ -2774,12 +2728,26 @@ async function buildStudioAriaOperationalCandidates(params: {
         targetPackage: pkg,
         allPackages: packages,
         lowItems,
-        threshold: 2,
-        now,
       })
     ) {
       continue;
     }
+
+    // Schedule Stabilization Slice 1b-b: this rule's proactive threshold
+    // (<=2) is intentionally more sensitive than canonical Low (exact
+    // remaining===1), so a candidate can fire here while the package's
+    // own detail page still shows "Active." The copy must not claim a
+    // canonical status it doesn't have -- only say "low"/"credits
+    // remaining" when at least one item genuinely meets the canonical
+    // low/depleted definition; otherwise describe the proactive trigger
+    // on its own terms.
+    const isCanonicalWarning = ariaLowItemsIncludeCanonicalWarning(lowItems);
+    const balanceDescription =
+      lowItems.length === 0
+        ? "is active"
+        : isCanonicalWarning
+          ? `has ${remaining} credit${remaining === 1 ? "" : "s"} remaining`
+          : `has ${remaining} credits remaining -- below your studio's proactive alert threshold of 2, though not yet canonically low`;
 
     const clientName = getAriaRelatedClientName(pkg.clients);
     candidates.push({
@@ -2788,7 +2756,7 @@ async function buildStudioAriaOperationalCandidates(params: {
       ruleDescription:
         "Creates ARIA actions for low-balance or soon-expiring active packages.",
       title: `Package renewal opportunity: ${clientName}`,
-      body: `${clientName}'s ${pkg.name_snapshot ?? "package"} ${typeof remaining === "number" ? `has ${remaining} credit${remaining === 1 ? "" : "s"} remaining` : "is active"}${pkg.expiration_date ? ` and expires ${ariaDateLabel(pkg.expiration_date)}` : ""}. Start the renewal conversation before momentum drops.`,
+      body: `${clientName}'s ${pkg.name_snapshot ?? "package"} ${balanceDescription}${pkg.expiration_date ? ` and expires ${ariaDateLabel(pkg.expiration_date)}` : ""}. Start the renewal conversation before momentum drops.`,
       priority:
         typeof remaining === "number" && remaining <= 0 ? "urgent" : "high",
       relatedTable: "client_packages",
@@ -5630,8 +5598,6 @@ async function evaluateLowPackageBalanceAutomation(params: {
             typedPackages as unknown as AriaPackageBalanceRow[],
           lowItems:
             lowItems as unknown as AriaPackageBalanceRow["client_package_items"],
-          threshold,
-          now: new Date(),
         })
       ) {
         return null;
@@ -5700,12 +5666,23 @@ async function evaluateLowPackageBalanceAutomation(params: {
         )
         .join(", ");
 
+      // Schedule Stabilization Slice 1b-b: this rule's threshold is
+      // studio-configurable (default 2) and intentionally more sensitive
+      // than canonical Low (exact remaining===1) -- don't claim a
+      // canonical status the package's own detail page wouldn't show.
+      const isCanonicalWarning = ariaLowItemsIncludeCanonicalWarning(
+        candidate.lowItems as unknown as AriaPackageBalanceRow["client_package_items"],
+      );
+      const bodyText = isCanonicalWarning
+        ? `${clientName} has ${candidate.lowestRemaining} or fewer credits remaining on ${packageName}. Review their balance and send a renewal prompt from the client profile or package sales workflow. Low items: ${lowItemSummary}.`
+        : `${clientName} has ${candidate.lowestRemaining} credits remaining on ${packageName} -- below your studio's configured alert threshold of ${threshold}, though not yet canonically low. Review their balance and send a renewal prompt from the client profile or package sales workflow. Flagged items: ${lowItemSummary}.`;
+
       return {
         studio_id: context.studioId,
         rule_id: rule.id,
         rule_key: ruleKey,
         title: `Package renewal suggested: ${clientName}`,
-        body: `${clientName} has ${candidate.lowestRemaining} or fewer credits remaining on ${packageName}. Review their balance and send a renewal prompt from the client profile or package sales workflow. Low items: ${lowItemSummary}.`,
+        body: bodyText,
         status: actionStatus,
         priority: candidate.lowestRemaining <= 0 ? "urgent" : "high",
         related_table: "client_packages",

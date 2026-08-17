@@ -37,6 +37,7 @@ type ClientPackageOption = {
   client_id: string;
   name_snapshot: string;
   active: boolean;
+  archived_at?: string | null;
   expiration_date?: string | null;
   client_package_items: ClientPackageItem[];
 };
@@ -189,6 +190,7 @@ export default async function EditAppointmentPage({
         client_id,
         name_snapshot,
         active,
+        archived_at,
         expiration_date,
         client_package_items (
           usage_type,

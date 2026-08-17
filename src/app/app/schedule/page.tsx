@@ -26,6 +26,11 @@ import {
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 import ScheduleDetailPanelTrigger from "./ScheduleDetailPanelTrigger";
+import {
+  getItemWarningLevel,
+  getUnsuppressedWarningUsageTypes,
+  type PackageWithItems,
+} from "@/lib/packages/entitlement";
 
 type SearchParams = Promise<{
   q?: string;
@@ -43,14 +48,14 @@ type SearchParams = Promise<{
   bulkFailed?: string;
 }>;
 
-type ClientPackageItem = {
+export type ClientPackageItem = {
   usage_type: string;
   quantity_remaining: number | null;
   quantity_total: number | null;
   is_unlimited: boolean;
 };
 
-type PackageHealth =
+export type PackageHealth =
   | "healthy"
   | "low_balance"
   | "depleted"
@@ -87,13 +92,19 @@ type AppointmentRow = {
   rooms: { id?: string; name: string } | { id?: string; name: string }[] | null;
   client_packages:
     | {
+        id: string;
         name_snapshot: string;
         active: boolean | null;
+        archived_at: string | null;
+        expiration_date: string | null;
         client_package_items: ClientPackageItem[];
       }
     | {
+        id: string;
         name_snapshot: string;
         active: boolean | null;
+        archived_at: string | null;
+        expiration_date: string | null;
         client_package_items: ClientPackageItem[];
       }[]
     | null;
@@ -451,35 +462,53 @@ function getOrganizerName(value: { name: string } | { name: string }[] | null) {
   return organizer?.name ?? "Organizer";
 }
 
-function getLowestRemainingValue(items: ClientPackageItem[]) {
-  const finiteItems = items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
-  );
-
-  if (finiteItems.length === 0) return null;
-
-  return Math.min(
-    ...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)),
-  );
-}
-
-function getPackageHealth(
+/**
+ * Schedule Stabilization Slice 1b-b: canonical per-usage-type warning
+ * detection, with optional replacement-coverage suppression. Threshold
+ * semantics (lowest finite item ===1 -> low, any item <=0 -> depleted)
+ * are unchanged from before -- this page was already canonical on
+ * thresholds, just missing suppression. `otherPackages` defaults to `[]`,
+ * which makes suppression a no-op: `getCloseoutReviewReason`'s billing-
+ * integrity check deliberately calls this with no otherPackages, since
+ * whether a *different* package could have covered this appointment is
+ * irrelevant to whether the package actually charged had real balance.
+ * Only the visible per-appointment badge passes real sibling packages.
+ */
+export function getPackageHealth(
   pkg: {
     active?: boolean | null;
+    archived_at?: string | null;
+    expiration_date?: string | null;
     client_package_items?: ClientPackageItem[] | null;
   } | null,
+  otherPackages: PackageWithItems[] = [],
 ): PackageHealth {
   if (!pkg) return "unknown";
   if (pkg.active === false) return "inactive";
 
   const items = pkg.client_package_items ?? [];
-  const lowestRemaining = getLowestRemainingValue(items);
+  if (items.length === 0) return "healthy";
 
-  if (lowestRemaining === null) return "healthy";
-  if (lowestRemaining <= 0) return "depleted";
-  if (lowestRemaining === 1) return "low_balance";
+  const targetPackage: PackageWithItems = {
+    id: "__target__",
+    active: true,
+    archived_at: pkg.archived_at ?? null,
+    expiration_date: pkg.expiration_date ?? null,
+    client_package_items: items,
+  };
 
-  return "healthy";
+  const unsuppressed = getUnsuppressedWarningUsageTypes({
+    targetPackage,
+    otherClientPackages: otherPackages,
+  });
+  if (unsuppressed.length === 0) return "healthy";
+
+  const worstIsDepleted = unsuppressed.some((usageType) => {
+    const item = items.find((candidate) => candidate.usage_type === usageType);
+    return item ? getItemWarningLevel(item) === "depleted" : false;
+  });
+
+  return worstIsDepleted ? "depleted" : "low_balance";
 }
 
 function packageHealthLabel(health: PackageHealth) {
@@ -846,8 +875,11 @@ export default async function SchedulePage({
       instructors ( id, first_name, last_name ),
       rooms ( id, name ),
       client_packages (
+        id,
         name_snapshot,
         active,
+        archived_at,
+        expiration_date,
         client_package_items (
           usage_type,
           quantity_remaining,
@@ -1071,6 +1103,70 @@ export default async function SchedulePage({
       },
       new Map<string, number>(),
     );
+  }
+
+  // Schedule Stabilization Slice 1b-b: bulk-fetch every visible client's
+  // full package set (not just the one linked to each appointment) so the
+  // per-appointment package badge can apply replacement-coverage
+  // suppression, matching every other warning surface.
+  const packageHealthClientIds = Array.from(
+    new Set(
+      typedAppointments
+        .map((appointment) => appointment.client_id)
+        .filter((clientId): clientId is string => Boolean(clientId)),
+    ),
+  );
+
+  let sibPackagesByClientId = new Map<string, PackageWithItems[]>();
+
+  if (packageHealthClientIds.length > 0) {
+    const { data: siblingPackageRows, error: siblingPackagesError } = await supabase
+      .from("client_packages")
+      .select(
+        `
+        id,
+        client_id,
+        active,
+        archived_at,
+        expiration_date,
+        client_package_items (
+          usage_type,
+          quantity_remaining,
+          is_unlimited
+        )
+      `,
+      )
+      .eq("studio_id", studioId)
+      .in("client_id", packageHealthClientIds);
+
+    if (siblingPackagesError) {
+      throw new Error(
+        `Failed to load client package balances: ${siblingPackagesError.message}`,
+      );
+    }
+
+    sibPackagesByClientId = (siblingPackageRows ?? []).reduce((map, row) => {
+      const clientId = String(row.client_id ?? "");
+      if (!clientId) return map;
+      const pkg: PackageWithItems = {
+        id: String(row.id),
+        active: Boolean(row.active),
+        archived_at: (row.archived_at as string | null) ?? null,
+        expiration_date: (row.expiration_date as string | null) ?? null,
+        client_package_items: Array.isArray(row.client_package_items)
+          ? row.client_package_items
+          : row.client_package_items
+            ? [row.client_package_items]
+            : [],
+      };
+      const list = map.get(clientId);
+      if (list) {
+        list.push(pkg);
+      } else {
+        map.set(clientId, [pkg]);
+      }
+      return map;
+    }, new Map<string, PackageWithItems[]>());
   }
 
   const eventOccurrenceRange =
@@ -1889,7 +1985,12 @@ export default async function SchedulePage({
               ? appointment.client_packages[0]
               : appointment.client_packages;
 
-            const packageHealth = pkg ? getPackageHealth(pkg) : null;
+            const otherPackagesForHealth = pkg
+              ? (sibPackagesByClientId.get(appointment.client_id ?? "") ?? []).filter(
+                  (candidate) => candidate.id !== pkg.id,
+                )
+              : [];
+            const packageHealth = pkg ? getPackageHealth(pkg, otherPackagesForHealth) : null;
             const referralSource = getClientReferralSource(appointment.clients);
             const isPublicIntro =
               appointment.appointment_type === "intro_lesson" &&

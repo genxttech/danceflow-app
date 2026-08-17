@@ -7,6 +7,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import {
+  hasUnsuppressedPackageWarning,
+  type PackageWithItems,
+} from "@/lib/packages/entitlement";
 
 const AUDIENCE_TYPES = new Set([
   "manual",
@@ -241,6 +245,101 @@ async function getUnsubscribedEmails(params: {
   );
 }
 
+/**
+ * Slice 1b-b canonical low-credit segmentation, shared with
+ * `campaigns/page.tsx` (audience preview count) and `campaigns/[id]/page.tsx`
+ * (audience re-preview), which previously each carried their own
+ * byte-identical copy of this query against the deprecated, unreliably
+ * populated `client_packages.lessons_remaining` column. Derives balances
+ * from `client_package_items.quantity_remaining`/`is_unlimited`/`usage_type`
+ * instead, and applies the same canonical warning/replacement-coverage
+ * rules as every other low/depleted-package surface (portal, staff,
+ * notifications, ARIA): a client is included only if at least one of their
+ * packages has an unsuppressed warning-causing usage type -- a healthy
+ * replacement package for the SAME usage type suppresses it, an unrelated
+ * or archived/expired/inactive/depleted "replacement" does not.
+ */
+export async function getLowPackageCreditClientIds(
+  supabase: SupabaseClient,
+  studioId: string,
+): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("client_packages")
+    .select(
+      `
+      id,
+      client_id,
+      active,
+      archived_at,
+      expiration_date,
+      client_package_items (
+        usage_type,
+        quantity_remaining,
+        is_unlimited
+      )
+    `,
+    )
+    .eq("studio_id", studioId)
+    .not("client_id", "is", null)
+    .limit(10000);
+
+  if (error) {
+    console.error("Failed to load low-credit package audience", error);
+    return new Set();
+  }
+
+  const packagesByClient = new Map<string, PackageWithItems[]>();
+
+  for (const row of data ?? []) {
+    const clientId = typeof row.client_id === "string" ? row.client_id : "";
+    if (!clientId) continue;
+
+    const pkg: PackageWithItems = {
+      id: String(row.id),
+      active: Boolean(row.active),
+      archived_at: row.archived_at ?? null,
+      expiration_date: row.expiration_date ?? null,
+      client_package_items: Array.isArray(row.client_package_items)
+        ? row.client_package_items
+        : row.client_package_items
+          ? [row.client_package_items]
+          : [],
+    };
+
+    const list = packagesByClient.get(clientId);
+    if (list) {
+      list.push(pkg);
+    } else {
+      packagesByClient.set(clientId, [pkg]);
+    }
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const lowCreditClientIds = new Set<string>();
+
+  for (const [clientId, packages] of packagesByClient) {
+    // Only a non-archived, active, non-expired package can generate its own
+    // warning -- matches the Archived > Depleted > Expired > Low > Active
+    // precedence (an archived/expired package is never itself "low").
+    const eligibleTargets = packages.filter(
+      (pkg) =>
+        !pkg.archived_at &&
+        pkg.active &&
+        (!pkg.expiration_date || pkg.expiration_date >= today),
+    );
+
+    const clientHasUnsuppressedWarning = eligibleTargets.some((target) =>
+      hasUnsuppressedPackageWarning({ targetPackage: target, otherClientPackages: packages }),
+    );
+
+    if (clientHasUnsuppressedWarning) {
+      lowCreditClientIds.add(clientId);
+    }
+  }
+
+  return lowCreditClientIds;
+}
+
 async function getClientRecipients(params: {
   supabase: SupabaseClient;
   studioId: string;
@@ -297,29 +396,8 @@ async function getClientRecipients(params: {
   }
 
   if (audienceType === "low_package_credits") {
-    const { data: packages, error: packagesError } = await supabase
-      .from("client_packages")
-      .select("client_id, lessons_remaining, active")
-      .eq("studio_id", studioId)
-      .eq("active", true)
-      .lte("lessons_remaining", 2)
-      .not("client_id", "is", null)
-      .limit(10000);
-
-    if (packagesError) {
-      console.error(
-        "Failed to load low-credit package audience",
-        packagesError,
-      );
-      return [];
-    }
-
     const lowCreditClientIds = Array.from(
-      new Set(
-        (packages ?? [])
-          .map((pkg) => String(pkg.client_id ?? ""))
-          .filter(Boolean),
-      ),
+      await getLowPackageCreditClientIds(supabase, studioId),
     );
 
     if (lowCreditClientIds.length === 0) {

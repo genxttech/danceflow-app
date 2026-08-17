@@ -3,7 +3,7 @@ import { ArrowRight, CheckCircle2, Link2, Mail, Megaphone, Sparkles, Users, Shie
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
-import { createMarketingCampaignDraftAction } from "./actions";
+import { createMarketingCampaignDraftAction, getLowPackageCreditClientIds } from "./actions";
 import CampaignAIAssistant from "./CampaignAIAssistant";
 import MarketingCampaignList from "./MarketingCampaignList";
 
@@ -256,27 +256,7 @@ async function getClientAudiencePreview(params: {
   }
 
   if (audienceType === "low_package_credits") {
-    const { data: packages, error: packagesError } = await supabase
-      .from("client_packages")
-      .select("client_id, lessons_remaining, active")
-      .eq("studio_id", studioId)
-      .eq("active", true)
-      .lte("lessons_remaining", 2)
-      .not("client_id", "is", null)
-      .limit(5000);
-
-    if (packagesError) {
-      console.error("Low-credit audience preview failed", packagesError);
-      return { count: 0, sample: [] };
-    }
-
-    const clientIds = Array.from(
-      new Set(
-        (packages ?? [])
-          .map((pkg) => String(pkg.client_id ?? ""))
-          .filter(Boolean),
-      ),
-    );
+    const clientIds = Array.from(await getLowPackageCreditClientIds(supabase, studioId));
 
     if (clientIds.length === 0) {
       return { count: 0, sample: [] };

@@ -1,4 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  getItemWarningLevel,
+  getUnsuppressedWarningUsageTypes,
+  type PackageWithItems,
+} from "@/lib/packages/entitlement";
 
 type LeadActivityRow = {
   id: string;
@@ -13,6 +18,7 @@ type LeadActivityRow = {
 };
 
 type ClientPackageItemRow = {
+  usage_type: string;
   quantity_remaining: number | null;
   is_unlimited: boolean;
 };
@@ -101,24 +107,6 @@ function normalizeRentalTitle(value: string | null | undefined) {
   return trimmed || "Floor Space Rental";
 }
 
-function hasDepletedFiniteBalance(items: ClientPackageItemRow[]) {
-  return items.some(
-    (item) =>
-      !item.is_unlimited &&
-      item.quantity_remaining !== null &&
-      item.quantity_remaining <= 0
-  );
-}
-
-function hasLowFiniteBalance(items: ClientPackageItemRow[]) {
-  return items.some(
-    (item) =>
-      !item.is_unlimited &&
-      item.quantity_remaining !== null &&
-      item.quantity_remaining > 0 &&
-      item.quantity_remaining <= 2
-  );
-}
 
 function isDuplicateKeyError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -233,6 +221,7 @@ export async function syncStudioNotifications(studioId: string) {
         client_id,
         name_snapshot,
         client_package_items (
+          usage_type,
           quantity_remaining,
           is_unlimited
         ),
@@ -409,9 +398,55 @@ export async function syncStudioNotifications(studioId: string) {
         })
     : [];
 
+  // Schedule Stabilization Slice 1b-b: canonical per-usage-type warning
+  // detection + replacement-coverage suppression, replacing the previous
+  // independent threshold-2 reimplementation. A package's warning is only
+  // suppressed when every usage type causing it is covered by another of
+  // the same client's active, non-archived, non-expired packages.
+  const packagesByClientId = new Map<string, PackageWithItems[]>();
+  for (const pkg of typedPackages) {
+    if (!pkg.client_id) continue;
+    const asPackageWithItems: PackageWithItems = {
+      id: pkg.id,
+      active: true, // query already scopes to active=true
+      archived_at: null,
+      expiration_date: null,
+      client_package_items: pkg.client_package_items ?? [],
+    };
+    const list = packagesByClientId.get(pkg.client_id);
+    if (list) {
+      list.push(asPackageWithItems);
+    } else {
+      packagesByClientId.set(pkg.client_id, [asPackageWithItems]);
+    }
+  }
+
+  function worstUnsuppressedLevel(pkg: ClientPackageRow): "depleted" | "low" | null {
+    if (!pkg.client_id) return null;
+    const items = pkg.client_package_items ?? [];
+    const targetPackage: PackageWithItems = {
+      id: pkg.id,
+      active: true,
+      archived_at: null,
+      expiration_date: null,
+      client_package_items: items,
+    };
+    const otherPackages = (packagesByClientId.get(pkg.client_id) ?? []).filter(
+      (candidate) => candidate.id !== pkg.id,
+    );
+    const unsuppressed = getUnsuppressedWarningUsageTypes({ targetPackage, otherClientPackages: otherPackages });
+    if (unsuppressed.length === 0) return null;
+
+    const hasDepleted = unsuppressed.some((usageType) => {
+      const item = items.find((candidate) => candidate.usage_type === usageType);
+      return item ? getItemWarningLevel(item) === "depleted" : false;
+    });
+    return hasDepleted ? "depleted" : "low";
+  }
+
   const packageDepletedNotificationsToInsert = settings.package_depleted_enabled
     ? typedPackages
-        .filter((pkg) => hasDepletedFiniteBalance(pkg.client_package_items ?? []))
+        .filter((pkg) => worstUnsuppressedLevel(pkg) === "depleted")
         .filter((pkg) => !existingPackageDepletedIds.has(pkg.id))
         .map((pkg) => {
           const clientName = getClientName(pkg.clients);
@@ -423,7 +458,7 @@ export async function syncStudioNotifications(studioId: string) {
             category: "package",
             priority: "urgent",
             title: `${clientName} — ${packageName} depleted`,
-            body: `Package "${packageName}" has no remaining balance in at least one finite item.`,
+            body: `Package "${packageName}" has no remaining balance in at least one finite item, and no other active package currently covers that usage type.`,
             client_id: pkg.client_id,
             client_package_id: pkg.id,
           };
@@ -432,8 +467,7 @@ export async function syncStudioNotifications(studioId: string) {
 
   const packageLowBalanceNotificationsToInsert = settings.package_low_balance_enabled
     ? typedPackages
-        .filter((pkg) => !hasDepletedFiniteBalance(pkg.client_package_items ?? []))
-        .filter((pkg) => hasLowFiniteBalance(pkg.client_package_items ?? []))
+        .filter((pkg) => worstUnsuppressedLevel(pkg) === "low")
         .filter((pkg) => !existingPackageLowBalanceIds.has(pkg.id))
         .map((pkg) => {
           const clientName = getClientName(pkg.clients);
@@ -445,7 +479,7 @@ export async function syncStudioNotifications(studioId: string) {
             category: "package",
             priority: "high",
             title: `${clientName} — ${packageName} low balance`,
-            body: `Package "${packageName}" is running low and has 2 or fewer remaining in at least one finite item.`,
+            body: `Package "${packageName}" is running low on at least one finite item, and no other active package currently covers that usage type.`,
             client_id: pkg.client_id,
             client_package_id: pkg.id,
           };
