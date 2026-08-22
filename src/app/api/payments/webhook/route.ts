@@ -7,6 +7,10 @@ import {
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
+import {
+  reconcilePackageStripeRefund,
+  buildPackageRefundReconciliationInput,
+} from "@/lib/payments/package-refund-reconciliation";
 import { finalizeTerminalMembership } from "@/lib/payments/terminal-membership-finalization";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import {
@@ -2768,7 +2772,7 @@ async function updateEventPaymentRefundByPaymentIntent(
   return true;
 }
 
-async function handleStripeRefundUpdated(
+export async function handleStripeRefundUpdated(
   supabase: SupabaseClient,
   stripe: Stripe,
   refund: Stripe.Refund,
@@ -2777,6 +2781,14 @@ async function handleStripeRefundUpdated(
   const paymentIntentId = stripeObjectId(refund.payment_intent);
   const chargeId = stripeObjectId(refund.charge);
   const stripeRefundId = refund.id ?? null;
+  // Package Refund P0, Slice 2c-1: this single refund event's own amount,
+  // in cents (Stripe's native unit) -- deliberately captured before
+  // cumulativeRefundAmount below is potentially overridden by the charge's
+  // running total. package_refund_reconciliations is an append-only ledger
+  // of individual refund objects; feeding it a cumulative amount would
+  // double-count once summed.
+  const refundEventAmountCents = refund.amount ?? 0;
+  const refundEventStatus = refund.status ?? "pending";
 
   let resolvedPaymentIntentId = paymentIntentId;
   let cumulativeRefundAmount = centsToDollars(refund.amount ?? 0);
@@ -2825,6 +2837,29 @@ async function handleStripeRefundUpdated(
     stripeRefundId,
   );
 
+  // Package Refund P0, Slice 2c-1: refund.created/refund.updated (and
+  // charge.refund.updated, which also routes through this same handler)
+  // are the approved authority for package-credit reconciliation --
+  // charge.refunded/charge.updated remain payment-summary-only and do not
+  // call this (see handleChargeRefunded below, which never references
+  // reconcilePackageStripeRefund). reconcile_package_stripe_refund's own
+  // transition gate decides whether this specific observation actually
+  // applies anything; buildPackageRefundReconciliationInput's null-check
+  // is only about whether there's a well-formed event to hand it at all,
+  // not about redelivery -- that's the RPC's job, not a TS-level guess.
+  const packageReconciliationInput = buildPackageRefundReconciliationInput({
+    stripeRefundId,
+    refundEventAmountCents,
+    cumulativeRefundAmountCents: resolvedCharge?.amount_refunded ?? refundEventAmountCents,
+    refundStatus: refundEventStatus,
+    resolvedPaymentIntentId,
+    chargeId,
+  });
+
+  if (packageReconciliationInput) {
+    await reconcilePackageStripeRefund(supabase, packageReconciliationInput);
+  }
+
   if (resolvedCharge) {
     await syncFeeDetailsForCharge(
       supabase,
@@ -2844,7 +2879,7 @@ async function handleStripeRefundUpdated(
   return paymentUpdated || eventPaymentUpdated;
 }
 
-async function handleChargeRefunded(
+export async function handleChargeRefunded(
   supabase: SupabaseClient,
   stripe: Stripe,
   charge: Stripe.Charge,
