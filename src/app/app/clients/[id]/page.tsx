@@ -181,6 +181,7 @@ export type ClientPackageRow = {
   archived_at: string | null;
   archived_by: string | null;
   archive_reason: string | null;
+  refund_status: string | null;
   client_package_items: ClientPackageItemRow[];
 };
 
@@ -1905,6 +1906,7 @@ export default async function ClientDetailPage({
         archived_at,
         archived_by,
         archive_reason,
+        refund_status,
         client_package_items (
           id,
           usage_type,

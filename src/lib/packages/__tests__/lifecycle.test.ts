@@ -131,6 +131,121 @@ describe("reconcileClientPackageLifecycle", () => {
     });
   });
 
+  describe("Package Refund P0, Slice 2b: defensive refund-state normalization", () => {
+    it("refund_status='full', active=true, balance>0 -> ends active=false", async () => {
+      const { fake, tables } = buildClient([
+        {
+          id: "pkg-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          active: true,
+          archived_at: null,
+          refund_status: "full",
+          client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+        },
+      ]);
+
+      await reconcileClientPackageLifecycle({
+        supabase: fake,
+        studioId: STUDIO_ID,
+        clientId: CLIENT_ID,
+        clientPackageId: "pkg-1",
+      });
+
+      expect(tables.client_packages.rows[0]).toMatchObject({
+        active: false,
+        // Never altered: balance, refund state, archive metadata.
+        client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+        refund_status: "full",
+        archived_at: null,
+      });
+    });
+
+    it("refund_status='partial', active=true -> ordinary behavior completely unchanged (not touched by the new block)", async () => {
+      const { fake, tables } = buildClient([
+        {
+          id: "pkg-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          active: true,
+          archived_at: null,
+          refund_status: "partial",
+          client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+        },
+      ]);
+
+      await reconcileClientPackageLifecycle({
+        supabase: fake,
+        studioId: STUDIO_ID,
+        clientId: CLIENT_ID,
+        clientPackageId: "pkg-1",
+      });
+
+      // Real balance exists, so ordinary reconciliation leaves it active --
+      // the new refund block never even considers this row.
+      expect(tables.client_packages.rows[0].active).toBe(true);
+    });
+
+    it("refund_status='full', active=false (already correctly inactive) -> remains false, and is never simultaneously present in the reactivate branch", async () => {
+      const { fake, tables } = buildClient([
+        {
+          id: "pkg-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          active: false,
+          archived_at: null,
+          refund_status: "full",
+          client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+        },
+      ]);
+
+      const result = await reconcileClientPackageLifecycle({
+        supabase: fake,
+        studioId: STUDIO_ID,
+        clientId: CLIENT_ID,
+        clientPackageId: "pkg-1",
+      });
+
+      // toReactivate excludes refund-blocked rows, and toDeactivateForRefund
+      // only ever considers active!==false rows -- this row qualifies for
+      // neither block, so nothing is written and it stays exactly as it was.
+      expect(tables.client_packages.rows[0].active).toBe(false);
+      expect(result.completedPackageIds).toEqual([]);
+    });
+
+    it("normalization never mutates client_package_items, archived_at, or refund_status itself", async () => {
+      const { fake, tables } = buildClient([
+        {
+          id: "pkg-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          active: true,
+          archived_at: null,
+          refund_status: "full",
+          client_package_items: [
+            { quantity_remaining: 3, is_unlimited: false },
+            { quantity_remaining: 0, is_unlimited: false },
+          ],
+        },
+      ]);
+
+      await reconcileClientPackageLifecycle({
+        supabase: fake,
+        studioId: STUDIO_ID,
+        clientId: CLIENT_ID,
+        clientPackageId: "pkg-1",
+      });
+
+      const row = tables.client_packages.rows[0];
+      expect(row.client_package_items).toEqual([
+        { quantity_remaining: 3, is_unlimited: false },
+        { quantity_remaining: 0, is_unlimited: false },
+      ]);
+      expect(row.archived_at).toBeNull();
+      expect(row.refund_status).toBe("full");
+    });
+  });
+
   it("a database failure during reconciliation fails closed with a thrown error", async () => {
     const { fake, tables } = buildClient([]);
     tables.client_packages.forceError = { message: "connection reset" };
@@ -332,6 +447,29 @@ describe("reconcileClientPackageLifecycle", () => {
       // way deactivation does, since no existing product rule asks for
       // automation behavior on the restoration path.
       expect(tables.automation_actions.rows[0].status).toBe("suggested");
+    });
+
+    it("Package Refund P0, Slice 2b: a refund_status='full' package is never auto-reactivated even with restored balance", async () => {
+      const { fake, tables } = buildClient([
+        {
+          id: "pkg-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          active: false,
+          archived_at: null,
+          refund_status: "full",
+          client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+        },
+      ]);
+
+      await reconcileClientPackageLifecycle({
+        supabase: fake,
+        studioId: STUDIO_ID,
+        clientId: CLIENT_ID,
+        clientPackageId: "pkg-1",
+      });
+
+      expect(tables.client_packages.rows[0].active).toBe(false);
     });
 
     it("both directions apply correctly within a single multi-package client reconciliation pass", async () => {

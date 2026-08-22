@@ -70,11 +70,28 @@ type PackageRow = {
   client_id: string;
   active: boolean;
   expiration_date: string | null;
+  refund_status: string | null;
   client_package_items: PackageItemRow[] | PackageItemRow | null;
 };
 
 function itemsOf(relation: PackageItemRow[] | PackageItemRow | null): PackageItemRow[] {
   return Array.isArray(relation) ? relation : relation ? [relation] : [];
+}
+
+/**
+ * Package Refund P0, Slice 2b: the single shared predicate for "is this
+ * package's entitlement unconditionally blocked by a refund." P0 semantics
+ * are deliberately narrow -- `refund_status === 'full'` only. A `'partial'`
+ * refund creates no hard block anywhere; ordinary remaining-balance rules
+ * continue to apply. Safe to reuse across every eligibility/reactivation/
+ * lifecycle call site: pure, no side effects, and `null` (the default for
+ * every package that has never been refunded) correctly evaluates to
+ * "not blocked" via plain `===` comparison -- no NULL-handling hazard here
+ * the way there is with SQL/PostgREST inequality operators (see call sites
+ * in lifecycle.ts and the payment-fulfillment/import guards for that case).
+ */
+export function isPackageRefundBlocked(pkg: { refund_status: string | null }): boolean {
+  return pkg.refund_status === "full";
 }
 
 /**
@@ -88,6 +105,15 @@ function itemsOf(relation: PackageItemRow[] | PackageItemRow | null): PackageIte
  * immediately, even if `reconcileClientPackageLifecycle` hasn't yet
  * flipped its stored `active` flag to `false` (a Slice 1b data-hygiene
  * concern, not a Slice 1 correctness dependency).
+ *
+ * Package Refund P0, Slice 2b: a `refund_status='full'` package is excluded
+ * here, before any other check -- this is the single choke point shared by
+ * both `resolveEligiblePackage` (auto-selection) and `isPackageStillEligible`
+ * (reschedule revalidation) below, so the exclusion applies to both, and
+ * applies before `resolveEligiblePackage`'s own ambiguity check runs (a
+ * refund-blocked package must never be able to cause a false
+ * "multiple_eligible_packages" result for an otherwise-single genuinely
+ * eligible package).
  */
 function isPackageEligibleNow(
   pkg: PackageRow,
@@ -95,6 +121,7 @@ function isPackageEligibleNow(
   appointmentDate: string,
 ): boolean {
   if (!pkg.active) return false;
+  if (isPackageRefundBlocked(pkg)) return false;
   if (pkg.expiration_date && pkg.expiration_date < appointmentDate) return false;
 
   return itemsOf(pkg.client_package_items).some(
@@ -110,6 +137,7 @@ const PACKAGE_ELIGIBILITY_SELECT = `
   client_id,
   active,
   expiration_date,
+  refund_status,
   client_package_items (
     usage_type,
     quantity_remaining,
@@ -252,6 +280,7 @@ export async function validateClientPackageForBooking(params: {
       studio_id,
       client_id,
       active,
+      refund_status,
       client_package_items (
         usage_type,
         quantity_remaining,
@@ -272,6 +301,17 @@ export async function validateClientPackageForBooking(params: {
     return {
       ok: false,
       error: "Selected package does not belong to the chosen client.",
+    };
+  }
+
+  // Package Refund P0, Slice 2b: unconditional -- independent of
+  // block_depleted_package_booking, which is a depletion-policy convenience
+  // toggle, not a financial-integrity control. A refunded package must
+  // never be bookable regardless of that studio setting.
+  if (isPackageRefundBlocked(pkg)) {
+    return {
+      ok: false,
+      error: "Selected package has been refunded and cannot be used for booking.",
     };
   }
 
@@ -389,11 +429,18 @@ export function getClientPackageStatus(pkg: {
  * least one item. Deliberately does not check `active` (the caller is
  * deciding whether to set it) or usage type (reactivation has no
  * appointment context to filter by).
+ *
+ * Package Refund P0, Slice 2b: also unconditionally blocks a
+ * `refund_status='full'` package, checked first -- a fully refunded
+ * package must never be reactivated through the ordinary
+ * archive/reactivate workflow, regardless of expiration or balance.
  */
 export function isPackageEligibleForReactivation(pkg: {
   expiration_date: string | null;
+  refund_status: string | null;
   client_package_items: BalanceItemRow[] | BalanceItemRow | null;
 }): boolean {
+  if (isPackageRefundBlocked(pkg)) return false;
   const today = new Date().toISOString().slice(0, 10);
   if (pkg.expiration_date && pkg.expiration_date < today) return false;
   return hasUsableBalance(balanceItemsOf(pkg.client_package_items));

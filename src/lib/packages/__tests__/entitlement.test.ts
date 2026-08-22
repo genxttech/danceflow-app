@@ -370,6 +370,132 @@ describe("resolveEligiblePackage -- archived packages (Slice 1b-a regression gua
   });
 });
 
+describe("Package Refund P0, Slice 2b: refund_status='full' entitlement block", () => {
+  it("resolveEligiblePackage excludes a refund_status='full' package even when active=true and balance>0", async () => {
+    const { fake } = buildClient([
+      privateLessonPackage({ refund_status: "full" }),
+    ]);
+
+    const result = await resolveEligiblePackage({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      appointmentType: "private_lesson",
+      appointmentDateIso: APPOINTMENT_DATE_ISO,
+    });
+
+    expect(result.outcome).toBe("none_eligible");
+  });
+
+  it("resolveEligiblePackage: a refund-blocked package alongside one genuinely eligible package resolves to single_eligible, not multiple_eligible_packages (ambiguity-ordering regression)", async () => {
+    const { fake } = buildClient([
+      privateLessonPackage({ id: "pkg-1", refund_status: "full" }),
+      privateLessonPackage({ id: "pkg-2", refund_status: null }),
+    ]);
+
+    const result = await resolveEligiblePackage({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      appointmentType: "private_lesson",
+      appointmentDateIso: APPOINTMENT_DATE_ISO,
+    });
+
+    expect(result.outcome).toBe("single_eligible");
+    expect(result).toMatchObject({ clientPackageId: "pkg-2" });
+  });
+
+  it("resolveEligiblePackage: a refund_status='partial' package is still eligible (no hard block)", async () => {
+    const { fake } = buildClient([
+      privateLessonPackage({ refund_status: "partial" }),
+    ]);
+
+    const result = await resolveEligiblePackage({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      appointmentType: "private_lesson",
+      appointmentDateIso: APPOINTMENT_DATE_ISO,
+    });
+
+    expect(result.outcome).toBe("single_eligible");
+  });
+
+  it("isPackageStillEligible reports ineligible once the linked package becomes refund_status='full'", async () => {
+    const { fake } = buildClient([
+      privateLessonPackage({ refund_status: "full" }),
+    ]);
+
+    const result = await isPackageStillEligible({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      clientPackageId: "pkg-1",
+      appointmentType: "private_lesson",
+      appointmentDateIso: APPOINTMENT_DATE_ISO,
+    });
+
+    expect(result).toEqual({ ok: true, eligible: false });
+  });
+
+  it("validateClientPackageForBooking blocks a refund_status='full' package even though active=true and balance>0", async () => {
+    const { fake } = buildClient(
+      [privateLessonPackage({ refund_status: "full" })],
+      [{ studio_id: STUDIO_ID, block_depleted_package_booking: true }],
+    );
+
+    const result = await validateClientPackageForBooking({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      clientPackageId: "pkg-1",
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("validateClientPackageForBooking blocks a refund_status='full' package even when block_depleted_package_booking=false (the critical bug regression)", async () => {
+    const { fake } = buildClient(
+      [privateLessonPackage({ refund_status: "full" })],
+      [{ studio_id: STUDIO_ID, block_depleted_package_booking: false }],
+    );
+
+    const result = await validateClientPackageForBooking({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      clientPackageId: "pkg-1",
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("validateClientPackageForBooking: a refund_status='partial' package still follows the existing block_depleted_package_booking-gated depletion rules, unaffected", async () => {
+    const { fake } = buildClient(
+      [
+        privateLessonPackage({
+          refund_status: "partial",
+          client_package_items: [
+            { usage_type: "private_lesson", quantity_remaining: 0, quantity_total: 5, is_unlimited: false },
+          ],
+        }),
+      ],
+      [{ studio_id: STUDIO_ID, block_depleted_package_booking: true }],
+    );
+
+    const result = await validateClientPackageForBooking({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      clientPackageId: "pkg-1",
+    });
+
+    // Blocked for the ordinary depletion reason, not the refund reason --
+    // proves 'partial' creates no hard block of its own.
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("getClientPackageStatus", () => {
   it("archived_at set takes precedence over every other state", () => {
     const status = getClientPackageStatus({
@@ -452,6 +578,7 @@ describe("isPackageEligibleForReactivation", () => {
     expect(
       isPackageEligibleForReactivation({
         expiration_date: null,
+        refund_status: null,
         client_package_items: [{ quantity_remaining: 3, is_unlimited: false }],
       }),
     ).toBe(true);
@@ -461,6 +588,7 @@ describe("isPackageEligibleForReactivation", () => {
     expect(
       isPackageEligibleForReactivation({
         expiration_date: null,
+        refund_status: null,
         client_package_items: [{ quantity_remaining: 0, is_unlimited: false }],
       }),
     ).toBe(false);
@@ -470,6 +598,7 @@ describe("isPackageEligibleForReactivation", () => {
     expect(
       isPackageEligibleForReactivation({
         expiration_date: "2020-01-01",
+        refund_status: null,
         client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
       }),
     ).toBe(false);
@@ -479,7 +608,28 @@ describe("isPackageEligibleForReactivation", () => {
     expect(
       isPackageEligibleForReactivation({
         expiration_date: null,
+        refund_status: null,
         client_package_items: [{ quantity_remaining: null, is_unlimited: true }],
+      }),
+    ).toBe(true);
+  });
+
+  it("Package Refund P0, Slice 2b: a refund_status='full' package is never eligible for reactivation, even with usable balance and no expiration", () => {
+    expect(
+      isPackageEligibleForReactivation({
+        expiration_date: null,
+        refund_status: "full",
+        client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+      }),
+    ).toBe(false);
+  });
+
+  it("Package Refund P0, Slice 2b: a refund_status='partial' package follows ordinary eligibility rules (no hard block)", () => {
+    expect(
+      isPackageEligibleForReactivation({
+        expiration_date: null,
+        refund_status: "partial",
+        client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
       }),
     ).toBe(true);
   });

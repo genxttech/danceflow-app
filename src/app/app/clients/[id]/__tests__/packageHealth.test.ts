@@ -16,6 +16,7 @@ function pkg(overrides: Partial<ClientPackageRow> = {}): ClientPackageRow {
     archived_at: null,
     archived_by: null,
     archive_reason: null,
+    refund_status: null,
     client_package_items: [
       { id: "item-1", usage_type: "private_lesson", quantity_total: 5, quantity_used: 4, quantity_remaining: 1, is_unlimited: false },
     ],
