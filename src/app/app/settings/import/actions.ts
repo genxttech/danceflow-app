@@ -9,6 +9,7 @@ import {
   validateUploadFile,
 } from "@/lib/security/uploads";
 import { hasUsableImportedPackageBalance } from "@/lib/packages/importBalance";
+import { computePackageImportActivationPlan } from "@/app/app/settings/import/packageActivationPlan";
 
 const IMPORT_BUCKET = "imports";
 
@@ -7556,7 +7557,7 @@ export async function executeWellnessLivingPackageImportBatchAction(
         const { data: existingPackage, error: packageLookupError } =
           await supabase
             .from("client_packages")
-            .select("id")
+            .select("id, refund_status")
             .eq("studio_id", studioId)
             .eq("source_system", "wellnessliving")
             .eq("source_external_id", clientPackageExternalId)
@@ -7570,12 +7571,15 @@ export async function executeWellnessLivingPackageImportBatchAction(
           continue;
         }
 
-        const active =
+        const desiredActive =
           hasUsableImportedPackageBalance(group.items) &&
           (!first.expirationDate ||
             new Date(`${first.expirationDate}T23:59:59.999Z`).getTime() >= Date.now());
 
         if (!clientPackageId) {
+          // New package: refund_status is never set on insert, so it
+          // defaults to NULL -- a brand-new imported package can never be
+          // born full-refund-blocked.
           const { data: insertedPackage, error: insertPackageError } =
             await supabase
               .from("client_packages")
@@ -7587,7 +7591,7 @@ export async function executeWellnessLivingPackageImportBatchAction(
                 price_snapshot: first.price,
                 purchase_date: first.purchaseDate || null,
                 expiration_date: first.expirationDate || null,
-                active,
+                active: desiredActive,
                 source_system: "wellnessliving",
                 source_external_id: clientPackageExternalId,
                 imported_at: importedAt,
@@ -7600,21 +7604,42 @@ export async function executeWellnessLivingPackageImportBatchAction(
           clientPackageId = insertedPackage.id;
           insertedRows += group.rows.length;
         } else {
+          // Package Refund P0, Slice 2b: two-write split so a refund
+          // racing with the import can never result in active=true, while
+          // ordinary field sync is never skipped and refund_status/
+          // refunded_at are never referenced (read or written) by either
+          // statement. See computePackageImportActivationPlan for the
+          // shared, independently-tested decision logic.
+          const plan = computePackageImportActivationPlan({
+            fields: {
+              clientId: client.id,
+              packageTemplateId: templateId,
+              name: first.name,
+              price: first.price,
+              purchaseDate: first.purchaseDate || null,
+              expirationDate: first.expirationDate || null,
+              importedAt,
+            },
+            desiredActive,
+            existingRefundStatus: existingPackage?.refund_status ?? null,
+          });
+
           const { error: updatePackageError } = await supabase
             .from("client_packages")
-            .update({
-              client_id: client.id,
-              package_template_id: templateId,
-              name_snapshot: first.name,
-              price_snapshot: first.price,
-              purchase_date: first.purchaseDate || null,
-              expiration_date: first.expirationDate || null,
-              active,
-              imported_at: importedAt,
-            })
+            .update(plan.syncPayload)
             .eq("id", clientPackageId)
             .eq("studio_id", studioId);
           if (updatePackageError) throw new Error(updatePackageError.message);
+
+          if (plan.activation) {
+            const { error: activateError } = await supabase
+              .from("client_packages")
+              .update(plan.activation.payload)
+              .eq("id", clientPackageId)
+              .eq("studio_id", studioId)
+              .or(plan.activation.orFilter);
+            if (activateError) throw new Error(activateError.message);
+          }
 
           const { error: deleteItemsError } = await supabase
             .from("client_package_items")
@@ -8311,7 +8336,7 @@ export async function executeMindbodyPackageImportBatchAction(
         const { data: existingPackage, error: packageLookupError } =
           await supabase
             .from("client_packages")
-            .select("id")
+            .select("id, refund_status")
             .eq("studio_id", studioId)
             .eq("source_system", "mindbody")
             .eq("source_external_id", clientPackageExternalId)
@@ -8325,12 +8350,15 @@ export async function executeMindbodyPackageImportBatchAction(
           continue;
         }
 
-        const active =
+        const desiredActive =
           hasUsableImportedPackageBalance(group.items) &&
           (!first.expirationDate ||
             new Date(`${first.expirationDate}T23:59:59.999Z`).getTime() >= Date.now());
 
         if (!clientPackageId) {
+          // New package: refund_status is never set on insert, so it
+          // defaults to NULL -- a brand-new imported package can never be
+          // born full-refund-blocked.
           const { data: insertedPackage, error: insertPackageError } =
             await supabase
               .from("client_packages")
@@ -8342,7 +8370,7 @@ export async function executeMindbodyPackageImportBatchAction(
                 price_snapshot: first.price,
                 purchase_date: first.purchaseDate || null,
                 expiration_date: first.expirationDate || null,
-                active,
+                active: desiredActive,
                 source_system: "mindbody",
                 source_external_id: clientPackageExternalId,
                 imported_at: importedAt,
@@ -8355,21 +8383,42 @@ export async function executeMindbodyPackageImportBatchAction(
           clientPackageId = insertedPackage.id;
           insertedRows += group.rows.length;
         } else {
+          // Package Refund P0, Slice 2b: two-write split so a refund
+          // racing with the import can never result in active=true, while
+          // ordinary field sync is never skipped and refund_status/
+          // refunded_at are never referenced (read or written) by either
+          // statement. See computePackageImportActivationPlan for the
+          // shared, independently-tested decision logic.
+          const plan = computePackageImportActivationPlan({
+            fields: {
+              clientId: client.id,
+              packageTemplateId: templateId,
+              name: first.name,
+              price: first.price,
+              purchaseDate: first.purchaseDate || null,
+              expirationDate: first.expirationDate || null,
+              importedAt,
+            },
+            desiredActive,
+            existingRefundStatus: existingPackage?.refund_status ?? null,
+          });
+
           const { error: updatePackageError } = await supabase
             .from("client_packages")
-            .update({
-              client_id: client.id,
-              package_template_id: templateId,
-              name_snapshot: first.name,
-              price_snapshot: first.price,
-              purchase_date: first.purchaseDate || null,
-              expiration_date: first.expirationDate || null,
-              active,
-              imported_at: importedAt,
-            })
+            .update(plan.syncPayload)
             .eq("id", clientPackageId)
             .eq("studio_id", studioId);
           if (updatePackageError) throw new Error(updatePackageError.message);
+
+          if (plan.activation) {
+            const { error: activateError } = await supabase
+              .from("client_packages")
+              .update(plan.activation.payload)
+              .eq("id", clientPackageId)
+              .eq("studio_id", studioId)
+              .or(plan.activation.orFilter);
+            if (activateError) throw new Error(activateError.message);
+          }
 
           const { error: deleteItemsError } = await supabase
             .from("client_package_items")

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isPackageRefundBlocked } from "./entitlement";
+
 type PackageItemRow = {
   quantity_remaining: number | string | null;
   is_unlimited: boolean | null;
@@ -8,6 +10,7 @@ type PackageItemRow = {
 type PackageLifecycleRow = {
   id: string;
   active: boolean | null;
+  refund_status: string | null;
   client_package_items:
     | PackageItemRow[]
     | PackageItemRow
@@ -42,6 +45,16 @@ function hasUsablePackageCredit(pkg: PackageLifecycleRow) {
  * reactivated. Archived packages (`archived_at IS NOT NULL`) are excluded
  * from the query entirely, so ordinary reconciliation can never reactivate
  * one or touch its archive metadata, in either direction.
+ *
+ * Package Refund P0, Slice 2b: a `refund_status='full'` package is (a)
+ * excluded from the reactivate branch entirely -- regained balance never
+ * reactivates a refunded package -- and (b) subject to a third,
+ * balance-independent normalization block below: any such package still
+ * `active=true` (legacy data, a race, or a future writer defect) is
+ * deterministically corrected to `active=false`, regardless of remaining
+ * balance. A `'partial'` or `null` refund status is untouched by either
+ * change and flows through the pre-existing depletion/reactivate logic
+ * exactly as before.
  */
 export async function reconcileClientPackageLifecycle(params: {
   supabase: SupabaseClient;
@@ -57,6 +70,7 @@ export async function reconcileClientPackageLifecycle(params: {
       `
       id,
       active,
+      refund_status,
       client_package_items (
         quantity_remaining,
         is_unlimited
@@ -79,14 +93,32 @@ export async function reconcileClientPackageLifecycle(params: {
 
   const rows = (data ?? []) as PackageLifecycleRow[];
 
+  // Depletion-driven deactivation, unchanged in shape, now excludes
+  // refund-blocked rows so the two deactivation reasons stay mutually
+  // exclusive (both blocks would set the same value either way -- this is
+  // for clarity, not correctness).
   const toDeactivate = rows
     .filter((pkg) => pkg.active !== false)
+    .filter((pkg) => !isPackageRefundBlocked(pkg))
     .filter((pkg) => !hasUsablePackageCredit(pkg))
     .map((pkg) => pkg.id);
 
+  // Refund-blocked packages never regain balance-driven reactivation.
   const toReactivate = rows
     .filter((pkg) => pkg.active === false)
+    .filter((pkg) => !isPackageRefundBlocked(pkg))
     .filter((pkg) => hasUsablePackageCredit(pkg))
+    .map((pkg) => pkg.id);
+
+  // Balance-independent normalization: a full-refund package must be
+  // active=false regardless of remaining balance. This is the only block
+  // whose condition does not depend on hasUsablePackageCredit at all. A
+  // row here can never also appear in toReactivate (mutually exclusive by
+  // `active` value), so this can never reactivate anything in the same
+  // pass.
+  const toDeactivateForRefund = rows
+    .filter((pkg) => pkg.active !== false)
+    .filter((pkg) => isPackageRefundBlocked(pkg))
     .map((pkg) => pkg.id);
 
   const now = new Date().toISOString();
@@ -122,6 +154,10 @@ export async function reconcileClientPackageLifecycle(params: {
       .eq("client_id", clientId)
       .eq("active", false)
       .is("archived_at", null)
+      // NULL-safe re-guard: a concurrent refund landing between the select
+      // and this update means the row no longer matches and is correctly
+      // left untouched, rather than reactivated on stale information.
+      .or("refund_status.is.null,refund_status.neq.full")
       .in("id", toReactivate);
 
     if (reactivateError) {
@@ -131,6 +167,35 @@ export async function reconcileClientPackageLifecycle(params: {
     }
   }
 
+  if (toDeactivateForRefund.length > 0) {
+    const { error: refundNormalizeError } = await supabase
+      .from("client_packages")
+      .update({
+        active: false,
+        updated_at: now,
+      })
+      .eq("studio_id", studioId)
+      .eq("client_id", clientId)
+      .eq("active", true)
+      .is("archived_at", null)
+      // Re-guard on refund_status itself: a concurrent reversal between
+      // the select above and this update means the row no longer matches
+      // and is correctly left untouched, rather than incorrectly
+      // deactivated on stale information.
+      .eq("refund_status", "full")
+      .in("id", toDeactivateForRefund);
+
+    if (refundNormalizeError) {
+      throw new Error(
+        `Could not normalize refunded package to inactive: ${refundNormalizeError.message}`,
+      );
+    }
+  }
+
+  // Deliberately scoped to genuine depletion only -- the ARIA cleanup
+  // copy below says "fully depleted," which would be inaccurate for a
+  // refund-driven normalization. A refund-specific message belongs to a
+  // later refund-application slice, not this one.
   const depletedPackageIds = toDeactivate;
 
   if (depletedPackageIds.length === 0) {

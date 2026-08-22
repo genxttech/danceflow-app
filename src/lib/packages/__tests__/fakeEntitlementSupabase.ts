@@ -26,7 +26,8 @@ export type FakeError = { message: string; code?: string };
 type Filter =
   | { type: "eq" | "neq" | "gte" | "lte" | "lt" | "gt" | "is"; col: string; val: unknown }
   | { type: "in"; col: string; vals: unknown[] }
-  | { type: "not"; col: string; innerType: "eq" | "is"; val: unknown };
+  | { type: "not"; col: string; innerType: "eq" | "is"; val: unknown }
+  | { type: "or"; filters: Filter[] };
 
 /**
  * Supports Supabase's `relation.column` filter syntax (e.g.
@@ -46,7 +47,23 @@ function resolveFieldValue(row: Row, col: string): unknown {
   return resolveFieldValue(relationRow as Row, rest.join("."));
 }
 
+/**
+ * `.or()` filters have no single column of their own (each sub-clause
+ * names its own), so they're resolved separately from `compare()`, which
+ * assumes a single already-resolved `rowValue`. Recurses so `matchRows`
+ * can treat every filter (plain or `.or()`) uniformly.
+ */
+function matchesFilter(row: Row, filter: Filter): boolean {
+  if (filter.type === "or") {
+    return filter.filters.some((inner) => matchesFilter(row, inner));
+  }
+  return compare(resolveFieldValue(row, filter.col), filter);
+}
+
 function compare(rowValue: unknown, filter: Filter): boolean {
+  if (filter.type === "or") {
+    throw new Error("compare() does not handle .or() filters -- use matchesFilter() instead.");
+  }
   if (filter.type === "in") return filter.vals.includes(rowValue);
   // `.not(col, "is", null)` -- the only real-world usage in this codebase --
   // negates the inner comparison. Mirrors Postgres `NOT (col IS NULL)`.
@@ -158,6 +175,29 @@ class FakeQuery {
     return this;
   }
 
+  /**
+   * Minimal parser for the one real-world pattern this codebase's refund
+   * guards actually use: `"col.is.null,col.neq.val"` (NULL-safe "not
+   * exactly this value" -- see Package Refund P0, Slice 2b). Not a general
+   * PostgREST `.or()` implementation.
+   */
+  or(clause: string) {
+    const subFilters: Filter[] = clause.split(",").map((part) => {
+      const [col, operator, ...valueParts] = part.split(".");
+      const rawVal = valueParts.join(".");
+      if (operator === "is") {
+        const val = rawVal === "null" ? null : rawVal === "true" ? true : rawVal === "false" ? false : rawVal;
+        return { type: "is", col, val };
+      }
+      if (operator === "neq") {
+        return { type: "neq", col, val: rawVal };
+      }
+      throw new Error(`fakeEntitlementSupabase .or() does not support operator: ${operator}`);
+    });
+    this.filters.push({ type: "or", filters: subFilters });
+    return this;
+  }
+
   order(col: string, opts?: { ascending?: boolean }) {
     this.orderCol = col;
     this.orderAscending = opts?.ascending ?? true;
@@ -171,7 +211,7 @@ class FakeQuery {
 
   private matchRows(): Row[] {
     let matched = this.table.rows.filter((row) =>
-      this.filters.every((filter) => compare(resolveFieldValue(row, filter.col), filter)),
+      this.filters.every((filter) => matchesFilter(row, filter)),
     );
 
     if (this.orderCol) {

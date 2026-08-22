@@ -26,6 +26,8 @@ function makeChain(resolve: () => FakeResult | Promise<FakeResult>) {
     neq: (...args: unknown[]) => typeof chain;
     in: (...args: unknown[]) => typeof chain;
     limit: (...args: unknown[]) => typeof chain;
+    or: (...args: unknown[]) => typeof chain;
+    select: (...args: unknown[]) => typeof chain;
     maybeSingle: () => Promise<FakeResult>;
     single: () => Promise<FakeResult>;
     then: (
@@ -37,6 +39,13 @@ function makeChain(resolve: () => FakeResult | Promise<FakeResult>) {
     neq: () => chain,
     in: () => chain,
     limit: () => chain,
+    // Package Refund P0, Slice 2b: these two are simple chainable
+    // passthroughs -- this fake is state-driven (see the client_packages
+    // update resolver below), not a real filter-chain parser, so the
+    // actual NULL-safe-guard behavior is modeled inside the resolver
+    // itself rather than by parsing the .or() clause string.
+    or: () => chain,
+    select: () => chain,
     async maybeSingle() {
       const result = await resolve();
       if (result.error) return { data: null, error: result.error };
@@ -88,16 +97,27 @@ type FakeSession = {
   stripe_payment_intent_id: string;
 };
 
+type FakeClientPackage = {
+  id: string;
+  studio_id: string;
+  active: boolean;
+  refund_status: string | null;
+};
+
 function createFakeTerminalDb(options: {
   payment: FakePayment;
   session: FakeSession | null;
   rpcError?: string;
+  clientPackage?: FakeClientPackage | null;
 }) {
   const state = {
     payment: { ...options.payment },
     session: options.session,
+    clientPackage: options.clientPackage ? { ...options.clientPackage } : null,
     paymentUpdateAttempts: 0,
     paymentUpdateApplied: 0,
+    packageUpdateAttempts: 0,
+    packageUpdateApplied: 0,
     rpcCalls: [] as { name: string; params: Record<string, unknown> }[],
   };
 
@@ -135,6 +155,28 @@ function createFakeTerminalDb(options: {
       if (table === "membership_terminal_enrollments") {
         return {
           select: () => makeChain(() => ({ data: null, error: null })),
+        };
+      }
+
+      if (table === "client_packages") {
+        return {
+          // Package Refund P0, Slice 2b: models the real
+          // .or("refund_status.is.null,refund_status.neq.full") guarded
+          // update -- an activation attempt (`active: true`) against a
+          // refund_status='full' row applies to zero rows (not an error),
+          // exactly like the real NULL-safe PostgREST predicate would.
+          update: (payload: Record<string, unknown>) =>
+            makeChain(() => {
+              state.packageUpdateAttempts += 1;
+              if (!state.clientPackage) return { data: [], error: null };
+              const isRefundBlocked = state.clientPackage.refund_status === "full";
+              if (payload.active === true && isRefundBlocked) {
+                return { data: [], error: null };
+              }
+              Object.assign(state.clientPackage, payload);
+              state.packageUpdateApplied += 1;
+              return { data: [{ id: state.clientPackage.id }], error: null };
+            }),
         };
       }
 
@@ -440,5 +482,83 @@ describe("P0.2 — fulfillTerminalPayment commerce-order completion", () => {
     // committed before order completion is attempted — matching the
     // pre-existing quick-charge/refresh behavior this replaces.
     expect(state.payment.status).toBe("paid");
+  });
+});
+
+describe("Package Refund P0, Slice 2b — fulfillTerminalPayment package activation guard", () => {
+  it("a refund_status='full' linked package is never activated by a confirming payment", async () => {
+    const { supabase, state } = createFakeTerminalDb({
+      payment: basePayment({ client_package_id: "pkg-1" }),
+      session: baseSession(),
+      clientPackage: {
+        id: "pkg-1",
+        studio_id: "studio-1",
+        active: false,
+        refund_status: "full",
+      },
+    });
+
+    await fulfillTerminalPayment({
+      supabase: supabase as never,
+      studioId: "studio-1",
+      paymentId: "payment-1",
+      sessionId: "session-1",
+      paymentIntentId: "pi_123",
+    });
+
+    expect(state.payment.status).toBe("paid");
+    // The guarded update was attempted (this is not a skipped call) but
+    // matched zero rows -- the package must remain exactly as it was.
+    expect(state.packageUpdateAttempts).toBe(1);
+    expect(state.packageUpdateApplied).toBe(0);
+    expect(state.clientPackage?.active).toBe(false);
+  });
+
+  it("an ordinary (never-refunded, refund_status=null) linked package still activates correctly", async () => {
+    const { supabase, state } = createFakeTerminalDb({
+      payment: basePayment({ client_package_id: "pkg-2" }),
+      session: baseSession(),
+      clientPackage: {
+        id: "pkg-2",
+        studio_id: "studio-1",
+        active: false,
+        refund_status: null,
+      },
+    });
+
+    await fulfillTerminalPayment({
+      supabase: supabase as never,
+      studioId: "studio-1",
+      paymentId: "payment-1",
+      sessionId: "session-1",
+      paymentIntentId: "pi_123",
+    });
+
+    expect(state.packageUpdateApplied).toBe(1);
+    expect(state.clientPackage?.active).toBe(true);
+  });
+
+  it("a refund_status='partial' linked package still activates correctly (no hard block)", async () => {
+    const { supabase, state } = createFakeTerminalDb({
+      payment: basePayment({ client_package_id: "pkg-3" }),
+      session: baseSession(),
+      clientPackage: {
+        id: "pkg-3",
+        studio_id: "studio-1",
+        active: false,
+        refund_status: "partial",
+      },
+    });
+
+    await fulfillTerminalPayment({
+      supabase: supabase as never,
+      studioId: "studio-1",
+      paymentId: "payment-1",
+      sessionId: "session-1",
+      paymentIntentId: "pi_123",
+    });
+
+    expect(state.packageUpdateApplied).toBe(1);
+    expect(state.clientPackage?.active).toBe(true);
   });
 });

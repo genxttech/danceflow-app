@@ -3045,7 +3045,7 @@ export async function handlePortalFloorRentalCheckoutCompleted(
   return true;
 }
 
-async function handleClientPaymentRequestCheckoutCompleted(
+export async function handleClientPaymentRequestCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session,
 ) {
@@ -3109,6 +3109,11 @@ async function handleClientPaymentRequestCheckoutCompleted(
   }
 
   if (payment.client_package_id) {
+    // Package Refund P0, Slice 2b: single atomic guarded update -- no
+    // separate read of package state, so there's no read-then-write race
+    // window. The NULL-safe predicate is the live, sole authority on
+    // whether activation is allowed; a refunded package's row simply
+    // doesn't match and is left untouched (not an error).
     const { error: packageUpdateError } = await supabase
       .from("client_packages")
       .update({
@@ -3116,7 +3121,9 @@ async function handleClientPaymentRequestCheckoutCompleted(
         updated_at: new Date().toISOString(),
       })
       .eq("id", payment.client_package_id)
-      .eq("studio_id", payment.studio_id);
+      .eq("studio_id", payment.studio_id)
+      .or("refund_status.is.null,refund_status.neq.full")
+      .select("id");
 
     if (packageUpdateError) {
       throw new Error(packageUpdateError.message);

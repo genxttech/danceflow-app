@@ -1197,6 +1197,7 @@ export async function reactivateClientPackageAction(
       `
       id,
       expiration_date,
+      refund_status,
       client_package_items (
         quantity_remaining,
         is_unlimited
@@ -1230,7 +1231,14 @@ export async function reactivateClientPackageAction(
     })
     .eq("id", clientPackageId)
     .eq("studio_id", studioId)
-    .eq("client_id", clientId);
+    .eq("client_id", clientId)
+    // Package Refund P0, Slice 2b: NULL-safe re-guard -- a concurrent
+    // refund landing between the select above and this update means the
+    // row no longer matches and is correctly left untouched, rather than
+    // reactivated on stale information. Plain .neq() would silently
+    // exclude every never-refunded package (NULL <> 'full' is unknown in
+    // SQL), so the NULL-safe .or() form is required here.
+    .or("refund_status.is.null,refund_status.neq.full");
 
   if (updateError) {
     return { error: "Could not reactivate this package. Please try again." };

@@ -230,6 +230,37 @@ describe("reactivateClientPackageAction", () => {
       archived_at: "2026-09-01T00:00:00.000Z",
     });
   });
+
+  it("Package Refund P0, Slice 2b: reactivation is blocked for a refund_status='full' package even with remaining balance and no expiration, with no partial update", async () => {
+    const tables = setFixture({
+      client_packages: [
+        {
+          id: "pkg-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          active: false,
+          expiration_date: null,
+          refund_status: "full",
+          archived_at: "2026-09-01T00:00:00.000Z",
+          archived_by: ACTOR_ID,
+          archive_reason: null,
+          client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+        },
+      ],
+    });
+
+    const result = await reactivateClientPackageAction(
+      { error: "" },
+      formDataFor({ clientId: CLIENT_ID, clientPackageId: "pkg-1" }),
+    );
+
+    expect(result.error).toMatch(/no remaining balance|expired/i);
+    expect(tables.client_packages.rows[0]).toMatchObject({
+      active: false,
+      archived_at: "2026-09-01T00:00:00.000Z",
+      refund_status: "full",
+    });
+  });
 });
 
 async function expectRedirect(promise: Promise<unknown>) {

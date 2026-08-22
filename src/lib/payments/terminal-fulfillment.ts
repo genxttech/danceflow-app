@@ -310,11 +310,18 @@ export async function fulfillTerminalPayment({
   }
 
   if (payment.client_package_id) {
+    // Package Refund P0, Slice 2b: single atomic guarded update -- no
+    // separate read of package state, so there's no read-then-write race
+    // window. The NULL-safe predicate is the live, sole authority on
+    // whether activation is allowed; a refunded package's row simply
+    // doesn't match and is left untouched (not an error).
     const { error: packageError } = await supabase
       .from("client_packages")
       .update({ active: true })
       .eq("id", payment.client_package_id)
-      .eq("studio_id", studioId);
+      .eq("studio_id", studioId)
+      .or("refund_status.is.null,refund_status.neq.full")
+      .select("id");
 
     if (packageError) {
       throw new Error(
