@@ -3,36 +3,33 @@ import type Stripe from "stripe";
 
 /**
  * Package Refund P0, Slice 2c-1: focused coverage for the webhook-wiring
- * seam around package-refund reconciliation. Deliberately does NOT re-test
- * what's already covered elsewhere:
+ * seam around package-refund reconciliation.
+ *
+ * RELEASE HOLD (see PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD in
+ * route.ts): the reconcile_package_stripe_refund migration has not been
+ * applied to development or production, so `handleStripeRefundUpdated` is
+ * currently hardcoded to never invoke `reconcilePackageStripeRefund` --
+ * calling an RPC that doesn't exist yet would 500 the *entire* webhook
+ * event, not just package-related refunds. The tests below verify that
+ * hold directly, plus that it changes nothing else: existing payment-
+ * summary refund handling is unaffected, and `handleChargeRefunded` never
+ * referenced reconciliation in the first place.
+ *
+ * Deliberately does NOT re-test what's covered elsewhere, and remains
+ * true regardless of the hold, since none of it runs through this call
+ * site at all:
  *   - Case A/B/C, idempotency, identity-safety, missing-price handling all
  *     live in the RPC itself (local-Docker SQL regression, this
- *     initiative's established convention).
+ *     initiative's established convention) -- untouched by this hotfix,
+ *     still fully verified for when the hold is lifted.
  *   - The exact input-construction rule (single-event amount never
  *     cumulative, status/identity pass-through, null short-circuits) is
- *     the pure `buildPackageRefundReconciliationInput` function, unit-
- *     tested directly in package-refund-reconciliation.test.ts with no
- *     fakes needed at all.
+ *     the pure `buildPackageRefundReconciliationInput` function, still
+ *     unit-tested directly in package-refund-reconciliation.test.ts --
+ *     still called unconditionally by the handler (computing the would-be
+ *     input is harmless and cheap), just no longer acted on while held.
  *   - "resolve every matching payment, call the RPC once per payment" is
  *     covered in package-refund-reconciliation.test.ts.
- *
- * What's left, and what this file proves, by exercising the real exported
- * `handleStripeRefundUpdated`/`handleChargeRefunded` against a minimal
- * fake (not a full webhook-request harness -- Stripe signature
- * verification, event dispatch, and payment_provider_events idempotency
- * are untouched by this slice and not re-tested here):
- *   1. `handleStripeRefundUpdated` actually wires the single-event amount
- *      (not the cumulative charge total it resolves for the existing,
- *      unchanged payment-summary sync) through to reconciliation, end to
- *      end -- not just that the pure builder does the right thing in
- *      isolation, but that the handler feeds it the right raw inputs.
- *   2. The existing payment-summary sync (`payments.refund_amount`) still
- *      receives the cumulative amount exactly as before -- unchanged
- *      behavior, verified directly.
- *   3. `handleChargeRefunded` (the `charge.refunded`/`charge.updated` path)
- *      never calls package reconciliation, as a genuine runtime
- *      assertion -- not just a static grep -- confirming the approved
- *      "refund.* is the sole authority" architecture.
  */
 
 const reconcileMock = vi.fn<(supabase: unknown, input: unknown) => Promise<unknown[]>>();
@@ -124,75 +121,65 @@ function fakeRefund(overrides: Partial<Stripe.Refund> = {}): Stripe.Refund {
   } as Stripe.Refund;
 }
 
-describe("Package Refund P0, Slice 2c-1: handleStripeRefundUpdated wiring", () => {
-  it("requirement 1 -- reconciliation receives the single refund-event amount, not the charge's cumulative amount_refunded", async () => {
+describe("Package Refund P0, Slice 2c-1 RELEASE HOLD: handleStripeRefundUpdated", () => {
+  it("continues updating existing payment refund summaries via the cumulative charge amount, unchanged", async () => {
     reconcileMock.mockClear();
     const { supabase, paymentsUpdatePayloads } = createFakeSupabase([{ id: "payment-1", amount: 100 }]);
     const stripe = createFakeStripe({
       payment_intent: "pi_123",
-      amount_refunded: 9000, // Y -- cumulative, larger than this event's own amount
+      amount_refunded: 9000, // cumulative, in cents
     });
 
     await handleStripeRefundUpdated(
       supabase as never,
       stripe,
-      fakeRefund({ amount: 3000 }), // X -- this event's own amount
+      fakeRefund({ amount: 3000 }), // this event's own amount -- irrelevant to this assertion
       null,
     );
 
-    expect(reconcileMock).toHaveBeenCalledTimes(1);
-    const reconciliationInput = reconcileMock.mock.calls[0][1] as { refundAmountCents: number };
-    expect(reconciliationInput.refundAmountCents).toBe(3000);
-    expect(reconciliationInput.refundAmountCents).not.toBe(9000);
-
-    // Requirement 2 (unchanged existing behavior): the payment-summary sync
-    // still receives the CUMULATIVE amount, in dollars, exactly as before --
-    // this slice must not change that.
+    // Existing, pre-2c-1 payment-summary behavior is completely unaffected by
+    // the release hold: still receives the cumulative amount, in dollars.
     expect(paymentsUpdatePayloads[0]).toMatchObject({ refund_amount: 90 });
   });
 
-  it("requirement 2 -- reconciliation receives the actual Stripe refund status", async () => {
+  it("does not invoke reconcilePackageStripeRefund while the release hold is active, even for an otherwise well-formed package-relevant refund", async () => {
     reconcileMock.mockClear();
     const { supabase } = createFakeSupabase([{ id: "payment-1", amount: 100 }]);
     const stripe = createFakeStripe({ payment_intent: "pi_123", amount_refunded: 3000 });
 
-    await handleStripeRefundUpdated(supabase as never, stripe, fakeRefund({ status: "pending" }), null);
+    // A refund shaped exactly like the one that would, once the hold is
+    // lifted, produce a valid buildPackageRefundReconciliationInput result
+    // (non-null stripeRefundId/paymentIntentId, positive amount) -- proving
+    // the hold suppresses the call even when everything else about the
+    // event is well-formed, not merely when there's nothing to send anyway.
+    await handleStripeRefundUpdated(supabase as never, stripe, fakeRefund(), null);
 
-    const reconciliationInput = reconcileMock.mock.calls[0][1] as { refundStatus: string };
-    expect(reconciliationInput.refundStatus).toBe("pending");
+    expect(reconcileMock).not.toHaveBeenCalled();
   });
 
-  it("requirement 3 -- reconciliation receives the resolved Stripe payment intent id, including the charge-fallback case", async () => {
+  it("does not invoke reconcilePackageStripeRefund for any refund status while held, including succeeded", async () => {
     reconcileMock.mockClear();
     const { supabase } = createFakeSupabase([{ id: "payment-1", amount: 100 }]);
-    // refund.payment_intent is absent; the payment intent is only
-    // recoverable from the retrieved charge -- exercises the existing
-    // fallback resolution this handler already performs.
-    const stripe = createFakeStripe({ payment_intent: "pi_from_charge", amount_refunded: 3000 });
+    const stripe = createFakeStripe({ payment_intent: "pi_123", amount_refunded: 3000 });
 
     await handleStripeRefundUpdated(
       supabase as never,
       stripe,
-      fakeRefund({ payment_intent: null }),
+      fakeRefund({ status: "succeeded" }),
       null,
     );
 
-    const reconciliationInput = reconcileMock.mock.calls[0][1] as { stripePaymentIntentId: string };
-    expect(reconciliationInput.stripePaymentIntentId).toBe("pi_from_charge");
+    expect(reconcileMock).not.toHaveBeenCalled();
   });
 
-  it("requirement 4 -- a non-package-related refund still flows through safely (the RPC/service module owns that gate, not the webhook)", async () => {
+  it("does not throw -- the webhook completes normally while held, exactly the regression this hotfix exists to prevent", async () => {
     reconcileMock.mockClear();
-    reconcileMock.mockResolvedValueOnce([
-      { paymentId: "payment-1", studioId: "studio-1", reconciliationId: null, outcome: "not_package_related", applied: false },
-    ]);
     const { supabase } = createFakeSupabase([{ id: "payment-1", amount: 100 }]);
     const stripe = createFakeStripe({ payment_intent: "pi_123", amount_refunded: 3000 });
 
     await expect(
       handleStripeRefundUpdated(supabase as never, stripe, fakeRefund(), null),
     ).resolves.not.toThrow();
-    expect(reconcileMock).toHaveBeenCalledTimes(1);
   });
 });
 
