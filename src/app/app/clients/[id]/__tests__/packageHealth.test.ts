@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   getPackageHealth,
+  getPackageBadgeLabel,
+  getPackageBadgeClass,
   type ClientPackageRow,
 } from "@/app/app/clients/[id]/page";
 
@@ -115,5 +117,44 @@ describe("getPackageHealth (Slice 1b-b: canonical status + replacement-coverage 
       ],
     });
     expect(getPackageHealth(target, [])).toBe("active");
+  });
+});
+
+describe("getPackageBadgeLabel / getPackageBadgeClass (Package Refund P0, Slice 2c-2: Refunded above Archived)", () => {
+  it("a fully refunded, non-archived package reads Refunded instead of its ordinary health label", () => {
+    const target = pkg({ refund_status: "full" });
+    expect(getPackageBadgeLabel(target, [])).toBe("Refunded");
+  });
+
+  it("Refunded takes precedence over Archived when both are true of the same package", () => {
+    const target = pkg({ refund_status: "full", archived_at: "2026-09-01T00:00:00.000Z", active: false });
+    expect(getPackageBadgeLabel(target, [])).toBe("Refunded");
+    // The underlying health computation is untouched by the badge override --
+    // still "archived", which is what isArchived/canReactivate/
+    // PackageArchiveControls at the render site continue to key off of.
+    expect(getPackageHealth(target, [])).toBe("archived");
+  });
+
+  it("a partially refunded package's badge is completely unaffected -- shows its ordinary health label, never a refund-specific one", () => {
+    // Default fixture's balance (1 remaining of 5) is "low" -- confirmed by
+    // the existing "low with no replacement stays low" case above.
+    const lowTarget = pkg({ refund_status: "partial" });
+    expect(getPackageBadgeLabel(lowTarget, [])).toBe("Low Balance");
+
+    const archivedTarget = pkg({ refund_status: "partial", archived_at: "2026-09-01T00:00:00.000Z", active: false });
+    expect(getPackageBadgeLabel(archivedTarget, [])).toBe("Archived");
+  });
+
+  it("a never-refunded package's badge is byte-identical to its ordinary health label/class", () => {
+    const target = pkg({ refund_status: null });
+    expect(getPackageBadgeLabel(target, [])).toBe("Low Balance");
+    expect(getPackageBadgeClass(target, [])).toBe("bg-amber-50 text-amber-700");
+  });
+
+  it("getPackageBadgeClass reads a distinct class for Refunded, and the ordinary class otherwise", () => {
+    const refunded = pkg({ refund_status: "full" });
+    const notRefunded = pkg({ refund_status: null });
+    expect(getPackageBadgeClass(refunded, [])).toBe("bg-blue-50 text-blue-700");
+    expect(getPackageBadgeClass(notRefunded, [])).not.toBe("bg-blue-50 text-blue-700");
   });
 });

@@ -22,6 +22,7 @@ import { ClientSendSmsCard } from "./ClientSendSmsCard";
 import { ClientSmsMessageHistoryCard } from "./ClientSmsMessageHistoryCard";
 import ClientCommunicationWorkspace from "./ClientCommunicationWorkspace";
 import PackageArchiveControls from "./PackageArchiveControls";
+import PartialRefundReviewControls from "./PartialRefundReviewControls";
 import {
   getClientPackageStatus,
   getItemWarningLevel,
@@ -44,6 +45,7 @@ import {
   addClientAccountLedgerEntryAction,
   addClientActivityNoteAction,
   refundClientPaymentAction,
+  resolvePartialRefundCreditReviewAction,
 } from "./actions";
 import {
   cancelMembershipAtPeriodEndAction,
@@ -202,7 +204,7 @@ type AppointmentRow = {
   rooms: { name: string } | { name: string }[] | null;
 };
 
-type PaymentRow = {
+export type PaymentRow = {
   id: string;
   amount: number;
   payment_method: string;
@@ -899,6 +901,27 @@ function packageWarningMessage(health: PackageHealth) {
   return "";
 }
 
+/**
+ * Package Refund P0, Slice 2c-2: badge precedence -- "Refunded" reads above
+ * "Archived" even when both are true of the same package. Deliberately a
+ * thin override at the render site rather than a new `getPackageHealth`
+ * return value: `health === "archived"` (unchanged, still computed the same
+ * way) drives `isArchived`/`canReactivate`/`PackageArchiveControls` below --
+ * widening `PackageHealth`'s own value set here would silently break that
+ * wiring for a refunded-and-archived package (isArchived would go false for
+ * a package that genuinely is archived). `refund_status === "full"` only --
+ * a partial refund never overrides the normal health badge.
+ */
+export function getPackageBadgeLabel(pkg: ClientPackageRow, otherPackages: ClientPackageRow[]): string {
+  if (pkg.refund_status === "full") return "Refunded";
+  return packageHealthLabel(getPackageHealth(pkg, otherPackages));
+}
+
+export function getPackageBadgeClass(pkg: ClientPackageRow, otherPackages: ClientPackageRow[]): string {
+  if (pkg.refund_status === "full") return "bg-blue-50 text-blue-700";
+  return packageHealthClass(getPackageHealth(pkg, otherPackages));
+}
+
 function getLinkedInstructorName(
   instructors: InstructorOption[],
   linkedInstructorId: string | null
@@ -993,6 +1016,117 @@ function refundFulfillmentReviewLabel(payment: PaymentRow) {
   }
 
   return "Review any package credits, membership status, lesson balances, or client account adjustments before closing this refund.";
+}
+
+export type PackageRefundReconciliationRow = {
+  id: string;
+  payment_id: string;
+  client_package_id: string;
+  refund_amount_cents: number;
+  refund_status: string;
+  reconciliation_outcome: string;
+  review_reason: string | null;
+  updated_at: string;
+};
+
+function isPackagePaymentType(payment: PaymentRow) {
+  return (payment.payment_type ?? "").toLowerCase().includes("package");
+}
+
+function findReconciliationForPayment(
+  reconciliations: PackageRefundReconciliationRow[],
+  paymentId: string,
+): PackageRefundReconciliationRow | null {
+  const matches = reconciliations.filter((row) => row.payment_id === paymentId);
+  if (matches.length === 0) return null;
+
+  const pending = matches.find((row) => row.reconciliation_outcome === "pending_review");
+  if (pending) return pending;
+
+  // No pending row -- surface whichever matching row was most recently
+  // touched, so a resolved (staff_applied/auto_applied/etc.) reconciliation
+  // still correctly suppresses the legacy nudge below.
+  return matches.reduce((latest, row) => (row.updated_at > latest.updated_at ? row : latest));
+}
+
+/**
+ * Package Refund P0, Slice 2c-2: the corrected display decision for the
+ * refund-fulfillment nudge on a package-type payment. Three states:
+ * "review" -- a real pending_review reconciliation exists, render
+ * PartialRefundReviewControls; "none" -- a reconciliation exists but is
+ * already resolved (any other outcome), so the generic nudge would be
+ * misleading and is suppressed entirely; "legacy" -- either no
+ * reconciliation row exists at all (today's actual production state, since
+ * Slice 2c-1's migration isn't applied there yet) or this isn't a
+ * package-type payment, so the original static nudge is exactly right,
+ * unchanged. Exported as a pure function for direct unit testing.
+ */
+export function getPackageRefundNudgeDisplay(
+  payment: PaymentRow,
+  reconciliations: PackageRefundReconciliationRow[],
+): "review" | "legacy" | "none" {
+  if (!paymentNeedsRefundFulfillmentReview(payment)) return "none";
+  if (!isPackagePaymentType(payment)) return "legacy";
+
+  const reconciliation = findReconciliationForPayment(reconciliations, payment.id);
+  if (!reconciliation) return "legacy";
+
+  return reconciliation.reconciliation_outcome === "pending_review" ? "review" : "none";
+}
+
+function finiteItemsForPackage(pkg: ClientPackageRow | undefined): ClientPackageItemRow[] {
+  if (!pkg) return [];
+  return pkg.client_package_items.filter((item) => !item.is_unlimited);
+}
+
+/**
+ * Package Refund P0, Slice 2c-2: the follow-up block shown beneath a
+ * payment's "Refunded $X on <date>" line -- shared by both near-duplicate
+ * render sites (Membership Billing History, Payments). Returns the real
+ * PartialRefundReviewControls panel, the original static nudge, or nothing,
+ * per getPackageRefundNudgeDisplay's three-state decision.
+ */
+function renderRefundFollowUp(
+  payment: PaymentRow,
+  ctx: {
+    reconciliations: PackageRefundReconciliationRow[];
+    packages: ClientPackageRow[];
+    classificationByPackageId: Map<string, string>;
+    boundAction: (prevState: { error: string }, formData: FormData) => Promise<{ error: string }>;
+  },
+): ReactNode {
+  const display = getPackageRefundNudgeDisplay(payment, ctx.reconciliations);
+
+  if (display === "none") return null;
+
+  if (display === "legacy") {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+        <p className="font-semibold">Refund review needed</p>
+        <p className="mt-1 leading-6">{refundFulfillmentReviewLabel(payment)}</p>
+      </div>
+    );
+  }
+
+  const reconciliation = ctx.reconciliations.find(
+    (row) => row.payment_id === payment.id && row.reconciliation_outcome === "pending_review",
+  );
+  if (!reconciliation) return null;
+
+  const pkg = ctx.packages.find((candidate) => candidate.id === reconciliation.client_package_id);
+
+  return (
+    <PartialRefundReviewControls
+      reconciliationId={reconciliation.id}
+      boundAction={ctx.boundAction}
+      refundAmountCents={reconciliation.refund_amount_cents}
+      refundStatus={reconciliation.refund_status}
+      reconciliationOutcome={reconciliation.reconciliation_outcome}
+      classification={ctx.classificationByPackageId.get(reconciliation.client_package_id) ?? null}
+      reviewReason={reconciliation.review_reason}
+      items={finiteItemsForPackage(pkg)}
+    />
+  );
 }
 
 function paymentSourceBadgeClass(source: string | null) {
@@ -1813,6 +1947,13 @@ export default async function ClientDetailPage({
   const studioId = context.studioId;
   const role = context.studioRole ?? "";
   const canIssuePaymentRefunds = ["studio_owner", "studio_admin"].includes(role);
+  // Package Refund P0, Slice 2c-2: bound server-action reference -- `id` is
+  // encoded into Next.js's own encrypted action payload at render time here,
+  // never transmitted as client-editable form data. See
+  // resolvePartialRefundCreditReviewAction's own doc comment in actions.ts
+  // for why this specific binding is what makes its client-context check
+  // trustworthy.
+  const boundResolveReviewAction = resolvePartialRefundCreditReviewAction.bind(null, id);
   const nowIso = new Date().toISOString();
   const returnTo = `/app/clients/${id}`;
   const billingReturnTo = `/app/clients/${id}?tab=billing`;
@@ -1839,6 +1980,7 @@ export default async function ClientDetailPage({
     { data: upcomingAppointments, error: upcomingError },
     { data: recentAppointments, error: recentError },
     { data: payments, error: paymentsError },
+    { data: packageRefundReconciliations, error: packageRefundReconciliationsError },
     { data: ledger, error: ledgerError },
     { data: accountLedger, error: accountLedgerError },
     { data: clientActivityNotes, error: clientActivityNotesError },
@@ -1986,6 +2128,21 @@ export default async function ClientDetailPage({
       .eq("client_id", id)
       .order("created_at", { ascending: false })
       .limit(20),
+
+    // Package Refund P0, Slice 2c-2: client-scoped (not just studio-scoped)
+    // -- a reconciliation belonging to a different client in the same
+    // studio must never appear on this page. Not filtered to
+    // reconciliation_outcome='pending_review' only: the billing-tab render
+    // sites below need to distinguish "never existed" from "already
+    // resolved" to correctly suppress the legacy static refund nudge once a
+    // real reconciliation exists, regardless of its current outcome.
+    supabase
+      .from("package_refund_reconciliations")
+      .select(
+        "id, payment_id, client_package_id, refund_amount_cents, refund_status, reconciliation_outcome, review_reason, created_at, updated_at",
+      )
+      .eq("studio_id", studioId)
+      .eq("client_id", id),
 
     supabase
       .from("lesson_transactions")
@@ -2245,6 +2402,9 @@ export default async function ClientDetailPage({
   if (upcomingError) throw new Error(`Failed to load upcoming appointments: ${upcomingError.message}`);
   if (recentError) throw new Error(`Failed to load recent appointments: ${recentError.message}`);
   if (paymentsError) throw new Error(`Failed to load payments: ${paymentsError.message}`);
+  if (packageRefundReconciliationsError) {
+    throw new Error(`Failed to load package refund reconciliations: ${packageRefundReconciliationsError.message}`);
+  }
   if (ledgerError) throw new Error(`Failed to load lesson ledger: ${ledgerError.message}`);
   if (accountLedgerError) throw new Error(`Failed to load client account ledger: ${accountLedgerError.message}`);
   if (clientActivityNotesError) throw new Error(`Failed to load client activity notes: ${clientActivityNotesError.message}`);
@@ -2260,6 +2420,35 @@ export default async function ClientDetailPage({
   if (smsMessagesError) throw new Error(`Failed to load SMS message history: ${smsMessagesError.message}`);
   if (syllabusTemplatesError) throw new Error(`Failed to load syllabus templates: ${syllabusTemplatesError.message}`);
   if (syllabusAssignmentsError) throw new Error(`Failed to load client syllabus progress: ${syllabusAssignmentsError.message}`);
+
+  // Package Refund P0, Slice 2c-2: structured financial-state classification
+  // ('partial' | 'unknown' | 'none' | 'full') for the panel below, obtained
+  // by calling the existing, service-role-only get_client_package_refund_financial_state
+  // helper (Slice 2c-1) directly via this page's own existing admin-client
+  // usage -- never duplicating its price/aggregate logic in TypeScript, and
+  // never widening the helper's grant beyond service_role for this. Scoped
+  // to exactly the pending_review reconciliations on this page (typically
+  // zero or one, since this page renders for a single client).
+  const pendingReviewReconciliations = (packageRefundReconciliations ?? []).filter(
+    (row) => row.reconciliation_outcome === "pending_review",
+  );
+  const refundClassificationByPackageId = new Map<string, string>();
+
+  if (pendingReviewReconciliations.length > 0) {
+    const adminSupabaseForClassification = createAdminClient();
+    await Promise.all(
+      pendingReviewReconciliations.map(async (row) => {
+        const { data } = await adminSupabaseForClassification.rpc(
+          "get_client_package_refund_financial_state",
+          { p_client_package_id: row.client_package_id, p_studio_id: studioId },
+        );
+        const result = Array.isArray(data) ? data[0] : data;
+        if (result?.classification) {
+          refundClassificationByPackageId.set(row.client_package_id, result.classification);
+        }
+      }),
+    );
+  }
 
   const { data: automationActionsData, error: automationActionsError } = await supabase
     .from("automation_actions")
@@ -3811,14 +4000,12 @@ export default async function ClientDetailPage({
                         Refunded {fmtCurrency(Number(payment.refund_amount), payment.currency ?? "USD")}
                         {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}.
                       </p>
-                      {paymentNeedsRefundFulfillmentReview(payment) ? (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                          <p className="font-semibold">Refund review needed</p>
-                          <p className="mt-1 leading-6">
-                            {refundFulfillmentReviewLabel(payment)}
-                          </p>
-                        </div>
-                      ) : null}
+                      {renderRefundFollowUp(payment, {
+                        reconciliations: packageRefundReconciliations ?? [],
+                        packages: typedPackages,
+                        classificationByPackageId: refundClassificationByPackageId,
+                        boundAction: boundResolveReviewAction,
+                      })}
                     </div>
                   ) : null}
 
@@ -4217,11 +4404,12 @@ export default async function ClientDetailPage({
                           <div className="flex flex-wrap items-center gap-3">
                             <p className="font-medium text-[var(--brand-text)]">{pkg.name_snapshot}</p>
                             <span
-                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
-                                health
+                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${getPackageBadgeClass(
+                                pkg,
+                                otherPackages
                               )}`}
                             >
-                              {packageHealthLabel(health)}
+                              {getPackageBadgeLabel(pkg, otherPackages)}
                             </span>
                           </div>
 
@@ -5784,14 +5972,12 @@ export default async function ClientDetailPage({
                             Refunded {fmtCurrency(Number(payment.refund_amount), payment.currency ?? "USD")}
                             {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}.
                           </p>
-                          {paymentNeedsRefundFulfillmentReview(payment) ? (
-                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                              <p className="font-semibold">Refund review needed</p>
-                              <p className="mt-1 leading-6">
-                                {refundFulfillmentReviewLabel(payment)}
-                              </p>
-                            </div>
-                          ) : null}
+                          {renderRefundFollowUp(payment, {
+                            reconciliations: packageRefundReconciliations ?? [],
+                            packages: typedPackages,
+                            classificationByPackageId: refundClassificationByPackageId,
+                            boundAction: boundResolveReviewAction,
+                          })}
                         </div>
                       ) : null}
 
