@@ -935,27 +935,6 @@ export async function sendPortalInviteAction(formData: FormData) {
   redirectWithResult(returnTo, "success", "portal_invite_sent");
 }
 
-// Add this import near the top of src/app/app/clients/[id]/actions.ts if it is not already there:
-// import { revalidatePath } from "next/cache";
-
-function packageUsageUnitLabel(usageType: string, quantity: number) {
-  const isSingular = Math.abs(quantity) === 1;
-
-  if (usageType === "private_lesson") {
-    return isSingular ? "private lesson credit" : "private lesson credits";
-  }
-
-  if (usageType === "group_class") {
-    return isSingular ? "group class credit" : "group class credits";
-  }
-
-  if (usageType === "practice_party") {
-    return isSingular ? "practice party credit" : "practice party credits";
-  }
-
-  return isSingular ? "package credit" : "package credits";
-}
-
 export async function adjustLessonCountCorrectionAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
   const packageItemId = getString(formData, "packageItemId");
@@ -986,15 +965,10 @@ export async function adjustLessonCountCorrectionAction(formData: FormData) {
       id,
       studio_id,
       client_package_id,
-      usage_type,
-      quantity_total,
-      quantity_used,
       quantity_remaining,
       is_unlimited,
       client_packages!inner (
-        id,
-        client_id,
-        name_snapshot
+        client_id
       )
     `)
     .eq("id", packageItemId)
@@ -1010,38 +984,37 @@ export async function adjustLessonCountCorrectionAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "package_correction_unlimited_package");
   }
 
-  const currentTotal = Number(packageItem.quantity_total ?? 0);
-  const currentUsed = Number(packageItem.quantity_used ?? 0);
   const currentRemaining = Number(packageItem.quantity_remaining ?? 0);
 
-  let nextTotal = currentTotal;
-  let nextUsed = currentUsed;
-  let nextRemaining = currentRemaining;
-  const signedDelta = correctionType === "add" ? quantity : -quantity;
-
-  if (correctionType === "add") {
-    nextTotal = currentTotal + quantity;
-    nextRemaining = currentRemaining + quantity;
-  } else {
-    if (currentRemaining - quantity < 0) {
-      redirectWithResult(returnTo, "error", "package_correction_negative_balance");
-    }
-
-    nextUsed = currentUsed + quantity;
-    nextRemaining = currentRemaining - quantity;
+  if (correctionType === "debit" && currentRemaining - quantity < 0) {
+    // Fast, specific UX rejection using the value already on hand -- the
+    // RPC below independently re-validates the same rule under its own
+    // item-row lock, which is the authoritative check (this one can be
+    // stale under genuine concurrency, the RPC's cannot).
+    redirectWithResult(returnTo, "error", "package_correction_negative_balance");
   }
 
-  const { error: updateError } = await supabase
-    .from("client_package_items")
-    .update({
-      quantity_total: nextTotal,
-      quantity_used: nextUsed,
-      quantity_remaining: nextRemaining,
-    })
-    .eq("id", packageItemId)
-    .eq("studio_id", studioId);
+  const { data: userData } = await supabase.auth.getUser();
 
-  if (updateError) {
+  // Package Refund P0, Slice 2c-2 (concurrency hardening): the balance
+  // mutation and its lesson_transactions ledger row now happen atomically,
+  // under an item-row lock, inside apply_package_item_manual_correction --
+  // replacing what was previously a separate, unlocked read-then-.update()
+  // followed by a separate ledger insert. Same validation rules, same
+  // computed values, same ledger note text; this is a concurrency fix, not
+  // a behavior change.
+  const adminSupabase = createAdminClient();
+  const { error: rpcError } = await adminSupabase.rpc("apply_package_item_manual_correction", {
+    p_studio_id: studioId,
+    p_client_id: clientId,
+    p_package_item_id: packageItemId,
+    p_correction_type: correctionType,
+    p_quantity: quantity,
+    p_reason: reason,
+    p_created_by: userData.user?.id ?? null,
+  });
+
+  if (rpcError) {
     redirectWithResult(returnTo, "error", "package_correction_update_failed");
   }
 
@@ -1054,33 +1027,6 @@ export async function adjustLessonCountCorrectionAction(formData: FormData) {
     });
   } catch {
     redirectWithResult(returnTo, "error", "package_correction_lifecycle_failed");
-  }
-
-  const packageRelation = Array.isArray(packageItem.client_packages)
-    ? packageItem.client_packages[0]
-    : packageItem.client_packages;
-
-  const directionLabel = correctionType === "add" ? "Added" : "Debited";
-  const packageName = packageRelation?.name_snapshot ?? "Package";
-  const unitLabel = packageUsageUnitLabel(packageItem.usage_type, quantity);
-
-  const { data: userData } = await supabase.auth.getUser();
-
-  const { error: ledgerError } = await supabase
-    .from("lesson_transactions")
-    .insert({
-      studio_id: studioId,
-      client_id: clientId,
-      client_package_id: packageItem.client_package_id,
-      transaction_type: "manual_adjustment",
-      lessons_delta: signedDelta,
-      balance_after: nextRemaining,
-      notes: `${directionLabel} ${quantity} ${unitLabel} for ${packageName}. Reason: ${reason}`,
-      created_by: userData.user?.id ?? null,
-    });
-
-  if (ledgerError) {
-    redirectWithResult(returnTo, "error", "package_correction_ledger_failed");
   }
 
   revalidatePath(`/app/clients/${clientId}`);
@@ -1246,6 +1192,128 @@ export async function reactivateClientPackageAction(
 
   revalidatePath(`/app/clients/${clientId}`);
   revalidatePath("/app/packages/client-balances");
+
+  return { error: "" };
+}
+
+/**
+ * Package Refund P0, Slice 2c-2: parses a submitted review form's per-item
+ * void quantities into the RPC's `p_voids` shape. Fields are named
+ * `void_<client_package_item_id>`; any field that isn't present, isn't a
+ * positive integer, or belongs to a different form key is simply skipped --
+ * ownership/quantity-bound validation is the RPC's job (resolve_partial_refund_credit_review
+ * independently re-verifies every item against the reconciliation's actual
+ * package), not this parser's. Exported for direct unit testing, mirroring
+ * this codebase's established pure-decision-module pattern (see
+ * buildPackageRefundReconciliationInput in package-refund-reconciliation.ts).
+ */
+export function buildVoidsFromFormData(
+  formData: FormData,
+): { client_package_item_id: string; quantity: number }[] {
+  const voids: { client_package_item_id: string; quantity: number }[] = [];
+
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("void_")) continue;
+    const itemId = key.slice("void_".length);
+    if (!itemId) continue;
+
+    const quantity = Number.parseInt(String(value), 10);
+    if (Number.isFinite(quantity) && quantity > 0) {
+      voids.push({ client_package_item_id: itemId, quantity });
+    }
+  }
+
+  return voids;
+}
+
+/**
+ * Package Refund P0, Slice 2c-2: resolves a `pending_review` package refund
+ * reconciliation -- either applying staff-selected credit voids or
+ * explicitly declining (empty p_voids). See
+ * src/lib/supabase/migrations/20260823090000_package_refund_credit_review_rpc.sql
+ * for the RPC's full transaction/locking/authorization design.
+ *
+ * `trustedClientId` is the FIRST argument specifically so this action is
+ * called as `resolvePartialRefundCreditReviewAction.bind(null, id)` from the
+ * server-rendered client page (page.tsx), where `id` is the client id
+ * already used to authorize and fetch every other query on that page.
+ * Next.js encodes a value bound this way into its own encrypted
+ * server-action reference at render time -- it is never transmitted as
+ * ordinary, client-editable form data, unlike every other identity field in
+ * this file (all of which use a hidden `<input>` instead). That distinction
+ * is load-bearing here specifically because a tampered form could otherwise
+ * submit a `reconciliationId` belonging to a different client in the same
+ * studio; binding the client id server-side is what the lookup below relies
+ * on to reject that, rather than merely checking two attacker-controlled
+ * values against each other.
+ *
+ * The RPC's own identity surface stays minimized (p_studio_id,
+ * p_reconciliation_id, p_reviewer_id, p_voids, p_reviewer_notes only) --
+ * this client-context check lives entirely here, one layer above it, not by
+ * widening the RPC's parameters.
+ */
+export async function resolvePartialRefundCreditReviewAction(
+  trustedClientId: string,
+  prevState: { error: string },
+  formData: FormData,
+): Promise<{ error: string }> {
+  const context = await getCurrentStudioContext();
+  const role = context.studioRole ?? "";
+
+  if (!context.isPlatformAdmin && !["studio_owner", "studio_admin"].includes(role)) {
+    return { error: "You do not have permission to resolve package refund reviews." };
+  }
+
+  const reconciliationId = getString(formData, "reconciliationId");
+  const intent = getString(formData, "intent");
+
+  if (!reconciliationId || !["apply", "decline"].includes(intent)) {
+    return { error: "Missing or invalid review submission." };
+  }
+
+  const supabase = await createClient();
+  const studioId = context.studioId;
+
+  const { data: reconciliation, error: reconciliationError } = await supabase
+    .from("package_refund_reconciliations")
+    .select("id")
+    .eq("id", reconciliationId)
+    .eq("studio_id", studioId)
+    .eq("client_id", trustedClientId)
+    .maybeSingle();
+
+  if (reconciliationError || !reconciliation) {
+    return { error: "Reconciliation not found for this client." };
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+  const reviewerId = userData.user?.id ?? null;
+
+  if (!reviewerId) {
+    return { error: "Could not identify the current reviewer." };
+  }
+
+  // Decline forces an empty array unconditionally, regardless of any
+  // quantity values present in the submitted form -- a stale or manipulated
+  // form must never cause a Decline submission to accidentally apply
+  // entered quantities.
+  const voidsArray = intent === "decline" ? [] : buildVoidsFromFormData(formData);
+  const reviewerNotes = getString(formData, "reviewerNotes") || null;
+
+  const adminSupabase = createAdminClient();
+  const { error: rpcError } = await adminSupabase.rpc("resolve_partial_refund_credit_review", {
+    p_studio_id: studioId,
+    p_reconciliation_id: reconciliation.id,
+    p_reviewer_id: reviewerId,
+    p_voids: voidsArray,
+    p_reviewer_notes: reviewerNotes,
+  });
+
+  if (rpcError) {
+    return { error: rpcError.message };
+  }
+
+  revalidatePath(`/app/clients/${trustedClientId}`);
 
   return { error: "" };
 }

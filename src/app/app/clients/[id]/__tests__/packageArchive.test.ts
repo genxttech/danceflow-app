@@ -47,6 +47,100 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+/**
+ * Package Refund P0, Slice 2c-2 (concurrency hardening): adjustLessonCountCorrectionAction
+ * now delegates its computation, validation, item mutation, and ledger write
+ * to apply_package_item_manual_correction via createAdminClient().rpc(...),
+ * replacing what used to be a plain, unlocked .update() against the
+ * `supabase` fake above. This fake RPC handler reproduces that SQL
+ * function's exact logic (same validation order, same computed values, same
+ * ledger note format -- see the migration itself,
+ * 20260823091500_package_item_manual_mutation_rpcs.sql, and its local-Docker
+ * regression suite, test_O_manual_mutation_rpcs.sql, which is the
+ * authoritative behavioral proof) against the SAME `currentTables` fixture
+ * the `supabase` fake reads from, so reconcileClientPackageLifecycle (called
+ * afterward, through the ordinary `supabase` client) observes the mutated
+ * state correctly.
+ */
+function unitLabelFor(usageType: unknown, quantity: number) {
+  const isSingular = Math.abs(quantity) === 1;
+  if (usageType === "private_lesson") return isSingular ? "private lesson credit" : "private lesson credits";
+  if (usageType === "group_class") return isSingular ? "group class credit" : "group class credits";
+  if (usageType === "practice_party") return isSingular ? "practice party credit" : "practice party credits";
+  return isSingular ? "package credit" : "package credits";
+}
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => ({
+    rpc: async (name: string, params: Record<string, unknown>) => {
+      if (name !== "apply_package_item_manual_correction") {
+        throw new Error(`Unexpected RPC in fake admin client: ${name}`);
+      }
+
+      const item = currentTables.client_package_items.rows.find(
+        (r) => r.id === params.p_package_item_id && r.studio_id === params.p_studio_id,
+      );
+      if (!item) {
+        return { data: null, error: { message: "Package item not found for this client." } };
+      }
+      if (item.is_unlimited) {
+        return { data: null, error: { message: "Unlimited package items cannot be adjusted with quantity changes." } };
+      }
+
+      const quantity = Number(params.p_quantity);
+      const isAdd = params.p_correction_type === "add";
+      const currentTotal = Number(item.quantity_total ?? 0);
+      const currentUsed = Number(item.quantity_used ?? 0);
+      const currentRemaining = Number(item.quantity_remaining ?? 0);
+
+      let nextTotal = currentTotal;
+      let nextUsed = currentUsed;
+      let nextRemaining = currentRemaining;
+      let delta: number;
+      let directionLabel: string;
+
+      if (isAdd) {
+        nextTotal = currentTotal + quantity;
+        nextRemaining = currentRemaining + quantity;
+        delta = quantity;
+        directionLabel = "Added";
+      } else {
+        if (currentRemaining - quantity < 0) {
+          return { data: null, error: { message: "This adjustment would make the remaining balance negative." } };
+        }
+        nextUsed = currentUsed + quantity;
+        nextRemaining = currentRemaining - quantity;
+        delta = -quantity;
+        directionLabel = "Debited";
+      }
+
+      item.quantity_total = nextTotal;
+      item.quantity_used = nextUsed;
+      item.quantity_remaining = nextRemaining;
+
+      const pkgName =
+        (item.client_packages as { name_snapshot?: string } | undefined)?.name_snapshot ?? "Package";
+      const notes = `${directionLabel} ${quantity} ${unitLabelFor(item.usage_type, quantity)} for ${pkgName}. Reason: ${params.p_reason}`;
+
+      currentTables.lesson_transactions.insert({
+        studio_id: params.p_studio_id,
+        client_id: params.p_client_id,
+        client_package_id: item.client_package_id,
+        transaction_type: "manual_adjustment",
+        lessons_delta: delta,
+        balance_after: nextRemaining,
+        notes,
+        created_by: params.p_created_by,
+      });
+
+      return {
+        data: [{ new_quantity_total: nextTotal, new_quantity_used: nextUsed, new_quantity_remaining: nextRemaining }],
+        error: null,
+      };
+    },
+  }),
+}));
+
 vi.mock("@/lib/auth/studio", () => ({
   getCurrentStudioContext: async () => ({
     studioId: STUDIO_ID,
@@ -358,5 +452,120 @@ describe("adjustLessonCountCorrectionAction -- lifecycle reconciliation", () => 
     );
 
     expect(tables.client_packages.rows[0].active).toBe(true);
+  });
+});
+
+describe("adjustLessonCountCorrectionAction -- behavioral parity with the pre-2c-2 unlocked implementation", () => {
+  it("computes the same values and ledger note format the old .update() path produced", async () => {
+    const item: Row = {
+      id: "item-1",
+      studio_id: STUDIO_ID,
+      client_package_id: "pkg-1",
+      usage_type: "group_class",
+      quantity_total: 5,
+      quantity_used: 2,
+      quantity_remaining: 3,
+      is_unlimited: false,
+      client_packages: { id: "pkg-1", client_id: CLIENT_ID, name_snapshot: "O1 pkg" },
+    };
+    const tables = setFixture({
+      client_packages: [
+        { id: "pkg-1", studio_id: STUDIO_ID, client_id: CLIENT_ID, active: true, client_package_items: [item] },
+      ],
+      client_package_items: [item],
+    });
+
+    await expectRedirect(
+      adjustLessonCountCorrectionAction(
+        formDataFor({
+          clientId: CLIENT_ID,
+          packageItemId: "item-1",
+          correctionType: "add",
+          quantity: "3",
+          reason: "Goodwill credit",
+        }),
+      ),
+    );
+
+    expect(tables.client_package_items.rows[0]).toMatchObject({
+      quantity_total: 8,
+      quantity_used: 2,
+      quantity_remaining: 6,
+    });
+    expect(tables.lesson_transactions.rows[0]).toMatchObject({
+      transaction_type: "manual_adjustment",
+      lessons_delta: 3,
+      balance_after: 6,
+      notes: "Added 3 group class credits for O1 pkg. Reason: Goodwill credit",
+    });
+  });
+
+  it("rejects a debit that would go negative before ever calling the RPC", async () => {
+    const item: Row = {
+      id: "item-1",
+      studio_id: STUDIO_ID,
+      client_package_id: "pkg-1",
+      usage_type: "private_lesson",
+      quantity_total: 5,
+      quantity_used: 4,
+      quantity_remaining: 1,
+      is_unlimited: false,
+      client_packages: { id: "pkg-1", client_id: CLIENT_ID, name_snapshot: "5-pack" },
+    };
+    const tables = setFixture({
+      client_packages: [
+        { id: "pkg-1", studio_id: STUDIO_ID, client_id: CLIENT_ID, active: true, client_package_items: [item] },
+      ],
+      client_package_items: [item],
+    });
+
+    const digest = await expectRedirect(
+      adjustLessonCountCorrectionAction(
+        formDataFor({
+          clientId: CLIENT_ID,
+          packageItemId: "item-1",
+          correctionType: "debit",
+          quantity: "5",
+          reason: "too much",
+        }),
+      ),
+    );
+
+    expect(digest).toMatch(/error=package_correction_negative_balance/);
+    expect(tables.client_package_items.rows[0].quantity_remaining).toBe(1);
+  });
+
+  it("rejects an unlimited item via the existing TS-level check, before ever calling the RPC", async () => {
+    const item: Row = {
+      id: "item-1",
+      studio_id: STUDIO_ID,
+      client_package_id: "pkg-1",
+      usage_type: "practice_party",
+      quantity_total: null,
+      quantity_used: 0,
+      quantity_remaining: null,
+      is_unlimited: true,
+      client_packages: { id: "pkg-1", client_id: CLIENT_ID, name_snapshot: "Unlimited" },
+    };
+    setFixture({
+      client_packages: [
+        { id: "pkg-1", studio_id: STUDIO_ID, client_id: CLIENT_ID, active: true, client_package_items: [item] },
+      ],
+      client_package_items: [item],
+    });
+
+    const digest = await expectRedirect(
+      adjustLessonCountCorrectionAction(
+        formDataFor({
+          clientId: CLIENT_ID,
+          packageItemId: "item-1",
+          correctionType: "add",
+          quantity: "1",
+          reason: "n/a",
+        }),
+      ),
+    );
+
+    expect(digest).toMatch(/error=package_correction_unlimited_package/);
   });
 });

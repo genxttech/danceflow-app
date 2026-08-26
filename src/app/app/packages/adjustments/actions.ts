@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { requireBalanceAdjustmentAccess } from "@/lib/auth/serverRoleGuard";
 import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -41,7 +42,7 @@ export async function createBalanceAdjustmentAction(
 
     const { data: clientPackage, error: clientPackageError } = await supabase
       .from("client_packages")
-      .select("id, client_id, studio_id, name_snapshot")
+      .select("id, client_id, studio_id")
       .eq("id", clientPackageId)
       .eq("studio_id", studioId)
       .single();
@@ -54,67 +55,26 @@ export async function createBalanceAdjustmentAction(
       };
     }
 
-    const { data: item, error: itemError } = await supabase
-      .from("client_package_items")
-      .select(`
-        id,
-        usage_type,
-        quantity_total,
-        quantity_used,
-        quantity_remaining,
-        is_unlimited
-      `)
-      .eq("client_package_id", clientPackageId)
-      .eq("studio_id", studioId)
-      .eq("usage_type", usageType)
-      .single();
+    // Package Refund P0, Slice 2c-2 (concurrency hardening): balance
+    // computation, validation, the item update, and its lesson_transactions
+    // ledger row now all happen atomically, under an item-row lock, inside
+    // apply_package_balance_adjustment -- replacing what was previously a
+    // separate, unlocked read-then-.update() followed by a separate ledger
+    // insert. Same validation rules, same computed values, same ledger note
+    // format; this is a concurrency fix, not a behavior change.
+    const adminSupabase = createAdminClient();
+    const { error: rpcError } = await adminSupabase.rpc("apply_package_balance_adjustment", {
+      p_studio_id: studioId,
+      p_client_package_id: clientPackageId,
+      p_usage_type: usageType,
+      p_adjustment_type: adjustmentType,
+      p_quantity: quantity,
+      p_notes: notes,
+      p_created_by: user.id,
+    });
 
-    if (itemError || !item) {
-      return {
-        error: `Package item lookup failed: ${itemError?.message ?? "Package item not found"}`,
-      };
-    }
-
-    if (item.is_unlimited) {
-      return {
-        error: "Unlimited package items cannot be adjusted with quantity changes.",
-      };
-    }
-
-    const delta = adjustmentType === "add" ? quantity : -quantity;
-    const currentRemaining = Number(item.quantity_remaining ?? 0);
-    const currentTotal = Number(item.quantity_total ?? 0);
-    const currentUsed = Number(item.quantity_used ?? 0);
-
-    const nextRemaining = currentRemaining + delta;
-    const nextTotal = currentTotal + delta;
-
-    if (nextRemaining < 0) {
-      return { error: "This adjustment would make the remaining balance negative." };
-    }
-
-    if (nextTotal < 0) {
-      return { error: "This adjustment would make the total balance negative." };
-    }
-
-    let nextUsed = currentUsed;
-
-    if (nextUsed > nextTotal) {
-      nextUsed = nextTotal;
-    }
-
-    const { error: updateError } = await supabase
-      .from("client_package_items")
-      .update({
-        quantity_total: nextTotal,
-        quantity_used: nextUsed,
-        quantity_remaining: nextRemaining,
-      })
-      .eq("id", item.id)
-      .eq("studio_id", studioId);
-
-    if (updateError) {
-      return { error: `Balance update failed: ${updateError.message}` };
+    if (rpcError) {
+      return { error: rpcError.message };
     }
 
     await reconcileClientPackageLifecycle({
@@ -123,28 +83,6 @@ export async function createBalanceAdjustmentAction(
       clientId: clientPackage.client_id,
       clientPackageId: clientPackage.id,
     });
-
-    const transactionType =
-      adjustmentType === "add" ? "manual_credit" : "manual_debit";
-
-    const { error: transactionError } = await supabase
-      .from("lesson_transactions")
-      .insert({
-        studio_id: studioId,
-        client_id: clientPackage.client_id,
-        client_package_id: clientPackage.id,
-        transaction_type: transactionType,
-        lessons_delta: delta,
-        balance_after: nextRemaining,
-        notes: `[${usageType}] ${notes}`,
-        created_by: user.id,
-      });
-
-    if (transactionError) {
-      return {
-        error: `Audit entry creation failed: ${transactionError.message}`,
-      };
-    }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
