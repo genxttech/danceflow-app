@@ -816,7 +816,7 @@ function registrationSectionHint(params: {
   return "Use registration to reserve your spot for this event.";
 }
 
-function getBanner(search: { success?: string; error?: string }) {
+export function getBanner(search: { success?: string; error?: string }) {
   if (search.success === "registered") {
     return {
       kind: "success" as const,
@@ -849,6 +849,14 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Could not start Stripe Checkout. Please try again.",
+    };
+  }
+
+  if (search.error === "cart_checkout_failed") {
+    return {
+      kind: "error" as const,
+      message:
+        "We weren't able to start your registration and no payment was made. Please try again below.",
     };
   }
 
@@ -2720,7 +2728,10 @@ export default async function PublicEventDetailPage({
 
                   <div className="mt-6">
                     {visibleTicketTypes.length > 0 || allowWaitlistJoin ? (
-                      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      <details
+                        className="group rounded-2xl border border-slate-200 bg-white shadow-sm"
+                        open={Boolean(query.error)}
+                      >
                         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
                           <span>
                             {allowWaitlistJoin && visibleTicketTypes.length === 0

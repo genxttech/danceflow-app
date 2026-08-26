@@ -849,7 +849,7 @@ export async function POST(request: NextRequest) {
         holdToken,
       },
     })
-    .select("id")
+    .select("id, metadata")
     .single();
 
   if (orderError || !order) {
@@ -858,6 +858,15 @@ export async function POST(request: NextRequest) {
       absoluteEventUrl(request, eventSlug, "?error=cart_order_failed"),
     );
   }
+
+  // Deterministic failure classification: set from known execution phase, not
+  // guessed from exception text. Flipped to "checkout_session" immediately
+  // before the Stripe call; everything before that point (including
+  // required-document checkpoint creation) is "document_setup". A genuine
+  // Stripe user cancellation never reaches this catch block at all -- it is
+  // handled entirely by /api/events/cart/release, a separate route that
+  // never writes event_orders.metadata.
+  let executionPhase: "document_setup" | "checkout_session" = "document_setup";
 
   try {
     const orderItems = [];
@@ -1070,6 +1079,7 @@ export async function POST(request: NextRequest) {
 
     const connectedAccountId = studio.stripe_connected_account_id;
 
+    executionPhase = "checkout_session";
     const session = await stripe.checkout.sessions.create(
       {
       mode: "payment",
@@ -1175,12 +1185,18 @@ export async function POST(request: NextRequest) {
       .eq("order_id", order.id)
       .eq("status", "pending");
 
+    const failureReason =
+      executionPhase === "document_setup"
+        ? "document_setup_failed"
+        : "checkout_session_failed";
+
     await supabase
       .from("event_orders")
       .update({
         status: "cancelled",
         payment_status: "failed",
         cancelled_at: new Date().toISOString(),
+        metadata: { ...(order.metadata ?? {}), failure_reason: failureReason },
       })
       .eq("id", order.id);
 
