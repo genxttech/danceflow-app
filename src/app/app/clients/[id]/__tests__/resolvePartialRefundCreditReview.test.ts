@@ -5,16 +5,20 @@ import {
   createFakeEntitlementClient,
   type Row,
 } from "@/lib/packages/__tests__/fakeEntitlementSupabase";
+import { buildVoidsFromFormData } from "@/lib/packages/refundReviewVoids";
 
 /**
  * Package Refund P0, Slice 2c-2: coverage for resolvePartialRefundCreditReviewAction
- * (server action) and buildVoidsFromFormData (its pure form-parsing helper).
- * The RPC's own state machine, locking, and validation are covered
- * separately and authoritatively by the local-Docker SQL regression suite
- * (test_N_refund_credit_review_resolution.sql) and the two-session
- * concurrency harness (test_N_concurrency_two_session.sh) -- this file's
- * job is the layer above: role gating, the trusted server-bound client
- * context, the decline/apply intent split, and RPC-error surfacing.
+ * (server action) and buildVoidsFromFormData (its pure form-parsing helper,
+ * imported from src/lib/packages/refundReviewVoids.ts -- extracted from
+ * actions.ts, a `"use server"` file, since a synchronous helper can't be
+ * exported from a Server Actions file). The RPC's own state machine,
+ * locking, and validation are covered separately and authoritatively by the
+ * local-Docker SQL regression suite (test_N_refund_credit_review_resolution.sql)
+ * and the two-session concurrency harness (test_N_concurrency_two_session.sh)
+ * -- this file's job is the layer above: role gating, the trusted
+ * server-bound client context, the decline/apply intent split, and
+ * RPC-error surfacing.
  */
 
 const STUDIO_ID = "studio-1";
@@ -73,9 +77,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
-const { resolvePartialRefundCreditReviewAction, buildVoidsFromFormData } = await import(
-  "@/app/app/clients/[id]/actions"
-);
+const { resolvePartialRefundCreditReviewAction } = await import("@/app/app/clients/[id]/actions");
 
 function formDataFor(fields: Record<string, string>) {
   const fd = new FormData();

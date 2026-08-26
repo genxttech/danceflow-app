@@ -18,6 +18,7 @@ import {
 } from "@/lib/student-identity/lifecycle";
 import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
 import { isPackageEligibleForReactivation } from "@/lib/packages/entitlement";
+import { buildVoidsFromFormData } from "@/lib/packages/refundReviewVoids";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -1194,36 +1195,6 @@ export async function reactivateClientPackageAction(
   revalidatePath("/app/packages/client-balances");
 
   return { error: "" };
-}
-
-/**
- * Package Refund P0, Slice 2c-2: parses a submitted review form's per-item
- * void quantities into the RPC's `p_voids` shape. Fields are named
- * `void_<client_package_item_id>`; any field that isn't present, isn't a
- * positive integer, or belongs to a different form key is simply skipped --
- * ownership/quantity-bound validation is the RPC's job (resolve_partial_refund_credit_review
- * independently re-verifies every item against the reconciliation's actual
- * package), not this parser's. Exported for direct unit testing, mirroring
- * this codebase's established pure-decision-module pattern (see
- * buildPackageRefundReconciliationInput in package-refund-reconciliation.ts).
- */
-export function buildVoidsFromFormData(
-  formData: FormData,
-): { client_package_item_id: string; quantity: number }[] {
-  const voids: { client_package_item_id: string; quantity: number }[] = [];
-
-  for (const [key, value] of formData.entries()) {
-    if (!key.startsWith("void_")) continue;
-    const itemId = key.slice("void_".length);
-    if (!itemId) continue;
-
-    const quantity = Number.parseInt(String(value), 10);
-    if (Number.isFinite(quantity) && quantity > 0) {
-      voids.push({ client_package_item_id: itemId, quantity });
-    }
-  }
-
-  return voids;
 }
 
 /**
