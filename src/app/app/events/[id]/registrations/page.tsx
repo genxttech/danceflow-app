@@ -138,6 +138,25 @@ type DocumentSignatureRow = {
   signed_at: string;
 };
 
+/**
+ * DanceFlow Sign's envelope-based signing path (used by public event-cart
+ * checkout) writes here, not to document_signatures -- the older, separate,
+ * synchronous mechanism still used directly by other flows (e.g. competition
+ * checkout). document_assignments.status only ever reaches "signed" via the
+ * sync_document_assignment_from_sign_envelope trigger, itself only fired
+ * when the linked document_sign_envelopes.status genuinely reaches
+ * "completed" -- so this is a safe, sufficient signal on its own, additive
+ * to (never a replacement for) the document_signatures check below. Mirrors
+ * the established multi-source merge pattern already used in
+ * src/app/app/documents/page.tsx.
+ */
+type DocumentAssignmentRow = {
+  id: string;
+  event_registration_id: string | null;
+  template_id: string;
+  status: string;
+};
+
 function getOrganizer(
   value:
     | { name: string; slug: string }
@@ -707,6 +726,7 @@ export default async function EventRegistrationsPage({
     { data: ticketEmailRows, error: ticketEmailError },
     { data: documentRequirementRows, error: documentRequirementsError },
     { data: documentSignatureRows, error: documentSignaturesError },
+    { data: documentAssignmentRows, error: documentAssignmentsError },
   ] = registrationIds.length
     ? await Promise.all([
         supabase
@@ -813,8 +833,22 @@ export default async function EventRegistrationsPage({
           `,
           )
           .in("event_registration_id", registrationIds),
+
+        supabase
+          .from("document_assignments")
+          .select(
+            `
+            id,
+            event_registration_id,
+            template_id,
+            status
+          `,
+          )
+          .in("event_registration_id", registrationIds)
+          .eq("status", "signed"),
       ])
     : [
+        { data: [], error: null },
         { data: [], error: null },
         { data: [], error: null },
         { data: [], error: null },
@@ -854,6 +888,12 @@ export default async function EventRegistrationsPage({
   if (documentSignaturesError) {
     throw new Error(
       `Failed to load event document signatures: ${documentSignaturesError.message}`,
+    );
+  }
+
+  if (documentAssignmentsError) {
+    throw new Error(
+      `Failed to load event document assignments: ${documentAssignmentsError.message}`,
     );
   }
 
@@ -916,11 +956,24 @@ export default async function EventRegistrationsPage({
     signaturesByRegistrationId.set(signature.event_registration_id, current);
   }
 
+  const signedAssignmentsByRegistrationId = new Map<string, DocumentAssignmentRow[]>();
+  for (const assignment of (documentAssignmentRows ??
+    []) as DocumentAssignmentRow[]) {
+    if (!assignment.event_registration_id) continue;
+    const current =
+      signedAssignmentsByRegistrationId.get(assignment.event_registration_id) ?? [];
+    current.push(assignment);
+    signedAssignmentsByRegistrationId.set(assignment.event_registration_id, current);
+  }
+
   const getDocumentStatus = (registrationId: string) => {
     const signatures = signaturesByRegistrationId.get(registrationId) ?? [];
-    const signedTemplateIds = new Set(
-      signatures.map((signature) => signature.template_id),
-    );
+    const signedAssignments =
+      signedAssignmentsByRegistrationId.get(registrationId) ?? [];
+    const signedTemplateIds = new Set([
+      ...signatures.map((signature) => signature.template_id),
+      ...signedAssignments.map((assignment) => assignment.template_id),
+    ]);
     const missingRequirements = requiredDocumentRows.filter(
       (requirement) => !signedTemplateIds.has(requirement.template_id),
     );

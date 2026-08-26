@@ -220,7 +220,7 @@ async function createEnvelopeForPosition(checkpoint: CheckpointRow, position: nu
       event_document_requirement_id: requirement.id,
       event_signing_checkpoint_id: checkpoint.id,
       assigned_to_email: checkpoint.buyer_email,
-      status: "sent",
+      status: "pending",
     })
     .select("id")
     .single();
@@ -324,6 +324,30 @@ async function createEnvelopeForPosition(checkpoint: CheckpointRow, position: nu
   return `${appUrl()}/sign/${encodeURIComponent(token)}`;
 }
 
+/**
+ * Best-effort only: marks an orphaned checkpoint (position-creation failed)
+ * as `cancelled` -- an existing, valid `event_signing_checkpoints.status`
+ * value that was never written anywhere else in this codebase. The
+ * `.eq("status", "signing")` guard avoids clobbering a checkpoint that
+ * something else already moved on (e.g. it expired concurrently). Any
+ * failure here is swallowed, not rethrown -- the caller's own
+ * document-creation error is what must reach the route handler unmasked.
+ */
+async function markCheckpointCancelledAfterCreationFailure(
+  admin: ReturnType<typeof createAdminClient>,
+  checkpointId: string,
+) {
+  try {
+    await admin
+      .from("event_signing_checkpoints")
+      .update({ status: "cancelled", updated_at: new Date().toISOString() })
+      .eq("id", checkpointId)
+      .eq("status", "signing");
+  } catch {
+    // Cleanup is best-effort; swallow so the original error still propagates.
+  }
+}
+
 export async function beginEventSigningCheckpoint(params: {
   orderId: string;
   eventId: string;
@@ -386,9 +410,18 @@ export async function beginEventSigningCheckpoint(params: {
   if (error || !checkpoint) throw new Error("Required-document checkpoint could not be created.");
 
   await admin.from("event_orders").update({ expires_at: expiresAt, updated_at: new Date().toISOString() }).eq("id", params.orderId);
+
+  let signingUrl: string;
+  try {
+    signingUrl = await createEnvelopeForPosition(checkpoint, 0);
+  } catch (error) {
+    await markCheckpointCancelledAfterCreationFailure(admin, checkpoint.id);
+    throw error;
+  }
+
   return {
     checkpointId: checkpoint.id,
-    signingUrl: await createEnvelopeForPosition(checkpoint, 0),
+    signingUrl,
   };
 }
 
@@ -424,9 +457,19 @@ export async function advanceEventSigningCheckpoint(envelopeId: string) {
       updated_at: new Date().toISOString(),
     }).eq("id", checkpoint.id).eq("status", "signing");
 
+    let nextUrl: string;
+    try {
+      nextUrl = await createEnvelopeForPosition({ ...checkpoint, current_position: nextPosition }, nextPosition);
+    } catch (error) {
+      // A prior position's completed assignment/envelope (already `signed`/`completed`)
+      // is not touched here -- only this checkpoint's own state moves to `cancelled`.
+      await markCheckpointCancelledAfterCreationFailure(admin, checkpoint.id);
+      throw error;
+    }
+
     return {
       kind: "next" as const,
-      url: await createEnvelopeForPosition({ ...checkpoint, current_position: nextPosition }, nextPosition),
+      url: nextUrl,
     };
   }
 
