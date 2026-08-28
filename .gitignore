@@ -69,7 +69,15 @@ web_modules/
 .env
 .env.*
 !.env.example
+!.env.e2e.example
 supabase-backups/
+
+# Playwright E2E harness local output (traces/screenshots/reports) --
+# never commit run artifacts, only the harness code itself.
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

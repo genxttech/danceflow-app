@@ -10,6 +10,7 @@ import { retryEventRegistrationCheckoutAction } from "./register/actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
+import { getBanner } from "./banner";
 
 type Params = Promise<{
   slug: string;
@@ -814,67 +815,6 @@ function registrationSectionHint(params: {
   }
 
   return "Use registration to reserve your spot for this event.";
-}
-
-export function getBanner(search: { success?: string; error?: string }) {
-  if (search.success === "registered") {
-    return {
-      kind: "success" as const,
-      message: "Registration completed successfully.",
-    };
-  }
-
-  if (search.success === "paid") {
-    return {
-      kind: "success" as const,
-      message: "Payment received. Your registration is confirmed.",
-    };
-  }
-
-  if (search.success === "waitlisted") {
-    return {
-      kind: "success" as const,
-      message: "You were added to the waitlist. You have not been charged.",
-    };
-  }
-
-  if (search.error === "checkout_cancelled") {
-    return {
-      kind: "error" as const,
-      message: "Checkout was cancelled. You can retry payment below.",
-    };
-  }
-
-  if (search.error === "checkout_session_failed") {
-    return {
-      kind: "error" as const,
-      message: "Could not start Stripe Checkout. Please try again.",
-    };
-  }
-
-  if (search.error === "cart_checkout_failed") {
-    return {
-      kind: "error" as const,
-      message:
-        "We weren't able to start your registration and no payment was made. Please try again below.",
-    };
-  }
-
-  if (search.error === "registration_not_enabled") {
-    return {
-      kind: "error" as const,
-      message: "DanceFlow ticket checkout is not enabled for this basic event listing. Please contact the host for registration details.",
-    };
-  }
-
-  if (search.error === "organizer_suite_required") {
-    return {
-      kind: "error" as const,
-      message: "DanceFlow ticket checkout is not currently available for this listing. Please contact the host for registration details.",
-    };
-  }
-
-  return null;
 }
 
 function activeCountForTicket(
