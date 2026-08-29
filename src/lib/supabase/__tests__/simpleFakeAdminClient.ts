@@ -66,6 +66,17 @@ export class FakeTable {
     });
     return { data: inserted, error: null as FakeError | null };
   }
+
+  /**
+   * Minimal upsert: no conflict-target-aware merge semantics, just insert --
+   * every existing test/table using this only ever upserts rows that don't
+   * already exist in the fake, so a real "update on conflict" path has
+   * never been needed. If a future test needs genuine conflict resolution,
+   * extend this rather than assuming it already works.
+   */
+  upsert(payload: Row | Row[]) {
+    return this.insert(payload);
+  }
 }
 
 class FakeQuery {
@@ -74,7 +85,7 @@ class FakeQuery {
 
   constructor(
     private table: FakeTable,
-    private op: "select" | "insert" | "update" | "delete",
+    private op: "select" | "insert" | "upsert" | "update" | "delete",
     private payload?: Row | Row[],
   ) {}
 
@@ -137,6 +148,9 @@ class FakeQuery {
     if (this.op === "insert") {
       return this.table.insert(this.payload as Row | Row[]);
     }
+    if (this.op === "upsert") {
+      return this.table.upsert(this.payload as Row | Row[]);
+    }
     if (this.op === "update") {
       const rows = this.matched();
       rows.forEach((row) => Object.assign(row, this.payload));
@@ -188,6 +202,7 @@ export function createFakeAdminClient(
       return {
         select: () => new FakeQuery(t, "select"),
         insert: (payload: Row | Row[]) => new FakeQuery(t, "insert", payload),
+        upsert: (payload: Row | Row[]) => new FakeQuery(t, "upsert", payload),
         update: (payload: Row) => new FakeQuery(t, "update", payload),
         delete: () => new FakeQuery(t, "delete"),
       };

@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applySigningFields, type AppliedSignature, type SigningField, type SigningValue } from "@/lib/documents/pdf";
 import { DOCUMENT_FILES_BUCKET, hashSigningToken, signedStoragePath } from "@/lib/documents/signing";
@@ -361,6 +361,12 @@ export async function completeSigningAction(formData: FormData) {
       const next = await advanceEventSigningCheckpoint(envelope.id);
       if (next?.url) redirect(next.url);
     } catch (error) {
+      // redirect() above throws Next.js's own internal NEXT_REDIRECT signal
+      // on success -- unstable_rethrow lets that (and any other Next
+      // control-flow signal) continue propagating to the framework before
+      // the genuine-error handling below runs, so a successful continuation
+      // is never misreported as event_checkout_continuation_failed.
+      unstable_rethrow(error);
       console.error(
         "Event signing continuation failed",
         error instanceof Error ? error.message : error,
