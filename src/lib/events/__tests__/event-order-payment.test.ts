@@ -569,6 +569,59 @@ describe("startEventOrderPayment", () => {
     expect((updated?.metadata as Record<string, unknown>)?.checkout_session_attempt_count).toBe(1);
   });
 
+  it("constructs the real Stripe Checkout Session call with the correct shape -- the deterministic, no-real-Stripe-access proof of correct session construction (Public Event Registration E2E Harness Slice 2's 'Stripe boundary')", async () => {
+    const order = seedOrder({ buyer_email: "attendee@example.invalid", total_amount: 25, currency: "usd" });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({
+      order_id: order.id,
+      quantity: 1,
+      unit_price: 25,
+      description: "General Admission (E2E)",
+    });
+
+    const result = await startEventOrderPayment({
+      request: fakeRequest(),
+      orderId: order.id as string,
+      surface: "web",
+      paymentMode: "checkout",
+    });
+
+    expect(result.checkoutUrl).toMatch(/^https:\/\/checkout\.stripe\.com\//);
+
+    expect(currentFakeStripe.stripe.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    const [sessionParams, requestOptions] = currentFakeStripe.stripe.checkout.sessions.create.mock.calls[0] as [
+      {
+        mode: string;
+        customer_email: string;
+        success_url: string;
+        cancel_url: string;
+        line_items: unknown[];
+      },
+      { stripeAccount?: string },
+    ];
+
+    expect(sessionParams).toMatchObject({
+      mode: "payment",
+      customer_email: "attendee@example.invalid",
+    });
+    expect(sessionParams.success_url).toContain("spring-showcase");
+    expect(sessionParams.success_url).toContain(encodeURIComponent(order.id as string));
+    expect(sessionParams.cancel_url).toContain("/api/events/cart/release");
+    expect(sessionParams.cancel_url).toContain(encodeURIComponent(order.id as string));
+    expect(sessionParams.line_items).toEqual([
+      {
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: 2500,
+          product_data: { name: "General Admission (E2E)" },
+        },
+      },
+    ]);
+
+    expect(requestOptions).toMatchObject({ stripeAccount: "acct_1" });
+  });
+
   it("reuses an existing open checkout session instead of creating a second one", async () => {
     const order = seedOrder({ stripe_checkout_session_id: "cs_existing" });
     currentFakeStripe.sessions.set("cs_existing", {

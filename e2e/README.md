@@ -1,9 +1,12 @@
 # Public Event Registration E2E Harness
 
 Browser-driven (Playwright) E2E coverage for the public event registration
-flow: `/events/[slug]` → registration form → (later slices: required-document
-signing → Stripe Checkout). Slice 1 covers only the "0 required waivers"
-happy path up through an interactable registration form.
+flow: `/events/[slug]` → registration form → required-document signing (if
+any) → the real (fixture-doomed) Stripe-initiation attempt. Slice 1 covers
+the registration-form happy path; Slice 2 adds the 0/1/2-required-waiver
+signing matrix (Cases A/B/C below) and redirect/navigation-origin safety.
+Real hosted Stripe Checkout completion is intentionally still out of scope
+(see "Stripe boundary" below).
 
 ## Why this is separate from `npm test`
 
@@ -16,11 +19,25 @@ the two suites can never accidentally pick up each other's files.
 
 ## Prerequisites
 
-1. **A non-production Next.js server running and reachable.** This harness
-   fails closed (refuses to run) unless `E2E_BASE_URL` is `localhost`,
-   `127.0.0.1`, or `[::1]` -- see `src/lib/e2e/guards.ts`. The usual case is
-   your own local `npm run dev` at `http://localhost:3000`. A remote Vercel
-   preview deployment is **not** built-in-safe: Vercel assigns every
+1. **A non-production Next.js server running and reachable, started with
+   Turbopack (`npx next dev`), not this repo's own `npm run dev` script.**
+   `package.json`'s `dev` script hardcodes `next dev --webpack`, and that
+   webpack dev path has a real, reproducible **local-development-only**
+   hydration/interactivity bug on `/sign/[token]` -- the signing canvas
+   doesn't respond to clicks under `next dev --webpack`, which breaks Cases
+   B and C (the 1- and 2-waiver flows) before they can even reach the
+   signature step. Plain `npx next dev` (Turbopack, the same bundler
+   `next build`/production uses) does not have this problem. **This is a
+   local dev-server quirk, not a production issue** -- production is built
+   with `next build`, which always uses the production bundler regardless
+   of this dev-only flag, so this bug cannot occur there. Case A (0
+   waivers) never touches `/sign/[token]` and is unaffected either way, but
+   using Turbopack for all three cases keeps the local dev server consistent
+   with what's actually shipped.
+   This harness fails closed (refuses to run) unless `E2E_BASE_URL` is
+   `localhost`, `127.0.0.1`, or `[::1]` -- see `src/lib/e2e/guards.ts`. A
+   remote Vercel preview deployment is **not** built-in-safe: Vercel assigns
+   every
    deployment a `*.vercel.app` address, production included, so there's no
    way to tell preview from production by hostname shape alone. To target
    one, add its *exact* hostname to `E2E_ALLOW_HOSTS` -- never a wildcard,
@@ -35,7 +52,7 @@ the two suites can never accidentally pick up each other's files.
    in this repo today), the app won't see the rows this harness inserts.
    Either:
    - Temporarily point `.env.local` at the local Docker Supabase instance
-     (see below) and restart `npm run dev`, or
+     (see below) and restart `npx next dev`, or
    - Run against a Vercel preview deployment that is itself wired to a
      non-production Supabase project, and seed fixtures into *that*
      project instead (set `E2E_SUPABASE_URL`/`E2E_SUPABASE_SERVICE_ROLE_KEY`
@@ -69,8 +86,10 @@ cp .env.e2e.example .env.e2e.local
 ## Running
 
 ```bash
-# Terminal 1 -- the app itself, pointed at your non-production Supabase instance
-npm run dev
+# Terminal 1 -- the app itself, pointed at your non-production Supabase
+# instance. Use plain Turbopack, NOT `npm run dev` -- see Prerequisite 1
+# above for why the repo's own dev script breaks Cases B/C locally.
+npx next dev
 
 # Terminal 2 -- load the E2E env and run the suite
 set -a; source .env.e2e.local; set +a
@@ -86,25 +105,57 @@ Get-Content .env.e2e.local | ForEach-Object {
 npm run test:e2e
 ```
 
-## What Slice 1 does and does not cover
+To run a single case (matches Playwright's file-name filtering):
+
+```bash
+npx playwright test e2e/tests/registration-1-waiver.spec.ts
+```
+
+## Rate limiting during repeated local runs
+
+`/api/events/cart/checkout` has a real, unmodified anti-abuse limit of 8
+requests per 15 minutes per source IP (`src/app/api/events/cart/checkout/route.ts`).
+Repeated local E2E runs from the same machine share one IP and would trip
+that limit and start seeing `429`s a handful of runs in. `e2e/helpers/rateLimitBypass.ts`'s
+`useUniqueE2ESourceIp(page)` gives each test its own synthetic, random
+`x-forwarded-for` request header so local runs stay independent of each
+other and of prior runs. **This exists only in the test client's own
+request headers** -- it is not a code change to the rate limiter itself,
+does not touch `src/app/api/events/cart/checkout/route.ts`, and the real
+production limit remains exactly as strict for a genuine single IP. Do not
+weaken or bypass the limiter itself to work around rate limiting; use this
+helper instead.
+
+## Stripe boundary
+
+Real hosted Stripe Checkout is intentionally **not** exercised by this
+harness, in any case (A/B/C). There is no approved Stripe Connect
+test-mode account attached to the fixture studio, so every case is
+expected to reach the real Stripe-initiation call and stop at that
+boundary (a genuine, fixture-expected failure/outcome page) rather than
+complete an actual charge. See `registration-0-waivers.spec.ts`'s doc
+comment for the full reasoning; provisioning a real test-mode Connect
+account for the fixture studio remains deferred to a later slice.
+
+## What this harness covers (Slices 1-2)
 
 - Seeds a self-contained, deterministic studio/event/ticket-type fixture
-  (fixed `e2e00000-...` ids, upserted -- safe to rerun) with **zero
-  required documents**.
-- Opens the public event page, expands the registration form, selects a
-  ticket, fills attendee details, and asserts the checkout button is
-  enabled and correctly labeled.
-- Does **not** submit the form. Submitting requires either a genuinely
-  Stripe-Connect-onboarded test account (for the 0-waiver case) or a real
-  DanceFlow Sign document template (for the 1/2-waiver cases) -- both
-  explicitly out of scope for Slice 1 and left for a later slice.
-- Does **not** yet exercise required-document signing, the resume-after-
-  signing flow, or Stripe Checkout at all. `src/lib/payment-harness/`
-  (a different, pre-existing harness for a different flow) already
-  documents that Stripe's hosted Checkout resists automated card entry in
-  headless Chromium -- a later slice extending this harness into that
-  territory should expect the same and plan for a human-in-the-loop step,
-  the same way that harness does.
+  (fixed `e2e00000-...` ids, upserted -- safe to rerun), plus 1- and
+  2-required-waiver event fixtures for Cases B/C
+  (`establishE2EWaiverEventFixtures`).
+- **Case A** (`registration-0-waivers.spec.ts`, 0 required waivers):
+  registration → the real server checkout path → the real (fixture-doomed)
+  Stripe-initiation attempt.
+- **Case B** (`registration-1-waiver.spec.ts`, 1 required waiver):
+  registration → real DanceFlow Sign waiver → successful continuation →
+  `/api/events/cart/resume-after-signing` → the pre-Stripe outcome.
+- **Case C** (`registration-2-waivers.spec.ts`, 2 required waivers): same
+  as Case B, but two distinct waivers signed in sequence before resuming.
+- Asserts navigation-origin safety throughout (`e2e/helpers/navigationGuard.ts`)
+  -- the harness fails a test if the browser is ever driven to a
+  non-allowlisted origin, not just at the final URL.
+- Does **not** complete a real Stripe Checkout payment (see "Stripe
+  boundary" above).
 - There is no CI job wired up for this yet (no `.github/workflows/`
   directory exists anywhere in this repo currently) -- running today is a
   local-only, manual step.
@@ -116,7 +167,22 @@ npm run test:e2e
 - `src/lib/e2e/guards.ts` -- the fail-closed host-safety check (unit-tested
   in `src/lib/e2e/guards.test.ts`, runs under normal `npm test`).
 - `src/lib/e2e/config.ts` -- required-env-var loader, no defaults.
-- `src/lib/e2e/fixture.ts` -- real-Supabase fixture create/reset helpers.
+- `src/lib/e2e/fixture.ts` -- real-Supabase fixture create/reset helpers,
+  including the 1- and 2-waiver event fixtures for Cases B/C.
+- `src/lib/e2e/navigationGuard.ts` -- framework-agnostic navigation-origin
+  allowlist logic backing `e2e/helpers/navigationGuard.ts` (unit-tested in
+  `src/lib/e2e/navigationGuard.test.ts`, runs under normal `npm test`).
 - `e2e/helpers/registrationPage.ts` -- reusable Playwright page helpers for
   the registration form.
-- `e2e/tests/public-event-registration.spec.ts` -- the Slice 1 happy path.
+- `e2e/helpers/signingPage.ts` -- reusable Playwright page helpers for
+  driving the real DanceFlow Sign signing UI and waiting out the
+  resume-after-signing route.
+- `e2e/helpers/navigationGuard.ts` -- installs the always-on Playwright
+  navigation listener (plus explicit post-action checks) that fails a test
+  the moment the browser is driven to a non-allowlisted origin.
+- `e2e/helpers/rateLimitBypass.ts` -- per-test synthetic source IP so
+  repeated local runs don't trip the real checkout rate limiter (see
+  "Rate limiting during repeated local runs" above).
+- `e2e/tests/registration-0-waivers.spec.ts` -- Case A.
+- `e2e/tests/registration-1-waiver.spec.ts` -- Case B.
+- `e2e/tests/registration-2-waivers.spec.ts` -- Case C.
