@@ -92,15 +92,21 @@ export function assertE2EBaseUrlIsSafe(rawUrl: string): URL {
  * would let a host meant to be safe for one silently become allowed for
  * the other.
  *
- * The known production Supabase host below was read directly from this
- * machine's own `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`) -- the same file
- * this codebase's own E2E harness docs already describe as pointing at
- * "the hosted project" by default -- not queried, not guessed, and never
- * itself read by this function or any E2E code path (see loadE2EConfig:
- * this harness only ever reads E2E_SUPABASE_URL, never
- * NEXT_PUBLIC_SUPABASE_URL).
+ * The known production Supabase host below is hvsujyfbftfffxpfmlpb.supabase.co
+ * -- the confirmed production project ref, matching the Supabase CLI's own
+ * linked-project state (supabase/.temp/linked-project.json: ref
+ * "hvsujyfbftfffxpfmlpb", name "DanceFlow Production"). This guard
+ * previously hard-blocked epdrtzcydvnoidwrepqz.supabase.co instead, based on
+ * a stale/incorrect reading of a developer machine's own `.env.local`
+ * (`NEXT_PUBLIC_SUPABASE_URL`) -- that ref is confirmed DEV, not production.
+ * The mistake was two-fold: it refused legitimate E2E runs against the real
+ * DEV project, and it left the real production project entirely absent from
+ * this hard-block set, so this guard offered no defense-in-depth against a
+ * misconfiguration that pointed the harness at production. Never itself
+ * read by this function or any E2E code path (see loadE2EConfig: this
+ * harness only ever reads E2E_SUPABASE_URL, never NEXT_PUBLIC_SUPABASE_URL).
  */
-const KNOWN_PRODUCTION_SUPABASE_HOSTS = new Set(["epdrtzcydvnoidwrepqz.supabase.co"]);
+const KNOWN_PRODUCTION_SUPABASE_HOSTS = new Set(["hvsujyfbftfffxpfmlpb.supabase.co"]);
 
 /**
  * Throws E2ESafetyError unless `rawUrl` is a well-formed absolute URL whose
