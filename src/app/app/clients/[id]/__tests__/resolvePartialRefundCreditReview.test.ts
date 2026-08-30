@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   FakeTable,
@@ -75,6 +75,17 @@ vi.mock("@/lib/supabase/admin", () => ({
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
+}));
+
+// Package Refund P0, Pre-Activation Hardening PR 2: the file-level default is
+// unheld (false) so every existing describe block below -- none of which are
+// about the release hold -- continues to exercise real apply/decline
+// behavior unmodified, exactly as it did before the hold gate existed. The
+// dedicated "release hold" describe block at the bottom of this file
+// overrides this per-test via vi.doMock + vi.resetModules + a scoped dynamic
+// re-import, never by mutating this default or the real source constant.
+vi.mock("@/lib/payments/package-refund-release-hold", () => ({
+  PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD: false,
 }));
 
 const { resolvePartialRefundCreditReviewAction } = await import("@/app/app/clients/[id]/actions");
@@ -239,5 +250,78 @@ describe("resolvePartialRefundCreditReviewAction -- RPC error surfacing", () => 
     expect(result.error).toBe(
       "This package has already reached a full refund; this review is no longer actionable.",
     );
+  });
+});
+
+/**
+ * Package Refund P0, Pre-Activation Hardening PR 2: the release-hold gate.
+ * Every describe block above already proves hold=false preserves existing
+ * apply/decline/authorization behavior unmodified (they all run against the
+ * file-level default mock, PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD: false).
+ * This block proves the held=true path specifically, using vi.resetModules +
+ * vi.doMock + a scoped dynamic re-import per test -- never mutating the real
+ * source constant, and never leaking the override into any other test in
+ * this file (each held test re-establishes its own fresh module graph, and
+ * every other describe block's own `resolvePartialRefundCreditReviewAction`
+ * reference was already captured, once, before any of these tests run).
+ */
+describe("resolvePartialRefundCreditReviewAction -- release hold", () => {
+  afterEach(() => {
+    vi.doUnmock("@/lib/payments/package-refund-release-hold");
+    vi.resetModules();
+  });
+
+  async function importHeldAction() {
+    vi.resetModules();
+    vi.doMock("@/lib/payments/package-refund-release-hold", () => ({
+      PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD: true,
+    }));
+    const { resolvePartialRefundCreditReviewAction: heldAction } = await import(
+      "@/app/app/clients/[id]/actions"
+    );
+    return heldAction;
+  }
+
+  it("returns the exact staff-facing message and performs zero RPC calls while held", async () => {
+    const heldAction = await importHeldAction();
+    setFixture([{ id: "recon-1", studio_id: STUDIO_ID, client_id: CLIENT_A_ID }]);
+
+    const result = await heldAction(
+      CLIENT_A_ID,
+      { error: "" },
+      formDataFor({ reconciliationId: "recon-1", intent: "apply", "void_item-1": "2" }),
+    );
+
+    expect(result.error).toBe("Package refund review isn't available yet.");
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it("held state performs no Package Refund mutation path -- decline submission also short-circuits before the RPC", async () => {
+    const heldAction = await importHeldAction();
+    setFixture([{ id: "recon-1", studio_id: STUDIO_ID, client_id: CLIENT_A_ID }]);
+
+    await heldAction(
+      CLIENT_A_ID,
+      { error: "" },
+      formDataFor({ reconciliationId: "recon-1", intent: "decline" }),
+    );
+
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it("an unauthorized user still receives the existing permission error first, even while held", async () => {
+    const heldAction = await importHeldAction();
+    currentRole = "front_desk";
+    setFixture([{ id: "recon-1", studio_id: STUDIO_ID, client_id: CLIENT_A_ID }]);
+
+    const result = await heldAction(
+      CLIENT_A_ID,
+      { error: "" },
+      formDataFor({ reconciliationId: "recon-1", intent: "decline" }),
+    );
+
+    expect(result.error).toMatch(/permission/i);
+    expect(result.error).not.toBe("Package refund review isn't available yet.");
+    expect(rpcCalls).toHaveLength(0);
   });
 });

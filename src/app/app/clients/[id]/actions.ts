@@ -19,6 +19,7 @@ import {
 import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
 import { isPackageEligibleForReactivation } from "@/lib/packages/entitlement";
 import { buildVoidsFromFormData } from "@/lib/packages/refundReviewVoids";
+import { PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD } from "@/lib/payments/package-refund-release-hold";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -1233,6 +1234,10 @@ export async function resolvePartialRefundCreditReviewAction(
 
   if (!context.isPlatformAdmin && !["studio_owner", "studio_admin"].includes(role)) {
     return { error: "You do not have permission to resolve package refund reviews." };
+  }
+
+  if (PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD) {
+    return { error: "Package refund review isn't available yet." };
   }
 
   const reconciliationId = getString(formData, "reconciliationId");

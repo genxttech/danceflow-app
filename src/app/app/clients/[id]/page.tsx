@@ -23,6 +23,7 @@ import { ClientSmsMessageHistoryCard } from "./ClientSmsMessageHistoryCard";
 import ClientCommunicationWorkspace from "./ClientCommunicationWorkspace";
 import PackageArchiveControls from "./PackageArchiveControls";
 import PartialRefundReviewControls from "./PartialRefundReviewControls";
+import { PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD } from "@/lib/payments/package-refund-release-hold";
 import {
   getClientPackageStatus,
   getItemWarningLevel,
@@ -1064,12 +1065,14 @@ function findReconciliationForPayment(
 export function getPackageRefundNudgeDisplay(
   payment: PaymentRow,
   reconciliations: PackageRefundReconciliationRow[],
+  heldForPackageRefund: boolean,
 ): "review" | "legacy" | "none" {
   if (!paymentNeedsRefundFulfillmentReview(payment)) return "none";
   if (!isPackagePaymentType(payment)) return "legacy";
 
   const reconciliation = findReconciliationForPayment(reconciliations, payment.id);
   if (!reconciliation) return "legacy";
+  if (heldForPackageRefund) return "none";
 
   return reconciliation.reconciliation_outcome === "pending_review" ? "review" : "none";
 }
@@ -1095,7 +1098,11 @@ function renderRefundFollowUp(
     boundAction: (prevState: { error: string }, formData: FormData) => Promise<{ error: string }>;
   },
 ): ReactNode {
-  const display = getPackageRefundNudgeDisplay(payment, ctx.reconciliations);
+  const display = getPackageRefundNudgeDisplay(
+    payment,
+    ctx.reconciliations,
+    PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD,
+  );
 
   if (display === "none") return null;
 
@@ -4634,7 +4641,7 @@ export default async function ClientDetailPage({
           </p>
           {latestPortalInviteDelivery?.error_message ? (
             <p className="mt-2 rounded-xl border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-              The last invite email failed. Check the student's email address and resend the invite.
+              The last invite email failed. Check the student&apos;s email address and resend the invite.
             </p>
           ) : null}
         </div>
