@@ -13,6 +13,7 @@ import {
   restorePackageRefundReconciliation,
   buildPackageRefundReversalInput,
 } from "@/lib/payments/package-refund-reconciliation";
+import { PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD } from "@/lib/payments/package-refund-release-hold";
 import { finalizeTerminalMembership } from "@/lib/payments/terminal-membership-finalization";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import {
@@ -2789,18 +2790,6 @@ async function updateEventPaymentRefundByPaymentIntent(
 
   return true;
 }
-
-// Package Refund P0, Slice 2c-1 RELEASE HOLD: the reconcile_package_stripe_refund
-// migration (20260822090000_package_refund_reconciliation_rpcs.sql) has not been
-// applied to development or production. Until it has, calling that RPC 500s the
-// *entire* webhook event -- not just package-related refunds -- because PostgREST
-// can't find the function, and the throw propagates past this call site to the
-// route's outer handler. Held explicitly here rather than reverting the merged
-// 2c-1 work, so the implementation stays intact and fully verified for later
-// activation. Slice 2c-1 and Slice 2c-2 (staff review workflow) are one
-// production-release unit -- flip this to true only as part of applying that
-// migration and shipping 2c-2 together, never on its own.
-const PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD = true;
 
 export async function handleStripeRefundUpdated(
   supabase: SupabaseClient,
