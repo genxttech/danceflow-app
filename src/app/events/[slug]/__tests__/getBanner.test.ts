@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getBanner } from "../page";
+import { getBanner } from "../banner";
 
 /**
  * Public Event Document-Checkpoint Remediation: getBanner() must recognize
