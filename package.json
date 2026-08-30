@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:portal-linkage:sql": "bash scripts/run-portal-linkage-sql-tests.sh",
     "synthetic:run": "tsx scripts/run-synthetic-suite.ts"
   },
   "dependencies": {
