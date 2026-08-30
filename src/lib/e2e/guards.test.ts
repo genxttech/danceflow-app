@@ -136,16 +136,48 @@ describe("assertE2ESupabaseUrlIsSafe", () => {
     ).toThrow(E2ESafetyError);
   });
 
-  it("rejects the known DanceFlow production Supabase host", () => {
+  it("rejects the known DanceFlow production Supabase host (hvsujyfbftfffxpfmlpb)", () => {
     expect(() =>
-      assertE2ESupabaseUrlIsSafe("https://epdrtzcydvnoidwrepqz.supabase.co"),
+      assertE2ESupabaseUrlIsSafe("https://hvsujyfbftfffxpfmlpb.supabase.co"),
     ).toThrow(E2ESafetyError);
   });
 
   it("still rejects the known production Supabase host even if explicitly listed in E2E_SUPABASE_ALLOW_HOSTS", () => {
+    process.env.E2E_SUPABASE_ALLOW_HOSTS = "hvsujyfbftfffxpfmlpb.supabase.co";
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://hvsujyfbftfffxpfmlpb.supabase.co"),
+    ).toThrow(E2ESafetyError);
+  });
+
+  /**
+   * Environment guard fix: epdrtzcydvnoidwrepqz is the confirmed DEV
+   * Supabase project, not production. It must never be hard-blocked --
+   * it's still subject to the same default-deny/explicit-allowlist rule as
+   * any other unrecognized host (not built-in-safe merely for being DEV),
+   * but once allowlisted it must actually work, and it must never collide
+   * with the production hard-block.
+   */
+  it("does not hard-block the known DEV Supabase host (epdrtzcydvnoidwrepqz) -- rejected by default like any other unrecognized host, not as production", () => {
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://epdrtzcydvnoidwrepqz.supabase.co"),
+    ).toThrow(/does not match any built-in safe host/);
+  });
+
+  it("accepts the known DEV Supabase host once explicitly listed in E2E_SUPABASE_ALLOW_HOSTS", () => {
     process.env.E2E_SUPABASE_ALLOW_HOSTS = "epdrtzcydvnoidwrepqz.supabase.co";
     expect(() =>
       assertE2ESupabaseUrlIsSafe("https://epdrtzcydvnoidwrepqz.supabase.co"),
+    ).not.toThrow();
+  });
+
+  it("production hard-block wins even if DEV and PROD are both listed in E2E_SUPABASE_ALLOW_HOSTS together", () => {
+    process.env.E2E_SUPABASE_ALLOW_HOSTS =
+      "epdrtzcydvnoidwrepqz.supabase.co,hvsujyfbftfffxpfmlpb.supabase.co";
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://epdrtzcydvnoidwrepqz.supabase.co"),
+    ).not.toThrow();
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://hvsujyfbftfffxpfmlpb.supabase.co"),
     ).toThrow(E2ESafetyError);
   });
 
