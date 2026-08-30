@@ -133,3 +133,120 @@ export async function reconcilePackageStripeRefund(
 
   return results;
 }
+
+/**
+ * Package Refund P0, Slice 2c-3: a Stripe refund that already voided
+ * package credit (via reconcile_package_stripe_refund above, or the staff
+ * review RPC) later reversing -- failing or being canceled after initially
+ * succeeding, a real, documented Stripe behavior for ACH/bank-debit
+ * refunds -- must restore exactly what it voided. See
+ * restore_package_refund_reconciliation (20260830090000_package_refund_reversal_restoration_rpc.sql)
+ * for the restoration algorithm itself; this type/function pair is only the
+ * decision of *whether* a given refund-status observation represents a
+ * reversal, mirroring buildPackageRefundReconciliationInput's own
+ * pure-decision-module shape above.
+ */
+export type StripeRefundReversalInput = {
+  stripeRefundId: string;
+  newRefundStatus: "failed" | "canceled";
+  occurredAt?: string | null;
+};
+
+export type PackageRefundReversalResult = {
+  paymentId: string;
+  studioId: string;
+  reconciliationId: string | null;
+  outcome: string;
+  restoredItemCount: number;
+  applied: boolean;
+};
+
+const REVERSAL_STATUSES = new Set(["failed", "canceled"]);
+
+/**
+ * Pure decision logic for whether handleStripeRefundUpdated should invoke
+ * reversal restoration for this observation. Only 'failed'/'canceled' are
+ * treated as a reversal signal -- 'succeeded' (the forward path, handled by
+ * buildPackageRefundReconciliationInput/reconcilePackageStripeRefund above)
+ * and 'pending'/'requires_action' are not.
+ */
+export function buildPackageRefundReversalInput(
+  ctx: StripeRefundEventContext,
+): StripeRefundReversalInput | null {
+  if (
+    !ctx.stripeRefundId ||
+    !ctx.resolvedPaymentIntentId ||
+    !REVERSAL_STATUSES.has(ctx.refundStatus)
+  ) {
+    return null;
+  }
+
+  return {
+    stripeRefundId: ctx.stripeRefundId,
+    newRefundStatus: ctx.refundStatus as "failed" | "canceled",
+  };
+}
+
+/**
+ * Resolves every `payments` row for the given Stripe payment intent and
+ * calls restore_package_refund_reconciliation for each, mirroring
+ * reconcilePackageStripeRefund's own shape above. The RPC itself looks up
+ * its target reconciliation row by stripe_refund_id (already globally
+ * unique), not payment_id -- p_studio_id here is a scope assertion only, so
+ * calling once per matching payment row is harmless: at most one payment's
+ * studio_id can actually match the reconciliation this stripe_refund_id
+ * belongs to, and the RPC returns a clean 'not_reconciled' no-op for the
+ * rest (see its own Step 1).
+ *
+ * Errors are not caught here -- they propagate to the webhook route's outer
+ * try/catch, which correctly triggers Stripe's automatic HTTP-500 retry.
+ */
+export async function restorePackageRefundReconciliation(
+  supabase: SupabaseClient,
+  stripePaymentIntentId: string,
+  input: StripeRefundReversalInput,
+): Promise<PackageRefundReversalResult[]> {
+  const { data: payments, error: paymentsLookupError } = await supabase
+    .from("payments")
+    .select("id, studio_id")
+    .eq("stripe_payment_intent_id", stripePaymentIntentId);
+
+  if (paymentsLookupError) {
+    throw new Error(paymentsLookupError.message);
+  }
+
+  const results: PackageRefundReversalResult[] = [];
+
+  for (const payment of payments ?? []) {
+    const { data, error } = await supabase.rpc("restore_package_refund_reconciliation", {
+      p_studio_id: payment.studio_id,
+      p_stripe_refund_id: input.stripeRefundId,
+      p_new_refund_status: input.newRefundStatus,
+      ...(input.occurredAt ? { p_occurred_at: input.occurredAt } : {}),
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const row = (Array.isArray(data) ? data[0] : data) as
+      | {
+          reconciliation_id: string | null;
+          outcome: string;
+          restored_item_count: number;
+          applied: boolean;
+        }
+      | undefined;
+
+    results.push({
+      paymentId: payment.id,
+      studioId: payment.studio_id,
+      reconciliationId: row?.reconciliation_id ?? null,
+      outcome: row?.outcome ?? "not_reconciled",
+      restoredItemCount: row?.restored_item_count ?? 0,
+      applied: Boolean(row?.applied),
+    });
+  }
+
+  return results;
+}

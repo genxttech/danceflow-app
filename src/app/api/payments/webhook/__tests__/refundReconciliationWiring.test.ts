@@ -34,6 +34,8 @@ import type Stripe from "stripe";
 
 const reconcileMock = vi.fn<(supabase: unknown, input: unknown) => Promise<unknown[]>>();
 reconcileMock.mockResolvedValue([]);
+const restoreMock = vi.fn<(supabase: unknown, paymentIntentId: unknown, input: unknown) => Promise<unknown[]>>();
+restoreMock.mockResolvedValue([]);
 
 vi.mock("@/lib/payments/package-refund-reconciliation", async (importOriginal) => {
   const actual = await importOriginal<
@@ -42,6 +44,8 @@ vi.mock("@/lib/payments/package-refund-reconciliation", async (importOriginal) =
   return {
     ...actual,
     reconcilePackageStripeRefund: (supabase: unknown, input: unknown) => reconcileMock(supabase, input),
+    restorePackageRefundReconciliation: (supabase: unknown, paymentIntentId: unknown, input: unknown) =>
+      restoreMock(supabase, paymentIntentId, input),
   };
 });
 
@@ -179,6 +183,72 @@ describe("Package Refund P0, Slice 2c-1 RELEASE HOLD: handleStripeRefundUpdated"
 
     await expect(
       handleStripeRefundUpdated(supabase as never, stripe, fakeRefund(), null),
+    ).resolves.not.toThrow();
+  });
+});
+
+/**
+ * Package Refund P0, Slice 2c-3: same release-hold posture as 2c-1's
+ * reconcileMock coverage above, for the new reversal-restoration call site.
+ * restorePackageRefundReconciliation must never be reachable while
+ * PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD is true -- there is no
+ * separate hold for 2c-3, it shares the exact same flag/gate as 2c-1/2c-2.
+ */
+describe("Package Refund P0, Slice 2c-3 RELEASE HOLD: handleStripeRefundUpdated reversal path", () => {
+  it("does not invoke restorePackageRefundReconciliation while the release hold is active, for an otherwise well-formed reversal (status: failed)", async () => {
+    restoreMock.mockClear();
+    const { supabase } = createFakeSupabase([{ id: "payment-1", amount: 100 }]);
+    const stripe = createFakeStripe({ payment_intent: "pi_123", amount_refunded: 3000 });
+
+    await handleStripeRefundUpdated(
+      supabase as never,
+      stripe,
+      fakeRefund({ status: "failed" }),
+      null,
+    );
+
+    expect(restoreMock).not.toHaveBeenCalled();
+  });
+
+  it("does not invoke restorePackageRefundReconciliation while held, for a 'canceled' reversal", async () => {
+    restoreMock.mockClear();
+    const { supabase } = createFakeSupabase([{ id: "payment-1", amount: 100 }]);
+    const stripe = createFakeStripe({ payment_intent: "pi_123", amount_refunded: 3000 });
+
+    await handleStripeRefundUpdated(
+      supabase as never,
+      stripe,
+      fakeRefund({ status: "canceled" }),
+      null,
+    );
+
+    expect(restoreMock).not.toHaveBeenCalled();
+  });
+
+  it("does not invoke restorePackageRefundReconciliation for a 'succeeded' status -- that is the forward path, routed to reconcilePackageStripeRefund instead (also held)", async () => {
+    restoreMock.mockClear();
+    reconcileMock.mockClear();
+    const { supabase } = createFakeSupabase([{ id: "payment-1", amount: 100 }]);
+    const stripe = createFakeStripe({ payment_intent: "pi_123", amount_refunded: 3000 });
+
+    await handleStripeRefundUpdated(
+      supabase as never,
+      stripe,
+      fakeRefund({ status: "succeeded" }),
+      null,
+    );
+
+    expect(restoreMock).not.toHaveBeenCalled();
+    expect(reconcileMock).not.toHaveBeenCalled();
+  });
+
+  it("does not throw for a reversal-shaped event while held", async () => {
+    restoreMock.mockClear();
+    const { supabase } = createFakeSupabase([{ id: "payment-1", amount: 100 }]);
+    const stripe = createFakeStripe({ payment_intent: "pi_123", amount_refunded: 3000 });
+
+    await expect(
+      handleStripeRefundUpdated(supabase as never, stripe, fakeRefund({ status: "failed" }), null),
     ).resolves.not.toThrow();
   });
 });

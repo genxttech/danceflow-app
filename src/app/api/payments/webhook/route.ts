@@ -10,6 +10,8 @@ import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
 import {
   reconcilePackageStripeRefund,
   buildPackageRefundReconciliationInput,
+  restorePackageRefundReconciliation,
+  buildPackageRefundReversalInput,
 } from "@/lib/payments/package-refund-reconciliation";
 import { finalizeTerminalMembership } from "@/lib/payments/terminal-membership-finalization";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
@@ -777,11 +779,6 @@ async function upsertStudioSubscription(params: {
       .current_period_end,
   );
 
-  const trialEndUnix = getNumber(
-    (subscription as unknown as { trial_end?: number | null }).trial_end ??
-      null,
-  );
-
   let planRow: {
     id: string;
     code: string;
@@ -1179,7 +1176,6 @@ async function safeCaptureStudioEventRegistrationLead(params: {
       (typedRegistration.attendee_first_name ?? "").trim() || "Event";
     const lastName =
       (typedRegistration.attendee_last_name ?? "").trim() || "Registrant";
-    const nowIso = new Date().toISOString();
 
     let clientId = typedRegistration.client_id;
 
@@ -1533,12 +1529,34 @@ async function safeCaptureOrganizerEventRegistrationContact(params: {
   }
 }
 
+type PaidEventRegistrationConfirmationRow = {
+  id: string;
+  studio_id: string;
+  attendee_first_name: string;
+  attendee_last_name: string;
+  attendee_email: string;
+  attendee_phone: string | null;
+  quantity: number;
+  total_price: number;
+  currency: string;
+  events:
+    | { id: string; slug: string; name: string; organizer_id: string | null }
+    | { id: string; slug: string; name: string; organizer_id: string | null }[]
+    | null;
+  event_ticket_types: { name: string } | { name: string }[] | null;
+  event_registration_attendees: Array<{
+    first_name: string;
+    last_name: string;
+    ticket_code: string | null;
+  }> | null;
+};
+
 async function safeQueuePaidEventRegistrationConfirmation(params: {
   supabase: SupabaseClient;
   registrationId: string;
 }) {
   try {
-    const { data: registration, error } = await params.supabase
+    const { data, error } = await params.supabase
       .from("event_registrations")
       .select(
         `
@@ -1570,13 +1588,15 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
       .eq("id", params.registrationId)
       .single();
 
-    if (error || !registration) {
+    if (error || !data) {
       console.error(
         "paid event confirmation lookup failed:",
         error?.message ?? "Registration not found",
       );
       return;
     }
+
+    const registration = data as PaidEventRegistrationConfirmationRow;
 
     const eventValue = Array.isArray(registration.events)
       ? registration.events[0]
@@ -1595,14 +1615,12 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
       eventValue.slug,
     )}`;
 
-    const attendeeRows = Array.isArray(
-      (registration as any).event_registration_attendees,
-    )
-      ? (registration as any).event_registration_attendees
+    const attendeeRows = Array.isArray(registration.event_registration_attendees)
+      ? registration.event_registration_attendees
       : [];
 
     const ticketCodes = attendeeRows
-      .map((attendee: any) => {
+      .map((attendee) => {
         const name = `${attendee.first_name ?? ""} ${
           attendee.last_name ?? ""
         }`.trim();
@@ -2475,10 +2493,10 @@ async function getStripeFeeDetailsFromCharge(
   const balanceTransactionId = stripeObjectId(charge.balance_transaction);
 
   let stripeProcessingFeeAmount = 0;
-  let stripeApplicationFeeAmount = centsToDollars(
+  const stripeApplicationFeeAmount = centsToDollars(
     charge.application_fee_amount ?? 0,
   );
-  let platformFeeAmount = stripeApplicationFeeAmount;
+  const platformFeeAmount = stripeApplicationFeeAmount;
 
   if (balanceTransactionId) {
     try {
@@ -2870,6 +2888,29 @@ export async function handleStripeRefundUpdated(
 
   if (packageReconciliationInput && !PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD) {
     await reconcilePackageStripeRefund(supabase, packageReconciliationInput);
+  }
+
+  // Package Refund P0, Slice 2c-3: the same refund.updated/charge.refund.updated
+  // delivery this handler already receives is also the approved authority for
+  // reversal detection -- no new Stripe event type. buildPackageRefundReversalInput
+  // only returns non-null for a 'failed'/'canceled' status (the forward
+  // 'succeeded' path above is unaffected); restore_package_refund_reconciliation's
+  // own eligibility gate decides whether this specific observation actually
+  // restores anything (see its Step 4) -- this call site's job, like the
+  // reconciliation call above, is only "is there a well-formed reversal
+  // observation to hand it at all". Same release hold, same webhook-safety
+  // posture: never called while PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD is true.
+  const packageReversalInput = buildPackageRefundReversalInput({
+    stripeRefundId,
+    refundEventAmountCents,
+    cumulativeRefundAmountCents: resolvedCharge?.amount_refunded ?? refundEventAmountCents,
+    refundStatus: refundEventStatus,
+    resolvedPaymentIntentId,
+    chargeId,
+  });
+
+  if (packageReversalInput && !PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD) {
+    await restorePackageRefundReconciliation(supabase, resolvedPaymentIntentId, packageReversalInput);
   }
 
   if (resolvedCharge) {
