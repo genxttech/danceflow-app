@@ -66,13 +66,19 @@ export function checkoutSubmitButton(page: Page) {
  * before the server's 303 response is followed, and a predicate that
  * accepts any change at all can catch that intermediate value instead of
  * the real destination.
+ *
+ * `timeoutMs` defaults to 15s for the normal case, but Slice 3's Case A
+ * (registration-failure-document-setup.spec.ts) genuinely needs longer:
+ * its fixture's oversized document template makes the real server-side PDF
+ * render + upload (and thus this same POST's response) take significantly
+ * longer than a normal submission.
  */
-export async function submitRegistration(page: Page) {
+export async function submitRegistration(page: Page, timeoutMs = 15_000) {
   const submitButton = checkoutSubmitButton(page);
   await expect(submitButton).toBeEnabled();
   const urlBeforeSubmit = page.url();
   await submitButton.click();
   await page.waitForURL((url) => url.href !== urlBeforeSubmit && !url.pathname.startsWith("/api/"), {
-    timeout: 15_000,
+    timeout: timeoutMs,
   });
 }

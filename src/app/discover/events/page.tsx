@@ -5,6 +5,7 @@ import ShareButton from "@/components/public/ShareButton";
 import CurrentLocationButton from "@/components/public/CurrentLocationButton";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
+import { getResumeBanner } from "./resumeBanner";
 
 type SearchParams = Promise<{
   q?: string;
@@ -17,6 +18,8 @@ type SearchParams = Promise<{
   latitude?: string;
   longitude?: string;
   locationMode?: string;
+  error?: string;
+  success?: string;
 }>;
 
 type EventRow = {
@@ -492,6 +495,7 @@ export default async function DiscoverEventsPage({
   const locationMode = normalizeLocationMode(query.locationMode);
   const searchLatitude = normalizeCoordinate(query.latitude, -90, 90);
   const searchLongitude = normalizeCoordinate(query.longitude, -180, 180);
+  const resumeBanner = getResumeBanner(query);
 
   const supabase = await createClient();
 
@@ -886,6 +890,19 @@ export default async function DiscoverEventsPage({
       <PublicSiteHeader currentPath="events" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-slate-50">
+        {resumeBanner ? (
+          <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 lg:px-8">
+            <div
+              className={`rounded-2xl border px-4 py-3 text-sm ${
+                resumeBanner.kind === "success"
+                  ? "border-green-200 bg-green-50 text-green-700"
+                  : "border-red-200 bg-red-50 text-red-700"
+              }`}
+            >
+              {resumeBanner.message}
+            </div>
+          </div>
+        ) : null}
         <section className="border-b border-orange-200/70 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] text-white">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">

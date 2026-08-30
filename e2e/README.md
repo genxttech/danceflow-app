@@ -72,6 +72,12 @@ the two suites can never accidentally pick up each other's files.
    tables the fixture writes to (`studios`, `events`, `event_ticket_types`)
    predate migration tracking, so a truly from-scratch local instance also
    needs the pre-migration base schema, not just the tracked migrations.
+   `E2E_SUPABASE_URL` is validated fail-closed the same way `E2E_BASE_URL`
+   is (`src/lib/e2e/guards.ts`'s `assertE2ESupabaseUrlIsSafe`) -- loopback
+   hosts always work, the known DanceFlow production Supabase project is
+   always rejected even if allowlisted, and any other host (e.g. a
+   dedicated CI/staging Supabase project) needs its exact hostname in the
+   optional `E2E_SUPABASE_ALLOW_HOSTS`.
 4. **Playwright's Chromium browser installed locally.** If `npx playwright
    test` reports a missing browser, run `npx playwright install chromium`
    once (requires network access to download it).
@@ -137,12 +143,13 @@ complete an actual charge. See `registration-0-waivers.spec.ts`'s doc
 comment for the full reasoning; provisioning a real test-mode Connect
 account for the fixture studio remains deferred to a later slice.
 
-## What this harness covers (Slices 1-2)
+## What this harness covers (Slices 1-3)
 
 - Seeds a self-contained, deterministic studio/event/ticket-type fixture
-  (fixed `e2e00000-...` ids, upserted -- safe to rerun), plus 1- and
-  2-required-waiver event fixtures for Cases B/C
-  (`establishE2EWaiverEventFixtures`).
+  (fixed `e2e00000-...` ids, upserted -- safe to rerun), plus dedicated
+  event fixtures per case (1/2-waiver, document-setup-failure,
+  cancellation, and the Slice 1 foundation test) so parallel runs can never
+  race over shared rows -- see `src/lib/e2e/fixture.ts`.
 - **Case A** (`registration-0-waivers.spec.ts`, 0 required waivers):
   registration → the real server checkout path → the real (fixture-doomed)
   Stripe-initiation attempt.
@@ -153,12 +160,88 @@ account for the fixture studio remains deferred to a later slice.
   as Case B, but two distinct waivers signed in sequence before resuming.
 - Asserts navigation-origin safety throughout (`e2e/helpers/navigationGuard.ts`)
   -- the harness fails a test if the browser is ever driven to a
-  non-allowlisted origin, not just at the final URL.
+  non-allowlisted origin, not just at the final URL. Sub-frame/iframe
+  navigations are a deliberate, documented exclusion from that check --
+  see that file's own header comment for why the one iframe this harness's
+  flow actually renders (the `/sign/[token]` PDF preview) is safe anyway.
 - Does **not** complete a real Stripe Checkout payment (see "Stripe
   boundary" above).
-- There is no CI job wired up for this yet (no `.github/workflows/`
-  directory exists anywhere in this repo currently) -- running today is a
-  local-only, manual step.
+
+### Failure/retry matrix (Slice 3)
+
+- **`registration-failure-document-setup.spec.ts`**: a required document
+  whose template is deliberately oversized (exceeds the real storage
+  bucket's file-size limit) so the real, unmodified document-creation code
+  fails deterministically -- proves the user sees a real error banner (not
+  a blank form), the order/registration/checkpoint are left in the app's
+  own documented cancelled state, and a retry creates an independent order
+  rather than reusing or getting stuck on the failed one. This is
+  genuinely slow (real ~20MB+ PDF render + upload) -- see the fixture's own
+  doc comment (`establishE2EDocumentSetupFailureFixture`) before changing
+  its timeout.
+- **`registration-failure-signing-continuation.spec.ts`**: deterministically
+  expires the real signing checkpoint (via the admin client, the same way
+  the real 30-minute expiry would) between reaching the signing page and
+  completing the signature, reproducing a genuine (non-`NEXT_REDIRECT`)
+  continuation failure -- proves it's surfaced visibly, the signature that
+  *did* complete isn't lost, and reloading the completed link afterward
+  doesn't re-process or duplicate it.
+- **`registration-cancellation.spec.ts`**: drives the browser directly to
+  the real `/api/events/cart/release` route with a real order's captured
+  hold token (the same destination Stripe's own cancel button would have
+  sent the user to), proving that outcome (`checkout_cancelled`) is a
+  genuinely different error code and banner than a technical checkout
+  failure (`cart_checkout_failed`), not the same assertion reused for both.
+- Resume-error visibility itself (Case C in the task sense) is proven by
+  `registration-1-waiver.spec.ts`/`registration-2-waivers.spec.ts`'s own
+  final assertions, updated in Slice 3 to expect the preserved
+  `?error=checkout_resume_failed` query string and its banner now that the
+  `/events` → `/discover/events` bug (below) is fixed.
+
+### `/events` → `/discover/events` query-string preservation (Slice 3 bugfix)
+
+`/api/events/cart/resume-after-signing` has no event slug in scope when it
+needs to report a failure, so its redirects target the slug-less
+`/events?error=...` path. `/events/page.tsx` used to redirect that
+unconditionally to `/discover/events`, silently dropping every query
+parameter -- including the one the resume error needed to stay visible.
+Fixed to forward the full query string onto the same, hardcoded
+`/discover/events` destination (not an open redirect: the destination is a
+compile-time constant, never derived from request input). `/discover/events/resumeBanner.ts`
+is the other half of the fix -- it renders a banner for the five codes
+resume-after-signing can emit; see `src/app/events/__tests__/page.test.ts`
+and `src/app/discover/events/__tests__/resumeBanner.test.ts` for the
+focused regression coverage.
+
+### CI
+
+`.github/workflows/e2e-public-event-registration.yml` runs `tsc`/`build`/full
+Vitest unconditionally on PRs touching registration/signing/checkout/payment-initiation/E2E-harness
+files (or manual `workflow_dispatch`). ESLint runs too, but only against the
+`.ts`/`.tsx` files the PR actually changed (diffed against the PR's base
+commit) -- not the whole repo, so a PR is never blocked by pre-existing lint
+debt in files it doesn't touch, and `workflow_dispatch` (which has no PR to
+diff against) skips this one step while still running the others. The
+actual Playwright browser suite runs as a separate job, gated fail-closed on
+`E2E_SUPABASE_URL`/`E2E_SUPABASE_SERVICE_ROLE_KEY` repo secrets being
+configured -- see that workflow file's own trailing comment block for the
+exact infrastructure prerequisite (a base-schema snapshot and a
+`supabase/config.toml`, neither of which exists in this repo yet) still
+needed before local Docker Supabase specifically can run inside GitHub
+Actions, and why the job instead accepts any already-migrated,
+non-production Supabase instance in the meantime -- via
+`E2E_SUPABASE_URL`, validated the same fail-closed way `E2E_BASE_URL` is
+(see "Prerequisite 1" above): the known DanceFlow production Supabase
+project is hard-blocked even if someone tries to allowlist it via the
+optional `E2E_SUPABASE_ALLOW_HOSTS` secret (only ever read from that
+explicit secret in CI, never defaulted).
+
+Playwright note: directly invoking the heavy Case A spec alone
+(`npx playwright test e2e/tests/registration-failure-document-setup.spec.ts`)
+still runs the entire fast suite first -- Playwright's `dependencies`
+mechanism (see `playwright.config.ts`) runs a dependency project's full test
+set as a prerequisite, not just tests related to the file you asked for.
+This is correct and safe, just slower than it might look at first.
 
 ## Files
 
@@ -186,3 +269,13 @@ account for the fixture studio remains deferred to a later slice.
 - `e2e/tests/registration-0-waivers.spec.ts` -- Case A.
 - `e2e/tests/registration-1-waiver.spec.ts` -- Case B.
 - `e2e/tests/registration-2-waivers.spec.ts` -- Case C.
+- `e2e/tests/registration-failure-document-setup.spec.ts` -- Slice 3
+  document/signing setup failure + retry.
+- `e2e/tests/registration-failure-signing-continuation.spec.ts` -- Slice 3
+  signing continuation application failure + retry idempotency.
+- `e2e/tests/registration-cancellation.spec.ts` -- Slice 3 genuine
+  cancellation, kept distinct from technical failure.
+- `src/app/events/page.tsx` / `src/app/discover/events/resumeBanner.ts` --
+  the Slice 3 query-string-preservation bugfix and its banner.
+- `.github/workflows/e2e-public-event-registration.yml` -- the CI release
+  gate (see "CI" above).

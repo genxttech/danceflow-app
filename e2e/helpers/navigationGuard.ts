@@ -32,6 +32,21 @@ import type { E2EConfig } from "@/lib/e2e/config";
  * src/lib/e2e/navigationGuard.ts:assertAllowedE2ENavigationOrigin, whose
  * allowed set is exactly {configured E2E app origin, checkout.stripe.com}
  * and nothing else, regardless of how the navigation happened.
+ *
+ * Deliberate scope limit, called out explicitly per the Slice 2 review:
+ * `onFrameNavigated` below only inspects `page.mainFrame()` navigations --
+ * a navigation inside a sub-frame/iframe is never checked, not even
+ * after the fact. This is a real gap in the general case (Playwright's
+ * `framenavigated` fires for every frame, and nothing here re-adds a
+ * per-frame check), but it is not exploitable against the one iframe this
+ * harness's own flow actually renders: `/sign/[token]`'s PDF-preview
+ * iframe (src/app/sign/[token]/SigningCanvas.tsx) has a hardcoded,
+ * same-origin, relative `src` (`/sign/${token}/source#...`) that is never
+ * attacker- or production-controlled, so it cannot navigate this browser
+ * anywhere else by construction. If a future slice adds a genuinely
+ * cross-origin iframe (e.g. Stripe Elements instead of redirect-based
+ * Checkout), this exclusion should be revisited -- likely by checking
+ * every frame, not just the main one.
  */
 
 export type E2ENavigationGuard = {

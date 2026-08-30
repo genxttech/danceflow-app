@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { E2ESafetyError, assertE2EBaseUrlIsSafe } from "@/lib/e2e/guards";
+import { E2ESafetyError, assertE2EBaseUrlIsSafe, assertE2ESupabaseUrlIsSafe } from "@/lib/e2e/guards";
 
 describe("assertE2EBaseUrlIsSafe", () => {
   afterEach(() => {
@@ -83,6 +83,76 @@ describe("assertE2EBaseUrlIsSafe", () => {
     process.env.E2E_ALLOW_HOSTS = " Danceflow-Staging.Internal , other.example ";
     expect(() =>
       assertE2EBaseUrlIsSafe("https://danceflow-staging.internal"),
+    ).not.toThrow();
+  });
+});
+
+/**
+ * Slice 3 (independent pre-commit review, Blocker B2): the Supabase-target
+ * counterpart to assertE2EBaseUrlIsSafe's own tests above -- same shape,
+ * proving the same properties for the harness's *database* target instead
+ * of its app-origin target.
+ */
+describe("assertE2ESupabaseUrlIsSafe", () => {
+  afterEach(() => {
+    delete process.env.E2E_SUPABASE_ALLOW_HOSTS;
+  });
+
+  it("accepts 127.0.0.1 (local Docker Supabase)", () => {
+    expect(() => assertE2ESupabaseUrlIsSafe("http://127.0.0.1:54321")).not.toThrow();
+  });
+
+  it("accepts localhost", () => {
+    expect(() => assertE2ESupabaseUrlIsSafe("http://localhost:54321")).not.toThrow();
+  });
+
+  it("rejects a malformed URL", () => {
+    expect(() => assertE2ESupabaseUrlIsSafe("not-a-url")).toThrow(E2ESafetyError);
+  });
+
+  it("rejects a missing/empty URL", () => {
+    expect(() => assertE2ESupabaseUrlIsSafe("")).toThrow(E2ESafetyError);
+  });
+
+  it("rejects an arbitrary hosted Supabase URL by default (fails closed)", () => {
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://some-other-project.supabase.co"),
+    ).toThrow(E2ESafetyError);
+  });
+
+  it("accepts a specific non-production hosted Supabase host only when explicitly listed in E2E_SUPABASE_ALLOW_HOSTS", () => {
+    const stagingHost = "danceflow-e2e-staging.supabase.co";
+
+    expect(() => assertE2ESupabaseUrlIsSafe(`https://${stagingHost}`)).toThrow(E2ESafetyError);
+
+    process.env.E2E_SUPABASE_ALLOW_HOSTS = stagingHost;
+    expect(() => assertE2ESupabaseUrlIsSafe(`https://${stagingHost}`)).not.toThrow();
+  });
+
+  it("allowing one host does not allow another", () => {
+    process.env.E2E_SUPABASE_ALLOW_HOSTS = "danceflow-e2e-staging.supabase.co";
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://some-other-project.supabase.co"),
+    ).toThrow(E2ESafetyError);
+  });
+
+  it("rejects the known DanceFlow production Supabase host", () => {
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://epdrtzcydvnoidwrepqz.supabase.co"),
+    ).toThrow(E2ESafetyError);
+  });
+
+  it("still rejects the known production Supabase host even if explicitly listed in E2E_SUPABASE_ALLOW_HOSTS", () => {
+    process.env.E2E_SUPABASE_ALLOW_HOSTS = "epdrtzcydvnoidwrepqz.supabase.co";
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://epdrtzcydvnoidwrepqz.supabase.co"),
+    ).toThrow(E2ESafetyError);
+  });
+
+  it("E2E_SUPABASE_ALLOW_HOSTS matching is case-insensitive and trims whitespace", () => {
+    process.env.E2E_SUPABASE_ALLOW_HOSTS = " Danceflow-E2E-Staging.Supabase.Co , other.example ";
+    expect(() =>
+      assertE2ESupabaseUrlIsSafe("https://danceflow-e2e-staging.supabase.co"),
     ).not.toThrow();
   });
 });

@@ -107,11 +107,13 @@ test.describe("Public event registration -- 2 required waivers", () => {
       // completed in sequence, not just the first, and that the
       // redirect-continuation fix works across a full multi-waiver chain.
       //
-      // See registration-1-waiver.spec.ts's doc comment for why the exact
-      // final landing page is `/discover/events` with no query string --
-      // a separate, pre-existing, unrelated redirect quirk in
-      // src/app/events/page.tsx, not something this test fixes.
-      expect(page.url()).toBe(`${config.baseUrl}/discover/events`);
+      // See registration-1-waiver.spec.ts's doc comment: Slice 3 fixed the
+      // `/events` -> `/discover/events` query-string-loss defect, so the
+      // resume failure's error code (and its banner) now survives here too.
+      expect(page.url()).toBe(`${config.baseUrl}/discover/events?error=checkout_resume_failed`);
+      await expect(
+        page.getByText(/weren't able to resume/i).first(),
+      ).toBeVisible();
     } finally {
       guard.dispose();
     }

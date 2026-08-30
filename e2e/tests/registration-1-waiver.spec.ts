@@ -83,15 +83,16 @@ test.describe("Public event registration -- 1 required waiver", () => {
       // which fails and lands here -- proving the redirect-continuation fix
       // actually works end to end, not just that the app didn't crash.
       //
-      // The exact final landing page is a *separate*, pre-existing,
-      // unrelated quirk this test does not fix: resume-after-signing's own
-      // error redirect targets `/events?error=checkout_resume_failed`, but
-      // `src/app/events/page.tsx` unconditionally redirects `/events` to
-      // `/discover/events`, silently dropping the query string (and thus
-      // the error banner) along the way. Asserting the real, current,
-      // observed destination rather than the query param that never
-      // survives it.
-      expect(page.url()).toBe(`${config.baseUrl}/discover/events`);
+      // Slice 3 fixed the `/events` -> `/discover/events` query-string-loss
+      // defect this doc comment used to describe: resume-after-signing's own
+      // error redirect targets `/events?error=checkout_resume_failed`, and
+      // that query string (and the visible banner it drives, see
+      // resumeBanner.ts) now survives the `/discover/events` hop instead of
+      // being silently dropped.
+      expect(page.url()).toBe(`${config.baseUrl}/discover/events?error=checkout_resume_failed`);
+      await expect(
+        page.getByText(/weren't able to resume/i).first(),
+      ).toBeVisible();
     } finally {
       guard.dispose();
     }

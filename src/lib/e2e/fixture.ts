@@ -55,6 +55,45 @@ export const E2E_EVENT_ONE_WAIVER_NAME = "E2E Harness Test Event -- 1 Waiver (au
 export const E2E_EVENT_TWO_WAIVER_SLUG = "e2e-harness-test-event-2-waivers";
 export const E2E_EVENT_TWO_WAIVER_NAME = "E2E Harness Test Event -- 2 Waivers (auto-generated)";
 
+// -- Slice 3: dedicated event ids for the failure/retry matrix and for the
+// Slice 1 foundation test -- each test that mutates registration/order state
+// gets its own event id so parallel runs can never race against each other
+// over shared rows (see the Slice 2 review's "shared-ID dependency" note on
+// the foundation test previously sharing E2E_EVENT_ID with Case A).
+export const E2E_EVENT_FOUNDATION_ID = "e2e00000-0000-4000-8000-00000000000d";
+export const E2E_TICKET_TYPE_FOUNDATION_ID = "e2e00000-0000-4000-8000-00000000000e";
+export const E2E_EVENT_FOUNDATION_SLUG = "e2e-harness-test-event-foundation";
+export const E2E_EVENT_FOUNDATION_NAME = "E2E Harness Test Event -- Foundation (auto-generated)";
+
+export const E2E_EVENT_CANCELLATION_ID = "e2e00000-0000-4000-8000-00000000000f";
+export const E2E_TICKET_TYPE_CANCELLATION_ID = "e2e00000-0000-4000-8000-000000000010";
+export const E2E_EVENT_CANCELLATION_SLUG = "e2e-harness-test-event-cancellation";
+export const E2E_EVENT_CANCELLATION_NAME = "E2E Harness Test Event -- Cancellation (auto-generated)";
+
+export const E2E_EVENT_DOCUMENT_SETUP_FAILURE_ID = "e2e00000-0000-4000-8000-000000000011";
+export const E2E_TICKET_TYPE_DOCUMENT_SETUP_FAILURE_ID = "e2e00000-0000-4000-8000-000000000012";
+export const E2E_DOCUMENT_TEMPLATE_OVERSIZED_ID = "e2e00000-0000-4000-8000-000000000013";
+export const E2E_DOCUMENT_REQUIREMENT_OVERSIZED_ID = "e2e00000-0000-4000-8000-000000000014";
+export const E2E_EVENT_DOCUMENT_SETUP_FAILURE_SLUG = "e2e-harness-test-event-doc-setup-failure";
+export const E2E_EVENT_DOCUMENT_SETUP_FAILURE_NAME =
+  "E2E Harness Test Event -- Document Setup Failure (auto-generated)";
+
+// Slice 3, Case B (signing continuation application failure): its own
+// dedicated 1-waiver event, NOT Slice 2's `oneWaiver` -- this test submits
+// a real registration and mutates real checkpoint state (deliberately
+// expiring it) against the SAME event_id `registration-1-waiver.spec.ts`
+// (Slice 2) also submits against; under real parallel execution the two
+// tests' `resetE2ERegistrationData` calls would race and delete each
+// other's in-progress checkpoint. A separate event id removes that race
+// entirely, the same fix already applied to the foundation test vs. Case A.
+export const E2E_EVENT_CONTINUATION_FAILURE_ID = "e2e00000-0000-4000-8000-000000000015";
+export const E2E_TICKET_TYPE_CONTINUATION_FAILURE_ID = "e2e00000-0000-4000-8000-000000000016";
+export const E2E_DOCUMENT_REQUIREMENT_CONTINUATION_FAILURE_ID =
+  "e2e00000-0000-4000-8000-000000000017";
+export const E2E_EVENT_CONTINUATION_FAILURE_SLUG = "e2e-harness-test-event-continuation-failure";
+export const E2E_EVENT_CONTINUATION_FAILURE_NAME =
+  "E2E Harness Test Event -- Continuation Failure (auto-generated)";
+
 export const E2E_ATTENDEE = {
   firstName: "E2E",
   lastName: "Harness",
@@ -69,7 +108,16 @@ export type E2EPublicEventFixture = {
   ticketTypeId: string;
 };
 
-function adminClient(config: E2EConfig) {
+/**
+ * Exported (Slice 3) for tests that need to independently read or
+ * deliberately mutate real fixture-scoped state -- e.g. asserting the exact
+ * post-failure order/registration/checkpoint status the app leaves behind,
+ * or advancing a checkpoint's `expires_at` into the past to deterministically
+ * reproduce a genuine (non-NEXT_REDIRECT) continuation failure. Every prior
+ * consumer of the un-exported version is unaffected -- this only widens
+ * visibility, it does not change behavior.
+ */
+export function adminClient(config: E2EConfig) {
   return createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
     auth: { persistSession: false },
   });
@@ -378,6 +426,198 @@ export async function establishE2EWaiverEventFixtures(
         E2E_DOCUMENT_REQUIREMENT_TWO_WAIVER_B_ID,
       ],
     },
+  };
+}
+
+/**
+ * Slice 3: the Slice 1 foundation test's own dedicated event -- previously
+ * that test shared E2E_EVENT_ID with Case A (registration-0-waivers), which
+ * was only safe because the foundation test never submits the form. Giving
+ * it its own event removes that fragile, easy-to-break-by-accident
+ * invariant entirely, matching the review's non-blocking recommendation.
+ */
+export async function establishE2EFoundationEventFixture(
+  config: E2EConfig,
+): Promise<E2EPublicEventFixture> {
+  const admin = adminClient(config);
+  await upsertE2EStudio(admin);
+  await upsertE2EEvent(admin, {
+    id: E2E_EVENT_FOUNDATION_ID,
+    slug: E2E_EVENT_FOUNDATION_SLUG,
+    name: E2E_EVENT_FOUNDATION_NAME,
+  });
+  await upsertE2ETicketType(admin, {
+    id: E2E_TICKET_TYPE_FOUNDATION_ID,
+    eventId: E2E_EVENT_FOUNDATION_ID,
+    name: "General Admission (E2E, foundation)",
+  });
+
+  return {
+    studioId: E2E_STUDIO_ID,
+    eventId: E2E_EVENT_FOUNDATION_ID,
+    eventSlug: E2E_EVENT_FOUNDATION_SLUG,
+    eventName: E2E_EVENT_FOUNDATION_NAME,
+    ticketTypeId: E2E_TICKET_TYPE_FOUNDATION_ID,
+  };
+}
+
+/**
+ * Slice 3, Case D (genuine user cancellation): a dedicated 0-waiver event,
+ * separate from Case A's own 0-waiver event, so a real registration this
+ * case submits (to obtain a real order id + holdToken to drive
+ * `/api/events/cart/release` with) can never race against Case A's own
+ * `resetE2ERegistrationData` under parallel execution.
+ */
+export async function establishE2ECancellationEventFixture(
+  config: E2EConfig,
+): Promise<E2EPublicEventFixture> {
+  const admin = adminClient(config);
+  await upsertE2EStudio(admin);
+  await upsertE2EEvent(admin, {
+    id: E2E_EVENT_CANCELLATION_ID,
+    slug: E2E_EVENT_CANCELLATION_SLUG,
+    name: E2E_EVENT_CANCELLATION_NAME,
+  });
+  await upsertE2ETicketType(admin, {
+    id: E2E_TICKET_TYPE_CANCELLATION_ID,
+    eventId: E2E_EVENT_CANCELLATION_ID,
+    name: "General Admission (E2E, cancellation)",
+  });
+
+  return {
+    studioId: E2E_STUDIO_ID,
+    eventId: E2E_EVENT_CANCELLATION_ID,
+    eventSlug: E2E_EVENT_CANCELLATION_SLUG,
+    eventName: E2E_EVENT_CANCELLATION_NAME,
+    ticketTypeId: E2E_TICKET_TYPE_CANCELLATION_ID,
+  };
+}
+
+/**
+ * Slice 3, Case A (document/signing setup failure): a dedicated event whose
+ * one required document template has a deliberately oversized `body` --
+ * large enough that the real, unmodified `renderTemplateVersionPdf` (see
+ * src/lib/documents/template-pdf.ts) produces a PDF exceeding the real,
+ * unmodified `document-files` storage bucket's 15MB `file_size_limit`
+ * (confirmed directly against the local Docker Supabase instance, not
+ * assumed). This is a genuine, deterministic, parallel-safe failure
+ * trigger: it needs no production-code change and no global bucket
+ * reconfiguration (which would affect Cases B/C's own uploads running
+ * concurrently) -- only this one fixture-owned template's own content is
+ * oversized, so it cannot interfere with any other test.
+ *
+ * Every other fixture-level trigger was independently ruled out first: a
+ * dangling `template_id` is rejected by a real FK
+ * (`event_document_requirements_template_id_fkey`), and
+ * `renderTemplateVersionPdf` strips/wraps all text before drawing it, so no
+ * template *content* can throw. The tradeoff is real and worth restating
+ * for anyone re-running this: generating and uploading a ~20MB PDF takes
+ * real wall-clock time (empirically ~45-60s), which is why this case's own
+ * spec raises its test timeout well above the suite default.
+ */
+export async function establishE2EDocumentSetupFailureFixture(
+  config: E2EConfig,
+): Promise<E2EWaiverEventFixture> {
+  const admin = adminClient(config);
+
+  await upsertE2EStudio(admin);
+
+  // ~1.65MB of rendered PDF per ~2.7MB of raw repeated body text, measured
+  // directly against the real renderTemplateVersionPdf -- 250,000 repeats
+  // of this ~137-character paragraph is ~34MB raw, comfortably rendering
+  // well past the real 15MB bucket limit with margin for PDF/font overhead
+  // variance.
+  const oversizedParagraph =
+    "The quick brown fox jumps over the lazy dog while dancing a rapid waltz across the ballroom floor with great enthusiasm and precision. ";
+  const oversizedBody = oversizedParagraph.repeat(250_000);
+
+  const { error: templateError } = await admin.from("document_templates").upsert(
+    {
+      id: E2E_DOCUMENT_TEMPLATE_OVERSIZED_ID,
+      studio_id: E2E_STUDIO_ID,
+      organizer_id: null,
+      scope: "studio",
+      document_type: "waiver",
+      title: "E2E Oversized Waiver (auto-generated -- intentionally too large to upload)",
+      description: "Synthetic oversized template used only to deterministically trigger a document-setup failure.",
+      body: oversizedBody,
+      applies_to: "manual",
+      requires_signature: true,
+      is_required: false,
+      is_active: true,
+      current_version: 1,
+    },
+    { onConflict: "id" },
+  );
+  if (templateError) {
+    throw new Error(`E2E fixture: failed to upsert oversized document template -- ${templateError.message}`);
+  }
+
+  await upsertE2EEvent(admin, {
+    id: E2E_EVENT_DOCUMENT_SETUP_FAILURE_ID,
+    slug: E2E_EVENT_DOCUMENT_SETUP_FAILURE_SLUG,
+    name: E2E_EVENT_DOCUMENT_SETUP_FAILURE_NAME,
+  });
+  await upsertE2ETicketType(admin, {
+    id: E2E_TICKET_TYPE_DOCUMENT_SETUP_FAILURE_ID,
+    eventId: E2E_EVENT_DOCUMENT_SETUP_FAILURE_ID,
+    name: "General Admission (E2E, document setup failure)",
+  });
+  await upsertE2EDocumentRequirement(admin, {
+    id: E2E_DOCUMENT_REQUIREMENT_OVERSIZED_ID,
+    eventId: E2E_EVENT_DOCUMENT_SETUP_FAILURE_ID,
+    templateId: E2E_DOCUMENT_TEMPLATE_OVERSIZED_ID,
+  });
+
+  return {
+    studioId: E2E_STUDIO_ID,
+    eventId: E2E_EVENT_DOCUMENT_SETUP_FAILURE_ID,
+    eventSlug: E2E_EVENT_DOCUMENT_SETUP_FAILURE_SLUG,
+    eventName: E2E_EVENT_DOCUMENT_SETUP_FAILURE_NAME,
+    ticketTypeId: E2E_TICKET_TYPE_DOCUMENT_SETUP_FAILURE_ID,
+    documentRequirementIds: [E2E_DOCUMENT_REQUIREMENT_OVERSIZED_ID],
+  };
+}
+
+/**
+ * Slice 3, Case B (signing continuation application failure): a normal
+ * (not oversized), single-waiver event dedicated to this case alone -- see
+ * this file's E2E_EVENT_CONTINUATION_FAILURE_ID constant for why this
+ * can't safely reuse Slice 2's `oneWaiver` event.
+ */
+export async function establishE2EContinuationFailureEventFixture(
+  config: E2EConfig,
+): Promise<E2EWaiverEventFixture> {
+  const admin = adminClient(config);
+
+  await upsertE2EStudio(admin);
+  await upsertE2EDocumentTemplate(admin, {
+    id: E2E_DOCUMENT_TEMPLATE_A_ID,
+    title: "E2E Liability Waiver (auto-generated)",
+  });
+  await upsertE2EEvent(admin, {
+    id: E2E_EVENT_CONTINUATION_FAILURE_ID,
+    slug: E2E_EVENT_CONTINUATION_FAILURE_SLUG,
+    name: E2E_EVENT_CONTINUATION_FAILURE_NAME,
+  });
+  await upsertE2ETicketType(admin, {
+    id: E2E_TICKET_TYPE_CONTINUATION_FAILURE_ID,
+    eventId: E2E_EVENT_CONTINUATION_FAILURE_ID,
+    name: "General Admission (E2E, continuation failure)",
+  });
+  await upsertE2EDocumentRequirement(admin, {
+    id: E2E_DOCUMENT_REQUIREMENT_CONTINUATION_FAILURE_ID,
+    eventId: E2E_EVENT_CONTINUATION_FAILURE_ID,
+    templateId: E2E_DOCUMENT_TEMPLATE_A_ID,
+  });
+
+  return {
+    studioId: E2E_STUDIO_ID,
+    eventId: E2E_EVENT_CONTINUATION_FAILURE_ID,
+    eventSlug: E2E_EVENT_CONTINUATION_FAILURE_SLUG,
+    eventName: E2E_EVENT_CONTINUATION_FAILURE_NAME,
+    ticketTypeId: E2E_TICKET_TYPE_CONTINUATION_FAILURE_ID,
+    documentRequirementIds: [E2E_DOCUMENT_REQUIREMENT_CONTINUATION_FAILURE_ID],
   };
 }
 
