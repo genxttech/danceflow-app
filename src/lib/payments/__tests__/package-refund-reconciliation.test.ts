@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   reconcilePackageStripeRefund,
   buildPackageRefundReconciliationInput,
+  restorePackageRefundReconciliation,
+  buildPackageRefundReversalInput,
   type StripeRefundEventContext,
 } from "@/lib/payments/package-refund-reconciliation";
 
@@ -265,5 +267,213 @@ describe("Package Refund P0, Slice 2c-1: buildPackageRefundReconciliationInput",
   it("allows a null stripe_charge_id through -- not every refund resolves a charge", () => {
     const input = buildPackageRefundReconciliationInput(baseContext({ chargeId: null }));
     expect(input?.stripeChargeId).toBeNull();
+  });
+});
+
+/**
+ * Package Refund P0, Slice 2c-3: unit coverage for the reversal-restoration
+ * service module, mirroring the 2c-1 coverage above exactly -- the actual
+ * restoration algorithm (lock order, idempotency, exact-quantity sourcing,
+ * package-lifecycle reactivation) lives entirely in
+ * restore_package_refund_reconciliation, verified separately via local-Docker
+ * SQL regression (test_Q_refund_reversal_restoration.sql) and concurrency
+ * proof (test_N_concurrency_two_session.sh, scenarios C1-C7). This module's
+ * own job is just "resolve every matching payment, call the RPC once per
+ * payment, map the result shape" (restorePackageRefundReconciliation) and
+ * "is this observation a reversal at all" (buildPackageRefundReversalInput).
+ */
+function createFakeReversalSupabase(options: {
+  payments: { id: string; studio_id: string }[];
+  paymentsError?: { message: string } | null;
+  rpcImpl?: (params: Record<string, unknown>) => { data: unknown; error: { message: string } | null };
+}) {
+  const rpcCalls: Record<string, unknown>[] = [];
+
+  const supabase = {
+    from(table: string) {
+      if (table !== "payments") throw new Error(`Unexpected table: ${table}`);
+      return {
+        select: () => ({
+          eq: async () => ({
+            data: options.paymentsError ? null : options.payments,
+            error: options.paymentsError ?? null,
+          }),
+        }),
+      };
+    },
+    rpc: async (name: string, params: Record<string, unknown>) => {
+      if (name !== "restore_package_refund_reconciliation") {
+        throw new Error(`Unexpected RPC: ${name}`);
+      }
+      rpcCalls.push(params);
+      if (options.rpcImpl) return options.rpcImpl(params);
+      return {
+        data: [{ reconciliation_id: "recon-1", outcome: "reversed", restored_item_count: 2, applied: true }],
+        error: null,
+      };
+    },
+  };
+
+  return { supabase, rpcCalls };
+}
+
+describe("Package Refund P0, Slice 2c-3: restorePackageRefundReconciliation", () => {
+  it("resolves every payment row for the payment intent and calls the RPC once per payment", async () => {
+    const { supabase, rpcCalls } = createFakeReversalSupabase({
+      payments: [
+        { id: "payment-1", studio_id: "studio-1" },
+        { id: "payment-2", studio_id: "studio-2" },
+      ],
+    });
+
+    const results = await restorePackageRefundReconciliation(supabase as never, "pi_123", {
+      stripeRefundId: "rf_123",
+      newRefundStatus: "failed",
+    });
+
+    expect(rpcCalls).toHaveLength(2);
+    expect(rpcCalls[0]).toMatchObject({
+      p_studio_id: "studio-1",
+      p_stripe_refund_id: "rf_123",
+      p_new_refund_status: "failed",
+    });
+    expect(rpcCalls[1]).toMatchObject({ p_studio_id: "studio-2" });
+    expect(results).toHaveLength(2);
+  });
+
+  it("never sends p_payment_id -- the RPC looks up its target by stripe_refund_id alone", async () => {
+    const { supabase, rpcCalls } = createFakeReversalSupabase({
+      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+    });
+
+    await restorePackageRefundReconciliation(supabase as never, "pi_123", {
+      stripeRefundId: "rf_123",
+      newRefundStatus: "canceled",
+    });
+
+    expect(rpcCalls[0]).not.toHaveProperty("p_payment_id");
+  });
+
+  it("omits p_occurred_at when not supplied, includes it when supplied", async () => {
+    const { supabase, rpcCalls } = createFakeReversalSupabase({
+      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+    });
+
+    await restorePackageRefundReconciliation(supabase as never, "pi_123", {
+      stripeRefundId: "rf_123",
+      newRefundStatus: "failed",
+    });
+    expect(rpcCalls[0]).not.toHaveProperty("p_occurred_at");
+
+    await restorePackageRefundReconciliation(supabase as never, "pi_123", {
+      stripeRefundId: "rf_124",
+      newRefundStatus: "failed",
+      occurredAt: "2026-08-30T00:00:00.000Z",
+    });
+    expect(rpcCalls[1]).toMatchObject({ p_occurred_at: "2026-08-30T00:00:00.000Z" });
+  });
+
+  it("maps the RPC's returned row shape correctly, including a not_reconciled fallback", async () => {
+    const { supabase } = createFakeReversalSupabase({
+      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      rpcImpl: () => ({
+        data: [{ reconciliation_id: null, outcome: "not_reconciled", restored_item_count: 0, applied: false }],
+        error: null,
+      }),
+    });
+
+    const results = await restorePackageRefundReconciliation(supabase as never, "pi_123", {
+      stripeRefundId: "rf_123",
+      newRefundStatus: "failed",
+    });
+
+    expect(results).toEqual([
+      {
+        paymentId: "payment-1",
+        studioId: "studio-1",
+        reconciliationId: null,
+        outcome: "not_reconciled",
+        restoredItemCount: 0,
+        applied: false,
+      },
+    ]);
+  });
+
+  it("returns an empty array when no payments match the payment intent", async () => {
+    const { supabase, rpcCalls } = createFakeReversalSupabase({ payments: [] });
+
+    const results = await restorePackageRefundReconciliation(supabase as never, "pi_no_match", {
+      stripeRefundId: "rf_123",
+      newRefundStatus: "failed",
+    });
+
+    expect(results).toEqual([]);
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it("throws when the payments lookup fails", async () => {
+    const { supabase } = createFakeReversalSupabase({
+      payments: [],
+      paymentsError: { message: "lookup failed" },
+    });
+
+    await expect(
+      restorePackageRefundReconciliation(supabase as never, "pi_123", {
+        stripeRefundId: "rf_123",
+        newRefundStatus: "failed",
+      }),
+    ).rejects.toThrow("lookup failed");
+  });
+
+  it("throws when the RPC call itself errors -- propagates to the webhook's retry-on-500 handling", async () => {
+    const { supabase } = createFakeReversalSupabase({
+      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      rpcImpl: () => ({ data: null, error: { message: "rpc failed" } }),
+    });
+
+    await expect(
+      restorePackageRefundReconciliation(supabase as never, "pi_123", {
+        stripeRefundId: "rf_123",
+        newRefundStatus: "failed",
+      }),
+    ).rejects.toThrow("rpc failed");
+  });
+});
+
+describe("Package Refund P0, Slice 2c-3: buildPackageRefundReversalInput", () => {
+  it("returns a reversal input for 'failed'", () => {
+    const input = buildPackageRefundReversalInput(baseContext({ refundStatus: "failed" }));
+    expect(input).toEqual({ stripeRefundId: "rf_123", newRefundStatus: "failed" });
+  });
+
+  it("returns a reversal input for 'canceled'", () => {
+    const input = buildPackageRefundReversalInput(baseContext({ refundStatus: "canceled" }));
+    expect(input).toEqual({ stripeRefundId: "rf_123", newRefundStatus: "canceled" });
+  });
+
+  it("returns null for 'succeeded' -- that is the forward path, not a reversal", () => {
+    expect(buildPackageRefundReversalInput(baseContext({ refundStatus: "succeeded" }))).toBeNull();
+  });
+
+  it("returns null for 'pending' and 'requires_action' -- neither a success nor a reversal", () => {
+    expect(buildPackageRefundReversalInput(baseContext({ refundStatus: "pending" }))).toBeNull();
+    expect(buildPackageRefundReversalInput(baseContext({ refundStatus: "requires_action" }))).toBeNull();
+  });
+
+  it("returns null (safe short-circuit) when there is no stripe_refund_id", () => {
+    expect(
+      buildPackageRefundReversalInput(baseContext({ stripeRefundId: null, refundStatus: "failed" })),
+    ).toBeNull();
+  });
+
+  it("returns null (safe short-circuit) when the payment intent could not be resolved at all", () => {
+    expect(
+      buildPackageRefundReversalInput(baseContext({ resolvedPaymentIntentId: null, refundStatus: "failed" })),
+    ).toBeNull();
+  });
+
+  it("never carries the refund amount through -- restoration quantity is not derived from it", () => {
+    const input = buildPackageRefundReversalInput(baseContext({ refundStatus: "failed" }));
+    expect(input).not.toHaveProperty("refundAmountCents");
   });
 });
