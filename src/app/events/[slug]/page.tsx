@@ -1458,6 +1458,8 @@ export default async function PublicEventDetailPage({
     );
   }
 
+  // Intentional request-time wall clock in this dynamically rendered Server Component.
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
 
   const visibleTicketTypes = allActiveTicketTypes.filter((ticket) => {
