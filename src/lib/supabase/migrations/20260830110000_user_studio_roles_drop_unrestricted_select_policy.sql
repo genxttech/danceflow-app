@@ -1,0 +1,31 @@
+-- Emergency P0: public.user_studio_roles cross-tenant role/staffing metadata
+-- exposure via an unrestricted SELECT policy.
+--
+-- Current state: public.user_studio_roles has RLS enabled but carries two
+-- SELECT policies -- "authenticated users can select user studio roles"
+-- (USING (true)) and "studio members can view roles"
+-- (USING (user_has_studio_access(studio_id))). Postgres combines multiple
+-- PERMISSIVE policies for the same command with OR, so the unrestricted
+-- policy makes the scoped one moot for reads: any authenticated user,
+-- including client/student accounts with no user_studio_roles membership at
+-- all, can currently read every studio's role/staffing rows.
+--
+-- Target state: dropping the unrestricted policy leaves the existing scoped
+-- policy, "studio members can view roles" (USING
+-- (user_has_studio_access(studio_id))), as the sole SELECT policy. Legitimate
+-- staff/platform-admin reads remain available through it unchanged --
+-- user_has_studio_access() is SECURITY DEFINER with a locked
+-- search_path='public', and internally bypasses RLS when checking the
+-- caller's own user_studio_roles row, so it never depended on this table's
+-- own SELECT policies to function. A client/student account -- which has no
+-- user_studio_roles row of its own -- cannot satisfy
+-- user_has_studio_access() for any studio, so after this change such an
+-- account reads zero rows from this table, rather than every row.
+--
+-- Scope: RLS policy only. No table is altered, no data is mutated, the
+-- INSERT policy ("authenticated users can insert user studio roles") is
+-- untouched, "studio members can view roles" is not recreated or replaced,
+-- and user_has_studio_access() itself is not modified.
+
+drop policy if exists "authenticated users can select user studio roles"
+on public.user_studio_roles;
