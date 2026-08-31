@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import ClientNoteDateTimeField from "./ClientNoteDateTimeField";
 import { canCreateAppointments, canEditClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { resolvePortalConnectionState } from "@/lib/student-identity/portal-connection-state";
 import {
   archiveLeadAction,
   convertLeadToActiveAction,
@@ -125,11 +126,23 @@ type ClientPortalAdminStatus = {
     created_at: string | null;
   } | null;
   inviteDeliveries: ClientPortalInviteDeliveryRow[];
+  /**
+   * The canonical resolver's own kind for the selected accountLink row
+   * (see resolvePortalConnectionState) -- threaded through so the label
+   * logic below can distinguish a genuinely open invite from a dead/
+   * expired one sharing the same raw `invited`/`claim_pending` status,
+   * without duplicating the resolver's own open-invite interpretation.
+   */
+  connectionKind: ReturnType<typeof resolvePortalConnectionState>["kind"];
   accountLink: {
     id: string;
     status: string;
     user_id: string | null;
+    relationship_type: string;
+    is_primary: boolean | null;
+    created_at: string;
     invited_email: string | null;
+    invite_token_hash: string | null;
     invite_sent_at: string | null;
     invite_expires_at: string | null;
     linked_at: string | null;
@@ -600,6 +613,7 @@ async function loadClientPortalAdminStatus(
     matchingAuthUser: null,
     linkedAuthUser: null,
     inviteDeliveries: [],
+    connectionKind: "none",
     accountLink: null,
   };
 
@@ -641,12 +655,11 @@ async function loadClientPortalAdminStatus(
           .limit(5),
         adminSupabase
           .from("client_account_links")
-          .select("id, status, user_id, invited_email, invite_sent_at, invite_expires_at, linked_at, disconnected_at, disconnect_reason, conflict_details")
+          .select("id, status, user_id, relationship_type, is_primary, created_at, invited_email, invite_token_hash, invite_sent_at, invite_expires_at, linked_at, disconnected_at, disconnect_reason, conflict_details")
           .eq("studio_id", studioId)
           .eq("client_id", client.id)
           .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+          .limit(50),
       ]);
 
     if (linkedProfileResult.error) throw linkedProfileResult.error;
@@ -655,10 +668,30 @@ async function loadClientPortalAdminStatus(
     if (inviteDeliveryResult.error) throw inviteDeliveryResult.error;
     if (accountLinkResult.error) throw accountLinkResult.error;
 
+    // Portal / Multi-Studio H2-A: the admin display must agree with invite
+    // eligibility about the same client, so both derive their answer from
+    // the same canonical resolver fed with the same studio+client-scoped
+    // row set -- never from whichever row happens to be newest overall.
+    const accountLinkRows = accountLinkResult.data ?? [];
+    const canonicalConnectionState = resolvePortalConnectionState({
+      rows: accountLinkRows.map((linkRow) => ({
+        id: linkRow.id,
+        userId: linkRow.user_id,
+        status: linkRow.status,
+        relationshipType: linkRow.relationship_type,
+        isPrimary: linkRow.is_primary,
+        createdAt: linkRow.created_at,
+        inviteTokenHash: linkRow.invite_token_hash,
+        inviteExpiresAt: linkRow.invite_expires_at,
+      })),
+    });
+    const canonicalAccountLink =
+      canonicalConnectionState.kind === "none"
+        ? null
+        : (accountLinkRows.find((linkRow) => linkRow.id === canonicalConnectionState.linkId) ?? null);
+
     const linkedUserId =
-      accountLinkResult.data?.status === "linked"
-        ? accountLinkResult.data.user_id
-        : null;
+      canonicalConnectionState.kind === "linked" ? canonicalConnectionState.userId : null;
 
     if (linkedUserId) {
       const { data: linkedProfileData, error: linkedProfileError } =
@@ -705,7 +738,8 @@ async function loadClientPortalAdminStatus(
       matchingAuthUser: matchingAuthUsers[0] ?? null,
       linkedAuthUser,
       inviteDeliveries: (inviteDeliveryResult.data ?? []) as ClientPortalInviteDeliveryRow[],
-      accountLink: accountLinkResult.data ?? null,
+      connectionKind: canonicalConnectionState.kind,
+      accountLink: canonicalAccountLink,
     };
   } catch (error) {
     return {
@@ -2742,17 +2776,34 @@ export default async function ClientDetailPage({
   const isPublicIntroLead = typedClient.referral_source === "public_intro_booking";
   const isEventRegistrationLead = typedClient.referral_source === "event_registration";
   const isIndependentInstructor = !!typedClient.is_independent_instructor;
-  const hasPortalLogin = !!portalAdminStatus?.accountLink?.user_id;
+  // Portal / Multi-Studio H2-A: portalAdminStatus.accountLink is now the
+  // canonically-selected row (see loadClientPortalAdminStatus), so its own
+  // status is the correct signal here -- checking user_id alone (the prior
+  // behavior) was status-insensitive and could report "connected" for a
+  // disconnected relationship whose user_id was never cleared.
   const accountLink = portalAdminStatus?.accountLink ?? null;
+  const hasPortalLogin = accountLink?.status === "linked";
+  const connectionKind = portalAdminStatus?.connectionKind ?? "none";
   const portalLifecycleStatus =
     accountLink?.status ??
     (hasPortalLogin ? "linked" : hasSuccessfulPortalInviteDelivery ? "invited" : "unclaimed");
+  // Portal / Multi-Studio H2-A semantic cleanup: `invited`/`claim_pending`
+  // raw status alone does not mean the invite is still usable -- a dead
+  // (token cleared) or expired one carries the same raw status but the
+  // canonical resolver classifies it as `inactive`, not `invited`. Gate
+  // the "Invited"/"Claim Pending" labels on connectionKind too, so a dead
+  // invite falls through to the neutral "Not Connected" wording instead
+  // of falsely presenting as an open, actionable invitation. When there is
+  // no accountLink row at all, fall back to the pre-existing
+  // delivery-log-based behavior unchanged -- connectionKind is "none" in
+  // that case and isn't a meaningful signal about a row that doesn't exist.
+  const rawInvitedLabelIsAccurate = accountLink === null || connectionKind === "invited";
   const portalLifecycleLabel =
     portalLifecycleStatus === "linked"
       ? "Connected"
-      : portalLifecycleStatus === "invited"
+      : rawInvitedLabelIsAccurate && portalLifecycleStatus === "invited"
         ? "Invited"
-        : portalLifecycleStatus === "claim_pending"
+        : rawInvitedLabelIsAccurate && portalLifecycleStatus === "claim_pending"
           ? "Claim Pending"
           : portalLifecycleStatus === "disconnected"
             ? "Disconnected"

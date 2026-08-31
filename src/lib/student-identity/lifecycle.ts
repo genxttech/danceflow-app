@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolvePortalConnectionState } from "@/lib/student-identity/portal-connection-state";
 
 export type ClientRelationshipType =
   | "self"
@@ -90,7 +91,7 @@ export async function createOrRefreshClientInvitation(params: {
    */
   const { data: existingRows, error: existingError } = await admin
     .from("client_account_links")
-    .select("id, user_id, status, relationship_type, created_at")
+    .select("id, user_id, status, relationship_type, is_primary, created_at, invite_token_hash, invite_expires_at")
     .eq("studio_id", params.studioId)
     .eq("client_id", params.clientId)
     .order("created_at", { ascending: false });
@@ -108,7 +109,26 @@ export async function createOrRefreshClientInvitation(params: {
       ["invited", "claim_pending"].includes(String(row.status)),
     ) ?? null;
 
-  if (existingForUser?.status === "linked") {
+  // Portal / Multi-Studio H2-A: eligibility now comes from the same
+  // canonical resolver the admin display uses, scoped to the resolved
+  // target user -- this is the one place that decides "does this specific
+  // person already have access," never the admin display's own
+  // latest-row-overall answer.
+  const targetUserState = resolvePortalConnectionState({
+    rows: rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      status: row.status,
+      relationshipType: row.relationship_type,
+      isPrimary: row.is_primary,
+      createdAt: row.created_at,
+      inviteTokenHash: row.invite_token_hash,
+      inviteExpiresAt: row.invite_expires_at,
+    })),
+    targetUserId: requestedUserId,
+  });
+
+  if (targetUserState.kind === "linked") {
     throw new Error("This client already has portal access with that DanceFlow account.");
   }
 
