@@ -54,6 +54,20 @@ export async function leaveStudioRelationship(params: {
     throw new Error(`Studio relationship update failed: ${linkUpdateError.message}`);
   }
 
+  // H2-B3: clear the legacy clients.portal_user_id mirror for exactly this
+  // client, only if it still points at the user who just left -- never a
+  // different user's mirror.
+  const { error: mirrorError } = await admin
+    .from("clients")
+    .update({ portal_user_id: null, updated_at: now })
+    .eq("id", link.client_id)
+    .eq("studio_id", params.studioId)
+    .eq("portal_user_id", params.user.id);
+
+  if (mirrorError) {
+    throw new Error(`Legacy portal mirror cleanup failed: ${mirrorError.message}`);
+  }
+
   return {
     linkId: String(link.id),
     clientId: String(link.client_id),
@@ -127,6 +141,21 @@ export async function deleteDanceFlowAccount(user: User) {
       throw new Error(
         `Relationship history preservation failed: ${relationshipError.message}`,
       );
+    }
+
+    // H2-B3: clear the legacy clients.portal_user_id mirror for exactly
+    // the clients this account had a relationship with, and only where
+    // the mirror still points at this exact user being deleted -- never a
+    // different user's mirror.
+    const relatedClientIds = Array.from(new Set(linkedRows.map((link) => link.client_id)));
+    const { error: mirrorError } = await admin
+      .from("clients")
+      .update({ portal_user_id: null, updated_at: now })
+      .in("id", relatedClientIds)
+      .eq("portal_user_id", user.id);
+
+    if (mirrorError) {
+      throw new Error(`Legacy portal mirror cleanup failed: ${mirrorError.message}`);
     }
   }
 

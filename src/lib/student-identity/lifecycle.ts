@@ -388,9 +388,36 @@ export async function disconnectClientAccount(params: {
     query = query.eq("user_id", params.userId);
   }
 
-  const { error: linkError } = await query;
+  const { data: disconnectedLinks, error: linkError } = await query.select("user_id");
   if (linkError) {
     throw new Error(`Account relationship update failed: ${linkError.message}`);
+  }
+
+  // H2-B3: clear the legacy clients.portal_user_id mirror for exactly the
+  // relationship(s) just disconnected above -- never for a client whose
+  // mirror belongs to a different user than the one actually disconnected
+  // here. Scoped to the exact user_id(s) the update itself just touched
+  // (not merely params.userId, which callers may omit), and to this exact
+  // client/studio.
+  const disconnectedUserIds = Array.from(
+    new Set(
+      (disconnectedLinks ?? [])
+        .map((link) => link.user_id)
+        .filter((userId): userId is string => Boolean(userId)),
+    ),
+  );
+
+  for (const disconnectedUserId of disconnectedUserIds) {
+    const { error: mirrorError } = await admin
+      .from("clients")
+      .update({ portal_user_id: null, updated_at: now })
+      .eq("id", params.clientId)
+      .eq("studio_id", params.studioId)
+      .eq("portal_user_id", disconnectedUserId);
+
+    if (mirrorError) {
+      throw new Error(`Legacy portal mirror cleanup failed: ${mirrorError.message}`);
+    }
   }
 
   if (params.formerClient) {
