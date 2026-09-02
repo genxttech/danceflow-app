@@ -58,7 +58,7 @@ import {
 import { recordPayAsYouGoLessonPaymentAction } from "@/app/app/schedule/actions";
 import { deriveClientLifecycle, getClientLifecycleAction } from "@/lib/clients/lifecycle";
 
-type ClientRecord = {
+export type ClientRecord = {
   id: string;
   first_name: string;
   last_name: string;
@@ -95,7 +95,7 @@ type ClientPortalInviteDeliveryRow = {
   created_at: string | null;
 };
 
-type ClientPortalAdminStatus = {
+export type ClientPortalAdminStatus = {
   lookupError: string | null;
   linkedProfile: {
     id: string;
@@ -602,7 +602,72 @@ function fmtPortalDateTime(value: string | null | undefined) {
   return fmtShortDateTime(value);
 }
 
-async function loadClientPortalAdminStatus(
+type PortalAdminAuthUserSummary = {
+  id: string;
+  email: string | null;
+  email_confirmed_at: string | null;
+  last_sign_in_at: string | null;
+  created_at: string | null;
+};
+
+/**
+ * Sallie Debolt portal-status fix: looks up an auth user by email via the
+ * Admin Auth API (the same paginated-scan pattern already used by
+ * findOrCreatePortalProfileByEmail in ./actions.ts), instead of querying
+ * `auth.users` directly through PostgREST (`adminSupabase.schema("auth")
+ * .from("users")`). The `auth` schema is not exposed to PostgREST in this
+ * project, so that query fails outright -- and, before this fix, that
+ * failure was treated as fatal to the whole status lookup (see below),
+ * discarding an already-successfully-fetched, correctly `linked`
+ * client_account_links row and turning it into a false "Not Connected".
+ */
+export async function findAuthUserByEmail(
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  email: string,
+): Promise<PortalAdminAuthUserSummary | null> {
+  const perPage = 200;
+
+  for (let page = 1; page <= 10; page += 1) {
+    const { data, error } = await adminSupabase.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) throw error;
+
+    const match = data.users.find(
+      (user) => user.email?.trim().toLowerCase() === email,
+    );
+
+    if (match) {
+      return {
+        id: match.id,
+        email: match.email ?? null,
+        email_confirmed_at: match.email_confirmed_at ?? null,
+        last_sign_in_at: match.last_sign_in_at ?? null,
+        created_at: match.created_at ?? null,
+      };
+    }
+
+    if (data.users.length < perPage) break;
+  }
+
+  return null;
+}
+
+/**
+ * Sallie Debolt portal-status fix: client_account_links (connection
+ * status) and outbound_deliveries (invite-delivery history) are the two
+ * load-bearing sources for the portal support summary -- a genuine
+ * failure in either is surfaced via lookupError, matching the pre-fix
+ * behavior for these two specifically. Everything else (linked/matching
+ * profile and auth-user enrichment) is best-effort: a failure there
+ * leaves that one field null instead of erasing the load-bearing result,
+ * fixing the bug where a single nonessential lookup failure discarded an
+ * already-correct `linked` accountLink and already-correct
+ * inviteDeliveries.
+ */
+export async function loadClientPortalAdminStatus(
   client: ClientRecord,
   studioId: string
 ): Promise<ClientPortalAdminStatus> {
@@ -623,50 +688,49 @@ async function loadClientPortalAdminStatus(
     return emptyStatus;
   }
 
+  const adminSupabase = createAdminClient();
+
+  // The whole body below is wrapped in try/catch to preserve this
+  // function's original contract (from before the Sallie Debolt fix):
+  // it never throws/rejects, always resolving to a ClientPortalAdminStatus,
+  // so its single unguarded call site (the page component's render body)
+  // can never crash the whole page from a load-bearing query genuinely
+  // rejecting (as opposed to resolving with a `.error` field, which is
+  // handled explicitly below). The per-field enrichment isolation this
+  // fix introduces is unaffected by this wrapper: Promise.allSettled
+  // itself never rejects, so enrichment failures are already fully
+  // contained before this catch could ever see them.
   try {
-    const adminSupabase = createAdminClient();
+    const [accountLinkResult, inviteDeliveryResult] = await Promise.all([
+      adminSupabase
+        .from("client_account_links")
+        .select("id, status, user_id, relationship_type, is_primary, created_at, invited_email, invite_token_hash, invite_sent_at, invite_expires_at, linked_at, disconnected_at, disconnect_reason, conflict_details")
+        .eq("studio_id", studioId)
+        .eq("client_id", client.id)
+        .order("created_at", { ascending: false })
+        .limit(50),
+      adminSupabase
+        .from("outbound_deliveries")
+        .select("id, template_key, recipient_email, subject, status, provider_message_id, error_message, sent_at, created_at")
+        .eq("studio_id", studioId)
+        .eq("related_table", "clients")
+        .eq("related_id", client.id)
+        .in("template_key", ["client_portal_invite", "portal_invite", "client_portal_access_invite"])
+        .order("created_at", { ascending: false })
+        .limit(5),
+    ]);
 
-    const [linkedProfileResult, matchingProfileResult, matchingAuthResult, inviteDeliveryResult, accountLinkResult] =
-      await Promise.all([
-        Promise.resolve({ data: null as ClientPortalAdminStatus["linkedProfile"], error: null as Error | null }),
-        email
-          ? adminSupabase
-              .from("profiles")
-              .select("id, email, full_name, created_at, updated_at")
-              .ilike("email", email)
-              .limit(1)
-          : Promise.resolve({ data: null, error: null }),
-        email
-          ? adminSupabase
-              .schema("auth")
-              .from("users")
-              .select("id, email, email_confirmed_at, last_sign_in_at, created_at")
-              .ilike("email", email)
-              .limit(1)
-          : Promise.resolve({ data: null, error: null }),
-        adminSupabase
-          .from("outbound_deliveries")
-          .select("id, template_key, recipient_email, subject, status, provider_message_id, error_message, sent_at, created_at")
-          .eq("studio_id", studioId)
-          .eq("related_table", "clients")
-          .eq("related_id", client.id)
-          .in("template_key", ["client_portal_invite", "portal_invite", "client_portal_access_invite"])
-          .order("created_at", { ascending: false })
-          .limit(5),
-        adminSupabase
-          .from("client_account_links")
-          .select("id, status, user_id, relationship_type, is_primary, created_at, invited_email, invite_token_hash, invite_sent_at, invite_expires_at, linked_at, disconnected_at, disconnect_reason, conflict_details")
-          .eq("studio_id", studioId)
-          .eq("client_id", client.id)
-          .order("created_at", { ascending: false })
-          .limit(50),
-      ]);
-
-    if (linkedProfileResult.error) throw linkedProfileResult.error;
-    if (matchingProfileResult.error) throw matchingProfileResult.error;
-    if (matchingAuthResult.error) throw matchingAuthResult.error;
-    if (inviteDeliveryResult.error) throw inviteDeliveryResult.error;
-    if (accountLinkResult.error) throw accountLinkResult.error;
+    if (accountLinkResult.error || inviteDeliveryResult.error) {
+      const loadBearingError = accountLinkResult.error ?? inviteDeliveryResult.error;
+      console.error("Portal status lookup failed (load-bearing query)", loadBearingError);
+      return {
+        ...emptyStatus,
+        lookupError:
+          loadBearingError instanceof Error
+            ? loadBearingError.message
+            : "Portal account lookup failed.",
+      };
+    }
 
     // Portal / Multi-Studio H2-A: the admin display must agree with invite
     // eligibility about the same client, so both derive their answer from
@@ -693,55 +757,71 @@ async function loadClientPortalAdminStatus(
     const linkedUserId =
       canonicalConnectionState.kind === "linked" ? canonicalConnectionState.userId : null;
 
-    if (linkedUserId) {
-      const { data: linkedProfileData, error: linkedProfileError } =
-        await adminSupabase
+    // Enrichment only, run concurrently -- each field fails independently
+    // and never affects accountLink/inviteDeliveries/lookupError above.
+    const [linkedProfileSettled, linkedAuthUserSettled, matchingProfileSettled, matchingAuthUserSettled] =
+      await Promise.allSettled([
+        linkedUserId
+          ? adminSupabase
+              .from("profiles")
+              .select("id, email, full_name, created_at, updated_at")
+              .eq("id", linkedUserId)
+              .maybeSingle()
+              .then(({ data, error }) => {
+                if (error) throw error;
+                return data;
+              })
+          : Promise.resolve(null),
+        linkedUserId
+          ? adminSupabase.auth.admin.getUserById(linkedUserId).then(({ data, error }) => {
+              if (error || !data.user) return null;
+              const user = data.user;
+              return {
+                id: user.id,
+                email: user.email ?? null,
+                email_confirmed_at: user.email_confirmed_at ?? null,
+                last_sign_in_at: user.last_sign_in_at ?? null,
+                created_at: user.created_at ?? null,
+              } as PortalAdminAuthUserSummary;
+            })
+          : Promise.resolve(null),
+        adminSupabase
           .from("profiles")
           .select("id, email, full_name, created_at, updated_at")
-          .eq("id", linkedUserId)
-          .maybeSingle();
-      if (linkedProfileError) throw linkedProfileError;
-      linkedProfileResult.data = linkedProfileData;
+          .ilike("email", email)
+          .limit(1)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return data?.[0] ?? null;
+          }),
+        findAuthUserByEmail(adminSupabase, email),
+      ]);
+
+    if (linkedProfileSettled.status === "rejected") {
+      console.error("Portal enrichment: linked profile lookup failed", linkedProfileSettled.reason);
     }
-
-    let linkedAuthUser = null;
-
-    if (linkedUserId) {
-      const { data: linkedAuthData, error: linkedAuthError } =
-        await adminSupabase.auth.admin.getUserById(linkedUserId);
-
-      if (!linkedAuthError) {
-        const user = linkedAuthData.user;
-        linkedAuthUser = user
-          ? {
-              id: user.id,
-              email: user.email ?? null,
-              email_confirmed_at: user.email_confirmed_at ?? null,
-              last_sign_in_at: user.last_sign_in_at ?? null,
-              created_at: user.created_at ?? null,
-            }
-          : null;
-      }
+    if (linkedAuthUserSettled.status === "rejected") {
+      console.error("Portal enrichment: linked auth user lookup failed", linkedAuthUserSettled.reason);
     }
-
-    const matchingProfiles = Array.isArray(matchingProfileResult.data)
-      ? matchingProfileResult.data
-      : [];
-    const matchingAuthUsers = Array.isArray(matchingAuthResult.data)
-      ? matchingAuthResult.data
-      : [];
+    if (matchingProfileSettled.status === "rejected") {
+      console.error("Portal enrichment: matching profile lookup failed", matchingProfileSettled.reason);
+    }
+    if (matchingAuthUserSettled.status === "rejected") {
+      console.error("Portal enrichment: matching auth user lookup failed", matchingAuthUserSettled.reason);
+    }
 
     return {
       lookupError: null,
-      linkedProfile: linkedProfileResult.data ?? null,
-      matchingProfile: matchingProfiles[0] ?? null,
-      matchingAuthUser: matchingAuthUsers[0] ?? null,
-      linkedAuthUser,
+      linkedProfile: linkedProfileSettled.status === "fulfilled" ? linkedProfileSettled.value : null,
+      matchingProfile: matchingProfileSettled.status === "fulfilled" ? matchingProfileSettled.value : null,
+      matchingAuthUser: matchingAuthUserSettled.status === "fulfilled" ? matchingAuthUserSettled.value : null,
+      linkedAuthUser: linkedAuthUserSettled.status === "fulfilled" ? linkedAuthUserSettled.value : null,
       inviteDeliveries: (inviteDeliveryResult.data ?? []) as ClientPortalInviteDeliveryRow[],
       connectionKind: canonicalConnectionState.kind,
       accountLink: canonicalAccountLink,
     };
   } catch (error) {
+    console.error("Portal status lookup failed (unexpected)", error);
     return {
       ...emptyStatus,
       lookupError: error instanceof Error ? error.message : "Portal account lookup failed.",

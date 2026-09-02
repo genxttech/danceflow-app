@@ -616,6 +616,7 @@ export async function linkPortalAccessAction(formData: FormData) {
     );
   }
 
+  revalidatePath(returnTo);
   redirectWithResult(returnTo, "success", "portal_linked");
 }
 
@@ -656,6 +657,7 @@ export async function unlinkPortalAccessAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_unlink_failed");
   }
 
+  revalidatePath(returnTo);
   redirectWithResult(returnTo, "success", "portal_unlinked");
 }
 
@@ -699,6 +701,7 @@ export async function markFormerClientPortalAccessAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_former_client_failed");
   }
 
+  revalidatePath(returnTo);
   redirectWithResult(returnTo, "success", "portal_former_client");
 }
 
