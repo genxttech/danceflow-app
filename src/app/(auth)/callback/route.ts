@@ -8,10 +8,12 @@ import {
 } from "@/lib/security/redirects";
 import {
   claimGroupLessonRecapsForUser,
+  decidePortalDestination,
   ensurePortalProfileAndClientLinks,
   getAuthUserFullName,
   getGroupLessonRecapTokenFromPath,
-  getLinkedPortalDestination,
+  listLinkedPortalDestinations,
+  PORTAL_SELECTED_STUDIO_COOKIE,
 } from "@/lib/auth/portal-linking";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
@@ -106,9 +108,14 @@ async function getActiveStudioRoles(params: {
 
 async function getPortalRedirectPath(params: {
   userId: string;
+  rememberedStudioId: string | null;
 }) {
-  const destination = await getLinkedPortalDestination(params.userId);
-  return destination?.path ?? null;
+  const destinations = await listLinkedPortalDestinations(params.userId);
+  const decision = decidePortalDestination(destinations, params.rememberedStudioId);
+
+  if (decision.type === "single") return decision.path;
+  if (decision.type === "multiple") return "/portal/choose";
+  return null;
 }
 
 async function acceptTeamInvitationsForEmail(params: {
@@ -364,6 +371,8 @@ export async function GET(request: NextRequest) {
   try {
     portalPath = await getPortalRedirectPath({
       userId: user.id,
+      rememberedStudioId:
+        request.cookies.get(PORTAL_SELECTED_STUDIO_COOKIE)?.value ?? null,
     });
   } catch {
     portalPath = null;
