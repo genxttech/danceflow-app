@@ -15,7 +15,9 @@ import {
   requireAppointmentCreateAccess,
   requireAppointmentEditAccess,
   requireAttendanceAccess,
+  requireFloorRentalAppointmentAccess,
 } from "@/lib/auth/serverRoleGuard";
+import { isIndependentInstructor } from "@/lib/auth/permissions";
 import {
   VIDEO_UPLOAD_MIME_TYPES,
   safeOriginalFileName,
@@ -638,6 +640,46 @@ async function validateFloorRentalClient(params: {
   return { ok: true };
 }
 
+// FC-1: validateFloorRentalClient (above) only proves the target client is
+// SOME independent instructor's record -- it's intentionally unchanged and
+// still governs the staff case (a front-desk/owner booking floor space on
+// behalf of any instructor). This function is the additional, narrower
+// check required specifically when the ACTING user is themselves the
+// independent_instructor: the target must be the appointment type
+// floor_space_rental, and the target client must be THIS user's own
+// currently-linked client record in this studio (client_account_links,
+// status='linked') -- never merely "some" independent-instructor client.
+async function requireOwnFloorRentalTarget(params: {
+  supabase: Awaited<
+    ReturnType<typeof requireFloorRentalAppointmentAccess>
+  >["supabase"];
+  studioId: string;
+  userId: string;
+  clientId: string;
+  appointmentType: string;
+}): Promise<string | null> {
+  const { supabase, studioId, userId, clientId, appointmentType } = params;
+
+  if (!isFloorSpaceRental(appointmentType)) {
+    return "Independent instructors can only manage their own floor space rental bookings.";
+  }
+
+  const { data: link, error } = await supabase
+    .from("client_account_links")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId)
+    .eq("user_id", userId)
+    .eq("status", "linked")
+    .maybeSingle();
+
+  if (error || !link) {
+    return "You can only manage your own floor space rental bookings.";
+  }
+
+  return null;
+}
+
 async function validateAppointmentConflicts(params: {
   studioId: string;
   startsAt: string;
@@ -1258,7 +1300,8 @@ export async function createAppointmentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const { supabase, studioId, user } = await requireAppointmentCreateAccess();
+    const { supabase, studioId, user, studioRole } =
+      await requireFloorRentalAppointmentAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const clientId = getString(formData, "clientId");
@@ -1289,6 +1332,22 @@ export async function createAppointmentAction(
 
     if (partnerClientId && partnerClientId === clientId) {
       return { error: "Partner must be different from the primary client." };
+    }
+
+    // FC-1: independent_instructor may only ever create their own
+    // floor-rental appointment -- never a lesson/other appointment type,
+    // and never for a client that isn't their own linked record.
+    if (isIndependentInstructor(studioRole)) {
+      const targetError = await requireOwnFloorRentalTarget({
+        supabase,
+        studioId,
+        userId: user.id,
+        clientId,
+        appointmentType,
+      });
+      if (targetError) {
+        return { error: targetError };
+      }
     }
 
     const relations = normalizeAppointmentRelations({
@@ -1653,7 +1712,8 @@ export async function updateAppointmentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole } =
+      await requireFloorRentalAppointmentAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
@@ -1690,6 +1750,26 @@ export async function updateAppointmentAction(
 
     if (partnerClientId && partnerClientId === clientId) {
       return { error: "Partner must be different from the primary client." };
+    }
+
+    // FC-1: independent_instructor may only ever edit their own
+    // floor-rental appointment into another state that is still their own
+    // floor-rental appointment -- never retarget it to a lesson type or to
+    // a different client. The existing appointment's stored type/client are
+    // separately re-verified below, once fetched, so this cannot be
+    // satisfied merely by submitting an honest-looking form for a
+    // dishonest appointmentId.
+    if (isIndependentInstructor(studioRole)) {
+      const targetError = await requireOwnFloorRentalTarget({
+        supabase,
+        studioId,
+        userId: user.id,
+        clientId,
+        appointmentType,
+      });
+      if (targetError) {
+        return { error: targetError };
+      }
     }
 
     const relations = normalizeAppointmentRelations({
@@ -1768,7 +1848,7 @@ export async function updateAppointmentAction(
     const { data: existingAppointment, error: existingError } = await supabase
       .from("appointments")
       .select(
-        "id, recurrence_series_id, starts_at, ends_at, status, payment_status",
+        "id, client_id, appointment_type, recurrence_series_id, starts_at, ends_at, status, payment_status",
       )
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
@@ -1776,6 +1856,24 @@ export async function updateAppointmentAction(
 
     if (existingError || !existingAppointment) {
       return { error: "Appointment not found." };
+    }
+
+    // FC-1: re-verify against the appointment's actual stored state, not
+    // just the submitted form -- an independent_instructor must not be able
+    // to "edit" an appointment that was never their own floor rental in the
+    // first place (e.g. an unrelated client's lesson) into looking like one
+    // by submitting a dishonest client_id/appointment_type pair.
+    if (isIndependentInstructor(studioRole)) {
+      const existingTargetError = await requireOwnFloorRentalTarget({
+        supabase,
+        studioId,
+        userId: user.id,
+        clientId: String(existingAppointment.client_id ?? ""),
+        appointmentType: String(existingAppointment.appointment_type ?? ""),
+      });
+      if (existingTargetError) {
+        return { error: existingTargetError };
+      }
     }
 
     const existingStartsAtMs = new Date(
@@ -1976,7 +2074,8 @@ export async function deleteAppointmentAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole } =
+      await requireFloorRentalAppointmentAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     const confirmation = getString(formData, "confirmDeleteAppointment");
@@ -2000,6 +2099,22 @@ export async function deleteAppointmentAction(formData: FormData) {
 
     if (appointmentError || !appointment) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+    }
+
+    // FC-1: independent_instructor may only delete their own floor-rental
+    // appointment -- verified against the appointment's actual stored
+    // client/type, not anything submitted.
+    if (isIndependentInstructor(studioRole)) {
+      const targetError = await requireOwnFloorRentalTarget({
+        supabase,
+        studioId,
+        userId: user.id,
+        clientId: String(appointment.client_id ?? ""),
+        appointmentType: String(appointment.appointment_type ?? ""),
+      });
+      if (targetError) {
+        redirect(getErrorRedirect(formData, fallback, "not_own_floor_rental"));
+      }
     }
 
     const appointmentStatus = String(appointment.status ?? "");
@@ -2192,7 +2307,8 @@ export async function cancelAppointmentAction(formData: FormData) {
   const allowedRequesters = new Set(["client", "instructor", "studio", "other"]);
 
   try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole } =
+      await requireFloorRentalAppointmentAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     const cancellationReason = getString(formData, "cancellationReason");
@@ -2238,6 +2354,22 @@ export async function cancelAppointmentAction(formData: FormData) {
 
     if (appointmentError || !appointment) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+    }
+
+    // FC-1: independent_instructor may only cancel their own floor-rental
+    // appointment -- verified against the appointment's actual stored
+    // client/type, not anything submitted.
+    if (isIndependentInstructor(studioRole)) {
+      const targetError = await requireOwnFloorRentalTarget({
+        supabase,
+        studioId,
+        userId: user.id,
+        clientId: String(appointment.client_id ?? ""),
+        appointmentType: String(appointment.appointment_type ?? ""),
+      });
+      if (targetError) {
+        redirect(getErrorRedirect(formData, fallback, "not_own_floor_rental"));
+      }
     }
 
     const cancelledAt = new Date().toISOString();
