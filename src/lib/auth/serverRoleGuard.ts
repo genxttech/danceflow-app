@@ -6,6 +6,7 @@ import {
   canEditAppointments,
   canEditClients,
   canManageInstructors,
+  canManageOwnFloorRentalAppointment,
   canPreparePayroll,
   canDisbursePayroll,
   canManagePackages,
@@ -160,6 +161,23 @@ export async function requireAppointmentEditAccess() {
     ctx,
     allowed: canEditAppointments,
     message: "You do not have permission to edit appointments.",
+  });
+}
+
+// FC-1: gate for the small set of appointment actions that must remain
+// reachable by an independent_instructor for their own floor-rental
+// bookings (create/update/cancel/delete), in addition to ordinary staff.
+// This only proves role-level eligibility to attempt the action -- the
+// caller (src/app/app/schedule/actions.ts) still must verify, per request,
+// that an independent_instructor caller is acting on their own linked
+// floor-rental client/appointment, never anyone else's.
+export async function requireFloorRentalAppointmentAccess() {
+  const ctx = await getCurrentUserStudioContext();
+  return requirePermission({
+    ctx,
+    allowed: (role) =>
+      canCreateAppointments(role) || canManageOwnFloorRentalAppointment(role),
+    message: "You do not have permission to manage this appointment.",
   });
 }
 

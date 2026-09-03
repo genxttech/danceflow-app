@@ -162,6 +162,14 @@ export function canViewClients(role: string | null | undefined) {
   ].includes(role ?? "");
 }
 
+// FC-1: independent_instructor is deliberately excluded from general staff
+// appointment/attendance authority. SR-A found this role granted broad
+// create/edit/attendance access identical to real studio staff, with the
+// intended narrowing (their own floor-rental relationship only) enforced in
+// just one code path -- meaning every other appointment-mutating action was
+// reachable with no scoping at all. See canManageOwnFloorRentalAppointment
+// below and requireFloorRentalAppointmentAccess in serverRoleGuard.ts for
+// the narrow, purpose-built replacement.
 export function canCreateAppointments(role: string | null | undefined) {
   return [
     "platform_admin",
@@ -169,7 +177,6 @@ export function canCreateAppointments(role: string | null | undefined) {
     "studio_admin",
     "front_desk",
     "instructor",
-    "independent_instructor",
   ].includes(role ?? "");
 }
 
@@ -180,7 +187,6 @@ export function canEditAppointments(role: string | null | undefined) {
     "studio_admin",
     "front_desk",
     "instructor",
-    "independent_instructor",
   ].includes(role ?? "");
 }
 
@@ -191,8 +197,19 @@ export function canMarkAttendance(role: string | null | undefined) {
     "studio_admin",
     "front_desk",
     "instructor",
-    "independent_instructor",
   ].includes(role ?? "");
+}
+
+// FC-1: the narrow replacement for independent_instructor's former broad
+// appointment authority. This only identifies the role -- callers must
+// still verify the specific appointment is the instructor's own linked
+// floor-rental relationship before allowing any mutation (see
+// requireFloorRentalAppointmentAccess in serverRoleGuard.ts and its use in
+// src/app/app/schedule/actions.ts).
+export function canManageOwnFloorRentalAppointment(
+  role: string | null | undefined,
+) {
+  return role === "independent_instructor";
 }
 
 export function canAdjustBalances(role: string | null | undefined) {
