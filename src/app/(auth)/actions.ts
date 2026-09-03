@@ -1,7 +1,7 @@
 "use server";
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { recordBusinessLegalAcceptance } from "@/lib/legal/agreements";
 import { redirect } from "next/navigation";
 import {
@@ -10,9 +10,11 @@ import {
 } from "@/lib/security/redirects";
 import {
   claimGroupLessonRecapsForUser,
+  decidePortalDestination,
   ensurePortalProfileAndClientLinks,
   getGroupLessonRecapTokenFromPath,
-  getLinkedPortalDestination,
+  listLinkedPortalDestinations,
+  PORTAL_SELECTED_STUDIO_COOKIE,
 } from "@/lib/auth/portal-linking";
 import { createClient } from "@/lib/supabase/server";
 
@@ -68,8 +70,16 @@ async function hasActiveWorkspaceRole(userId: string): Promise<boolean> {
 }
 
 async function getPortalRedirectPath(userId: string): Promise<string | null> {
-  const destination = await getLinkedPortalDestination(userId);
-  return destination?.path ?? null;
+  const cookieStore = await cookies();
+  const rememberedStudioId =
+    cookieStore.get(PORTAL_SELECTED_STUDIO_COOKIE)?.value ?? null;
+
+  const destinations = await listLinkedPortalDestinations(userId);
+  const decision = decidePortalDestination(destinations, rememberedStudioId);
+
+  if (decision.type === "single") return decision.path;
+  if (decision.type === "multiple") return "/portal/choose";
+  return null;
 }
 
 async function getPostLoginRedirectPath(userId: string): Promise<string> {
