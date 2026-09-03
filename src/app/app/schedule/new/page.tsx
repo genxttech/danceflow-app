@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canCreateAppointments } from "@/lib/auth/permissions";
 
 type SearchParams = Promise<{
   clientId?: string;
@@ -110,6 +111,14 @@ export default async function NewAppointmentPage({
 
   if (!user) {
     redirect("/login");
+  }
+
+  // FC-1B1: independent_instructor is not host-studio staff -- this page
+  // exposes the full studio client/package/membership roster, which is out
+  // of scope for a floor-rental-only relationship. Server-side gate, not
+  // just a hidden nav link.
+  if (!canCreateAppointments(context.studioRole ?? "")) {
+    redirect("/app");
   }
 
   const requestedClientId =

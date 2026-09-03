@@ -1,6 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canEditAppointments } from "@/lib/auth/permissions";
 import AppointmentEditForm from "./AppointmentEditForm";
 
 type Params = Promise<{
@@ -122,7 +123,16 @@ export default async function EditAppointmentPage({
   params: Params;
 }) {
   const { id } = await params;
-  const { studioId } = await getCurrentStudioContext();
+  const { studioId, studioRole } = await getCurrentStudioContext();
+
+  // FC-1B1: independent_instructor is not host-studio staff -- this page
+  // exposes the full studio client/package/membership roster plus the
+  // appointment's notes/billing detail. Server-side gate, not just a
+  // hidden edit button on the list page.
+  if (!canEditAppointments(studioRole ?? "")) {
+    redirect("/app");
+  }
+
   const supabase = await createClient();
   const studioTimeZone = await getStudioTimezone({ supabase, studioId });
 

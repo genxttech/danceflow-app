@@ -151,6 +151,12 @@ export function canEditClients(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
 }
 
+// FC-1B1: independent_instructor is not host-studio staff -- their host
+// relationship exists only to support their own floor-rental activity, not
+// general access to the studio's unrelated client roster. This function had
+// no call sites before this change (the studio client list page enforced no
+// permission check at all), so removing the role here also becomes the
+// actual enforcement once wired into that page.
 export function canViewClients(role: string | null | undefined) {
   return [
     "platform_admin",
@@ -158,7 +164,6 @@ export function canViewClients(role: string | null | undefined) {
     "studio_admin",
     "front_desk",
     "instructor",
-    "independent_instructor",
   ].includes(role ?? "");
 }
 
@@ -191,6 +196,23 @@ export function canEditAppointments(role: string | null | undefined) {
 }
 
 export function canMarkAttendance(role: string | null | undefined) {
+  return [
+    "platform_admin",
+    "studio_owner",
+    "studio_admin",
+    "front_desk",
+    "instructor",
+  ].includes(role ?? "");
+}
+
+// FC-1B1: gates the general staff schedule-viewing surface (the appointment
+// detail page and the full studio calendar), as opposed to the specific
+// create/edit/attendance mutation gates above. independent_instructor is
+// excluded for the same reason as those -- their host relationship is
+// floor-rental-only, not general studio staff access. This is a
+// read-visibility gate; it does not change who may mutate appointments
+// (unaffected, see FC-1).
+export function canViewStudioSchedule(role: string | null | undefined) {
   return [
     "platform_admin",
     "studio_owner",

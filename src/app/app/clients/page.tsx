@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   Search,
   Sparkles,
@@ -12,6 +13,7 @@ import WorkspaceEmptyState from "@/components/app/workspace/WorkspaceEmptyState"
 import WorkspaceHeader from "@/components/app/workspace/WorkspaceHeader";
 import WorkspaceToolbar from "@/components/app/workspace/WorkspaceToolbar";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewClients } from "@/lib/auth/permissions";
 import ClientWorkspaceList from "./ClientWorkspaceList";
 import { deriveClientLifecycle, type ClientLifecycleStage, type ClientLifecycleRisk } from "@/lib/clients/lifecycle";
 
@@ -61,6 +63,13 @@ export default async function ClientsPage({
   const resolvedSearchParams = await searchParams;
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
+
+  // FC-1B1: independent_instructor is not host-studio staff -- this page
+  // exposes the full studio client roster (names, contact info, lifecycle
+  // detail). Server-side gate, not just an absent nav link.
+  if (!canViewClients(context.studioRole ?? "")) {
+    redirect("/app");
+  }
 
   const studioId = context.studioId;
   const selectedStatus = resolvedSearchParams.status ?? "";

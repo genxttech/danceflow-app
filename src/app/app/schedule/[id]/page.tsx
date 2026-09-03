@@ -18,6 +18,7 @@ import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
   canEditAppointments,
   canMarkAttendance,
+  canViewStudioSchedule,
 } from "@/lib/auth/permissions";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 import {
@@ -408,6 +409,14 @@ export default async function AppointmentDetailPage({
 
   const role = roleRow.role as string;
   const studioId = roleRow.studio_id;
+
+  // FC-1B1: independent_instructor is not host-studio staff -- this page
+  // exposes appointment notes, lesson-recap coaching content, and payment
+  // detail for any appointment in the studio. Server-side gate, not just a
+  // hidden nav link.
+  if (!canViewStudioSchedule(role)) {
+    redirect("/app");
+  }
 
   const [
     { data: appointment, error },
