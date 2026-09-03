@@ -12,6 +12,7 @@ import {
   saveGroupLessonRecapAction,
   unpublishGroupLessonRecapAction,
 } from "./recap-actions";
+import { canMarkAttendance } from "@/lib/auth/permissions";
 
 type Params = Promise<{
   id: string;
@@ -230,7 +231,7 @@ export default async function ScheduleAttendancePage({
 
   const { data: roleRow, error: roleError } = await supabase
     .from("user_studio_roles")
-    .select("studio_id")
+    .select("studio_id, role")
     .eq("user_id", user.id)
     .eq("active", true)
     .limit(1)
@@ -241,6 +242,14 @@ export default async function ScheduleAttendancePage({
   }
 
   const studioId = roleRow.studio_id as string;
+
+  // FC-1B1: independent_instructor is not host-studio staff -- this page
+  // exposes attendee PII (email/phone) and private group-lesson coaching
+  // notes for classes they have no relationship to. Server-side gate, not
+  // just a hidden nav link.
+  if (!canMarkAttendance(roleRow.role as string)) {
+    redirect("/app");
+  }
 
   const [
     { data: appointment, error: appointmentError },

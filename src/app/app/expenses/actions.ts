@@ -140,7 +140,7 @@ async function requireExpenseManager() {
 
   const canManage = Boolean(context.isPlatformAdmin) ||
     canManageOrganizerExpenses(context.studioRole) ||
-    ["studio_owner", "studio_admin", "independent_instructor"].includes(
+    ["studio_owner", "studio_admin"].includes(
       context.studioRole ?? "",
     );
 
@@ -315,7 +315,7 @@ export async function voidExpenseAction(formData: FormData) {
 
   const canManage = Boolean(context.isPlatformAdmin) ||
     canManageOrganizerExpenses(context.studioRole) ||
-    ["studio_owner", "studio_admin", "independent_instructor"].includes(
+    ["studio_owner", "studio_admin"].includes(
       context.studioRole ?? "",
     );
 

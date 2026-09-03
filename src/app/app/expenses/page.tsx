@@ -16,6 +16,7 @@ import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptySta
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import {
   canManageOrganizerExpenses,
+  isIndependentInstructor,
   isOrganizerWorkspaceRole,
 } from "@/lib/auth/permissions";
 import {
@@ -174,6 +175,14 @@ export default async function ExpensesPage() {
     redirect("/app");
   }
 
+  // FC-1B1: independent_instructor is not host-studio staff -- this page
+  // exposes and (until this change) allowed managing the studio's general
+  // expense ledger, unrelated to their own floor-rental fees. Server-side
+  // gate on the whole page, not just the manage affordances below.
+  if (isIndependentInstructor(context.studioRole)) {
+    redirect("/app");
+  }
+
   const isOrganizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
   const expenseCategories = isOrganizerWorkspace
     ? organizerExpenseCategories
@@ -181,7 +190,7 @@ export default async function ExpensesPage() {
 
   const allowManage = Boolean(context.isPlatformAdmin) ||
     canManageOrganizerExpenses(context.studioRole) ||
-    ["studio_owner", "studio_admin", "independent_instructor"].includes(
+    ["studio_owner", "studio_admin"].includes(
       context.studioRole ?? "",
     );
 

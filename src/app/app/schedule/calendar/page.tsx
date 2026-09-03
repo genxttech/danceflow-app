@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewStudioSchedule } from "@/lib/auth/permissions";
 import ScheduleCalendarView from "./ScheduleCalendarView";
 import ScheduleAgendaView from "./ScheduleAgendaView";
 import ScheduleMonthView from "./ScheduleMonthView";
@@ -533,6 +534,15 @@ export default async function ScheduleCalendarPage({
 
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
+
+  // FC-1B1: independent_instructor is not host-studio staff -- this page
+  // exposes appointment notes, price, payment status, and instructor
+  // schedule-block reasons for the entire studio. Server-side gate, not
+  // just a hidden nav link.
+  if (!canViewStudioSchedule(context.studioRole ?? "")) {
+    redirect("/app");
+  }
+
   const studioTimezone = await getStudioTimezone({ supabase, studioId });
 
   const view = normalizeView(params.view);
