@@ -1870,6 +1870,14 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "portal_former_client_ambiguous") {
+    return {
+      kind: "error" as const,
+      message:
+        "Could not determine which portal relationship to disconnect for this client. Contact support if this persists.",
+    };
+  }
+
   if (search.error === "portal_link_conflict") {
     return {
       kind: "error" as const,
@@ -1941,6 +1949,14 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Could not unlink portal access.",
+    };
+  }
+
+  if (search.error === "portal_unlink_ambiguous") {
+    return {
+      kind: "error" as const,
+      message:
+        "Could not determine which portal relationship to disconnect for this client. Contact support if this persists.",
     };
   }
 

@@ -289,6 +289,93 @@ describe("disconnectClientAccount -- H2-B3 stale-mirror cleanup", () => {
   });
 });
 
+describe("disconnectClientAccount -- H2-C2 relationship-scoped unlink", () => {
+  // A client can have more than one simultaneous linked client_account_links
+  // row (e.g. a self relationship for the dancer and a guardian relationship
+  // for a parent). disconnectClientAccount's userId param, when supplied,
+  // scopes the UPDATE to exactly one row -- guaranteed by the
+  // client_account_links_client_user_unique partial unique index on
+  // (client_id, user_id), which means a client can never have two rows with
+  // the same non-null user_id. These tests prove that scoping, which the
+  // H2-B3 suite above never exercised (every one of its fixtures uses a
+  // single client_account_links row per client).
+  const USER_B = "user-b";
+
+  function twoRelationshipFixture() {
+    clientsTable.rows = [clientRow({ id: CLIENT_A, portal_user_id: USER_A })];
+    linksTable.rows = [
+      linkRow({ id: "link-self", user_id: USER_A, relationship_type: "self", is_primary: true }),
+      linkRow({ id: "link-guardian", user_id: USER_B, relationship_type: "guardian", is_primary: false }),
+    ];
+  }
+
+  it("1: disconnecting by userId targets only that relationship's row, leaving the sibling relationship linked", async () => {
+    twoRelationshipFixture();
+
+    await disconnectClientAccount({
+      studioId: STUDIO_A,
+      clientId: CLIENT_A,
+      disconnectedBy: "staff-1",
+      reason: "test",
+      userId: USER_A,
+    });
+
+    expect(linksTable.rows[0].status).toBe("disconnected"); // link-self
+    expect(linksTable.rows[1].status).toBe("linked"); // link-guardian, untouched
+    expect(clientsTable.rows[0].portal_user_id).toBeNull();
+  });
+
+  it("2: disconnecting the other relationship's userId is the mirror image -- only that row moves, the other stays linked", async () => {
+    twoRelationshipFixture();
+
+    await disconnectClientAccount({
+      studioId: STUDIO_A,
+      clientId: CLIENT_A,
+      disconnectedBy: "staff-1",
+      reason: "test",
+      userId: USER_B,
+    });
+
+    expect(linksTable.rows[0].status).toBe("linked"); // link-self, untouched
+    expect(linksTable.rows[1].status).toBe("disconnected"); // link-guardian
+    // The client's stale mirror belongs to USER_A, not the user just
+    // disconnected (USER_B) -- H2-B3's exact-user-match guard correctly
+    // leaves it alone.
+    expect(clientsTable.rows[0].portal_user_id).toBe(USER_A);
+  });
+
+  it("3: formerClient=true with multiple linked rows still scopes the row-level status transition to the targeted userId, while the client-level inactive transition applies once for the whole client", async () => {
+    twoRelationshipFixture();
+
+    await disconnectClientAccount({
+      studioId: STUDIO_A,
+      clientId: CLIENT_A,
+      disconnectedBy: "staff-1",
+      reason: "test",
+      formerClient: true,
+      userId: USER_B,
+    });
+
+    expect(linksTable.rows[0].status).toBe("linked"); // link-self, untouched
+    expect(linksTable.rows[1].status).toBe("former_client"); // link-guardian
+    expect(clientsTable.rows[0].status).toBe("inactive"); // client-level, unaffected by row-scoping
+  });
+
+  it("4: regression guard -- omitting userId is unchanged, still disconnects every linked row for the client (this is disconnectClientAccount's own documented contract; H2-C2 fixed its callers, not this function)", async () => {
+    twoRelationshipFixture();
+
+    await disconnectClientAccount({
+      studioId: STUDIO_A,
+      clientId: CLIENT_A,
+      disconnectedBy: "staff-1",
+      reason: "test",
+    });
+
+    expect(linksTable.rows[0].status).toBe("disconnected");
+    expect(linksTable.rows[1].status).toBe("disconnected");
+  });
+});
+
 describe("leaveStudioRelationship -- H2-B3 stale-mirror cleanup", () => {
   const fakeUser = (id: string) => ({ id }) as { id: string };
 
