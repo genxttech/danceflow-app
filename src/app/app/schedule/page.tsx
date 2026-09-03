@@ -16,12 +16,14 @@ import {
   AlertTriangle,
   Repeat2,
   Sparkles,
+  Ban,
 } from "lucide-react";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
   canCreateAppointments,
   canEditAppointments,
   canMarkAttendance,
+  isIndependentInstructor,
 } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
@@ -31,6 +33,13 @@ import {
   getUnsuppressedWarningUsageTypes,
   type PackageWithItems,
 } from "@/lib/packages/entitlement";
+import {
+  resolveOwnFloorRentalClientIds,
+  getOwnFloorRentalAppointments,
+  getAnonymizedBusyOccupancy,
+  type OwnFloorRentalRow,
+  type AnonymizedBusyBlock,
+} from "@/lib/schedule/independentInstructorSchedule";
 
 type SearchParams = Promise<{
   q?: string;
@@ -814,6 +823,261 @@ function formatCurrency(value: number | string | null | undefined) {
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
+// FC-1B2: independent instructors are not host-studio staff (see FC-1B1) --
+// this is their entire /app/schedule experience: their own floor rentals in
+// full, plus a generic room-occupancy signal for everything else. It must
+// never fall through to the staff query below it. 30 days is a DanceFlow
+// product decision for this surface (independent instructors reasonably
+// plan rented space several weeks ahead) -- deliberately NOT reused from
+// the unrelated 7-day staff next7/self-service-booking conventions
+// elsewhere in this file. Own rentals and anonymized occupancy MUST share
+// this exact same forward boundary: a rental visible on this page always
+// has its room-occupancy context visible too, with no gap between the two
+// queries. Rentals beyond this horizon remain reachable via Manage My
+// Rentals (unbounded, portal-side), never hidden entirely.
+const MY_SCHEDULE_HORIZON_DAYS = 30;
+
+async function loadIndependentInstructorScheduleData(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  userId: string;
+}) {
+  const { supabase, studioId, userId } = params;
+
+  const [{ data: studioRow }] = await Promise.all([
+    supabase
+      .from("studios")
+      .select("slug, timezone")
+      .eq("id", studioId)
+      .maybeSingle(),
+  ]);
+
+  const studioTimeZone =
+    typeof studioRow?.timezone === "string" && studioRow.timezone.trim()
+      ? studioRow.timezone.trim()
+      : CLOSEOUT_TIME_ZONE;
+  const studioSlug = typeof studioRow?.slug === "string" ? studioRow.slug : null;
+
+  const ownClientIds = await resolveOwnFloorRentalClientIds({
+    supabase,
+    studioId,
+    userId,
+  });
+
+  const nowIso = new Date().toISOString();
+  const rangeEndIso = new Date(
+    Date.now() + MY_SCHEDULE_HORIZON_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  // Own rentals are resolved first (not in parallel with occupancy) so
+  // their ids can exclude themselves from the anonymized busy list below --
+  // a floor rental already shown in full must never also appear as a
+  // duplicate anonymous Busy block. Exclusion is by appointment id, not by
+  // client id: a non-floor-rental appointment on the same linked client
+  // record must still surface as generic Busy occupancy.
+  const { upcoming, recent } = await getOwnFloorRentalAppointments({
+    supabase,
+    studioId,
+    ownClientIds,
+    nowIso,
+    rangeEndIso,
+  });
+
+  const busyBlocks = await getAnonymizedBusyOccupancy({
+    supabase,
+    studioId,
+    excludeAppointmentIds: upcoming.map((rental) => rental.id),
+    rangeStartIso: nowIso,
+    rangeEndIso,
+  });
+
+  return { studioTimeZone, studioSlug, upcoming, recent, busyBlocks };
+}
+
+function independentInstructorStatusBadgeClass(status: string) {
+  if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-100";
+  if (status === "attended") return "bg-green-50 text-green-700 ring-1 ring-green-100";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function independentInstructorPaymentLabel(status: string | null) {
+  if (!status) return "Unpaid";
+  return status.replaceAll("_", " ");
+}
+
+function renderIndependentInstructorSchedule(data: {
+  studioTimeZone: string;
+  studioSlug: string | null;
+  upcoming: OwnFloorRentalRow[];
+  recent: OwnFloorRentalRow[];
+  busyBlocks: AnonymizedBusyBlock[];
+  banner: { kind: "success" | "error"; message: string } | null;
+}) {
+  const { studioTimeZone, studioSlug, upcoming, recent, busyBlocks, banner } = data;
+  const manageRentalsHref = studioSlug
+    ? `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals`
+    : null;
+
+  return (
+    <div className="space-y-6 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.09),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.10),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#ffffff_30%)] p-1">
+      {banner ? (
+        <div
+          className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
+            banner.kind === "success"
+              ? "border-green-200 bg-green-50 text-green-700"
+              : "border-red-200 bg-red-50 text-red-700"
+          }`}
+        >
+          {banner.message}
+        </div>
+      ) : null}
+
+      <section className="overflow-hidden rounded-[30px] border border-violet-200/80 bg-white shadow-[0_20px_55px_rgba(76,29,149,0.12)]">
+        <div className="bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] px-5 py-6 text-white sm:px-7">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
+            DanceFlow Schedule
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+            My Schedule
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
+            Your own floor rentals, plus when studio rooms are busy so you can plan around them.
+          </p>
+
+          {manageRentalsHref ? (
+            <Link
+              href={manageRentalsHref}
+              className="mt-5 inline-flex rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-sm hover:bg-orange-50"
+            >
+              Manage My Rentals
+            </Link>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-[28px] border border-orange-200/70 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="rounded-xl bg-[linear-gradient(135deg,#ede9fe_0%,#ffedd5_100%)] p-2 text-violet-800 ring-1 ring-violet-200">
+            <DoorOpen className="h-4 w-4" />
+          </span>
+          <div>
+            <h2 className="text-xl font-semibold text-slate-950">Your Upcoming Rentals</h2>
+            <p className="text-sm text-slate-600">
+              Next {MY_SCHEDULE_HORIZON_DAYS} days. For rentals further out, use Manage My Rentals above.
+            </p>
+          </div>
+        </div>
+
+        {upcoming.length === 0 ? (
+          <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+            <p className="text-sm font-medium text-slate-900">No upcoming rentals</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Booked floor space in the next {MY_SCHEDULE_HORIZON_DAYS} days will show here.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5 space-y-3">
+            {upcoming.map((rental) => (
+              <div
+                key={rental.id}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-slate-900">
+                    {rental.title || "Floor Space Rental"}
+                  </p>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide ${independentInstructorStatusBadgeClass(rental.status)}`}
+                  >
+                    {rental.status.replaceAll("_", " ")}
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 ring-1 ring-slate-200">
+                    {independentInstructorPaymentLabel(rental.payment_status)}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-700">
+                  {formatDateTime(rental.starts_at, studioTimeZone)} – {formatDateTime(rental.ends_at, studioTimeZone)}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">{getRoomName(rental.rooms)}</p>
+                <p className="mt-2 text-sm font-medium text-slate-800">
+                  Rental Fee: {formatCurrency(rental.price_amount)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="overflow-hidden rounded-[28px] border border-orange-200/70 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="rounded-xl bg-slate-100 p-2 text-slate-700 ring-1 ring-slate-200">
+            <Ban className="h-4 w-4" />
+          </span>
+          <div>
+            <h2 className="text-xl font-semibold text-slate-950">Room Availability</h2>
+            <p className="text-sm text-slate-600">
+              Next {MY_SCHEDULE_HORIZON_DAYS} days. Other studio activity shows only as busy or unavailable.
+            </p>
+          </div>
+        </div>
+
+        {busyBlocks.length === 0 ? (
+          <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+            <p className="text-sm text-slate-600">No rooms are marked busy right now.</p>
+          </div>
+        ) : (
+          <div className="mt-5 space-y-2">
+            {busyBlocks.map((block) => (
+              <div
+                key={block.key}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-900">{block.room_name}</p>
+                  <p className="text-sm text-slate-600">
+                    {formatDateTime(block.starts_at, studioTimeZone)} – {formatDateTime(block.ends_at, studioTimeZone)}
+                  </p>
+                </div>
+                <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700">
+                  {block.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {recent.length > 0 ? (
+        <section className="overflow-hidden rounded-[28px] border border-orange-200/70 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-slate-950">Recent Rentals</h2>
+          <div className="mt-5 space-y-2">
+            {recent.map((rental) => (
+              <div
+                key={rental.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-900">
+                    {rental.title || "Floor Space Rental"}
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    {formatDateTime(rental.starts_at, studioTimeZone)} · {getRoomName(rental.rooms)}
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide ${independentInstructorStatusBadgeClass(rental.status)}`}
+                >
+                  {rental.status.replaceAll("_", " ")}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
 
 export default async function SchedulePage({
   searchParams,
@@ -834,6 +1098,21 @@ export default async function SchedulePage({
 
   const role = context.studioRole ?? "";
   const studioId = context.studioId;
+
+  // FC-1B2: independent_instructor is not host-studio staff (FC-1B1) --
+  // this branch must run before any staff appointment/client query below,
+  // using a wholly separate, narrow read path (own floor rentals in full,
+  // everything else anonymized to room + time). Never falls through to the
+  // staff query.
+  if (isIndependentInstructor(role)) {
+    const narrowData = await loadIndependentInstructorScheduleData({
+      supabase,
+      studioId,
+      userId: context.userId,
+    });
+
+    return renderIndependentInstructorSchedule({ ...narrowData, banner });
+  }
 
   const { data: studioTimeZoneRow } = await supabase
     .from("studios")
