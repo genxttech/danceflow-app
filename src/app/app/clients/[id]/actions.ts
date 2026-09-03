@@ -106,6 +106,45 @@ async function getPrimaryLinkedUserId(params: {
   return data?.user_id ?? null;
 }
 
+// H2-C2: unlinkPortalAccessAction and markFormerClientPortalAccessAction need
+// to scope a disconnect to exactly one client_account_links row.
+// getPrimaryLinkedUserId (above) is unsuitable for that: is_primary is only
+// ever set on relationship_type === "self" rows, so a client linked solely
+// via a guardian/parent/billing_contact/dependent_manager relationship --
+// a normal, staff-selectable relationship type, not an edge case -- would
+// have no "primary" row even though there is exactly one linked row and
+// therefore zero ambiguity about the target. This resolver distinguishes
+// "no ambiguity" (exactly one linked row -- use it, primary flag or not)
+// from actual ambiguity (multiple linked rows with no single resolvable
+// primary), and fails closed (returns null) only in the latter case.
+async function resolveUnlinkTargetUserId(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  clientId: string;
+}): Promise<string | null> {
+  const { data, error } = await params.supabase
+    .from("client_account_links")
+    .select("user_id, is_primary")
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .eq("status", "linked");
+
+  if (error) throw new Error(error.message);
+
+  const rows: { user_id: string | null; is_primary: boolean | null }[] = data ?? [];
+
+  if (rows.length === 1) {
+    return rows[0].user_id ?? null;
+  }
+
+  if (rows.length > 1) {
+    const primaryRows = rows.filter((row) => row.is_primary === true && Boolean(row.user_id));
+    return primaryRows.length === 1 ? primaryRows[0].user_id : null;
+  }
+
+  return null;
+}
+
 type PortalProfileLink = {
   id: string;
   email: string | null;
@@ -636,8 +675,19 @@ export async function unlinkPortalAccessAction(formData: FormData) {
     clientId,
     returnTo,
   });
-  const linkedUserId = await getPrimaryLinkedUserId({ supabase, studioId, clientId });
+  const linkedUserId = await resolveUnlinkTargetUserId({ supabase, studioId, clientId });
   const { data: authData } = await supabase.auth.getUser();
+
+  // H2-C2: a client can have more than one simultaneous linked relationship
+  // row (e.g. a self row and a guardian row). disconnectClientAccount only
+  // scopes to a single row when given an explicit userId -- omitting it
+  // disconnects every linked row for this client. resolveUnlinkTargetUserId
+  // returns null only when the target is genuinely ambiguous (or the sole
+  // linked row is malformed with no user_id); fail closed rather than
+  // silently disconnecting every relationship.
+  if (!linkedUserId) {
+    redirectWithResult(returnTo, "error", "portal_unlink_ambiguous");
+  }
 
   try {
     await deactivateHostWorkspaceIndependentInstructorRole({
@@ -651,6 +701,7 @@ export async function unlinkPortalAccessAction(formData: FormData) {
       clientId,
       disconnectedBy: authData.user?.id ?? "",
       reason,
+      userId: linkedUserId,
     });
   } catch (error) {
     console.error("Portal disconnect failed", error);
@@ -679,8 +730,16 @@ export async function markFormerClientPortalAccessAction(formData: FormData) {
     clientId,
     returnTo,
   });
-  const linkedUserId = await getPrimaryLinkedUserId({ supabase, studioId, clientId });
+  const linkedUserId = await resolveUnlinkTargetUserId({ supabase, studioId, clientId });
   const { data: authData } = await supabase.auth.getUser();
+
+  // H2-C2: see the matching guard in unlinkPortalAccessAction above -- same
+  // reasoning applies here (a client can have multiple simultaneous linked
+  // relationship rows; without a resolvable target, the disconnect target
+  // is ambiguous and must fail closed rather than sweep every relationship).
+  if (!linkedUserId) {
+    redirectWithResult(returnTo, "error", "portal_former_client_ambiguous");
+  }
 
   try {
     await deactivateHostWorkspaceIndependentInstructorRole({
@@ -695,6 +754,7 @@ export async function markFormerClientPortalAccessAction(formData: FormData) {
       disconnectedBy: authData.user?.id ?? "",
       reason,
       formerClient: true,
+      userId: linkedUserId,
     });
   } catch (error) {
     console.error("Former-client transition failed", error);
