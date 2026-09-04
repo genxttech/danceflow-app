@@ -480,13 +480,20 @@ async function getOrganizerAriaSidebarCounts({
   };
 }
 
-function buildStudioSections(params: {
+export function buildStudioSections(params: {
   unreadNotificationsCount: number;
   leadsBadgeCount: number;
   role: string | null | undefined;
   isPlatformAdmin: boolean;
   portalHref: string | null;
   publicProfileHref: string | null;
+  // FC-1B4: whether this user currently has a status='linked'
+  // client_account_links row at the selected studio -- distinct from
+  // user_studio_roles.active (see FC-1B4 lifecycle trace). Only meaningful
+  // for the independent-instructor branch below; the "My Studio Portal"
+  // link must not be shown when there is no live portal relationship to
+  // send them to, even though their /app staff access is unaffected.
+  hasLinkedPortalAccess?: boolean;
 }) {
   const {
     unreadNotificationsCount,
@@ -495,6 +502,7 @@ function buildStudioSections(params: {
     isPlatformAdmin,
     portalHref,
     publicProfileHref,
+    hasLinkedPortalAccess = false,
   } = params;
 
   const isOwner = isPlatformAdmin || role === "studio_owner";
@@ -511,7 +519,7 @@ function buildStudioSections(params: {
         items: [
           { label: "Dashboard", href: "/app", icon: "dashboard" },
           { label: "My Schedule", href: "/app/schedule", icon: "schedule" },
-          ...(portalHref
+          ...(portalHref && hasLinkedPortalAccess
             ? [
                 {
                   label: "My Studio Portal",
@@ -526,14 +534,6 @@ function buildStudioSections(params: {
             icon: "notifications",
             badge: unreadNotificationsCount,
           },
-        ],
-      },
-      {
-        title: "Floor Rental",
-        items: [
-          { label: "Pay Floor Fees", href: "/app/payments", icon: "payments" },
-          { label: "Expenses", href: "/app/expenses", icon: "payments" },
-          { label: "Rooms / Floor Space", href: "/app/rooms", icon: "rooms" },
         ],
       },
       {
@@ -1061,6 +1061,35 @@ export default async function AppLayout({
       })
     : { activeCount: 0, highPriorityCount: 0 };
 
+  // FC-1B4: the independent-instructor "My Studio Portal" sidebar link must
+  // reflect a live client_account_links relationship at this studio, not
+  // just the studio having a slug -- user_studio_roles.active (the /app
+  // staff role) and this portal link are two intentionally separate
+  // lifecycles (see FC-1B4 lifecycle trace), so losing the portal link
+  // alone must not be inferred from -- or infer -- staff access.
+  //
+  // Scope note: this is a host-relationship UI visibility gate only. It
+  // says nothing about what capabilities an independent instructor should
+  // have -- it must not be read as, or extended into, the definition of
+  // capabilities for the planned Independent Instructor Business Workspace
+  // persona (a studio-owner-equivalent role, not yet implemented), which
+  // will not be defined by any host-studio relationship at all.
+  const hasLinkedPortalAccess =
+    context.studioRole === "independent_instructor"
+      ? Boolean(
+          (
+            await supabase
+              .from("client_account_links")
+              .select("id")
+              .eq("studio_id", context.studioId)
+              .eq("user_id", user.id)
+              .eq("status", "linked")
+              .limit(1)
+              .maybeSingle()
+          ).data,
+        )
+      : false;
+
   const sections = organizerWorkspace
     ? buildOrganizerSections({
         unreadNotificationsCount,
@@ -1076,6 +1105,7 @@ export default async function AppLayout({
         role: context.studioRole,
         isPlatformAdmin: context.isPlatformAdmin,
         portalHref,
+        hasLinkedPortalAccess,
         publicProfileHref,
       });
 
