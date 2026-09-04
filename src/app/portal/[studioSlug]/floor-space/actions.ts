@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
+import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
 
 type ActionState = {
   error: string;
@@ -179,21 +180,6 @@ function appendQueryParam(url: string, key: string, value: string) {
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
 }
 
-function appointmentTypeLabel(value: string) {
-  if (value === "private_lesson") return "Private Lesson";
-  if (value === "group_class") return "Group Class";
-  if (value === "intro_lesson") return "Intro Lesson";
-  if (value === "coaching") return "Coaching";
-  if (value === "practice_party") return "Practice Party";
-  if (value === "floor_space_rental") return "Floor Space Rental";
-  if (value === "room_unavailable") return "Room Unavailable";
-  if (value === "event") return "Event";
-
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
 async function requireIndependentInstructorPortalAccess(studioSlug: string, requestedClientId?: string | null) {
   const supabase = await createClient();
 
@@ -246,97 +232,75 @@ async function requireIndependentInstructorPortalAccess(studioSlug: string, requ
   return { supabase, user, studio, client };
 }
 
-async function getFloorSpaceUnavailableWarning(params: {
+const FLOOR_SPACE_CONFLICT_MESSAGE =
+  "That room is unavailable for the selected time. Choose another room or time.";
+
+/**
+ * FC-1B3 Room Resource Model Foundation: floor-space rooms may be shared.
+ * Overlapping room_id + time is NOT itself a conflict -- detectAppointmentConflicts'
+ * room branch (src/lib/schedule/conflicts.ts) rejects only when the room is
+ * unavailable, an exclusive booking is involved, or configured
+ * simultaneous-booking capacity would be exceeded. Floor rentals always
+ * request non-exclusive use in this foundation slice (no independent-
+ * instructor exclusivity control exists yet -- see FC-1B3 audit); the
+ * requesting client's own overlapping appointments are still rejected via
+ * the same call's clientId branch (personal scheduling conflict, unrelated
+ * to room sharing).
+ *
+ * instructorId is deliberately never passed here: a floor rental's
+ * instructor_id is the independent instructor's own linked identity
+ * record (for reporting), not a real staff teaching assignment, so an
+ * instructor-schedule-block conflict check is a staff-specific concept
+ * that does not apply to floor-space room booking.
+ *
+ * One narrow case detectAppointmentConflicts cannot express on its own is
+ * preserved here explicitly: a studio-wide closure (a room_unavailable row
+ * with room_id IS NULL) blocks every room, including when no specific room
+ * was requested -- detectAppointmentConflicts only matches an exact roomId,
+ * not "null OR this room".
+ */
+async function checkFloorSpaceBookingConflict(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
   roomId: string | null;
-  startsAt: string;
-  endsAt: string;
-}) {
-  const { supabase, studioId, roomId, startsAt, endsAt } = params;
-
-  let query = supabase
-    .from("appointments")
-    .select("id, title, appointment_type, starts_at, ends_at, room_id")
-    .eq("studio_id", studioId)
-    .eq("appointment_type", "room_unavailable")
-    .neq("status", "cancelled")
-    .lt("starts_at", endsAt)
-    .gt("ends_at", startsAt)
-    .limit(1);
-
-  if (roomId) {
-    query = query.or(`room_id.eq.${roomId},room_id.is.null`);
-  } else {
-    query = query.is("room_id", null);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(`Failed to check floor space availability: ${error.message}`);
-  }
-
-  const match = data?.[0];
-
-  if (!match) {
-    return {
-      hasConflict: false as const,
-      message: "",
-    };
-  }
-
-  return {
-    hasConflict: true as const,
-    message:
-      match.title ||
-      `${appointmentTypeLabel(
-        match.appointment_type
-      )}: this floor space is marked unavailable during the selected time.`,
-  };
-}
-
-async function getClientOverlapWarning(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
-  studioId: string;
   clientId: string;
   startsAt: string;
   endsAt: string;
-}) {
-  const { supabase, studioId, clientId, startsAt, endsAt } = params;
+  excludeAppointmentId?: string;
+}): Promise<{ hasConflict: boolean }> {
+  const { supabase, studioId, roomId, clientId, startsAt, endsAt, excludeAppointmentId } = params;
 
-  const { data, error } = await supabase
+  const { count: studioWideClosureCount, error: studioWideClosureError } = await supabase
     .from("appointments")
-    .select(`
-      id,
-      title,
-      appointment_type,
-      starts_at,
-      ends_at
-    `)
+    .select("id", { count: "exact", head: true })
     .eq("studio_id", studioId)
-    .eq("client_id", clientId)
+    .eq("appointment_type", "room_unavailable")
+    .is("room_id", null)
     .neq("status", "cancelled")
     .lt("starts_at", endsAt)
-    .gt("ends_at", startsAt)
-    .limit(1);
+    .gt("ends_at", startsAt);
 
-  if (error) {
-    throw new Error(`Failed to check booking overlap: ${error.message}`);
+  if (studioWideClosureError) {
+    throw new Error(
+      `Failed to check floor space availability: ${studioWideClosureError.message}`,
+    );
   }
 
-  const match = data?.[0];
-
-  if (!match) {
-    return { hasConflict: false as const };
+  if ((studioWideClosureCount ?? 0) > 0) {
+    return { hasConflict: true };
   }
 
-  const label = match.title || appointmentTypeLabel(match.appointment_type);
+  const conflict = await detectAppointmentConflicts({
+    studioId,
+    startsAt,
+    endsAt,
+    roomId,
+    clientId,
+    excludeAppointmentId,
+    requestExclusiveRoomUse: false,
+  });
 
-  return {
-    hasConflict: true as const,
-    message: `You already have an overlapping booking during this time (${label}).`,
-  };
+  return { hasConflict: conflict.hasConflict };
 }
 
 export async function createFloorSpaceRentalAction(
@@ -384,6 +348,13 @@ export async function createFloorSpaceRentalAction(
     const studioTimeZone = getStudioTimeZone(studio.timezone);
     const seen = new Set<string>();
     const rows = [];
+    // FC-1B3A: sibling-slot overlap guard. All slots in one submission share
+    // the single top-level roomId above, so two overlapping slots would
+    // otherwise book the same room against itself before either reaches the
+    // real-occupancy check below (which only compares against ALREADY
+    // COMMITTED rows -- it cannot see a sibling slot still in this same,
+    // not-yet-inserted batch). Checked in-memory, before any database call.
+    const acceptedSlotRanges: { startMs: number; endMs: number }[] = [];
 
     for (const slot of slots) {
       const startsAt = toIsoDateTime(slot.date, slot.startTime, studioTimeZone);
@@ -423,34 +394,33 @@ export async function createFloorSpaceRentalAction(
 
       seen.add(dedupeKey);
 
-      const clientOverlap = await getClientOverlapWarning({
+      const startMs = startDate.getTime();
+      const endMs = endDate.getTime();
+      const overlapsSibling = acceptedSlotRanges.some(
+        (range) => startMs < range.endMs && endMs > range.startMs,
+      );
+
+      if (overlapsSibling) {
+        return {
+          error: "Two of the selected time slots overlap. Adjust the times and try again.",
+          success: "",
+        };
+      }
+
+      acceptedSlotRanges.push({ startMs, endMs });
+
+      const bookingConflict = await checkFloorSpaceBookingConflict({
         supabase,
         studioId: studio.id,
+        roomId,
         clientId: client.id,
         startsAt,
         endsAt,
       });
 
-      if (clientOverlap.hasConflict) {
+      if (bookingConflict.hasConflict) {
         return {
-          error: clientOverlap.message,
-          success: "",
-        };
-      }
-
-      const unavailableWarning = await getFloorSpaceUnavailableWarning({
-        supabase,
-        studioId: studio.id,
-        roomId,
-        startsAt,
-        endsAt,
-      });
-
-      if (unavailableWarning.hasConflict) {
-        return {
-          error:
-            unavailableWarning.message ||
-            "This floor space is marked unavailable during the selected time.",
+          error: FLOOR_SPACE_CONFLICT_MESSAGE,
           success: "",
         };
       }
