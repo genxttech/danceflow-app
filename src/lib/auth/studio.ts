@@ -165,7 +165,7 @@ function normalizeWorkspaceRole(row: StudioRoleRow) {
   return row.role;
 }
 
-async function getAccessibleStudioRolesForUser(userId: string) {
+export async function getAccessibleStudioRolesForUser(userId: string) {
   const supabase = await createClient();
 
   const { data, error } = await supabase

@@ -16,6 +16,7 @@ import {
   listLinkedPortalDestinations,
   PORTAL_SELECTED_STUDIO_COOKIE,
 } from "@/lib/auth/portal-linking";
+import { getAccessibleStudioRolesForUser } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 
 function getString(formData: FormData, key: string) {
@@ -50,23 +51,20 @@ function getPostLoginPath(hasWorkspaceRole: boolean) {
   return hasWorkspaceRole ? "/app" : "/account";
 }
 
-async function hasActiveWorkspaceRole(userId: string): Promise<boolean> {
-  const supabase = await createClient();
-
-  const { data: workspaceRole, error } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id, role")
-    .eq("user_id", userId)
-    .eq("active", true)
-    .eq("role", "studio_owner")
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    return false;
-  }
-
-  return !!workspaceRole?.studio_id;
+// FC-1B5B: reuses the same shared active-workspace source of truth /app's
+// own layout uses (getAccessibleStudioRolesForUser -- merges active
+// user_studio_roles and active organizer_users), rather than a hand-rolled,
+// studio_owner-only query. Any active role at any studio/organizer
+// workspace now qualifies for /app; a stale independent_instructor label
+// (clients.is_independent_instructor) alone never does, since that flag is
+// never consulted by this helper.
+// FC-1B5B: exported (alongside getPostLoginRedirectPath below) so the
+// password-login routing decision can be unit-tested directly, without
+// exercising signInWithPassword/rate-limiting/profile-sync -- none of which
+// bear on the /app-vs-/account-vs-portal decision under test.
+export async function hasActiveWorkspaceRole(userId: string): Promise<boolean> {
+  const roles = await getAccessibleStudioRolesForUser(userId);
+  return roles.length > 0;
 }
 
 async function getPortalRedirectPath(userId: string): Promise<string | null> {
@@ -82,7 +80,7 @@ async function getPortalRedirectPath(userId: string): Promise<string | null> {
   return null;
 }
 
-async function getPostLoginRedirectPath(userId: string): Promise<string> {
+export async function getPostLoginRedirectPath(userId: string): Promise<string> {
   const hasWorkspaceRole = await hasActiveWorkspaceRole(userId);
 
   if (hasWorkspaceRole) {
