@@ -15,29 +15,18 @@ import {
   listLinkedPortalDestinations,
   PORTAL_SELECTED_STUDIO_COOKIE,
 } from "@/lib/auth/portal-linking";
+import { getAccessibleStudioRolesForUser, isOrganizerRole } from "@/lib/auth/studio";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
-type StudioRoleRow = {
-  studio_id: string;
-  role: string;
-  studios:
-    | {
-        id: string;
-        name: string;
-        slug: string | null;
-        public_name: string | null;
-      }
-    | {
-        id: string;
-        name: string;
-        slug: string | null;
-        public_name: string | null;
-      }[]
-    | null;
-};
+// FC-1B5C: the shared active-workspace source of truth from studio.ts
+// (merges active user_studio_roles and active organizer_users) replaces
+// the local, incomplete getActiveStudioRoles query this file used to have.
+type WorkspaceRoleRow = Awaited<
+  ReturnType<typeof getAccessibleStudioRolesForUser>
+>[number];
 
-function getStudioFromJoin(value: StudioRoleRow["studios"]) {
+function getStudioFromJoin(value: WorkspaceRoleRow["studios"]) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
@@ -75,35 +64,14 @@ function isGenericAuthLandingPath(path: string | null) {
   );
 }
 
-async function getActiveStudioRoles(params: {
-  supabase: ReturnType<typeof createServerClient>;
-  userId: string;
-}) {
-  const { supabase, userId } = params;
-
-  const { data, error } = await supabase
-    .from("user_studio_roles")
-    .select(
-      `
-      studio_id,
-      role,
-      studios (
-        id,
-        name,
-        slug,
-        public_name
-      )
-    `
-    )
-    .eq("user_id", userId)
-    .eq("active", true)
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    throw new Error(`Could not determine account access: ${error.message}`);
-  }
-
-  return (data ?? []) as StudioRoleRow[];
+// FC-1B5C: getAccessibleStudioRolesForUser orders by studio_id (the
+// ordering other /app callers rely on) -- callback re-sorts its own copy
+// by created_at ascending here to preserve the workspace-preference
+// ordering this route has always used, without needing a second query.
+export function sortByCreatedAtAscending(roles: WorkspaceRoleRow[]) {
+  return [...roles].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
 }
 
 async function getPortalRedirectPath(params: {
@@ -165,8 +133,8 @@ function getFallbackNextPathFromUserMetadata(user: {
   return null;
 }
 
-function pickPreferredWorkspace(params: {
-  roles: StudioRoleRow[];
+export function pickPreferredWorkspace(params: {
+  roles: WorkspaceRoleRow[];
   requestedNextPath: string | null;
   fallbackNextPath: string | null;
 }) {
@@ -181,10 +149,16 @@ function pickPreferredWorkspace(params: {
     nextPath.startsWith("/app/events");
 
   if (wantsOrganizer) {
+    // FC-1B5C: a genuine organizer_users-sourced role already carries the
+    // correct organizer_owner/admin/staff role string, so isOrganizerRole
+    // recognizes it directly with no name heuristic needed. The legacy
+    // isOrganizerWorkspaceName heuristic is preserved unchanged (not
+    // widened) for rows that are only reachable via studio-name matching
+    // (e.g. a studio_owner/admin row whose studio name looks organizer).
     const organizerWorkspace =
       roles.find((row) => {
         const studio = getStudioFromJoin(row.studios);
-        return isOrganizerWorkspaceName(studio?.name);
+        return isOrganizerRole(row.role) || isOrganizerWorkspaceName(studio?.name);
       }) ?? null;
 
     if (organizerWorkspace) {
@@ -195,10 +169,10 @@ function pickPreferredWorkspace(params: {
   return roles[0];
 }
 
-function getPostAuthDestination(params: {
+export function getPostAuthDestination(params: {
   requestedNextPath: string | null;
   fallbackNextPath: string | null;
-  selectedWorkspace: StudioRoleRow | null;
+  selectedWorkspace: WorkspaceRoleRow | null;
   portalPath: string | null;
 }) {
   const { requestedNextPath, fallbackNextPath, selectedWorkspace, portalPath } =
@@ -353,13 +327,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  let roles: StudioRoleRow[] = [];
+  let roles: WorkspaceRoleRow[] = [];
 
   try {
-    roles = await getActiveStudioRoles({
-      supabase,
-      userId: user.id,
-    });
+    // FC-1B5C: pass this route's own already-authenticated `supabase`
+    // instance explicitly -- it just performed the code/token exchange, so
+    // its session is only available in-memory on this instance and via
+    // request/response cookie objects this handler manages itself. The
+    // default internal client getAccessibleStudioRolesForUser would
+    // otherwise construct (via next/headers cookies()) cannot see that
+    // session within this same request, which would silently read as
+    // unauthenticated and return zero rows.
+    const rawRoles = await getAccessibleStudioRolesForUser(user.id, supabase);
+    roles = sortByCreatedAtAscending(rawRoles);
   } catch (roleError) {
     return NextResponse.redirect(
       new URL(buildLoginErrorPath("role-lookup-failed"), request.url)
