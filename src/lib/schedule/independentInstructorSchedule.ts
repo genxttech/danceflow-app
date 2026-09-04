@@ -27,7 +27,11 @@ export type AnonymizedBusyBlock = {
   room_name: string;
   starts_at: string;
   ends_at: string;
-  label: "Busy" | "Unavailable";
+  // FC-1B2 Terminology Alignment: "In use" is ordinary shared occupancy
+  // (rooms may legitimately be shared under FC-1B3 -- occupied does not
+  // mean unbookable). "Unavailable" stays reserved for a true hard block
+  // (room/studio closure). Never imply the reverse.
+  label: "In use" | "Unavailable";
 };
 
 /**
@@ -150,7 +154,7 @@ export async function getOwnFloorRentalAppointments(params: {
  * window), not by client id. Excluding by client id was wrong -- it made
  * ANY appointment on the instructor's linked client record vanish
  * entirely, including a hypothetical non-floor-rental appointment on that
- * same client, which must still surface as generic Busy occupancy (it
+ * same client, which must still surface as generic "In use" occupancy (it
  * genuinely occupies a room) even though it is not itself an own rental.
  */
 export async function getAnonymizedBusyOccupancy(params: {
@@ -201,7 +205,7 @@ export async function getAnonymizedBusyOccupancy(params: {
 
   function toEntries(
     rows: { starts_at: string; ends_at: string; rooms: { id?: string; name: string } | { id?: string; name: string }[] | null }[] | null,
-    label: "Busy" | "Unavailable",
+    label: "In use" | "Unavailable",
   ): AnonymizedBusyBlock[] {
     return (rows ?? [])
       .map((row) => {
@@ -221,7 +225,7 @@ export async function getAnonymizedBusyOccupancy(params: {
   }
 
   return [
-    ...toEntries(busyAppointments, "Busy"),
+    ...toEntries(busyAppointments, "In use"),
     ...toEntries(busyBlocks, "Unavailable"),
   ].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
 }
