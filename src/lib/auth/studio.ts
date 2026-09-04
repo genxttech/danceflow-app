@@ -11,6 +11,11 @@ type StudioRoleRow = {
   studio_id: string;
   role: string;
   active: boolean;
+  // FC-1B5C: additive field -- lets callback re-sort this shared helper's
+  // result by created_at to preserve its own existing workspace-selection
+  // ordering, without callback needing a second, duplicate query. Existing
+  // callers in this file order by studio_id and never read this field.
+  created_at: string;
   studios?:
     | {
         id: string;
@@ -31,6 +36,7 @@ type OrganizerUserRow = {
   organizer_id: string;
   role: string;
   active: boolean;
+  created_at: string;
   organizers:
     | {
         id: string;
@@ -165,8 +171,20 @@ function normalizeWorkspaceRole(row: StudioRoleRow) {
   return row.role;
 }
 
-export async function getAccessibleStudioRolesForUser(userId: string) {
-  const supabase = await createClient();
+// FC-1B5C: accepts an optional pre-authenticated Supabase client. Existing
+// callers omit it and get the same internally-constructed request-scoped
+// client as before (unchanged behavior). This exists specifically for
+// callback/route.ts, which establishes a session on its own
+// createServerClient instance moments before calling this function --
+// next/headers' cookies() (what the default createClient() reads from)
+// cannot see that session yet within the same request, so callback must
+// pass its own already-authenticated client to get correct RLS-scoped
+// results instead of silently reading as unauthenticated.
+export async function getAccessibleStudioRolesForUser(
+  userId: string,
+  suppliedSupabase?: Awaited<ReturnType<typeof createClient>>,
+) {
+  const supabase = suppliedSupabase ?? (await createClient());
 
   const { data, error } = await supabase
     .from("user_studio_roles")
@@ -174,6 +192,7 @@ export async function getAccessibleStudioRolesForUser(userId: string) {
       studio_id,
       role,
       active,
+      created_at,
       studios (
         id,
         name,
@@ -199,6 +218,7 @@ export async function getAccessibleStudioRolesForUser(userId: string) {
       organizer_id,
       role,
       active,
+      created_at,
       organizers (
         id,
         name,
@@ -234,6 +254,7 @@ export async function getAccessibleStudioRolesForUser(userId: string) {
         studio_id: studioId,
         role: row.role,
         active: row.active,
+        created_at: row.created_at,
         studios: {
           id: linkedStudio.id,
           name: linkedStudio.name,
