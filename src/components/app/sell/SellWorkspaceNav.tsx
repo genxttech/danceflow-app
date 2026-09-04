@@ -29,14 +29,26 @@ function activePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export default function SellWorkspaceNav({
-  role,
+// FC-1B4: pulled out as a pure function (icons omitted) so the item list --
+// and specifically the FC-1B1 expenses-lockdown contradiction this slice
+// fixes -- can be unit-tested without rendering the component.
+//
+// Scope note: this nav renders only on today's host-studio staff routes
+// (/app/sell, /app/catalog, /app/orders, /app/payments, /app/packages,
+// /app/memberships, /app/expenses, /app/instructor-pay), so removing
+// independent_instructor from canManageExpenses below is correct for the
+// CURRENT host-relationship role (it matches the FC-1B1 lockdown on
+// /app/expenses itself). It is NOT a statement that this role can never
+// manage expenses -- the planned Independent Instructor Business Workspace
+// (a studio-owner-equivalent persona, see FC-1B4 revision) may reuse this
+// same component/route set once that persona exists as its own role or
+// capability, at which point this exclusion will need revisiting. Do not
+// read this file as evidence that independent instructors are permanently
+// commerce-restricted.
+export function getSellWorkspaceNavItems(
+  role: string | null | undefined,
   isPlatformAdmin = false,
-}: {
-  role: string | null | undefined;
-  isPlatformAdmin?: boolean;
-}) {
-  const pathname = usePathname() || "/app/sell";
+): { label: string; href: string }[] {
   const canSell =
     isPlatformAdmin ||
     canSellCommerce(role) ||
@@ -46,39 +58,55 @@ export default function SellWorkspaceNav({
   const canManageExpenses =
     isPlatformAdmin ||
     isOrganizerWorkspaceRole(role) ||
-    ["studio_owner", "studio_admin", "independent_instructor"].includes(
-      role ?? "",
-    );
+    ["studio_owner", "studio_admin"].includes(role ?? "");
 
-  const items = [
-    canSell
-      ? { label: "Sell", href: "/app/sell", icon: ShoppingBag }
-      : null,
+  return [
+    canSell ? { label: "Sell", href: "/app/sell" } : null,
     isPlatformAdmin || canManageCommerce(role)
-      ? { label: "Catalog", href: "/app/catalog", icon: Boxes }
+      ? { label: "Catalog", href: "/app/catalog" }
       : null,
     isPlatformAdmin || canViewCommerceOrders(role)
-      ? { label: "Orders", href: "/app/orders", icon: ReceiptText }
+      ? { label: "Orders", href: "/app/orders" }
       : null,
     isPlatformAdmin || canViewPayments(role)
-      ? { label: "Payments", href: "/app/payments", icon: CreditCard }
+      ? { label: "Payments", href: "/app/payments" }
       : null,
     isPlatformAdmin || canManagePackages(role)
-      ? { label: "Packages", href: "/app/packages", icon: Package }
+      ? { label: "Packages", href: "/app/packages" }
       : null,
     isPlatformAdmin || canManageMemberships(role)
-      ? { label: "Memberships", href: "/app/memberships", icon: WalletCards }
+      ? { label: "Memberships", href: "/app/memberships" }
       : null,
-    canManageExpenses
-      ? { label: "Expenses", href: "/app/expenses", icon: BadgeDollarSign }
-      : null,
+    canManageExpenses ? { label: "Expenses", href: "/app/expenses" } : null,
     isPlatformAdmin || canPreparePayroll(role)
-      ? { label: "Instructor Pay", href: "/app/instructor-pay", icon: UsersRound }
+      ? { label: "Instructor Pay", href: "/app/instructor-pay" }
       : null,
-  ].filter(
-    (item): item is { label: string; href: string; icon: typeof ShoppingBag } =>
-      Boolean(item),
-  );
+  ].filter((item): item is { label: string; href: string } => Boolean(item));
+}
+
+const ICONS_BY_HREF: Record<string, typeof ShoppingBag> = {
+  "/app/sell": ShoppingBag,
+  "/app/catalog": Boxes,
+  "/app/orders": ReceiptText,
+  "/app/payments": CreditCard,
+  "/app/packages": Package,
+  "/app/memberships": WalletCards,
+  "/app/expenses": BadgeDollarSign,
+  "/app/instructor-pay": UsersRound,
+};
+
+export default function SellWorkspaceNav({
+  role,
+  isPlatformAdmin = false,
+}: {
+  role: string | null | undefined;
+  isPlatformAdmin?: boolean;
+}) {
+  const pathname = usePathname() || "/app/sell";
+  const items = getSellWorkspaceNavItems(role, isPlatformAdmin).map((item) => ({
+    ...item,
+    icon: ICONS_BY_HREF[item.href],
+  }));
 
   if (items.length < 2) return null;
 
