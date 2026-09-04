@@ -8,6 +8,7 @@ import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signin
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireClientEditAccess } from "@/lib/auth/serverRoleGuard";
 import {
   CLIENT_REFERRAL_SOURCE_OPTIONS,
   CLIENT_SKILL_LEVEL_OPTIONS,
@@ -620,14 +621,11 @@ export async function createClientAction(
   let onboardingWarning = "";
 
   try {
-    const { supabase, studioId } = await getCurrentUserStudioContext();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { error: "Your session expired. Sign in and try again." };
-    }
+    // FC-1B5A: requireClientEditAccess() enforces canEditClients before any
+    // client-table query below (including the duplicate-email existence
+    // check) -- this is the mandatory authorization boundary for this
+    // action, not a UI-side check.
+    const { supabase, studioId, user } = await requireClientEditAccess();
 
     const firstNameResult = cleanFormText(formData, "firstName", {
       fieldLabel: "First name",
@@ -1004,7 +1002,8 @@ export async function updateClientAction(
   let clientIdForRedirect = "";
 
   try {
-    const { supabase, studioId } = await getCurrentUserStudioContext();
+    // FC-1B5A: mandatory authorization boundary -- see createClientAction.
+    const { supabase, studioId } = await requireClientEditAccess();
 
     const clientIdResult = normalizeOptionalUuid(rawFormString(formData, "clientId"), "Client");
     const firstNameResult = cleanFormText(formData, "firstName", {
@@ -1245,7 +1244,18 @@ export async function archiveClientAction(formData: FormData) {
     redirect(appendQueryParam(returnTo, "error", "missing_client"));
   }
 
-  const { supabase, studioId } = await getCurrentUserStudioContext();
+  // FC-1B5A: mandatory authorization boundary -- see createClientAction.
+  // requireClientEditAccess() throws on denial; this action uses the
+  // redirect/error-param convention rather than a returned {error} object,
+  // so the thrown permission error is translated into that convention here
+  // instead of being left to propagate unhandled.
+  let supabase: Awaited<ReturnType<typeof requireClientEditAccess>>["supabase"];
+  let studioId: string;
+  try {
+    ({ supabase, studioId } = await requireClientEditAccess());
+  } catch {
+    redirect(appendQueryParam(returnTo, "error", "unauthorized"));
+  }
 
   const { error } = await supabase
     .from("clients")
