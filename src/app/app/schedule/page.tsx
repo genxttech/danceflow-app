@@ -870,11 +870,11 @@ async function loadIndependentInstructorScheduleData(params: {
   ).toISOString();
 
   // Own rentals are resolved first (not in parallel with occupancy) so
-  // their ids can exclude themselves from the anonymized busy list below --
-  // a floor rental already shown in full must never also appear as a
-  // duplicate anonymous Busy block. Exclusion is by appointment id, not by
-  // client id: a non-floor-rental appointment on the same linked client
-  // record must still surface as generic Busy occupancy.
+  // their ids can exclude themselves from the anonymized occupancy list
+  // below -- a floor rental already shown in full must never also appear
+  // as a duplicate anonymous "In use" block. Exclusion is by appointment
+  // id, not by client id: a non-floor-rental appointment on the same
+  // linked client record must still surface as generic "In use" occupancy.
   const { upcoming, recent } = await getOwnFloorRentalAppointments({
     supabase,
     studioId,
@@ -942,7 +942,7 @@ function renderIndependentInstructorSchedule(data: {
             My Schedule
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
-            Your own floor rentals, plus when studio rooms are busy so you can plan around them.
+            Your own floor rentals, plus when studio rooms are in use so you can plan around them.
           </p>
 
           {manageRentalsHref ? (
@@ -1017,14 +1017,14 @@ function renderIndependentInstructorSchedule(data: {
           <div>
             <h2 className="text-xl font-semibold text-slate-950">Room Availability</h2>
             <p className="text-sm text-slate-600">
-              Next {MY_SCHEDULE_HORIZON_DAYS} days. Other studio activity shows only as busy or unavailable.
+              Next {MY_SCHEDULE_HORIZON_DAYS} days. Other studio activity shows only as in use or unavailable.
             </p>
           </div>
         </div>
 
         {busyBlocks.length === 0 ? (
           <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-            <p className="text-sm text-slate-600">No rooms are marked busy right now.</p>
+            <p className="text-sm text-slate-600">No rooms are in use right now.</p>
           </div>
         ) : (
           <div className="mt-5 space-y-2">

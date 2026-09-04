@@ -13,7 +13,7 @@ import { renderToStaticMarkup } from "react-dom/server";
  * independent_instructor at this exact route via a wholly separate,
  * narrow, role-conditional read path added to the SAME page component:
  * their own floor rentals in full, and everything else reduced to a
- * generic room + time busy/unavailable signal with no client, instructor,
+ * generic room + time "in use"/unavailable signal with no client, instructor,
  * appointment-type, notes, or payment data. Staff roles must reach the
  * existing unmodified query below the branch, unchanged.
  *
@@ -22,8 +22,13 @@ import { renderToStaticMarkup } from "react-dom/server";
  * identically by own rentals and anonymized occupancy so the two can never
  * drift apart. The anonymized-occupancy exclusion is by the own rental's
  * own appointment id (not by client id), so a non-floor-rental appointment
- * on the same linked client record still surfaces as generic Busy instead
- * of silently vanishing.
+ * on the same linked client record still surfaces as generic "In use"
+ * occupancy instead of silently vanishing.
+ *
+ * FC-1B2 Terminology Alignment: rooms may legitimately be shared under
+ * FC-1B3, so ordinary occupancy renders as "In use" (never "Busy", which
+ * would wrongly imply occupied = unbookable). "Unavailable" stays reserved
+ * for a true hard block (room/studio closure via a room_unavailable row).
  *
  * This suite drives the real page component (not a stand-in), rendering
  * its returned JSX to static markup so the privacy assertions can inspect
@@ -284,7 +289,7 @@ function appointmentRows(): Row[] {
       rooms: { id: "room-boundary-unrelated-outside", name: "Studio Boundary Unrelated Outside" },
     },
     // Overlapping unrelated appointments in the same room -- must both
-    // render as separate, safe, non-sensitive Busy cards.
+    // render as separate, safe, non-sensitive "In use" cards.
     {
       id: "appt-overlap-a",
       studio_id: STUDIO_ID,
@@ -536,14 +541,15 @@ describe("independent_instructor narrow My Schedule -- FC-1B2", () => {
     expect(html).not.toContain("Far-out own rental");
   });
 
-  it("shows an unrelated normal appointment inside the window only as a generic busy block, never its real content", async () => {
+  it("shows an unrelated normal appointment inside the window only as a generic \"In use\" block, never its real content", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({ links: [linkRow(OWN_CLIENT_ID)] });
 
     const html = await renderSchedulePage();
 
     expect(html).toContain("Studio B");
-    expect(html).toContain("Busy");
+    expect(html).toContain("In use");
+    expect(html).not.toContain("Busy");
     expect(html).not.toContain("Jane Doe");
     expect(html).not.toContain("VIP client");
     expect(html).not.toContain("private_lesson");
@@ -580,33 +586,35 @@ describe("independent_instructor narrow My Schedule -- FC-1B2", () => {
     expect(html).not.toContain("Studio Boundary Own Outside");
   });
 
-  it("shows another independent instructor's rental only as a generic busy block", async () => {
+  it("shows another independent instructor's rental only as a generic \"In use\" block", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({ links: [linkRow(OWN_CLIENT_ID)] });
 
     const html = await renderSchedulePage();
 
     expect(html).toContain("Studio C");
+    expect(html).toContain("In use");
+    expect(html).not.toContain("Busy");
     expect(html).not.toContain("Another instructor's rental");
     expect(html).not.toContain("other-ii-client-1");
     expect(html).not.toContain("waived");
     expect(html).not.toContain("WAIVED");
   });
 
-  it("a non-floor-rental appointment on the instructor's own linked client still surfaces as generic Busy, not as My Rental, and is not silently dropped", async () => {
+  it("a non-floor-rental appointment on the instructor's own linked client still surfaces as generic \"In use\", not as My Rental, and is not silently dropped", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({ links: [linkRow(OWN_CLIENT_ID)] });
 
     const html = await renderSchedulePage();
 
-    // Must appear as a generic busy signal for its room...
+    // Must appear as a generic "in use" signal for its room...
     expect(html).toContain("Studio E");
     // ...but never with its own title, note, or as a My Rental card.
     expect(html).not.toContain("Should never render as My Rental");
     expect(html).not.toContain("Should never render at all");
   });
 
-  it("the own rental's own appointment does not also appear as a duplicate anonymous Busy block", async () => {
+  it("the own rental's own appointment does not also appear as a duplicate anonymous \"In use\" block", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({ links: [linkRow(OWN_CLIENT_ID)] });
 
@@ -624,7 +632,7 @@ describe("independent_instructor narrow My Schedule -- FC-1B2", () => {
     expect(roomAvailabilitySection).not.toContain("Studio A");
   });
 
-  it("overlapping anonymous Busy blocks in the same room both render safely with no sensitive content", async () => {
+  it("overlapping anonymous \"In use\" blocks in the same room both render safely with no sensitive content", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({ links: [linkRow(OWN_CLIENT_ID)] });
 
@@ -660,7 +668,7 @@ describe("independent_instructor narrow My Schedule -- FC-1B2", () => {
     expect(countOccurrences(html, "Evening practice block")).toBe(1);
   });
 
-  it("generic busy blocks contain no client identity, payment detail, notes, revealing type label, or action link", async () => {
+  it("generic \"In use\" blocks contain no client identity, payment detail, notes, revealing type label, or action link", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({ links: [linkRow(OWN_CLIENT_ID)] });
 
@@ -673,7 +681,7 @@ describe("independent_instructor narrow My Schedule -- FC-1B2", () => {
     expect(html).not.toContain("appt-other-ii-rental");
   });
 
-  it("a cancelled appointment does not appear as a busy block", async () => {
+  it("a cancelled appointment does not appear as an \"In use\" block", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({ links: [linkRow(OWN_CLIENT_ID)] });
 
@@ -725,7 +733,7 @@ describe("independent_instructor narrow My Schedule -- FC-1B2", () => {
     expect(html).not.toContain("Cross Host Room");
   });
 
-  it("revoked link: a disconnected client_account_links row grants no own-rental visibility, and that client's appointment shows only as busy", async () => {
+  it("revoked link: a disconnected client_account_links row grants no own-rental visibility, and that client's appointment shows only as \"In use\"", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({
       links: [linkRow(OWN_CLIENT_ID, { status: "disconnected" })],
@@ -736,12 +744,12 @@ describe("independent_instructor narrow My Schedule -- FC-1B2", () => {
     expect(html).not.toContain("Evening practice block");
     expect(html).toContain("No upcoming rentals");
     // The now-unowned client's appointment must still surface as a purely
-    // anonymized busy signal, proving the branch degrades safely rather
+    // anonymized "In use" signal, proving the branch degrades safely rather
     // than silently granting or silently erroring.
     expect(html).toContain("Studio A");
   });
 
-  it("no linked client at all: narrow view renders safely with empty own-rentals and busy occupancy still populated", async () => {
+  it("no linked client at all: narrow view renders safely with empty own-rentals and \"In use\" occupancy still populated", async () => {
     mockStudioContext("independent_instructor");
     fakeSupabase = createFakeSupabase({ links: [] });
 
