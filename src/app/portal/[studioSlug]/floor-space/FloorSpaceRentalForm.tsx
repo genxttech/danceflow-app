@@ -281,7 +281,7 @@ export default function FloorSpaceRentalForm({
           <li>Your own overlapping bookings are blocked.</li>
           <li>Each slot needs a rental fee so it can be paid from the portal.</li>
           <li>
-            Room overlap can be overridden only when you intentionally choose to do so.
+            Rooms may be shared with other bookings unless the studio has set a limit or the time is already reserved.
           </li>
         </ul>
       </div>
@@ -327,23 +327,6 @@ export default function FloorSpaceRentalForm({
             />
           </div>
         </div>
-
-        <label className="flex items-start gap-3 rounded-xl border bg-slate-50 p-4">
-          <input
-            type="checkbox"
-            name="overrideRoomConflict"
-            className="mt-1"
-          />
-          <div>
-            <p className="font-medium text-slate-900">
-              Override room conflict warning
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              Allows booking to continue even if the selected room overlaps another booking.
-              Your own overlapping bookings are still blocked.
-            </p>
-          </div>
-        </label>
 
         <div className="rounded-2xl border bg-slate-50 p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
