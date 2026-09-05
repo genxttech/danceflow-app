@@ -1,6 +1,7 @@
 "use server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -28,6 +29,44 @@ type ActionState = {
   error?: string;
   success?: string;
 };
+
+export type BookableClientSearchResult = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+// FC-1B5D: minimal, field-limited client discovery for the booking flow --
+// used when an instructor needs to find a studio client (including one
+// they have never taught) to create a first appointment. Distinct from,
+// and does not by itself grant, teaching-client access -- see
+// get_teaching_clients_for_instructor / search_bookable_clients_for_instructor
+// for the two-interface design this implements.
+// requireAppointmentCreateAccess() covers every role that can reach the
+// booking form (owner/admin/front_desk/instructor); the RPC itself
+// independently re-derives the caller's instructor identity from
+// auth.uid() and returns nothing for a non-instructor caller with no
+// active instructors row at the target studio.
+export async function searchBookableClientsForInstructorAction(
+  searchText: string,
+): Promise<BookableClientSearchResult[]> {
+  const ctx = await requireAppointmentCreateAccess();
+
+  const { data, error } = await ctx.supabase.rpc(
+    "search_bookable_clients_for_instructor",
+    {
+      target_studio_id: ctx.studioId,
+      search_text: searchText,
+      limit_count: 20,
+    },
+  );
+
+  if (error) {
+    throw new Error(`Failed to search clients: ${error.message}`);
+  }
+
+  return (data ?? []) as BookableClientSearchResult[];
+}
 
 type LessonRecapValidationResult = {
   ok: boolean;
@@ -434,21 +473,35 @@ async function queueAppointmentOutboundDelivery(params: {
       name?: string | null;
     } | null = null;
 
+    // FC-1B5D Phase A correction: this notification-composition lookup
+    // previously used the caller's session-scoped client -- once Phase B
+    // narrows clients RLS, an instructor-initiated appointment
+    // confirmation/reschedule/cancellation would silently compose with a
+    // missing client name. clientId/partnerClientId are derived from the
+    // appointment row already confirmed to belong to studioId above (not
+    // from arbitrary caller input), and the .eq("studio_id", studioId)
+    // filters here are a redundant, defense-in-depth check since the
+    // admin client bypasses RLS entirely. The result is used only to
+    // compose the outbound notification -- never returned to the caller.
+    const notificationSupabase = createAdminClient();
+
     if (clientId) {
-      const { data } = await supabase
+      const { data } = await notificationSupabase
         .from("clients")
         .select("first_name, last_name, email, phone")
         .eq("id", clientId)
+        .eq("studio_id", studioId)
         .maybeSingle();
 
       client = data ?? null;
     }
 
     if (partnerClientId) {
-      const { data } = await supabase
+      const { data } = await notificationSupabase
         .from("clients")
         .select("first_name, last_name, email, phone")
         .eq("id", partnerClientId)
+        .eq("studio_id", studioId)
         .maybeSingle();
 
       partnerClient = data ?? null;

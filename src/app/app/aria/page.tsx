@@ -19,6 +19,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getItemWarningLevel, getUnsuppressedWarningUsageTypes, type PackageWithItems } from "@/lib/packages/entitlement";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewReports } from "@/lib/auth/permissions";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { getDanceGoalIntelligence } from "@/lib/aria/danceGoalInsights";
@@ -368,6 +369,20 @@ export default async function AriaOpportunityHubPage() {
   const context = await getCurrentStudioContext();
 
   if (!context?.studioId) {
+    redirect("/app");
+  }
+
+  // FC-1B5D: this page had no role gate at all -- any active studio role,
+  // including instructor, could reach it. ARIA's Opportunity Hub is
+  // studio-level growth/conversion/business intelligence (dance-goal
+  // trends, lead conversion, revenue), not a teaching workflow -- it reads
+  // hundreds of client rows studio-wide for aggregate analytics, which is
+  // CRM-tier data regardless of which columns are touched. Gated to the
+  // same role set as the sibling /app/analytics/dance-goals page
+  // (canViewReports) for consistency, rather than converting these
+  // aggregate business queries into an instructor-scoped teaching view,
+  // which would defeat their purpose.
+  if (!canViewReports(context.studioRole ?? "")) {
     redirect("/app");
   }
 

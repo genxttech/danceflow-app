@@ -2,6 +2,7 @@
 
 import { useActionState, useMemo, useState } from "react";
 import { updateAppointmentAction } from "../../actions";
+import InstructorClientSearchField from "../../InstructorClientSearchField";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
   getItemWarningLevel,
@@ -380,6 +381,8 @@ export default function AppointmentEditForm({
   clientMemberships,
   linkedPartnersByClientId = {},
   studioTimeZone = DEFAULT_STUDIO_TIME_ZONE,
+  instructorSearchMode = false,
+  initialClientLabel = "",
 }: {
   appointment: Appointment;
   clients: ClientOption[];
@@ -389,6 +392,11 @@ export default function AppointmentEditForm({
   clientMemberships: ClientMembershipOption[];
   linkedPartnersByClientId?: Record<string, ClientOption[]>;
   studioTimeZone?: string;
+  // FC-1B5D: instructor mode -- clients=[] in this case; client
+  // change/search goes through the server-searched booking-discovery
+  // interface instead of a preloaded roster.
+  instructorSearchMode?: boolean;
+  initialClientLabel?: string;
 }) {
   const [state, formAction, pending] = useActionState(
     updateAppointmentAction,
@@ -399,6 +407,7 @@ export default function AppointmentEditForm({
     appointment.appointment_type,
   );
   const [clientId, setClientId] = useState(appointment.client_id ?? "");
+  const [selectedClientLabel, setSelectedClientLabel] = useState(initialClientLabel);
   const [partnerClientId, setPartnerClientId] = useState(
     appointment.partner_client_id ?? "",
   );
@@ -575,25 +584,46 @@ export default function AppointmentEditForm({
               >
                 Client
               </label>
-              <select
-                id="clientId"
-                name="clientId"
-                value={clientId}
-                onChange={(e) => {
-                  setClientId(e.target.value);
-                  setPartnerClientId("");
-                  setLinkedPackageId("");
-                  setLinkedMembershipId("");
-                }}
-                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-              >
-                <option value="">Select client</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.first_name} {client.last_name}
-                  </option>
-                ))}
-              </select>
+              {instructorSearchMode ? (
+                <InstructorClientSearchField
+                  fieldName="clientId"
+                  clientId={clientId}
+                  selectedClientLabel={selectedClientLabel}
+                  onSelect={(client) => {
+                    setClientId(client.id);
+                    setSelectedClientLabel(
+                      `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim(),
+                    );
+                    setPartnerClientId("");
+                    setLinkedPackageId("");
+                    setLinkedMembershipId("");
+                  }}
+                  onClear={() => {
+                    setClientId("");
+                    setSelectedClientLabel("");
+                  }}
+                />
+              ) : (
+                <select
+                  id="clientId"
+                  name="clientId"
+                  value={clientId}
+                  onChange={(e) => {
+                    setClientId(e.target.value);
+                    setPartnerClientId("");
+                    setLinkedPackageId("");
+                    setLinkedMembershipId("");
+                  }}
+                  className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                >
+                  <option value="">Select client</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.first_name} {client.last_name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {showPartnerSection ? (

@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { canManageMemberships } from "@/lib/auth/permissions";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -38,7 +39,7 @@ async function getStudioContext() {
 
   const { data: roleRow, error: roleError } = await supabase
     .from("user_studio_roles")
-    .select("studio_id")
+    .select("studio_id, role")
     .eq("user_id", user.id)
     .eq("active", true)
     .limit(1)
@@ -51,8 +52,25 @@ async function getStudioContext() {
   return {
     supabase,
     studioId: roleRow.studio_id as string,
+    studioRole: roleRow.role as string,
     userId: user.id,
   };
+}
+
+// FC-1B5D Phase A correction: assignClientMembershipAction and
+// cancelClientMembershipAction had no permission check at all -- any
+// active studio role, including instructor, could reach them. These are
+// the client-detail-page counterparts of memberships/actions.ts's own
+// assign/cancel flows, so they reuse the exact same existing capability
+// (no new role array): membership administration is canManageMemberships,
+// which already excludes instructor/independent_instructor.
+function requireMembershipManageAccessOrRedirect(
+  studioRole: string | null | undefined,
+  clientId: string,
+) {
+  if (!canManageMemberships(studioRole ?? "")) {
+    redirect(`/app/clients/${clientId}?error=membership_unauthorized`);
+  }
 }
 
 export async function assignClientMembershipAction(formData: FormData) {
@@ -66,7 +84,9 @@ export async function assignClientMembershipAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId, userId } = await getStudioContext();
+    const { supabase, studioId, studioRole, userId } = await getStudioContext();
+
+    requireMembershipManageAccessOrRedirect(studioRole, clientId);
 
     const { data: client, error: clientError } = await supabase
       .from("clients")
@@ -164,7 +184,9 @@ export async function cancelClientMembershipAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId } = await getStudioContext();
+    const { supabase, studioId, studioRole } = await getStudioContext();
+
+    requireMembershipManageAccessOrRedirect(studioRole, clientId);
 
     const { data: existingMembership, error: membershipError } = await supabase
       .from("client_memberships")

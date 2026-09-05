@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useActionState, useEffect, useMemo, useState } from "react";
-import { createAppointmentAction } from "../actions";
+import { createAppointmentAction, type BookableClientSearchResult } from "../actions";
 import { hasReplacementCoverage, type PackageWithItems } from "@/lib/packages/entitlement";
+import InstructorClientSearchField from "../InstructorClientSearchField";
 
 type InstructorOption = {
   id: string;
@@ -84,6 +85,13 @@ type AppointmentCreateFormProps = {
   clientPackagesByClientId: Record<string, ClientPackageOption[]>;
   clientMembershipsByClientId: Record<string, ClientMembershipOption[]>;
   linkedPartnersByClientId: Record<string, LinkedPartnerOption[]>;
+  // FC-1B5D: instructor no longer receives the full studio clients array
+  // (clients=[] in this mode) -- the roster is never fetched for them at
+  // all. Client discovery instead goes through a minimal, server-searched
+  // interface (searchBookableClientsForInstructorAction), which does not
+  // by itself grant teaching-client access.
+  instructorSearchMode?: boolean;
+  initialClientLabel?: string;
   initialClientId?: string;
   initialDate?: string;
   initialStartTime?: string;
@@ -437,6 +445,8 @@ export default function AppointmentCreateForm({
   clientPackagesByClientId,
   clientMembershipsByClientId,
   linkedPartnersByClientId,
+  instructorSearchMode = false,
+  initialClientLabel = "",
   initialClientId = "",
   initialDate = "",
   initialStartTime = "",
@@ -451,6 +461,7 @@ export default function AppointmentCreateForm({
 
   const [appointmentType, setAppointmentType] = useState("private_lesson");
   const [clientId, setClientId] = useState(initialClientId);
+  const [selectedClientLabel, setSelectedClientLabel] = useState(initialClientLabel);
   const [partnerClientId, setPartnerClientId] = useState("");
   const [linkedPackageId, setLinkedPackageId] = useState("");
   const [billingType, setBillingType] = useState("package_credit");
@@ -478,6 +489,15 @@ export default function AppointmentCreateForm({
     setPartnerClientId("");
     setLinkedPackageId("");
   }, [clientId]);
+
+  function selectSearchedClient(client: BookableClientSearchResult) {
+    setClientId(client.id);
+    setSelectedClientLabel(
+      `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim(),
+    );
+    setPartnerClientId("");
+    setLinkedPackageId("");
+  }
 
   useEffect(() => {
     if (
@@ -754,30 +774,44 @@ export default function AppointmentCreateForm({
                 >
                   Client {requiresClient ? "*" : ""}
                 </label>
-                <select
-                  id="clientId"
-                  name="clientId"
-                  value={clientId}
-                  required={requiresClient}
-                  disabled={isUnavailableBlock}
-                  onChange={(e) => {
-                    setClientId(e.target.value);
-                    setPartnerClientId("");
-                    setLinkedPackageId("");
-                  }}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                >
-                  <option value="">
-                    {isUnavailableBlock
-                      ? "Not needed for unavailable blocks"
-                      : "Select client"}
-                  </option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.first_name} {client.last_name}
+                {instructorSearchMode ? (
+                  <InstructorClientSearchField
+                    fieldName="clientId"
+                    clientId={clientId}
+                    selectedClientLabel={selectedClientLabel}
+                    disabled={isUnavailableBlock}
+                    onSelect={selectSearchedClient}
+                    onClear={() => {
+                      setClientId("");
+                      setSelectedClientLabel("");
+                    }}
+                  />
+                ) : (
+                  <select
+                    id="clientId"
+                    name="clientId"
+                    value={clientId}
+                    required={requiresClient}
+                    disabled={isUnavailableBlock}
+                    onChange={(e) => {
+                      setClientId(e.target.value);
+                      setPartnerClientId("");
+                      setLinkedPackageId("");
+                    }}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {isUnavailableBlock
+                        ? "Not needed for unavailable blocks"
+                        : "Select client"}
                     </option>
-                  ))}
-                </select>
+                    {clients.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.first_name} {client.last_name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {showPartnerSection ? (

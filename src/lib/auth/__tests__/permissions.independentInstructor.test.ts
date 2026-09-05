@@ -75,9 +75,20 @@ describe("canManageOwnFloorRentalAppointment -- FC-1 narrow replacement", () => 
   );
 });
 
-describe("canViewClients -- FC-1B1", () => {
-  it.each(STAFF_ROLES)("staff role %s is unaffected by the FC-1B1 change", (role) => {
-    expect(canViewClients(role)).toBe(true);
+describe("canViewClients -- FC-1B1 / FC-1B5D", () => {
+  it.each(["platform_admin", "studio_owner", "studio_admin", "front_desk"])(
+    "CRM-tier role %s is unaffected",
+    (role) => {
+      expect(canViewClients(role)).toBe(true);
+    },
+  );
+
+  // FC-1B5D: instructor is no longer a general CRM role -- superseded by
+  // the relationship-scoped get_teaching_clients_for_instructor /
+  // search_bookable_clients_for_instructor RPCs. See
+  // permissions.fc1b5d.test.ts for the full FC-1B5D suite.
+  it("instructor no longer has general client-roster visibility (FC-1B5D)", () => {
+    expect(canViewClients("instructor")).toBe(false);
   });
 
   it("independent_instructor no longer has general client-roster visibility", () => {

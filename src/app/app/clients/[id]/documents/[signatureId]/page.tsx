@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewClients } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 type Params = Promise<{ id: string; signatureId: string }>;
@@ -123,6 +124,15 @@ export default async function ClientSignedDocumentReceiptPage({ params }: { para
   if (!user) redirect("/login");
 
   const context = await getCurrentStudioContext();
+
+  // FC-1B5D: this page previously had no server-side view gate at all --
+  // it exposes client name/email/phone plus signed-document detail to any
+  // active studio role, including instructor. Document receipts are CRM
+  // data, not teaching data.
+  if (!canViewClients(context.studioRole ?? "")) {
+    redirect("/app");
+  }
+
   const studioId = context.studioId;
 
   const [

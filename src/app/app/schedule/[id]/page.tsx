@@ -20,6 +20,7 @@ import {
   canMarkAttendance,
   canViewStudioSchedule,
 } from "@/lib/auth/permissions";
+import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 import {
   getItemWarningLevel,
@@ -53,6 +54,8 @@ type AppointmentRow = {
   status: string;
   starts_at: string;
   ends_at: string;
+  client_id?: string | null;
+  partner_client_id?: string | null;
   client_package_id: string | null;
   price_amount: number | null;
   payment_status: string | null;
@@ -418,15 +421,63 @@ export default async function AppointmentDetailPage({
     redirect("/app");
   }
 
+  // FC-1B5D: any instructor could previously open the detail page of any
+  // appointment in the studio (scoped only by studio_id, not
+  // instructor_id), with client name/referral_source joined in via raw
+  // clients access. instructor is now hard-scoped to their own
+  // appointments, and client names come from the teaching-client RPC
+  // (which never returns referral_source) instead of the raw clients join.
+  const isInstructorRole = role === "instructor";
+  const viewerInstructorId = isInstructorRole
+    ? await resolveViewerInstructorId(supabase, studioId, user.id)
+    : null;
+
   const [
     { data: appointment, error },
     { data: lessonRecap },
     { data: floorRentalPayments },
     { data: studioTimeZoneRow },
   ] = await Promise.all([
-    supabase
-      .from("appointments")
-      .select(`
+    (() => {
+      // FC-1B5D: explicitly-typed `string` (not a literal union) so
+      // Supabase's generated query types don't try to statically parse
+      // two different select shapes as one union.
+      const appointmentSelect: string = isInstructorRole
+        ? `
+        id,
+        title,
+        notes,
+        appointment_type,
+        status,
+        starts_at,
+        ends_at,
+        client_id,
+        partner_client_id,
+        client_package_id,
+        price_amount,
+        payment_status,
+        billing_type,
+        location_name,
+        is_recurring,
+        recurrence_series_id,
+        created_at,
+        instructors ( id, first_name, last_name ),
+        rooms ( id, name ),
+        client_packages (
+          id,
+          name_snapshot,
+          active,
+          archived_at,
+          expiration_date,
+          client_package_items (
+            usage_type,
+            quantity_remaining,
+            quantity_total,
+            is_unlimited
+          )
+        )
+      `
+        : `
         id,
         title,
         notes,
@@ -459,10 +510,23 @@ export default async function AppointmentDetailPage({
             is_unlimited
           )
         )
-      `)
-      .eq("studio_id", studioId)
-      .eq("id", id)
-      .single(),
+      `;
+
+      let appointmentQuery = supabase
+        .from("appointments")
+        .select(appointmentSelect)
+        .eq("studio_id", studioId)
+        .eq("id", id);
+
+      if (isInstructorRole) {
+        appointmentQuery = appointmentQuery.eq(
+          "instructor_id",
+          viewerInstructorId ?? "00000000-0000-0000-0000-000000000000",
+        );
+      }
+
+      return appointmentQuery.single();
+    })(),
     supabase
       .from("lesson_recaps")
       .select(`
@@ -504,9 +568,43 @@ export default async function AppointmentDetailPage({
       ? studioTimeZoneRow.timezone.trim()
       : APPOINTMENT_DISPLAY_TIME_ZONE;
 
-  const typedAppointment = appointment as AppointmentRow;
+  const typedAppointment = appointment as unknown as AppointmentRow;
   const typedLessonRecap = (lessonRecap ?? null) as LessonRecapRow | null;
   const typedPayments = (floorRentalPayments ?? []) as PaymentRow[];
+
+  // FC-1B5D: attach teaching-safe client names for instructor viewers --
+  // the query above deliberately omits the raw clients joins for this
+  // role. referral_source is never available here.
+  if (isInstructorRole) {
+    const { data: teachingClients } = await supabase.rpc(
+      "get_teaching_clients_for_instructor",
+      { target_studio_id: studioId },
+    );
+    const teachingClientMap = new Map(
+      (
+        (teachingClients ?? []) as {
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+        }[]
+      ).map((client) => [
+        client.id,
+        {
+          id: client.id,
+          first_name: client.first_name ?? "",
+          last_name: client.last_name ?? "",
+          referral_source: null as string | null,
+        },
+      ]),
+    );
+
+    typedAppointment.clients = typedAppointment.client_id
+      ? (teachingClientMap.get(typedAppointment.client_id) ?? null)
+      : null;
+    typedAppointment.partner_client = typedAppointment.partner_client_id
+      ? (teachingClientMap.get(typedAppointment.partner_client_id) ?? null)
+      : null;
+  }
 
   const pkg = Array.isArray(typedAppointment.client_packages)
     ? typedAppointment.client_packages[0]

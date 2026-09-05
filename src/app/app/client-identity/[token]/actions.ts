@@ -112,15 +112,19 @@ export async function checkInClientIdentityAppointmentAction(formData: FormData)
     const supabase = await createClient();
     const { studioId, userId } = await getCurrentStudioContext();
 
-    const { data: client, error: clientError } = await supabase
-      .from("clients")
-      .select("id, studio_id, client_qr_token")
-      .eq("id", clientId)
-      .eq("studio_id", studioId)
-      .eq("client_qr_token", token)
-      .maybeSingle();
+    // FC-1B5D Phase A correction: verified through the same token-scoped
+    // get_client_by_qr_token_for_checkin RPC the identity page uses,
+    // instead of a raw clients read -- keeps this check-in action working
+    // for instructor (and any active staff role) after Phase B narrows
+    // clients RLS, and confirms the caller-supplied clientId actually
+    // matches the token's real client rather than trusting it directly.
+    const { data: clientRows, error: clientError } = await supabase.rpc(
+      "get_client_by_qr_token_for_checkin",
+      { target_studio_id: studioId, qr_token: token },
+    );
+    const client = (clientRows ?? [])[0] ?? null;
 
-    if (clientError || !client) {
+    if (clientError || !client || client.id !== clientId) {
       throw new Error("Client QR identity could not be verified.");
     }
 

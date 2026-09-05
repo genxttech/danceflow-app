@@ -457,6 +457,12 @@ function createFakeSupabase(options: {
         chain.lte = self;
         chain.gt = self;
         chain.neq = self;
+        // FC-1B5D: instructor role now also resolves its own instructors.id
+        // via .maybeSingle() (resolveViewerInstructorId) before the
+        // appointments query -- stub it so this still surfaces as the
+        // intended UnexpectedQueryError rather than a masking TypeError.
+        chain.maybeSingle = () => Promise.reject(err);
+        chain.single = () => Promise.reject(err);
         chain.then = (
           onFulfilled: (v: unknown) => unknown,
           onRejected?: (r: unknown) => unknown,

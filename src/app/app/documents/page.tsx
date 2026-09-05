@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Clock3, FileSignature, History, Plus, Send, ShieldCheck, Upload, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
+import { canViewClients, isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
 import { requireStudioFeature } from "@/lib/billing/access";
 import {
   assignDocumentToClientAction,
@@ -957,8 +958,17 @@ export default async function DocumentsPage({
   await requireStudioFeature("documents");
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
-  const studioId = context.studioId;
   const isOrganizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+
+  // FC-1B5D: this page had no role gate for the studio-workspace branch --
+  // client name/email/status (line ~1108) was reachable by any active
+  // studio role, including instructor. Organizer roles are untouched
+  // (their own document-management branch is unaffected by this check).
+  if (!isOrganizerWorkspace && !canViewClients(context.studioRole ?? "")) {
+    redirect("/app");
+  }
+
+  const studioId = context.studioId;
   const organizers = await getOrganizerOptions(supabase, studioId);
   const organizerIds = organizers.map((organizer) => organizer.id);
 

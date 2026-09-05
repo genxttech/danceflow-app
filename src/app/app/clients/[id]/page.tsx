@@ -1,10 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import ClientNoteDateTimeField from "./ClientNoteDateTimeField";
-import { canCreateAppointments, canEditClients } from "@/lib/auth/permissions";
+import { canCreateAppointments, canEditClients, canViewClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { resolvePortalConnectionState } from "@/lib/student-identity/portal-connection-state";
 import {
@@ -2080,6 +2080,15 @@ export default async function ClientDetailPage({
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
 
+  // FC-1B5D: this page previously had no server-side view gate at all --
+  // only canEditClients gated specific edit controls further down. Full
+  // client PII (name, contact info, birthday, address, notes) was reachable
+  // by any active studio role. instructor now reaches client data only
+  // through the relationship-scoped teaching/booking-search RPCs, never
+  // this page.
+  if (!canViewClients(context.studioRole ?? "")) {
+    redirect("/app");
+  }
 
   const studioId = context.studioId;
   const role = context.studioRole ?? "";

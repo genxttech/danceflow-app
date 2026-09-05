@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewClients } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 type RouteContext = {
@@ -298,6 +299,13 @@ export async function GET(_request: Request, context: RouteContext) {
   if (!user) return new NextResponse("Unauthorized", { status: 401 });
 
   const contextWorkspace = await getCurrentStudioContext();
+
+  // FC-1B5D: this route previously had no server-side view gate at all --
+  // same PII exposure as the sibling receipt page above it.
+  if (!canViewClients(contextWorkspace.studioRole ?? "")) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
   const studioId = contextWorkspace.studioId;
 
   const [

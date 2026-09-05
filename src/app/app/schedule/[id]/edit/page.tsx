@@ -136,6 +136,13 @@ export default async function EditAppointmentPage({
   const supabase = await createClient();
   const studioTimeZone = await getStudioTimezone({ supabase, studioId });
 
+  // FC-1B5D: instructor previously received the full studio clients array
+  // here for the client-change picker. instructor now uses the same
+  // server-searched booking-discovery interface as the create-appointment
+  // form; the currently-assigned client's name (if any) is resolved
+  // separately below via the teaching-client RPC.
+  const isInstructorRole = studioRole === "instructor";
+
   const [
     { data: appointment, error: appointmentError },
     { data: clients, error: clientsError },
@@ -172,12 +179,14 @@ export default async function EditAppointmentPage({
       .eq("studio_id", studioId)
       .single(),
 
-    supabase
-      .from("clients")
-      .select("id, first_name, last_name, status")
-      .eq("studio_id", studioId)
-      .in("status", ["active", "lead"])
-      .order("first_name", { ascending: true }),
+    isInstructorRole
+      ? Promise.resolve({ data: [], error: null })
+      : supabase
+          .from("clients")
+          .select("id, first_name, last_name, status")
+          .eq("studio_id", studioId)
+          .in("status", ["active", "lead"])
+          .order("first_name", { ascending: true }),
 
     supabase
       .from("instructors")
@@ -329,6 +338,33 @@ export default async function EditAppointmentPage({
     availableClients.map((client) => [client.id, client] as const)
   );
 
+  // FC-1B5D: resolve the currently-assigned client's teaching-safe name for
+  // instructor mode (availableClients is empty, so clientLookup can't do
+  // this). Best-effort via the teaching RPC -- if the appointment's client
+  // doesn't qualify (e.g. only a past-cancelled relationship), the label
+  // stays blank and the instructor must re-search to change it.
+  let initialClientLabel = "";
+  const typedAppointmentForLabel = appointment as Appointment;
+  if (isInstructorRole && typedAppointmentForLabel.client_id) {
+    const { data: teachingClientRow } = await supabase.rpc(
+      "get_teaching_clients_for_instructor",
+      {
+        target_studio_id: studioId,
+        target_client_id: typedAppointmentForLabel.client_id,
+      },
+    );
+    const match = (
+      (teachingClientRow ?? []) as {
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+      }[]
+    )[0];
+    if (match) {
+      initialClientLabel = `${match.first_name ?? ""} ${match.last_name ?? ""}`.trim();
+    }
+  }
+
   const linkedPartnersByClientId: Record<string, ClientOption[]> = {};
 
   for (const relationship of (clientRelationships ?? []) as ClientRelationshipRow[]) {
@@ -358,6 +394,8 @@ export default async function EditAppointmentPage({
       clientMemberships={clientMemberships}
       linkedPartnersByClientId={linkedPartnersByClientId}
       studioTimeZone={studioTimeZone}
+      instructorSearchMode={isInstructorRole}
+      initialClientLabel={initialClientLabel}
     />
   );
 }

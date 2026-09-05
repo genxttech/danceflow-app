@@ -92,7 +92,7 @@ describe("clients/page.tsx -- FC-1B1", () => {
     expect(error).toBeInstanceOf(UnexpectedQueryError);
   });
 
-  it.each(["studio_admin", "front_desk", "instructor", "platform_admin"])(
+  it.each(["studio_admin", "front_desk", "platform_admin"])(
     "%s is not blocked by the new gate",
     async (role) => {
       mockStudioContext(role);
@@ -104,4 +104,20 @@ describe("clients/page.tsx -- FC-1B1", () => {
       expect(error).toBeInstanceOf(UnexpectedQueryError);
     },
   );
+});
+
+// FC-1B5D: instructor is no longer a general CRM role -- canViewClients now
+// excludes it (superseded by the relationship-scoped teaching/booking-search
+// RPCs), so this page rejects instructor the same way it already rejected
+// independent_instructor.
+describe("clients/page.tsx -- FC-1B5D", () => {
+  it("instructor is rejected before the client roster is queried", async () => {
+    mockStudioContext("instructor");
+
+    const error = await runPage(
+      ClientsPage({ searchParams: Promise.resolve({}) }),
+    );
+
+    expect(digestUrl(error)).toBe("/app");
+  });
 });
