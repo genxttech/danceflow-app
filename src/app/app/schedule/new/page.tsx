@@ -142,6 +142,12 @@ export default async function NewAppointmentPage({
       ? resolvedSearchParams.endTime
       : "";
 
+  // FC-1B5D: instructor no longer receives the full studio clients array --
+  // the raw clients read below is skipped entirely for that role. The
+  // create-appointment form switches into a server-searched
+  // discovery mode (search_bookable_clients_for_instructor) instead.
+  const isInstructorRole = context.studioRole === "instructor";
+
   const [
     { data: clients, error: clientsError },
     { data: instructors, error: instructorsError },
@@ -150,11 +156,13 @@ export default async function NewAppointmentPage({
     { data: clientMemberships, error: clientMembershipsError },
     { data: clientRelationships, error: clientRelationshipsError },
   ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, first_name, last_name, status")
-      .eq("studio_id", studioId)
-      .order("first_name", { ascending: true }),
+    isInstructorRole
+      ? Promise.resolve({ data: [], error: null })
+      : supabase
+          .from("clients")
+          .select("id, first_name, last_name, status")
+          .eq("studio_id", studioId)
+          .order("first_name", { ascending: true }),
 
     supabase
       .from("instructors")
@@ -288,11 +296,37 @@ export default async function NewAppointmentPage({
     (room) => room.active === true
   );
 
-  const validInitialClientId = availableClients.some(
+  let validInitialClientId = availableClients.some(
     (client) => client.id === requestedClientId
   )
     ? requestedClientId
     : "";
+  let initialClientLabel = "";
+
+  // FC-1B5D: for instructor, requestedClientId (deep-linked rebooking,
+  // e.g. from a client's teaching-relationship view) can't be resolved
+  // from availableClients (always empty in this mode). Best-effort
+  // resolution via the teaching RPC covers the common rebooking case; a
+  // client with no qualifying teaching relationship yet must be found via
+  // the search field instead -- a known, accepted minor limitation of deep
+  // linking a never-taught client directly into this form.
+  if (isInstructorRole && requestedClientId) {
+    const { data: teachingClientRow } = await supabase.rpc(
+      "get_teaching_clients_for_instructor",
+      { target_studio_id: studioId, target_client_id: requestedClientId },
+    );
+    const match = (
+      (teachingClientRow ?? []) as {
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+      }[]
+    )[0];
+    if (match) {
+      validInitialClientId = match.id;
+      initialClientLabel = `${match.first_name ?? ""} ${match.last_name ?? ""}`.trim();
+    }
+  }
 
   const clientPackagesByClientId: Record<string, ClientPackageRow[]> = {};
 
@@ -532,6 +566,8 @@ if (hostStudioIds.length > 0) {
         rooms={availableRooms as any}
         clientPackagesByClientId={clientPackagesByClientId as any}
         clientMembershipsByClientId={hydratedClientMembershipsByClientId as any}
+        instructorSearchMode={isInstructorRole}
+        initialClientLabel={initialClientLabel}
         initialClientId={validInitialClientId}
         initialDate={requestedDate}
         initialStartTime={requestedStartTime}

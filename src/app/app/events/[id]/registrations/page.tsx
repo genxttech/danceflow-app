@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
+import { isOrganizerWorkspaceRole, canManageEventRegistrations } from "@/lib/auth/permissions";
 import {
   resendEventTicketConfirmationAction,
   updateEventRegistrationAttendeeAction,
@@ -608,7 +608,7 @@ export default async function EventRegistrationsPage({
 }) {
   const { id } = await params;
 
-  await requireEventWorkspaceFeature({
+  const workspaceAccess = await requireEventWorkspaceFeature({
     eventId: id,
     feature: "organizer_tools",
     allowedOrganizerRoles: [
@@ -617,6 +617,28 @@ export default async function EventRegistrationsPage({
       "organizer_staff",
     ],
   });
+
+  // FC-1B5D Phase A correction: requireEventWorkspaceFeature's
+  // studio-workspace branch only checks a billing feature flag, not a
+  // role -- any active studio role, including instructor, could reach the
+  // full unscoped clients roster below. canManageEventRegistrations is
+  // reused as-is (no new role array) for whichever identity resolved the
+  // workspace access; note it already excludes front_desk today (its
+  // existing role list is studio_owner/studio_admin plus every organizer
+  // tier), so front_desk is not newly restricted here -- this correction
+  // simply enforces the same existing permission for the direct-access
+  // path that the rest of the app already uses for event registrations.
+  if (
+    !canManageEventRegistrations(
+      workspaceAccess.accountType === "organizer"
+        ? workspaceAccess.organizerRole
+        : workspaceAccess.studioRole,
+      workspaceAccess.isPlatformAdmin,
+    )
+  ) {
+    redirect("/app/events");
+  }
+
   const search = await searchParams;
   const activeFilter = (search.filter ?? "all").trim().toLowerCase();
   const banner = getBanner(search);

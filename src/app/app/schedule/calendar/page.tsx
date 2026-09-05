@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewStudioSchedule } from "@/lib/auth/permissions";
+import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import ScheduleCalendarView from "./ScheduleCalendarView";
 import ScheduleAgendaView from "./ScheduleAgendaView";
 import ScheduleMonthView from "./ScheduleMonthView";
@@ -39,6 +40,7 @@ type AppointmentRow = {
   id: string;
   studio_id: string | null;
   client_id: string | null;
+  partner_client_id?: string | null;
   instructor_id: string | null;
   room_id: string | null;
   appointment_type: string | null;
@@ -570,10 +572,39 @@ export default async function ScheduleCalendarPage({
     studioTimezone,
   );
 
-  let appointmentsQuery = supabase
-    .from("appointments")
-    .select(
-      `
+  // FC-1B5D: instructor previously saw the full studio-wide calendar by
+  // default and had client names joined in via raw clients access.
+  // instructor is now hard-scoped to their own appointments; client names
+  // come from the teaching-client RPC instead of the raw clients join.
+  const isInstructorRole = context.studioRole === "instructor";
+  const viewerInstructorId = isInstructorRole
+    ? await resolveViewerInstructorId(supabase, studioId, user.id)
+    : null;
+
+  // FC-1B5D: explicitly-typed `string` (not a literal union) so
+  // Supabase's generated query types don't try to statically parse two
+  // different select shapes as one union.
+  const appointmentsSelect: string = isInstructorRole
+    ? `
+      id,
+      studio_id,
+      client_id,
+      partner_client_id,
+      instructor_id,
+      room_id,
+      appointment_type,
+      title,
+      status,
+      starts_at,
+      ends_at,
+      is_recurring,
+      notes,
+      price_amount,
+      payment_status,
+      instructors ( first_name, last_name ),
+      rooms ( name )
+    `
+    : `
       id,
       studio_id,
       client_id,
@@ -592,14 +623,22 @@ export default async function ScheduleCalendarPage({
       partner_client:clients!appointments_partner_client_id_fkey ( first_name, last_name ),
       instructors ( first_name, last_name ),
       rooms ( name )
-    `,
-    )
+    `;
+
+  let appointmentsQuery = supabase
+    .from("appointments")
+    .select(appointmentsSelect)
     .eq("studio_id", studioId)
     .gte("starts_at", rangeStart)
     .lt("starts_at", rangeEnd)
     .order("starts_at", { ascending: true });
 
-  if (selectedInstructorId) {
+  if (isInstructorRole) {
+    appointmentsQuery = appointmentsQuery.eq(
+      "instructor_id",
+      viewerInstructorId ?? "00000000-0000-0000-0000-000000000000",
+    );
+  } else if (selectedInstructorId) {
     appointmentsQuery = appointmentsQuery.eq(
       "instructor_id",
       selectedInstructorId,
@@ -761,6 +800,37 @@ export default async function ScheduleCalendarPage({
     throw new Error(
       `Failed to load studio operating hours: ${operatingHoursError.message}`,
     );
+  }
+
+  // FC-1B5D: attach teaching-safe client names for instructor viewers --
+  // the query above deliberately omits the raw clients joins for this role
+  // (both the primary client and any partner_client).
+  if (isInstructorRole) {
+    const { data: teachingClients } = await supabase.rpc(
+      "get_teaching_clients_for_instructor",
+      { target_studio_id: studioId },
+    );
+    const teachingClientMap = new Map(
+      (
+        (teachingClients ?? []) as {
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+        }[]
+      ).map((client) => [
+        client.id,
+        { first_name: client.first_name ?? "", last_name: client.last_name ?? "" },
+      ]),
+    );
+
+    for (const appointment of (appointments ?? []) as AppointmentRow[]) {
+      appointment.clients = appointment.client_id
+        ? (teachingClientMap.get(appointment.client_id) ?? null)
+        : null;
+      appointment.partner_client = appointment.partner_client_id
+        ? (teachingClientMap.get(appointment.partner_client_id) ?? null)
+        : null;
+    }
   }
 
   const groupedAppointments: Record<string, CalendarItem[]> =

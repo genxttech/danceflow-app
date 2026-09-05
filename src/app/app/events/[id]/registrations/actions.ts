@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageEventRegistrations } from "@/lib/auth/permissions";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { buildEventConfirmedEmailTemplate } from "@/lib/notifications/templates";
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
@@ -152,8 +153,31 @@ async function getStudioContext() {
   return {
     supabase,
     studioId: context.studioId,
+    studioRole: context.studioRole,
+    isPlatformAdmin: context.isPlatformAdmin,
     userId: user.id,
   };
+}
+
+// FC-1B5D Phase A correction: resendEventTicketConfirmationAction,
+// updateEventRegistrationAttendeeAction, and upsertEventAttendanceAction
+// (the three actions the registrations page itself invokes), and later
+// (P0 financial-authorization correction) refundEventRegistrationAction
+// and markEventRegistrationPaidAction, had no permission check beyond
+// active studio membership -- any active role, including instructor,
+// could reach the full clients roster / mutate registrations / trigger a
+// real Stripe refund or fabricate a paid status. Reuses the existing
+// canManageEventRegistrations permission (already covers
+// studio_owner/studio_admin and every organizer tier -- no new role
+// array), matching the page-level gate.
+function requireEventRegistrationManageAccessOrRedirect(
+  studioRole: string | null | undefined,
+  isPlatformAdmin: boolean | undefined,
+  eventId: string,
+) {
+  if (!canManageEventRegistrations(studioRole, isPlatformAdmin)) {
+    redirect(buildReturnUrl(eventId, "error=event_registration_unauthorized"));
+  }
 }
 
 async function validateEventAccess(
@@ -1736,7 +1760,8 @@ export async function upsertEventAttendanceAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId } = await getStudioContext();
+    const { supabase, studioId, studioRole, isPlatformAdmin } = await getStudioContext();
+    requireEventRegistrationManageAccessOrRedirect(studioRole, isPlatformAdmin, eventId);
     await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
@@ -1900,7 +1925,13 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId } = await getStudioContext();
+    const { supabase, studioId, studioRole, isPlatformAdmin } =
+      await getStudioContext();
+    requireEventRegistrationManageAccessOrRedirect(
+      studioRole,
+      isPlatformAdmin,
+      eventId,
+    );
     await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
@@ -1959,7 +1990,8 @@ export async function resendEventTicketConfirmationAction(formData: FormData) {
   let resultQuery = "error=resend_ticket_failed";
 
   try {
-    const { supabase, studioId } = await getStudioContext();
+    const { supabase, studioId, studioRole, isPlatformAdmin } = await getStudioContext();
+    requireEventRegistrationManageAccessOrRedirect(studioRole, isPlatformAdmin, eventId);
     await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
@@ -2013,7 +2045,8 @@ export async function updateEventRegistrationAttendeeAction(formData: FormData) 
   }
 
   try {
-    const { supabase, studioId } = await getStudioContext();
+    const { supabase, studioId, studioRole, isPlatformAdmin } = await getStudioContext();
+    requireEventRegistrationManageAccessOrRedirect(studioRole, isPlatformAdmin, eventId);
     await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
@@ -2100,7 +2133,13 @@ export async function refundEventRegistrationAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId } = await getStudioContext();
+    const { supabase, studioId, studioRole, isPlatformAdmin } =
+      await getStudioContext();
+    requireEventRegistrationManageAccessOrRedirect(
+      studioRole,
+      isPlatformAdmin,
+      eventId,
+    );
     const event = await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({

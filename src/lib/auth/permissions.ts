@@ -153,17 +153,23 @@ export function canEditClients(role: string | null | undefined) {
 
 // FC-1B1: independent_instructor is not host-studio staff -- their host
 // relationship exists only to support their own floor-rental activity, not
-// general access to the studio's unrelated client roster. This function had
-// no call sites before this change (the studio client list page enforced no
-// permission check at all), so removing the role here also becomes the
-// actual enforcement once wired into that page.
+// general access to the studio's unrelated client roster.
+//
+// FC-1B5D: instructor is no longer a general CRM role either. The client
+// PII containment design replaces broad instructor clients access with two
+// narrow, relationship-scoped interfaces instead:
+// get_teaching_clients_for_instructor (for clients they actually teach,
+// field-minimized) and search_bookable_clients_for_instructor (to find any
+// studio client when booking a first appointment, name-only). Neither
+// depends on this function -- both are SECURITY DEFINER RPCs called
+// directly, independent of canViewClients/RLS. See
+// requireClientViewAccess in serverRoleGuard.ts for the enforcement point.
 export function canViewClients(role: string | null | undefined) {
   return [
     "platform_admin",
     "studio_owner",
     "studio_admin",
     "front_desk",
-    "instructor",
   ].includes(role ?? "");
 }
 

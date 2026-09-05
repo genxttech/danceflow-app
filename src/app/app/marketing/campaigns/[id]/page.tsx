@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { canViewCommunications } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
@@ -597,6 +598,12 @@ export default async function MarketingCampaignDetailPage({
   await requireStudioFeature("marketing_campaigns");
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
+
+  // FC-1B5D: see marketing/campaigns/page.tsx -- same missing gate.
+  if (!canViewCommunications(context.studioRole ?? "")) {
+    redirect("/app");
+  }
+
   const studioId = context.studioId;
 
   const { data: userResult } = await supabase.auth.getUser();

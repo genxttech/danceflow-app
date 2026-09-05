@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext, isOrganizerRole } from "@/lib/auth/studio";
+import { canManageSettings } from "@/lib/auth/permissions";
 import { hasUnsuppressedPackageWarning, type PackageWithItems } from "@/lib/packages/entitlement";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
@@ -2680,6 +2681,16 @@ export default async function AriaOperationsCenterPage() {
   const context = await getCurrentStudioContext();
 
   if (!context?.studioId) {
+    redirect("/app");
+  }
+
+  // FC-1B5D: this page had no role gate at all -- any active studio role,
+  // including instructor, could view it, even though every mutating
+  // automations action it links to already requires canManageSettings
+  // (owner/admin/organizer only). Gated to match, and because it reads
+  // client rows for studio-wide automation/business-health views, not
+  // teaching data.
+  if (!canManageSettings(context.studioRole ?? "")) {
     redirect("/app");
   }
 

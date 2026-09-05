@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewClients } from "@/lib/auth/permissions";
 import LeadsWorkspacePanels from "./LeadsWorkspacePanels";
 import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 
@@ -291,6 +293,15 @@ export default async function LeadsPage({
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
+
+  // FC-1B5D: this page previously relied only on getCurrentStudioContext()
+  // (any active role) as its gate -- full lead PII (name, email, phone,
+  // dance_interests, referral_source) was reachable by any active studio
+  // role, including instructor. Leads are CRM data, not teaching data.
+  if (!canViewClients(context.studioRole ?? "")) {
+    redirect("/app");
+  }
+
   const studioId = context.studioId;
 
   const todayStart = startOfTodayLocal().toISOString();

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAppointmentCreateAccess } from "@/lib/auth/serverRoleGuard";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
 import {
@@ -217,7 +218,15 @@ async function queueBookingDecisionEmail(params: {
   staffNote: string | null;
   appointmentId?: string | null;
 }) {
-  const { data: client } = await params.supabase
+  // FC-1B5D: this looks up the already-known request's own client (never a
+  // search/browse) purely to compose an outbound notification -- the
+  // instructor approving/declining never sees this data themselves, only
+  // the client (recipientEmail) does. Uses the admin client rather than
+  // the caller's RLS-scoped session so this keeps working once instructor
+  // direct clients SELECT is narrowed in Phase B -- the caller's own
+  // authorization to approve/decline this specific request is already
+  // fully enforced by requireAppointmentCreateAccess() before this runs.
+  const { data: client } = await createAdminClient()
     .from("clients")
     .select("first_name, last_name, email")
     .eq("id", params.clientId)
@@ -342,9 +351,12 @@ async function sendBookingDecisionPush(params: {
   staffNote: string | null;
   appointmentId?: string | null;
 }) {
+  // FC-1B5D: admin client for the same reason as queueBookingDecisionEmail
+  // above -- an already-known client, looked up to compose a push
+  // notification to that client, not to display to the instructor.
   const [{ data: client }, { data: studio }, { data: settingsRow }] =
     await Promise.all([
-      params.supabase
+      createAdminClient()
         .from("clients")
         .select("first_name")
         .eq("id", params.clientId)
@@ -429,7 +441,12 @@ async function queueApprovedInstructorEmail(params: {
         .eq("id", params.instructorId)
         .eq("studio_id", params.studioId)
         .maybeSingle(),
-      params.supabase
+      // FC-1B5D: admin client -- see queueBookingDecisionEmail above. This
+      // one's result is used in a confirmation email TO the instructor
+      // (naming the client they just approved a request for), which is
+      // legitimate -- they already know this client's identity from the
+      // approval action itself.
+      createAdminClient()
         .from("clients")
         .select("first_name, last_name")
         .eq("id", params.clientId)

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { canCreateAppointments } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import { getStudioTimeZone } from "@/lib/booking/selfServiceAvailability";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -99,6 +100,13 @@ export default async function SelfServiceScheduleReviewPage({
   const status = resolvedSearchParams.status || "pending";
   const supabase = await createClient();
 
+  // FC-1B5D: instructor approvers previously saw client email here (though
+  // it was never actually rendered by this page -- dead data, confirmed no
+  // instructor-contact workflow exists anywhere in the app) via a raw
+  // clients join. instructor now sources names through the teaching-client
+  // RPC, which never returns email, instead of the raw join.
+  const isInstructorRole = context.studioRole === "instructor";
+
   const [{ data: settings }, { data: requests, error }] = await Promise.all([
     supabase
       .from("studio_settings")
@@ -107,7 +115,30 @@ export default async function SelfServiceScheduleReviewPage({
       .maybeSingle<{ timezone: string | null }>(),
     supabase
       .from("student_booking_action_requests")
-      .select(`
+      .select(
+        isInstructorRole
+          ? `
+        id,
+        action_type,
+        mode,
+        status,
+        requested_starts_at,
+        requested_ends_at,
+        previous_starts_at,
+        previous_ends_at,
+        lesson_type,
+        reason,
+        created_at,
+        client_id,
+        instructors:instructor_id (
+          first_name,
+          last_name
+        ),
+        rooms:room_id (
+          name
+        )
+      `
+          : `
         id,
         action_type,
         mode,
@@ -131,7 +162,8 @@ export default async function SelfServiceScheduleReviewPage({
         rooms:room_id (
           name
         )
-      `)
+      `,
+      )
       .eq("studio_id", context.studioId)
       .eq("status", status)
       .order("created_at", { ascending: false })
@@ -140,6 +172,37 @@ export default async function SelfServiceScheduleReviewPage({
 
   if (error) {
     throw new Error(`Failed to load self-service requests: ${error.message}`);
+  }
+
+  if (isInstructorRole) {
+    const { data: teachingClients } = await supabase.rpc(
+      "get_teaching_clients_for_instructor",
+      { target_studio_id: context.studioId },
+    );
+    const teachingClientMap = new Map(
+      (
+        (teachingClients ?? []) as {
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+        }[]
+      ).map((client) => [
+        client.id,
+        {
+          first_name: client.first_name ?? "",
+          last_name: client.last_name ?? "",
+          email: null as string | null,
+        },
+      ]),
+    );
+
+    for (const request of (requests ?? []) as (ActionRequestRow & {
+      client_id?: string | null;
+    })[]) {
+      request.clients = request.client_id
+        ? (teachingClientMap.get(request.client_id) ?? null)
+        : null;
+    }
   }
 
   const studioTimeZone = getStudioTimeZone(settings?.timezone);

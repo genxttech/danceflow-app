@@ -14,6 +14,7 @@ import {
   canManageSettings,
   canMarkAttendance,
   canSellPackages,
+  canViewClients,
   canViewPayments,
   canViewReports,
 } from "@/lib/auth/permissions";
@@ -80,6 +81,20 @@ export async function requireClientEditAccess() {
     ctx,
     allowed: canEditClients,
     message: "You do not have permission to manage clients.",
+  });
+}
+
+// FC-1B5D: general CRM client viewing (list, detail) is restricted to
+// studio_owner/studio_admin/front_desk (+ platform_admin). instructor
+// access to client data is deliberately routed through the
+// relationship-scoped RPCs (get_teaching_clients_for_instructor,
+// search_bookable_clients_for_instructor) instead of this guard.
+export async function requireClientViewAccess() {
+  const ctx = await getCurrentUserStudioContext();
+  return requirePermission({
+    ctx,
+    allowed: canViewClients,
+    message: "You do not have permission to view clients.",
   });
 }
 

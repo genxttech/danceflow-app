@@ -31,6 +31,8 @@ import {
   getAccessibleStudios,
   getCurrentStudioContext,
 } from "@/lib/auth/studio";
+import { canViewClients } from "@/lib/auth/permissions";
+import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 
 type WorkspaceRow = {
   id: string;
@@ -990,6 +992,15 @@ export default async function AppDashboardPage({
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
   const organizerWorkspace = isOrganizerRole(context.studioRole);
+  // FC-1B5D: this dashboard previously fetched full client PII (name,
+  // email, phone, birthday, address) for every active studio role,
+  // including instructor -- the only thing preventing broader exposure was
+  // RLS breadth, not this page's own logic. isCrmTier gates the two
+  // full/near-full-PII clients queries below; instructor-specific
+  // appointment scoping and the teaching-client RPC replace what
+  // instructor previously got from those same raw reads.
+  const isCrmTier = canViewClients(context.studioRole ?? "");
+  const isInstructorViewer = context.studioRole === "instructor";
   const accessibleStudios = await getAccessibleStudios();
 
   const currentWorkspace =
@@ -2181,6 +2192,15 @@ export default async function AppDashboardPage({
 
   const isGrowthOrHigher = planCode === "growth" || planCode === "pro";
 
+  // FC-1B5D: resolve the viewer's own instructor id (if any) so the
+  // upcoming-appointments feed below can be scoped to their own teaching
+  // context instead of the studio-wide feed every role previously saw by
+  // default. Mirrors the same auth.uid()-derived-identity pattern used by
+  // src/lib/integrations/google-calendar/access.ts.
+  const viewerInstructorId = isInstructorViewer
+    ? await resolveViewerInstructorId(supabase, studioId, user.id)
+    : null;
+
   const [
     { data: clients, error: clientsError },
     { data: appointments, error: appointmentsError },
@@ -2188,21 +2208,34 @@ export default async function AppDashboardPage({
     { data: packages, error: packagesError },
     { data: instructors, error: instructorsError },
   ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select(
-        "id, first_name, last_name, email, phone, birthday, address_line1, address_line2, city, state, postal_code, country",
-      )
-      .eq("studio_id", studioId),
-    supabase
-      .from("appointments")
-      .select(
-        "id, title, appointment_type, client_id, instructor_id, room_id, starts_at, status",
-      )
-      .eq("studio_id", studioId)
-      .gte("starts_at", new Date().toISOString())
-      .order("starts_at", { ascending: true })
-      .limit(8),
+    isCrmTier
+      ? supabase
+          .from("clients")
+          .select(
+            "id, first_name, last_name, email, phone, birthday, address_line1, address_line2, city, state, postal_code, country",
+          )
+          .eq("studio_id", studioId)
+      : Promise.resolve({ data: [], error: null }),
+    isInstructorViewer && !viewerInstructorId
+      ? Promise.resolve({ data: [], error: null })
+      : (() => {
+          let appointmentsQuery = supabase
+            .from("appointments")
+            .select(
+              "id, title, appointment_type, client_id, instructor_id, room_id, starts_at, status",
+            )
+            .eq("studio_id", studioId)
+            .gte("starts_at", new Date().toISOString())
+            .order("starts_at", { ascending: true })
+            .limit(8);
+          if (isInstructorViewer && viewerInstructorId) {
+            appointmentsQuery = appointmentsQuery.eq(
+              "instructor_id",
+              viewerInstructorId,
+            );
+          }
+          return appointmentsQuery;
+        })(),
     supabase
       .from("client_memberships")
       .select("id, status")
@@ -2279,15 +2312,19 @@ export default async function AppDashboardPage({
     followUpPackagesResult,
     followUpEventRegistrationsResult,
   ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select(
-        "id, first_name, last_name, email, status, referral_source, created_at",
-      )
-      .eq("studio_id", studioId)
-      .in("status", ["active", "lead", "contacted", "consultation_booked"])
-      .order("created_at", { ascending: false })
-      .limit(150),
+    // FC-1B5D: follow-up/lead CRM data -- not teaching-relevant, gated to
+    // CRM-tier roles just like the clients query above.
+    isCrmTier
+      ? supabase
+          .from("clients")
+          .select(
+            "id, first_name, last_name, email, status, referral_source, created_at",
+          )
+          .eq("studio_id", studioId)
+          .in("status", ["active", "lead", "contacted", "consultation_booked"])
+          .order("created_at", { ascending: false })
+          .limit(150)
+      : Promise.resolve({ data: [], error: null }),
 
     supabase
       .from("appointments")
@@ -2618,14 +2655,23 @@ export default async function AppDashboardPage({
     ),
   );
 
+  // FC-1B5D: for an instructor viewer, typedAppointments is already scoped
+  // to their own instructor_id above, so clientIds here only ever contains
+  // clients they are the assigned instructor for. Their names are sourced
+  // through the teaching-client RPC (relationship + lifecycle-checked,
+  // field-minimized) rather than a raw clients read gated only by RLS.
   const [clientRowsResult, instructorRowsResult, roomRowsResult] =
     await Promise.all([
-      clientIds.length > 0
-        ? supabase
-            .from("clients")
-            .select("id, first_name, last_name")
-            .in("id", clientIds)
-        : Promise.resolve({ data: [], error: null }),
+      clientIds.length === 0
+        ? Promise.resolve({ data: [], error: null })
+        : isInstructorViewer
+          ? supabase.rpc("get_teaching_clients_for_instructor", {
+              target_studio_id: studioId,
+            })
+          : supabase
+              .from("clients")
+              .select("id, first_name, last_name")
+              .in("id", clientIds),
       instructorIds.length > 0
         ? supabase
             .from("instructors")

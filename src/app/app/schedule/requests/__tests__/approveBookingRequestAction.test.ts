@@ -132,6 +132,15 @@ vi.mock("@/lib/auth/serverRoleGuard", () => ({
   }),
 }));
 
+// FC-1B5D: queueBookingDecisionEmail/sendBookingDecisionPush/
+// queueApprovedInstructorEmail now look up the request's client via the
+// admin client (not the RLS-scoped session client) so they keep working
+// once instructor direct clients SELECT is narrowed in Phase B -- reuse
+// the same fixture tables so `clients: table([])` still governs this path.
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => createFakeEntitlementClient(currentTables),
+}));
+
 const { approveBookingRequestAction } = await import("@/app/app/schedule/requests/actions");
 
 function formDataFor(fields: Record<string, string>) {

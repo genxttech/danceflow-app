@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewCommunications } from "@/lib/auth/permissions";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
@@ -48,6 +49,20 @@ function getString(formData: FormData, key: string) {
 function appendQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
+}
+
+// FC-1B5D Phase A correction: see the identical helper in the sibling,
+// actually-imported "../actions" module (this file itself is unreferenced
+// by any importer -- src/app/app/marketing/campaigns/[id]/page.tsx imports
+// from "../actions" instead -- but is fixed for consistency/defense in
+// depth in case it is ever wired up).
+function requireCommunicationsAccessOrRedirect(
+  studioRole: string | null | undefined,
+  fallback: string,
+) {
+  if (!canViewCommunications(studioRole ?? "")) {
+    redirect(appendQueryParam(fallback, "campaign_error", "unauthorized"));
+  }
 }
 
 function normalizeUrl(url: string) {
@@ -325,6 +340,8 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       redirect("/login");
     }
 
+    requireCommunicationsAccessOrRedirect(context.studioRole, fallback);
+
     const { data: userResult, error: userError } =
       await supabase.auth.getUser();
 
@@ -422,6 +439,8 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
     if (!studioId) {
       redirect("/login");
     }
+
+    requireCommunicationsAccessOrRedirect(context.studioRole, fallback);
 
     const { data: userResult, error: userError } =
       await supabase.auth.getUser();
@@ -532,6 +551,8 @@ export async function generateMarketingCampaignRecipientsAction(
     if (!studioId) {
       redirect("/login");
     }
+
+    requireCommunicationsAccessOrRedirect(context.studioRole, fallback);
 
     const { data: campaign, error: campaignError } = await supabase
       .from("marketing_campaigns")
@@ -649,6 +670,8 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     if (!studioId) {
       redirect("/login");
     }
+
+    requireCommunicationsAccessOrRedirect(context.studioRole, fallback);
 
     const { data: userResult, error: userError } =
       await supabase.auth.getUser();

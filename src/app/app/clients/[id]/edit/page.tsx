@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import EditClientForm from "./EditClientForm";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canEditClients } from "@/lib/auth/permissions";
 
 type Params = Promise<{
   id: string;
@@ -60,6 +61,13 @@ export default async function EditClientPage({
 const context = await getCurrentStudioContext();
 const studioId = context.studioId;
 const role = context.studioRole ?? "";
+
+// FC-1B5D: this page previously had no server-side gate at all (role was
+// computed but never checked) -- the full editable client PII form was
+// reachable by any active studio role, including instructor.
+if (!canEditClients(role)) {
+  redirect("/app");
+}
 
    const [
     { data: client, error: clientError },

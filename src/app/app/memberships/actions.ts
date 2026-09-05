@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageMemberships, canSellMemberships } from "@/lib/auth/permissions";
 import { ensureConnectedStripeCustomer } from "@/lib/payments/customer";
 import { getStripe } from "@/lib/payments/stripe";
 import { ensureConnectedStripeRecurringPrice } from "@/lib/payments/subscriptions";
@@ -104,6 +105,32 @@ function parseBenefits(raw: string): BenefitInput[] {
 function addQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
+}
+
+// FC-1B5D Phase A correction: this file had zero permission checks
+// (confirmed -- no @/lib/auth/permissions import existed) despite reading
+// client name/email/id in 5 places. Mapped per actual business capability
+// rather than one blanket permission: administrative assignment/management
+// of an existing membership record uses canManageMemberships; initiating a
+// new commercial membership sale (including a terminal/in-person sale) uses
+// canSellMemberships. Both already exclude instructor/independent_instructor
+// -- no new role array introduced.
+function requireMembershipManageAccessOrRedirect(
+  studioRole: string | null | undefined,
+  returnTo: string,
+) {
+  if (!canManageMemberships(studioRole ?? "")) {
+    redirect(addQueryParam(returnTo, "error", "membership_unauthorized"));
+  }
+}
+
+function requireMembershipSellAccessOrRedirect(
+  studioRole: string | null | undefined,
+  returnTo: string,
+) {
+  if (!canSellMemberships(studioRole ?? "")) {
+    redirect(addQueryParam(returnTo, "error", "membership_unauthorized"));
+  }
 }
 
 function calculateMembershipPeriod(billingInterval: string, startsOn: string) {
@@ -463,6 +490,8 @@ export async function assignMembershipToClientAction(formData: FormData) {
     const studioId = context.studioId;
     const userId = context.userId;
 
+    requireMembershipManageAccessOrRedirect(context.studioRole, returnTo);
+
     const clientId = getString(formData, "clientId");
     const membershipPlanId = getString(formData, "membershipPlanId");
     const startsOn = getString(formData, "startsOn");
@@ -590,6 +619,8 @@ export async function startMembershipPaymentMethodSetupAction(
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
+    requireMembershipSellAccessOrRedirect(context.studioRole, returnTo);
+
     const clientId = getString(formData, "clientId");
     if (!clientId) {
       redirect(addQueryParam(returnTo, "error", "missing_client"));
@@ -671,6 +702,8 @@ export async function sellMembershipAction(formData: FormData) {
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
     const userId = context.userId;
+
+    requireMembershipSellAccessOrRedirect(context.studioRole, returnTo);
 
     const clientId = getString(formData, "clientId");
     const membershipPlanId = getString(formData, "membershipPlanId");
@@ -883,6 +916,9 @@ export async function startTerminalMembershipEnrollmentAction(formData: FormData
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
     const userId = context.userId;
+
+    requireMembershipSellAccessOrRedirect(context.studioRole, returnTo);
+
     const clientId = getString(formData, "clientId");
     const membershipPlanId = getString(formData, "membershipPlanId");
     const startsOn = getString(formData, "startsOn");
@@ -1034,6 +1070,15 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
+    // FC-1B5D Phase A P0 correction: this action mutates a live Stripe
+    // subscription (cancel_at_period_end) with no permission check at all
+    // -- any active studio role, including instructor, could reach it.
+    // Cancelling/reactivating an existing membership is administrative
+    // management of that record, matching assignClientMembershipAction's
+    // own canManageMemberships gate elsewhere in this file -- no new role
+    // array introduced.
+    requireMembershipManageAccessOrRedirect(context.studioRole, returnTo);
+
     if (!clientMembershipId) {
       redirect(addQueryParam(returnTo, "error", "membership_not_found"));
     }
@@ -1175,6 +1220,12 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
+    // FC-1B5D Phase A P0 correction: see cancelMembershipAtPeriodEndAction
+    // above -- same gap (a live Stripe subscription mutation with no
+    // permission check), same fix (canManageMemberships, existing
+    // membership administration).
+    requireMembershipManageAccessOrRedirect(context.studioRole, returnTo);
+
     if (!clientMembershipId) {
       redirect(addQueryParam(returnTo, "error", "membership_not_found"));
     }
@@ -1314,6 +1365,8 @@ export async function collectReplacementPaymentMethodAction(
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
+    requireMembershipManageAccessOrRedirect(context.studioRole, returnTo);
+
     if (!clientId) {
       redirect(addQueryParam(returnTo, "error", "missing_client"));
     }
@@ -1402,6 +1455,15 @@ export async function retryDelinquentMembershipBillingAction(
     const supabase = await createClient();
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
+
+    // FC-1B5D Phase A P0 correction: this action triggers a real Stripe
+    // invoice payment attempt against a client's card with no permission
+    // check at all. Retrying delinquent billing is administrative
+    // management of an existing membership record (not initiating a new
+    // sale), matching cancelMembershipAtPeriodEndAction's own
+    // canManageMemberships gate above -- canSellMemberships is reserved
+    // for initiating new commercial sales elsewhere in this file.
+    requireMembershipManageAccessOrRedirect(context.studioRole, returnTo);
 
     if (!clientMembershipId) {
       redirect(addQueryParam(returnTo, "error", "membership_not_found"));

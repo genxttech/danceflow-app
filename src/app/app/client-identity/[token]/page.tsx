@@ -14,14 +14,15 @@ type SearchParams = Promise<{
   error?: string;
 }>;
 
+// FC-1B5D Phase A correction: narrowed to the check-in-safe field set
+// returned by get_client_by_qr_token_for_checkin -- email, phone, and
+// CRM lifecycle status are no longer selected (they were already unused
+// by this page's rendering).
 type ClientRow = {
   id: string;
   first_name: string;
   last_name: string;
-  email: string | null;
-  phone: string | null;
   photo_url: string | null;
-  status: string | null;
   skill_level: string | null;
 };
 
@@ -163,14 +164,20 @@ export default async function ClientIdentityPage({
   const tomorrowStart = new Date(todayStart);
   tomorrowStart.setDate(tomorrowStart.getDate() + 1);
 
-  const { data: client, error: clientError } = await supabase
-    .from("clients")
-    .select(
-      "id, first_name, last_name, email, phone, photo_url, status, skill_level"
-    )
-    .eq("studio_id", studioId)
-    .eq("client_qr_token", trimmedToken)
-    .maybeSingle();
+  // FC-1B5D Phase A correction: sourced through the token-scoped
+  // get_client_by_qr_token_for_checkin RPC instead of a raw clients read,
+  // so this keeps working for instructor (and any active staff role)
+  // after Phase B narrows clients RLS to CRM-tier roles -- the RPC
+  // independently verifies an active studio relationship, it does not
+  // depend on broad clients SELECT access. The RPC itself also enforces
+  // the field minimization (email/phone/status are never returned), so
+  // there is no separate client-side trim to do here.
+  const { data: clientRows, error: clientError } = await supabase.rpc(
+    "get_client_by_qr_token_for_checkin",
+    { target_studio_id: studioId, qr_token: trimmedToken },
+  );
+
+  const client = (clientRows ?? [])[0] ?? null;
 
   if (clientError || !client) {
     notFound();
@@ -314,21 +321,12 @@ export default async function ClientIdentityPage({
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="rounded-[28px] border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Contact
+            Teaching Info
           </p>
+          {/* FC-1B5D Phase A correction: email/phone/CRM status removed --
+              this is a purpose-specific check-in identity view, not a CRM
+              contact card. Only check-in/teaching-relevant fields remain. */}
           <dl className="mt-4 space-y-3 text-sm">
-            <div>
-              <dt className="text-slate-500">Email</dt>
-              <dd className="font-medium text-[var(--brand-text)]">{typedClient.email ?? "Not saved"}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Phone</dt>
-              <dd className="font-medium text-[var(--brand-text)]">{typedClient.phone ?? "Not saved"}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Status</dt>
-              <dd className="font-medium text-[var(--brand-text)]">{typedClient.status ?? "Active"}</dd>
-            </div>
             <div>
               <dt className="text-slate-500">Skill level</dt>
               <dd className="font-medium text-[var(--brand-text)]">{typedClient.skill_level ?? "Not set"}</dd>

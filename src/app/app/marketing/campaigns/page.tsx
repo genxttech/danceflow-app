@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Link2, Mail, Megaphone, Sparkles, Users, ShieldCheck } from "lucide-react";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewCommunications } from "@/lib/auth/permissions";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { createMarketingCampaignDraftAction, getLowPackageCreditClientIds } from "./actions";
 import CampaignAIAssistant from "./CampaignAIAssistant";
@@ -436,6 +438,16 @@ export default async function MarketingCampaignsPage({
   await requireStudioFeature("marketing_campaigns");
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
+
+  // FC-1B5D: this page had no role gate at all -- client name/email/status
+  // audience data was reachable by any active studio role, including
+  // instructor. Gated to match the sibling Communications workspace
+  // (canViewCommunications) since marketing campaigns are the same class
+  // of CRM/lead-communication tooling.
+  if (!canViewCommunications(context.studioRole ?? "")) {
+    redirect("/app");
+  }
+
   const studioId = context.studioId;
 
   const [audiencePreviews, campaignsResult, eventsResult] = await Promise.all([

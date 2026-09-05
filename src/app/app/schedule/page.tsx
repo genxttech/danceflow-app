@@ -26,6 +26,7 @@ import {
   isIndependentInstructor,
 } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 import ScheduleDetailPanelTrigger from "./ScheduleDetailPanelTrigger";
 import {
@@ -1132,10 +1133,54 @@ export default async function SchedulePage({
   const tomorrowLocalDate = formatLocalDateKey(addDaysLocal(baseDate, 1));
   const next7End = getLocalDayUtcRange(next7LocalDate, studioTimeZone).startIso;
 
-  let appointmentsQuery = supabase
-    .from("appointments")
-    .select(
-      `
+  // FC-1B5D: instructor previously saw the full studio-wide schedule by
+  // default (the instructor filter dropdown was optional, not a default
+  // scope) and had client names/referral_source joined in via raw clients
+  // access. instructor is now hard-scoped to their own appointments, and
+  // client names come from the teaching-client RPC (which never returns
+  // referral_source) instead of the raw clients join.
+  const isInstructorRole = role === "instructor";
+  const viewerInstructorId = isInstructorRole
+    ? await resolveViewerInstructorId(supabase, studioId, context.userId)
+    : null;
+
+  // FC-1B5D: assigned to an explicitly-typed `string` (not a literal
+  // union) so Supabase's generated query types don't try to statically
+  // parse two different select shapes as one union -- matches the
+  // established need elsewhere in this codebase for conditional selects.
+  const appointmentsSelect: string = isInstructorRole
+    ? `
+      id,
+      title,
+      appointment_type,
+      status,
+      client_id,
+      starts_at,
+      ends_at,
+      client_package_id,
+      price_amount,
+      payment_status,
+      billing_type,
+      billing_note,
+      is_recurring,
+      recurrence_series_id,
+      instructors ( id, first_name, last_name ),
+      rooms ( id, name ),
+      client_packages (
+        id,
+        name_snapshot,
+        active,
+        archived_at,
+        expiration_date,
+        client_package_items (
+          usage_type,
+          quantity_remaining,
+          quantity_total,
+          is_unlimited
+        )
+      )
+    `
+    : `
       id,
       title,
       appointment_type,
@@ -1166,10 +1211,20 @@ export default async function SchedulePage({
           is_unlimited
         )
       )
-    `,
-    )
+    `;
+
+  let appointmentsQuery = supabase
+    .from("appointments")
+    .select(appointmentsSelect)
     .eq("studio_id", studioId)
     .order("starts_at", { ascending: true });
+
+  if (isInstructorRole) {
+    appointmentsQuery = appointmentsQuery.eq(
+      "instructor_id",
+      viewerInstructorId ?? "00000000-0000-0000-0000-000000000000",
+    );
+  }
 
   if (scope === "today") {
     appointmentsQuery = appointmentsQuery
@@ -1198,7 +1253,7 @@ export default async function SchedulePage({
     }
   }
 
-  if (instructorFilter !== "all") {
+  if (!isInstructorRole && instructorFilter !== "all") {
     appointmentsQuery = appointmentsQuery.eq("instructor_id", instructorFilter);
   }
 
@@ -1290,7 +1345,42 @@ export default async function SchedulePage({
     throw new Error(`Failed to load events: ${eventsError.message}`);
   }
 
-  const typedAppointments = ((appointments ?? []) as AppointmentRow[])
+  // FC-1B5D: attach teaching-safe client names for instructor viewers --
+  // the query above deliberately omits the raw clients join for this role.
+  // referral_source is never available here (the teaching RPC never
+  // returns it), so referral-based filtering/badges naturally show nothing
+  // for instructor -- an accepted consequence of referral_source being
+  // CRM-administration data, not teaching data.
+  if (isInstructorRole) {
+    const { data: teachingClients } = await supabase.rpc(
+      "get_teaching_clients_for_instructor",
+      { target_studio_id: studioId },
+    );
+    const teachingClientMap = new Map(
+      (
+        (teachingClients ?? []) as {
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+        }[]
+      ).map((client) => [
+        client.id,
+        {
+          first_name: client.first_name ?? "",
+          last_name: client.last_name ?? "",
+          referral_source: null as string | null,
+        },
+      ]),
+    );
+
+    for (const appointment of (appointments ?? []) as unknown as AppointmentRow[]) {
+      appointment.clients = appointment.client_id
+        ? (teachingClientMap.get(appointment.client_id) ?? null)
+        : null;
+    }
+  }
+
+  const typedAppointments = ((appointments ?? []) as unknown as AppointmentRow[])
     .filter((appointment) => {
       const referralSource = getClientReferralSource(appointment.clients);
       const isPublicIntro =

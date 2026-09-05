@@ -127,6 +127,14 @@ export default async function AutomationDraftsPage({
   }
 
   const canManage = canManageSettings(context.studioRole ?? "");
+
+  // FC-1B5D Phase A correction: canManage was computed but never used to
+  // gate the raw clients read below (it only controlled UI affordances
+  // further down) -- any active studio role, including instructor, could
+  // reach the full name/email client join. Enforce before any query.
+  if (!canManage) {
+    redirect("/app");
+  }
   const selectedStatus = DELIVERY_STATUSES.includes(query.status ?? "")
     ? String(query.status)
     : "all";
