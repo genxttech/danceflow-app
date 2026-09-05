@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   type AppRole,
@@ -442,7 +443,15 @@ export async function upsertTeamMemberRoleAction(formData: FormData) {
       redirectTeamWithMessage("error", "That role is not available on the current plan.");
     }
 
-    const { error: upsertError } = await supabase.from("user_studio_roles").upsert(
+    // FC-1B5 P0: user_studio_roles has no authenticated INSERT policy
+    // (emergency fix, see migration 20260904150000) -- every check above
+    // this point (actorIsOwner, parseRole/ASSIGNABLE_ROLES,
+    // roleFitsWorkspaceType, canAssignTargetRole, assertPlanAllowsRole) has
+    // already fully authorized this exact write, so it's performed through
+    // the service-role client rather than relying on RLS as a second gate
+    // that no longer exists for ordinary authenticated clients.
+    const adminSupabase = createAdminClient();
+    const { error: upsertError } = await adminSupabase.from("user_studio_roles").upsert(
       {
         studio_id: studioId,
         user_id: targetUserId,

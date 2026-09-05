@@ -1,0 +1,73 @@
+-- Emergency P0: public.user_studio_roles INSERT privilege escalation.
+--
+-- Current state: the sole INSERT policy on public.user_studio_roles,
+-- "authenticated users can insert user studio roles", has
+-- WITH CHECK (true) -- no role check, no auth.uid() reference, nothing.
+-- The companion migration 20260830110000 (which fixed an equally
+-- unrestricted SELECT policy on this same table) explicitly noted this
+-- INSERT policy as untouched/deferred at that time. This migration is that
+-- deferred fix.
+--
+-- Any authenticated user -- including a plain dancer account with zero
+-- user_studio_roles membership -- can currently insert an arbitrary row
+-- for themselves (or any other user_id), at any studio_id, with any
+-- app_role value including 'studio_owner' and 'platform_admin',
+-- immediately granting full studio access (or, for that studio_id,
+-- platform-admin-equivalent access) through every other policy that trusts
+-- this table directly or via user_has_studio_access(). Confirmed via
+-- direct read-only inspection: no trigger and no CHECK constraint on this
+-- table restricts user_id to auth.uid() or restricts which role value may
+-- be inserted -- RLS is the only enforcement layer, and it currently
+-- enforces nothing.
+--
+-- Legitimate INSERT paths traced before this change (FC-1B5 P0 audit):
+--   - src/app/app/settings/team/actions.ts:upsertTeamMemberRoleAction --
+--     the only call site that performs a direct authenticated-client
+--     .from("user_studio_roles").upsert(...), and the only one that
+--     depended on this policy. It already fully authorizes the write in
+--     application code before reaching it: actorIsOwner check, then
+--     parseRole() restricted to ASSIGNABLE_ROLES
+--     ('studio_admin','front_desk','instructor','organizer_admin' only --
+--     never 'studio_owner', 'platform_admin', 'organizer_owner',
+--     'independent_instructor', or 'client'), then roleFitsWorkspaceType(),
+--     then canAssignTargetRole() (src/lib/auth/permissions.ts), then a
+--     billing-plan check. This action is updated in the same change to
+--     perform its write through the service-role client instead of the
+--     RLS-enforced one, since its authorization is already fully enforced
+--     before the write and does not need RLS as a second gate.
+--   - src/app/get-started/actions.ts (new-workspace signup, assigns
+--     studio_owner on a newly-created studio for the signing-up user) was
+--     confirmed to already write through the service-role client --
+--     unaffected by this policy either way.
+--   - public.claim_platform_invite(...) and
+--     public.accept_pending_team_invitations(...) are SECURITY DEFINER
+--     functions that bypass RLS entirely by construction -- unaffected by
+--     this policy either way. Their own internal checks (token/invite
+--     validation against a pre-existing, narrowly-scoped invite row) were
+--     independently re-verified as part of this audit. Note in particular
+--     that team_invitations carries its own DB-level CHECK constraint
+--     restricting the invitable role to
+--     ['studio_admin','front_desk','instructor','independent_instructor',
+--     'organizer_admin'] -- platform_admin/studio_owner/organizer_owner
+--     can never be granted via the invitation path either. Neither
+--     function nor this constraint is modified by this migration.
+--
+-- Target state: this policy is dropped and not replaced. With RLS enabled
+-- and no permissive INSERT policy remaining, INSERT into
+-- public.user_studio_roles is denied by default for the `authenticated`
+-- and `anon` roles -- matching the pattern already established on
+-- public.client_account_links (also write-only-via-service-role, zero
+-- INSERT/UPDATE/DELETE policies for ordinary authenticated clients). All
+-- role grants now go through code that has already performed its own
+-- authorization check, rather than a second, independently-maintained SQL
+-- predicate that could drift out of sync with the application rule over
+-- time.
+--
+-- Scope: this migration only touches the INSERT policy on
+-- public.user_studio_roles. The existing SELECT policy ("studio members
+-- can view roles") is untouched and is not recreated. No other table's RLS
+-- is modified. No data is mutated. No UPDATE/DELETE policy is added (none
+-- existed on this table before this change either).
+
+drop policy if exists "authenticated users can insert user studio roles"
+on public.user_studio_roles;
