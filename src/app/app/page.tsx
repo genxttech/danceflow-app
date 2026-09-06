@@ -2326,14 +2326,22 @@ export default async function AppDashboardPage({
           .limit(150)
       : Promise.resolve({ data: [], error: null }),
 
-    supabase
-      .from("appointments")
-      .select("id, client_id, starts_at")
-      .eq("studio_id", studioId)
-      .not("client_id", "is", null)
-      .gte("starts_at", followUpNowIso)
-      .order("starts_at", { ascending: true })
-      .limit(300),
+    // FC-1B5D2 D2A: this raw studio-wide appointments read only ever feeds
+    // the CRM-tier-gated follow-up-reminder feature above -- it was
+    // previously executed for every role including instructor with no
+    // gate of its own, even though nothing instructor-facing consumes it.
+    // Gated the same way as the clients query above, before the query
+    // runs.
+    isCrmTier
+      ? supabase
+          .from("appointments")
+          .select("id, client_id, starts_at")
+          .eq("studio_id", studioId)
+          .not("client_id", "is", null)
+          .gte("starts_at", followUpNowIso)
+          .order("starts_at", { ascending: true })
+          .limit(300)
+      : Promise.resolve({ data: [], error: null }),
 
     supabase
       .from("lead_activities")

@@ -52,6 +52,7 @@ const STUDIO_ID = "studio-1";
 const APPOINTMENT_ID = "appt-1";
 const CLIENT_ID = "client-1";
 const USER_ID = "user-1";
+const INSTRUCTOR_ID = "instructor-1";
 
 const adminFromCalls: { table: string; id?: string; studioId?: string }[] = [];
 let adminClientRow: Record<string, unknown> | null = null;
@@ -121,7 +122,7 @@ function appointmentRow(overrides: Record<string, unknown> = {}) {
     status: "scheduled",
     studio_id: STUDIO_ID,
     partner_client_id: null,
-    instructor_id: null,
+    instructor_id: INSTRUCTOR_ID,
     room_id: null,
     notes: null,
     ...overrides,
@@ -148,6 +149,9 @@ function createSessionSupabase() {
       }
       if (table === "client_activity_notes") {
         return benignChain(table, () => ({ data: null, error: null }));
+      }
+      if (table === "instructors") {
+        return benignChain(table, () => ({ data: { id: INSTRUCTOR_ID }, error: null }));
       }
       return benignChain(table, () => ({ data: null, error: null }));
     },
@@ -237,6 +241,9 @@ describe("queueAppointmentOutboundDelivery admin-client usage (via cancelAppoint
           }
           if (table === "clients") {
             throw new Error("UNEXPECTED session clients read");
+          }
+          if (table === "instructors") {
+            return benignChain(table, () => ({ data: { id: INSTRUCTOR_ID }, error: null }));
           }
           return benignChain(table, () => ({ data: null, error: null }));
         },

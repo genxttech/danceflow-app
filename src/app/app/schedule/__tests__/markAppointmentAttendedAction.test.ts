@@ -227,7 +227,13 @@ describe("markAppointmentAttendedAction — replay/recovery for a stranded deduc
       appointment: baseAppointmentRow({ status: "attended" }),
       rpcAlreadyDeducted: true,
     });
-    requireAttendanceAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAttendanceAccessMock.mockResolvedValue({
+      supabase,
+      studioId: STUDIO_ID,
+      user: { id: "user-1" },
+      studioRole: "studio_owner",
+      isPlatformAdmin: false,
+    });
 
     const error = await markAppointmentAttendedAction(
       formDataFor(APPOINTMENT_ID),
@@ -243,7 +249,13 @@ describe("markAppointmentAttendedAction — replay/recovery for a stranded deduc
       appointment: baseAppointmentRow({ status: "attended" }),
       rpcAlreadyDeducted: false,
     });
-    requireAttendanceAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAttendanceAccessMock.mockResolvedValue({
+      supabase,
+      studioId: STUDIO_ID,
+      user: { id: "user-1" },
+      studioRole: "studio_owner",
+      isPlatformAdmin: false,
+    });
 
     const error = await markAppointmentAttendedAction(
       formDataFor(APPOINTMENT_ID),
@@ -268,7 +280,13 @@ describe("markAppointmentAttendedAction — replay/recovery for a stranded deduc
       appointment: baseAppointmentRow({ status: "scheduled" }),
       rpcAlreadyDeducted: false,
     });
-    requireAttendanceAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAttendanceAccessMock.mockResolvedValue({
+      supabase,
+      studioId: STUDIO_ID,
+      user: { id: "user-1" },
+      studioRole: "studio_owner",
+      isPlatformAdmin: false,
+    });
 
     const error = await markAppointmentAttendedAction(
       formDataFor(APPOINTMENT_ID),
@@ -285,7 +303,13 @@ describe("markAppointmentAttendedAction — replay/recovery for a stranded deduc
       appointment: baseAppointmentRow({ status: "attended" }),
       rpcError: "The selected package has no remaining credits.",
     });
-    requireAttendanceAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAttendanceAccessMock.mockResolvedValue({
+      supabase,
+      studioId: STUDIO_ID,
+      user: { id: "user-1" },
+      studioRole: "studio_owner",
+      isPlatformAdmin: false,
+    });
 
     const error = await markAppointmentAttendedAction(
       formDataFor(APPOINTMENT_ID),
@@ -302,7 +326,13 @@ describe("markAppointmentAttendedAction — replay/recovery for a stranded deduc
       appointment: baseAppointmentRow({ status: "scheduled" }),
       rpcError: "The selected package has no remaining credits.",
     });
-    requireAttendanceAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAttendanceAccessMock.mockResolvedValue({
+      supabase,
+      studioId: STUDIO_ID,
+      user: { id: "user-1" },
+      studioRole: "studio_owner",
+      isPlatformAdmin: false,
+    });
 
     const error = await markAppointmentAttendedAction(
       formDataFor(APPOINTMENT_ID),

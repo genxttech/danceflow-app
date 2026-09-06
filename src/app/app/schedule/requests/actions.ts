@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAppointmentCreateAccess } from "@/lib/auth/serverRoleGuard";
+import { requireBookingRequestRelationshipAccess } from "@/lib/auth/bookingRequestAccess";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
@@ -590,7 +591,8 @@ export async function approveBookingRequestAction(formData: FormData) {
     redirect("/app/schedule/requests?error=missing_request");
   }
 
-  const { supabase, studioId, user } = await requireAppointmentCreateAccess();
+  const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+    await requireAppointmentCreateAccess();
 
   const { data: request, error: requestError } = await supabase
     .from("booking_requests")
@@ -617,6 +619,27 @@ export async function approveBookingRequestAction(formData: FormData) {
   }
 
   const typedRequest = request as BookingRequestRow;
+
+  // FC-1B5D2 D2A: relationship authorization before any entitlement
+  // lookup, conflict check, appointment creation, request-status mutation,
+  // or notification side effect -- an ordinary instructor may only approve
+  // a request assigned to their own resolved instructor identity, never a
+  // colleague's or an unassigned request. owner/admin/front_desk retain
+  // studio-wide triage.
+  const relationshipResult = await requireBookingRequestRelationshipAccess({
+    supabase,
+    studioId,
+    studioRole,
+    isPlatformAdmin,
+    userId: user.id,
+    requestInstructorId: typedRequest.instructor_id,
+  });
+
+  if (!relationshipResult.ok) {
+    redirect(
+      `/app/schedule/requests?error=${encodeURIComponent(relationshipResult.reason)}`,
+    );
+  }
 
   if (typedRequest.status !== "pending") {
     redirect("/app/schedule/requests?error=request_already_reviewed");
@@ -786,17 +809,38 @@ export async function declineBookingRequestAction(formData: FormData) {
     redirect("/app/schedule/requests?error=missing_request");
   }
 
-  const { supabase, studioId, user } = await requireAppointmentCreateAccess();
+  const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+    await requireAppointmentCreateAccess();
 
   const { data: request, error: requestError } = await supabase
     .from("booking_requests")
-    .select("id, studio_id, status, client_id, requested_starts_at")
+    .select("id, studio_id, status, client_id, instructor_id, requested_starts_at")
     .eq("id", requestId)
     .eq("studio_id", studioId)
     .maybeSingle();
 
   if (requestError || !request) {
     redirect("/app/schedule/requests?error=request_not_found");
+  }
+
+  const typedRequestForAuth = request as { instructor_id: string | null };
+
+  // FC-1B5D2 D2A: relationship authorization before any status mutation or
+  // notification side effect -- see approveBookingRequestAction above for
+  // the full rationale.
+  const relationshipResult = await requireBookingRequestRelationshipAccess({
+    supabase,
+    studioId,
+    studioRole,
+    isPlatformAdmin,
+    userId: user.id,
+    requestInstructorId: typedRequestForAuth.instructor_id,
+  });
+
+  if (!relationshipResult.ok) {
+    redirect(
+      `/app/schedule/requests?error=${encodeURIComponent(relationshipResult.reason)}`,
+    );
   }
 
   if ((request as { status: string }).status !== "pending") {

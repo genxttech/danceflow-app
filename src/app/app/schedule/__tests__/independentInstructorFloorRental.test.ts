@@ -77,6 +77,7 @@ vi.mock("@/lib/packages/lifecycle", () => ({
 }));
 
 const requireFloorRentalAppointmentAccessMock = vi.fn();
+const requireAppointmentDeleteAccessMock = vi.fn();
 
 vi.mock("@/lib/auth/serverRoleGuard", () => ({
   requireFloorRentalAppointmentAccess: (...args: unknown[]) =>
@@ -84,6 +85,11 @@ vi.mock("@/lib/auth/serverRoleGuard", () => ({
   requireAppointmentCreateAccess: vi.fn(),
   requireAppointmentEditAccess: vi.fn(),
   requireAttendanceAccess: vi.fn(),
+  // FC-1B5D2 D2A: deleteAppointmentAction now uses this role-only guard
+  // (no floor-rental relationship path at all -- independent_instructor is
+  // denied here, before ever reaching a relationship check).
+  requireAppointmentDeleteAccess: (...args: unknown[]) =>
+    requireAppointmentDeleteAccessMock(...args),
 }));
 
 const {
@@ -306,6 +312,7 @@ async function runAction(promise: Promise<unknown>) {
 
 beforeEach(() => {
   requireFloorRentalAppointmentAccessMock.mockReset();
+  requireAppointmentDeleteAccessMock.mockReset();
 });
 
 function mockGuard(options: {
@@ -531,7 +538,7 @@ describe("updateAppointmentAction -- FC-1", () => {
 
 describe("deleteAppointmentAction -- FC-1", () => {
   it("independent instructor CANNOT delete an unrelated host-studio appointment", async () => {
-    const { supabase, state } = createFakeSupabase({
+    const { state } = createFakeSupabase({
       links: [linkRow()],
       existingAppointment: appointmentRow({
         client_id: UNRELATED_CLIENT_ID,
@@ -539,7 +546,14 @@ describe("deleteAppointmentAction -- FC-1", () => {
         status: "scheduled",
       }),
     });
-    mockGuard({ supabase, studioRole: "independent_instructor", userId: INSTRUCTOR_USER_ID });
+    // FC-1B5D2 D2A: hard delete has no ownership-based path at all --
+    // independent_instructor (like ordinary instructor) is denied by the
+    // role-level requireAppointmentDeleteAccess guard before any
+    // appointment/relationship lookup, matching real requirePermission
+    // denial behavior (throws, caught by the action's generic catch).
+    requireAppointmentDeleteAccessMock.mockRejectedValue(
+      new Error("You do not have permission to delete appointments."),
+    );
 
     const error = await runAction(
       deleteAppointmentAction(
@@ -550,7 +564,7 @@ describe("deleteAppointmentAction -- FC-1", () => {
       ),
     );
 
-    expect(digestUrl(error)).toContain("error=not_own_floor_rental");
+    expect(digestUrl(error)).toContain("error=delete_failed");
     expect(state.deleteCalls).toBe(0);
   });
 });
@@ -576,7 +590,13 @@ describe("cancelAppointmentAction -- FC-1", () => {
       ),
     );
 
-    expect(digestUrl(error)).toContain("error=not_own_floor_rental");
+    // FC-1B5D2 D2A: cancelAppointmentAction's relationship check now goes
+    // through the shared requireAppointmentRelationshipAccess primitive,
+    // which uses one unified denial code across all callers/scopes rather
+    // than the old floor-rental-specific "not_own_floor_rental" message --
+    // the denial outcome itself (independent_instructor cannot touch an
+    // unrelated host-studio appointment) is unchanged.
+    expect(digestUrl(error)).toContain("error=not_authorized_for_appointment");
     expect(state.updateCalls).toHaveLength(0);
   });
 });

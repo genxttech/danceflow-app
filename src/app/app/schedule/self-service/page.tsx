@@ -107,67 +107,86 @@ export default async function SelfServiceScheduleReviewPage({
   // RPC, which never returns email, instead of the raw join.
   const isInstructorRole = context.studioRole === "instructor";
 
+  // FC-1B5D2 D2A: an instructor reviewing this queue may only see requests
+  // tied to appointments/bookings currently assigned to them -- owner/
+  // admin/front_desk retain studio-wide triage (unchanged). A request with
+  // no instructor_id at all (a new, unassigned booking request) is
+  // naturally excluded by this filter -- no separate "claim" workflow is
+  // introduced, matching current product behavior.
+  const viewerInstructorId = isInstructorRole
+    ? await resolveViewerInstructorId(supabase, context.studioId, context.userId)
+    : null;
+
+  let requestsQuery = supabase
+    .from("student_booking_action_requests")
+    .select(
+      isInstructorRole
+        ? `
+      id,
+      action_type,
+      mode,
+      status,
+      requested_starts_at,
+      requested_ends_at,
+      previous_starts_at,
+      previous_ends_at,
+      lesson_type,
+      reason,
+      created_at,
+      client_id,
+      instructors:instructor_id (
+        first_name,
+        last_name
+      ),
+      rooms:room_id (
+        name
+      )
+    `
+        : `
+      id,
+      action_type,
+      mode,
+      status,
+      requested_starts_at,
+      requested_ends_at,
+      previous_starts_at,
+      previous_ends_at,
+      lesson_type,
+      reason,
+      created_at,
+      clients (
+        first_name,
+        last_name,
+        email
+      ),
+      instructors:instructor_id (
+        first_name,
+        last_name
+      ),
+      rooms:room_id (
+        name
+      )
+    `,
+    )
+    .eq("studio_id", context.studioId)
+    .eq("status", status)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (isInstructorRole) {
+    requestsQuery = requestsQuery.eq(
+      "instructor_id",
+      viewerInstructorId ?? "00000000-0000-0000-0000-000000000000",
+    );
+  }
+
   const [{ data: settings }, { data: requests, error }] = await Promise.all([
     supabase
       .from("studio_settings")
       .select("timezone")
       .eq("studio_id", context.studioId)
       .maybeSingle<{ timezone: string | null }>(),
-    supabase
-      .from("student_booking_action_requests")
-      .select(
-        isInstructorRole
-          ? `
-        id,
-        action_type,
-        mode,
-        status,
-        requested_starts_at,
-        requested_ends_at,
-        previous_starts_at,
-        previous_ends_at,
-        lesson_type,
-        reason,
-        created_at,
-        client_id,
-        instructors:instructor_id (
-          first_name,
-          last_name
-        ),
-        rooms:room_id (
-          name
-        )
-      `
-          : `
-        id,
-        action_type,
-        mode,
-        status,
-        requested_starts_at,
-        requested_ends_at,
-        previous_starts_at,
-        previous_ends_at,
-        lesson_type,
-        reason,
-        created_at,
-        clients (
-          first_name,
-          last_name,
-          email
-        ),
-        instructors:instructor_id (
-          first_name,
-          last_name
-        ),
-        rooms:room_id (
-          name
-        )
-      `,
-      )
-      .eq("studio_id", context.studioId)
-      .eq("status", status)
-      .order("created_at", { ascending: false })
-      .limit(100),
+    requestsQuery,
   ]);
 
   if (error) {

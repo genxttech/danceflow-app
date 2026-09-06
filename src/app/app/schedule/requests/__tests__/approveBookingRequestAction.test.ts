@@ -125,10 +125,17 @@ function setFixture(fixture: Fixture) {
 }
 
 vi.mock("@/lib/auth/serverRoleGuard", () => ({
+  // FC-1B5D2 D2A: this suite's fixtures are unassigned booking requests
+  // (instructor_id: null) reviewed by front-desk-style staff -- a broad
+  // role, so the new booking-request relationship gate (added by the
+  // blocking-review correction) doesn't interfere with the
+  // entitlement-resolution behavior this file actually tests.
   requireAppointmentCreateAccess: async () => ({
     supabase: createFakeEntitlementClient(currentTables),
     studioId: STUDIO_ID,
     user: { id: STAFF_USER_ID },
+    studioRole: "front_desk",
+    isPlatformAdmin: false,
   }),
 }));
 

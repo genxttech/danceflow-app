@@ -701,6 +701,19 @@ function getBanner(search: {
     };
   }
 
+  // FC-1B5D2 D2A (blocking-review correction): the Danger Zone delete
+  // affordance is now hidden from instructor/independent_instructor (who
+  // the server always denies), so this code can only reach a legitimately
+  // allowed role (front_desk/owner/admin/platform_admin) -- a real failure
+  // for them deserves a visible message, not a silent redirect. This is a
+  // minimal, single-code addition, not a broader error-banner cleanup.
+  if (search.error === "delete_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not delete the appointment. Please try again.",
+    };
+  }
+
   if (search.error === "appointment_cancel_failed") {
     return {
       kind: "error" as const,
