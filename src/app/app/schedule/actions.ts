@@ -14,11 +14,16 @@ import { validateClientPackageForBooking } from "@/lib/packages/entitlement";
 import { sendAppointmentSchedulePush } from "@/lib/notifications/schedulePush";
 import {
   requireAppointmentCreateAccess,
+  requireAppointmentDeleteAccess,
   requireAppointmentEditAccess,
+  requireAppointmentPaymentAccess,
   requireAttendanceAccess,
   requireFloorRentalAppointmentAccess,
 } from "@/lib/auth/serverRoleGuard";
 import { isIndependentInstructor } from "@/lib/auth/permissions";
+import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
+import { requireAppointmentRelationshipAccess } from "@/lib/auth/appointmentAccess";
+import { requireBookingRequestRelationshipAccess } from "@/lib/auth/bookingRequestAccess";
 import {
   VIDEO_UPLOAD_MIME_TYPES,
   safeOriginalFileName,
@@ -1244,20 +1249,41 @@ async function validateLessonRecapAppointment(params: {
     ReturnType<typeof requireAppointmentEditAccess>
   >["supabase"];
   studioId: string;
+  studioRole: string | null | undefined;
+  isPlatformAdmin: boolean;
+  userId: string;
   appointmentId: string;
 }): Promise<LessonRecapValidationResult> {
-  const { supabase, studioId, appointmentId } = params;
+  const { supabase, studioId, studioRole, isPlatformAdmin, userId, appointmentId } =
+    params;
 
-  const { data: appointment, error } = await supabase
-    .from("appointments")
-    .select("id, studio_id, client_id, instructor_id, appointment_type, status")
-    .eq("id", appointmentId)
-    .eq("studio_id", studioId)
-    .single();
+  // FC-1B5D2 D2A: recap authority follows the appointment's CURRENT
+  // instructor assignment -- an instructor may only manage the recap for
+  // an appointment currently assigned to them. This is the single choke
+  // point all 4 recap actions (upsert, upload video, delete video, delete
+  // recap) call, so scoping it here scopes all of them.
+  const relationshipResult = await requireAppointmentRelationshipAccess<{
+    id: string;
+    studio_id: string;
+    client_id: string | null;
+    instructor_id: string | null;
+    appointment_type: string;
+    status: string;
+  }>({
+    supabase,
+    studioId,
+    studioRole,
+    isPlatformAdmin,
+    userId,
+    appointmentId,
+    select: "status",
+  });
 
-  if (error || !appointment) {
-    return { ok: false, error: "Appointment not found." };
+  if (!relationshipResult.ok) {
+    return { ok: false, error: relationshipResult.reason };
   }
+
+  const appointment = relationshipResult.appointment;
 
   if (appointment.appointment_type !== "private_lesson") {
     return {
@@ -1364,7 +1390,7 @@ export async function createAppointmentAction(
     const notes = getString(formData, "notes");
     const locationName = getNullableString(formData, "locationName");
     const status = "scheduled";
-    const instructorId = getNullableString(formData, "instructorId");
+    let instructorId = getNullableString(formData, "instructorId");
     const roomId = getNullableString(formData, "roomId");
     const clientPackageId = getNullableString(formData, "clientPackageId");
     const submittedClientMembershipId = getNullableString(formData, "clientMembershipId");
@@ -1401,6 +1427,28 @@ export async function createAppointmentAction(
       if (targetError) {
         return { error: targetError };
       }
+    }
+
+    // FC-1B5D2 D2A: an ordinary instructor creating an appointment is
+    // server-side locked to their own resolved instructors.id -- the
+    // submitted instructorId (if any) is never trusted, since the
+    // instructor <select> in the create form is rendered unconditionally
+    // for every role and nothing in this codebase's UI/copy documents an
+    // intentional "book a lesson for a colleague" workflow.
+    if (studioRole === "instructor") {
+      const viewerInstructorId = await resolveViewerInstructorId(
+        supabase,
+        studioId,
+        user.id,
+      );
+
+      if (!viewerInstructorId) {
+        return {
+          error: "You must be set up as an active instructor to create appointments.",
+        };
+      }
+
+      instructorId = viewerInstructorId;
     }
 
     const relations = normalizeAppointmentRelations({
@@ -1765,7 +1813,7 @@ export async function updateAppointmentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const { supabase, studioId, user, studioRole } =
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
       await requireFloorRentalAppointmentAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
@@ -1898,36 +1946,43 @@ export async function updateAppointmentAction(
       }
     }
 
-    const { data: existingAppointment, error: existingError } = await supabase
-      .from("appointments")
-      .select(
-        "id, client_id, appointment_type, recurrence_series_id, starts_at, ends_at, status, payment_status",
-      )
-      .eq("id", appointmentId)
-      .eq("studio_id", studioId)
-      .single();
+    // FC-1B5D2 D2A: re-verify against the appointment's actual stored
+    // state and current assignment, not just the submitted form -- an
+    // instructor must not be able to edit an appointment currently
+    // assigned to a different instructor, and an independent_instructor
+    // must not be able to "edit" an appointment that was never their own
+    // floor rental in the first place (e.g. an unrelated client's lesson)
+    // into looking like one by submitting a dishonest
+    // client_id/appointment_type pair. Reassignment is transparent here --
+    // this always checks the CURRENT instructor_id, so authority follows
+    // the appointment's live assignment, not who created/last edited it.
+    const relationshipResult = await requireAppointmentRelationshipAccess<{
+      id: string;
+      studio_id: string;
+      client_id: string | null;
+      instructor_id: string | null;
+      appointment_type: string;
+      recurrence_series_id: string | null;
+      starts_at: string;
+      ends_at: string;
+      status: string;
+      payment_status: string | null;
+    }>({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      appointmentId,
+      select:
+        "recurrence_series_id, starts_at, ends_at, status, payment_status",
+    });
 
-    if (existingError || !existingAppointment) {
-      return { error: "Appointment not found." };
+    if (!relationshipResult.ok) {
+      return { error: relationshipResult.reason };
     }
 
-    // FC-1: re-verify against the appointment's actual stored state, not
-    // just the submitted form -- an independent_instructor must not be able
-    // to "edit" an appointment that was never their own floor rental in the
-    // first place (e.g. an unrelated client's lesson) into looking like one
-    // by submitting a dishonest client_id/appointment_type pair.
-    if (isIndependentInstructor(studioRole)) {
-      const existingTargetError = await requireOwnFloorRentalTarget({
-        supabase,
-        studioId,
-        userId: user.id,
-        clientId: String(existingAppointment.client_id ?? ""),
-        appointmentType: String(existingAppointment.appointment_type ?? ""),
-      });
-      if (existingTargetError) {
-        return { error: existingTargetError };
-      }
-    }
+    const existingAppointment = relationshipResult.appointment;
 
     const existingStartsAtMs = new Date(
       String(existingAppointment.starts_at),
@@ -2127,8 +2182,13 @@ export async function deleteAppointmentAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId, user, studioRole } =
-      await requireFloorRentalAppointmentAccess();
+    // FC-1B5D2 D2A: hard delete is an administrative-only capability --
+    // ordinary instructor and independent_instructor must never reach it,
+    // even for their own appointment (cancel is their appointment-removal
+    // path; see canDeleteAppointments for the product-copy evidence). This
+    // is a role-only guard with no appointment-relationship check, unlike
+    // every other mutation in this file.
+    const { supabase, studioId } = await requireAppointmentDeleteAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     const confirmation = getString(formData, "confirmDeleteAppointment");
@@ -2152,22 +2212,6 @@ export async function deleteAppointmentAction(formData: FormData) {
 
     if (appointmentError || !appointment) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
-    }
-
-    // FC-1: independent_instructor may only delete their own floor-rental
-    // appointment -- verified against the appointment's actual stored
-    // client/type, not anything submitted.
-    if (isIndependentInstructor(studioRole)) {
-      const targetError = await requireOwnFloorRentalTarget({
-        supabase,
-        studioId,
-        userId: user.id,
-        clientId: String(appointment.client_id ?? ""),
-        appointmentType: String(appointment.appointment_type ?? ""),
-      });
-      if (targetError) {
-        redirect(getErrorRedirect(formData, fallback, "not_own_floor_rental"));
-      }
     }
 
     const appointmentStatus = String(appointment.status ?? "");
@@ -2360,7 +2404,7 @@ export async function cancelAppointmentAction(formData: FormData) {
   const allowedRequesters = new Set(["client", "instructor", "studio", "other"]);
 
   try {
-    const { supabase, studioId, user, studioRole } =
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
       await requireFloorRentalAppointmentAccess();
 
     const appointmentId = getString(formData, "appointmentId");
@@ -2396,34 +2440,38 @@ export async function cancelAppointmentAction(formData: FormData) {
       );
     }
 
-    const { data: appointment, error: appointmentError } = await supabase
-      .from("appointments")
-      .select(
-        "id, client_id, recurrence_series_id, starts_at, title, appointment_type, client_package_id, client_membership_id, billing_type",
-      )
-      .eq("id", appointmentId)
-      .eq("studio_id", studioId)
-      .single();
+    // FC-1B5D2 D2A: an instructor may only cancel an appointment currently
+    // assigned to them; an independent_instructor may only cancel their
+    // own floor-rental booking -- both verified against the appointment's
+    // actual stored/current state, not anything submitted.
+    const relationshipResult = await requireAppointmentRelationshipAccess<{
+      id: string;
+      studio_id: string;
+      client_id: string | null;
+      instructor_id: string | null;
+      appointment_type: string;
+      recurrence_series_id: string | null;
+      starts_at: string;
+      title: string | null;
+      client_package_id: string | null;
+      client_membership_id: string | null;
+      billing_type: string | null;
+    }>({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      appointmentId,
+      select:
+        "recurrence_series_id, starts_at, title, client_package_id, client_membership_id, billing_type",
+    });
 
-    if (appointmentError || !appointment) {
-      redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+    if (!relationshipResult.ok) {
+      redirect(getErrorRedirect(formData, fallback, "not_authorized_for_appointment"));
     }
 
-    // FC-1: independent_instructor may only cancel their own floor-rental
-    // appointment -- verified against the appointment's actual stored
-    // client/type, not anything submitted.
-    if (isIndependentInstructor(studioRole)) {
-      const targetError = await requireOwnFloorRentalTarget({
-        supabase,
-        studioId,
-        userId: user.id,
-        clientId: String(appointment.client_id ?? ""),
-        appointmentType: String(appointment.appointment_type ?? ""),
-      });
-      if (targetError) {
-        redirect(getErrorRedirect(formData, fallback, "not_own_floor_rental"));
-      }
-    }
+    const appointment = relationshipResult.appointment;
 
     const cancelledAt = new Date().toISOString();
     const requesterLabel =
@@ -2690,25 +2738,47 @@ export async function markAppointmentAttendedAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId } = await requireAttendanceAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAttendanceAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     if (!appointmentId) {
       redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
     }
 
-    const { data: appointment, error: appointmentError } = await supabase
-      .from("appointments")
-      .select(
-        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, client_membership_id, price_amount, payment_status, billing_type, status",
-      )
-      .eq("id", appointmentId)
-      .eq("studio_id", studioId)
-      .single();
+    // FC-1B5D2 D2A: relationship authorization happens before any
+    // downstream membership/package deduction or instructor-pay staging --
+    // an instructor may only mark attendance for an appointment currently
+    // assigned to them.
+    const relationshipResult = await requireAppointmentRelationshipAccess<{
+      id: string;
+      studio_id: string;
+      client_id: string | null;
+      instructor_id: string | null;
+      appointment_type: string;
+      starts_at: string;
+      client_package_id: string | null;
+      client_membership_id: string | null;
+      price_amount: number | null;
+      payment_status: string | null;
+      billing_type: string | null;
+      status: string;
+    }>({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      appointmentId,
+      select:
+        "starts_at, client_package_id, client_membership_id, price_amount, payment_status, billing_type, status",
+    });
 
-    if (appointmentError || !appointment) {
-      redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+    if (!relationshipResult.ok) {
+      redirect(getErrorRedirect(formData, fallback, "not_authorized_for_appointment"));
     }
+
+    const appointment = relationshipResult.appointment;
 
     // Already attended: this is a replay (double-submit, retried request,
     // an intentional re-click after a prior sync failure, etc), not a fresh
@@ -2761,7 +2831,7 @@ export async function markAppointmentAttendedAction(formData: FormData) {
     let syncFailed = false;
 
     try {
-      if (billingType === "membership") {
+      if (billingType === "membership" && appointment.client_id) {
         await syncMembershipUsageForAppointment({
           supabase,
           studioId,
@@ -2774,7 +2844,7 @@ export async function markAppointmentAttendedAction(formData: FormData) {
         });
       }
 
-      if (billingType === "package_credit") {
+      if (billingType === "package_credit" && appointment.client_id) {
         await syncPackageUsageForAttendedAppointment({
           supabase,
           studioId,
@@ -2826,7 +2896,8 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId } = await requireAttendanceAccess();
+    const { supabase, studioId, user, studioRole } =
+      await requireAttendanceAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const selectedDate =
@@ -2834,23 +2905,45 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
     const { startIso: startsAtMin, endIso: startsAtMax } =
       getLocalDayUtcRange(selectedDate, studioTimeZone);
 
-    const { data: appointments, error: appointmentsError } = await supabase
+    // FC-1B5D2 D2A: an instructor's bulk "close out the day" action may
+    // only affect appointments currently assigned to them -- owner/admin/
+    // front_desk remain studio-wide (unchanged). Scoping the query itself
+    // (rather than filtering after the fact) means every downstream
+    // package/membership deduction and instructor-pay staging below,
+    // which only ever loops over these rows, is automatically limited to
+    // the authorized set -- no separate per-row check is needed.
+    const isInstructorRole = studioRole === "instructor";
+    const viewerInstructorId = isInstructorRole
+      ? await resolveViewerInstructorId(supabase, studioId, user.id)
+      : null;
+
+    let appointmentsQuery = supabase
       .from("appointments")
       .select(
         "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, client_membership_id, price_amount, payment_status, billing_type, status",
       )
       .eq("studio_id", studioId)
-.gte("starts_at", startsAtMin)
-.lt("starts_at", startsAtMax)
-.in("appointment_type", [
-  "private_lesson",
-  "group_class",
-  "intro_lesson",
-  "coaching",
-  "practice_party",
-])
-.in("status", ["scheduled", "confirmed", "rescheduled"])
-.order("starts_at", { ascending: true });
+      .gte("starts_at", startsAtMin)
+      .lt("starts_at", startsAtMax)
+      .in("appointment_type", [
+        "private_lesson",
+        "group_class",
+        "intro_lesson",
+        "coaching",
+        "practice_party",
+      ])
+      .in("status", ["scheduled", "confirmed", "rescheduled"])
+      .order("starts_at", { ascending: true });
+
+    if (isInstructorRole) {
+      appointmentsQuery = appointmentsQuery.eq(
+        "instructor_id",
+        viewerInstructorId ?? "00000000-0000-0000-0000-000000000000",
+      );
+    }
+
+    const { data: appointments, error: appointmentsError } =
+      await appointmentsQuery;
 
     if (appointmentsError) {
       redirect(getErrorRedirect(formData, fallback, "bulk_attendance_failed"));
@@ -2987,7 +3080,8 @@ export async function markAppointmentNoShowAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId, user } = await requireAttendanceAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAttendanceAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     const missedAppointmentCharge =
@@ -2997,18 +3091,36 @@ export async function markAppointmentNoShowAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
     }
 
-    const { data: appointment, error: appointmentError } = await supabase
-      .from("appointments")
-      .select(
-        "id, client_id, appointment_type, starts_at, title, client_package_id, client_membership_id, billing_type",
-      )
-      .eq("id", appointmentId)
-      .eq("studio_id", studioId)
-      .single();
+    // FC-1B5D2 D2A: relationship authorization happens before the status
+    // mutation or the missed-lesson charge below -- an instructor may only
+    // mark no-show for an appointment currently assigned to them.
+    const relationshipResult = await requireAppointmentRelationshipAccess<{
+      id: string;
+      studio_id: string;
+      client_id: string | null;
+      instructor_id: string | null;
+      appointment_type: string;
+      starts_at: string;
+      title: string | null;
+      client_package_id: string | null;
+      client_membership_id: string | null;
+      billing_type: string | null;
+    }>({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      appointmentId,
+      select:
+        "starts_at, title, client_package_id, client_membership_id, billing_type",
+    });
 
-    if (appointmentError || !appointment) {
-      redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+    if (!relationshipResult.ok) {
+      redirect(getErrorRedirect(formData, fallback, "not_authorized_for_appointment"));
     }
+
+    const appointment = relationshipResult.appointment;
 
     const markedAt = new Date().toISOString();
 
@@ -3102,7 +3214,11 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    // FC-1B5D2 D2A: recording/changing the host studio's payment state is
+    // financial authority distinct from canEditAppointments -- an ordinary
+    // instructor may not record a payment even for a lesson they teach.
+    // See canManageAppointmentPayments.
+    const { supabase, studioId, user } = await requireAppointmentPaymentAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
@@ -3313,7 +3429,14 @@ export async function recordFloorRentalPaymentAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    // FC-1B5D2 D2A: floor-rental fee collection is operational financial
+    // authority (owner/admin/front_desk), not something an ordinary
+    // instructor gets merely from canEditAppointments. Independent
+    // instructors were never included in canEditAppointments either, so
+    // this preserves their existing (no) access to this action -- their
+    // financial authority over their own floor-rental business lives in
+    // their own business-owner context, not through this host-side action.
+    const { supabase, studioId, user } = await requireAppointmentPaymentAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
@@ -3384,7 +3507,9 @@ export async function markFloorRentalWaivedAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId } = await requireAppointmentEditAccess();
+    // FC-1B5D2 D2A: same financial-authority narrowing as
+    // recordFloorRentalPaymentAction.
+    const { supabase, studioId } = await requireAppointmentPaymentAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     if (!appointmentId) {
@@ -3452,7 +3577,8 @@ export async function upsertLessonRecapAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAppointmentEditAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
@@ -3469,6 +3595,9 @@ export async function upsertLessonRecapAction(
     const validation = await validateLessonRecapAppointment({
       supabase,
       studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
       appointmentId,
     });
 
@@ -3599,7 +3728,8 @@ export async function uploadLessonRecapVideoAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAppointmentEditAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
@@ -3616,6 +3746,9 @@ export async function uploadLessonRecapVideoAction(formData: FormData) {
     const validation = await validateLessonRecapAppointment({
       supabase,
       studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
       appointmentId,
     });
 
@@ -3722,7 +3855,8 @@ export async function deleteLessonRecapVideoAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAppointmentEditAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     if (!appointmentId) {
@@ -3732,6 +3866,9 @@ export async function deleteLessonRecapVideoAction(formData: FormData) {
     const validation = await validateLessonRecapAppointment({
       supabase,
       studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
       appointmentId,
     });
 
@@ -3799,7 +3936,8 @@ export async function deleteLessonRecapAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAppointmentEditAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     if (!appointmentId) {
@@ -3809,6 +3947,9 @@ export async function deleteLessonRecapAction(formData: FormData) {
     const validation = await validateLessonRecapAppointment({
       supabase,
       studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
       appointmentId,
     });
 
@@ -3879,7 +4020,8 @@ export async function updateBookingRequestStatusAction(formData: FormData) {
   const fallback = "/app/schedule/requests";
 
   try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAppointmentEditAccess();
     const requestId = getString(formData, "requestId");
     const status = getString(formData, "status");
     const staffNote = getNullableString(formData, "staffNote");
@@ -3890,13 +4032,31 @@ export async function updateBookingRequestStatusAction(formData: FormData) {
 
     const { data: request, error: requestError } = await supabase
       .from("booking_requests")
-      .select("id, client_id, status")
+      .select("id, client_id, status, instructor_id")
       .eq("studio_id", studioId)
       .eq("id", requestId)
       .maybeSingle();
 
     if (requestError || !request) {
       redirect(getErrorRedirect(formData, fallback, "booking_request_not_found"));
+    }
+
+    // FC-1B5D2 D2A: relationship authorization before the status mutation
+    // and its lead-activity side effect -- an ordinary instructor may only
+    // update a request assigned to their own resolved instructor identity,
+    // never a colleague's or an unassigned request. owner/admin/front_desk
+    // retain studio-wide triage.
+    const bookingRelationshipResult = await requireBookingRequestRelationshipAccess({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      requestInstructorId: request.instructor_id,
+    });
+
+    if (!bookingRelationshipResult.ok) {
+      redirect(getErrorRedirect(formData, fallback, "not_authorized_for_request"));
     }
 
     const now = new Date().toISOString();
@@ -3954,7 +4114,8 @@ export async function addBookingRequestStaffNoteAction(formData: FormData) {
   const fallback = "/app/schedule/requests";
 
   try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAppointmentEditAccess();
     const requestId = getString(formData, "requestId");
     const staffNote = getNullableString(formData, "staffNote");
 
@@ -3964,13 +4125,29 @@ export async function addBookingRequestStaffNoteAction(formData: FormData) {
 
     const { data: request, error: requestError } = await supabase
       .from("booking_requests")
-      .select("id, client_id")
+      .select("id, client_id, instructor_id")
       .eq("studio_id", studioId)
       .eq("id", requestId)
       .maybeSingle();
 
     if (requestError || !request) {
       redirect(getErrorRedirect(formData, fallback, "booking_request_not_found"));
+    }
+
+    // FC-1B5D2 D2A: relationship authorization before the staff-note
+    // mutation and its lead-activity side effect -- same scoping as
+    // updateBookingRequestStatusAction above.
+    const bookingRelationshipResult = await requireBookingRequestRelationshipAccess({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      requestInstructorId: request.instructor_id,
+    });
+
+    if (!bookingRelationshipResult.ok) {
+      redirect(getErrorRedirect(formData, fallback, "not_authorized_for_request"));
     }
 
     const now = new Date().toISOString();

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAppointmentCreateAccess } from "@/lib/auth/serverRoleGuard";
+import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import {
   declineStudentBookingAction,
   executeApprovedStudentBookingAction,
@@ -50,6 +51,38 @@ async function loadActionRequest(params: {
   return data;
 }
 
+// FC-1B5D2 D2A: direct invocation of the approve/decline actions must not
+// be able to bypass the page's queue filter -- an instructor may only act
+// on a request currently tied to their own assignment. owner/admin/
+// front_desk (and platform_admin) retain studio-wide triage, unchanged.
+async function requireOwnActionRequestOrBroadRole(params: {
+  supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
+  studioId: string;
+  studioRole: string | null | undefined;
+  isPlatformAdmin: boolean;
+  userId: string;
+  actionRequest: StudentBookingActionRequestRow;
+}): Promise<string | null> {
+  const { supabase, studioId, studioRole, isPlatformAdmin, userId, actionRequest } =
+    params;
+
+  if (isPlatformAdmin || studioRole !== "instructor") {
+    return null;
+  }
+
+  const viewerInstructorId = await resolveViewerInstructorId(
+    supabase,
+    studioId,
+    userId,
+  );
+
+  if (viewerInstructorId && actionRequest.instructor_id === viewerInstructorId) {
+    return null;
+  }
+
+  return "You can only act on requests tied to your own appointments.";
+}
+
 export async function approveStudentBookingActionRequest(formData: FormData) {
   const actionRequestId = getString(formData, "actionRequestId");
 
@@ -58,12 +91,26 @@ export async function approveStudentBookingActionRequest(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId, user } = await requireAppointmentCreateAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAppointmentCreateAccess();
     const actionRequest = await loadActionRequest({
       supabase,
       studioId,
       actionRequestId,
     });
+
+    const relationshipError = await requireOwnActionRequestOrBroadRole({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      actionRequest,
+    });
+
+    if (relationshipError) {
+      throw new Error(relationshipError);
+    }
 
     await executeApprovedStudentBookingAction({
       supabase: supabase as unknown as SelfServiceExecutionClient,
@@ -93,12 +140,26 @@ export async function declineStudentBookingActionRequest(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId, user } = await requireAppointmentCreateAccess();
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
+      await requireAppointmentCreateAccess();
     const actionRequest = await loadActionRequest({
       supabase,
       studioId,
       actionRequestId,
     });
+
+    const relationshipError = await requireOwnActionRequestOrBroadRole({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      actionRequest,
+    });
+
+    if (relationshipError) {
+      throw new Error(relationshipError);
+    }
 
     await declineStudentBookingAction({
       supabase: supabase as unknown as SelfServiceExecutionClient,

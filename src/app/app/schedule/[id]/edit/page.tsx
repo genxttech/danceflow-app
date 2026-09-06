@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canEditAppointments } from "@/lib/auth/permissions";
+import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentEditForm from "./AppointmentEditForm";
 
 type Params = Promise<{
@@ -123,7 +124,7 @@ export default async function EditAppointmentPage({
   params: Params;
 }) {
   const { id } = await params;
-  const { studioId, studioRole } = await getCurrentStudioContext();
+  const { studioId, studioRole, userId } = await getCurrentStudioContext();
 
   // FC-1B1: independent_instructor is not host-studio staff -- this page
   // exposes the full studio client/package/membership roster plus the
@@ -143,6 +144,49 @@ export default async function EditAppointmentPage({
   // separately below via the teaching-client RPC.
   const isInstructorRole = studioRole === "instructor";
 
+  // FC-1B5D2 D2A: mirrors the already-correct scoping on the read-only
+  // detail page (schedule/[id]/page.tsx) -- an instructor may only load
+  // the edit page for an appointment currently assigned to them. This is
+  // defense-in-depth only; updateAppointmentAction and every other action
+  // this page's form submits to independently re-authorize the target
+  // appointment via requireAppointmentRelationshipAccess regardless of
+  // what this page filtered.
+  const viewerInstructorId = isInstructorRole
+    ? await resolveViewerInstructorId(supabase, studioId, userId)
+    : null;
+
+  let appointmentQuery = supabase
+    .from("appointments")
+    .select(`
+      id,
+      title,
+      appointment_type,
+      client_id,
+      partner_client_id,
+      instructor_id,
+      room_id,
+      starts_at,
+      ends_at,
+      status,
+      notes,
+      client_package_id,
+      client_membership_id,
+      price_amount,
+      payment_status,
+      billing_type,
+      billing_note,
+      location_name
+    `)
+    .eq("id", id)
+    .eq("studio_id", studioId);
+
+  if (isInstructorRole) {
+    appointmentQuery = appointmentQuery.eq(
+      "instructor_id",
+      viewerInstructorId ?? "00000000-0000-0000-0000-000000000000",
+    );
+  }
+
   const [
     { data: appointment, error: appointmentError },
     { data: clients, error: clientsError },
@@ -153,31 +197,7 @@ export default async function EditAppointmentPage({
     { data: membershipBenefitsRaw, error: membershipBenefitsError },
     { data: clientRelationships, error: clientRelationshipsError },
   ] = await Promise.all([
-    supabase
-      .from("appointments")
-      .select(`
-        id,
-        title,
-        appointment_type,
-        client_id,
-        partner_client_id,
-        instructor_id,
-        room_id,
-        starts_at,
-        ends_at,
-        status,
-        notes,
-        client_package_id,
-        client_membership_id,
-        price_amount,
-        payment_status,
-        billing_type,
-        billing_note,
-        location_name
-      `)
-      .eq("id", id)
-      .eq("studio_id", studioId)
-      .single(),
+    appointmentQuery.single(),
 
     isInstructorRole
       ? Promise.resolve({ data: [], error: null })

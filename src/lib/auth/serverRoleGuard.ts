@@ -3,8 +3,10 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   canAdjustBalances,
   canCreateAppointments,
+  canDeleteAppointments,
   canEditAppointments,
   canEditClients,
+  canManageAppointmentPayments,
   canManageInstructors,
   canManageOwnFloorRentalAppointment,
   canPreparePayroll,
@@ -202,6 +204,34 @@ export async function requireAttendanceAccess() {
     ctx,
     allowed: canMarkAttendance,
     message: "You do not have permission to mark attendance.",
+  });
+}
+
+// FC-1B5D2: hard-delete is a narrower, administrative-only capability than
+// canEditAppointments -- see canDeleteAppointments for the product-copy
+// evidence that instructor/independent_instructor should never reach this,
+// even for their own appointment. Deliberately not composed with
+// canManageOwnFloorRentalAppointment the way requireFloorRentalAppointmentAccess
+// is -- there is no "delete my own floor rental" capability.
+export async function requireAppointmentDeleteAccess() {
+  const ctx = await getCurrentUserStudioContext();
+  return requirePermission({
+    ctx,
+    allowed: canDeleteAppointments,
+    message: "You do not have permission to delete appointments.",
+  });
+}
+
+// FC-1B5D2: recording/changing an appointment's host-studio payment state
+// is financial authority distinct from canEditAppointments -- ordinary
+// instructor and independent_instructor are excluded by design (see
+// canManageAppointmentPayments).
+export async function requireAppointmentPaymentAccess() {
+  const ctx = await getCurrentUserStudioContext();
+  return requirePermission({
+    ctx,
+    allowed: canManageAppointmentPayments,
+    message: "You do not have permission to manage appointment payments.",
   });
 }
 

@@ -16,6 +16,7 @@ import {
 } from "../actions";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
+  canDeleteAppointments,
   canEditAppointments,
   canMarkAttendance,
   canViewStudioSchedule,
@@ -706,7 +707,12 @@ export default async function AppointmentDetailPage({
   const canEdit = canEditAppointments(role);
   const canTakeAttendance = canMarkAttendance(role) && !isFloorRental;
   const showAttendanceActions = !isFinalStatus && canTakeAttendance;
-  const canDeleteAppointmentMistake = canEdit && !isFinalStatus;
+  // FC-1B5D2 D2A (blocking-review correction): hard delete is
+  // administrative-only (canDeleteAppointments), a narrower set than
+  // canEditAppointments -- the Danger Zone affordance must not be shown to
+  // an ordinary instructor, who the server now always denies.
+  const canDeleteAppointmentMistake =
+    canDeleteAppointments(role) && !isFinalStatus;
 
   const canShowLessonRecapCard = isPrivateLesson;
   const canEditLessonRecap = canEdit && typedAppointment.status === "attended";

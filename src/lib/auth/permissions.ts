@@ -240,6 +240,29 @@ export function canManageOwnFloorRentalAppointment(
   return role === "independent_instructor";
 }
 
+// FC-1B5D2: hard-deleting an appointment is a distinct, narrower capability
+// than canEditAppointments -- the product's own UI frames delete as a
+// front-desk/scheduling-mistake correction tool ("If the client,
+// instructor, or studio actually cancelled the appointment, use Cancel
+// Appointment so the history stays accurate"), never an ordinary
+// instructor's own workflow. instructor and independent_instructor are
+// deliberately excluded even for their own appointment -- cancel remains
+// their only appointment-removal path.
+export function canDeleteAppointments(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+}
+
+// FC-1B5D2: recording/changing an appointment's host-studio payment state
+// (pay-as-you-go payment, floor-rental payment, floor-rental waiver) is
+// financial authority distinct from canEditAppointments -- an ordinary
+// instructor may edit their own lesson's content/schedule without being
+// able to change what the studio's books say was paid. Deliberately the
+// same role set as canAdjustBalances (this is the same class of
+// capability: studio-level financial state, not appointment content).
+export function canManageAppointmentPayments(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+}
+
 export function canAdjustBalances(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
 }
