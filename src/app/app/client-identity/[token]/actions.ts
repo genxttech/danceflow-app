@@ -128,13 +128,26 @@ export async function checkInClientIdentityAppointmentAction(formData: FormData)
       throw new Error("Client QR identity could not be verified.");
     }
 
-    const { data: appointment, error: appointmentError } = await supabase
-      .from("appointments")
-      .select("id, studio_id, client_id, appointment_type, status")
-      .eq("id", appointmentId)
-      .eq("studio_id", studioId)
-      .eq("client_id", clientId)
-      .maybeSingle();
+    // FC-1B5D2 D2C-0B (corrected post-review): verified through the
+    // minimized, TOKEN-authorized get_client_appointment_for_checkin_validation
+    // RPC instead of a raw appointments read -- keeps this
+    // pre-attendance-mutation validation working once appointment RLS is
+    // tightened (FC-1B5D2 D2C). The RPC independently re-verifies an active
+    // studio relationship AND resolves the authorized client from the QR
+    // token itself (not the caller-supplied clientId -- that value is used
+    // only for the cross-check above, never passed to the RPC as
+    // authority), so it can never confirm another client's or another
+    // studio's appointment as valid, regardless of what the caller
+    // additionally supplies.
+    const { data: appointmentRows, error: appointmentError } = await supabase.rpc(
+      "get_client_appointment_for_checkin_validation",
+      {
+        target_studio_id: studioId,
+        qr_token: token,
+        target_appointment_id: appointmentId,
+      },
+    );
+    const appointment = (appointmentRows ?? [])[0] ?? null;
 
     if (appointmentError || !appointment) {
       throw new Error("Appointment not found for this client.");

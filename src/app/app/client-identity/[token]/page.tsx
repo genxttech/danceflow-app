@@ -26,6 +26,10 @@ type ClientRow = {
   skill_level: string | null;
 };
 
+// FC-1B5D2 D2C-0B: sourced through the minimized
+// get_client_appointments_for_checkin RPC instead of a raw appointments
+// read, so the shape is now flat (instructor/room already projected down
+// to the exact fields this page renders) rather than nested embeds.
 type AppointmentRow = {
   id: string;
   title: string | null;
@@ -33,11 +37,9 @@ type AppointmentRow = {
   status: string | null;
   starts_at: string;
   ends_at: string | null;
-  instructors:
-    | { first_name: string | null; last_name: string | null }
-    | { first_name: string | null; last_name: string | null }[]
-    | null;
-  rooms: { name: string | null } | { name: string | null }[] | null;
+  instructor_first_name: string | null;
+  instructor_last_name: string | null;
+  room_name: string | null;
 };
 
 type ClientPackageRow = {
@@ -69,11 +71,6 @@ function getInitials(firstName: string, lastName: string) {
   const last = lastName.trim().charAt(0).toUpperCase();
 
   return `${first}${last}` || "DF";
-}
-
-function getSingle<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 function formatTime(value: string | null | undefined) {
@@ -187,30 +184,28 @@ export default async function ClientIdentityPage({
   const clientName = `${typedClient.first_name} ${typedClient.last_name}`.trim();
   const initials = getInitials(typedClient.first_name, typedClient.last_name);
 
+  // FC-1B5D2 D2C-0B (corrected post-review): sourced through the
+  // minimized, TOKEN-authorized get_client_appointments_for_checkin RPC
+  // instead of a raw appointments read, so this same-day, deliberately
+  // cross-instructor display list keeps working once appointment RLS is
+  // tightened to scope an ordinary instructor's own session to only their
+  // own assigned/linked rows (FC-1B5D2 D2C). The RPC independently
+  // re-verifies an active studio relationship AND resolves the authorized
+  // client from the QR token itself (not a caller-supplied client id) --
+  // it does not depend on this page's prior QR-identity RPC call, and it
+  // can never surface another client's or another studio's appointment,
+  // because there is no client-id parameter for a caller to widen.
   const [
     appointmentsResult,
     packagesResult,
     membershipResult,
   ] = await Promise.all([
-    supabase
-      .from("appointments")
-      .select(
-        `
-        id,
-        title,
-        appointment_type,
-        status,
-        starts_at,
-        ends_at,
-        instructors ( first_name, last_name ),
-        rooms ( name )
-      `
-      )
-      .eq("studio_id", studioId)
-      .eq("client_id", typedClient.id)
-      .gte("starts_at", todayStart.toISOString())
-      .lt("starts_at", tomorrowStart.toISOString())
-      .order("starts_at", { ascending: true }),
+    supabase.rpc("get_client_appointments_for_checkin", {
+      target_studio_id: studioId,
+      qr_token: trimmedToken,
+      range_start: todayStart.toISOString(),
+      range_end: tomorrowStart.toISOString(),
+    }),
     supabase
       .from("client_packages")
       .select("id, name_snapshot, active, expiration_date")
@@ -415,8 +410,6 @@ export default async function ClientIdentityPage({
             </div>
           ) : (
             appointments.map((appointment) => {
-              const instructor = getSingle(appointment.instructors);
-              const room = getSingle(appointment.rooms);
               const attendance = attendanceByAppointmentId.get(appointment.id) ?? null;
               const attendanceStatus = attendance?.status ?? null;
               const checkedIn =
@@ -454,8 +447,10 @@ export default async function ClientIdentityPage({
                       </p>
                       <p className="mt-1 text-sm text-slate-500">
                         {appointmentTypeLabel(appointment.appointment_type)}
-                        {instructor ? ` · ${[instructor.first_name, instructor.last_name].filter(Boolean).join(" ")}` : ""}
-                        {room?.name ? ` · ${room.name}` : ""}
+                        {appointment.instructor_first_name || appointment.instructor_last_name
+                          ? ` · ${[appointment.instructor_first_name, appointment.instructor_last_name].filter(Boolean).join(" ")}`
+                          : ""}
+                        {appointment.room_name ? ` · ${appointment.room_name}` : ""}
                       </p>
                       {attendance?.checked_in_at ? (
                         <p className="mt-2 text-xs font-medium text-indigo-700">
