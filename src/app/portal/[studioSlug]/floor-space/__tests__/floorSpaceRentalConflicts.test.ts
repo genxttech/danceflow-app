@@ -190,6 +190,15 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => fakeSupabase,
 }));
 
+// FC-1B5D2 D2C-0A: detectAppointmentConflicts' room-boundary queries now run
+// on the admin (service-role) client rather than the session-scoped one --
+// this fixture-driven fake doesn't distinguish which client instance
+// queries it, so routing the admin client to the same fake keeps this suite
+// proving the same real conflict-detection behavior.
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => fakeSupabase,
+}));
+
 let fakeSupabase: ReturnType<typeof createFakeSupabase>["supabase"];
 
 const { createFloorSpaceRentalAction } = await import("../actions");
