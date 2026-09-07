@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type ConflictResult = {
   hasConflict: boolean;
@@ -139,6 +140,21 @@ export async function detectAppointmentConflicts(params: {
   }
 
   if (roomId) {
+    // FC-1B5D2 D2C-0A: room occupancy is a studio-wide resource constraint,
+    // not a per-instructor one -- these two queries deliberately need to
+    // see every appointment touching this room/time window regardless of
+    // which instructor or client owns it, so they run on the admin
+    // (service-role) client rather than the caller's session-scoped one.
+    // This is what keeps room-conflict detection working once appointment
+    // RLS is tightened to scope an ordinary instructor's own session to
+    // only their own assigned/linked rows (FC-1B5D2 D2C). Both queries
+    // below are strictly read-only and select only the minimal columns
+    // already used for availability/exclusivity/capacity math -- no
+    // client, instructor, notes, or payment field is ever selected here,
+    // so this does not expose anything beyond what the room-conflict
+    // result (`hasConflict`/`message`) already reveals today.
+    const roomBoundarySupabase = createAdminClient();
+
     // 1. Availability: a room_unavailable row for this exact room is a hard
     // block, independent of usage/exclusivity/capacity -- the room simply
     // isn't open. Deliberately NOT instructor_schedule_blocks: a personal
@@ -146,7 +162,7 @@ export async function detectAppointmentConflicts(params: {
     // instructor's own schedule (handled by the instructorId branch above),
     // not the room's availability to everyone else -- see FC-1B3 audit
     // finding on instructor_schedule_blocks room-wide conflation.
-    const { count: unavailableCount, error: unavailableError } = await supabase
+    const { count: unavailableCount, error: unavailableError } = await roomBoundarySupabase
       .from("appointments")
       .select("id", { count: "exact", head: true })
       .eq("studio_id", studioId)
@@ -169,7 +185,7 @@ export async function detectAppointmentConflicts(params: {
 
     // 2. Fetch real occupants (excluding room_unavailable rows, which are
     // an availability signal, not a usage unit) for exclusivity + capacity.
-    let occupantsQuery = supabase
+    let occupantsQuery = roomBoundarySupabase
       .from("appointments")
       .select("starts_at, ends_at, exclusive_room_use")
       .eq("studio_id", studioId)

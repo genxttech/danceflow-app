@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -156,6 +157,19 @@ export async function getOwnFloorRentalAppointments(params: {
  * entirely, including a hypothetical non-floor-rental appointment on that
  * same client, which must still surface as generic "In use" occupancy (it
  * genuinely occupies a room) even though it is not itself an own rental.
+ *
+ * FC-1B5D2 D2C-0A: the `appointments` occupancy query below deliberately
+ * needs to see every room-occupying appointment studio-wide, regardless of
+ * which instructor or client owns it -- that is the entire point of this
+ * function -- so it runs on the admin (service-role) client rather than
+ * the caller's session-scoped one. This is what keeps this signal working
+ * once appointment RLS is tightened to scope an ordinary instructor's own
+ * session to only their own assigned/linked rows (FC-1B5D2 D2C). The
+ * `instructor_schedule_blocks` query below is unaffected by that RLS
+ * change and stays on the session client. The privacy boundary this
+ * function provides was always the query-shape (columns selected +
+ * `toEntries` below), never row-visibility, so this changes nothing about
+ * what a caller can observe.
  */
 export async function getAnonymizedBusyOccupancy(params: {
   supabase: SupabaseServerClient;
@@ -166,7 +180,7 @@ export async function getAnonymizedBusyOccupancy(params: {
 }): Promise<AnonymizedBusyBlock[]> {
   const { supabase, studioId, excludeAppointmentIds, rangeStartIso, rangeEndIso } = params;
 
-  let appointmentsQuery = supabase
+  let appointmentsQuery = createAdminClient()
     .from("appointments")
     .select("starts_at, ends_at, rooms ( id, name )")
     .eq("studio_id", studioId)

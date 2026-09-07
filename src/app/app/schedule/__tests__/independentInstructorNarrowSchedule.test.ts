@@ -479,6 +479,15 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => fakeSupabase,
 }));
 
+// FC-1B5D2 D2C-0A: getAnonymizedBusyOccupancy's appointments query now runs
+// on the admin (service-role) client rather than the session-scoped one --
+// this fixture-driven fake doesn't distinguish which client instance
+// queries it, so routing the admin client to the same fake keeps this suite
+// proving the same real narrow-schedule/occupancy behavior end to end.
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => fakeSupabase,
+}));
+
 let fakeSupabase: ReturnType<typeof createFakeSupabase>;
 
 const { default: SchedulePage } = await import("../page");

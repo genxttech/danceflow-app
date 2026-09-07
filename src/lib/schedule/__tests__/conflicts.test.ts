@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Regression coverage for Schedule Stabilization Slice 0: `detectAppointmentConflicts`
@@ -134,12 +134,27 @@ function fakeConflictClient(tables: Partial<Record<string, Row[]>>) {
 }
 
 let currentClient: ReturnType<typeof fakeConflictClient>;
+// FC-1B5D2 D2C-0A: defaults to `currentClient` (undefined override) so every
+// pre-existing test above -- none of which sets this -- keeps proving the
+// same real availability/exclusivity/capacity behavior regardless of which
+// client instance serves the rows. A dedicated describe block below sets
+// this to a DIFFERENT fake than `currentClient` specifically to prove the
+// room-boundary queries genuinely use the admin client, not the session one.
+let currentAdminClientOverride: ReturnType<typeof fakeConflictClient> | undefined;
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => currentClient,
 }));
 
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => currentAdminClientOverride ?? currentClient,
+}));
+
 const { detectAppointmentConflicts } = await import("@/lib/schedule/conflicts");
+
+beforeEach(() => {
+  currentAdminClientOverride = undefined;
+});
 
 const STUDIO_ID = "studio-1";
 const INSTRUCTOR_ID = "instructor-1";
@@ -751,5 +766,188 @@ describe("detectAppointmentConflicts -- FC-1B3 Room Resource Model", () => {
 
       expect(result.hasConflict).toBe(true);
     });
+  });
+});
+
+/**
+ * FC-1B5D2 D2C-0A: proves the room-boundary queries inside
+ * detectAppointmentConflicts genuinely run on the admin (service-role)
+ * client, not the caller's session-scoped one -- by giving each client a
+ * DIFFERENT fixture and asserting behavior that could only be correct if
+ * the admin fixture, not the session fixture, was actually consulted.
+ * `currentAdminClientOverride` (reset to undefined by the top-level
+ * beforeEach) is what makes this divergence possible; every test above this
+ * block leaves it unset and is therefore unaffected by this section.
+ */
+describe("detectAppointmentConflicts -- FC-1B5D2 D2C-0A admin-client room isolation", () => {
+  function adminRoomAppointment(overrides: Row = {}): Row {
+    return {
+      id: `appt-admin-${Math.random().toString(36).slice(2)}`,
+      studio_id: STUDIO_ID,
+      instructor_id: "some-other-instructor",
+      client_id: "some-other-client",
+      room_id: ROOM_ID,
+      appointment_type: "private_lesson",
+      status: "scheduled",
+      exclusive_room_use: false,
+      starts_at: SLOT_START,
+      ends_at: SLOT_END,
+      ...overrides,
+    };
+  }
+
+  it("detects another instructor's overlapping room booking via the admin client even when the session client would see nothing (simulates tightened RLS hiding a colleague's row)", async () => {
+    currentClient = fakeConflictClient({
+      appointments: [], // session client: nothing visible, as tightened RLS would produce for a colleague's row
+      instructor_schedule_blocks: [],
+    });
+    currentAdminClientOverride = fakeConflictClient({
+      appointments: [adminRoomAppointment({ exclusive_room_use: true })],
+      instructor_schedule_blocks: [],
+      rooms: [{ id: ROOM_ID, max_simultaneous_bookings: null }],
+    });
+
+    const result = await detectAppointmentConflicts({
+      studioId: STUDIO_ID,
+      startsAt: SLOT_START,
+      endsAt: SLOT_END,
+      roomId: ROOM_ID,
+    });
+
+    expect(result.hasConflict).toBe(true);
+    expect(result.message).toMatch(/room is already booked/i);
+  });
+
+  it("room-unavailable markers still block appropriately via the admin client even when the session client would see nothing", async () => {
+    currentClient = fakeConflictClient({
+      appointments: [], // session client: nothing visible
+      instructor_schedule_blocks: [],
+    });
+    currentAdminClientOverride = fakeConflictClient({
+      appointments: [
+        adminRoomAppointment({
+          appointment_type: "room_unavailable",
+          client_id: null,
+          instructor_id: null,
+        }),
+      ],
+      instructor_schedule_blocks: [],
+    });
+
+    const result = await detectAppointmentConflicts({
+      studioId: STUDIO_ID,
+      startsAt: SLOT_START,
+      endsAt: SLOT_END,
+      roomId: ROOM_ID,
+    });
+
+    expect(result.hasConflict).toBe(true);
+    expect(result.message).toMatch(/room is unavailable/i);
+  });
+
+  it("capacity/exclusive-use semantics are unchanged when computed against the admin-sourced occupant rows", async () => {
+    // The rooms capacity lookup deliberately stays on the SESSION client
+    // (see conflicts.ts) -- only the room-boundary appointments queries move
+    // to admin -- so the `rooms` fixture belongs on currentClient, not the
+    // admin override.
+    currentClient = fakeConflictClient({
+      appointments: [],
+      instructor_schedule_blocks: [],
+      rooms: [{ id: ROOM_ID, max_simultaneous_bookings: 2 }],
+    });
+    currentAdminClientOverride = fakeConflictClient({
+      appointments: [
+        adminRoomAppointment({ id: "admin-appt-1" }),
+        adminRoomAppointment({ id: "admin-appt-2" }),
+      ],
+      instructor_schedule_blocks: [],
+    });
+
+    const allowedAtCapacity = await detectAppointmentConflicts({
+      studioId: STUDIO_ID,
+      startsAt: SLOT_START,
+      endsAt: SLOT_END,
+      roomId: ROOM_ID,
+    });
+    // 2 existing (admin-sourced) + this 1 new = 3 > capacity 2.
+    expect(allowedAtCapacity.hasConflict).toBe(true);
+  });
+
+  it("instructor-specific conflict behavior is unchanged -- still uses the session client, unaffected by an admin-only fixture", async () => {
+    currentClient = fakeConflictClient({
+      appointments: [overlappingAppointment()],
+      instructor_schedule_blocks: [],
+    });
+    // Admin fixture deliberately has NO matching data -- if the instructor
+    // branch were ever accidentally switched to the admin client, this
+    // fixture mismatch would cause a false negative below.
+    currentAdminClientOverride = fakeConflictClient({
+      appointments: [],
+      instructor_schedule_blocks: [],
+    });
+
+    const result = await detectAppointmentConflicts({
+      studioId: STUDIO_ID,
+      startsAt: SLOT_START,
+      endsAt: SLOT_END,
+      instructorId: INSTRUCTOR_ID,
+    });
+
+    expect(result.hasConflict).toBe(true);
+    expect(result.message).toMatch(/instructor/i);
+  });
+
+  it("client-specific conflict behavior is unchanged -- still uses the session client, unaffected by an admin-only fixture", async () => {
+    currentClient = fakeConflictClient({
+      appointments: [overlappingAppointment()],
+      instructor_schedule_blocks: [],
+    });
+    currentAdminClientOverride = fakeConflictClient({
+      appointments: [],
+      instructor_schedule_blocks: [],
+    });
+
+    const result = await detectAppointmentConflicts({
+      studioId: STUDIO_ID,
+      startsAt: SLOT_START,
+      endsAt: SLOT_END,
+      clientId: CLIENT_ID,
+    });
+
+    expect(result.hasConflict).toBe(true);
+    expect(result.message).toMatch(/client already has/i);
+  });
+
+  it("the admin-client room queries select only id (existence check) or starts_at/ends_at/exclusive_room_use -- no client/instructor/notes/payment field", async () => {
+    const capturedSelects: { table: string; columns: string }[] = [];
+
+    currentClient = fakeConflictClient({ appointments: [], instructor_schedule_blocks: [] });
+    currentAdminClientOverride = {
+      from(table: string) {
+        return {
+          select(columns: string) {
+            capturedSelects.push({ table, columns });
+            return buildRowsChain([]);
+          },
+        };
+      },
+    } as unknown as ReturnType<typeof fakeConflictClient>;
+
+    await detectAppointmentConflicts({
+      studioId: STUDIO_ID,
+      startsAt: SLOT_START,
+      endsAt: SLOT_END,
+      roomId: ROOM_ID,
+    });
+
+    const appointmentsSelects = capturedSelects.filter((c) => c.table === "appointments");
+    expect(appointmentsSelects).toHaveLength(2);
+    expect(appointmentsSelects[0].columns).toBe("id");
+    expect(appointmentsSelects[1].columns).toBe("starts_at, ends_at, exclusive_room_use");
+
+    const forbiddenFieldPattern = /client_id|instructor_id|notes|price|payment|title|created_by/i;
+    for (const { columns } of appointmentsSelects) {
+      expect(columns).not.toMatch(forbiddenFieldPattern);
+    }
   });
 });
