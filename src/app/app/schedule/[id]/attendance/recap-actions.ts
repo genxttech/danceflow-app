@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireAppointmentRelationshipAccess } from "@/lib/auth/appointmentAccess";
 
 type AppointmentRow = {
   id: string;
@@ -263,46 +265,60 @@ async function sendLearningRecapPushes(params: {
   );
 }
 
+// FC-1B5D2c-0A: replaces the old requireStudioAccess(), which authorized
+// recap create/edit/publish/unpublish purely on "does the caller have any
+// active user_studio_roles row at this studio" -- no role list at all, so
+// ANY active studio member (including an unassigned instructor, or even
+// front_desk) could author recap content for a class they don't teach.
+// Reuses the same relationship primitive attendance/actions.ts now uses,
+// then narrows further: recap-write authority deliberately excludes
+// front_desk (unlike attendance, where front_desk retains broad operational
+// authority per product decision) -- front_desk gets recap read access via
+// the page's own read path, not through this write-authorization helper.
+// own-floor-rental is explicitly rejected too, though it is structurally
+// unreachable here since appointment_type is already restricted to
+// group_class below (a floor_space_rental appointment can never reach this
+// branch) -- kept as defense-in-depth, not because it's expected to fire.
 async function requireStudioAccess(appointmentId: string) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { studioId, studioRole, isPlatformAdmin, userId } =
+    await getCurrentStudioContext();
 
-  if (!user) {
-    redirect("/login");
+  const result = await requireAppointmentRelationshipAccess({
+    supabase,
+    studioId,
+    studioRole,
+    isPlatformAdmin,
+    userId,
+    appointmentId,
+    select: "title, appointment_type",
+  });
+
+  if (!result.ok) {
+    throw new Error(result.reason);
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
-
-  if (roleError || !roleRow) {
-    redirect("/login");
-  }
-
-  const studioId = roleRow.studio_id as string;
-
-  const { data: appointment, error: appointmentError } = await supabase
-    .from("appointments")
-    .select("id, studio_id, appointment_type, title")
-    .eq("id", appointmentId)
-    .eq("studio_id", studioId)
-    .single<AppointmentRow>();
-
-  if (appointmentError || !appointment) {
-    throw new Error(appointmentError?.message ?? "Appointment not found.");
-  }
+  const { appointment, scope } = result;
 
   if (appointment.appointment_type !== "group_class") {
     throw new Error("Group lesson recaps can only be created for group classes.");
   }
 
-  return { supabase, user, studioId, appointment };
+  const canAuthorRecap =
+    scope === "own-instructor" ||
+    (scope === "broad" &&
+      (isPlatformAdmin || studioRole === "studio_owner" || studioRole === "studio_admin"));
+
+  if (!canAuthorRecap) {
+    throw new Error("You do not have permission to manage this class's recap.");
+  }
+
+  return {
+    supabase,
+    user: { id: userId },
+    studioId,
+    appointment: appointment as unknown as AppointmentRow,
+  };
 }
 
 export async function saveGroupLessonRecapAction(formData: FormData) {

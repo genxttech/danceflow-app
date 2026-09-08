@@ -2,57 +2,65 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireAppointmentRelationshipAccess } from "@/lib/auth/appointmentAccess";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function getStudioContext() {
+// FC-1B5D2c-0A: replaces the old getStudioContext()+validateAppointmentAccess()
+// pair, which authorized purely on "does the caller have any active
+// user_studio_roles row at this studio" -- no relationship to THIS
+// appointment at all, so any active-role studio member (including an
+// unassigned instructor) could mark attendance on any class. This now
+// reuses the same relationship-authorization primitive D2A/D2C already
+// established for `appointments` itself: platform_admin/studio_owner/
+// studio_admin/front_desk remain broad (front_desk retains full
+// operational attendance authority for any class, per product decision);
+// an instructor is authorized only for a class currently assigned to
+// them (own-instructor scope) -- there is no implicit substitute/
+// covering-instructor allowance. If that workflow is ever needed it must
+// be added explicitly, not inferred from studio membership.
+//
+// Blocking-review correction: a floor-rental relationship alone
+// (own-floor-rental scope) must NOT authorize attendance actions. Product
+// decision explicitly denies "independent instructor whose only
+// relationship is floor rental/client portal" here -- and independently,
+// there is no legitimate attendance workflow for a floor_space_rental
+// appointment at all (its own attended/no_show status is tracked directly
+// on appointments.status via markAppointmentAttendedAction, never via
+// attendance_records). requireAppointmentRelationshipAccess is a generic
+// appointment-relationship primitive and correctly has no opinion on this
+// -- the exclusion belongs here, at the call site, matching the same
+// pattern recap-actions.ts and page.tsx already use.
+async function requireAttendanceAccess(appointmentId: string) {
   const supabase = await createClient();
+  const { studioId, studioRole, isPlatformAdmin, userId } =
+    await getCurrentStudioContext();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
-
-  if (roleError || !roleRow) {
-    redirect("/login");
-  }
-
-  return {
+  const result = await requireAppointmentRelationshipAccess({
     supabase,
-    studioId: roleRow.studio_id as string,
-    userId: user.id,
-  };
-}
+    studioId,
+    studioRole,
+    isPlatformAdmin,
+    userId,
+    appointmentId,
+    select: "title, appointment_type",
+  });
 
-async function validateAppointmentAccess(appointmentId: string, studioId: string) {
-  const supabase = await createClient();
-
-  const { data: appointment, error } = await supabase
-    .from("appointments")
-    .select("id, studio_id, title, appointment_type")
-    .eq("id", appointmentId)
-    .eq("studio_id", studioId)
-    .single();
-
-  if (error || !appointment) {
-    throw new Error("Appointment not found.");
+  if (!result.ok) {
+    throw new Error(result.reason);
   }
 
-  return appointment;
+  if (result.scope === "own-floor-rental") {
+    throw new Error(
+      "You can only manage your own assigned appointments or your own floor space rental bookings.",
+    );
+  }
+
+  return { supabase, studioId, userId, appointment: result.appointment };
 }
 
 function buildReturnUrl(appointmentId: string, suffix?: string) {
@@ -149,8 +157,7 @@ export async function checkInClassAttendeeAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId, userId } = await getStudioContext();
-    await validateAppointmentAccess(appointmentId, studioId);
+    const { supabase, studioId, userId } = await requireAttendanceAccess(appointmentId);
 
     await upsertAttendanceRecord({
       supabase,
@@ -179,8 +186,7 @@ export async function markClassAttendedAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId, userId } = await getStudioContext();
-    await validateAppointmentAccess(appointmentId, studioId);
+    const { supabase, studioId, userId } = await requireAttendanceAccess(appointmentId);
 
     const now = new Date().toISOString();
 
@@ -211,8 +217,7 @@ export async function markClassNoShowAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId, userId } = await getStudioContext();
-    await validateAppointmentAccess(appointmentId, studioId);
+    const { supabase, studioId, userId } = await requireAttendanceAccess(appointmentId);
 
     await upsertAttendanceRecord({
       supabase,
@@ -241,8 +246,7 @@ export async function resetClassAttendanceAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId, userId } = await getStudioContext();
-    await validateAppointmentAccess(appointmentId, studioId);
+    const { supabase, studioId, userId } = await requireAttendanceAccess(appointmentId);
 
     await upsertAttendanceRecord({
       supabase,
