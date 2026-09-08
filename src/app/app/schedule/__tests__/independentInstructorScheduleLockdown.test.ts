@@ -48,6 +48,18 @@ vi.mock("@/lib/auth/studio", () => ({
     getCurrentStudioContextMock(...args),
 }));
 
+// FC-1B5D2c-0A: schedule/[id]/attendance/page.tsx now resolves its
+// appointment-level authorization via requireAppointmentRelationshipAccess
+// (same primitive D2A/D2C already established) instead of a role-only gate,
+// so this suite's attendance-page block mocks it directly rather than
+// relying on a raw user_studio_roles-only fake.
+const requireAppointmentRelationshipAccessMock = vi.fn();
+
+vi.mock("@/lib/auth/appointmentAccess", () => ({
+  requireAppointmentRelationshipAccess: (...args: unknown[]) =>
+    requireAppointmentRelationshipAccessMock(...args),
+}));
+
 let fakeSupabase: unknown;
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -172,6 +184,7 @@ async function runPage(promise: Promise<unknown>) {
 
 beforeEach(() => {
   getCurrentStudioContextMock.mockReset();
+  requireAppointmentRelationshipAccessMock.mockReset();
 });
 
 describe("schedule/new/page.tsx -- FC-1B1", () => {
@@ -258,11 +271,14 @@ describe("schedule/[id]/edit/page.tsx -- FC-1B1", () => {
   });
 });
 
-describe("schedule/[id]/attendance/page.tsx -- FC-1B1", () => {
-  it("independent_instructor is rejected before any attendee/recap data is queried", async () => {
-    fakeSupabase = createFakeSupabaseWithRawRole({
-      studio_id: "studio-1",
-      role: "independent_instructor",
+describe("schedule/[id]/attendance/page.tsx -- FC-1B1 / FC-1B5D2c-0A", () => {
+  it("independent_instructor (no relationship to this appointment) is rejected before any attendee/recap data is queried", async () => {
+    mockStudioContext("independent_instructor");
+    fakeSupabase = createFakeSupabaseAllThrowing();
+    requireAppointmentRelationshipAccessMock.mockResolvedValue({
+      ok: false,
+      reason:
+        "You can only manage your own assigned appointments or your own floor space rental bookings.",
     });
 
     const error = await runPage(
@@ -276,9 +292,22 @@ describe("schedule/[id]/attendance/page.tsx -- FC-1B1", () => {
   });
 
   it("studio_owner is not blocked by the new gate", async () => {
-    fakeSupabase = createFakeSupabaseWithRawRole({
-      studio_id: "studio-1",
-      role: "studio_owner",
+    mockStudioContext("studio_owner");
+    fakeSupabase = createFakeSupabaseAllThrowing();
+    requireAppointmentRelationshipAccessMock.mockResolvedValue({
+      ok: true,
+      scope: "broad",
+      appointment: {
+        id: "appt-1",
+        studio_id: "studio-1",
+        client_id: "client-1",
+        instructor_id: null,
+        appointment_type: "group_class",
+        title: "Class",
+        start_at: "2026-01-01T00:00:00.000Z",
+        end_at: "2026-01-01T01:00:00.000Z",
+        status: "scheduled",
+      },
     });
 
     const error = await runPage(

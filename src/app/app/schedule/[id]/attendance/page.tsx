@@ -12,7 +12,8 @@ import {
   saveGroupLessonRecapAction,
   unpublishGroupLessonRecapAction,
 } from "./recap-actions";
-import { canMarkAttendance } from "@/lib/auth/permissions";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireAppointmentRelationshipAccess } from "@/lib/auth/appointmentAccess";
 
 type Params = Promise<{
   id: string;
@@ -220,51 +221,51 @@ export default async function ScheduleAttendancePage({
   const banner = getBanner(query);
 
   const supabase = await createClient();
+  const { studioId, studioRole, isPlatformAdmin, userId } = await getCurrentStudioContext();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // FC-1B5D2c-0A: replaces the old canMarkAttendance(role)-only gate, which
+  // let ANY user with an "instructor" role view this page (and its attendee
+  // PII / private coaching notes) for a class they don't teach -- role
+  // membership alone was never a relationship check. This resolves the
+  // caller's authority to THIS specific appointment the same way D2A/D2C
+  // already do for appointments themselves: broad operational roles retain
+  // full access; an instructor is authorized only for a class currently
+  // assigned to them. A caller with only a floor-rental relationship (no
+  // real host teaching assignment) is denied -- that relationship alone
+  // never grants host class authority.
+  const relationshipResult = await requireAppointmentRelationshipAccess({
+    supabase,
+    studioId,
+    studioRole,
+    isPlatformAdmin,
+    userId,
+    appointmentId: id,
+    select: "title, appointment_type, start_at:starts_at, end_at:ends_at, status",
+  });
 
-  if (!user) {
-    redirect("/login");
+  if (!relationshipResult.ok) {
+    if (relationshipResult.reason === "Appointment not found.") {
+      notFound();
+    }
+    redirect("/app");
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id, role")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
+  const canManageAttendance = relationshipResult.scope !== "own-floor-rental";
+  const canAuthorRecap =
+    relationshipResult.scope === "own-instructor" ||
+    (relationshipResult.scope === "broad" &&
+      (isPlatformAdmin || studioRole === "studio_owner" || studioRole === "studio_admin"));
 
-  if (roleError || !roleRow) {
-    redirect("/login");
-  }
-
-  const studioId = roleRow.studio_id as string;
-
-  // FC-1B1: independent_instructor is not host-studio staff -- this page
-  // exposes attendee PII (email/phone) and private group-lesson coaching
-  // notes for classes they have no relationship to. Server-side gate, not
-  // just a hidden nav link.
-  if (!canMarkAttendance(roleRow.role as string)) {
+  if (!canManageAttendance) {
     redirect("/app");
   }
 
   const [
-    { data: appointment, error: appointmentError },
     { data: attendees, error: attendeesError },
     { data: attendanceRows, error: attendanceError },
     { data: groupLessonRecap, error: groupLessonRecapError },
     { count: groupLessonRecapRecipientCount, error: groupLessonRecapRecipientError },
   ] = await Promise.all([
-    supabase
-      .from("appointments")
-      .select("id, title, appointment_type, start_at:starts_at, end_at:ends_at, status")
-      .eq("id", id)
-      .eq("studio_id", studioId)
-      .single(),
-
     supabase
       .from("appointment_attendees")
       .select(`
@@ -317,10 +318,6 @@ export default async function ScheduleAttendancePage({
       .eq("appointment_id", id),
   ]);
 
-  if (appointmentError || !appointment) {
-    notFound();
-  }
-
   if (attendeesError) {
     throw new Error(`Failed to load class attendees: ${attendeesError.message}`);
   }
@@ -339,7 +336,7 @@ export default async function ScheduleAttendancePage({
     );
   }
 
-  const typedAppointment = appointment as AppointmentRow;
+  const typedAppointment = relationshipResult.appointment as unknown as AppointmentRow;
   const typedAttendees = (attendees ?? []) as AppointmentAttendeeRow[];
   const typedAttendance = (attendanceRows ?? []) as AttendanceRow[];
   const typedGroupLessonRecap = (groupLessonRecap ?? null) as GroupLessonRecapRow | null;
@@ -532,6 +529,8 @@ export default async function ScheduleAttendancePage({
             </div>
           </div>
 
+          {canAuthorRecap ? (
+          <>
           <form action={saveGroupLessonRecapAction} className="mt-6 grid gap-4">
             <input type="hidden" name="appointmentId" value={typedAppointment.id} />
             <input type="hidden" name="returnTo" value={returnTo} />
@@ -660,6 +659,43 @@ export default async function ScheduleAttendancePage({
               </form>
             ) : null}
           </div>
+          </>
+          ) : typedGroupLessonRecap ? (
+            <div className="mt-6 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              <p className="font-medium text-slate-900">{typedGroupLessonRecap.title}</p>
+              {typedGroupLessonRecap.summary ? (
+                <p>
+                  <span className="font-medium">What we covered: </span>
+                  {typedGroupLessonRecap.summary}
+                </p>
+              ) : null}
+              {typedGroupLessonRecap.practice_assignment ? (
+                <p>
+                  <span className="font-medium">Practice assignment: </span>
+                  {typedGroupLessonRecap.practice_assignment}
+                </p>
+              ) : null}
+              {typedGroupLessonRecap.technique_notes ? (
+                <p>
+                  <span className="font-medium">Technique notes: </span>
+                  {typedGroupLessonRecap.technique_notes}
+                </p>
+              ) : null}
+              {typedGroupLessonRecap.safety_notes ? (
+                <p>
+                  <span className="font-medium">Safety tips: </span>
+                  {typedGroupLessonRecap.safety_notes}
+                </p>
+              ) : null}
+              <p className="text-slate-500">
+                Only the assigned instructor or a studio owner/admin can edit this recap.
+              </p>
+            </div>
+          ) : (
+            <p className="mt-6 text-sm text-slate-500">
+              No recap has been created for this class yet.
+            </p>
+          )}
         </div>
       ) : null}
 
