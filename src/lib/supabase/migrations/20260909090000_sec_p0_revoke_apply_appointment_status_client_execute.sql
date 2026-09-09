@@ -1,0 +1,38 @@
+-- SEC-P0: apply_appointment_status is a SECURITY DEFINER function with no
+-- caller-authorization check and no studio scoping -- p_appointment_id is
+-- acted on directly with no ownership predicate, and p_actor_user_id
+-- (defaulting to auth.uid()) is used only as an audit-column attribution
+-- value, never validated. It is reachable by PUBLIC, anon, and
+-- authenticated today (confirmed live via aclexplode(pg_proc.proacl), not
+-- merely inherited default privilege), and unconditionally updates
+-- appointments.status/attendance_marked_at/cancelled_at plus, when
+-- applicable, decrements a client_package_items balance and inserts a
+-- lesson_transactions row -- a real financial write callable by an
+-- unauthenticated caller who knows or guesses an appointment id.
+--
+-- Repo-wide audit (git grep across web app, mobile app, all migrations,
+-- tests, scripts, docs, cron) found zero tracked runtime callers, zero
+-- pg_depend dependents, and zero triggers on this function in either the
+-- codebase or a live DEV catalog check -- confirmed empty pg_depend and
+-- pg_trigger results immediately before this migration was written. This
+-- function duplicates functionality the app already implements safely via
+-- deduct_package_credit_for_appointment (search_path pinned, idempotency
+-- checked) and the group-class attendance trigger path -- neither of which
+-- this migration touches.
+--
+-- This migration only narrows EXECUTE. It intentionally does not alter the
+-- function body, owner, signature, search_path, or the service_role grant
+-- -- service_role retains access pending a separate, later decision (which
+-- requires a live pg_depend check beyond this repo's static analysis)
+-- about whether to drop the function outright.
+--
+-- Per the established convention for this exact gap (see
+-- 20260901120000_h2c1_claim_invitation_client_account_links_authority.sql
+-- and 20260905160200_fc1b5d_qr_checkin_client_identity_rpc.sql):
+-- Supabase grants EXECUTE to anon and authenticated individually at
+-- function-creation time, independent of the PUBLIC pseudo-role, so a
+-- PUBLIC-only revoke does not lock them out -- each role is revoked
+-- explicitly below.
+revoke execute on function public.apply_appointment_status(uuid, public.appointment_status, uuid) from public;
+revoke execute on function public.apply_appointment_status(uuid, public.appointment_status, uuid) from anon;
+revoke execute on function public.apply_appointment_status(uuid, public.appointment_status, uuid) from authenticated;
