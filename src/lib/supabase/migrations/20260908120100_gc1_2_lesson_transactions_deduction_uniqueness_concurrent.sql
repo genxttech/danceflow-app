@@ -8,36 +8,56 @@
 -- established precedent for this exact "actively-written production table"
 -- (20260830100000_lesson_transactions_refund_uniqueness_index_concurrent.sql).
 --
--- Scoped to transaction_type='lesson_deduction' only. 'appointment_attendance'
--- (the legacy marker the existing RPC's idempotency check also recognizes)
--- is NOT a member of the live transaction_type enum -- confirmed via
--- `select enumlabel from pg_enum ... where typname='transaction_type'`
--- immediately before this migration was written -- so no writer, audited or
--- not, can ever produce that value; Postgres rejects the type cast before
--- any such INSERT could execute. Widening this index's predicate to also
--- cover a value that cannot exist would add unreachable-by-construction
--- complexity, not additional protection.
+-- Scoped to transaction_type='lesson_deduction' only, by design: this
+-- index's purpose is to guarantee one student, one class, one package
+-- deduction for the current, live deduction path -- not to police every
+-- historical value this column has ever held. 'appointment_attendance' is
+-- a legacy transaction_type marker (still recognized as prior evidence of
+-- a deduction by the existing RPC's idempotency check) that is NOT a
+-- member of DEV's transaction_type enum -- confirmed via `select enumlabel
+-- from pg_enum ... where typname='transaction_type'` immediately before
+-- this migration was written. That confirmation was against DEV only and
+-- does not generalize to PROD: PROD carries 5 historical
+-- 'appointment_attendance' rows (verified private-lesson deductions
+-- predating the current lesson_deduction-only write path). No current
+-- writer -- application code or tracked migration, on either environment
+-- -- produces 'appointment_attendance' going forward; it is dead history,
+-- not a live value. Those historical rows do not collide with this index
+-- and are not a stop condition: the predicate below only ever matches
+-- transaction_type='lesson_deduction' rows, so an 'appointment_attendance'
+-- row can never participate in the uniqueness check, on PROD or anywhere
+-- else. Widening the predicate to also cover a value no current writer
+-- produces would add unreachable-by-construction complexity, not
+-- additional protection.
 --
 -- PREREQUISITE, run immediately before this statement, every environment:
 --
 --   select appointment_id, client_id, count(*) from public.lesson_transactions
 --     where transaction_type='lesson_deduction' and appointment_id is not null
 --     group by appointment_id, client_id having count(*) > 1;
---   -- must return zero rows
+--   -- must return zero rows -- this is the actual index-collision gate
 --
 --   select count(*) filter (where client_package_id is null) as null_package,
 --          count(*) filter (where appointment_id is null) as null_appointment,
 --          count(*) filter (where client_id is null) as null_client
 --     from public.lesson_transactions where transaction_type='lesson_deduction';
---   -- all three must be zero
+--   -- all three must be zero -- the actual key-integrity gate
 --
 --   select transaction_type, count(*) from public.lesson_transactions group by transaction_type;
---   -- inspect for any unexpected value; confirm no 'appointment_attendance' rows
+--   -- informational only, not a gate: inspect for any unexpected value.
+--   -- On PROD this is expected to show 5 historical 'appointment_attendance'
+--   -- rows -- their presence alone is not a stop condition, since the
+--   -- index predicate above never matches them.
 --
--- If any of these differ materially from the expected result on a given
--- environment: STOP. Do not proceed with this statement on that
--- environment, and do not silently clean or dedupe production financial
--- transaction history.
+-- Stop conditions are the two gating queries above returning non-zero: any
+-- duplicate (appointment_id, client_id) pair among 'lesson_deduction' rows,
+-- or any null client_package_id/appointment_id/client_id on a
+-- 'lesson_deduction' row. If either differs materially from the expected
+-- (zero) result on a given environment: STOP. Do not proceed with this
+-- statement on that environment, and do not silently clean or dedupe
+-- production financial transaction history. Historical
+-- 'appointment_attendance' rows alone are not, by themselves, a reason to
+-- stop.
 
 create unique index concurrently if not exists
   uq_lesson_transactions_appointment_client_deduction
