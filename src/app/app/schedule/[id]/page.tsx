@@ -191,6 +191,19 @@ function getDateKeyInTimeZone(
   return `${map.get("year")}-${map.get("month")}-${map.get("day")}`;
 }
 
+// GC-1.3A: extracted as a small pure, exported predicate purely so it is
+// directly unit-testable -- behavior is unchanged from the inline
+// expression it replaces. A group_class row's appointments.status is class
+// lifecycle only, never one student's attendance, so the legacy single-row
+// Mark Attended/Mark No Show controls must never show for one.
+export function isClassLevelAttendanceEligible(params: {
+  canMark: boolean;
+  isFloorRental: boolean;
+  isGroupClass: boolean;
+}): boolean {
+  return params.canMark && !params.isFloorRental && !params.isGroupClass;
+}
+
 function appointmentTypeLabel(value: string) {
   if (value === "private_lesson") return "Private Lesson";
   if (value === "group_class") return "Group Class";
@@ -611,8 +624,14 @@ export default async function AppointmentDetailPage({
     ? typedAppointment.client_packages[0]
     : typedAppointment.client_packages;
 
-  const clientName = getClientName(typedAppointment.clients);
+  // GC-1.3A: a group_class row has no single client_id -- getClientName's
+  // "Unknown Client" fallback is correct for a genuinely unassigned lesson,
+  // but wrong for a class. Fall back to the class's own type label instead,
+  // matching the fix already applied to the calendar/drawer views.
   const clientId = getClientId(typedAppointment.clients);
+  const clientName = clientId
+    ? getClientName(typedAppointment.clients)
+    : appointmentTypeLabel(typedAppointment.appointment_type);
 
   // Schedule Stabilization Slice 1b-b: fetch this client's other packages
   // so the badge can apply replacement-coverage suppression, matching
@@ -693,6 +712,12 @@ export default async function AppointmentDetailPage({
     referralSource === "public_intro_booking";
 
   const isFloorRental = typedAppointment.appointment_type === "floor_space_rental";
+  // GC-1.3A: a group_class row's appointments.status is class lifecycle
+  // only, never one student's attendance -- the legacy single-row Mark
+  // Attended/Mark No Show controls must never operate on a class's shared
+  // appointments row. Staff use the existing per-student attendance page
+  // (already linked above) instead.
+  const isGroupClass = typedAppointment.appointment_type === "group_class";
   const isPrivateLesson = typedAppointment.appointment_type === "private_lesson";
   const isPayAsYouGoLesson =
     !isFloorRental && typedAppointment.billing_type === "pay_as_you_go";
@@ -705,7 +730,11 @@ export default async function AppointmentDetailPage({
     typedAppointment.status === "no_show";
 
   const canEdit = canEditAppointments(role);
-  const canTakeAttendance = canMarkAttendance(role) && !isFloorRental;
+  const canTakeAttendance = isClassLevelAttendanceEligible({
+    canMark: canMarkAttendance(role),
+    isFloorRental,
+    isGroupClass,
+  });
   const showAttendanceActions = !isFinalStatus && canTakeAttendance;
   // FC-1B5D2 D2A (blocking-review correction): hard delete is
   // administrative-only (canDeleteAppointments), a narrower set than
@@ -1719,6 +1748,18 @@ export default async function AppointmentDetailPage({
               <p className="mt-4 border-t pt-4 text-xs text-slate-500">
                 Attendance actions are hidden because floor space rentals do not use the
                 standard lesson attendance workflow.
+              </p>
+            ) : null}
+
+            {isGroupClass && !isFinalStatus ? (
+              <p className="mt-4 border-t pt-4 text-xs text-slate-500">
+                Group classes use per-student attendance.{" "}
+                <Link
+                  href={`/app/schedule/${typedAppointment.id}/attendance`}
+                  className="font-medium underline"
+                >
+                  Open class attendance
+                </Link>
               </p>
             ) : null}
           </div>

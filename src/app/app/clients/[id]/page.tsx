@@ -25,6 +25,7 @@ import ClientCommunicationWorkspace from "./ClientCommunicationWorkspace";
 import PackageArchiveControls from "./PackageArchiveControls";
 import PartialRefundReviewControls from "./PartialRefundReviewControls";
 import { PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD } from "@/lib/payments/package-refund-release-hold";
+import { getClassEnrollmentAppointmentsForClient } from "@/lib/schedule/groupClassRoster";
 import {
   getClientPackageStatus,
   getItemWarningLevel,
@@ -2663,8 +2664,33 @@ export default async function ClientDetailPage({
   const clientQrUrl = clientQrImageUrl(typedStudio.slug, typedClient.id);
   const typedInstructors = (instructors ?? []) as InstructorOption[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
-  const typedUpcoming = (upcomingAppointments ?? []) as AppointmentRow[];
-  const typedRecent = (recentAppointments ?? []) as AppointmentRow[];
+  // GC-1.3A: a client enrolled in a group class via appointment_attendees
+  // (rather than the legacy singular appointments.client_id) never appeared
+  // in the two queries above at all -- their class history was invisible on
+  // their own staff profile, not merely mis-displayed. Merged in here so the
+  // page's existing rendering (already type/title-label safe, no client-name
+  // assumption) needs no further changes.
+  const classEnrollmentAppointments = await getClassEnrollmentAppointmentsForClient({
+    supabase,
+    studioId,
+    clientId: id,
+  });
+  const typedUpcoming = [
+    ...((upcomingAppointments ?? []) as AppointmentRow[]),
+    ...classEnrollmentAppointments
+      .filter((appointment) => appointment.starts_at >= nowIso)
+      .map((appointment) => appointment as unknown as AppointmentRow),
+  ]
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+    .slice(0, 12);
+  const typedRecent = [
+    ...((recentAppointments ?? []) as AppointmentRow[]),
+    ...classEnrollmentAppointments
+      .filter((appointment) => appointment.starts_at < nowIso)
+      .map((appointment) => appointment as unknown as AppointmentRow),
+  ]
+    .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
+    .slice(0, 12);
   const unpaidPayAsYouGoLessons = [...typedUpcoming, ...typedRecent]
     .filter((appointment) => {
       const paymentStatus = (appointment.payment_status ?? "unpaid").toLowerCase();

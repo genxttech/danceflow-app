@@ -18,6 +18,32 @@ function getStudioTimeZone(value?: string | null) {
   }
 }
 
+// GC-1.3A: a group_class row has no single client_id -- previously exported
+// with a blank "Client" cell and no way to recover what the appointment
+// even was. Fall back to the appointment's own title/type label, matching
+// the fix already applied to the calendar/detail views.
+function appointmentTypeLabel(value: string) {
+  if (value === "private_lesson") return "Private Lesson";
+  if (value === "group_class") return "Group Class";
+  if (value === "intro_lesson") return "Intro Lesson";
+  if (value === "coaching") return "Coaching";
+  if (value === "practice_party") return "Practice Party";
+  if (value === "floor_space_rental") return "Floor Space Rental";
+  return value.replaceAll("_", " ");
+}
+
+// GC-1.3A: extracted as a small pure, exported function purely so it is
+// directly unit-testable -- behavior is unchanged from the inline
+// expression it replaces.
+export function clientCellForRow(
+  client: { first_name: string; last_name: string } | null,
+  title: string | null,
+  appointmentType: string,
+): string {
+  if (client) return `${client.first_name} ${client.last_name}`;
+  return title || appointmentTypeLabel(appointmentType);
+}
+
 function formatExportDateTime(value: string | null | undefined, timeZone: string) {
   if (!value) return "";
 
@@ -130,7 +156,7 @@ export async function GET() {
       const room = Array.isArray(row.rooms) ? row.rooms[0] : row.rooms;
 
       return [
-        client ? `${client.first_name} ${client.last_name}` : "",
+        clientCellForRow(client, row.title, row.appointment_type),
         row.title,
         row.appointment_type,
         row.status,

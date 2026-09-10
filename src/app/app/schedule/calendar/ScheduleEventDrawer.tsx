@@ -108,6 +108,19 @@ function getRoomName(value: { name: string } | { name: string }[] | null) {
   return room?.name ?? "No room";
 }
 
+// GC-1.3A: extracted as a small pure, exported predicate purely so it is
+// directly unit-testable -- behavior is unchanged from the inline
+// expression it replaces. A group_class row's appointment.status is class
+// lifecycle only, never one student's attendance, so the legacy single-row
+// Mark Attended/Mark No Show controls must never show for one.
+export function canShowClassAttendanceActions(params: {
+  isFinalStatus: boolean;
+  isFloorRental: boolean;
+  isGroupClass: boolean;
+}): boolean {
+  return !params.isFinalStatus && !params.isFloorRental && !params.isGroupClass;
+}
+
 const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";
 
 function formatDateTime(value: string, timeZone = DEFAULT_STUDIO_TIME_ZONE) {
@@ -166,12 +179,22 @@ export default function ScheduleEventDrawer({
   const roomName = getRoomName(appointment.rooms);
 
   const isFloorRental = appointment.appointment_type === "floor_space_rental";
+  // GC-1.3A: a group_class row has no single client_id -- appointment.status
+  // is class lifecycle only, never one student's attendance (that comes
+  // from attendance_records, on the per-student attendance page linked
+  // below). The legacy single-row Mark Attended/Mark No Show controls must
+  // never operate on a class's shared appointments row.
+  const isGroupClass = appointment.appointment_type === "group_class";
   const isFinalStatus =
     appointment.status === "attended" ||
     appointment.status === "cancelled" ||
     appointment.status === "no_show";
 
-  const canShowAttendanceActions = !isFinalStatus && !isFloorRental;
+  const canShowAttendanceActions = canShowClassAttendanceActions({
+    isFinalStatus,
+    isFloorRental,
+    isGroupClass,
+  });
   const canShowCancelAction = !isFinalStatus;
 
   return (
@@ -237,7 +260,9 @@ export default function ScheduleEventDrawer({
             <h4 className="text-sm font-semibold text-slate-900">At a glance</h4>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <DetailCard label="Client" value={clientName} />
+              {!isGroupClass ? (
+                <DetailCard label="Client" value={clientName} />
+              ) : null}
               <DetailCard
                 label="Instructor"
                 value={isFloorRental ? "Independent instructor rental" : instructorName}
@@ -264,6 +289,18 @@ export default function ScheduleEventDrawer({
             <section className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-900 shadow-sm">
               Floor space rentals do not use the standard lesson attendance flow and do not deduct
               from lesson packages.
+            </section>
+          ) : null}
+
+          {isGroupClass ? (
+            <section className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-900 shadow-sm">
+              Group classes use per-student attendance.{" "}
+              <Link
+                href={`/app/schedule/${appointment.id}/attendance`}
+                className="font-semibold underline"
+              >
+                Open class attendance
+              </Link>
             </section>
           ) : null}
 

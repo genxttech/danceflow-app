@@ -537,6 +537,25 @@ function packageHealthClass(health: PackageHealth) {
   return "bg-slate-100 text-slate-700";
 }
 
+// GC-1.3A: extracted as a small pure, exported predicate purely so it is
+// directly unit-testable -- behavior is unchanged from the inline
+// expression it replaces. A group_class row's appointments.status is class
+// lifecycle only, never one student's attendance, so the legacy single-row
+// Mark Attended/Mark No Show controls must never show for one.
+export function isClassLevelAttendanceEligible(params: {
+  isFinalStatus: boolean;
+  canMark: boolean;
+  isFloorRental: boolean;
+  isGroupClass: boolean;
+}): boolean {
+  return (
+    !params.isFinalStatus &&
+    params.canMark &&
+    !params.isFloorRental &&
+    !params.isGroupClass
+  );
+}
+
 function isCloseoutCandidate(appointment: AppointmentRow) {
   return (
     appointment.appointment_type !== "floor_space_rental" &&
@@ -2379,14 +2398,25 @@ export default async function SchedulePage({
               referralSource === "public_intro_booking";
             const isFloorRental =
               appointment.appointment_type === "floor_space_rental";
+            // GC-1.3A: a group_class row's appointments.status is class
+            // lifecycle only, never one student's attendance -- the legacy
+            // single-row Mark Attended/Mark No Show controls must never
+            // operate on a class's shared appointments row. Staff use the
+            // existing per-student attendance page instead.
+            const isGroupClass =
+              appointment.appointment_type === "group_class";
 
             const isFinalStatus =
               appointment.status === "attended" ||
               appointment.status === "cancelled" ||
               appointment.status === "no_show";
 
-            const showAttendanceActions =
-              !isFinalStatus && canMarkAttendance(role) && !isFloorRental;
+            const showAttendanceActions = isClassLevelAttendanceEligible({
+              isFinalStatus,
+              canMark: canMarkAttendance(role),
+              isFloorRental,
+              isGroupClass,
+            });
 
             return (
               <div
@@ -2676,6 +2706,20 @@ export default async function SchedulePage({
                       Floor space rentals are shown on the schedule for
                       visibility, but they do not use standard lesson attendance
                       and package workflows.
+                    </p>
+                  </div>
+                ) : null}
+
+                {isGroupClass && !isFinalStatus && canMarkAttendance(role) ? (
+                  <div className="mt-4 border-t pt-4">
+                    <p className="text-xs text-slate-500">
+                      Group classes use per-student attendance.{" "}
+                      <Link
+                        href={`/app/schedule/${appointment.id}/attendance`}
+                        className="font-medium text-violet-800 underline"
+                      >
+                        Open class attendance
+                      </Link>
                     </p>
                   </div>
                 ) : null}
