@@ -14,6 +14,12 @@ import {
 } from "./recap-actions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireAppointmentRelationshipAccess } from "@/lib/auth/appointmentAccess";
+import {
+  getClassRosterForInstructor,
+  getClassRosterForStaff,
+  type ClassRosterEntryForInstructor,
+  type ClassRosterEntryForStaff,
+} from "@/lib/schedule/groupClassRoster";
 
 type Params = Promise<{
   id: string;
@@ -33,26 +39,6 @@ type AppointmentRow = {
   start_at: string;
   end_at: string;
   status: string | null;
-};
-
-type AppointmentAttendeeRow = {
-  client_id: string;
-  clients:
-    | {
-        id: string;
-        first_name: string | null;
-        last_name: string | null;
-        email: string | null;
-        phone: string | null;
-      }
-    | {
-        id: string;
-        first_name: string | null;
-        last_name: string | null;
-        email: string | null;
-        phone: string | null;
-      }[]
-    | null;
 };
 
 type AttendanceRow = {
@@ -76,27 +62,6 @@ type GroupLessonRecapRow = {
   published_at: string | null;
   updated_at: string | null;
 };
-
-function getClient(
-  value:
-    | {
-        id: string;
-        first_name: string | null;
-        last_name: string | null;
-        email: string | null;
-        phone: string | null;
-      }
-    | {
-        id: string;
-        first_name: string | null;
-        last_name: string | null;
-        email: string | null;
-        phone: string | null;
-      }[]
-    | null
-) {
-  return Array.isArray(value) ? value[0] : value;
-}
 
 function statusBadgeClass(status: string) {
   if (status === "registered") return "bg-green-50 text-green-700";
@@ -260,25 +225,27 @@ export default async function ScheduleAttendancePage({
     redirect("/app");
   }
 
+  // GC-1.3A: which roster query runs is selected here, from the relationship
+  // result already resolved above -- never re-derived from a raw role
+  // string, and never fetched broad-then-hidden in JSX. "own-floor-rental"
+  // never reaches this line (redirected at line 259-261 above); the only
+  // two remaining scopes are "broad" (studio_owner/studio_admin/front_desk/
+  // platform_admin, per requireAppointmentRelationshipAccess's broad-first
+  // precedence) and "own-instructor".
+  const rosterPromise: Promise<
+    (ClassRosterEntryForStaff | ClassRosterEntryForInstructor)[]
+  > =
+    relationshipResult.scope === "own-instructor"
+      ? getClassRosterForInstructor({ supabase, appointmentId: id, studioId })
+      : getClassRosterForStaff({ supabase, appointmentId: id, studioId });
+
   const [
-    { data: attendees, error: attendeesError },
+    typedAttendees,
     { data: attendanceRows, error: attendanceError },
     { data: groupLessonRecap, error: groupLessonRecapError },
     { count: groupLessonRecapRecipientCount, error: groupLessonRecapRecipientError },
   ] = await Promise.all([
-    supabase
-      .from("appointment_attendees")
-      .select(`
-        client_id,
-        clients (
-          id,
-          first_name,
-          last_name,
-          email,
-          phone
-        )
-      `)
-      .eq("appointment_id", id),
+    rosterPromise,
 
     supabase
       .from("attendance_records")
@@ -318,10 +285,6 @@ export default async function ScheduleAttendancePage({
       .eq("appointment_id", id),
   ]);
 
-  if (attendeesError) {
-    throw new Error(`Failed to load class attendees: ${attendeesError.message}`);
-  }
-
   if (attendanceError) {
     throw new Error(`Failed to load class attendance: ${attendanceError.message}`);
   }
@@ -337,7 +300,6 @@ export default async function ScheduleAttendancePage({
   }
 
   const typedAppointment = relationshipResult.appointment as unknown as AppointmentRow;
-  const typedAttendees = (attendees ?? []) as AppointmentAttendeeRow[];
   const typedAttendance = (attendanceRows ?? []) as AttendanceRow[];
   const typedGroupLessonRecap = (groupLessonRecap ?? null) as GroupLessonRecapRow | null;
 
@@ -347,28 +309,28 @@ export default async function ScheduleAttendancePage({
       .map((row) => [row.client_id as string, row])
   );
 
+  // GC-1.3A: `typedAttendees` is whichever role-scoped DTO the roster
+  // promise above resolved to (staff or instructor shape) -- the instructor
+  // shape has no email/phone, so those are read defensively below rather
+  // than assumed present.
   const roster = typedAttendees
     .map((attendee) => {
-      const client = getClient(attendee.clients);
-      if (!client) return null;
-
-      const attendance = attendanceByClientId.get(attendee.client_id) ?? null;
+      const email = "email" in attendee ? attendee.email : "";
+      const phone = "phone" in attendee ? attendee.phone : "";
+      const attendance = attendanceByClientId.get(attendee.clientId) ?? null;
       const effectiveStatus = attendance?.status ?? "registered";
 
       return {
-        clientId: attendee.client_id,
-        firstName: client.first_name ?? "",
-        lastName: client.last_name ?? "",
-        email: client.email ?? "",
-        phone: client.phone ?? "",
+        clientId: attendee.clientId,
+        firstName: attendee.firstName,
+        lastName: attendee.lastName,
+        email,
+        phone,
         attendance,
         effectiveStatus,
       };
     })
-    .filter(Boolean)
     .filter((item) => {
-      if (!item) return false;
-
       if (statusFilter !== "all" && item.effectiveStatus !== statusFilter) {
         return false;
       }
@@ -384,26 +346,26 @@ export default async function ScheduleAttendancePage({
     });
 
   const registeredCount = typedAttendees.filter((attendee) => {
-    const attendance = attendanceByClientId.get(attendee.client_id);
+    const attendance = attendanceByClientId.get(attendee.clientId);
     return (attendance?.status ?? "registered") === "registered";
   }).length;
 
   const checkedInCount = typedAttendees.filter((attendee) => {
-    const attendance = attendanceByClientId.get(attendee.client_id);
+    const attendance = attendanceByClientId.get(attendee.clientId);
     return (attendance?.status ?? "registered") === "checked_in";
   }).length;
 
   const attendedCount = typedAttendees.filter((attendee) => {
-    const attendance = attendanceByClientId.get(attendee.client_id);
+    const attendance = attendanceByClientId.get(attendee.clientId);
     return (attendance?.status ?? "registered") === "attended";
   }).length;
 
   const noShowCount = typedAttendees.filter((attendee) => {
-    const attendance = attendanceByClientId.get(attendee.client_id);
+    const attendance = attendanceByClientId.get(attendee.clientId);
     return (attendance?.status ?? "registered") === "no_show";
   }).length;
   const eligibleRecapRecipientCount = typedAttendees.filter((attendee) => {
-    const attendance = attendanceByClientId.get(attendee.client_id);
+    const attendance = attendanceByClientId.get(attendee.clientId);
     return ["checked_in", "attended"].includes(attendance?.status ?? "registered");
   }).length;
   const isGroupClass = typedAppointment.appointment_type === "group_class";

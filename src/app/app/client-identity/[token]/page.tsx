@@ -115,6 +115,16 @@ function statusClass(status: string | null | undefined) {
   return "bg-amber-50 text-amber-700";
 }
 
+// GC-1.3A: extracted as a small pure, exported predicate purely so it is
+// directly unit-testable -- behavior is unchanged from the inline
+// expression it replaces. This scanned client's checked-in state must come
+// from their own attendance_records row only, never from the row-level
+// appointments.status (which reflects lesson/class lifecycle, not
+// necessarily THIS client's attendance).
+export function resolveCheckedIn(attendanceStatus: string | null): boolean {
+  return attendanceStatus === "checked_in" || attendanceStatus === "attended";
+}
+
 function attendanceStatusClass(status: string | null | undefined) {
   if (status === "attended") return "bg-emerald-50 text-emerald-700";
   if (status === "checked_in") return "bg-indigo-50 text-indigo-700";
@@ -412,11 +422,7 @@ export default async function ClientIdentityPage({
             appointments.map((appointment) => {
               const attendance = attendanceByAppointmentId.get(appointment.id) ?? null;
               const attendanceStatus = attendance?.status ?? null;
-              const checkedIn =
-                attendanceStatus === "checked_in" ||
-                attendanceStatus === "attended" ||
-                appointment.status === "attended" ||
-                appointment.status === "completed";
+              const checkedIn = resolveCheckedIn(attendanceStatus);
 
               return (
                 <div

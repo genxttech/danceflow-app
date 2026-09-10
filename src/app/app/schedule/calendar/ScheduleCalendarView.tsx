@@ -11,10 +11,10 @@ import {
   ScheduleSummary,
   ScheduleToolbar,
   buildScheduleQuery,
-  clientName,
   getTodayInTimeZone,
   instructorName,
   itemAccent,
+  itemDisplayTitle,
   itemTypeLabel,
   roomName,
   statusDot,
@@ -161,7 +161,7 @@ function TimeGridItem({
       ? item.title || itemTypeLabel(item)
       : isScheduleBlock
         ? item.title || "Blocked time"
-        : clientName(item);
+        : itemDisplayTitle(item);
   const showSupportingDetails =
     item.kind === "appointment" &&
     !isScheduleBlock &&

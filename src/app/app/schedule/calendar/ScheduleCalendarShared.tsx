@@ -135,6 +135,21 @@ export function clientName(item: CalendarItem, short = false) {
   return short ? `${primary} + ${partner.first_name} ${partner.last_name?.[0] ?? ""}.` : `${primary} + ${partner.first_name} ${partner.last_name}`;
 }
 
+// GC-1.3A: a shared group_class appointment has no single client_id, so
+// clientName()'s "Unassigned client" fallback (correct for a genuinely
+// unassigned lesson) is the wrong title for a class -- it should show the
+// class's own title/type label instead, matching the already-correct
+// pattern in the studio dashboard's "Today" feed (src/app/app/page.tsx).
+// clientName() itself is left unchanged (its "Unassigned client" contract
+// may still be the right answer for other callers that specifically want
+// "the client's name, or a client-missing marker").
+export function itemDisplayTitle(item: CalendarItem, short = false) {
+  if (item.kind === "event") return item.title || itemTypeLabel(item);
+  const client = relation(item.clients);
+  if (!client) return item.title || itemTypeLabel(item);
+  return clientName(item, short);
+}
+
 export function instructorName(item: CalendarItem) {
   const instructor = relation(item.instructors);
   return instructor ? `${instructor.first_name} ${instructor.last_name}` : "Unassigned instructor";
@@ -293,7 +308,7 @@ export function ScheduleSummary({ days, groupedAppointments }: Pick<CommonViewPr
 export function CompactCalendarItem({ item, onOpen, studioTimeZone, dense = false }: { item: CalendarItem; onOpen: (appointment: DrawerAppointment) => void; studioTimeZone: string; dense?: boolean }) {
   const accent = itemAccent(item);
   const time = item.is_all_day ? "All day" : formatStudioTime(item.starts_at, studioTimeZone);
-  const title = item.kind === "event" ? item.title || itemTypeLabel(item) : clientName(item, dense);
+  const title = itemDisplayTitle(item, dense);
   const content = <><div className="flex items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(item.status)}`} /><span className="truncate text-[11px] font-semibold">{time} · {itemTypeLabel(item)}</span></div><p className={`mt-1 truncate font-semibold ${dense ? "text-xs" : "text-sm"}`}>{title}</p>{!dense && item.kind === "appointment" ? <p className="mt-1 truncate text-xs opacity-70">{instructorName(item)} · {roomName(item)}</p> : null}</>;
   const className = `block w-full rounded-md border-l-4 p-2 text-left transition hover:brightness-95 ${accent}`;
   if (item.kind === "event") return <Link href={`/app/events/${item.id}`} className={className}>{content}</Link>;
