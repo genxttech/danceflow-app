@@ -119,13 +119,20 @@ export default function AppointmentDetailScreen() {
           return;
         }
 
-        loadLessonCheckinStatus(match.id)
-          .then((status) => {
-            if (mounted) setCheckinStatus(status);
-          })
-          .catch(() => {
-            if (mounted) setCheckinStatus(null);
-          });
+        // GC-1.3B: self-check-in is not yet supported for a shared class
+        // (GC-1.4) -- the check-in route already rejects it (requires a
+        // single appointments.client_id, which a real-roster class never
+        // has), so this call would always fail. Skipped explicitly rather
+        // than relying on that rejection being caught below.
+        if (match.appointmentType !== "group_class") {
+          loadLessonCheckinStatus(match.id)
+            .then((status) => {
+              if (mounted) setCheckinStatus(status);
+            })
+            .catch(() => {
+              if (mounted) setCheckinStatus(null);
+            });
+        }
       })
       .catch(() => {
         if (!mounted) return;
@@ -145,6 +152,10 @@ export default function AppointmentDetailScreen() {
     if (selectedAction === "cancel") return "Cancellation requested";
     return "Manage this lesson";
   }, [selectedAction]);
+  // GC-1.3B: appointment.status is class lifecycle only for a group_class
+  // row -- there is no per-student confirm/check-in concept for a shared
+  // class in this slice.
+  const isGroupClass = appointment?.appointmentType === "group_class";
 
   async function openPortal(actionType?: "reschedule" | "cancel") {
     if (!appointment) return;
@@ -281,9 +292,16 @@ export default function AppointmentDetailScreen() {
               label="Status"
               value={statusLabel(appointment.status)}
             />
+            {appointment.attendanceStatus ? (
+              <DetailRow
+                icon="checkmark-done-outline"
+                label="Your attendance"
+                value={statusLabel(appointment.attendanceStatus)}
+              />
+            ) : null}
           </View>
 
-          {["scheduled", "rescheduled"].includes(appointment.status) ? (
+          {!isGroupClass && ["scheduled", "rescheduled"].includes(appointment.status) ? (
             <View style={styles.confirmationCard}>
               <View style={styles.checkinHeader}>
                 <View style={styles.confirmationIcon}>
@@ -305,7 +323,7 @@ export default function AppointmentDetailScreen() {
                 <AppText style={styles.checkinMessage}>{confirmationMessage}</AppText>
               ) : null}
             </View>
-          ) : appointment.status === "confirmed" ? (
+          ) : !isGroupClass && appointment.status === "confirmed" ? (
             <View style={styles.confirmationCompleteCard}>
               <View style={styles.checkinHeader}>
                 <View style={styles.confirmationCompleteIcon}>

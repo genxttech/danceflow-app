@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 import { confirmPortalAppointmentAction } from "../../actions";
+import { getOwnClassEnrollmentForAppointment } from "@/lib/schedule/groupClassRoster";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -221,6 +222,34 @@ function formatAppointmentType(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+// GC-1.3B: extracted as small pure, exported predicates purely so they are
+// directly unit-testable -- behavior is unchanged from the inline
+// expressions they replace. appointments.status/confirmed_at is class-level
+// lifecycle only for a group_class row -- there is no per-student
+// confirmation concept for a shared class in this slice, and
+// confirmOwnedAppointment itself requires a non-null client_id, which a
+// real-roster class never has -- so this CTA is hidden entirely for a
+// class, on every status. Lesson behavior is unchanged.
+export function canShowConfirmPrompt(params: {
+  appointmentType: string;
+  status: string;
+  startsAtMs: number;
+  nowMs: number;
+}): boolean {
+  return (
+    params.appointmentType !== "group_class" &&
+    ["scheduled", "rescheduled"].includes(params.status) &&
+    params.startsAtMs > params.nowMs
+  );
+}
+
+export function canShowConfirmedBadge(params: {
+  appointmentType: string;
+  status: string;
+}): boolean {
+  return params.appointmentType !== "group_class" && params.status === "confirmed";
+}
+
 function formatStatus(value: string) {
   if (value === "scheduled") return "Scheduled";
   if (value === "confirmed") return "Confirmed";
@@ -324,8 +353,13 @@ export default async function PortalAppointmentDetailPage({
   }
 
   const typedAppointment = appointment as AppointmentRow;
+  // GC-1.3B: a shared group_class row has no single client_id -- this guard
+  // now only applies to a lesson (which always has one), so a class's own,
+  // already-correct enrollment check below gets a chance to run instead of
+  // 404ing before it's ever reached.
+  const isGroupClass = typedAppointment.appointment_type === "group_class";
 
-  if (!typedAppointment.client_id) {
+  if (!isGroupClass && !typedAppointment.client_id) {
     notFound();
   }
 
@@ -354,30 +388,49 @@ export default async function PortalAppointmentDetailPage({
   const typedClient = client as ClientRow;
   const directClientAppointment = typedAppointment.client_id === typedClient.id;
 
-  const [{ data: attendeeRow }, { data: groupRecipientRow }] =
-    typedAppointment.appointment_type === "group_class"
-      ? await Promise.all([
-          supabase
-            .from("appointment_attendees")
-            .select("id")
-            .eq("appointment_id", typedAppointment.id)
-            .eq("client_id", typedClient.id)
-            .maybeSingle(),
-          supabase
-            .from("group_lesson_recap_recipients")
-            .select("id, recap_id")
-            .eq("studio_id", typedStudio.id)
-            .eq("appointment_id", typedAppointment.id)
-            .eq("client_id", typedClient.id)
-            .maybeSingle(),
-        ])
-      : [{ data: null }, { data: null }];
+  // GC-1.3B: own-enrollment eligibility uses GC-1.2's own historical rule
+  // (booked, or cancelled after the class started) via
+  // getOwnClassEnrollmentForAppointment -- a post-start-cancelled student
+  // who legitimately participated keeps access to this class's own past
+  // detail; a pre-start-cancelled or never-enrolled student does not. Both
+  // queries are scoped to typedClient.id only -- never a classmate's row.
+  const [ownClassEnrollment, { data: groupRecipientRow }] = isGroupClass
+    ? await Promise.all([
+        getOwnClassEnrollmentForAppointment({
+          supabase,
+          appointmentId: typedAppointment.id,
+          studioId: typedStudio.id,
+          clientId: typedClient.id,
+        }),
+        supabase
+          .from("group_lesson_recap_recipients")
+          .select("id, recap_id")
+          .eq("studio_id", typedStudio.id)
+          .eq("appointment_id", typedAppointment.id)
+          .eq("client_id", typedClient.id)
+          .maybeSingle(),
+      ])
+    : [null, { data: null }];
 
-  const groupClassAccess = Boolean(attendeeRow || groupRecipientRow);
+  const groupClassAccess = Boolean(ownClassEnrollment?.eligible) || Boolean(groupRecipientRow);
 
   if (!directClientAppointment && !groupClassAccess) {
     notFound();
   }
+
+  // GC-1.3B: this viewer's own attendance state for a class, never a
+  // roster -- appointments.status is class lifecycle only, not this
+  // specific client's attendance.
+  const { data: ownClassAttendanceRow } =
+    isGroupClass && groupClassAccess
+      ? await supabase
+          .from("attendance_records")
+          .select("status, checked_in_at, marked_attended_at")
+          .eq("studio_id", typedStudio.id)
+          .eq("appointment_id", typedAppointment.id)
+          .eq("client_id", typedClient.id)
+          .maybeSingle()
+      : { data: null };
 
   const { data: recapData, error: recapError } = await supabase
     .from("lesson_recaps")
@@ -505,8 +558,19 @@ export default async function PortalAppointmentDetailPage({
         </div>
       </section>
 
-      {["scheduled", "rescheduled"].includes(typedAppointment.status) &&
-      new Date(typedAppointment.starts_at).getTime() > Date.now() ? (
+      {/* GC-1.3B: appointments.status/confirmed_at is class-level lifecycle
+          only for a group_class row -- there is no per-student confirmation
+          concept for a shared class in this slice, and confirmPortalAppointmentAction
+          requires a non-null client_id (would either dead-end for a
+          real-roster class or incorrectly flip the whole class's status for
+          a legacy-shaped one), so this CTA is hidden entirely for a class.
+          Confirm/confirmed behavior for a lesson is unchanged. */}
+      {canShowConfirmPrompt({
+        appointmentType: typedAppointment.appointment_type,
+        status: typedAppointment.status,
+        startsAtMs: new Date(typedAppointment.starts_at).getTime(),
+        nowMs: Date.now(),
+      }) ? (
         <section className="rounded-[28px] border border-cyan-200 bg-cyan-50 p-6 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -537,7 +601,10 @@ export default async function PortalAppointmentDetailPage({
             </form>
           </div>
         </section>
-      ) : typedAppointment.status === "confirmed" ? (
+      ) : canShowConfirmedBadge({
+          appointmentType: typedAppointment.appointment_type,
+          status: typedAppointment.status,
+        }) ? (
         <section className="rounded-[28px] border border-cyan-200 bg-cyan-50 p-6 text-cyan-950 shadow-sm">
           <p className="font-semibold">✓ Appointment confirmed</p>
           <p className="mt-1 text-sm text-cyan-900">
@@ -545,6 +612,29 @@ export default async function PortalAppointmentDetailPage({
               ? `Confirmed ${formatUpdatedAt(typedAppointment.confirmed_at, studioTimeZone)}`
               : "The studio has received your confirmation."}
           </p>
+        </section>
+      ) : null}
+
+      {/* GC-1.3B: this viewer's own class enrollment/attendance state --
+          never a roster, never a classmate's data. Self-check-in remains
+          unavailable for a class in this slice (GC-1.4). */}
+      {isGroupClass && groupClassAccess ? (
+        <section className="rounded-[28px] border border-violet-200 bg-violet-50 p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+            Your enrollment
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-200">
+              {ownClassAttendanceRow
+                ? formatStatus((ownClassAttendanceRow as { status: string }).status)
+                : "Not yet checked in"}
+            </span>
+            {ownClassEnrollment?.paymentStatus ? (
+              <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-200">
+                {formatStatus(ownClassEnrollment.paymentStatus)}
+              </span>
+            ) : null}
+          </div>
         </section>
       ) : null}
 

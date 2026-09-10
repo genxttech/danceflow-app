@@ -3,6 +3,8 @@ import {
   getClassEnrollmentAppointmentsForClient,
   getClassRosterForInstructor,
   getClassRosterForStaff,
+  getOwnClassEnrollmentForAppointment,
+  resolveClassAttendeesForNotification,
 } from "@/lib/schedule/groupClassRoster";
 
 /**
@@ -308,26 +310,45 @@ describe("getClassRosterForStaff / getClassRosterForInstructor", () => {
   });
 });
 
-describe("getClassEnrollmentAppointmentsForClient (staff client-profile class history)", () => {
+// GC-1.3B canonical lifecycle fixtures -- shared reference timestamps so
+// every test in this file means the same thing by "future"/"past class",
+// "pre-start cancel", and "post-start cancel".
+const NOW_ISO = "2026-09-10T12:00:00.000Z";
+const FUTURE_STARTS_AT = "2026-09-20T10:00:00.000Z";
+const FUTURE_ENDS_AT = "2026-09-20T11:00:00.000Z";
+const PAST_STARTS_AT = "2026-09-01T10:00:00.000Z";
+const PAST_ENDS_AT = "2026-09-01T11:00:00.000Z";
+const PRE_START_CANCELLED_AT = "2026-08-25T00:00:00.000Z"; // before either starts_at above
+const POST_START_CANCELLED_AT = "2026-09-01T10:30:00.000Z"; // after PAST_STARTS_AT, before NOW_ISO
+
+describe("getClassEnrollmentAppointmentsForClient (upcoming/recent, staff + portal shared read)", () => {
   const CLIENT_ID = "client-1";
 
-  it("returns a real-roster class enrollment with this client's own attendee billing state", async () => {
-    const supabase = makeFakeSupabase({
+  function attendeeFixture(overrides: {
+    appointmentId: string;
+    status: string;
+    cancelledAt?: string | null;
+    startsAt: string;
+    endsAt: string;
+    title?: string;
+  }) {
+    return {
       appointment_attendees: [
         {
-          appointment_id: "class-1",
+          appointment_id: overrides.appointmentId,
           studio_id: STUDIO_ID,
           client_id: CLIENT_ID,
-          status: "booked",
+          status: overrides.status,
+          cancelled_at: overrides.cancelledAt ?? null,
           billing_type: "package_credit",
           payment_status: "paid",
           appointments: {
-            id: "class-1",
-            title: "Bronze Foxtrot",
+            id: overrides.appointmentId,
+            title: overrides.title ?? "Bronze Foxtrot",
             appointment_type: "group_class",
             status: "scheduled",
-            starts_at: "2026-09-10T10:00:00.000Z",
-            ends_at: "2026-09-10T11:00:00.000Z",
+            starts_at: overrides.startsAt,
+            ends_at: overrides.endsAt,
             price_amount: null,
             instructors: { first_name: "Iris", last_name: "Instructor" },
             rooms: { name: "Studio A" },
@@ -335,33 +356,120 @@ describe("getClassEnrollmentAppointmentsForClient (staff client-profile class hi
         },
       ],
       appointments: [],
-    });
+    };
+  }
+
+  it("booked future enrollment appears in upcoming, not recent", async () => {
+    const supabase = makeFakeSupabase(
+      attendeeFixture({
+        appointmentId: "class-1",
+        status: "booked",
+        startsAt: FUTURE_STARTS_AT,
+        endsAt: FUTURE_ENDS_AT,
+      }),
+    );
 
     const rows = await getClassEnrollmentAppointmentsForClient({
       supabase: supabase as never,
       studioId: STUDIO_ID,
       clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
     });
 
-    expect(rows).toEqual([
-      {
-        id: "class-1",
-        title: "Bronze Foxtrot",
-        appointment_type: "group_class",
-        status: "scheduled",
-        starts_at: "2026-09-10T10:00:00.000Z",
-        ends_at: "2026-09-10T11:00:00.000Z",
-        billing_type: "package_credit",
-        payment_status: "paid",
-        price_amount: null,
-        instructors: { first_name: "Iris", last_name: "Instructor" },
-        rooms: { name: "Studio A" },
-        source: "roster",
-      },
-    ]);
+    expect(rows.upcoming).toHaveLength(1);
+    expect(rows.upcoming[0].id).toBe("class-1");
+    expect(rows.recent).toEqual([]);
   });
 
-  it("a cancelled (not booked) enrollment does not appear", async () => {
+  it("pre-start cancelled enrollment for a future class appears in neither bucket", async () => {
+    const supabase = makeFakeSupabase(
+      attendeeFixture({
+        appointmentId: "class-1",
+        status: "cancelled",
+        cancelledAt: PRE_START_CANCELLED_AT,
+        startsAt: FUTURE_STARTS_AT,
+        endsAt: FUTURE_ENDS_AT,
+      }),
+    );
+
+    const rows = await getClassEnrollmentAppointmentsForClient({
+      supabase: supabase as never,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
+    });
+
+    expect(rows.upcoming).toEqual([]);
+    expect(rows.recent).toEqual([]);
+  });
+
+  it("pre-start cancelled enrollment for a past class does not appear as participated history", async () => {
+    const supabase = makeFakeSupabase(
+      attendeeFixture({
+        appointmentId: "class-1",
+        status: "cancelled",
+        cancelledAt: PRE_START_CANCELLED_AT,
+        startsAt: PAST_STARTS_AT,
+        endsAt: PAST_ENDS_AT,
+      }),
+    );
+
+    const rows = await getClassEnrollmentAppointmentsForClient({
+      supabase: supabase as never,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
+    });
+
+    expect(rows.upcoming).toEqual([]);
+    expect(rows.recent).toEqual([]);
+  });
+
+  it("post-start cancelled enrollment is absent from upcoming, present in recent (GC-1.2 historical eligibility preserved)", async () => {
+    const supabase = makeFakeSupabase(
+      attendeeFixture({
+        appointmentId: "class-1",
+        status: "cancelled",
+        cancelledAt: POST_START_CANCELLED_AT,
+        startsAt: PAST_STARTS_AT,
+        endsAt: PAST_ENDS_AT,
+      }),
+    );
+
+    const rows = await getClassEnrollmentAppointmentsForClient({
+      supabase: supabase as never,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
+    });
+
+    expect(rows.upcoming).toEqual([]);
+    expect(rows.recent).toHaveLength(1);
+    expect(rows.recent[0].id).toBe("class-1");
+  });
+
+  it("booked-but-already-past enrollment appears in recent, not upcoming", async () => {
+    const supabase = makeFakeSupabase(
+      attendeeFixture({
+        appointmentId: "class-1",
+        status: "booked",
+        startsAt: PAST_STARTS_AT,
+        endsAt: PAST_ENDS_AT,
+      }),
+    );
+
+    const rows = await getClassEnrollmentAppointmentsForClient({
+      supabase: supabase as never,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
+    });
+
+    expect(rows.upcoming).toEqual([]);
+    expect(rows.recent).toHaveLength(1);
+  });
+
+  it("rebook edge case: two of this client's own rows both eligible for the same class -- appears exactly once in recent", async () => {
     const supabase = makeFakeSupabase({
       appointment_attendees: [
         {
@@ -369,6 +477,7 @@ describe("getClassEnrollmentAppointmentsForClient (staff client-profile class hi
           studio_id: STUDIO_ID,
           client_id: CLIENT_ID,
           status: "cancelled",
+          cancelled_at: POST_START_CANCELLED_AT,
           billing_type: "package_credit",
           payment_status: "paid",
           appointments: {
@@ -376,8 +485,28 @@ describe("getClassEnrollmentAppointmentsForClient (staff client-profile class hi
             title: "Bronze Foxtrot",
             appointment_type: "group_class",
             status: "scheduled",
-            starts_at: "2026-09-10T10:00:00.000Z",
-            ends_at: "2026-09-10T11:00:00.000Z",
+            starts_at: PAST_STARTS_AT,
+            ends_at: PAST_ENDS_AT,
+            price_amount: null,
+            instructors: null,
+            rooms: null,
+          },
+        },
+        {
+          appointment_id: "class-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          status: "booked",
+          cancelled_at: null,
+          billing_type: "membership",
+          payment_status: "paid",
+          appointments: {
+            id: "class-1",
+            title: "Bronze Foxtrot",
+            appointment_type: "group_class",
+            status: "scheduled",
+            starts_at: PAST_STARTS_AT,
+            ends_at: PAST_ENDS_AT,
             price_amount: null,
             instructors: null,
             rooms: null,
@@ -391,34 +520,18 @@ describe("getClassEnrollmentAppointmentsForClient (staff client-profile class hi
       supabase: supabase as never,
       studioId: STUDIO_ID,
       clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
     });
 
-    expect(rows).toEqual([]);
+    expect(rows.recent).toHaveLength(1);
+    // The 'booked' row is preferred over the 'cancelled' row when both are
+    // eligible for the same appointment_id.
+    expect(rows.recent[0].billing_type).toBe("membership");
   });
 
-  it("includes a legacy-shaped class only when it has zero appointment_attendees rows, and does not duplicate a class already covered by the real roster", async () => {
+  it("legacy-shaped future class appears exactly once, in upcoming", async () => {
     const supabase = makeFakeSupabase({
-      appointment_attendees: [
-        {
-          appointment_id: "class-real",
-          studio_id: STUDIO_ID,
-          client_id: CLIENT_ID,
-          status: "booked",
-          billing_type: "package_credit",
-          payment_status: "paid",
-          appointments: {
-            id: "class-real",
-            title: "Real Class",
-            appointment_type: "group_class",
-            status: "scheduled",
-            starts_at: "2026-09-10T10:00:00.000Z",
-            ends_at: "2026-09-10T11:00:00.000Z",
-            price_amount: null,
-            instructors: null,
-            rooms: null,
-          },
-        },
-      ],
+      appointment_attendees: [],
       appointments: [
         {
           id: "class-legacy",
@@ -427,8 +540,9 @@ describe("getClassEnrollmentAppointmentsForClient (staff client-profile class hi
           appointment_type: "group_class",
           title: "Legacy Class",
           status: "scheduled",
-          starts_at: "2026-09-01T10:00:00.000Z",
-          ends_at: "2026-09-01T11:00:00.000Z",
+          starts_at: FUTURE_STARTS_AT,
+          ends_at: FUTURE_ENDS_AT,
+          cancelled_at: null,
           billing_type: "pay_as_you_go",
           payment_status: "unpaid",
           price_amount: 20,
@@ -442,13 +556,434 @@ describe("getClassEnrollmentAppointmentsForClient (staff client-profile class hi
       supabase: supabase as never,
       studioId: STUDIO_ID,
       clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
     });
 
-    expect(rows).toHaveLength(2);
-    const legacyRow = rows.find((row) => row.id === "class-legacy");
-    expect(legacyRow?.source).toBe("legacy_fallback");
-    expect(legacyRow?.billing_type).toBe("pay_as_you_go");
-    const realRow = rows.find((row) => row.id === "class-real");
-    expect(realRow?.source).toBe("roster");
+    expect(rows.upcoming).toHaveLength(1);
+    expect(rows.upcoming[0].source).toBe("legacy_fallback");
+    expect(rows.recent).toEqual([]);
+  });
+
+  it("legacy-shaped past class, post-start-cancelled at the class level, appears exactly once in recent (legacy historical eligibility)", async () => {
+    const supabase = makeFakeSupabase({
+      appointment_attendees: [],
+      appointments: [
+        {
+          id: "class-legacy",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          appointment_type: "group_class",
+          title: "Legacy Class",
+          status: "cancelled",
+          starts_at: PAST_STARTS_AT,
+          ends_at: PAST_ENDS_AT,
+          cancelled_at: POST_START_CANCELLED_AT,
+          billing_type: "pay_as_you_go",
+          payment_status: "unpaid",
+          price_amount: 20,
+          instructors: null,
+          rooms: null,
+        },
+      ],
+    });
+
+    const rows = await getClassEnrollmentAppointmentsForClient({
+      supabase: supabase as never,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
+    });
+
+    expect(rows.upcoming).toEqual([]);
+    expect(rows.recent).toHaveLength(1);
+    expect(rows.recent[0].source).toBe("legacy_fallback");
+  });
+
+  it("legacy-shaped past class, pre-start-cancelled at the class level, does not appear (legacy has no separate per-attendee cancellation, so class-level pre-start cancellation excludes it)", async () => {
+    const supabase = makeFakeSupabase({
+      appointment_attendees: [],
+      appointments: [
+        {
+          id: "class-legacy",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          appointment_type: "group_class",
+          title: "Legacy Class",
+          status: "cancelled",
+          starts_at: PAST_STARTS_AT,
+          ends_at: PAST_ENDS_AT,
+          cancelled_at: PRE_START_CANCELLED_AT,
+          billing_type: "pay_as_you_go",
+          payment_status: "unpaid",
+          price_amount: 20,
+          instructors: null,
+          rooms: null,
+        },
+      ],
+    });
+
+    const rows = await getClassEnrollmentAppointmentsForClient({
+      supabase: supabase as never,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
+    });
+
+    expect(rows.upcoming).toEqual([]);
+    expect(rows.recent).toEqual([]);
+  });
+
+  it("real-roster class is not double-counted against a legacy candidate for the same appointment_id (GC-1.3A client-history double-count regression)", async () => {
+    const supabase = makeFakeSupabase({
+      appointment_attendees: [
+        {
+          appointment_id: "class-real",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          status: "booked",
+          cancelled_at: null,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          appointments: {
+            id: "class-real",
+            title: "Real Class",
+            appointment_type: "group_class",
+            status: "scheduled",
+            starts_at: PAST_STARTS_AT,
+            ends_at: PAST_ENDS_AT,
+            price_amount: null,
+            instructors: null,
+            rooms: null,
+          },
+        },
+      ],
+      appointments: [
+        {
+          id: "class-real",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          appointment_type: "group_class",
+          title: "Real Class",
+          status: "scheduled",
+          starts_at: PAST_STARTS_AT,
+          ends_at: PAST_ENDS_AT,
+          cancelled_at: null,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          price_amount: null,
+          instructors: null,
+          rooms: null,
+        },
+      ],
+    });
+
+    const rows = await getClassEnrollmentAppointmentsForClient({
+      supabase: supabase as never,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      nowIso: NOW_ISO,
+    });
+
+    // The base appointments row for "class-real" also has client_id
+    // populated (as any legacy-shaped class row would), but since a real
+    // appointment_attendees row already exists for it, the legacy branch's
+    // own zero-attendee-count check excludes it -- exactly one entry, not two.
+    expect(rows.recent).toHaveLength(1);
+    expect(rows.recent[0].source).toBe("roster");
+  });
+});
+
+describe("getOwnClassEnrollmentForAppointment (portal/mobile detail access + own state)", () => {
+  const CLIENT_ID = "client-1";
+  const OTHER_CLIENT_ID = "client-2";
+
+  it("eligible: true for this client's own booked row", async () => {
+    const supabase = makeFakeSupabase({
+      appointments: [
+        { id: APPOINTMENT_ID, studio_id: STUDIO_ID, appointment_type: "group_class", starts_at: PAST_STARTS_AT },
+      ],
+      appointment_attendees: [
+        {
+          appointment_id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          status: "booked",
+          cancelled_at: null,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          client_package_id: "pkg-1",
+          client_membership_id: null,
+        },
+      ],
+    });
+
+    const result = await getOwnClassEnrollmentForAppointment({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+    });
+
+    expect(result?.eligible).toBe(true);
+    expect(result?.source).toBe("roster");
+  });
+
+  it("eligible: true for a post-start-cancelled row on this client's own past class (historical rule)", async () => {
+    const supabase = makeFakeSupabase({
+      appointments: [
+        { id: APPOINTMENT_ID, studio_id: STUDIO_ID, appointment_type: "group_class", starts_at: PAST_STARTS_AT },
+      ],
+      appointment_attendees: [
+        {
+          appointment_id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          status: "cancelled",
+          cancelled_at: POST_START_CANCELLED_AT,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          client_package_id: "pkg-1",
+          client_membership_id: null,
+        },
+      ],
+    });
+
+    const result = await getOwnClassEnrollmentForAppointment({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+    });
+
+    expect(result?.eligible).toBe(true);
+  });
+
+  it("eligible: false for a pre-start-cancelled row (never-eligible participation)", async () => {
+    const supabase = makeFakeSupabase({
+      appointments: [
+        { id: APPOINTMENT_ID, studio_id: STUDIO_ID, appointment_type: "group_class", starts_at: PAST_STARTS_AT },
+      ],
+      appointment_attendees: [
+        {
+          appointment_id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          status: "cancelled",
+          cancelled_at: PRE_START_CANCELLED_AT,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          client_package_id: "pkg-1",
+          client_membership_id: null,
+        },
+      ],
+    });
+
+    const result = await getOwnClassEnrollmentForAppointment({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+    });
+
+    expect(result?.eligible).toBe(false);
+  });
+
+  it("never returns another client's row: a real attendee row exists for a different client, this client has none, and no legacy fallback fires", async () => {
+    const supabase = makeFakeSupabase({
+      appointments: [
+        { id: APPOINTMENT_ID, studio_id: STUDIO_ID, appointment_type: "group_class", starts_at: PAST_STARTS_AT },
+      ],
+      appointment_attendees: [
+        {
+          appointment_id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          client_id: OTHER_CLIENT_ID,
+          status: "booked",
+          cancelled_at: null,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          client_package_id: null,
+          client_membership_id: null,
+        },
+      ],
+    });
+
+    const result = await getOwnClassEnrollmentForAppointment({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("never returns another client's legacy row: the legacy-designated client differs from the requesting client", async () => {
+    const supabase = makeFakeSupabase({
+      appointments: [
+        {
+          id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          appointment_type: "group_class",
+          starts_at: PAST_STARTS_AT,
+          client_id: OTHER_CLIENT_ID,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          client_package_id: null,
+          status: "scheduled",
+          cancelled_at: null,
+          clients: { id: OTHER_CLIENT_ID, first_name: "Other", last_name: "Client", email: "", phone: "" },
+        },
+      ],
+      appointment_attendees: [],
+    });
+
+    const result = await getOwnClassEnrollmentForAppointment({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("legacy fallback: eligible for the correctly-matching designated client, with clientMembershipId always null", async () => {
+    const supabase = makeFakeSupabase({
+      appointments: [
+        {
+          id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          appointment_type: "group_class",
+          starts_at: PAST_STARTS_AT,
+          client_id: CLIENT_ID,
+          billing_type: "membership",
+          payment_status: "paid",
+          client_package_id: null,
+          status: "scheduled",
+          cancelled_at: null,
+          clients: { id: CLIENT_ID, first_name: "Legacy", last_name: "Client", email: "", phone: "" },
+        },
+      ],
+      appointment_attendees: [],
+    });
+
+    const result = await getOwnClassEnrollmentForAppointment({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+    });
+
+    expect(result?.eligible).toBe(true);
+    expect(result?.source).toBe("legacy_fallback");
+    expect(result?.clientMembershipId).toBeNull();
+  });
+});
+
+describe("resolveClassAttendeesForNotification (booked-only, distinct from the historical read rule)", () => {
+  it("returns only booked attendee client ids", async () => {
+    const supabase = makeFakeSupabase({
+      appointment_attendees: [
+        { appointment_id: APPOINTMENT_ID, studio_id: STUDIO_ID, client_id: "client-booked-1", status: "booked" },
+        { appointment_id: APPOINTMENT_ID, studio_id: STUDIO_ID, client_id: "client-booked-2", status: "booked" },
+        { appointment_id: APPOINTMENT_ID, studio_id: STUDIO_ID, client_id: "client-cancelled", status: "cancelled" },
+      ],
+    });
+
+    const clientIds = await resolveClassAttendeesForNotification({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+    });
+
+    expect(clientIds.sort()).toEqual(["client-booked-1", "client-booked-2"]);
+  });
+
+  it("excludes both pre-start and post-start cancelled attendees -- booked-only, not the historical read rule", async () => {
+    const supabase = makeFakeSupabase({
+      appointment_attendees: [
+        {
+          appointment_id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          client_id: "client-pre-start-cancelled",
+          status: "cancelled",
+          cancelled_at: PRE_START_CANCELLED_AT,
+        },
+        {
+          appointment_id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          client_id: "client-post-start-cancelled",
+          status: "cancelled",
+          cancelled_at: POST_START_CANCELLED_AT,
+        },
+      ],
+    });
+
+    const clientIds = await resolveClassAttendeesForNotification({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+    });
+
+    expect(clientIds).toEqual([]);
+  });
+
+  it("legacy fallback: a non-cancelled legacy class notifies its one designated client", async () => {
+    const supabase = makeFakeSupabase({
+      appointment_attendees: [],
+      appointments: [
+        {
+          id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          appointment_type: "group_class",
+          client_id: "client-legacy",
+          status: "scheduled",
+          starts_at: PAST_STARTS_AT,
+          cancelled_at: null,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          client_package_id: null,
+          clients: { id: "client-legacy", first_name: "Legacy", last_name: "Client", email: "", phone: "" },
+        },
+      ],
+    });
+
+    const clientIds = await resolveClassAttendeesForNotification({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+    });
+
+    expect(clientIds).toEqual(["client-legacy"]);
+  });
+
+  it("legacy fallback: a cancelled legacy class notifies nobody", async () => {
+    const supabase = makeFakeSupabase({
+      appointment_attendees: [],
+      appointments: [
+        {
+          id: APPOINTMENT_ID,
+          studio_id: STUDIO_ID,
+          appointment_type: "group_class",
+          client_id: "client-legacy",
+          status: "cancelled",
+          starts_at: PAST_STARTS_AT,
+          cancelled_at: POST_START_CANCELLED_AT,
+          billing_type: "package_credit",
+          payment_status: "paid",
+          client_package_id: null,
+          clients: { id: "client-legacy", first_name: "Legacy", last_name: "Client", email: "", phone: "" },
+        },
+      ],
+    });
+
+    const clientIds = await resolveClassAttendeesForNotification({
+      supabase: supabase as never,
+      appointmentId: APPOINTMENT_ID,
+      studioId: STUDIO_ID,
+    });
+
+    expect(clientIds).toEqual([]);
   });
 });
