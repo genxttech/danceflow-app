@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getClassEnrollmentAppointmentsForClient } from "@/lib/schedule/groupClassRoster";
 import {
   getItemWarningLevel,
   getUnsuppressedWarningUsageTypes,
@@ -841,7 +842,13 @@ export default async function PortalHomePage({
       )
       .eq("studio_id", typedStudio.id)
       .eq("client_id", typedClient.id)
-      .in("appointment_type", ["private_lesson", "intro_lesson", "group_class"])
+      // GC-1.3B: group_class is sourced exclusively from
+      // getClassEnrollmentAppointmentsForClient below, which correctly
+      // applies GC-1.2's booked/post-start-cancelled eligibility rule and
+      // covers the legacy fallback -- excluded here to avoid double-
+      // counting a legacy-shaped class (client_id populated) that this
+      // query would otherwise also match.
+      .in("appointment_type", ["private_lesson", "intro_lesson"])
       .order("starts_at", { ascending: false })
       .limit(20),
 
@@ -1088,13 +1095,37 @@ export default async function PortalHomePage({
     typedLessonRecaps = (lessonRecaps ?? []) as LessonRecapRow[];
   }
 
-  const upcomingAppointments = typedAppointments
-    .filter((item) => item.starts_at >= nowIso)
+  // GC-1.3B: group_class is excluded from the base appointments query above
+  // (see its .in(...) filter) and sourced exclusively here -- this helper
+  // already applies GC-1.2's booked/post-start-cancelled eligibility rule
+  // and covers the legacy fallback, scoped to this one client's own
+  // enrollment only (never a classmate's).
+  const classEnrollments = await getClassEnrollmentAppointmentsForClient({
+    supabase,
+    studioId: typedStudio.id,
+    clientId: typedClient.id,
+    nowIso,
+  });
+  const classToSummaryRow = (row: (typeof classEnrollments.upcoming)[number]): AppointmentSummaryRow => ({
+    id: row.id,
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    status: row.status,
+    appointment_type: row.appointment_type,
+    title: row.title,
+  });
+
+  const upcomingAppointments = [
+    ...typedAppointments.filter((item) => item.starts_at >= nowIso),
+    ...classEnrollments.upcoming.map(classToSummaryRow),
+  ]
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
     .slice(0, 5);
 
-  const recentAppointments = typedAppointments
-    .filter((item) => item.starts_at < nowIso)
+  const recentAppointments = [
+    ...typedAppointments.filter((item) => item.starts_at < nowIso),
+    ...classEnrollments.recent.map(classToSummaryRow),
+  ]
     .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
     .slice(0, 5);
 

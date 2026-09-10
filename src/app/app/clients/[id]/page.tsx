@@ -2226,6 +2226,13 @@ export default async function ClientDetailPage({
       `)
       .eq("studio_id", studioId)
       .eq("client_id", id)
+      // GC-1.3B: group_class rows are excluded here and sourced exclusively
+      // from getClassEnrollmentAppointmentsForClient below -- this base
+      // query previously had no type filter, so a legacy-shaped class
+      // (client_id populated) was fetched here AND again by that helper's
+      // own legacy branch, double-counting it. See that helper's call site
+      // below for the corrected single source of class rows.
+      .neq("appointment_type", "group_class")
       .gte("starts_at", nowIso)
       .order("starts_at", { ascending: true })
       .limit(12),
@@ -2247,6 +2254,7 @@ export default async function ClientDetailPage({
       `)
       .eq("studio_id", studioId)
       .eq("client_id", id)
+      .neq("appointment_type", "group_class")
       .lt("starts_at", nowIso)
       .order("starts_at", { ascending: false })
       .limit(12),
@@ -2664,30 +2672,35 @@ export default async function ClientDetailPage({
   const clientQrUrl = clientQrImageUrl(typedStudio.slug, typedClient.id);
   const typedInstructors = (instructors ?? []) as InstructorOption[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
-  // GC-1.3A: a client enrolled in a group class via appointment_attendees
+  // GC-1.3A/B: a client enrolled in a group class via appointment_attendees
   // (rather than the legacy singular appointments.client_id) never appeared
   // in the two queries above at all -- their class history was invisible on
-  // their own staff profile, not merely mis-displayed. Merged in here so the
-  // page's existing rendering (already type/title-label safe, no client-name
-  // assumption) needs no further changes.
+  // their own staff profile, not merely mis-displayed. The base queries
+  // above now exclude group_class entirely (see their .neq(...) additions),
+  // so this helper is the sole source of class rows -- no dedupe needed,
+  // the two sets are disjoint by appointment_type. Its {upcoming, recent}
+  // split already applies GC-1.2's own booked/post-start-cancelled
+  // eligibility rule, so a client's legitimate historical class attendance
+  // is preserved even after their enrollment is later cancelled.
   const classEnrollmentAppointments = await getClassEnrollmentAppointmentsForClient({
     supabase,
     studioId,
     clientId: id,
+    nowIso,
   });
   const typedUpcoming = [
     ...((upcomingAppointments ?? []) as AppointmentRow[]),
-    ...classEnrollmentAppointments
-      .filter((appointment) => appointment.starts_at >= nowIso)
-      .map((appointment) => appointment as unknown as AppointmentRow),
+    ...classEnrollmentAppointments.upcoming.map(
+      (appointment) => appointment as unknown as AppointmentRow,
+    ),
   ]
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
     .slice(0, 12);
   const typedRecent = [
     ...((recentAppointments ?? []) as AppointmentRow[]),
-    ...classEnrollmentAppointments
-      .filter((appointment) => appointment.starts_at < nowIso)
-      .map((appointment) => appointment as unknown as AppointmentRow),
+    ...classEnrollmentAppointments.recent.map(
+      (appointment) => appointment as unknown as AppointmentRow,
+    ),
   ]
     .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
     .slice(0, 12);

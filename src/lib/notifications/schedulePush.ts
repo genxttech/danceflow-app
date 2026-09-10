@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
+import { resolveClassAttendeesForNotification } from "@/lib/schedule/groupClassRoster";
 
 type SchedulePushReason = "confirmed" | "rescheduled" | "cancelled";
 
@@ -161,7 +162,7 @@ async function sendToPortalUsers(params: {
   appointmentId: string;
   studioId: string;
   reason: SchedulePushReason;
-  recipientRole: "primary" | "partner";
+  recipientRole: "primary" | "partner" | "class_attendee";
 }) {
   const userIds = Array.from(
     new Set(params.userIds.map((userId) => userId.trim()).filter(Boolean)),
@@ -275,6 +276,43 @@ export async function sendAppointmentSchedulePush(params: {
 
   const timeZone = await getStudioTimeZone(supabase, studioId);
   const message = buildSchedulePushMessage({ row, reason, timeZone });
+
+  // GC-1.3B: a shared group_class row has no single client_id -- resolve
+  // every currently-booked attendee, accumulate all of their linked user
+  // ids into ONE Set before sending, so one account (a guardian linked to
+  // more than one attendee in this same class, or linked to a client
+  // through more than one account link) receives at most one push for this
+  // class event. Booked-only, deliberately not the historical rule used
+  // elsewhere: a schedule notification is about an active, upcoming event,
+  // and a student no longer currently enrolled -- cancelled before or
+  // after the class started -- should not receive a future-facing push
+  // about it. No roster content is included in the payload; each send is
+  // still the existing single-class-level message, per recipient.
+  if (row.appointment_type === "group_class") {
+    const attendeeClientIds = await resolveClassAttendeesForNotification({
+      supabase,
+      appointmentId: row.id,
+      studioId,
+    });
+
+    const allUserIds = new Set<string>();
+    for (const clientId of attendeeClientIds) {
+      const userIds = await linkedScheduleUserIds({ supabase, studioId, clientId });
+      userIds.forEach((userId) => allUserIds.add(userId));
+    }
+
+    await sendToPortalUsers({
+      userIds: Array.from(allUserIds),
+      title: message.title,
+      body: message.body,
+      appointmentId: row.id,
+      studioId,
+      reason,
+      recipientRole: "class_attendee",
+    });
+
+    return;
+  }
 
   const primaryUserIds = await linkedScheduleUserIds({
     supabase,

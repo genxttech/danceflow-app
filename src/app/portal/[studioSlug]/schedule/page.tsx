@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import AppointmentSelfServiceActions from "./AppointmentSelfServiceActions";
 import SelfServiceBookingPanel from "./SelfServiceBookingPanel";
 import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
+import { getClassEnrollmentAppointmentsForClient } from "@/lib/schedule/groupClassRoster";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -408,6 +409,12 @@ function ScheduleCard({
   studioTimeZone: string;
 }) {
   const isRental = item.appointment_type === "floor_space_rental";
+  // GC-1.3B: a shared group_class row has no single client -- item.clients
+  // is always null for one (real-roster rows have no client_id at all;
+  // legacy-shaped rows are intentionally not joined to clients here since
+  // that would show the class's one legacy-designated client, not this
+  // viewer). Show the class title/type instead of "Client: No client".
+  const isGroupClass = item.appointment_type === "group_class";
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -439,7 +446,7 @@ function ScheduleCard({
           </p>
 
           <div className="mt-2 space-y-1 text-sm text-slate-500">
-            <p>Client: {getClientName(item.clients)}</p>
+            {!isGroupClass ? <p>Client: {getClientName(item.clients)}</p> : null}
             <p>Room: {getRoomName(item.rooms)}</p>
           </div>
 
@@ -467,7 +474,11 @@ function ScheduleCard({
             </div>
           ) : null}
 
-          {!isRental ? (
+          {/* GC-1.3B: self-service reschedule/cancel is a single-client
+              write path not yet designed for a shared class row -- hidden
+              for group_class, same principle as the Confirm CTA on the
+              detail page. */}
+          {!isRental && !isGroupClass ? (
             <AppointmentSelfServiceActions
               studioSlug={studioSlug}
               appointmentId={item.id}
@@ -517,6 +528,12 @@ async function loadAppointments(params: {
       rooms:rooms!room_id(name)
     `)
     .eq("studio_id", studioId)
+    // GC-1.3B: group_class is excluded here and sourced exclusively from
+    // getClassEnrollmentAppointmentsForClient below -- this base query
+    // previously had no type filter, so a legacy-shaped class (client_id
+    // populated) was already fetched here, and would double-count against
+    // that helper's own legacy branch.
+    .neq("appointment_type", "group_class")
     .order("starts_at", { ascending: true });
 
   if (client.is_independent_instructor && client.linked_instructor_id) {
@@ -536,6 +553,35 @@ async function loadAppointments(params: {
   const dedupedMap = new Map<string, CalendarRow>();
   for (const row of (data ?? []) as CalendarRow[]) {
     dedupedMap.set(row.id, row);
+  }
+
+  // GC-1.3B: class rows scoped to this client's own enrollment only (never
+  // a classmate's), covering both real-roster and legacy-fallback shapes.
+  // Both buckets are concatenated here -- eligibility (booked, or
+  // post-start-cancelled for history) is already correctly applied by the
+  // helper; which visual bucket a row lands in is this page's own concern
+  // (it splits by ends_at, not starts_at, further down), so the split
+  // itself is not reused here, only the combined eligible set.
+  const classEnrollments = await getClassEnrollmentAppointmentsForClient({
+    supabase,
+    studioId,
+    clientId: client.id,
+    nowIso: new Date().toISOString(),
+  });
+  for (const row of [...classEnrollments.upcoming, ...classEnrollments.recent]) {
+    dedupedMap.set(row.id, {
+      id: row.id,
+      title: row.title,
+      starts_at: row.starts_at,
+      ends_at: row.ends_at,
+      status: row.status,
+      appointment_type: row.appointment_type,
+      client_id: null,
+      instructor_id: null,
+      room_id: null,
+      clients: null,
+      rooms: row.rooms,
+    });
   }
 
   return Array.from(dedupedMap.values()).sort((a, b) =>
