@@ -11,7 +11,6 @@ const LESSON_TYPES = new Set([
   "private_lesson",
   "coaching",
   "practice_party",
-  "group_class",
 ]);
 
 const BLACKOUT_SOURCES = new Set([

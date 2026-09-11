@@ -119,20 +119,15 @@ export default function AppointmentDetailScreen() {
           return;
         }
 
-        // GC-1.3B: self-check-in is not yet supported for a shared class
-        // (GC-1.4) -- the check-in route already rejects it (requires a
-        // single appointments.client_id, which a real-roster class never
-        // has), so this call would always fail. Skipped explicitly rather
-        // than relying on that rejection being caught below.
-        if (match.appointmentType !== "group_class") {
-          loadLessonCheckinStatus(match.id)
-            .then((status) => {
-              if (mounted) setCheckinStatus(status);
-            })
-            .catch(() => {
-              if (mounted) setCheckinStatus(null);
-            });
-        }
+        // GC-1.4A: class self-check-in is now real -- always load status,
+        // passing clientId (required for a class, ignored for a lesson).
+        loadLessonCheckinStatus(match.id, match.clientId)
+          .then((status) => {
+            if (mounted) setCheckinStatus(status);
+          })
+          .catch(() => {
+            if (mounted) setCheckinStatus(null);
+          });
       })
       .catch(() => {
         if (!mounted) return;
@@ -201,7 +196,7 @@ export default function AppointmentDetailScreen() {
     setCheckinMessage(null);
 
     try {
-      const status = await checkInForLesson(appointment.id);
+      const status = await checkInForLesson(appointment.id, appointment.clientId);
       setCheckinStatus(status);
       setCheckinMessage(
         status.instructorNotified
@@ -339,7 +334,7 @@ export default function AppointmentDetailScreen() {
             </View>
           ) : null}
 
-          {checkinStatus ? (
+          {checkinStatus && checkinStatus.eligible !== false ? (
             <View
               style={[
                 styles.checkinCard,
@@ -367,7 +362,9 @@ export default function AppointmentDetailScreen() {
                   <AppText style={styles.checkinTitle}>
                     {checkinStatus.checkedIn
                       ? "You are checked in"
-                      : "Lesson check-in"}
+                      : isGroupClass
+                        ? "Class check-in"
+                        : "Lesson check-in"}
                   </AppText>
                   <AppText style={styles.checkinDetail}>
                     {checkinStatus.checkedIn
@@ -379,7 +376,7 @@ export default function AppointmentDetailScreen() {
                         })}`
                       : checkinStatus.canCheckIn
                         ? "Let your instructor know you have arrived."
-                        : "Check-in becomes available shortly before your lesson."}
+                        : `Check-in becomes available shortly before your ${isGroupClass ? "class" : "lesson"}.`}
                   </AppText>
                 </View>
               </View>

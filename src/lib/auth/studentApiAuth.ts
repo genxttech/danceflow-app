@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -76,6 +77,43 @@ export async function getStudentApiUser(request: Request) {
   }
 
   return user;
+}
+
+// GC-1.4A: some student API routes need to invoke a SECURITY DEFINER RPC
+// whose authorization contract depends on auth.uid() resolving to the real
+// caller (e.g. check_in_own_class_attendance) -- createAdminClient() cannot
+// be used for that call, since a service-role connection carries no
+// per-request user identity and auth.uid() would resolve to null inside
+// the function. This builds a fresh, lightweight client that carries
+// exactly this request's own bearer token (for mobile, bearer-token
+// callers) or falls back to the existing cookie/session-scoped client
+// (for the rare cookie-authenticated caller) -- never the admin client.
+// Every other read/write in these routes keeps using createAdminClient()
+// exactly as before; this helper exists only for that one class of call.
+export async function createStudentApiUserScopedClient(request: Request) {
+  const bearerToken = extractStudentBearerToken(request);
+
+  if (bearerToken) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL.");
+    if (!anonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+
+    return createSupabaseJsClient(url, anonKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${bearerToken}`,
+        },
+      },
+    });
+  }
+
+  return createClient();
 }
 
 export async function requireStudentApiUser(request: Request) {
