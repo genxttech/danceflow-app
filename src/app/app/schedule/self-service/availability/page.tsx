@@ -70,7 +70,6 @@ const LESSON_TYPES = [
   ["private_lesson", "Private Lesson"],
   ["coaching", "Coaching"],
   ["practice_party", "Practice Party"],
-  ["group_class", "Group Class"],
 ];
 
 const BLACKOUT_SOURCES = [

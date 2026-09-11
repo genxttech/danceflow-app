@@ -30,7 +30,7 @@ type Props = {
   lumiAvailable: boolean;
 };
 
-const lessonTypes = [["private_lesson", "Private lessons"], ["coaching", "Coachings"], ["practice_party", "Practice parties"], ["group_class", "Group classes"]];
+const lessonTypes = [["private_lesson", "Private lessons"], ["coaching", "Coachings"], ["practice_party", "Practice parties"]];
 const selfServiceModes = [["disabled", "Disabled"], ["request_only", "Request only"], ["approval_required", "Approval required"], ["instant", "Instant"]];
 const slotIntervals = [5, 10, 15, 20, 30, 45, 60];
 const lessonDurations = [30, 45, 60, 75, 90, 120];

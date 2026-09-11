@@ -11,7 +11,7 @@ import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
 import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
 import { validateMembershipEntitlement } from "@/lib/memberships/entitlements";
 import { validateClientPackageForBooking } from "@/lib/packages/entitlement";
-import { sendAppointmentSchedulePush } from "@/lib/notifications/schedulePush";
+import { sendAppointmentSchedulePush, sendGroupClassCancellationPush } from "@/lib/notifications/schedulePush";
 import {
   requireAppointmentCreateAccess,
   requireAppointmentDeleteAccess,
@@ -1379,13 +1379,83 @@ export async function createAppointmentAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const { supabase, studioId, user, studioRole } =
+    const { supabase, studioId, user, studioRole, isPlatformAdmin } =
       await requireFloorRentalAppointmentAccess();
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
+    const appointmentType = getString(formData, "appointmentType");
+
+    // GC-1.4A: "Create Class" is a genuinely separate operation from
+    // booking a lesson -- it has no client field at all (client_id stays
+    // null on every canonical group_class row; enrollment is entirely
+    // enroll_class_attendee's job, never this action's). Branches here,
+    // before the clientId-required check below, since that check does not
+    // apply to a class. Broad staff only -- deliberately does NOT reuse
+    // canCreateAppointments (which includes generic `instructor`): that
+    // permission was designed for an instructor creating their own private
+    // lesson, and no existing workflow proves instructor-initiated CLASS
+    // creation was ever intended.
+    if (appointmentType === "group_class") {
+      const isBroadStaff =
+        isPlatformAdmin ||
+        ["studio_owner", "studio_admin", "front_desk"].includes(studioRole ?? "");
+
+      if (!isBroadStaff) {
+        return {
+          error: "Only an owner, admin, or front desk can create a group class.",
+        };
+      }
+
+      const title = getString(formData, "title");
+      const classInstructorId = getNullableString(formData, "instructorId");
+      const classRoomId = getNullableString(formData, "roomId");
+      const startsAt =
+        toIsoFromLocalDateTime(getString(formData, "startsAt"), studioTimeZone) ??
+        toIsoDateTime(
+          getString(formData, "date"),
+          getString(formData, "startTime"),
+          studioTimeZone,
+        );
+      const endsAt =
+        toIsoFromLocalDateTime(getString(formData, "endsAt"), studioTimeZone) ??
+        toIsoDateTime(
+          getString(formData, "date"),
+          getString(formData, "endTime"),
+          studioTimeZone,
+        );
+
+      if (!startsAt || !endsAt) {
+        return { error: "Date, start time, and end time are required." };
+      }
+
+      if (new Date(endsAt) <= new Date(startsAt)) {
+        return { error: "The class must end after it starts." };
+      }
+
+      const { data: newAppointmentId, error: rpcError } = await supabase.rpc(
+        "create_group_class_appointment",
+        {
+          p_studio_id: studioId,
+          p_instructor_id: classInstructorId,
+          p_room_id: classRoomId,
+          p_title: title || null,
+          p_starts_at: startsAt,
+          p_ends_at: endsAt,
+        },
+      );
+
+      if (rpcError || !newAppointmentId) {
+        return {
+          error: `Could not create the class: ${rpcError?.message ?? "Unknown error."}`,
+        };
+      }
+
+      revalidatePath("/app/schedule");
+      redirect(`/app/schedule/${newAppointmentId}`);
+    }
+
     const clientId = getString(formData, "clientId");
     const partnerClientId = getNullableString(formData, "partnerClientId");
-    const appointmentType = getString(formData, "appointmentType");
     const title = getString(formData, "title");
     const notes = getString(formData, "notes");
     const locationName = getNullableString(formData, "locationName");
@@ -1818,9 +1888,121 @@ export async function updateAppointmentAction(
     const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
+    const appointmentType = getString(formData, "appointmentType");
+
+    if (!appointmentId) {
+      return { error: "Missing required appointment fields." };
+    }
+
+    // GC-1.4A: class-level-field-only edit branch + lesson<->class
+    // type-transition guard. A canonical group_class row has no
+    // client/package/membership/billing at the appointment level at all
+    // (client_id/partner_client_id/client_package_id/client_membership_id/
+    // price_amount are enforced null by the DB trigger) -- authorized
+    // staff may edit only genuinely class-level fields (instructor/room/
+    // title/notes/location/time), never client/package/membership/billing.
+    // The DB trigger (enforce_group_class_canonical_shape) already blocks
+    // any type flip to/from group_class unconditionally at the database
+    // level regardless of what this action does -- this app-layer check
+    // exists to fail with a friendly message before ever reaching that raw
+    // DB exception, not as the only line of defense.
+    //
+    // Resolved via requireAppointmentRelationshipAccess (not a plain
+    // .from("appointments") read) so a denied caller never touches
+    // `appointments` at all from this action's own code, matching this
+    // file's existing security posture (see
+    // appointmentRelationshipScoping.fc1b5d2.test.ts) -- authorization is
+    // always resolved before any appointment data is read, not after.
+    const earlyRelationshipResult = await requireAppointmentRelationshipAccess<{
+      id: string;
+      studio_id: string;
+      client_id: string | null;
+      instructor_id: string | null;
+      appointment_type: string;
+    }>({
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+      userId: user.id,
+      appointmentId,
+      select: "id, studio_id, client_id, instructor_id, appointment_type",
+    });
+
+    if (!earlyRelationshipResult.ok) {
+      return { error: earlyRelationshipResult.reason };
+    }
+
+    const existingIsGroupClass = earlyRelationshipResult.appointment.appointment_type === "group_class";
+    const submittedIsGroupClass = appointmentType === "group_class";
+
+    if (existingIsGroupClass !== submittedIsGroupClass) {
+      return {
+        error: existingIsGroupClass
+          ? "A group class cannot be changed to another appointment type. Cancel it and create a new appointment instead."
+          : "This appointment cannot be changed into a group class. Use Create Class instead.",
+      };
+    }
+
+    if (existingIsGroupClass) {
+      if (earlyRelationshipResult.scope === "own-floor-rental") {
+        return { error: "You do not have permission to edit this class." };
+      }
+
+      const classTitle = getString(formData, "title");
+      const classNotes = getString(formData, "notes");
+      const classLocationName = getNullableString(formData, "locationName");
+      const classInstructorId = getNullableString(formData, "instructorId");
+      const classRoomId = getNullableString(formData, "roomId");
+      const classStartsAt =
+        toIsoFromLocalDateTime(getString(formData, "startsAt"), studioTimeZone) ??
+        toIsoDateTime(
+          getString(formData, "date"),
+          getString(formData, "startTime"),
+          studioTimeZone,
+        );
+      const classEndsAt =
+        toIsoFromLocalDateTime(getString(formData, "endsAt"), studioTimeZone) ??
+        toIsoDateTime(
+          getString(formData, "date"),
+          getString(formData, "endTime"),
+          studioTimeZone,
+        );
+
+      if (!classStartsAt || !classEndsAt) {
+        return { error: "Date, start time, and end time are required." };
+      }
+
+      if (new Date(classEndsAt) <= new Date(classStartsAt)) {
+        return { error: "The class must end after it starts." };
+      }
+
+      const { error: classUpdateError } = await supabase
+        .from("appointments")
+        .update({
+          title: classTitle,
+          notes: classNotes || null,
+          location_name: classLocationName,
+          instructor_id: classInstructorId,
+          room_id: classRoomId,
+          starts_at: classStartsAt,
+          ends_at: classEndsAt,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", appointmentId)
+        .eq("studio_id", studioId);
+
+      if (classUpdateError) {
+        return { error: `Could not update the class: ${classUpdateError.message}` };
+      }
+
+      revalidatePath("/app/schedule");
+      revalidatePath(`/app/schedule/${appointmentId}`);
+      redirect(`/app/schedule/${appointmentId}`);
+    }
+
     const clientId = getString(formData, "clientId");
     const partnerClientId = getNullableString(formData, "partnerClientId");
-    const appointmentType = getString(formData, "appointmentType");
     const title = getString(formData, "title");
     const notes = getString(formData, "notes");
     const locationName = getNullableString(formData, "locationName");
@@ -1845,7 +2027,7 @@ export async function updateAppointmentAction(
     const paymentStatus = getNullableString(formData, "paymentStatus");
     const overrideRoomConflict = getBoolean(formData, "overrideRoomConflict");
 
-    if (!appointmentId || !clientId || !appointmentType) {
+    if (!clientId || !appointmentType) {
       return { error: "Missing required appointment fields." };
     }
 
@@ -2258,6 +2440,22 @@ export async function deleteAppointmentAction(formData: FormData) {
           .eq("studio_id", studioId)
           .eq("appointment_id", appointmentId),
       },
+      {
+        // GC-1.4A: appointment_attendees.appointment_id has no ON DELETE
+        // CASCADE/SET NULL, so the database already refuses to hard-delete
+        // a class with any roster history (default FK behavior, confirmed
+        // live against the schema) -- this check exists purely so that
+        // refusal surfaces as the same friendly "history exists" message
+        // every other blocking check gives, instead of a raw FK-violation
+        // error.
+        table: "appointment_attendees",
+        label: "class roster history",
+        query: supabase
+          .from("appointment_attendees")
+          .select("id", { count: "exact", head: true })
+          .eq("studio_id", studioId)
+          .eq("appointment_id", appointmentId),
+      },
     ];
 
     for (const check of blockingChecks) {
@@ -2322,6 +2520,244 @@ export async function deleteAppointmentAction(formData: FormData) {
   }
 }
 
+
+// ============================================================================
+// GC-1.4A: shared group-class enrollment/cancellation actions. Each is a
+// thin wrapper around its corresponding SECURITY DEFINER RPC
+// (20260910100000_gc1_4_group_class_enrollment_write_rpcs.sql) -- the app
+// layer here only resolves a cookie/session-scoped client (never
+// createAdminClient(), since every one of these RPCs' authorization
+// contract depends on auth.uid() resolving to the real caller) and a
+// permissive role gate (canEditAppointments -- lets an assigned instructor
+// through at the app layer); the RPC's own embedded broad-or-own-
+// instructor check is the real, fine-grained authority.
+// ============================================================================
+
+export async function enrollClassAttendeeAction(formData: FormData) {
+  const fallback = "/app/schedule";
+
+  try {
+    const { supabase } = await requireAppointmentEditAccess();
+
+    const appointmentId = getString(formData, "appointmentId");
+    const clientId = getString(formData, "clientId");
+    const billingType = getNullableString(formData, "billingType");
+    const clientPackageId = getNullableString(formData, "clientPackageId");
+    const clientMembershipId = getNullableString(formData, "clientMembershipId");
+
+    if (!appointmentId || !clientId) {
+      redirect(getErrorRedirect(formData, fallback, "missing_enrollment_target"));
+    }
+
+    const { error } = await supabase.rpc("enroll_class_attendee", {
+      p_appointment_id: appointmentId,
+      p_client_id: clientId,
+      p_billing_type: billingType,
+      p_client_package_id: clientPackageId,
+      p_client_membership_id: clientMembershipId,
+    });
+
+    if (error) {
+      console.error("Could not enroll class attendee:", error.message);
+      redirect(
+        getErrorRedirect(formData, `/app/schedule/${appointmentId}`, "enrollment_failed"),
+      );
+    }
+
+    revalidatePath("/app/schedule");
+    revalidatePath(`/app/schedule/${appointmentId}`);
+    redirect(
+      getSuccessRedirect(formData, `/app/schedule/${appointmentId}`, "student_enrolled"),
+    );
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "enrollment_failed"));
+  }
+}
+
+export async function cancelClassAttendeeAction(formData: FormData) {
+  const fallback = "/app/schedule";
+
+  try {
+    const { supabase } = await requireAppointmentEditAccess();
+
+    const appointmentId = getString(formData, "appointmentId");
+    const attendeeId = getString(formData, "attendeeId");
+    const returnTo = getString(formData, "returnTo") || `/app/schedule/${appointmentId}`;
+
+    if (!attendeeId) {
+      redirect(getErrorRedirect(formData, fallback, "missing_attendee"));
+    }
+
+    const { error } = await supabase.rpc("cancel_class_attendee", {
+      p_attendee_id: attendeeId,
+    });
+
+    if (error) {
+      console.error("Could not cancel class attendee:", error.message);
+      redirect(getErrorRedirect(formData, returnTo, "attendee_cancel_failed"));
+    }
+
+    revalidatePath("/app/schedule");
+    if (appointmentId) revalidatePath(`/app/schedule/${appointmentId}`);
+    redirect(getSuccessRedirect(formData, returnTo, "attendee_cancelled"));
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "attendee_cancel_failed"));
+  }
+}
+
+export async function cancelGroupClassAppointmentAction(formData: FormData) {
+  const fallback = "/app/schedule";
+
+  try {
+    const { supabase, studioId } = await requireAppointmentEditAccess();
+
+    const appointmentId = getString(formData, "appointmentId");
+
+    if (!appointmentId) {
+      redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
+    }
+
+    const { data: affectedClientIds, error } = await supabase.rpc(
+      "cancel_group_class_appointment",
+      { p_appointment_id: appointmentId },
+    );
+
+    if (error) {
+      console.error("Could not cancel class:", error.message);
+      redirect(
+        getErrorRedirect(formData, `/app/schedule/${appointmentId}`, "class_cancel_failed"),
+      );
+    }
+
+    // GC-1.4A: notification uses exactly the client ids the RPC captured
+    // BEFORE cancelling anything -- never re-queried after commit, which
+    // would find nobody (every attendee is cancelled by then). Sent only
+    // after the cancellation has already committed successfully; a push
+    // failure here must not undo the cancellation, only be logged.
+    try {
+      await sendGroupClassCancellationPush({
+        supabase,
+        studioId,
+        appointmentId,
+        affectedClientIds: (affectedClientIds ?? []) as string[],
+      });
+    } catch (pushError) {
+      console.error("Class was cancelled, but notifying attendees failed:", pushError);
+    }
+
+    revalidatePath("/app/schedule");
+    revalidatePath(`/app/schedule/${appointmentId}`);
+    redirect(getSuccessRedirect(formData, "/app/schedule", "class_cancelled"));
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "class_cancel_failed"));
+  }
+}
+
+// GC-1.4A: pay-as-you-go payment recorded against exactly one
+// appointment_attendees row -- price_amount/payment_status live only on
+// that attendee's own row, never on the shared appointments row's
+// singular fields (which stay null/default for a canonical class).
+// Mirrors recordPayAsYouGoLessonPaymentAction's shape without the
+// per-lesson instructor-earnings side effect (not applicable here; a
+// class's per-attendee PAYG payment is not tied to any one appointment-
+// level instructor payout in this codebase, and the task didn't ask for
+// one to be invented).
+export async function recordPayAsYouGoClassAttendeePaymentAction(formData: FormData) {
+  const fallback = "/app/schedule";
+
+  try {
+    const { supabase, studioId, user } = await requireAppointmentPaymentAccess();
+
+    const attendeeId = getString(formData, "attendeeId");
+    const appointmentId = getString(formData, "appointmentId");
+    const paymentAmount = getNumberOrNull(getString(formData, "amount")) ?? 0;
+    const paymentMethod = getString(formData, "paymentMethod") || "other";
+    const notes = getString(formData, "notes");
+
+    if (!attendeeId) {
+      redirect(getErrorRedirect(formData, fallback, "missing_payment_target"));
+    }
+
+    if (paymentAmount <= 0) {
+      redirect(getErrorRedirect(formData, fallback, "invalid_payment_amount"));
+    }
+
+    const { data: attendee, error: attendeeError } = await supabase
+      .from("appointment_attendees")
+      .select("id, studio_id, appointment_id, client_id, billing_type, payment_status")
+      .eq("id", attendeeId)
+      .eq("studio_id", studioId)
+      .single();
+
+    if (attendeeError || !attendee) {
+      redirect(getErrorRedirect(formData, fallback, "attendee_not_found"));
+    }
+
+    if (attendee.billing_type !== "pay_as_you_go") {
+      redirect(getErrorRedirect(formData, fallback, "not_pay_as_you_go"));
+    }
+
+    if ((attendee.payment_status ?? "").toLowerCase() === "paid") {
+      redirect(getErrorRedirect(formData, fallback, "already_paid"));
+    }
+
+    const paidAt = new Date().toISOString();
+
+    const { error: insertError } = await supabase.from("payments").insert({
+      studio_id: studioId,
+      client_id: attendee.client_id,
+      amount: roundMoney(paymentAmount),
+      payment_method: paymentMethod,
+      status: "paid",
+      notes: notes || "Pay-as-you-go class payment recorded.",
+      paid_at: paidAt,
+      created_by: user.id,
+      payment_type: "pay_as_you_go_lesson",
+      source: "class_attendee_payment",
+      external_reference: attendeeId,
+    });
+
+    if (insertError) {
+      redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
+    }
+
+    const { error: updateError } = await supabase
+      .from("appointment_attendees")
+      .update({
+        price_amount: roundMoney(paymentAmount),
+        payment_status: "paid",
+        updated_at: paidAt,
+      })
+      .eq("id", attendeeId)
+      .eq("studio_id", studioId);
+
+    if (updateError) {
+      redirect(getErrorRedirect(formData, fallback, "attendee_payment_update_failed"));
+    }
+
+    revalidatePath("/app/schedule");
+    if (appointmentId) revalidatePath(`/app/schedule/${appointmentId}`);
+    revalidatePath("/app/payments");
+
+    redirect(
+      getSuccessRedirect(
+        formData,
+        appointmentId ? `/app/schedule/${appointmentId}` : fallback,
+        "payment_recorded",
+      ),
+    );
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
+  }
+}
 
 async function applyMissedAppointmentCharge(params: {
   supabase: Awaited<ReturnType<typeof requireAppointmentEditAccess>>["supabase"];

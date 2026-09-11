@@ -348,3 +348,79 @@ export async function sendAppointmentSchedulePush(params: {
     });
   }
 }
+
+// GC-1.4A: whole-class cancellation's notification recipients must be
+// resolved BEFORE the cancellation itself, not after -- by the time a
+// caller could re-query resolveClassAttendeesForNotification post-commit,
+// every attendee is already cancelled and it would correctly, but
+// uselessly, find and notify nobody. cancel_group_class_appointment (the
+// DB RPC) already captures the pre-cancellation booked client_id set and
+// returns it; this function fans out to exactly that pre-resolved list,
+// never re-deriving it, and is only ever called after the cancellation has
+// already committed successfully.
+export async function sendGroupClassCancellationPush(params: {
+  supabase: SupabaseClient;
+  studioId: string;
+  appointmentId: string;
+  affectedClientIds: string[];
+}) {
+  const { supabase, studioId, appointmentId, affectedClientIds } = params;
+
+  if (!affectedClientIds.length) return;
+
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(
+      `
+      id,
+      studio_id,
+      client_id,
+      partner_client_id,
+      title,
+      appointment_type,
+      starts_at,
+      ends_at,
+      status,
+      clients (
+        first_name,
+        last_name
+      ),
+      partner_client:clients!appointments_partner_client_id_fkey (
+        first_name,
+        last_name
+      ),
+      studios (
+        name,
+        public_name
+      )
+    `,
+    )
+    .eq("id", appointmentId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (error || !data) {
+    console.error("Could not load class for cancellation push:", error?.message);
+    return;
+  }
+
+  const row = data as unknown as AppointmentPushRow;
+  const timeZone = await getStudioTimeZone(supabase, studioId);
+  const message = buildSchedulePushMessage({ row, reason: "cancelled", timeZone });
+
+  const allUserIds = new Set<string>();
+  for (const clientId of affectedClientIds) {
+    const userIds = await linkedScheduleUserIds({ supabase, studioId, clientId });
+    userIds.forEach((userId) => allUserIds.add(userId));
+  }
+
+  await sendToPortalUsers({
+    userIds: Array.from(allUserIds),
+    title: message.title,
+    body: message.body,
+    appointmentId,
+    studioId,
+    reason: "cancelled",
+    recipientRole: "class_attendee",
+  });
+}

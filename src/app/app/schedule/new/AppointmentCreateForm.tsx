@@ -511,7 +511,7 @@ export default function AppointmentCreateForm({
       setRecurrenceEndsMode("count");
     }
 
-    if (appointmentType === "room_unavailable") {
+    if (appointmentType === "room_unavailable" || appointmentType === "group_class") {
       setClientId("");
       setPartnerClientId("");
       setLinkedPackageId("");
@@ -595,11 +595,18 @@ export default function AppointmentCreateForm({
 
   const isFloorRental = appointmentType === "floor_space_rental";
   const isUnavailableBlock = appointmentType === "room_unavailable";
-  const canRepeatAppointment = !isFloorRental && !isUnavailableBlock;
-  const requiresClient = !isUnavailableBlock;
+  // GC-1.4A: "Create Class" has no client field at all -- client_id stays
+  // null on every canonical group_class row; enrollment is a separate
+  // operation (Enroll Student) against an existing class instance, never
+  // part of creating one. Package/membership/billing are per-attendee, not
+  // class-level, so those sections are hidden for a class too.
+  const isGroupClass = appointmentType === "group_class";
+  const canRepeatAppointment = !isFloorRental && !isUnavailableBlock && !isGroupClass;
+  const requiresClient = !isUnavailableBlock && !isGroupClass;
   const showBillingSection = ![
     "floor_space_rental",
     "room_unavailable",
+    "group_class",
   ].includes(appointmentType);
   const showPackageSection =
     showBillingSection && billingType === "package_credit";
@@ -734,7 +741,13 @@ export default function AppointmentCreateForm({
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 >
                   <option value="private_lesson">Private Lesson</option>
-                  <option value="group_class">Group Class</option>
+                  {/* GC-1.4A: creating a group class is broad-staff-only --
+                      an instructor caller (instructorSearchMode) never even
+                      sees this option; the server action independently
+                      rejects it regardless, this is UX only. */}
+                  {!instructorSearchMode ? (
+                    <option value="group_class">Create Class (Group Class)</option>
+                  ) : null}
                   <option value="intro_lesson">Intro Lesson</option>
                   <option value="coaching">Coaching</option>
                   <option value="practice_party">Practice Party</option>
@@ -774,7 +787,16 @@ export default function AppointmentCreateForm({
                 >
                   Client {requiresClient ? "*" : ""}
                 </label>
-                {instructorSearchMode ? (
+                {isGroupClass ? (
+                  <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    A class instance has no single client. To enroll a
+                    student, save this class first, then use{" "}
+                    <Link href="/app/schedule/enroll-student" className="font-medium text-slate-700 underline">
+                      Enroll Student
+                    </Link>
+                    .
+                  </p>
+                ) : instructorSearchMode ? (
                   <InstructorClientSearchField
                     fieldName="clientId"
                     clientId={clientId}

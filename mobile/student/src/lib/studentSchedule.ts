@@ -4,6 +4,12 @@ import type { LinkedStudioAccess } from "@/lib/studentAccess";
 export type StudentScheduleItem = {
   id: string;
   studioId: string;
+  // GC-1.4A: the linked client this schedule item belongs to -- needed so
+  // class self-check-in (which has no single appointments.client_id to
+  // resolve from) knows which of the caller's own linked clients it's
+  // acting for. Always populated; the multi-studio loop below already
+  // scopes every query by this exact id, this only exposes it on the item.
+  clientId: string;
   studioName: string;
   studioSlug: string;
   title: string;
@@ -251,6 +257,7 @@ function toScheduleItem(
   return {
     id: row.id,
     studioId: row.studio_id,
+    clientId: studio.clientId,
     studioName: studioDisplayName(studio),
     studioSlug: studio.studioSlug,
     title,
@@ -291,6 +298,7 @@ function classRowToScheduleItem(params: {
   return {
     id: params.id,
     studioId: params.studio.studioId,
+    clientId: params.studio.clientId,
     studioName: studioDisplayName(params.studio),
     studioSlug: params.studio.studioSlug,
     title,

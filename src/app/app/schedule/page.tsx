@@ -1725,6 +1725,18 @@ export default async function SchedulePage({
                   New Appointment
                 </Link>
               ) : null}
+
+              {/* GC-1.4A: Enroll Student is a separate operation from
+                  creating a class -- surfaced alongside New Appointment,
+                  not folded into it. */}
+              {canCreateAppointments(role) ? (
+                <Link
+                  href="/app/schedule/enroll-student"
+                  className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-sm hover:bg-orange-50"
+                >
+                  Enroll Student
+                </Link>
+              ) : null}
             </div>
           </div>
         </div>

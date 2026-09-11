@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStudentApiUser, normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
+import { createStudentApiUserScopedClient, getStudentApiUser, normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
@@ -51,7 +51,14 @@ function checkinWindow(appointment: AppointmentRow, now = new Date()) {
   };
 }
 
-async function loadOwnedAppointment(request: Request, appointmentId: string) {
+// GC-1.4A: a shared group_class appointment has no single client_id -- the
+// resolution direction inverts for a class: instead of "appointment -> its
+// one client -> verify caller owns that client" (the lesson case below),
+// it's "caller -> one of their own linked clients, explicitly identified by
+// requestClientId -- never guessed -- -> verify that client is eligible for
+// this class." requestClientId is re-verified against client_account_links
+// exactly like the lesson path's own ownership check, never trusted alone.
+async function loadOwnedAppointment(request: Request, appointmentId: string, requestClientId: string | null) {
   const user = await getStudentApiUser(request);
   if (!user) return { error: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
 
@@ -92,10 +99,35 @@ async function loadOwnedAppointment(request: Request, appointmentId: string) {
   }
 
   const appointment = data as unknown as AppointmentRow;
-  const client = firstJoin(appointment.clients);
+  const isGroupClass = appointment.appointment_type === "group_class";
 
-  if (!client || appointment.client_id !== client.id) {
-    return { error: NextResponse.json({ error: "Appointment not found." }, { status: 404 }) };
+  let client: { id: string; first_name: string | null; last_name: string | null };
+
+  if (isGroupClass) {
+    if (!requestClientId) {
+      return { error: NextResponse.json({ error: "Appointment not found." }, { status: 404 }) };
+    }
+
+    const { data: clientRow, error: clientError } = await supabase
+      .from("clients")
+      .select("id, first_name, last_name")
+      .eq("id", requestClientId)
+      .eq("studio_id", appointment.studio_id)
+      .maybeSingle();
+
+    if (clientError || !clientRow) {
+      return { error: NextResponse.json({ error: "Appointment not found." }, { status: 404 }) };
+    }
+
+    client = clientRow;
+  } else {
+    const lessonClient = firstJoin(appointment.clients);
+
+    if (!lessonClient || appointment.client_id !== lessonClient.id) {
+      return { error: NextResponse.json({ error: "Appointment not found." }, { status: 404 }) };
+    }
+
+    client = lessonClient;
   }
 
   const { data: relationship, error: relationshipError } = await supabase
@@ -113,7 +145,7 @@ async function loadOwnedAppointment(request: Request, appointmentId: string) {
     return { error: NextResponse.json({ error: "Appointment not found." }, { status: 404 }) };
   }
 
-  return { supabase, user, appointment, client };
+  return { supabase, user, appointment, client, isGroupClass };
 }
 
 export async function GET(
@@ -125,8 +157,41 @@ export async function GET(
     return NextResponse.json({ error: "Invalid appointment." }, { status: 400 });
   }
 
-  const context = await loadOwnedAppointment(request, appointmentId);
+  const requestClientId = normalizeStudentApiUuid(new URL(request.url).searchParams.get("clientId"));
+  const context = await loadOwnedAppointment(request, appointmentId, requestClientId);
   if ("error" in context) return context.error;
+
+  if (context.isGroupClass) {
+    // GC-1.4A: eligible means specifically "eligible to perform student
+    // self-check-in right now as a currently-enrolled participant" -- a
+    // current status='booked' enrollment -- not "historically eligible for
+    // an attendance record" (GC-1.2's class_enrollment_covers_participation,
+    // which correctly still counts a post-start-cancelled enrollment as
+    // eligible for staff historical correction; that is a different
+    // question from this one).
+    const { data: attendee } = await context.supabase
+      .from("appointment_attendees")
+      .select("id")
+      .eq("appointment_id", appointmentId)
+      .eq("client_id", context.client.id)
+      .eq("status", "booked")
+      .maybeSingle();
+
+    const { data: existing } = await context.supabase
+      .from("attendance_records")
+      .select("checked_in_at")
+      .eq("appointment_id", appointmentId)
+      .eq("client_id", context.client.id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      appointmentId,
+      checkedIn: Boolean(existing?.checked_in_at),
+      checkedInAt: existing?.checked_in_at ?? null,
+      eligible: Boolean(attendee),
+      ...checkinWindow(context.appointment),
+    });
+  }
 
   const { data: existing } = await context.supabase
     .from("student_lesson_checkins")
@@ -139,6 +204,7 @@ export async function GET(
     appointmentId,
     checkedIn: Boolean(existing),
     checkedInAt: existing?.checked_in_at ?? null,
+    eligible: true,
     ...checkinWindow(context.appointment),
   });
 }
@@ -158,10 +224,79 @@ export async function POST(
     return NextResponse.json({ error: "Invalid appointment." }, { status: 400 });
   }
 
-  const context = await loadOwnedAppointment(request, appointmentId);
+  const body = await request.json().catch(() => ({}) as Record<string, unknown>);
+  const requestClientId = normalizeStudentApiUuid(typeof body?.clientId === "string" ? body.clientId : null);
+  const context = await loadOwnedAppointment(request, appointmentId, requestClientId);
   if ("error" in context) return context.error;
 
   const window = checkinWindow(context.appointment);
+
+  if (context.isGroupClass) {
+    if (!window.canCheckIn) {
+      return NextResponse.json(
+        {
+          error: `Check-in opens ${EARLY_CHECKIN_MINUTES} minutes before the class and closes ${LATE_CHECKIN_MINUTES} minutes after it ends.`,
+          ...window,
+        },
+        { status: 409 },
+      );
+    }
+
+    // GC-1.4A: this RPC's own authorization contract depends on auth.uid()
+    // resolving to the real caller -- it must be invoked through a client
+    // carrying this request's own JWT, never the admin client used for
+    // every other read/write in this route.
+    const rpcClient = await createStudentApiUserScopedClient(request);
+    const { error: rpcError } = await rpcClient.rpc("check_in_own_class_attendance", {
+      p_appointment_id: appointmentId,
+      p_client_id: context.client.id,
+    });
+
+    if (rpcError) {
+      return NextResponse.json({ error: rpcError.message, ...window }, { status: 409 });
+    }
+
+    const { data: existing } = await context.supabase
+      .from("attendance_records")
+      .select("checked_in_at")
+      .eq("appointment_id", appointmentId)
+      .eq("client_id", context.client.id)
+      .maybeSingle();
+
+    const instructor = firstJoin(context.appointment.instructors);
+    const studio = firstJoin(context.appointment.studios);
+    const studentName =
+      [context.client.first_name, context.client.last_name].filter(Boolean).join(" ").trim() ||
+      "A student";
+
+    if (instructor?.profile_user_id) {
+      try {
+        await sendMobilePushToUser({
+          userId: instructor.profile_user_id,
+          category: "schedule",
+          title: "Student checked in",
+          body: `${studentName} checked in for ${context.appointment.title || "the class"} at ${studio?.public_name || studio?.name || "the studio"}.`,
+          data: {
+            screen: "appointment",
+            appointmentId,
+            studioId: context.appointment.studio_id,
+            source: "student_class_checkin",
+          },
+        });
+      } catch (pushError) {
+        console.error("Instructor check-in push failed:", pushError);
+      }
+    }
+
+    return NextResponse.json({
+      appointmentId,
+      checkedIn: true,
+      checkedInAt: existing?.checked_in_at ?? new Date().toISOString(),
+      eligible: true,
+      instructorNotified: Boolean(instructor?.profile_user_id),
+    });
+  }
+
   if (!window.canCheckIn) {
     return NextResponse.json(
       {
@@ -235,6 +370,7 @@ export async function POST(
     appointmentId,
     checkedIn: true,
     checkedInAt: existing?.checked_in_at ?? checkedInAt,
+    eligible: true,
     instructorNotified: Boolean(instructor?.profile_user_id),
   });
 }
