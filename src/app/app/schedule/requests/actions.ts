@@ -700,25 +700,82 @@ export async function approveBookingRequestAction(formData: FormData) {
     .filter(Boolean)
     .join("\n\n");
 
-  const { data: appointment, error: appointmentError } = await supabase
-    .from("appointments")
-    .insert({
-      studio_id: studioId,
-      client_id: typedRequest.client_id,
-      instructor_id: typedRequest.instructor_id,
-      room_id: typedRequest.room_id,
-      appointment_type: typedRequest.appointment_type,
-      title: typedRequest.title?.replace(" Request", "") || "Intro Lesson",
-      notes: appointmentNotes || null,
-      starts_at: typedRequest.requested_starts_at,
-      ends_at: typedRequest.requested_ends_at,
-      status: "scheduled",
-      is_recurring: false,
-      ...(billingFields ?? {}),
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
+  const appointmentTitle = typedRequest.title?.replace(" Request", "") || "Intro Lesson";
+
+  let appointment: { id: string } | null = null;
+  let appointmentError: { message: string } | null = null;
+
+  if (
+    billingFields?.billing_type === "membership" &&
+    ["private_lesson", "intro_lesson", "coaching"].includes(typedRequest.appointment_type)
+  ) {
+    // Membership Usage-Period Alignment, Phase 2: booking-request approval
+    // for a membership-funded lesson is atomic (scheduling-resource lock,
+    // membership lock, capacity recheck, insert, all inside one RPC)
+    // instead of the non-atomic insert below. This caller is
+    // staff-authenticated (requireAppointmentCreateAccess), so it routes
+    // through the plain staff RPC, no self-service-mode gate.
+    const { data: rpcAppointmentId, error: rpcError } = await supabase.rpc(
+      "create_private_lesson_membership_appointment",
+      {
+        p_studio_id: studioId,
+        p_client_id: typedRequest.client_id,
+        p_client_membership_id: billingFields.client_membership_id,
+        p_instructor_id: typedRequest.instructor_id,
+        p_room_id: typedRequest.room_id,
+        p_appointment_type: typedRequest.appointment_type,
+        p_title: appointmentTitle,
+        p_starts_at: typedRequest.requested_starts_at,
+        p_ends_at: typedRequest.requested_ends_at,
+        p_notes: appointmentNotes || null,
+      },
+    );
+
+    if (rpcError || !rpcAppointmentId) {
+      appointmentError = rpcError ?? { message: "Unknown error." };
+    } else {
+      appointment = { id: rpcAppointmentId as string };
+
+      // Parity fix: the staff RPC's shared core does not set created_by
+      // (it has no such parameter) but the pre-cutover raw insert always
+      // did. Non-financial, non-scheduling metadata -- patched after the
+      // atomic RPC has already committed, logged rather than surfaced as
+      // an approval failure.
+      const { error: metadataError } = await supabase
+        .from("appointments")
+        .update({ created_by: user.id })
+        .eq("id", appointment.id);
+      if (metadataError) {
+        console.error(
+          "Could not persist appointment metadata (created_by):",
+          metadataError.message,
+        );
+      }
+    }
+  } else {
+    const { data: insertedAppointment, error: rawInsertError } = await supabase
+      .from("appointments")
+      .insert({
+        studio_id: studioId,
+        client_id: typedRequest.client_id,
+        instructor_id: typedRequest.instructor_id,
+        room_id: typedRequest.room_id,
+        appointment_type: typedRequest.appointment_type,
+        title: appointmentTitle,
+        notes: appointmentNotes || null,
+        starts_at: typedRequest.requested_starts_at,
+        ends_at: typedRequest.requested_ends_at,
+        status: "scheduled",
+        is_recurring: false,
+        ...(billingFields ?? {}),
+        created_by: user.id,
+      })
+      .select("id")
+      .single();
+
+    appointment = insertedAppointment;
+    appointmentError = rawInsertError;
+  }
 
   if (appointmentError || !appointment) {
     redirect(

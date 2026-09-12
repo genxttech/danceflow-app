@@ -968,6 +968,15 @@ async function syncMembershipUsageForAppointment(params: {
   const usageType = getUsageBenefitTypeForAppointmentType(appointmentType);
   if (!usageType) return;
 
+  // Membership Usage-Period Alignment: private-lesson membership usage
+  // sync (included_private_lessons on private_lesson/intro_lesson/
+  // coaching) is now owned by the canonical DB trigger
+  // (sync_membership_usage_for_private_lesson_appointment), which fails
+  // safe and is backstopped by enforce_private_lesson_membership_capacity.
+  // This TS path is retained only for other appointment types (e.g.
+  // group_class) not yet migrated to the DB-side engine.
+  if (usageType === "private_lesson") return;
+
   const usageDate = datePart(startsAtIso);
 
   const { data: activeMemberships, error: membershipsError } = await supabase
@@ -1713,28 +1722,85 @@ export async function createAppointmentAction(
         return { error: getConflictErrorMessage(conflict) };
       }
 
-      const { data: appointment, error: insertError } = await supabase
-        .from("appointments")
-        .insert({
-          studio_id: studioId,
-          client_id: clientId,
-          partner_client_id:
-            appointmentType === "private_lesson" ? partnerClientId : null,
-          title,
-          appointment_type: appointmentType,
-          starts_at: startsAt,
-          ends_at: endsAt,
-          status,
-          notes: notes || null,
-          location_name: locationName,
-          billing_type: billingType,
-          client_membership_id: billingType === "membership" ? resolvedClientMembershipId : null,
-          billing_note: billingNote,
-          created_by: user.id,
-          ...relations,
-        })
-        .select("id")
-        .single();
+      let appointment: { id: string } | null = null;
+      let insertError: { message: string } | null = null;
+
+      if (billingType === "membership") {
+        // Membership Usage-Period Alignment, Phase 2: single-occurrence,
+        // membership-funded creation is atomic (scheduling-resource lock,
+        // membership lock, capacity recheck, insert, all inside one RPC)
+        // instead of the non-atomic insert below. Recurring membership-
+        // funded series creation is out of scope for this cutover (see
+        // the recurring branch further down) and keeps the prior
+        // non-atomic path -- backstopped regardless by the always-on DB
+        // capacity trigger.
+        const { data: rpcAppointmentId, error: rpcError } = await supabase.rpc(
+          "create_private_lesson_membership_appointment",
+          {
+            p_studio_id: studioId,
+            p_client_id: clientId,
+            p_client_membership_id: resolvedClientMembershipId,
+            p_instructor_id: relations.instructor_id,
+            p_room_id: relations.room_id,
+            p_appointment_type: appointmentType,
+            p_title: title,
+            p_starts_at: startsAt,
+            p_ends_at: endsAt,
+            p_notes: notes || null,
+            p_location_name: locationName,
+            p_partner_client_id: appointmentType === "private_lesson" ? partnerClientId : null,
+            p_billing_note: billingNote,
+          },
+        );
+
+        if (rpcError || !rpcAppointmentId) {
+          insertError = rpcError ?? { message: "Unknown error." };
+        } else {
+          appointment = { id: rpcAppointmentId as string };
+
+          // Parity fix: the staff RPC's shared core does not set
+          // created_by (it has no such parameter) but the pre-cutover
+          // raw insert always did. Non-financial, non-scheduling
+          // metadata -- patched after the atomic RPC has already
+          // committed, logged rather than surfaced as a booking failure.
+          const { error: metadataError } = await supabase
+            .from("appointments")
+            .update({ created_by: user.id })
+            .eq("id", appointment.id);
+          if (metadataError) {
+            console.error(
+              "Could not persist appointment metadata (created_by):",
+              metadataError.message,
+            );
+          }
+        }
+      } else {
+        const { data: insertedAppointment, error: rawInsertError } = await supabase
+          .from("appointments")
+          .insert({
+            studio_id: studioId,
+            client_id: clientId,
+            partner_client_id:
+              appointmentType === "private_lesson" ? partnerClientId : null,
+            title,
+            appointment_type: appointmentType,
+            starts_at: startsAt,
+            ends_at: endsAt,
+            status,
+            notes: notes || null,
+            location_name: locationName,
+            billing_type: billingType,
+            client_membership_id: null,
+            billing_note: billingNote,
+            created_by: user.id,
+            ...relations,
+          })
+          .select("id")
+          .single();
+
+        appointment = insertedAppointment;
+        insertError = rawInsertError;
+      }
 
       if (insertError || !appointment) {
         return {
@@ -2294,16 +2360,57 @@ export async function updateAppointmentAction(
         });
       }
     } else {
-      const { error: updateError } = await supabase
-        .from("appointments")
-        .update(updatePayload)
-        .eq("id", appointmentId)
-        .eq("studio_id", studioId);
+      const isMembershipFundedLesson =
+        billingType === "membership" &&
+        !isFloorSpaceRental(appointmentType) &&
+        ["private_lesson", "intro_lesson", "coaching"].includes(appointmentType);
 
-      if (updateError) {
-        return {
-          error: `Could not update appointment: ${updateError.message}`,
-        };
+      if (isMembershipFundedLesson) {
+        // Membership Usage-Period Alignment, Phase 2: single-occurrence,
+        // membership-funded reschedule/edit is atomic (scheduling-
+        // resource lock, membership lock, capacity recheck, update, all
+        // inside one RPC) instead of the non-atomic update below.
+        // `this_and_future` bulk series edits are out of scope for this
+        // cutover (see the branch above) and keep the prior non-atomic
+        // path -- backstopped regardless by the always-on DB capacity
+        // trigger.
+        const { error: rpcError } = await supabase.rpc(
+          "update_private_lesson_membership_appointment",
+          {
+            p_appointment_id: appointmentId,
+            p_new_client_id: clientId,
+            p_new_appointment_type: appointmentType,
+            p_new_starts_at: startsAt,
+            p_new_ends_at: endsAt,
+            p_new_billing_type: billingType,
+            p_new_client_membership_id: resolvedClientMembershipId,
+            p_new_instructor_id: relations.instructor_id,
+            p_new_room_id: relations.room_id,
+            p_new_status: status,
+            p_notes: notes || null,
+            p_location_name: locationName,
+            p_partner_client_id: appointmentType === "private_lesson" ? partnerClientId : null,
+            p_billing_note: billingNote,
+          },
+        );
+
+        if (rpcError) {
+          return {
+            error: `Could not update appointment: ${rpcError.message}`,
+          };
+        }
+      } else {
+        const { error: updateError } = await supabase
+          .from("appointments")
+          .update(updatePayload)
+          .eq("id", appointmentId)
+          .eq("studio_id", studioId);
+
+        if (updateError) {
+          return {
+            error: `Could not update appointment: ${updateError.message}`,
+          };
+        }
       }
 
       await syncMembershipUsageForAppointment({
