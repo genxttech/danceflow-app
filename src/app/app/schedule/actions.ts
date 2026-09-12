@@ -958,24 +958,33 @@ async function syncMembershipUsageForAppointment(params: {
     clientMembershipId = null,
   } = params;
 
+  const usageType = getUsageBenefitTypeForAppointmentType(appointmentType);
+
+  // Membership Usage-Period Alignment / P6d/P6e: private-lesson membership
+  // usage (included_private_lessons on private_lesson/intro_lesson/
+  // coaching) is now owned EXCLUSIVELY by the canonical DB trigger
+  // (sync_membership_usage_for_private_lesson_appointment), which is
+  // preservation-first (P6d: never deletes existing usage automatically)
+  // and backstopped by enforce_private_lesson_membership_capacity and
+  // enforce_private_lesson_attendance_lifecycle (P6e). This check MUST
+  // run before the unconditional clear below, not after it -- a prior
+  // version of this function cleared first and checked the type second,
+  // which meant every call from markAppointmentAttendedAction for a
+  // membership-funded private lesson immediately deleted the usage row
+  // the DB trigger had just correctly created moments earlier in the same
+  // action, silently defeating the entire DB-side sync for its most
+  // common case. This function now never touches client_membership_usage
+  // at all for private-lesson-family types -- it only ever acts on
+  // appointment types the DB engine does not yet own (e.g. group_class).
+  if (usageType === "private_lesson") return;
+
   await clearMembershipUsageForAppointment({
     supabase,
     appointmentId,
   });
 
   if (status !== "attended") return;
-
-  const usageType = getUsageBenefitTypeForAppointmentType(appointmentType);
   if (!usageType) return;
-
-  // Membership Usage-Period Alignment: private-lesson membership usage
-  // sync (included_private_lessons on private_lesson/intro_lesson/
-  // coaching) is now owned by the canonical DB trigger
-  // (sync_membership_usage_for_private_lesson_appointment), which fails
-  // safe and is backstopped by enforce_private_lesson_membership_capacity.
-  // This TS path is retained only for other appointment types (e.g.
-  // group_class) not yet migrated to the DB-side engine.
-  if (usageType === "private_lesson") return;
 
   const usageDate = datePart(startsAtIso);
 
@@ -2999,6 +3008,7 @@ export async function cancelAppointmentAction(formData: FormData) {
       client_package_id: string | null;
       client_membership_id: string | null;
       billing_type: string | null;
+      status: string;
     }>({
       supabase,
       studioId,
@@ -3007,7 +3017,7 @@ export async function cancelAppointmentAction(formData: FormData) {
       userId: user.id,
       appointmentId,
       select:
-        "recurrence_series_id, starts_at, title, client_package_id, client_membership_id, billing_type",
+        "recurrence_series_id, starts_at, title, client_package_id, client_membership_id, billing_type, status",
     });
 
     if (!relationshipResult.ok) {
@@ -3015,6 +3025,29 @@ export async function cancelAppointmentAction(formData: FormData) {
     }
 
     const appointment = relationshipResult.appointment;
+
+    // Product decision (Membership Usage-Period Alignment, terminal
+    // attendance lifecycle): for private_lesson/intro_lesson/coaching,
+    // `attended`/`no_show` are terminal, delivered/completed outcomes.
+    // Ordinary cancellation is a pre-service lifecycle action and must
+    // never silently double as an unaudited attendance reversal (which is
+    // what it did previously, only by accident, via the now-removed
+    // direct membership-usage delete this action used to trigger).
+    // Correcting a recorded attendance outcome belongs in a future,
+    // explicit Attendance Correction / Reversal workflow, not here.
+    // Backstopped at the DB level by
+    // enforce_private_lesson_attendance_lifecycle (P6e), independent of
+    // this application check.
+    if (
+      ["private_lesson", "intro_lesson", "coaching"].includes(
+        String(appointment.appointment_type),
+      ) &&
+      (appointment.status === "attended" || appointment.status === "no_show")
+    ) {
+      redirect(
+        getErrorRedirect(formData, fallback, "attended_cannot_be_cancelled"),
+      );
+    }
 
     const cancelledAt = new Date().toISOString();
     const requesterLabel =
@@ -3037,6 +3070,12 @@ export async function cancelAppointmentAction(formData: FormData) {
         : "This appointment only";
 
     if (scope === "this_and_future" && appointment.recurrence_series_id) {
+      // Terminal attendance lifecycle: a bulk "this and future" cancel
+      // must never silently rewrite an occurrence that has already been
+      // delivered (attended) or completed as a no-show, regardless of
+      // appointment type -- excluded here rather than left for the DB
+      // backstop to reject the whole batch, so the rest of the series
+      // still cancels normally.
       const { error: updateError } = await supabase
         .from("appointments")
         .update({
@@ -3045,7 +3084,8 @@ export async function cancelAppointmentAction(formData: FormData) {
         })
         .eq("studio_id", studioId)
         .eq("recurrence_series_id", appointment.recurrence_series_id)
-        .gte("starts_at", appointment.starts_at);
+        .gte("starts_at", appointment.starts_at)
+        .not("status", "in", "(attended,no_show)");
 
       if (updateError) {
         redirect(getErrorRedirect(formData, fallback, "cancel_failed"));
@@ -3056,7 +3096,8 @@ export async function cancelAppointmentAction(formData: FormData) {
         .select("id")
         .eq("studio_id", studioId)
         .eq("recurrence_series_id", appointment.recurrence_series_id)
-        .gte("starts_at", appointment.starts_at);
+        .gte("starts_at", appointment.starts_at)
+        .eq("status", "cancelled");
 
       for (const row of rowsToClear ?? []) {
         await clearMembershipUsageForAppointment({
@@ -3322,6 +3363,24 @@ export async function markAppointmentAttendedAction(formData: FormData) {
     }
 
     const appointment = relationshipResult.appointment;
+
+    // Product decision (Membership Usage-Period Alignment, terminal
+    // attendance lifecycle): a no-show cannot be reclassified as attended
+    // -- both are terminal, completed outcomes for private_lesson/
+    // intro_lesson/coaching. Correcting a recorded outcome belongs in a
+    // future, explicit Attendance Correction / Reversal workflow.
+    // Backstopped at the DB level by
+    // enforce_private_lesson_attendance_lifecycle (P6e).
+    if (
+      ["private_lesson", "intro_lesson", "coaching"].includes(
+        String(appointment.appointment_type),
+      ) &&
+      appointment.status === "no_show"
+    ) {
+      redirect(
+        getErrorRedirect(formData, fallback, "no_show_cannot_be_marked_attended"),
+      );
+    }
 
     // Already attended: this is a replay (double-submit, retried request,
     // an intentional re-click after a prior sync failure, etc), not a fresh
@@ -3648,6 +3707,7 @@ export async function markAppointmentNoShowAction(formData: FormData) {
       client_package_id: string | null;
       client_membership_id: string | null;
       billing_type: string | null;
+      status: string;
     }>({
       supabase,
       studioId,
@@ -3656,7 +3716,7 @@ export async function markAppointmentNoShowAction(formData: FormData) {
       userId: user.id,
       appointmentId,
       select:
-        "starts_at, title, client_package_id, client_membership_id, billing_type",
+        "starts_at, title, client_package_id, client_membership_id, billing_type, status",
     });
 
     if (!relationshipResult.ok) {
@@ -3664,6 +3724,24 @@ export async function markAppointmentNoShowAction(formData: FormData) {
     }
 
     const appointment = relationshipResult.appointment;
+
+    // Product decision (Membership Usage-Period Alignment, terminal
+    // attendance lifecycle): an already-attended lesson cannot be
+    // reclassified as a no-show -- both are terminal, delivered/completed
+    // outcomes for private_lesson/intro_lesson/coaching. Correcting a
+    // recorded attendance outcome belongs in a future, explicit
+    // Attendance Correction / Reversal workflow. Backstopped at the DB
+    // level by enforce_private_lesson_attendance_lifecycle (P6e).
+    if (
+      ["private_lesson", "intro_lesson", "coaching"].includes(
+        String(appointment.appointment_type),
+      ) &&
+      appointment.status === "attended"
+    ) {
+      redirect(
+        getErrorRedirect(formData, fallback, "attended_cannot_be_marked_no_show"),
+      );
+    }
 
     const markedAt = new Date().toISOString();
 

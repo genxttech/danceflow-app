@@ -4,15 +4,32 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  * Membership Usage-Period Alignment -- single-writer cutover regression.
  *
  * Proves that markAppointmentAttendedAction's membership-billing branch no
- * longer inserts into client_membership_usage via the old TypeScript path
- * (syncMembershipUsageForAppointment) for private_lesson/intro_lesson/
- * coaching appointments -- that responsibility now belongs exclusively to
- * the canonical DB trigger (sync_membership_usage_for_private_lesson_
- * appointment), once enabled. The fake Supabase client below throws on any
- * unexpected table access, so if the guard regresses and the old path's
- * client_memberships/membership_plan_benefits/client_membership_periods/
- * studio_settings queries are reached again, this test fails loudly rather
- * than silently passing.
+ * longer touches client_membership_usage via the old TypeScript path
+ * (syncMembershipUsageForAppointment) at all for private_lesson/
+ * intro_lesson/coaching appointments -- that responsibility now belongs
+ * exclusively to the canonical DB trigger (sync_membership_usage_for_
+ * private_lesson_appointment). The fake Supabase client below throws on
+ * any access to client_membership_usage OR to any of the old path's
+ * resolution tables (client_memberships/membership_plan_benefits/
+ * client_membership_periods/studio_settings), so if the guard regresses
+ * in either direction this test fails loudly rather than silently
+ * passing.
+ *
+ * P6d/P6e correction (this file previously asserted the OPPOSITE of what
+ * is now correct): syncMembershipUsageForAppointment used to call
+ * clearMembershipUsageForAppointment (an unconditional, direct DELETE
+ * against client_membership_usage) BEFORE checking the appointment type,
+ * so every call for a private-lesson-family appointment still deleted
+ * client_membership_usage once, even though the private-lesson early
+ * return prevented the old path's reinsert logic from running. That
+ * delete was a live bug, not intended behavior: it silently undid the
+ * DB trigger's own, already-committed usage row moments after the same
+ * status-changing UPDATE that triggered it -- confirmed by direct source
+ * tracing during P6e's implementation, not merely inferred. The function
+ * now checks the appointment type FIRST and returns immediately for
+ * private_lesson/intro_lesson/coaching, before ever touching
+ * client_membership_usage, so this test now asserts zero contact with
+ * that table, not one delete call.
  *
  * Same faithful-mock convention as markAppointmentAttendedAction.test.ts --
  * drives the real action, fakes only the transport layer.
@@ -127,7 +144,6 @@ function createFakeSupabase(appointment: ReturnType<typeof membershipAppointment
   const state = {
     appointment: { ...appointment },
     appointmentUpdateCalls: [] as Record<string, unknown>[],
-    membershipUsageDeleteCalls: 0,
   };
 
   const supabase = {
@@ -145,18 +161,13 @@ function createFakeSupabase(appointment: ReturnType<typeof membershipAppointment
       }
 
       if (table === "client_membership_usage") {
-        // clearMembershipUsageForAppointment's unconditional, idempotent
-        // clear -- expected to run once, harmlessly, regardless of the
-        // cutover guard. No insert should ever be attempted here for a
-        // private_lesson/intro_lesson/coaching appointment -- if one is,
-        // .insert() below is intentionally left unimplemented so the test
-        // fails loudly instead of silently succeeding.
-        return {
-          delete: () => {
-            state.membershipUsageDeleteCalls += 1;
-            return makeChain(() => ({ error: null }));
-          },
-        };
+        // P6d/P6e correction: this table must now never be touched at all
+        // by the TS writer for a private_lesson/intro_lesson/coaching
+        // appointment -- not even the old unconditional clear. Any access
+        // here means the type-check-before-clear ordering has regressed.
+        throw new Error(
+          "Unexpected client_membership_usage access -- syncMembershipUsageForAppointment must return before touching this table for private_lesson/intro_lesson/coaching appointments; that responsibility belongs exclusively to the DB trigger.",
+        );
       }
 
       throw new Error(
@@ -185,7 +196,7 @@ beforeEach(() => {
 });
 
 describe("markAppointmentAttendedAction — membership usage-sync single-writer cutover", () => {
-  it("private_lesson, billing_type=membership, already attended: clears usage once, never queries the old membership-resolution tables, redirects success", async () => {
+  it("private_lesson, billing_type=membership, already attended: never touches client_membership_usage, never queries the old membership-resolution tables, redirects success", async () => {
     const { supabase, state } = createFakeSupabase(membershipAppointmentRow());
     requireAttendanceAccessMock.mockResolvedValue({
       supabase,
@@ -199,12 +210,13 @@ describe("markAppointmentAttendedAction — membership usage-sync single-writer 
       formDataFor(APPOINTMENT_ID),
     ).catch((e) => e);
 
+    // Reaching this assertion at all (rather than the fake's thrown error)
+    // is itself the proof that client_membership_usage was never touched.
     expect(digestUrl(error)).toContain("success=appointment_attended");
     expect(state.appointmentUpdateCalls).toHaveLength(0);
-    expect(state.membershipUsageDeleteCalls).toBe(1);
   });
 
-  it("intro_lesson, billing_type=membership, already attended (replay): clears usage once, never queries the old membership-resolution tables", async () => {
+  it("intro_lesson, billing_type=membership, already attended (replay): never touches client_membership_usage, never queries the old membership-resolution tables", async () => {
     const { supabase, state } = createFakeSupabase(
       membershipAppointmentRow({ appointment_type: "intro_lesson" }),
     );
@@ -220,8 +232,9 @@ describe("markAppointmentAttendedAction — membership usage-sync single-writer 
       formDataFor(APPOINTMENT_ID),
     ).catch((e) => e);
 
+    // Reaching this assertion at all (rather than the fake's thrown error)
+    // is itself the proof that client_membership_usage was never touched.
     expect(digestUrl(error)).toContain("success=appointment_attended");
     expect(state.appointmentUpdateCalls).toHaveLength(0);
-    expect(state.membershipUsageDeleteCalls).toBe(1);
   });
 });
