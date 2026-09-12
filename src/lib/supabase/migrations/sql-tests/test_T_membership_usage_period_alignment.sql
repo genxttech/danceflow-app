@@ -263,6 +263,24 @@ begin
   raise notice 'PASS T-mupa-capacity-basic: over-capacity and cross-client-ownership both rejected; unrelated appointment types pass through untouched';
 end $$;
 
+-- P6e fixture: e803 previously shared MEM_A (e601) with e801 and relied on
+-- cancelling e801 to free room for it -- no longer possible now that P6e
+-- makes attended terminal (see below), so e803 gets its own dedicated
+-- membership. e803's OWN role (scheduling-conflict self-exclusion,
+-- direct-call sync proof, retry proof) is unrelated to the
+-- reactivation-bypass logic this section also tests.
+insert into public.clients (id, studio_id, first_name, last_name, status) values
+  ('00000000-0000-0000-0000-00000000e416', '00000000-0000-0000-0000-00000000e001', 'E803Owner', 'Client', 'active');
+insert into public.client_memberships (
+  id, studio_id, client_id, membership_plan_id, status, starts_on,
+  current_period_start, current_period_end, auto_renew, cancel_at_period_end,
+  name_snapshot, price_snapshot, billing_interval_snapshot
+) values (
+  '00000000-0000-0000-0000-00000000e614', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e416',
+  '00000000-0000-0000-0000-00000000e501', 'active', '2026-09-01', '2026-09-01', '2026-09-30', true, false,
+  'Monthly Finite Lessons', 100, 'monthly'
+);
+
 do $$
 declare
   v_errored boolean;
@@ -278,22 +296,60 @@ begin
   end;
   if not v_errored then raise exception 'FAIL T-mupa-attended-history: starts_at was changed on an attended appointment without rejection'; end if;
 
-  -- Raw cancelled->active enforcement: cancel e801 (frees capacity), then
-  -- book a fresh lesson to consume the freed slot, then attempt to
-  -- reactivate e801 directly -- must be rejected (depleted again).
-  update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-00000000e801';
+  -- P6e: terminal attendance lifecycle -- an attended appointment can no
+  -- longer be cancelled at all (previously this "worked" only because it
+  -- was never actually blocked; the old TS writer's side-effect delete
+  -- masked what should have been a rejected transition). Superseded here:
+  -- proven in full in the dedicated P6e section below, but reconfirmed
+  -- inline since this is exactly the row this immutability test already
+  -- has in an attended state.
+  v_errored := false;
+  begin
+    update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-00000000e801';
+  exception when others then v_errored := true;
+  end;
+  if not v_errored then raise exception 'FAIL T-mupa-p6e-attended-cancel-inline: an attended appointment was cancelled without rejection'; end if;
+
+  -- Raw cancelled->active enforcement: e801 remains attended (unfreeable
+  -- now, by design) so this uses its own fresh, NEVER-attended fixture --
+  -- cancel it (allowed; releases its reservation), book a fresh lesson to
+  -- consume the freed slot, then attempt to reactivate the first directly
+  -- -- must be rejected (depleted again). This is a capacity-invariant
+  -- proof, unrelated to attendance-terminality, so it must not touch an
+  -- already-attended row.
+  insert into public.clients (id, studio_id, first_name, last_name, status) values
+    ('00000000-0000-0000-0000-00000000e415', '00000000-0000-0000-0000-00000000e001', 'Reactivation', 'Client', 'active');
+  insert into public.client_memberships (
+    id, studio_id, client_id, membership_plan_id, status, starts_on,
+    current_period_start, current_period_end, auto_renew, cancel_at_period_end,
+    name_snapshot, price_snapshot, billing_interval_snapshot
+  ) values (
+    '00000000-0000-0000-0000-00000000e613', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e415',
+    '00000000-0000-0000-0000-00000000e501', 'active', '2026-09-01', '2026-09-01', '2026-09-30', true, false,
+    'Monthly Finite Lessons', 100, 'monthly'
+  );
 
   insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at)
-  values ('00000000-0000-0000-0000-00000000e803', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e401', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'scheduled', 'membership', '00000000-0000-0000-0000-00000000e601', '2026-09-20T10:00:00+00', '2026-09-20T10:45:00+00');
+  values ('00000000-0000-0000-0000-00000000e827', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e415', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'scheduled', 'membership', '00000000-0000-0000-0000-00000000e613', '2026-09-19T10:00:00+00', '2026-09-19T10:45:00+00');
+
+  update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-00000000e827';
+
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at)
+  values ('00000000-0000-0000-0000-00000000e828', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e415', '00000000-0000-0000-0000-00000000e202', '00000000-0000-0000-0000-00000000e302', 'private_lesson', 'scheduled', 'membership', '00000000-0000-0000-0000-00000000e613', '2026-09-19T11:00:00+00', '2026-09-19T11:45:00+00');
 
   v_errored := false;
   begin
-    update public.appointments set status = 'scheduled' where id = '00000000-0000-0000-0000-00000000e801';
+    update public.appointments set status = 'scheduled' where id = '00000000-0000-0000-0000-00000000e827';
   exception when others then v_errored := true;
   end;
   if not v_errored then raise exception 'FAIL T-mupa-reactivation-bypass: a raw cancelled->active transition into a depleted window was NOT rejected'; end if;
 
-  raise notice 'PASS T-mupa-attended-and-reactivation: attended-history immutability and raw cancelled->active capacity enforcement both hold';
+  -- e803 (dedicated membership e614, established above) -- scheduled,
+  -- ready for sections 5/8/9's own, unrelated uses.
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at)
+  values ('00000000-0000-0000-0000-00000000e803', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e416', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'scheduled', 'membership', '00000000-0000-0000-0000-00000000e614', '2026-09-20T10:00:00+00', '2026-09-20T10:45:00+00');
+
+  raise notice 'PASS T-mupa-attended-and-reactivation: attended-history immutability, P6e attended-cancel rejection, and raw cancelled->active capacity enforcement all hold';
 end $$;
 
 -- ============================================================================
@@ -501,30 +557,44 @@ begin
 end $$;
 
 -- ============================================================================
--- 8. Usage-sync trigger is created disabled; the underlying procedure
---    works correctly when called directly.
+-- 8. Writer-cutover state (revised: the usage-sync trigger is now the
+--    permanent, intentional DEV steady state -- the application writer's
+--    private-lesson guard means it is the ONLY writer; the DB trigger
+--    fires automatically, and a direct call to the underlying procedure
+--    remains equally valid and idempotent with what the trigger already
+--    established, proving no divergence between the two invocation paths).
 -- ============================================================================
 do $$
 declare
   v_enabled char;
+  v_usage_count int;
 begin
   select tgenabled into v_enabled from pg_trigger
     where tgname = 'appointments_sync_membership_usage_for_private_lesson';
-  if v_enabled <> 'D' then
-    raise exception 'FAIL T-mupa-trigger-disabled: appointments_sync_membership_usage_for_private_lesson is not disabled (tgenabled=%)', v_enabled;
+  if v_enabled <> 'O' then
+    raise exception 'FAIL T-mupa-trigger-enabled: appointments_sync_membership_usage_for_private_lesson is not enabled (tgenabled=%) -- this is the permanent, intentional post-cutover DEV state, not the pre-cutover disabled one', v_enabled;
   end if;
 
-  -- Direct call: e803 is attended? No -- mark it attended, sync directly,
-  -- confirm a usage row appears, then confirm balance reflects consumption
-  -- not reservation.
+  -- Marking e803 attended fires the trigger automatically (it is enabled)
+  -- -- this alone must create the usage row, with no direct call needed.
   update public.appointments set status = 'attended', attendance_marked_at = now() where id = '00000000-0000-0000-0000-00000000e803';
-  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e803');
 
   if not exists (select 1 from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e803') then
-    raise exception 'FAIL T-mupa-sync-direct: direct call to the sync procedure did not create a usage row for an attended, membership-funded lesson';
+    raise exception 'FAIL T-mupa-sync-trigger: the enabled trigger did not create a usage row for an attended, membership-funded lesson';
   end if;
 
-  raise notice 'PASS T-mupa-cutover: usage-sync trigger confirmed disabled (single-writer cutover discipline); the underlying procedure works correctly when called directly';
+  -- A direct call to the same underlying procedure must be a no-op here
+  -- (idempotent) -- proving the trigger-invoked and direct-invoked paths
+  -- agree, not merely that each independently "does something".
+  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e803');
+
+  select count(*) into v_usage_count from public.client_membership_usage
+    where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e803';
+  if v_usage_count <> 1 then
+    raise exception 'FAIL T-mupa-sync-direct-idempotent: expected exactly 1 usage row after trigger + direct call, found %', v_usage_count;
+  end if;
+
+  raise notice 'PASS T-mupa-cutover: usage-sync trigger confirmed enabled (permanent post-cutover DEV state); trigger-invoked and direct-invoked sync agree and are idempotent together';
 end $$;
 
 -- ============================================================================
@@ -536,7 +606,7 @@ declare
   v_result boolean;
 begin
   insert into public.membership_usage_sync_errors (studio_id, appointment_id, client_id, client_membership_id, membership_plan_benefit_id, error_message)
-  values ('00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e803', '00000000-0000-0000-0000-00000000e401', '00000000-0000-0000-0000-00000000e601', '00000000-0000-0000-0000-00000000e701', 'synthetic test failure')
+  values ('00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e803', '00000000-0000-0000-0000-00000000e416', '00000000-0000-0000-0000-00000000e614', '00000000-0000-0000-0000-00000000e701', 'synthetic test failure')
   returning id into v_error_id;
 
   set local role authenticated;
@@ -1023,6 +1093,402 @@ begin
     raise exception 'FAIL T-mupa-duration-update: expected the generated column to re-derive duration_minutes=60 after rescheduling to a 10:00-11:00 slot, got %', v_duration_after_update;
   end if;
   raise notice 'PASS T-mupa-duration-update: atomic reschedule succeeded and duration_minutes (%) was automatically regenerated from the new starts_at/ends_at, never supplied by the RPC', v_duration_after_update;
+end $$;
+
+-- ============================================================================
+-- 17. P6e -- terminal private-lesson attendance lifecycle guard.
+--     attended/no_show are terminal for private_lesson/intro_lesson/
+--     coaching, independent of billing type. Ordinary pre-service
+--     transitions remain fully valid.
+-- ============================================================================
+insert into public.clients (id, studio_id, first_name, last_name, status) values
+  ('00000000-0000-0000-0000-00000000e417', '00000000-0000-0000-0000-00000000e001', 'P6e', 'AttendCancel', 'active'),
+  ('00000000-0000-0000-0000-00000000e418', '00000000-0000-0000-0000-00000000e001', 'P6e', 'AttendNoShow', 'active'),
+  ('00000000-0000-0000-0000-00000000e419', '00000000-0000-0000-0000-00000000e001', 'P6e', 'NoShowCancel', 'active'),
+  ('00000000-0000-0000-0000-00000000e420', '00000000-0000-0000-0000-00000000e001', 'P6e', 'NoShowAttend', 'active'),
+  ('00000000-0000-0000-0000-00000000e421', '00000000-0000-0000-0000-00000000e001', 'P6e', 'SchedCancel', 'active'),
+  ('00000000-0000-0000-0000-00000000e422', '00000000-0000-0000-0000-00000000e001', 'P6e', 'SchedNoShow', 'active'),
+  ('00000000-0000-0000-0000-00000000e423', '00000000-0000-0000-0000-00000000e001', 'P6e', 'SeriesClient', 'active');
+
+insert into public.client_memberships (
+  id, studio_id, client_id, membership_plan_id, status, starts_on,
+  current_period_start, current_period_end, auto_renew, cancel_at_period_end,
+  name_snapshot, price_snapshot, billing_interval_snapshot
+) values
+  ('00000000-0000-0000-0000-00000000e615', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e417',
+    '00000000-0000-0000-0000-00000000e501', 'active', '2026-09-01', '2026-09-01', '2026-09-30', true, false, 'Monthly Finite Lessons', 100, 'monthly'),
+  ('00000000-0000-0000-0000-00000000e616', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e418',
+    '00000000-0000-0000-0000-00000000e501', 'active', '2026-09-01', '2026-09-01', '2026-09-30', true, false, 'Monthly Finite Lessons', 100, 'monthly'),
+  ('00000000-0000-0000-0000-00000000e618', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e421',
+    '00000000-0000-0000-0000-00000000e501', 'active', '2026-09-01', '2026-09-01', '2026-09-30', true, false, 'Monthly Finite Lessons', 100, 'monthly');
+
+do $$
+declare
+  v_errored boolean;
+  v_status text;
+begin
+  -- 17a: attended -> cancelled rejected (membership-funded).
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at, attendance_marked_at)
+  values ('00000000-0000-0000-0000-00000000e830', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e417', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'attended', 'membership', '00000000-0000-0000-0000-00000000e615', '2026-09-22T09:00:00+00', '2026-09-22T09:45:00+00', now());
+
+  v_errored := false;
+  begin
+    update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-00000000e830';
+  exception when others then v_errored := true;
+  end;
+  if not v_errored then raise exception 'FAIL T-p6e-attended-cancel: attended -> cancelled was not rejected'; end if;
+
+  select status into v_status from public.appointments where id = '00000000-0000-0000-0000-00000000e830';
+  if v_status <> 'attended' then raise exception 'FAIL T-p6e-attended-cancel-status: status changed despite rejection, now %', v_status; end if;
+
+  -- 17b: attended -> no_show rejected.
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at, attendance_marked_at)
+  values ('00000000-0000-0000-0000-00000000e831', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e418', '00000000-0000-0000-0000-00000000e202', '00000000-0000-0000-0000-00000000e302', 'private_lesson', 'attended', 'membership', '00000000-0000-0000-0000-00000000e616', '2026-09-22T10:00:00+00', '2026-09-22T10:45:00+00', now());
+
+  v_errored := false;
+  begin
+    update public.appointments set status = 'no_show' where id = '00000000-0000-0000-0000-00000000e831';
+  exception when others then v_errored := true;
+  end;
+  if not v_errored then raise exception 'FAIL T-p6e-attended-no_show: attended -> no_show was not rejected'; end if;
+
+  -- 17c: no_show -> cancelled rejected (non-membership, PAYG -- funding
+  -- independence proof: no billing_type gate anywhere in this check).
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, starts_at, ends_at)
+  values ('00000000-0000-0000-0000-00000000e832', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e419', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'no_show', 'pay_as_you_go', '2026-09-22T11:00:00+00', '2026-09-22T11:45:00+00');
+
+  v_errored := false;
+  begin
+    update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-00000000e832';
+  exception when others then v_errored := true;
+  end;
+  if not v_errored then raise exception 'FAIL T-p6e-noshow-cancel: no_show -> cancelled was not rejected'; end if;
+
+  -- 17d: no_show -> attended rejected (also PAYG).
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, starts_at, ends_at)
+  values ('00000000-0000-0000-0000-00000000e833', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e420', '00000000-0000-0000-0000-00000000e202', '00000000-0000-0000-0000-00000000e302', 'private_lesson', 'no_show', 'pay_as_you_go', '2026-09-22T12:00:00+00', '2026-09-22T12:45:00+00');
+
+  v_errored := false;
+  begin
+    update public.appointments set status = 'attended', attendance_marked_at = now() where id = '00000000-0000-0000-0000-00000000e833';
+  exception when others then v_errored := true;
+  end;
+  if not v_errored then raise exception 'FAIL T-p6e-noshow-attended: no_show -> attended was not rejected'; end if;
+
+  -- 17e: scheduled -> cancelled remains valid (membership-funded);
+  -- reservation is released, proven by successfully booking a second
+  -- lesson into the same now-freed 1-unit allowance afterward.
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at)
+  values ('00000000-0000-0000-0000-00000000e834', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e421', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'scheduled', 'membership', '00000000-0000-0000-0000-00000000e618', '2026-09-22T13:00:00+00', '2026-09-22T13:45:00+00');
+
+  update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-00000000e834';
+
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at)
+  values ('00000000-0000-0000-0000-00000000e835', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e421', '00000000-0000-0000-0000-00000000e202', '00000000-0000-0000-0000-00000000e302', 'private_lesson', 'scheduled', 'membership', '00000000-0000-0000-0000-00000000e618', '2026-09-22T14:00:00+00', '2026-09-22T14:45:00+00');
+  -- (no exception above proves the reservation was genuinely released)
+
+  -- 17g: scheduled -> no_show remains valid (PAYG).
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, starts_at, ends_at)
+  values ('00000000-0000-0000-0000-00000000e836', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e422', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'scheduled', 'pay_as_you_go', '2026-09-22T15:00:00+00', '2026-09-22T15:45:00+00');
+  update public.appointments set status = 'no_show' where id = '00000000-0000-0000-0000-00000000e836';
+
+  raise notice 'PASS T-p6e-terminal-lifecycle: attended/no_show egress rejected in all four directions (membership- and PAYG-funded), scheduled->cancelled/no_show remain fully valid, and a cancelled reservation is genuinely released';
+end $$;
+
+-- 17i: this_and_future-style bulk cancel must not rewrite a completed
+-- occurrence -- reproduces the application's own exclusion filter
+-- directly at the DB level.
+insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, starts_at, ends_at, recurrence_series_id)
+values
+  ('00000000-0000-0000-0000-00000000e837', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e423', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'attended', '2026-09-23T09:00:00+00', '2026-09-23T09:45:00+00', '00000000-0000-0000-0000-00000000e901'),
+  ('00000000-0000-0000-0000-00000000e838', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e423', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'scheduled', '2026-09-23T10:00:00+00', '2026-09-23T10:45:00+00', '00000000-0000-0000-0000-00000000e901');
+
+update public.appointments
+  set status = 'cancelled', updated_at = now()
+  where studio_id = '00000000-0000-0000-0000-00000000e001'
+    and recurrence_series_id = '00000000-0000-0000-0000-00000000e901'
+    and starts_at >= '2026-09-23T00:00:00+00'
+    and status not in ('attended', 'no_show');
+
+do $$
+declare
+  v_completed_status text;
+  v_future_status text;
+begin
+  select status into v_completed_status from public.appointments where id = '00000000-0000-0000-0000-00000000e837';
+  select status into v_future_status from public.appointments where id = '00000000-0000-0000-0000-00000000e838';
+  if v_completed_status <> 'attended' then
+    raise exception 'FAIL T-p6e-series-bulk-cancel-completed: an already-attended series occurrence was rewritten by a bulk this_and_future cancel, now %', v_completed_status;
+  end if;
+  if v_future_status <> 'cancelled' then
+    raise exception 'FAIL T-p6e-series-bulk-cancel-future: a non-completed future series occurrence was NOT cancelled by the bulk update, still %', v_future_status;
+  end if;
+  raise notice 'PASS T-p6e-series-bulk-cancel: a this_and_future-style bulk cancel skips the already-attended occurrence and correctly cancels the rest';
+end $$;
+
+-- ============================================================================
+-- 18. P6d -- preservation-first regression suite (canonical rerun, legacy
+--     drift with/without existing usage, retry unresolved/repaired,
+--     idempotency, unresolved-error uniqueness, catalog signature).
+-- ============================================================================
+do $$
+declare
+  v_sync_fn_count int;
+  v_args text;
+begin
+  select count(*), max(pg_get_function_identity_arguments(oid)) into v_sync_fn_count, v_args
+    from pg_proc where proname = '_sync_membership_usage_for_private_lesson_appointment';
+  if v_sync_fn_count <> 1 then
+    raise exception 'FAIL T-p6d-catalog-count: expected exactly 1 _sync_membership_usage_for_private_lesson_appointment, found %', v_sync_fn_count;
+  end if;
+  if v_args <> 'p_appointment_id uuid' then
+    raise exception 'FAIL T-p6d-catalog-signature: expected signature (p_appointment_id uuid), found (%)', v_args;
+  end if;
+  raise notice 'PASS T-p6d-catalog: exactly one canonical _sync_membership_usage_for_private_lesson_appointment(uuid), no stale overload';
+end $$;
+
+insert into public.clients (id, studio_id, first_name, last_name, status) values
+  ('00000000-0000-0000-0000-00000000e424', '00000000-0000-0000-0000-00000000e001', 'P6d', 'CanonicalRerun', 'active'),
+  ('00000000-0000-0000-0000-00000000e425', '00000000-0000-0000-0000-00000000e001', 'P6d', 'DriftWithUsage', 'active'),
+  ('00000000-0000-0000-0000-00000000e426', '00000000-0000-0000-0000-00000000e001', 'P6d', 'DriftNoUsage', 'active'),
+  ('00000000-0000-0000-0000-00000000e427', '00000000-0000-0000-0000-00000000e001', 'P6d', 'RetryRepair', 'active'),
+  ('00000000-0000-0000-0000-00000000e428', '00000000-0000-0000-0000-00000000e001', 'P6d', 'ConsumptionRegression', 'active');
+
+insert into public.client_memberships (
+  id, studio_id, client_id, membership_plan_id, status, starts_on,
+  current_period_start, current_period_end, auto_renew, cancel_at_period_end,
+  name_snapshot, price_snapshot, billing_interval_snapshot
+) values
+  ('00000000-0000-0000-0000-00000000e619', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e424',
+    '00000000-0000-0000-0000-00000000e501', 'active', '2026-09-01', '2026-09-01', '2026-09-30', true, false, 'Monthly Finite Lessons', 100, 'monthly'),
+  ('00000000-0000-0000-0000-00000000e621', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e428',
+    '00000000-0000-0000-0000-00000000e501', 'active', '2026-09-01', '2026-09-01', '2026-09-30', true, false, 'Monthly Finite Lessons', 100, 'monthly');
+
+-- Dedicated plan/benefit for the retry-repair fixture -- its benefit is
+-- deliberately deleted then restored mid-test, so it must not share a
+-- plan with anything else in this harness.
+insert into public.membership_plans (id, studio_id, name, billing_interval, price) values
+  ('00000000-0000-0000-0000-00000000e508', '00000000-0000-0000-0000-00000000e001', 'Retry Repair Plan', 'monthly', 100);
+insert into public.membership_plan_benefits (id, membership_plan_id, benefit_type, quantity, usage_period) values
+  ('00000000-0000-0000-0000-00000000e710', '00000000-0000-0000-0000-00000000e508', 'included_private_lessons', 1, 'billing_cycle');
+insert into public.client_memberships (
+  id, studio_id, client_id, membership_plan_id, status, starts_on,
+  current_period_start, current_period_end, auto_renew, cancel_at_period_end,
+  name_snapshot, price_snapshot, billing_interval_snapshot
+) values (
+  '00000000-0000-0000-0000-00000000e620', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e427',
+  '00000000-0000-0000-0000-00000000e508', 'active', '2026-09-01', '2026-09-01', '2026-09-30', true, false, 'Retry Repair Plan', 100, 'monthly'
+);
+
+do $$
+declare
+  v_usage_count int;
+  v_before record;
+  v_after record;
+  v_error_id uuid;
+  v_result boolean;
+begin
+  -- 18b: canonical valid usage rerun -- exactly one row, idempotent.
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at, attendance_marked_at)
+  values ('00000000-0000-0000-0000-00000000e839', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e424', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'attended', 'membership', '00000000-0000-0000-0000-00000000e619', '2026-09-24T09:00:00+00', '2026-09-24T09:45:00+00', now());
+
+  select * into v_before from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e839';
+  if v_before.id is null then raise exception 'FAIL T-p6d-canonical-rerun-initial: no usage row created by the trigger'; end if;
+
+  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e839');
+  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e839');
+  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e839');
+
+  select count(*) into v_usage_count from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e839';
+  if v_usage_count <> 1 then raise exception 'FAIL T-p6d-canonical-rerun-repeated: expected exactly 1 usage row after 3 repeated syncs, found %', v_usage_count; end if;
+
+  select * into v_after from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e839';
+  if v_after.client_membership_id is distinct from v_before.client_membership_id
+     or v_after.usage_date is distinct from v_before.usage_date
+     or v_after.quantity_used is distinct from v_before.quantity_used then
+    raise exception 'FAIL T-p6d-canonical-rerun-values: canonical values drifted across repeated syncs';
+  end if;
+  raise notice 'PASS T-p6d-canonical-rerun: exactly one canonical usage row survives repeated sync calls, values unchanged';
+
+  -- 18c: legacy drift + existing usage -- attended, membership billing,
+  -- NULL link, but a pre-existing usage row (simulating a legacy,
+  -- historically-coherent-but-now-inconsistent row like the real forensic
+  -- DEV incident this feature exists to protect against). Must be
+  -- preserved untouched, not deleted.
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at, attendance_marked_at)
+  values ('00000000-0000-0000-0000-00000000e840', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e425', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'attended', 'membership', null, '2026-09-24T10:00:00+00', '2026-09-24T10:45:00+00', now());
+  -- (client_membership_id null on the appointment -- P3c's membership-
+  -- funded gate requires it non-null to even run its own check, so this
+  -- insert is not rejected; it simply never validated capacity, matching
+  -- exactly how the real forensic legacy row was found: attended,
+  -- billing_type='membership', client_membership_id null.)
+
+  insert into public.client_membership_usage (client_membership_id, membership_plan_benefit_id, usage_date, quantity_used, reference_type, reference_id)
+  values ('00000000-0000-0000-0000-00000000e619', '00000000-0000-0000-0000-00000000e701', '2026-09-24', 1, 'appointment', '00000000-0000-0000-0000-00000000e840');
+
+  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e840');
+
+  select count(*) into v_usage_count from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e840';
+  if v_usage_count <> 1 then raise exception 'FAIL T-p6d-drift-with-usage-preserved: existing legacy usage was not preserved, found % rows', v_usage_count; end if;
+
+  if not exists (
+    select 1 from public.membership_usage_sync_errors
+    where appointment_id = '00000000-0000-0000-0000-00000000e840' and reason_code = 'historical_membership_link_missing' and resolved_at is null
+  ) then
+    raise exception 'FAIL T-p6d-drift-with-usage-error: no unresolved historical_membership_link_missing error was recorded';
+  end if;
+  raise notice 'PASS T-p6d-drift-with-usage: existing legacy usage preserved untouched, one unresolved error recorded';
+
+  -- Idempotency + uniqueness: sync again on the same still-ambiguous row
+  -- -- usage still preserved, still exactly one unresolved error (not two).
+  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e840');
+  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e840');
+
+  select count(*) into v_usage_count from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e840';
+  if v_usage_count <> 1 then raise exception 'FAIL T-p6d-drift-idempotent-usage: usage count drifted across repeated ambiguous syncs, now %', v_usage_count; end if;
+
+  select count(*) into v_usage_count from public.membership_usage_sync_errors
+    where appointment_id = '00000000-0000-0000-0000-00000000e840' and reason_code = 'historical_membership_link_missing';
+  if v_usage_count <> 1 then raise exception 'FAIL T-p6d-error-uniqueness: expected exactly 1 error row (any resolution state) for the same (appointment_id, reason_code), found %', v_usage_count; end if;
+  raise notice 'PASS T-p6d-error-uniqueness: repeated ambiguous syncs never create a duplicate unresolved error, usage never lost';
+
+  -- 18d: legacy drift + NO existing usage -- must not fabricate one.
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at, attendance_marked_at)
+  values ('00000000-0000-0000-0000-00000000e841', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e426', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'attended', 'membership', null, '2026-09-24T11:00:00+00', '2026-09-24T11:45:00+00', now());
+
+  if exists (select 1 from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e841') then
+    raise exception 'FAIL T-p6d-drift-no-usage-fabricated: a usage row was fabricated for an ambiguous appointment with none previously';
+  end if;
+  if not exists (
+    select 1 from public.membership_usage_sync_errors
+    where appointment_id = '00000000-0000-0000-0000-00000000e841' and reason_code = 'historical_membership_link_missing' and resolved_at is null
+  ) then
+    raise exception 'FAIL T-p6d-drift-no-usage-error: no unresolved historical_membership_link_missing error was recorded for an ambiguous appointment with no pre-existing usage';
+  end if;
+  raise notice 'PASS T-p6d-drift-no-usage: no usage fabricated, unresolved error recorded';
+
+  -- 18e: retry, ambiguity unresolved -- returns false, nothing changes.
+  select id into v_error_id from public.membership_usage_sync_errors
+    where appointment_id = '00000000-0000-0000-0000-00000000e841' and reason_code = 'historical_membership_link_missing' and resolved_at is null;
+
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-00000000e101')::text, true);
+  v_result := public.retry_membership_usage_sync_error(v_error_id);
+  reset role;
+
+  if v_result then raise exception 'FAIL T-p6d-retry-unresolved: retry reported success for a still-ambiguous appointment'; end if;
+  if exists (select 1 from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e841') then
+    raise exception 'FAIL T-p6d-retry-unresolved-usage: retry fabricated usage for a still-ambiguous appointment';
+  end if;
+  if not exists (select 1 from public.membership_usage_sync_errors where id = v_error_id and resolved_at is null) then
+    raise exception 'FAIL T-p6d-retry-unresolved-error: error was marked resolved despite the ambiguity remaining';
+  end if;
+  raise notice 'PASS T-p6d-retry-unresolved: retry correctly reports failure and leaves both usage and the error untouched while ambiguity remains';
+
+  -- 18f: retry, ambiguity genuinely repaired -- via the plan's benefit
+  -- being removed then restored (never touching any P3c-protected
+  -- appointment field), proving retry's postcondition check actually
+  -- works, not merely "no exception was thrown".
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at, attendance_marked_at)
+  values ('00000000-0000-0000-0000-00000000e842', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e427', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'attended', 'membership', '00000000-0000-0000-0000-00000000e620', '2026-09-24T12:00:00+00', '2026-09-24T12:45:00+00', now());
+
+  select count(*) into v_usage_count from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e842';
+  if v_usage_count <> 1 then raise exception 'FAIL T-p6d-retry-repair-initial: expected canonical usage established by the trigger before the drift is introduced, found %', v_usage_count; end if;
+
+  -- Reconfigure the benefit's type away from 'included_private_lessons'
+  -- (simulating a studio reconfiguring the plan) rather than deleting the
+  -- row -- client_membership_usage.membership_plan_benefit_id is ON
+  -- DELETE CASCADE, so deleting the benefit would destroy the very usage
+  -- row this test needs to prove is preserved, testing the wrong thing
+  -- entirely. An UPDATE has no such cascade.
+  -- 'event_discount_percent' is a real, valid, unrelated benefit_type
+  -- (per membership_plan_benefits_type_check -- 'included_group_classes'
+  -- referenced elsewhere in this feature's design docs is NOT actually a
+  -- live valid value) -- chosen simply because it can never match
+  -- 'included_private_lessons' in the sync function's own lookup.
+  update public.membership_plan_benefits set benefit_type = 'event_discount_percent' where id = '00000000-0000-0000-0000-00000000e710';
+  perform public._sync_membership_usage_for_private_lesson_appointment('00000000-0000-0000-0000-00000000e842');
+
+  select count(*) into v_usage_count from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e842';
+  if v_usage_count <> 1 then raise exception 'FAIL T-p6d-retry-repair-drift-preserved: the pre-existing canonical usage was destroyed when the benefit was removed, found %', v_usage_count; end if;
+
+  select id into v_error_id from public.membership_usage_sync_errors
+    where appointment_id = '00000000-0000-0000-0000-00000000e842' and reason_code = 'historical_membership_link_missing' and resolved_at is null;
+  if v_error_id is null then raise exception 'FAIL T-p6d-retry-repair-drift-error: no unresolved error recorded after the benefit was removed'; end if;
+
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-00000000e101')::text, true);
+  v_result := public.retry_membership_usage_sync_error(v_error_id);
+  reset role;
+  -- Correctly reports unresolved -- the benefit hasn't been restored yet.
+  if v_result then raise exception 'FAIL T-p6d-retry-repair-premature: retry reported success before the benefit was restored'; end if;
+  if not exists (select 1 from public.membership_usage_sync_errors where id = v_error_id and resolved_at is null) then
+    raise exception 'FAIL T-p6d-retry-repair-premature-error: error was marked resolved despite the benefit still being missing';
+  end if;
+
+  update public.membership_plan_benefits set benefit_type = 'included_private_lessons' where id = '00000000-0000-0000-0000-00000000e710';
+
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-00000000e101')::text, true);
+  v_result := public.retry_membership_usage_sync_error(v_error_id);
+  reset role;
+  if not v_result then raise exception 'FAIL T-p6d-retry-repair-final: retry did not report success after the benefit was restored and canonical state re-established'; end if;
+
+  if not exists (select 1 from public.membership_usage_sync_errors where id = v_error_id and resolved_at is not null) then
+    raise exception 'FAIL T-p6d-retry-repair-resolved: error was not marked resolved after canonical state was re-established';
+  end if;
+  select count(*) into v_usage_count from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e842';
+  if v_usage_count <> 1 then raise exception 'FAIL T-p6d-retry-repair-final-usage: expected exactly 1 canonical usage row after repair, found %', v_usage_count; end if;
+  raise notice 'PASS T-p6d-retry-repair: retry correctly refuses to resolve before canonical state exists, then resolves once it genuinely does -- postcondition-based, not exception-based';
+end $$;
+
+-- ============================================================================
+-- 19. Membership-consumption regression -- the exact scenario discovered
+--     during the DEV writer-cutover forensic incident this feature exists
+--     to prevent from recurring.
+-- ============================================================================
+do $$
+declare
+  v_usage_count int;
+  v_available int;
+  v_status text;
+  v_errored boolean;
+begin
+  -- 1. Finite membership allowance = 1 (e621, plan e501/benefit e701).
+  -- 2. Valid appointment becomes attended.
+  insert into public.appointments (id, studio_id, client_id, instructor_id, room_id, appointment_type, status, billing_type, client_membership_id, starts_at, ends_at, attendance_marked_at)
+  values ('00000000-0000-0000-0000-00000000e843', '00000000-0000-0000-0000-00000000e001', '00000000-0000-0000-0000-00000000e428', '00000000-0000-0000-0000-00000000e201', '00000000-0000-0000-0000-00000000e301', 'private_lesson', 'attended', 'membership', '00000000-0000-0000-0000-00000000e621', '2026-09-25T09:00:00+00', '2026-09-25T09:45:00+00', now());
+
+  -- 3. One usage row exists.
+  select count(*) into v_usage_count from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e843';
+  if v_usage_count <> 1 then raise exception 'FAIL T-regression-usage-row: expected exactly 1 usage row after attendance, found %', v_usage_count; end if;
+
+  -- 4. Available membership capacity = 0.
+  select available into v_available from public._private_lesson_finite_balance('00000000-0000-0000-0000-00000000e621', '00000000-0000-0000-0000-00000000e701', '2026-09-25T09:00:00+00'::timestamptz, null);
+  if v_available <> 0 then raise exception 'FAIL T-regression-available-before: expected available=0 after consuming the sole allowance, got %', v_available; end if;
+
+  -- 5. Ordinary cancellation attempted.
+  v_errored := false;
+  begin
+    update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-00000000e843';
+  exception when others then v_errored := true;
+  end;
+  -- 6. Cancellation rejected.
+  if not v_errored then raise exception 'FAIL T-regression-cancel-rejected: ordinary cancellation of an attended, consumed lesson was NOT rejected'; end if;
+
+  -- 7. Appointment remains attended.
+  select status into v_status from public.appointments where id = '00000000-0000-0000-0000-00000000e843';
+  if v_status <> 'attended' then raise exception 'FAIL T-regression-status-unchanged: expected status to remain attended, found %', v_status; end if;
+
+  -- 8. Usage row remains.
+  select count(*) into v_usage_count from public.client_membership_usage where reference_type = 'appointment' and reference_id = '00000000-0000-0000-0000-00000000e843';
+  if v_usage_count <> 1 then raise exception 'FAIL T-regression-usage-remains: expected the usage row to remain after the rejected cancellation, found %', v_usage_count; end if;
+
+  -- 9. Available capacity remains 0.
+  select available into v_available from public._private_lesson_finite_balance('00000000-0000-0000-0000-00000000e621', '00000000-0000-0000-0000-00000000e701', '2026-09-25T09:00:00+00'::timestamptz, null);
+  if v_available <> 0 then raise exception 'FAIL T-regression-available-after: expected available to remain 0 after the rejected cancellation, got %', v_available; end if;
+
+  raise notice 'PASS T-regression-p6d-p6e: the exact discovered incident scenario now behaves as intended -- attended+consumed lessons cannot be cancelled, usage and capacity remain exactly as delivered';
 end $$;
 
 rollback;

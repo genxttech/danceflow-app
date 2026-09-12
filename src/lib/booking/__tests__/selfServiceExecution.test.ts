@@ -574,3 +574,55 @@ describe("executeApprovedStudentBookingAction -- callerContext routing (Phase 2)
     ).rejects.toThrow(/entitlement-scoped client/i);
   });
 });
+
+describe("executeApprovedStudentBookingAction -- cancel (terminal attendance lifecycle guard)", () => {
+  it("rejects cancelling an already-attended private_lesson", async () => {
+    const { fake, tables } = buildClient({
+      appointments: [
+        {
+          id: "appt-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          appointment_type: "private_lesson",
+          status: "attended",
+        },
+      ],
+    });
+
+    await expect(
+      executeApprovedStudentBookingAction({
+        supabase: fake,
+        actionRequest: baseRequest({ action_type: "cancel", appointment_id: "appt-1" }),
+        actorUserId: CLIENT_ID,
+        callerContext: "student" as const,
+      }),
+    ).rejects.toThrow(/attended lessons cannot be cancelled/i);
+
+    // The row must be untouched -- still attended, no cancellation applied.
+    expect(tables.appointments.rows[0]).toMatchObject({ status: "attended" });
+  });
+
+  it("still allows cancelling a scheduled private_lesson normally", async () => {
+    const { fake, tables } = buildClient({
+      appointments: [
+        {
+          id: "appt-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          appointment_type: "private_lesson",
+          status: "scheduled",
+        },
+      ],
+    });
+
+    const result = await executeApprovedStudentBookingAction({
+      supabase: fake,
+      actionRequest: baseRequest({ action_type: "cancel", appointment_id: "appt-1" }),
+      actorUserId: CLIENT_ID,
+      callerContext: "student" as const,
+    });
+
+    expect(result.id).toBe("appt-1");
+    expect(tables.appointments.rows[0]).toMatchObject({ status: "cancelled" });
+  });
+});

@@ -124,6 +124,38 @@ export async function executeApprovedStudentBookingAction(params: {
   if (request.action_type === "cancel") {
     if (!request.appointment_id) throw new Error("Missing appointment.");
 
+    // Product decision (Membership Usage-Period Alignment, terminal
+    // attendance lifecycle): attended/no_show are terminal, delivered/
+    // completed outcomes for private_lesson/intro_lesson/coaching.
+    // Ordinary self-service cancellation must not be usable to silently
+    // reverse a recorded attendance outcome. Correcting one belongs in a
+    // future, explicit Attendance Correction / Reversal workflow.
+    // Backstopped at the DB level by
+    // enforce_private_lesson_attendance_lifecycle (P6e).
+    const { data: targetAppointment, error: targetLookupError } =
+      await params.supabase
+        .from("appointments")
+        .select("appointment_type, status")
+        .eq("id", request.appointment_id)
+        .eq("studio_id", request.studio_id)
+        .eq("client_id", request.client_id)
+        .single<{ appointment_type: string; status: string }>();
+
+    if (targetLookupError || !targetAppointment) {
+      throw new Error("Appointment not found.");
+    }
+    if (
+      ["private_lesson", "intro_lesson", "coaching"].includes(
+        targetAppointment.appointment_type,
+      ) &&
+      (targetAppointment.status === "attended" ||
+        targetAppointment.status === "no_show")
+    ) {
+      throw new Error(
+        "Attended lessons cannot be cancelled. Attendance corrections require a separate correction workflow.",
+      );
+    }
+
     const { error: cancelError } = await params.supabase
       .from("appointments")
       .update({
