@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStudentApiUser } from "@/lib/auth/studentApiAuth";
+import { getStudentApiUser, createStudentApiUserScopedClient } from "@/lib/auth/studentApiAuth";
 import {
   createStudentBookingActionRequest,
   type SupabaseLike,
@@ -327,6 +327,7 @@ async function executeInstantRequest(params: {
   actionRequestId: string;
   studioId: string;
   actorUserId: string;
+  request: Request;
 }) {
   const { data: executableRequest, error: executableRequestError } = await params.client
     .from("student_booking_action_requests")
@@ -357,10 +358,20 @@ async function executeInstantRequest(params: {
     );
   }
 
+  // Membership Usage-Period Alignment, Phase 2: the entitlement-mutating
+  // RPC call specifically runs under a request-scoped, user-JWT-bearing
+  // client so auth.uid() resolves to the real student inside it. Every
+  // other read/write on this route stays on the admin client, unchanged.
+  const entitlementClient = (await createStudentApiUserScopedClient(
+    params.request,
+  )) as unknown as SelfServiceExecutionClient;
+
   return executeApprovedStudentBookingAction({
     supabase: params.client,
     actionRequest: executableRequest,
     actorUserId: params.actorUserId,
+    callerContext: "student",
+    entitlementClient,
   });
 }
 
@@ -488,6 +499,7 @@ export async function POST(request: Request) {
             actionRequestId: actionRequest.id,
             studioId: context.studio.id,
             actorUserId: user.id,
+            request,
           });
 
           await sendSelfServiceSchedulePush({
@@ -620,6 +632,7 @@ export async function POST(request: Request) {
           actionRequestId: actionRequest.id,
           studioId: slotResult.studio.id,
           actorUserId: user.id,
+          request,
         });
 
         await sendSelfServiceSchedulePush({

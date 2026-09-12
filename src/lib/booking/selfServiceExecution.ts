@@ -88,6 +88,30 @@ export async function executeApprovedStudentBookingAction(params: {
   supabase: SelfServiceExecutionClient;
   actionRequest: StudentBookingActionRequestRow;
   actorUserId: string;
+  /**
+   * Membership Usage-Period Alignment, Phase 2: which real authorization
+   * context is executing this action.
+   * - "student": a genuine student/guardian self-service action, reached
+   *   only when the studio's self-service mode is already `instant` (the
+   *   caller decided to execute immediately rather than queue for
+   *   approval, before this function was ever called). The membership-
+   *   funded branch below routes through the `_self_service` RPCs, whose
+   *   own auth.uid()-based checks require `entitlementClient`.
+   * - "staff_on_behalf": staff approving a request (own-instructor or
+   *   broad role, already authorized by the caller before this function
+   *   runs). The membership-funded branch routes through the plain staff
+   *   RPCs, which have no self-service-mode gate -- correct, since these
+   *   approvals are not required to be in `instant` mode.
+   */
+  callerContext: "student" | "staff_on_behalf";
+  /**
+   * Required when callerContext === "student": a request-scoped client
+   * built via createStudentApiUserScopedClient(request), used ONLY for
+   * the entitlement-mutating RPC call so auth.uid() resolves to the real
+   * student inside it. Every other read/write on this action continues to
+   * use `supabase` (the admin client) unchanged.
+   */
+  entitlementClient?: SelfServiceExecutionClient;
 }) {
   const request = params.actionRequest;
 
@@ -208,47 +232,178 @@ export async function executeApprovedStudentBookingAction(params: {
     throw new Error(getConflictErrorMessage(conflict));
   }
 
-  const appointmentMutation = isReschedule
-    ? params.supabase
-        .from("appointments")
-        .update({
+  let appointment: { id: string };
+
+  if (entitlement.billingType === "membership") {
+    // Membership Usage-Period Alignment, Phase 2: membership-funded
+    // lesson writes are atomic (scheduling-resource lock, membership
+    // lock, capacity recheck, insert/update, all inside one RPC) instead
+    // of the generic non-atomic insert/update below. Package/PAYG/free
+    // outcomes are completely untouched -- see the `else` branch.
+    if (params.callerContext === "student") {
+      if (!params.entitlementClient) {
+        throw new Error(
+          "Missing entitlement-scoped client for a student membership-funded booking.",
+        );
+      }
+
+      if (isReschedule) {
+        const { error } = await params.entitlementClient.rpc(
+          "update_private_lesson_membership_appointment_self_service",
+          {
+            p_appointment_id: request.appointment_id as string,
+            p_new_starts_at: request.requested_starts_at,
+            p_new_ends_at: request.requested_ends_at,
+            p_new_client_membership_id: entitlement.clientMembershipId,
+            p_new_instructor_id: request.instructor_id,
+            p_new_room_id: request.room_id,
+          },
+        );
+        if (error) throw new Error(error.message);
+        appointment = { id: request.appointment_id as string };
+      } else {
+        const { data, error } = await params.entitlementClient.rpc(
+          "create_private_lesson_membership_appointment_self_service",
+          {
+            p_studio_id: request.studio_id,
+            p_client_id: request.client_id as string,
+            p_client_membership_id: entitlement.clientMembershipId,
+            p_instructor_id: request.instructor_id,
+            p_room_id: request.room_id,
+            p_appointment_type: appointmentType,
+            p_starts_at: request.requested_starts_at,
+            p_ends_at: request.requested_ends_at,
+          },
+        );
+        if (error || !data) throw new Error(error?.message ?? "Could not create appointment.");
+        appointment = { id: data as string };
+
+        // Parity fix: the narrow student RPC deliberately has no
+        // p_notes/p_created_by parameter (it must not be widened to
+        // accept arbitrary caller-supplied text) but the pre-cutover raw
+        // insert always persisted the derived "Student note: <reason>"
+        // and created_by. Both are non-financial, non-scheduling
+        // metadata -- patched here, AFTER the atomic RPC has already
+        // committed the reservation, via the trusted admin/staff client.
+        // A failure here can never corrupt membership/scheduling
+        // atomicity, only leave this metadata blank -- logged, not
+        // rethrown, so the already-successful booking is still reported
+        // as a success.
+        const { error: metadataError } = await params.supabase
+          .from("appointments")
+          .update({
+            notes: request.reason ? `Student note: ${request.reason}` : null,
+            created_by: params.actorUserId,
+          })
+          .eq("id", appointment.id);
+        if (metadataError) {
+          console.error(
+            "Could not persist self-service booking metadata (notes/created_by):",
+            metadataError.message,
+          );
+        }
+      }
+    } else {
+      // staff_on_behalf: the plain staff RPCs, no self-service-mode gate.
+      if (isReschedule) {
+        const { error } = await params.supabase.rpc(
+          "update_private_lesson_membership_appointment",
+          {
+            p_appointment_id: request.appointment_id as string,
+            p_new_client_id: request.client_id,
+            p_new_appointment_type: appointmentType,
+            p_new_starts_at: request.requested_starts_at,
+            p_new_ends_at: request.requested_ends_at,
+            p_new_billing_type: entitlement.billingType,
+            p_new_client_membership_id: entitlement.clientMembershipId,
+            p_new_instructor_id: request.instructor_id,
+            p_new_room_id: request.room_id,
+            p_new_status: "scheduled",
+          },
+        );
+        if (error) throw new Error(error.message);
+        appointment = { id: request.appointment_id as string };
+      } else {
+        const { data, error } = await params.supabase.rpc(
+          "create_private_lesson_membership_appointment",
+          {
+            p_studio_id: request.studio_id,
+            p_client_id: request.client_id as string,
+            p_client_membership_id: entitlement.clientMembershipId,
+            p_instructor_id: request.instructor_id,
+            p_room_id: request.room_id,
+            p_appointment_type: appointmentType,
+            p_title: "Self-Service Booking",
+            p_starts_at: request.requested_starts_at,
+            p_ends_at: request.requested_ends_at,
+            p_notes: request.reason ? `Student note: ${request.reason}` : null,
+          },
+        );
+        if (error || !data) throw new Error(error?.message ?? "Could not create appointment.");
+        appointment = { id: data as string };
+
+        // Parity fix: the staff RPC's shared core does not set
+        // created_by (it has no such parameter) but the pre-cutover raw
+        // insert always did. Non-financial, non-scheduling metadata --
+        // patched after the atomic RPC has already committed, logged
+        // rather than rethrown on failure.
+        const { error: metadataError } = await params.supabase
+          .from("appointments")
+          .update({ created_by: params.actorUserId })
+          .eq("id", appointment.id);
+        if (metadataError) {
+          console.error(
+            "Could not persist self-service booking metadata (created_by):",
+            metadataError.message,
+          );
+        }
+      }
+    }
+  } else {
+    const appointmentMutation = isReschedule
+      ? params.supabase
+          .from("appointments")
+          .update({
+            instructor_id: request.instructor_id,
+            room_id: request.room_id,
+            starts_at: request.requested_starts_at,
+            ends_at: request.requested_ends_at,
+            status: "scheduled",
+            billing_type: entitlement.billingType,
+            client_package_id: entitlement.clientPackageId,
+            client_membership_id: entitlement.clientMembershipId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", request.appointment_id as string)
+          .eq("studio_id", request.studio_id)
+          .eq("client_id", request.client_id)
+      : params.supabase.from("appointments").insert({
+          studio_id: request.studio_id,
+          client_id: request.client_id,
           instructor_id: request.instructor_id,
           room_id: request.room_id,
+          appointment_type: appointmentType,
+          title: "Self-Service Booking",
+          notes: request.reason ? `Student note: ${request.reason}` : null,
           starts_at: request.requested_starts_at,
           ends_at: request.requested_ends_at,
           status: "scheduled",
+          is_recurring: false,
           billing_type: entitlement.billingType,
           client_package_id: entitlement.clientPackageId,
           client_membership_id: entitlement.clientMembershipId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", request.appointment_id as string)
-        .eq("studio_id", request.studio_id)
-        .eq("client_id", request.client_id)
-    : params.supabase.from("appointments").insert({
-        studio_id: request.studio_id,
-        client_id: request.client_id,
-        instructor_id: request.instructor_id,
-        room_id: request.room_id,
-        appointment_type: appointmentType,
-        title: "Self-Service Booking",
-        notes: request.reason ? `Student note: ${request.reason}` : null,
-        starts_at: request.requested_starts_at,
-        ends_at: request.requested_ends_at,
-        status: "scheduled",
-        is_recurring: false,
-        billing_type: entitlement.billingType,
-        client_package_id: entitlement.clientPackageId,
-        client_membership_id: entitlement.clientMembershipId,
-        created_by: params.actorUserId,
-      });
+          created_by: params.actorUserId,
+        });
 
-  const { data: appointment, error: appointmentError } = await appointmentMutation
-    .select("id")
-    .single<{ id: string }>();
+    const { data: mutatedAppointment, error: appointmentError } = await appointmentMutation
+      .select("id")
+      .single<{ id: string }>();
 
-  if (appointmentError || !appointment) {
-    throw new Error(appointmentError?.message ?? "Could not create appointment.");
+    if (appointmentError || !mutatedAppointment) {
+      throw new Error(appointmentError?.message ?? "Could not create appointment.");
+    }
+
+    appointment = mutatedAppointment;
   }
 
   const { error: updateError } = await params.supabase

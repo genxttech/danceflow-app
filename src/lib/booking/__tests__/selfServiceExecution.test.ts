@@ -147,6 +147,7 @@ describe("executeApprovedStudentBookingAction -- book", () => {
         supabase: fake,
         actionRequest: baseRequest(),
         actorUserId: "user-1",
+        callerContext: "student" as const,
       }),
     ).rejects.toThrow(/active package or membership/i);
 
@@ -160,6 +161,7 @@ describe("executeApprovedStudentBookingAction -- book", () => {
       supabase: fake,
       actionRequest: baseRequest(),
       actorUserId: "user-1",
+      callerContext: "student" as const,
     });
 
     expect(appointment.id).toBeTruthy();
@@ -196,10 +198,36 @@ describe("executeApprovedStudentBookingAction -- book", () => {
       ],
     });
 
+    // Membership Usage-Period Alignment, Phase 2: the membership-funded
+    // write now goes through the atomic self-service RPC, not a raw
+    // insert against `fake` -- this test still proves entitlement
+    // auto-resolution picks the right membership, by having the fake RPC
+    // insert into the same tracked `appointments` table the real RPC
+    // would write to.
+    let insertedId: string | null = null;
+    const entitlementClient = {
+      rpc: (name: string, args: Record<string, unknown>) => {
+        if (name !== "create_private_lesson_membership_appointment_self_service") {
+          throw new Error(`Unexpected rpc: ${name}`);
+        }
+        insertedId = "appt-membership-1";
+        tables.appointments.rows.push({
+          id: insertedId,
+          billing_type: "membership",
+          client_package_id: null,
+          client_membership_id: args.p_client_membership_id,
+        });
+        return Promise.resolve({ data: insertedId, error: null });
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+
     const appointment = await executeApprovedStudentBookingAction({
       supabase: fake,
-      actionRequest: baseRequest(),
+      actionRequest: baseRequest({ reason: "Please pair me with someone patient" }),
       actorUserId: "user-1",
+      callerContext: "student" as const,
+      entitlementClient,
     });
 
     const created = tables.appointments.rows.find((r) => r.id === appointment.id);
@@ -207,6 +235,14 @@ describe("executeApprovedStudentBookingAction -- book", () => {
       billing_type: "membership",
       client_package_id: null,
       client_membership_id: "membership-1",
+    });
+    // Parity fix: the narrow student RPC has no notes/created_by
+    // parameter, so this metadata must be patched afterward via the
+    // trusted admin client -- proving the derived student note and
+    // created_by both survive the RPC cutover.
+    expect(created).toMatchObject({
+      notes: "Student note: Please pair me with someone patient",
+      created_by: "user-1",
     });
   });
 
@@ -220,6 +256,7 @@ describe("executeApprovedStudentBookingAction -- book", () => {
         supabase: fake,
         actionRequest: baseRequest(),
         actorUserId: "user-1",
+        callerContext: "student" as const,
       }),
     ).rejects.toThrow(/more than one package/i);
 
@@ -257,6 +294,7 @@ describe("executeApprovedStudentBookingAction -- book", () => {
         supabase: fake,
         actionRequest: baseRequest(),
         actorUserId: "user-1",
+        callerContext: "student" as const,
       }),
     ).rejects.toThrow(/both a package and a membership/i);
 
@@ -270,6 +308,7 @@ describe("executeApprovedStudentBookingAction -- book", () => {
       supabase: fake,
       actionRequest: baseRequest(),
       actorUserId: "user-1",
+      callerContext: "student" as const,
     });
 
     expect(tables.appointments.rows.every((r) => r.billing_type !== "pay_as_you_go")).toBe(true);
@@ -289,6 +328,7 @@ describe("executeApprovedStudentBookingAction -- book", () => {
       supabase: fake,
       actionRequest: baseRequest(),
       actorUserId: "user-1",
+      callerContext: "student" as const,
     });
 
     const created = tables.appointments.rows.find((r) => r.id === appointment.id);
@@ -306,6 +346,7 @@ describe("executeApprovedStudentBookingAction -- book", () => {
         supabase: fake,
         actionRequest: baseRequest(),
         actorUserId: "user-1",
+        callerContext: "student" as const,
       }),
     ).rejects.toThrow(/active package or membership/i);
 
@@ -321,6 +362,7 @@ describe("executeApprovedStudentBookingAction -- book", () => {
         supabase: fake,
         actionRequest: baseRequest(),
         actorUserId: "user-1",
+        callerContext: "student" as const,
       }),
     ).rejects.toThrow(/couldn't verify your booking eligibility/i);
 
@@ -354,6 +396,7 @@ describe("executeApprovedStudentBookingAction -- reschedule", () => {
         appointment_id: "appt-1",
       }),
       actorUserId: "user-1",
+      callerContext: "student" as const,
     });
 
     const updated = tables.appointments.rows.find((r) => r.id === "appt-1");
@@ -386,6 +429,7 @@ describe("executeApprovedStudentBookingAction -- reschedule", () => {
         appointment_id: "appt-1",
       }),
       actorUserId: "user-1",
+      callerContext: "student" as const,
     });
 
     const updated = tables.appointments.rows.find((r) => r.id === "appt-1");
@@ -418,10 +462,115 @@ describe("executeApprovedStudentBookingAction -- reschedule", () => {
           appointment_id: "appt-1",
         }),
         actorUserId: "user-1",
+        callerContext: "student" as const,
       }),
     ).rejects.toThrow(/active package or membership/i);
 
     const updated = tables.appointments.rows.find((r) => r.id === "appt-1");
     expect(updated?.starts_at).toBeUndefined();
+  });
+});
+
+describe("executeApprovedStudentBookingAction -- callerContext routing (Phase 2)", () => {
+  it("staff_on_behalf + membership entitlement calls the plain staff RPC, not the self-service one, and needs no entitlementClient", async () => {
+    const { fake, tables } = buildClient({
+      client_memberships: [
+        {
+          id: "membership-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          membership_plan_id: "plan-1",
+          status: "active",
+          current_period_start: "2026-09-01",
+          current_period_end: "2026-09-30",
+        },
+      ],
+      membership_plan_benefits: [
+        {
+          id: "benefit-1",
+          membership_plan_id: "plan-1",
+          benefit_type: "included_private_lessons",
+          applies_to: "all",
+          quantity: 4,
+          sort_order: 1,
+        },
+      ],
+    });
+
+    const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
+    // `fake` (the admin-shaped client) is reused directly as `supabase`
+    // here -- staff_on_behalf never needs a separate entitlementClient,
+    // since the plain staff RPC has no auth.uid()-dependent self-service
+    // gate to satisfy.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fake as any).rpc = (name: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ name, args });
+      if (name !== "create_private_lesson_membership_appointment") {
+        throw new Error(`Unexpected rpc: ${name}`);
+      }
+      const id = "appt-staff-on-behalf-1";
+      tables.appointments.rows.push({
+        id,
+        billing_type: "membership",
+        client_package_id: null,
+        client_membership_id: args.p_client_membership_id,
+      });
+      return Promise.resolve({ data: id, error: null });
+    };
+
+    const appointment = await executeApprovedStudentBookingAction({
+      supabase: fake,
+      actionRequest: baseRequest(),
+      actorUserId: "staff-1",
+      callerContext: "staff_on_behalf" as const,
+      // No entitlementClient supplied -- must not be required for this context.
+    });
+
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0].name).toBe("create_private_lesson_membership_appointment");
+    const created = tables.appointments.rows.find((r) => r.id === appointment.id);
+    expect(created).toMatchObject({
+      billing_type: "membership",
+      client_membership_id: "membership-1",
+    });
+    // Parity fix: created_by has no parameter on the staff RPC's shared
+    // core either -- patched afterward, same as the student path.
+    expect(created).toMatchObject({ created_by: "staff-1" });
+  });
+
+  it("student + membership entitlement WITHOUT an entitlementClient throws, rather than silently using the admin client", async () => {
+    const { fake } = buildClient({
+      client_memberships: [
+        {
+          id: "membership-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          membership_plan_id: "plan-1",
+          status: "active",
+          current_period_start: "2026-09-01",
+          current_period_end: "2026-09-30",
+        },
+      ],
+      membership_plan_benefits: [
+        {
+          id: "benefit-1",
+          membership_plan_id: "plan-1",
+          benefit_type: "included_private_lessons",
+          applies_to: "all",
+          quantity: 4,
+          sort_order: 1,
+        },
+      ],
+    });
+
+    await expect(
+      executeApprovedStudentBookingAction({
+        supabase: fake,
+        actionRequest: baseRequest(),
+        actorUserId: "user-1",
+        callerContext: "student" as const,
+        // entitlementClient intentionally omitted.
+      }),
+    ).rejects.toThrow(/entitlement-scoped client/i);
   });
 });

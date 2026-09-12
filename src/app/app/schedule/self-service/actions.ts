@@ -116,6 +116,11 @@ export async function approveStudentBookingActionRequest(formData: FormData) {
       supabase: supabase as unknown as SelfServiceExecutionClient,
       actionRequest,
       actorUserId: user.id,
+      // Staff approving a student's request on the student's behalf --
+      // `supabase` here is already the genuine staff session client
+      // (requireAppointmentCreateAccess), so the membership-funded branch
+      // routes through the plain staff RPCs, not the self-service ones.
+      callerContext: "staff_on_behalf",
     });
 
     revalidatePath("/app/schedule");
