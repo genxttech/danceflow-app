@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { updateMembershipPlanAction } from "../../actions";
+import { MEMBERSHIP_BENEFIT_TYPES, MEMBERSHIP_USAGE_PERIODS } from "@/lib/memberships/benefitTypes";
 
 type BenefitRow = {
   id: string;
@@ -386,33 +387,11 @@ export default function EditMembershipPlanForm({
                       }
                       className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-2.5 text-[var(--brand-text)] outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/15"
                     >
-                      <option value="unlimited_group_classes">
-                        Unlimited Group Classes
-                      </option>
-                      <option value="included_group_classes">
-                        Included Group Classes
-                      </option>
-                      <option value="unlimited_practice_parties">
-                        Unlimited Practice Parties
-                      </option>
-                      <option value="included_private_lessons">
-                        Included Private Lessons
-                      </option>
-                      <option value="discount_private_lessons_percent">
-                        Private Lesson Discount Percent
-                      </option>
-                      <option value="discount_private_lessons_fixed">
-                        Private Lesson Fixed Discount
-                      </option>
-                      <option value="event_discount_percent">
-                        Event Discount Percent
-                      </option>
-                      <option value="floor_rental_discount_percent">
-                        Floor Rental Discount Percent
-                      </option>
-                      <option value="discount_floor_rental_fixed">
-                        Floor Rental Fixed Discount
-                      </option>
+                      {MEMBERSHIP_BENEFIT_TYPES.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -427,9 +406,11 @@ export default function EditMembershipPlanForm({
                       }
                       className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-2.5 text-[var(--brand-text)] outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/15"
                     >
-                      <option value="billing_cycle">Billing Cycle</option>
-                      <option value="monthly">Monthly</option>
-                      <option value="unlimited">Unlimited</option>
+                      {MEMBERSHIP_USAGE_PERIODS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 

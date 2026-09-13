@@ -128,6 +128,17 @@ insert into public.appointment_attendees (id, studio_id, appointment_id, client_
 insert into public.membership_plans (id, studio_id, name) values
   ('00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000ba01', 'GC-1.2 Test Plan');
 
+-- GC-2 (Finite + Unlimited Group-Class Membership Entitlements) added a real
+-- capacity/eligibility invariant for membership-billed class attendees
+-- (enforce_group_class_membership_capacity) -- this plan's membership is
+-- used below purely to prove the PACKAGE deduction trigger ignores a
+-- membership-billed attendee (unrelated to that invariant), so it needs a
+-- genuinely applicable group-class benefit to remain insertable/updatable
+-- now that real enforcement exists, exactly as any real membership-billed
+-- attendee would need.
+insert into public.membership_plan_benefits (membership_plan_id, benefit_type, quantity, usage_period) values
+  ('00000000-0000-0000-0000-00000000d001', 'included_group_classes', 10, 'billing_cycle');
+
 insert into public.client_memberships (
   id, studio_id, client_id, membership_plan_id, status, starts_on, current_period_start, current_period_end,
   auto_renew, cancel_at_period_end, name_snapshot, price_snapshot, billing_interval_snapshot

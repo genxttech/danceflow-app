@@ -2649,6 +2649,36 @@ export async function deleteAppointmentAction(formData: FormData) {
 // instructor check is the real, fine-grained authority.
 // ============================================================================
 
+// GC-2 item D: enroll_class_attendee raises a specific, human-readable
+// Postgres exception message for each distinct failure mode (see
+// 20260913090300_gc2d_enrollment_funding_row_selection.sql and
+// 20260913090200_gc2c_group_class_membership_capacity_invariant.sql) --
+// this maps those known messages to distinct, actionable redirect codes
+// instead of collapsing every outcome into one generic "enrollment_failed".
+// Any message not recognized here (e.g. "already enrolled", "not found",
+// "not authorized") deliberately falls through to the existing generic
+// code -- only the outcomes the UX audit specifically named get a new,
+// dedicated code, so this stays a targeted fix rather than a redesign of
+// every possible RPC failure.
+function classifyEnrollClassAttendeeError(message: string): string {
+  if (message.includes("requires a specific membership to be selected")) {
+    return "membership_requires_selection";
+  }
+  if (message.includes("has no applicable group-class benefit")) {
+    return "no_eligible_entitlement";
+  }
+  if (message.includes("No allowance remaining")) {
+    return "entitlement_exhausted";
+  }
+  if (message.includes("does not belong to this client, or is not active")) {
+    return "membership_not_active";
+  }
+  if (message.includes("needs a billing decision")) {
+    return "ambiguous_funding_source";
+  }
+  return "enrollment_failed";
+}
+
 export async function enrollClassAttendeeAction(formData: FormData) {
   const fallback = "/app/schedule";
 
@@ -2665,6 +2695,21 @@ export async function enrollClassAttendeeAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_enrollment_target"));
     }
 
+    // PR #70 review correction: billingType='membership' with no
+    // clientMembershipId is an invalid, unfunded state -- reject it here,
+    // before ever calling the RPC, rather than letting an incomplete
+    // selection reach the database. Package/PAYG/free-comped are
+    // unaffected (they have no equivalent required-id requirement here).
+    if (billingType === "membership" && !clientMembershipId) {
+      redirect(
+        appendQueryParam(
+          appendQueryParam("/app/schedule/enroll-student", "error", "membership_requires_selection"),
+          "appointmentId",
+          appointmentId,
+        ),
+      );
+    }
+
     const { error } = await supabase.rpc("enroll_class_attendee", {
       p_appointment_id: appointmentId,
       p_client_id: clientId,
@@ -2675,15 +2720,27 @@ export async function enrollClassAttendeeAction(formData: FormData) {
 
     if (error) {
       console.error("Could not enroll class attendee:", error.message);
+      const errorCode = classifyEnrollClassAttendeeError(error.message ?? "");
+      // Deliberately not getErrorRedirect/formData.returnTo here -- the
+      // form's own returnTo always points at the class detail page (the
+      // right place to land after a SUCCESSFUL enrollment), which has no
+      // banner rendering. On failure, sending staff back to the Add Student
+      // form itself -- where they can see the specific reason and retry or
+      // choose different funding -- is the actionable surface.
       redirect(
-        getErrorRedirect(formData, `/app/schedule/${appointmentId}`, "enrollment_failed"),
+        appendQueryParam(
+          appendQueryParam("/app/schedule/enroll-student", "error", errorCode),
+          "appointmentId",
+          appointmentId,
+        ),
       );
     }
 
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
+    const successCode = billingType === "membership" ? "student_enrolled_membership" : "student_enrolled";
     redirect(
-      getSuccessRedirect(formData, `/app/schedule/${appointmentId}`, "student_enrolled"),
+      getSuccessRedirect(formData, `/app/schedule/${appointmentId}`, successCode),
     );
   } catch (error) {
     rethrowIfRedirect(error);

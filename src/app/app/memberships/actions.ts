@@ -10,6 +10,7 @@ import { getStripe } from "@/lib/payments/stripe";
 import { ensureConnectedStripeRecurringPrice } from "@/lib/payments/subscriptions";
 import { recordManualMembershipPayment } from "@/lib/memberships/manual-payment";
 import { reconcileStudioMembershipPeriods } from "@/lib/memberships/renewal";
+import { MEMBERSHIP_BENEFIT_TYPES, MEMBERSHIP_USAGE_PERIODS } from "@/lib/memberships/benefitTypes";
 
 type CreateState = {
   error: string;
@@ -18,16 +19,8 @@ type CreateState = {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BILLING_INTERVALS = new Set(["monthly", "quarterly", "yearly"]);
 const PLAN_VISIBILITIES = new Set(["public", "private", "hidden"]);
-const BENEFIT_TYPES = new Set([
-  "included_private_lessons",
-  "included_group_classes",
-  "discount_percent",
-  "discount_amount",
-  "floor_rental_discount_percent",
-  "floor_rental_discount_amount",
-  "other",
-]);
-const USAGE_PERIODS = new Set(["billing_cycle", "month", "quarter", "year", "lifetime"]);
+const BENEFIT_TYPES = new Set<string>(MEMBERSHIP_BENEFIT_TYPES.map((type) => type.value));
+const USAGE_PERIODS = new Set<string>(MEMBERSHIP_USAGE_PERIODS.map((period) => period.value));
 
 type BenefitInput = {
   benefitType?: string;
