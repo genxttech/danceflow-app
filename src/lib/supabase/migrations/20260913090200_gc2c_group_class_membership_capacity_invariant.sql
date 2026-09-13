@@ -29,6 +29,23 @@
 -- nothing entitlement-relevant changed and the row was already 'booked'.
 -- Any transition INTO 'booked' (a fresh insert, or an update from some
 -- other status) is never treated as a no-op.
+--
+-- PR #70 review correction (pre-merge, DEV-only -- this migration has never
+-- been applied to PROD and is edited in place, not superseded by a new
+-- file, matching this repo's own precedent for a not-yet-merged slice):
+-- the original body treated `billing_type='membership' AND
+-- client_membership_id IS NULL` as OUT OF SCOPE (an early return, no
+-- validation at all) alongside genuinely out-of-scope non-membership rows.
+-- That was wrong -- a membership-billed attendee with no membership id is
+-- not "not membership-funded," it's an invalid, unfunded membership-funded
+-- state, and the trigger's own job is to prevent exactly that. It is now
+-- its own explicit branch that raises, matching how the function already
+-- raises for "membership present but no applicable benefit" just below --
+-- never silently returns for this shape.  No CHECK constraint is added
+-- for this instead (a global NOT NULL/CHECK would need a separate,
+-- explicit PROD legacy-row preflight first, per instruction) -- the
+-- trigger is the correct, narrower enforcement point: it governs new
+-- writes going forward without touching any existing row.
 
 begin;
 
@@ -49,8 +66,15 @@ begin
     return new;
   end if;
 
-  if new.billing_type is distinct from 'membership' or new.client_membership_id is null then
+  if new.billing_type is distinct from 'membership' then
     return new;
+  end if;
+
+  -- A membership-billed attendee with no client_membership_id is an
+  -- invalid, unfunded state -- never allow it through silently (PR #70
+  -- review correction; see header).
+  if new.client_membership_id is null then
+    raise exception 'A membership-funded group-class enrollment requires a specific membership to be selected.';
   end if;
 
   -- No-op: already booked, already membership-funded, same membership, same billing_type.

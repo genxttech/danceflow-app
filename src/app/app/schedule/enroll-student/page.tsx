@@ -3,7 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canCreateAppointments } from "@/lib/auth/permissions";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
-import { getGroupClassMembershipFundingForRoster } from "@/lib/schedule/groupClassMembershipFunding";
+import {
+  getGroupClassMembershipFundingForRoster,
+  isMembershipFundingEligibleForEnrollment,
+} from "@/lib/schedule/groupClassMembershipFunding";
 import EnrollStudentForm from "./EnrollStudentForm";
 
 type ClassOption = {
@@ -56,6 +59,8 @@ function firstJoin<T>(value: T | T[] | null | undefined) {
 // schedule/actions.ts) -- landing back here, not a generic failure banner.
 function enrollmentErrorMessage(code: string): string {
   switch (code) {
+    case "membership_requires_selection":
+      return "Select a specific membership before billing this enrollment to Membership, or choose a different funding type.";
     case "no_eligible_entitlement":
       return "That membership does not include a group-class benefit. Choose a different funding source or bill manually.";
     case "entitlement_exhausted":
@@ -241,7 +246,7 @@ export default async function EnrollStudentPage({
   for (const [clientId, memberships] of Object.entries(clientMembershipsByClientId)) {
     for (const membership of memberships) {
       const funding = membershipFundingMap.get(membership.id);
-      if (!funding || funding.kind === "unresolved") continue;
+      if (!funding || !isMembershipFundingEligibleForEnrollment(funding)) continue;
 
       eligibleFundingSourcesByClientId[clientId] ??= [];
       eligibleFundingSourcesByClientId[clientId].push({
@@ -249,9 +254,9 @@ export default async function EnrollStudentPage({
         id: membership.id,
         label: membership.name_snapshot || "Membership",
         remainingLabel:
-          funding.kind === "unlimited"
-            ? "Unlimited"
-            : `${funding.usedInPeriod} of ${funding.quantity ?? 0} used`,
+          funding.kind === "finite"
+            ? `${funding.usedInPeriod} of ${funding.quantity ?? 0} used`
+            : "Unlimited",
       });
     }
   }

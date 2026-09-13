@@ -33,6 +33,7 @@ declare
   v_client_g uuid := gen_random_uuid();
   v_client_h uuid := gen_random_uuid();
   v_client_i uuid := gen_random_uuid();  -- dedicated non-membership-funded reversal test
+  v_client_j uuid := gen_random_uuid();  -- PR #70 review: unfunded-membership adversarial tests
 
   v_package_i uuid := gen_random_uuid();
   v_package_item_i uuid := gen_random_uuid();
@@ -62,7 +63,13 @@ declare
   v_class3 uuid;
   v_class4 uuid;
   v_class5 uuid;
+  v_class6 uuid;
+  v_class7 uuid;
+  v_class8 uuid;
   v_attendee1 uuid;
+  v_attendee_j uuid;
+  v_package_j uuid := gen_random_uuid();
+  v_package_item_j uuid := gen_random_uuid();
   v_membership_slice_d uuid;
   v_result record;
   v_error_caught boolean;
@@ -90,6 +97,7 @@ begin
     (v_client_f, v_other_studio_id, 'CrossTenant', 'ClientF', 'active'),
     (v_client_g, v_studio_id, 'ExpiredMembership', 'ClientG', 'active'),
     (v_client_h, v_studio_id, 'StaffEnrolled', 'ClientH', 'active'),
+    (v_client_j, v_studio_id, 'UnfundedMembershipTest', 'ClientJ', 'active'),
     (v_client_i, v_studio_id, 'NonMembershipReversal', 'ClientI', 'active');
 
   insert into membership_plans (id, studio_id, name, active) values
@@ -496,6 +504,135 @@ begin
     raise exception 'FAIL: staff enrollment via enroll_class_attendee RPC did not succeed as expected.';
   end if;
   raise notice 'PASS: staff (broad-authority) enrollment via the real RPC is bound by the same finite-membership capacity trigger -- no override mechanism exists.';
+
+  -- ==========================================================================
+  -- 13. PR #70 review correction: billing_type='membership' with a NULL
+  --     client_membership_id must be rejected at every write path -- INSERT,
+  --     UPDATE, and the enroll_class_attendee RPC -- never silently
+  --     accepted. Package/PAYG billing must remain completely unaffected.
+  -- ==========================================================================
+
+  -- 13a. Direct INSERT.
+  insert into appointments (id, studio_id, appointment_type, title, starts_at, ends_at, status, client_id)
+  values (gen_random_uuid(), v_studio_id, 'group_class', 'GC2 Class 6', v_now + interval '9 days', v_now + interval '9 days 1 hour', 'scheduled', null)
+  returning id into v_class6;
+
+  v_error_caught := false;
+  v_error_message := null;
+  begin
+    insert into appointment_attendees (studio_id, appointment_id, client_id, status, source, billing_type, client_membership_id)
+    values (v_studio_id, v_class6, v_client_j, 'booked', 'staff', 'membership', null);
+  exception when others then
+    v_error_caught := true;
+    v_error_message := sqlerrm;
+  end;
+  if not v_error_caught then
+    raise exception 'FAIL: INSERT with billing_type=membership and client_membership_id=null should have been rejected.';
+  end if;
+  if v_error_message not like '%requires a specific membership to be selected%' then
+    raise exception 'FAIL: unexpected error message for the null-membership-id INSERT rejection: %', v_error_message;
+  end if;
+  raise notice 'PASS: direct INSERT with billing_type=membership and client_membership_id=null is rejected, not silently accepted.';
+
+  select count(*) into v_count from appointment_attendees where appointment_id = v_class6 and client_id = v_client_j;
+  if v_count <> 0 then
+    raise exception 'FAIL: a rejected null-membership-id insert must not create any appointment_attendees row, found %.', v_count;
+  end if;
+  raise notice 'PASS: no attendee row was created by the rejected INSERT.';
+
+  -- 13b. Direct UPDATE: an existing, valid package-funded row must not be
+  --      switchable to billing_type=membership with no membership id.
+  insert into appointments (id, studio_id, appointment_type, title, starts_at, ends_at, status, client_id)
+  values (gen_random_uuid(), v_studio_id, 'group_class', 'GC2 Class 7', v_now + interval '10 days', v_now + interval '10 days 1 hour', 'scheduled', null)
+  returning id into v_class7;
+
+  insert into client_packages (id, studio_id, client_id, name_snapshot, active)
+    values (v_package_j, v_studio_id, v_client_j, 'GC2 Unfunded-Update Test Package', true);
+  insert into client_package_items (id, studio_id, client_package_id, usage_type, quantity_total, quantity_used, quantity_remaining, is_unlimited)
+    values (v_package_item_j, v_studio_id, v_package_j, 'group_class', 1, 0, 1, false);
+
+  insert into appointment_attendees (id, studio_id, appointment_id, client_id, status, source, billing_type, client_package_id)
+  values (gen_random_uuid(), v_studio_id, v_class7, v_client_j, 'booked', 'staff', 'package_credit', v_package_j)
+  returning id into v_attendee_j;
+
+  v_error_caught := false;
+  v_error_message := null;
+  begin
+    update appointment_attendees
+      set billing_type = 'membership', client_membership_id = null, client_package_id = null
+      where id = v_attendee_j;
+  exception when others then
+    v_error_caught := true;
+    v_error_message := sqlerrm;
+  end;
+  if not v_error_caught then
+    raise exception 'FAIL: UPDATE to billing_type=membership with client_membership_id=null should have been rejected.';
+  end if;
+  if v_error_message not like '%requires a specific membership to be selected%' then
+    raise exception 'FAIL: unexpected error message for the null-membership-id UPDATE rejection: %', v_error_message;
+  end if;
+  raise notice 'PASS: UPDATE to billing_type=membership with client_membership_id=null is rejected, not just INSERT.';
+
+  select billing_type, client_package_id into v_result from appointment_attendees where id = v_attendee_j;
+  if v_result.billing_type <> 'package_credit' or v_result.client_package_id is distinct from v_package_j then
+    raise exception 'FAIL: the rejected update must leave the original package-funded row completely unchanged.';
+  end if;
+  raise notice 'PASS: the rejected update left the original package-funded row completely unchanged.';
+
+  -- 13c. enroll_class_attendee RPC, broad/staff path, explicit null membership id.
+  insert into appointments (id, studio_id, appointment_type, title, starts_at, ends_at, status, client_id)
+  values (gen_random_uuid(), v_studio_id, 'group_class', 'GC2 Class 8', v_now + interval '11 days', v_now + interval '11 days 1 hour', 'scheduled', null)
+  returning id into v_class8;
+
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_staff_user_id::text)::text, true);
+
+  v_error_caught := false;
+  v_error_message := null;
+  begin
+    perform public.enroll_class_attendee(v_class8, v_client_j, 'membership', null, null);
+  exception when others then
+    v_error_caught := true;
+    v_error_message := sqlerrm;
+  end;
+
+  reset role;
+
+  if not v_error_caught then
+    raise exception 'FAIL: enroll_class_attendee RPC with billing_type=membership and no client_membership_id should have been rejected.';
+  end if;
+  if v_error_message not like '%requires a specific membership to be selected%' then
+    raise exception 'FAIL: unexpected error message from the RPC path: %', v_error_message;
+  end if;
+  raise notice 'PASS: enroll_class_attendee RPC (broad/staff path) rejects billing_type=membership with no client_membership_id.';
+
+  select count(*) into v_count from appointment_attendees where appointment_id = v_class8 and client_id = v_client_j;
+  if v_count <> 0 then
+    raise exception 'FAIL: the rejected RPC call must not create any appointment_attendees row, found %.', v_count;
+  end if;
+  raise notice 'PASS: no attendee row was created via the rejected RPC call.';
+
+  select count(*) into v_count from client_membership_usage
+    where reference_type = 'appointment' and reference_id in (v_class6, v_class7, v_class8);
+  if v_count <> 0 then
+    raise exception 'FAIL: no usage row should exist anywhere for these rejected-enrollment appointments, found %.', v_count;
+  end if;
+  raise notice 'PASS: no usage row was ever created for any of the rejected null-membership-id attempts.';
+
+  -- 13d. Regression: non-membership billing types are completely unaffected
+  --      by the new guard -- pay_as_you_go with a null client_membership_id
+  --      (the normal, expected shape for that billing type) still succeeds.
+  --      free_comped shares the identical `billing_type <> 'membership'`
+  --      early-return code path, so this one case covers both.
+  insert into appointment_attendees (studio_id, appointment_id, client_id, status, source, billing_type, client_membership_id)
+  values (v_studio_id, v_class8, v_client_j, 'booked', 'staff', 'pay_as_you_go', null);
+
+  select count(*) into v_count from appointment_attendees
+    where appointment_id = v_class8 and client_id = v_client_j and status = 'booked' and billing_type = 'pay_as_you_go';
+  if v_count <> 1 then
+    raise exception 'FAIL: pay_as_you_go billing with null client_membership_id should succeed, completely unaffected by the new guard, found %.', v_count;
+  end if;
+  raise notice 'PASS: pay_as_you_go billing with null client_membership_id is completely unaffected by the new membership-id guard.';
 
   raise notice 'ALL GC-2 (Group-Class Membership Entitlement) TESTS PASSED.';
 end;

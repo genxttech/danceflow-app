@@ -2661,6 +2661,9 @@ export async function deleteAppointmentAction(formData: FormData) {
 // dedicated code, so this stays a targeted fix rather than a redesign of
 // every possible RPC failure.
 function classifyEnrollClassAttendeeError(message: string): string {
+  if (message.includes("requires a specific membership to be selected")) {
+    return "membership_requires_selection";
+  }
   if (message.includes("has no applicable group-class benefit")) {
     return "no_eligible_entitlement";
   }
@@ -2690,6 +2693,21 @@ export async function enrollClassAttendeeAction(formData: FormData) {
 
     if (!appointmentId || !clientId) {
       redirect(getErrorRedirect(formData, fallback, "missing_enrollment_target"));
+    }
+
+    // PR #70 review correction: billingType='membership' with no
+    // clientMembershipId is an invalid, unfunded state -- reject it here,
+    // before ever calling the RPC, rather than letting an incomplete
+    // selection reach the database. Package/PAYG/free-comped are
+    // unaffected (they have no equivalent required-id requirement here).
+    if (billingType === "membership" && !clientMembershipId) {
+      redirect(
+        appendQueryParam(
+          appendQueryParam("/app/schedule/enroll-student", "error", "membership_requires_selection"),
+          "appointmentId",
+          appointmentId,
+        ),
+      );
     }
 
     const { error } = await supabase.rpc("enroll_class_attendee", {

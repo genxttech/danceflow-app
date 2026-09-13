@@ -9,6 +9,23 @@ export type MembershipFundingDisplay =
   | { kind: "unresolved"; membershipName: string };
 
 /**
+ * Whether a membership's group-class funding can be offered/auto-selected
+ * as an eligible enrollment source (Add Student, PR #70 review correction).
+ * Unlimited is always eligible (nothing to exhaust). Finite is eligible
+ * only while quantity - usedInPeriod > 0 -- a fully-consumed finite
+ * membership must never be auto-preselected or offered as if it could
+ * still fund an enrollment, since the DB (GC-2c) will correctly reject it
+ * at submission time regardless; this keeps the UI from walking a staff
+ * member into a foreseeable rejection. Unresolved (no applicable benefit
+ * at all) is never eligible.
+ */
+export function isMembershipFundingEligibleForEnrollment(funding: MembershipFundingDisplay): boolean {
+  if (funding.kind === "unresolved") return false;
+  if (funding.kind === "finite") return (funding.quantity ?? 0) - funding.usedInPeriod > 0;
+  return true;
+}
+
+/**
  * Roster-display-only funding summary for membership-billed group-class
  * attendees (item B of the UX audit). This is informational, not
  * authoritative -- the DB triggers (GC-2c/GC-2f) remain the sole enforcement

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { enrollClassAttendeeAction } from "../actions";
 import InstructorClientSearchField from "../InstructorClientSearchField";
 import type { BookableClientSearchResult } from "../actions";
@@ -83,6 +83,7 @@ export default function EnrollStudentForm({
   const [clientPackageId, setClientPackageId] = useState("");
   const [clientMembershipId, setClientMembershipId] = useState("");
   const [showManualBilling, setShowManualBilling] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   function selectSearchedClient(client: BookableClientSearchResult) {
     setClientId(client.id);
@@ -137,6 +138,21 @@ export default function EnrollStudentForm({
     }
   }, [clientId, eligibleSources]);
 
+  // PR #70 review correction: never let the form submit
+  // billingType='membership' with no concrete membership selected -- the
+  // native `required` attribute on the manual membership <select> already
+  // blocks this, but this is a second, explicit guard (in case that field
+  // isn't the one currently rendered, or JS interacts with it unexpectedly)
+  // and gives a clearer message than the browser's own validation tooltip.
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    if (billingType === "membership" && !clientMembershipId) {
+      event.preventDefault();
+      setSubmitError("Select a specific membership before billing this enrollment to Membership.");
+      return;
+    }
+    setSubmitError("");
+  }
+
   function selectEligibleSource(source: EligibleFundingSource) {
     if (source.type === "package") {
       setBillingType("package_credit");
@@ -165,8 +181,14 @@ export default function EnrollStudentForm({
   }
 
   return (
-    <form action={enrollClassAttendeeAction} className="space-y-5">
+    <form action={enrollClassAttendeeAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="returnTo" value={`/app/schedule/${appointmentId}`} />
+
+      {submitError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {submitError}
+        </div>
+      ) : null}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
         <h3 className="mb-4 text-lg font-semibold text-slate-900">Class</h3>
@@ -375,11 +397,12 @@ export default function EnrollStudentForm({
                   <select
                     id="clientMembershipId"
                     name="clientMembershipId"
+                    required
                     value={clientMembershipId}
                     onChange={(event) => setClientMembershipId(event.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                   >
-                    <option value="">
+                    <option value="" disabled>
                       {availableMemberships.length
                         ? "Select a membership"
                         : "No active memberships for this client"}
@@ -390,6 +413,12 @@ export default function EnrollStudentForm({
                       </option>
                     ))}
                   </select>
+                  {availableMemberships.length === 0 ? (
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      This client has no active membership. Choose Package credit, Pay as you go, or Free / comped
+                      instead.
+                    </p>
+                  ) : null}
                 </>
               ) : null}
             </>
