@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canCreateAppointments } from "@/lib/auth/permissions";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
+import { getGroupClassMembershipFundingForRoster } from "@/lib/schedule/groupClassMembershipFunding";
 import EnrollStudentForm from "./EnrollStudentForm";
 
 type ClassOption = {
@@ -42,15 +43,48 @@ type ClientMembershipRow = {
   status: string;
 };
 
+export type EligibleFundingSource =
+  | { type: "package"; id: string; label: string; remainingLabel: string }
+  | { type: "membership"; id: string; label: string; remainingLabel: string };
+
 function firstJoin<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
+
+// GC-2 item D: distinct, actionable messages for enrollClassAttendeeAction's
+// specific error codes (see classifyEnrollClassAttendeeError in
+// schedule/actions.ts) -- landing back here, not a generic failure banner.
+function enrollmentErrorMessage(code: string): string {
+  switch (code) {
+    case "no_eligible_entitlement":
+      return "That membership does not include a group-class benefit. Choose a different funding source or bill manually.";
+    case "entitlement_exhausted":
+      return "That membership has no allowance remaining for a group class this billing period. Choose a different funding source or bill manually.";
+    case "membership_not_active":
+      return "That membership is not active for this client, or has expired. Choose a different funding source or bill manually.";
+    case "ambiguous_funding_source":
+      return "This student has more than one eligible funding source and none was selected -- choose one to complete the enrollment.";
+    case "missing_enrollment_target":
+      return "Select a class and a client before enrolling.";
+    default:
+      return "Could not enroll this student. Check the class and funding selection and try again.";
+  }
+}
+
+type SearchParams = Promise<{ error?: string }>;
 
 // GC-1.4A: "Enroll Student" -- the minimum functional UX for adding a
 // client to an already-existing class instance. Deliberately not roster
 // management (GC-1.5): no bulk enrollment, no search-and-add browser, no
 // remove-with-confirmation dialog -- one class, one client, one submit.
-export default async function EnrollStudentPage() {
+export default async function EnrollStudentPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const query = await searchParams;
+  const errorBanner = query.error ? enrollmentErrorMessage(query.error) : null;
+
   const context = await getCurrentStudioContext();
   const { studioId, studioRole, isPlatformAdmin } = context;
   const supabase = await createClient();
@@ -169,8 +203,67 @@ export default async function EnrollStudentPage() {
     }
   }
 
+  // GC-2 item C: which of these packages/memberships actually contain an
+  // applicable group-class benefit -- computed once here rather than in the
+  // client component, so a client with a package/membership that doesn't
+  // cover group classes is never silently offered as if it did.
+  const allMembershipIds = Object.values(clientMembershipsByClientId)
+    .flat()
+    .map((m) => m.id);
+  const membershipFundingMap = await getGroupClassMembershipFundingForRoster({
+    supabase,
+    studioId,
+    membershipIds: allMembershipIds,
+  });
+
+  const eligibleFundingSourcesByClientId: Record<string, EligibleFundingSource[]> = {};
+
+  for (const [clientId, packages] of Object.entries(clientPackagesByClientId)) {
+    for (const pkg of packages) {
+      const classItem = (pkg.client_package_items ?? []).find(
+        (item) => item.usage_type === "group_class",
+      );
+      if (!classItem) continue;
+      if (!classItem.is_unlimited && (classItem.quantity_remaining ?? 0) <= 0) continue;
+
+      eligibleFundingSourcesByClientId[clientId] ??= [];
+      eligibleFundingSourcesByClientId[clientId].push({
+        type: "package",
+        id: pkg.id,
+        label: pkg.name_snapshot || "Package",
+        remainingLabel: classItem.is_unlimited
+          ? "Unlimited"
+          : `${classItem.quantity_remaining ?? 0} remaining`,
+      });
+    }
+  }
+
+  for (const [clientId, memberships] of Object.entries(clientMembershipsByClientId)) {
+    for (const membership of memberships) {
+      const funding = membershipFundingMap.get(membership.id);
+      if (!funding || funding.kind === "unresolved") continue;
+
+      eligibleFundingSourcesByClientId[clientId] ??= [];
+      eligibleFundingSourcesByClientId[clientId].push({
+        type: "membership",
+        id: membership.id,
+        label: membership.name_snapshot || "Membership",
+        remainingLabel:
+          funding.kind === "unlimited"
+            ? "Unlimited"
+            : `${funding.usedInPeriod} of ${funding.quantity ?? 0} used`,
+      });
+    }
+  }
+
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      {errorBanner ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorBanner}
+        </div>
+      ) : null}
+
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="max-w-3xl">
@@ -196,6 +289,7 @@ export default async function EnrollStudentPage() {
         clients={clients}
         clientPackagesByClientId={clientPackagesByClientId}
         clientMembershipsByClientId={clientMembershipsByClientId}
+        eligibleFundingSourcesByClientId={eligibleFundingSourcesByClientId}
         instructorSearchMode={!isBroadStaff}
         isBroadStaff={isBroadStaff}
       />

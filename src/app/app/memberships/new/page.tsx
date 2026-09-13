@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { createMembershipPlanAction } from "../actions";
+import { MEMBERSHIP_BENEFIT_TYPES, MEMBERSHIP_USAGE_PERIODS } from "@/lib/memberships/benefitTypes";
 
 type BenefitRow = {
   id: string;
@@ -22,36 +23,7 @@ const initialState: ActionState = {
   error: "",
 };
 
-const benefitTypeOptions = [
-  {
-    value: "unlimited_group_classes",
-    label: "Unlimited group classes",
-    helper:
-      "Clients can attend eligible group classes during the billing period.",
-  },
-  {
-    value: "unlimited_practice_parties",
-    label: "Unlimited practice parties",
-    helper:
-      "Clients can attend eligible practice parties during the billing period.",
-  },
-  {
-    value: "included_private_lessons",
-    label: "Included private lessons",
-    helper: "Adds a set number of private lessons per billing period.",
-  },
-  {
-    value: "event_discount_percent",
-    label: "Event discount",
-    helper: "Applies a percentage or dollar discount to eligible events.",
-  },
-  {
-    value: "floor_rental_discount_percent",
-    label: "Floor rental discount",
-    helper:
-      "Applies a percentage or dollar discount to eligible floor rentals.",
-  },
-];
+const benefitTypeOptions = MEMBERSHIP_BENEFIT_TYPES;
 
 function makeBenefit(): BenefitRow {
   return {
@@ -359,11 +331,11 @@ export default function NewMembershipPlanPage() {
                         }
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
                       >
-                        <option value="billing_cycle">
-                          Each billing cycle
-                        </option>
-                        <option value="monthly">Each month</option>
-                        <option value="unlimited">Unlimited</option>
+                        {MEMBERSHIP_USAGE_PERIODS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 

@@ -20,6 +20,10 @@ import {
   type ClassRosterEntryForInstructor,
   type ClassRosterEntryForStaff,
 } from "@/lib/schedule/groupClassRoster";
+import {
+  getGroupClassMembershipFundingForRoster,
+  type MembershipFundingDisplay,
+} from "@/lib/schedule/groupClassMembershipFunding";
 
 type Params = Promise<{
   id: string;
@@ -50,6 +54,19 @@ type AttendanceRow = {
   marked_attended_at: string | null;
 };
 
+type PackageFundingInfo = {
+  name: string;
+  isUnlimited: boolean;
+  quantityRemaining: number | null;
+  applies: boolean;
+};
+
+type FundingDisplay =
+  | { kind: "membership"; detail: MembershipFundingDisplay }
+  | { kind: "package"; detail: PackageFundingInfo }
+  | { kind: "pay_as_you_go" }
+  | { kind: "free_comped" };
+
 type GroupLessonRecapRow = {
   id: string;
   title: string;
@@ -70,6 +87,40 @@ function statusBadgeClass(status: string) {
   if (status === "no_show") return "bg-orange-50 text-orange-700";
   if (status === "cancelled") return "bg-red-50 text-red-700";
   return "bg-slate-100 text-slate-700";
+}
+
+function fundingChipLabel(funding: FundingDisplay | null): string {
+  if (!funding) return "No billing on file";
+
+  if (funding.kind === "membership") {
+    const { detail } = funding;
+    if (detail.kind === "unlimited") return `Membership: Unlimited`;
+    if (detail.kind === "finite") {
+      const quantity = detail.quantity ?? 0;
+      return `Membership: ${detail.usedInPeriod} of ${quantity} used`;
+    }
+    return "Membership: needs review";
+  }
+
+  if (funding.kind === "package") {
+    if (!funding.detail.applies) return `${funding.detail.name}: doesn't cover group classes`;
+    if (funding.detail.isUnlimited) return `${funding.detail.name}: Unlimited`;
+    return `${funding.detail.name}: ${funding.detail.quantityRemaining ?? 0} remaining`;
+  }
+
+  if (funding.kind === "pay_as_you_go") return "Pay-as-you-go";
+  return "Free / comped";
+}
+
+function fundingDetailText(funding: FundingDisplay | null): string | null {
+  if (!funding) return null;
+  if (funding.kind === "membership") {
+    if (funding.detail.kind === "unresolved") {
+      return `${funding.detail.membershipName} does not have a group-class benefit that currently applies.`;
+    }
+    return funding.detail.membershipName;
+  }
+  return null;
 }
 
 function formatDateTime(value: string | null) {
@@ -309,6 +360,71 @@ export default async function ScheduleAttendancePage({
       .map((row) => [row.client_id as string, row])
   );
 
+  // GC-2 item B: funding-source visibility. Only the staff-shaped roster
+  // carries billing/package/membership identifiers at all (the instructor
+  // shape deliberately excludes them, see groupClassRoster.ts) -- this
+  // section is a pure no-op for an instructor-scoped viewer.
+  const staffMembershipIds = typedAttendees
+    .filter((attendee): attendee is ClassRosterEntryForStaff => "clientMembershipId" in attendee)
+    .map((attendee) => attendee.clientMembershipId)
+    .filter((id): id is string => Boolean(id));
+
+  const staffPackageIds = typedAttendees
+    .filter((attendee): attendee is ClassRosterEntryForStaff => "clientPackageId" in attendee)
+    .map((attendee) => attendee.clientPackageId)
+    .filter((id): id is string => Boolean(id));
+
+  const attendanceRecordIdsForErrorLookup = typedAttendance
+    .map((row) => row.id)
+    .filter((id): id is string => Boolean(id));
+
+  const [membershipFundingMap, { data: packageRows }, { data: unresolvedErrorRows }] = await Promise.all([
+    getGroupClassMembershipFundingForRoster({
+      supabase,
+      studioId,
+      membershipIds: staffMembershipIds,
+    }),
+    staffPackageIds.length > 0
+      ? supabase
+          .from("client_packages")
+          .select("id, name_snapshot, client_package_items(usage_type, quantity_remaining, is_unlimited)")
+          .eq("studio_id", studioId)
+          .in("id", staffPackageIds)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
+    attendanceRecordIdsForErrorLookup.length > 0
+      ? supabase
+          .from("membership_usage_sync_errors")
+          .select("attendance_record_id")
+          .in("attendance_record_id", attendanceRecordIdsForErrorLookup)
+          .is("resolved_at", null)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
+  ]);
+
+  const packageFundingById = new Map(
+    ((packageRows ?? []) as {
+      id: string;
+      name_snapshot: string | null;
+      client_package_items: { usage_type: string | null; quantity_remaining: number | null; is_unlimited: boolean | null }[] | null;
+    }[]).map((pkg) => {
+      const classItem = (pkg.client_package_items ?? []).find((item) => item.usage_type === "group_class");
+      return [
+        pkg.id,
+        {
+          name: pkg.name_snapshot || "Package",
+          isUnlimited: classItem?.is_unlimited ?? false,
+          quantityRemaining: classItem?.quantity_remaining ?? null,
+          applies: Boolean(classItem),
+        },
+      ];
+    }),
+  );
+
+  const attendanceRecordIdsWithUnresolvedError = new Set(
+    ((unresolvedErrorRows ?? []) as { attendance_record_id: string | null }[])
+      .map((row) => row.attendance_record_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+
   // GC-1.3A: `typedAttendees` is whichever role-scoped DTO the roster
   // promise above resolved to (staff or instructor shape) -- the instructor
   // shape has no email/phone, so those are read defensively below rather
@@ -320,6 +436,29 @@ export default async function ScheduleAttendancePage({
       const attendance = attendanceByClientId.get(attendee.clientId) ?? null;
       const effectiveStatus = attendance?.status ?? "registered";
 
+      const billingType = "billingType" in attendee ? attendee.billingType : null;
+      const clientMembershipId = "clientMembershipId" in attendee ? attendee.clientMembershipId : null;
+      const clientPackageId = "clientPackageId" in attendee ? attendee.clientPackageId : null;
+
+      let funding: FundingDisplay | null = null;
+      if (billingType === "membership" && clientMembershipId) {
+        const membershipFunding = membershipFundingMap.get(clientMembershipId) ?? null;
+        funding = membershipFunding
+          ? { kind: "membership", detail: membershipFunding }
+          : { kind: "membership", detail: { kind: "unresolved", membershipName: "Membership" } };
+      } else if (billingType === "package_credit" && clientPackageId) {
+        const pkg = packageFundingById.get(clientPackageId);
+        funding = { kind: "package", detail: pkg ?? { name: "Package", isUnlimited: false, quantityRemaining: null, applies: false } };
+      } else if (billingType === "pay_as_you_go") {
+        funding = { kind: "pay_as_you_go" };
+      } else if (billingType === "free_comped") {
+        funding = { kind: "free_comped" };
+      }
+
+      const hasFundingProblem = Boolean(
+        attendance?.id && attendanceRecordIdsWithUnresolvedError.has(attendance.id),
+      );
+
       return {
         clientId: attendee.clientId,
         firstName: attendee.firstName,
@@ -328,6 +467,8 @@ export default async function ScheduleAttendancePage({
         phone,
         attendance,
         effectiveStatus,
+        funding,
+        hasFundingProblem,
       };
     })
     .filter((item) => {
@@ -752,6 +893,18 @@ export default async function ScheduleAttendancePage({
                       >
                         {attendee.effectiveStatus}
                       </span>
+
+                      {attendee.funding ? (
+                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                          {fundingChipLabel(attendee.funding)}
+                        </span>
+                      ) : null}
+
+                      {attendee.hasFundingProblem ? (
+                        <span className="inline-flex rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
+                          Needs funding review
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -783,6 +936,15 @@ export default async function ScheduleAttendancePage({
                         </p>
                       </div>
                     </div>
+
+                    {fundingDetailText(attendee.funding) ? (
+                      <details className="mt-3 text-sm text-slate-600">
+                        <summary className="cursor-pointer font-medium text-slate-700">
+                          Funding details
+                        </summary>
+                        <p className="mt-1">{fundingDetailText(attendee.funding)}</p>
+                      </details>
+                    ) : null}
                   </div>
 
                   <div className="flex shrink-0 flex-wrap gap-3 lg:w-[260px] lg:flex-col">

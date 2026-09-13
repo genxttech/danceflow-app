@@ -431,6 +431,53 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
     expect(redirectUrl(error)).toContain("error=enrollment_failed");
   });
 
+  it("membership-funded enrollment redirects with a distinct success code", async () => {
+    const { supabase } = makeFakeSupabase({
+      rpcResponses: { enroll_class_attendee: { data: "attendee-1", error: null } },
+    });
+
+    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+
+    const formData = formDataFor({
+      appointmentId: APPOINTMENT_ID,
+      clientId: CLIENT_ID,
+      billingType: "membership",
+      clientMembershipId: "membership-1",
+    });
+
+    const error = await run(enrollClassAttendeeAction(formData));
+
+    expect(redirectUrl(error)).toContain("success=student_enrolled_membership");
+  });
+
+  // GC-2 item D: enroll_class_attendee's own distinct exception messages
+  // (GC-2c/GC-2d) must each surface as a distinct, actionable redirect code
+  // -- not collapse into the generic "enrollment_failed".
+  it.each([
+    ["This membership has no applicable group-class benefit.", "no_eligible_entitlement"],
+    ["No allowance remaining in this membership''s billing period for a group class.", "entitlement_exhausted"],
+    ["This membership does not belong to this client, or is not active.", "membership_not_active"],
+    [
+      "This enrollment needs a billing decision -- ask an owner, admin, or front desk to complete it.",
+      "ambiguous_funding_source",
+    ],
+  ])("maps %s to error=%s", async (rpcMessage, expectedCode) => {
+    const { supabase } = makeFakeSupabase({
+      rpcResponses: {
+        enroll_class_attendee: { data: null, error: { message: rpcMessage } },
+      },
+    });
+
+    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+
+    const formData = formDataFor({ appointmentId: APPOINTMENT_ID, clientId: CLIENT_ID });
+
+    const error = await run(enrollClassAttendeeAction(formData));
+
+    expect(redirectUrl(error)).toContain(`error=${expectedCode}`);
+    expect(redirectUrl(error)).toContain("/app/schedule/enroll-student");
+  });
+
   it("cancels one attendee via the RPC", async () => {
     const { supabase, rpcCalls } = makeFakeSupabase({
       rpcResponses: { cancel_class_attendee: { data: null, error: null } },

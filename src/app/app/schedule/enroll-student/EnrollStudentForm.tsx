@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { enrollClassAttendeeAction } from "../actions";
 import InstructorClientSearchField from "../InstructorClientSearchField";
 import type { BookableClientSearchResult } from "../actions";
+import type { EligibleFundingSource } from "./page";
 
 type ClassOption = {
   id: string;
@@ -63,6 +64,7 @@ export default function EnrollStudentForm({
   clients,
   clientPackagesByClientId,
   clientMembershipsByClientId,
+  eligibleFundingSourcesByClientId,
   instructorSearchMode,
   isBroadStaff,
 }: {
@@ -70,6 +72,7 @@ export default function EnrollStudentForm({
   clients: ClientOption[];
   clientPackagesByClientId: Record<string, ClientPackageRow[]>;
   clientMembershipsByClientId: Record<string, ClientMembershipRow[]>;
+  eligibleFundingSourcesByClientId: Record<string, EligibleFundingSource[]>;
   instructorSearchMode: boolean;
   isBroadStaff: boolean;
 }) {
@@ -79,6 +82,7 @@ export default function EnrollStudentForm({
   const [billingType, setBillingType] = useState("package_credit");
   const [clientPackageId, setClientPackageId] = useState("");
   const [clientMembershipId, setClientMembershipId] = useState("");
+  const [showManualBilling, setShowManualBilling] = useState(false);
 
   function selectSearchedClient(client: BookableClientSearchResult) {
     setClientId(client.id);
@@ -94,6 +98,56 @@ export default function EnrollStudentForm({
     () => (clientId ? clientMembershipsByClientId[clientId] ?? [] : []),
     [clientId, clientMembershipsByClientId],
   );
+
+  const eligibleSources = useMemo(
+    () => (clientId ? eligibleFundingSourcesByClientId[clientId] ?? [] : []),
+    [clientId, eligibleFundingSourcesByClientId],
+  );
+
+  // GC-2 item C: one valid funding source -> preselect it; several -> a
+  // compact explicit chooser; none -> fall back to the manual controls
+  // (package/PAYG/free-comped), never silently leaving an unfunded
+  // membership enrollment selected.
+  useEffect(() => {
+    if (!clientId) {
+      setShowManualBilling(false);
+      return;
+    }
+
+    if (eligibleSources.length === 1) {
+      const only = eligibleSources[0];
+      setShowManualBilling(false);
+      if (only.type === "package") {
+        setBillingType("package_credit");
+        setClientPackageId(only.id);
+        setClientMembershipId("");
+      } else {
+        setBillingType("membership");
+        setClientMembershipId(only.id);
+        setClientPackageId("");
+      }
+      return;
+    }
+
+    if (eligibleSources.length === 0) {
+      setShowManualBilling(true);
+      setBillingType("pay_as_you_go");
+      setClientPackageId("");
+      setClientMembershipId("");
+    }
+  }, [clientId, eligibleSources]);
+
+  function selectEligibleSource(source: EligibleFundingSource) {
+    if (source.type === "package") {
+      setBillingType("package_credit");
+      setClientPackageId(source.id);
+      setClientMembershipId("");
+    } else {
+      setBillingType("membership");
+      setClientMembershipId(source.id);
+      setClientPackageId("");
+    }
+  }
 
   if (classes.length === 0) {
     return (
@@ -179,83 +233,167 @@ export default function EnrollStudentForm({
       {isBroadStaff ? (
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
           <h3 className="mb-1 text-lg font-semibold text-slate-900">Billing</h3>
-          <p className="mb-4 text-sm text-slate-500">
-            Choose how this student&apos;s enrollment is billed.
-          </p>
 
-          <label htmlFor="billingType" className="mb-1.5 block text-sm font-medium">
-            Billing type
-          </label>
-          <select
-            id="billingType"
-            name="billingType"
-            value={billingType}
-            onChange={(event) => setBillingType(event.target.value)}
-            className="mb-4 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-          >
-            <option value="package_credit">Package credit</option>
-            <option value="membership">Membership</option>
-            <option value="pay_as_you_go">Pay as you go</option>
-            <option value="free_comped">Free / comped</option>
-          </select>
-
-          {billingType === "package_credit" ? (
-            <>
-              <label htmlFor="clientPackageId" className="mb-1.5 block text-sm font-medium">
-                Package
-              </label>
-              <select
-                id="clientPackageId"
-                name="clientPackageId"
-                value={clientPackageId}
-                onChange={(event) => setClientPackageId(event.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-              >
-                <option value="">
-                  {availablePackages.length ? "Select a package" : "No active packages for this client"}
-                </option>
-                {availablePackages.map((pkg) => {
-                  const classItem = (pkg.client_package_items ?? []).find(
-                    (item) => item.usage_type === "group_class",
-                  );
-                  const remaining = classItem?.is_unlimited
-                    ? "Unlimited"
-                    : `${classItem?.quantity_remaining ?? 0} remaining`;
+          {!clientId ? (
+            <p className="text-sm text-slate-500">Select a client to see their eligible funding.</p>
+          ) : !showManualBilling && eligibleSources.length === 1 ? (
+            <div>
+              <input type="hidden" name="billingType" value={billingType} />
+              <input type="hidden" name="clientPackageId" value={clientPackageId} />
+              <input type="hidden" name="clientMembershipId" value={clientMembershipId} />
+              <p className="mb-3 text-sm text-slate-500">
+                This student has one funding source that covers group classes.
+              </p>
+              <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <div>
+                  <p className="font-medium text-slate-900">{eligibleSources[0].label}</p>
+                  <p className="text-sm text-slate-600">{eligibleSources[0].remainingLabel}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManualBilling(true)}
+                  className="text-sm font-medium text-[var(--brand-primary)] underline"
+                >
+                  Change
+                </button>
+              </div>
+            </div>
+          ) : !showManualBilling && eligibleSources.length > 1 ? (
+            <div>
+              <input type="hidden" name="billingType" value={billingType} />
+              <input type="hidden" name="clientPackageId" value={clientPackageId} />
+              <input type="hidden" name="clientMembershipId" value={clientMembershipId} />
+              <p className="mb-3 text-sm text-slate-500">
+                This student has more than one funding source that covers group classes. Choose one.
+              </p>
+              <div className="grid gap-2">
+                {eligibleSources.map((source) => {
+                  const selected =
+                    (source.type === "package" && billingType === "package_credit" && clientPackageId === source.id) ||
+                    (source.type === "membership" && billingType === "membership" && clientMembershipId === source.id);
                   return (
-                    <option key={pkg.id} value={pkg.id}>
-                      {pkg.name_snapshot || "Package"} — {remaining}
-                    </option>
+                    <label
+                      key={`${source.type}-${source.id}`}
+                      className={`flex cursor-pointer items-center justify-between rounded-xl border px-4 py-3 ${
+                        selected ? "border-[var(--brand-primary)] bg-[var(--brand-muted)]" : "border-slate-200"
+                      }`}
+                    >
+                      <span>
+                        <span className="font-medium text-slate-900">{source.label}</span>
+                        <span className="ml-2 text-sm text-slate-600">{source.remainingLabel}</span>
+                      </span>
+                      <input
+                        type="radio"
+                        name="eligibleFundingSourceChoice"
+                        checked={selected}
+                        onChange={() => selectEligibleSource(source)}
+                      />
+                    </label>
                   );
                 })}
-              </select>
-            </>
-          ) : null}
-
-          {billingType === "membership" ? (
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowManualBilling(true)}
+                className="mt-3 text-sm font-medium text-[var(--brand-primary)] underline"
+              >
+                Bill manually instead
+              </button>
+            </div>
+          ) : (
             <>
-              <label htmlFor="clientMembershipId" className="mb-1.5 block text-sm font-medium">
-                Membership
+              <p className="mb-4 text-sm text-slate-500">
+                {eligibleSources.length === 0
+                  ? "No membership or package covers this class for this student — choose how to bill manually."
+                  : "Choose how this student's enrollment is billed."}
+              </p>
+
+              {eligibleSources.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowManualBilling(false)}
+                  className="mb-4 text-sm font-medium text-[var(--brand-primary)] underline"
+                >
+                  Back to suggested funding
+                </button>
+              ) : null}
+
+              <label htmlFor="billingType" className="mb-1.5 block text-sm font-medium">
+                Billing type
               </label>
               <select
-                id="clientMembershipId"
-                name="clientMembershipId"
-                value={clientMembershipId}
-                onChange={(event) => setClientMembershipId(event.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                id="billingType"
+                name="billingType"
+                value={billingType}
+                onChange={(event) => setBillingType(event.target.value)}
+                className="mb-4 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
               >
-                <option value="">
-                  {availableMemberships.length
-                    ? "Select a membership"
-                    : "No active memberships for this client"}
-                </option>
-                {availableMemberships.map((membership) => (
-                  <option key={membership.id} value={membership.id}>
-                    {membership.name_snapshot || "Membership"}
-                  </option>
-                ))}
+                <option value="package_credit">Package credit</option>
+                <option value="membership">Membership</option>
+                <option value="pay_as_you_go">Pay as you go</option>
+                <option value="free_comped">Free / comped</option>
               </select>
+
+              {billingType === "package_credit" ? (
+                <>
+                  <label htmlFor="clientPackageId" className="mb-1.5 block text-sm font-medium">
+                    Package
+                  </label>
+                  <select
+                    id="clientPackageId"
+                    name="clientPackageId"
+                    value={clientPackageId}
+                    onChange={(event) => setClientPackageId(event.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                  >
+                    <option value="">
+                      {availablePackages.length ? "Select a package" : "No active packages for this client"}
+                    </option>
+                    {availablePackages.map((pkg) => {
+                      const classItem = (pkg.client_package_items ?? []).find(
+                        (item) => item.usage_type === "group_class",
+                      );
+                      if (!classItem) return null;
+                      const remaining = classItem.is_unlimited
+                        ? "Unlimited"
+                        : `${classItem.quantity_remaining ?? 0} remaining`;
+                      return (
+                        <option key={pkg.id} value={pkg.id}>
+                          {pkg.name_snapshot || "Package"} — {remaining}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </>
+              ) : null}
+
+              {billingType === "membership" ? (
+                <>
+                  <label htmlFor="clientMembershipId" className="mb-1.5 block text-sm font-medium">
+                    Membership
+                  </label>
+                  <select
+                    id="clientMembershipId"
+                    name="clientMembershipId"
+                    value={clientMembershipId}
+                    onChange={(event) => setClientMembershipId(event.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                  >
+                    <option value="">
+                      {availableMemberships.length
+                        ? "Select a membership"
+                        : "No active memberships for this client"}
+                    </option>
+                    {availableMemberships.map((membership) => (
+                      <option key={membership.id} value={membership.id}>
+                        {membership.name_snapshot || "Membership"}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : null}
             </>
-          ) : null}
+          )}
         </section>
       ) : (
         <section className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600 md:p-6">
