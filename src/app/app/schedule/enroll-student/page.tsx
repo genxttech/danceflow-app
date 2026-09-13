@@ -3,10 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canCreateAppointments } from "@/lib/auth/permissions";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
-import {
-  getGroupClassMembershipFundingForRoster,
-  isMembershipFundingEligibleForEnrollment,
-} from "@/lib/schedule/groupClassMembershipFunding";
 import EnrollStudentForm from "./EnrollStudentForm";
 
 type ClassOption = {
@@ -49,6 +45,21 @@ type ClientMembershipRow = {
 export type EligibleFundingSource =
   | { type: "package"; id: string; label: string; remainingLabel: string }
   | { type: "membership"; id: string; label: string; remainingLabel: string };
+
+// GC-3.2: row shape returned by the canonical backend resolver
+// (get_eligible_group_class_funding_candidates, gc3c) -- the single source
+// of truth this RPC now shares with enroll_class_attendee's own
+// own-instructor auto-resolution, replacing this page's former independent
+// TypeScript eligibility computation.
+type FundingCandidateRow = {
+  funding_type: "package" | "membership";
+  source_id: string;
+  label: string;
+  is_unlimited: boolean;
+  quantity_total: number | null;
+  used: number | null;
+  remaining: number | null;
+};
 
 function firstJoin<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -208,57 +219,45 @@ export default async function EnrollStudentPage({
     }
   }
 
-  // GC-2 item C: which of these packages/memberships actually contain an
-  // applicable group-class benefit -- computed once here rather than in the
-  // client component, so a client with a package/membership that doesn't
-  // cover group classes is never silently offered as if it did.
-  const allMembershipIds = Object.values(clientMembershipsByClientId)
-    .flat()
-    .map((m) => m.id);
-  const membershipFundingMap = await getGroupClassMembershipFundingForRoster({
-    supabase,
-    studioId,
-    membershipIds: allMembershipIds,
-  });
-
+  // GC-3.2: eligible funding sources now come from the canonical backend
+  // resolver (get_eligible_group_class_funding_candidates) -- the same
+  // function enroll_class_attendee's own-instructor auto-resolution uses --
+  // rather than an independently-maintained TypeScript eligibility
+  // computation. Called once per broad-staff-visible client, with no
+  // appointment_id: this page has never scoped its eligibility preview to
+  // one specific class (it precomputes for every visible client before a
+  // class is chosen in the form below), so this preserves that existing,
+  // appointment-independent behavior exactly.
   const eligibleFundingSourcesByClientId: Record<string, EligibleFundingSource[]> = {};
 
-  for (const [clientId, packages] of Object.entries(clientPackagesByClientId)) {
-    for (const pkg of packages) {
-      const classItem = (pkg.client_package_items ?? []).find(
-        (item) => item.usage_type === "group_class",
-      );
-      if (!classItem) continue;
-      if (!classItem.is_unlimited && (classItem.quantity_remaining ?? 0) <= 0) continue;
+  if (isBroadStaff) {
+    await Promise.all(
+      clients.map(async (client) => {
+        const { data, error } = await supabase.rpc("get_eligible_group_class_funding_candidates", {
+          p_studio_id: studioId,
+          p_client_id: client.id,
+        });
 
-      eligibleFundingSourcesByClientId[clientId] ??= [];
-      eligibleFundingSourcesByClientId[clientId].push({
-        type: "package",
-        id: pkg.id,
-        label: pkg.name_snapshot || "Package",
-        remainingLabel: classItem.is_unlimited
-          ? "Unlimited"
-          : `${classItem.quantity_remaining ?? 0} remaining`,
-      });
-    }
-  }
+        if (error) {
+          throw new Error(`Failed to resolve funding eligibility for a client: ${error.message}`);
+        }
 
-  for (const [clientId, memberships] of Object.entries(clientMembershipsByClientId)) {
-    for (const membership of memberships) {
-      const funding = membershipFundingMap.get(membership.id);
-      if (!funding || !isMembershipFundingEligibleForEnrollment(funding)) continue;
+        const sources: EligibleFundingSource[] = ((data ?? []) as FundingCandidateRow[]).map((row) => ({
+          type: row.funding_type,
+          id: row.source_id,
+          label: row.label,
+          remainingLabel: row.is_unlimited
+            ? "Unlimited"
+            : row.funding_type === "package"
+              ? `${row.remaining ?? 0} remaining`
+              : `${row.used ?? 0} of ${row.quantity_total ?? 0} used`,
+        }));
 
-      eligibleFundingSourcesByClientId[clientId] ??= [];
-      eligibleFundingSourcesByClientId[clientId].push({
-        type: "membership",
-        id: membership.id,
-        label: membership.name_snapshot || "Membership",
-        remainingLabel:
-          funding.kind === "finite"
-            ? `${funding.usedInPeriod} of ${funding.quantity ?? 0} used`
-            : "Unlimited",
-      });
-    }
+        if (sources.length > 0) {
+          eligibleFundingSourcesByClientId[client.id] = sources;
+        }
+      }),
+    );
   }
 
   return (
