@@ -574,13 +574,13 @@ describe("getClientPackageStatus", () => {
 });
 
 describe("isPackageEligibleForReactivation", () => {
-  it("7. a package with usable balance and no expiration is eligible", () => {
+  it("7. a package with usable balance and no expiration is eligible when payment is settled", () => {
     expect(
       isPackageEligibleForReactivation({
         expiration_date: null,
         refund_status: null,
         client_package_items: [{ quantity_remaining: 3, is_unlimited: false }],
-      }),
+      }, true),
     ).toBe(true);
   });
 
@@ -590,7 +590,7 @@ describe("isPackageEligibleForReactivation", () => {
         expiration_date: null,
         refund_status: null,
         client_package_items: [{ quantity_remaining: 0, is_unlimited: false }],
-      }),
+      }, true),
     ).toBe(false);
   });
 
@@ -600,7 +600,7 @@ describe("isPackageEligibleForReactivation", () => {
         expiration_date: "2020-01-01",
         refund_status: null,
         client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
-      }),
+      }, true),
     ).toBe(false);
   });
 
@@ -610,7 +610,7 @@ describe("isPackageEligibleForReactivation", () => {
         expiration_date: null,
         refund_status: null,
         client_package_items: [{ quantity_remaining: null, is_unlimited: true }],
-      }),
+      }, true),
     ).toBe(true);
   });
 
@@ -620,7 +620,7 @@ describe("isPackageEligibleForReactivation", () => {
         expiration_date: null,
         refund_status: "full",
         client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
-      }),
+      }, true),
     ).toBe(false);
   });
 
@@ -630,8 +630,18 @@ describe("isPackageEligibleForReactivation", () => {
         expiration_date: null,
         refund_status: "partial",
         client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
-      }),
+      }, true),
     ).toBe(true);
+  });
+
+  it("PKG-P1: an otherwise-eligible package is blocked when its payment is not settled", () => {
+    expect(
+      isPackageEligibleForReactivation({
+        expiration_date: null,
+        refund_status: null,
+        client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+      }, false),
+    ).toBe(false);
   });
 });
 

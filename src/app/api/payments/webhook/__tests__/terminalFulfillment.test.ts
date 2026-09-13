@@ -133,11 +133,18 @@ function createFakeTerminalDb(options: {
           update: (payload: Record<string, unknown>) =>
             makeChain(() => {
               state.paymentUpdateAttempts += 1;
-              if (state.payment.status !== "paid") {
+              // PKG-P1: models the real .eq("status", "pending") CAS guard
+              // (tightened from .neq("status","paid"), which still matched
+              // an already-'voided' row) -- and, since the real update
+              // chains .select("id").maybeSingle() now, returns `data`
+              // reflecting whether a row actually matched, exactly like
+              // the client_packages resolver below already does.
+              if (state.payment.status === "pending") {
                 Object.assign(state.payment, payload);
                 state.paymentUpdateApplied += 1;
+                return { data: { id: state.payment.id }, error: null };
               }
-              return { error: null };
+              return { data: null, error: null };
             }),
         };
       }

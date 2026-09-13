@@ -23,6 +23,7 @@ import { ClientSendSmsCard } from "./ClientSendSmsCard";
 import { ClientSmsMessageHistoryCard } from "./ClientSmsMessageHistoryCard";
 import ClientCommunicationWorkspace from "./ClientCommunicationWorkspace";
 import PackageArchiveControls from "./PackageArchiveControls";
+import VoidPendingPaymentControls from "./VoidPendingPaymentControls";
 import PartialRefundReviewControls from "./PartialRefundReviewControls";
 import { PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD } from "@/lib/payments/package-refund-release-hold";
 import { getClassEnrollmentAppointmentsForClient } from "@/lib/schedule/groupClassRoster";
@@ -236,6 +237,7 @@ export type PaymentRow = {
   stripe_refund_id: string | null;
   refund_amount: number | null;
   refunded_at: string | null;
+  client_package_id: string | null;
 };
 
 type LedgerRow = {
@@ -2277,7 +2279,8 @@ export default async function ClientDetailPage({
         stripe_charge_id,
         stripe_refund_id,
         refund_amount,
-        refunded_at
+        refunded_at,
+        client_package_id
       `)
       .eq("studio_id", studioId)
       .eq("client_id", id)
@@ -2672,6 +2675,41 @@ export default async function ClientDetailPage({
   const clientQrUrl = clientQrImageUrl(typedStudio.slug, typedClient.id);
   const typedInstructors = (instructors ?? []) as InstructorOption[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
+
+  // PKG-P1: canonical payment-settlement check for every one of this
+  // client's packages -- the same is_package_payment_settled RPC
+  // reactivateClientPackageAction itself calls, so the "Reactivate" button
+  // never appears (or is disabled) for a package whose activation would be
+  // immediately rejected server-side. One call per package (bounded, a
+  // single client's own package list), in parallel.
+  const packagePaymentSettledById = new Map<string, boolean>();
+  const packageIdsWithConflict = new Set<string>();
+  if (canEditClients(role)) {
+    // Only fetched for viewers who can actually see PackageArchiveControls
+    // at all -- canReactivate is otherwise never rendered/used.
+    await Promise.all(
+      typedPackages.map(async (pkg) => {
+        const { data, error } = await supabase.rpc("is_package_payment_settled", {
+          p_client_package_id: pkg.id,
+        });
+        packagePaymentSettledById.set(pkg.id, !error && data === true);
+      }),
+    );
+
+    // PKG-P1: secondary, pointer-only surface -- the studio-wide Payments
+    // -> Needs Review queue is the only place resolution actually happens
+    // (see its own page for why); this is just a "look over there" banner.
+    if (typedPackages.length > 0) {
+      const { data: conflictRows } = await supabase
+        .from("payment_settlement_conflicts")
+        .select("client_package_id")
+        .in("client_package_id", typedPackages.map((pkg) => pkg.id))
+        .eq("status", "pending_review");
+      for (const row of conflictRows ?? []) {
+        if (row.client_package_id) packageIdsWithConflict.add(row.client_package_id as string);
+      }
+    }
+  }
   // GC-1.3A/B: a client enrolled in a group class via appointment_attendees
   // (rather than the legacy singular appointments.client_id) never appeared
   // in the two queries above at all -- their class history was invisible on
@@ -2721,6 +2759,28 @@ export default async function ClientDetailPage({
     )
     .slice(0, 8);
   const typedPayments = (payments ?? []) as PaymentRow[];
+
+  // PKG-P1 section 14: void pre-confirm-warning preview -- for every
+  // pending, package-linked payment this viewer could void, ask the
+  // canonical settlement predicate (via would_package_remain_settled_
+  // without_payment, which excludes only this one payment) whether the
+  // package would remain settled without it. Same eager, batched,
+  // server-side pattern as packagePaymentSettledById above -- no new
+  // client-side RPC surface, no logic duplicated in TypeScript.
+  const wouldRemainSettledByPaymentId = new Map<string, boolean>();
+  if (canIssuePaymentRefunds) {
+    const pendingPackagePayments = typedPayments.filter(
+      (payment) => payment.status === "pending" && payment.client_package_id,
+    );
+    await Promise.all(
+      pendingPackagePayments.map(async (payment) => {
+        const { data, error } = await supabase.rpc("would_package_remain_settled_without_payment", {
+          p_payment_id: payment.id,
+        });
+        wouldRemainSettledByPaymentId.set(payment.id, !error && data === true);
+      }),
+    );
+  }
   const typedLedger = (ledger ?? []) as LedgerRow[];
   const typedAccountLedger = (accountLedger ?? []) as ClientAccountLedgerRow[];
   const accountLedgerPreview = typedAccountLedger.slice(0, 20);
@@ -4272,6 +4332,16 @@ export default async function ClientDetailPage({
                       </form>
                     </details>
                   ) : null}
+
+                  {canIssuePaymentRefunds && payment.status === "pending" ? (
+                    <VoidPendingPaymentControls
+                      clientId={typedClient.id}
+                      paymentId={payment.id}
+                      showPackageDeactivationWarning={
+                        wouldRemainSettledByPaymentId.get(payment.id) === false
+                      }
+                    />
+                  ) : null}
                 </div>
               ))
             )}
@@ -4594,7 +4664,8 @@ export default async function ClientDetailPage({
                   const underlyingStatus = getUnderlyingStatusIfArchived(pkg);
                   const isArchived = health === "archived";
                   const canReactivate =
-                    isArchived && isPackageEligibleForReactivation(pkg);
+                    isArchived &&
+                    isPackageEligibleForReactivation(pkg, packagePaymentSettledById.get(pkg.id) === true);
 
                   return (
                     <div
@@ -4639,6 +4710,16 @@ export default async function ClientDetailPage({
                           />
                         ) : null}
                       </div>
+
+                      {packageIdsWithConflict.has(pkg.id) ? (
+                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                          ⚠ A payment for this package may have settled after it was deactivated --{" "}
+                          <Link href="/app/payments/reconciliation" className="underline">
+                            needs reconciliation review
+                          </Link>
+                          .
+                        </div>
+                      ) : null}
 
                       {warning ? (
                         <div
@@ -6243,6 +6324,16 @@ export default async function ClientDetailPage({
                             </button>
                           </form>
                         </details>
+                      ) : null}
+
+                      {canIssuePaymentRefunds && payment.status === "pending" ? (
+                        <VoidPendingPaymentControls
+                          clientId={typedClient.id}
+                          paymentId={payment.id}
+                          showPackageDeactivationWarning={
+                            wouldRemainSettledByPaymentId.get(payment.id) === false
+                          }
+                        />
                       ) : null}
                     </div>
                   ))

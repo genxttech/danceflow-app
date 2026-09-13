@@ -1224,10 +1224,24 @@ export async function reactivateClientPackageAction(
     return { error: "Package not found." };
   }
 
-  if (!isPackageEligibleForReactivation(pkg)) {
+  // PKG-P1: the canonical settlement predicate is the single source of
+  // truth for whether this package's payment obligation justifies
+  // activation -- reused identically by the atomic void/failure/refund
+  // re-evaluation path, never re-derived here.
+  const { data: paymentSettled, error: settledError } = await supabase.rpc(
+    "is_package_payment_settled",
+    { p_client_package_id: clientPackageId },
+  );
+
+  if (settledError) {
+    return { error: "Could not verify this package's payment status. Please try again." };
+  }
+
+  if (!isPackageEligibleForReactivation(pkg, paymentSettled === true)) {
     return {
-      error:
-        "This package has no remaining balance or is expired, so it cannot be reactivated.",
+      error: paymentSettled === false
+        ? "This package's payment was never settled (or was voided/refunded), so it cannot be reactivated. See Payments → Needs Review if a payment may have been captured after the fact."
+        : "This package has no remaining balance or is expired, so it cannot be reactivated.",
     };
   }
 
@@ -1257,6 +1271,140 @@ export async function reactivateClientPackageAction(
 
   revalidatePath(`/app/clients/${clientId}`);
   revalidatePath("/app/packages/client-balances");
+
+  return { error: "" };
+}
+
+/**
+ * PKG-P1: voids a stale `pending` payment (never a `'paid'` one -- that's
+ * refundClientPaymentAction's job). Delegates the actual write entirely to
+ * `void_pending_package_payment` (SECURITY DEFINER, one transaction) --
+ * this action does no independent DB mutation of its own, so "payment
+ * voided, package deactivation failed" is structurally impossible. Gated
+ * to studio_owner/studio_admin only, matching refundClientPaymentAction's
+ * own established, narrower gate (front_desk can record/manage ordinary
+ * payments but not this class of financial correction) -- the RPC's own
+ * internal check is the real authority regardless.
+ */
+export async function voidPendingPaymentAction(
+  prevState: { error: string },
+  formData: FormData,
+): Promise<{ error: string }> {
+  const clientId = getString(formData, "clientId");
+  const paymentId = getString(formData, "paymentId");
+  const reason = getString(formData, "reason");
+
+  if (!clientId || !paymentId) {
+    return { error: "Missing client or payment." };
+  }
+
+  if (!reason) {
+    return { error: "A reason is required to void a payment." };
+  }
+
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const role = context.studioRole ?? "";
+
+  if (!["studio_owner", "studio_admin"].includes(role)) {
+    return { error: "You do not have permission to void payments." };
+  }
+
+  const { error: voidError } = await supabase.rpc("void_pending_package_payment", {
+    p_payment_id: paymentId,
+    p_reason: reason,
+  });
+
+  if (voidError) {
+    return { error: "Could not void this payment. Please try again." };
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  revalidatePath("/app/payments");
+
+  return { error: "" };
+}
+
+/**
+ * PKG-P1: resolves a `payment_settlement_conflicts` row -- pure bookkeeping
+ * closure of the review item, requires a non-empty note. Never touches
+ * `payments`/`client_packages` itself; if the real-world fix means a
+ * package should become usable again, that happens through the existing,
+ * unmodified reactivation flow (itself gated by the corrected settlement
+ * predicate) -- deliberately no automatic reactivation or refund here.
+ */
+export async function resolvePaymentSettlementConflictAction(
+  prevState: { error: string },
+  formData: FormData,
+): Promise<{ error: string }> {
+  const conflictId = getString(formData, "conflictId");
+  const resolutionNote = getString(formData, "resolutionNote");
+
+  if (!conflictId) {
+    return { error: "Missing conflict." };
+  }
+  if (!resolutionNote) {
+    return { error: "A resolution note is required." };
+  }
+
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const role = context.studioRole ?? "";
+
+  if (!["studio_owner", "studio_admin"].includes(role)) {
+    return { error: "You do not have permission to resolve payment reconciliation conflicts." };
+  }
+
+  const { error: resolveError } = await supabase.rpc("resolve_payment_settlement_conflict", {
+    p_conflict_id: conflictId,
+    p_resolution_note: resolutionNote,
+  });
+
+  if (resolveError) {
+    return { error: "Could not resolve this conflict. Please try again." };
+  }
+
+  revalidatePath("/app/payments");
+
+  return { error: "" };
+}
+
+/**
+ * PKG-P1: appends a note to a `payment_settlement_conflicts` row without
+ * closing it -- the "acknowledge, still working on it" step.
+ */
+export async function addPaymentSettlementConflictNoteAction(
+  prevState: { error: string },
+  formData: FormData,
+): Promise<{ error: string }> {
+  const conflictId = getString(formData, "conflictId");
+  const note = getString(formData, "note");
+
+  if (!conflictId) {
+    return { error: "Missing conflict." };
+  }
+  if (!note) {
+    return { error: "Note text is required." };
+  }
+
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const role = context.studioRole ?? "";
+
+  if (!["studio_owner", "studio_admin"].includes(role)) {
+    return { error: "You do not have permission to annotate payment reconciliation conflicts." };
+  }
+
+  const { error: noteError } = await supabase.rpc("add_payment_settlement_conflict_note", {
+    p_conflict_id: conflictId,
+    p_note: note,
+  });
+
+  if (noteError) {
+    return { error: "Could not add this note. Please try again." };
+  }
+
+  revalidatePath("/app/payments");
 
   return { error: "" };
 }

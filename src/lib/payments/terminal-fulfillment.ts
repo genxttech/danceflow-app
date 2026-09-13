@@ -290,7 +290,17 @@ export async function fulfillTerminalPayment({
     );
   }
 
-  const { error } = await supabase
+  // PKG-P1: tightened from .neq("status","paid") -- that guard still
+  // matched (and overwrote) an already-'voided' row, since voided != paid.
+  // Only 'pending' is a legal prior state now. On 0 rows affected, this is
+  // either a duplicate delivery (already 'paid', safe no-op) or a genuine
+  // financial mismatch (voided/failed/refunded) -- record_stale_payment_
+  // success_conflict makes that determination itself and records a
+  // conflict row only for the latter, idempotent by stripeEventId. Package
+  // activation below is skipped entirely when the payment update didn't
+  // actually apply -- previously it ran unconditionally regardless of
+  // whether the CAS above had any real effect.
+  const { data: updatedPayment, error } = await supabase
     .from("payments")
     .update({
       status: "paid",
@@ -303,10 +313,25 @@ export async function fulfillTerminalPayment({
     })
     .eq("id", paymentId)
     .eq("studio_id", studioId)
-    .neq("status", "paid");
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     throw new Error(`Terminal payment fulfillment failed: ${error.message}`);
+  }
+
+  if (!updatedPayment) {
+    const { error: conflictError } = await supabase.rpc("record_stale_payment_success_conflict", {
+      p_payment_id: paymentId,
+      p_stripe_event_id: paymentIntentId,
+      p_stripe_event_type: "payment_intent.succeeded",
+      p_stripe_session_id: sessionId,
+    });
+    if (conflictError) {
+      throw new Error(`Terminal payment fulfillment failed: ${conflictError.message}`);
+    }
+    return false;
   }
 
   if (payment.client_package_id) {

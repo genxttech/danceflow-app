@@ -22,6 +22,7 @@ type Fixture = {
 };
 
 let currentTables: ReturnType<typeof buildTables>;
+let currentPaymentSettled = true;
 
 function buildTables(fixture: Fixture) {
   return {
@@ -35,12 +36,19 @@ function buildTables(fixture: Fixture) {
 
 function setFixture(fixture: Fixture) {
   currentTables = buildTables(fixture);
+  currentPaymentSettled = true;
   return currentTables;
 }
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
-    ...createFakeEntitlementClient(currentTables),
+    ...createFakeEntitlementClient(currentTables, {
+      // PKG-P1: reactivateClientPackageAction now calls
+      // is_package_payment_settled before applying the update -- defaults
+      // to settled (true) so the existing balance/expiration/refund tests
+      // below are unaffected; a dedicated test overrides this to false.
+      is_package_payment_settled: () => ({ data: currentPaymentSettled, error: null }),
+    }),
     auth: {
       getUser: async () => ({ data: { user: { id: ACTOR_ID } } }),
     },
@@ -353,6 +361,36 @@ describe("reactivateClientPackageAction", () => {
       active: false,
       archived_at: "2026-09-01T00:00:00.000Z",
       refund_status: "full",
+    });
+  });
+
+  it("PKG-P1: reactivation is blocked when is_package_payment_settled reports the payment obligation unresolved, even with usable balance and no expiration, with no partial update", async () => {
+    const tables = setFixture({
+      client_packages: [
+        {
+          id: "pkg-1",
+          studio_id: STUDIO_ID,
+          client_id: CLIENT_ID,
+          active: false,
+          expiration_date: null,
+          archived_at: "2026-09-01T00:00:00.000Z",
+          archived_by: ACTOR_ID,
+          archive_reason: null,
+          client_package_items: [{ quantity_remaining: 5, is_unlimited: false }],
+        },
+      ],
+    });
+    currentPaymentSettled = false;
+
+    const result = await reactivateClientPackageAction(
+      { error: "" },
+      formDataFor({ clientId: CLIENT_ID, clientPackageId: "pkg-1" }),
+    );
+
+    expect(result.error).toMatch(/payment/i);
+    expect(tables.client_packages.rows[0]).toMatchObject({
+      active: false,
+      archived_at: "2026-09-01T00:00:00.000Z",
     });
   });
 });
