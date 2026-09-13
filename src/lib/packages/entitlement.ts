@@ -434,12 +434,22 @@ export function getClientPackageStatus(pkg: {
  * `refund_status='full'` package, checked first -- a fully refunded
  * package must never be reactivated through the ordinary
  * archive/reactivate workflow, regardless of expiration or balance.
+ *
+ * PKG-P1: also requires `paymentSettled` -- the caller's own already-
+ * fetched result of the canonical `is_package_payment_settled` RPC
+ * (src/lib/supabase/migrations/20260913091100_pkgp1_...sql). This function
+ * stays DB-call-free by design (matching its existing style); the RPC is
+ * the single source of truth for "does this package's payment obligation
+ * actually justify activation," reused identically by
+ * reactivateClientPackageAction and the canonical `_reevaluate_and_
+ * deactivate_package_if_unsettled` SQL helper -- never re-derived here.
  */
 export function isPackageEligibleForReactivation(pkg: {
   expiration_date: string | null;
   refund_status: string | null;
   client_package_items: BalanceItemRow[] | BalanceItemRow | null;
-}): boolean {
+}, paymentSettled: boolean): boolean {
+  if (!paymentSettled) return false;
   if (isPackageRefundBlocked(pkg)) return false;
   const today = new Date().toISOString().slice(0, 10);
   if (pkg.expiration_date && pkg.expiration_date < today) return false;

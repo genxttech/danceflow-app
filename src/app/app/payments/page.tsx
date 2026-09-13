@@ -149,6 +149,19 @@ export default async function PaymentsPage({
     redirect("/app");
   }
 
+  // PKG-P1: badge count for the reconciliation queue -- broad-staff only
+  // (matching the reconciliation page's own gate), harmless/hidden for
+  // everyone else.
+  let needsReviewCount = 0;
+  if (["platform_admin", "studio_owner", "studio_admin"].includes(context.studioRole ?? "")) {
+    const { count } = await supabase
+      .from("payment_settlement_conflicts")
+      .select("id", { count: "exact", head: true })
+      .eq("studio_id", context.studioId)
+      .eq("status", "pending_review");
+    needsReviewCount = count ?? 0;
+  }
+
   let query = supabase
     .from("payments")
     .select(`
@@ -242,6 +255,17 @@ export default async function PaymentsPage({
             >
               Quick charge
             </Link>
+            {needsReviewCount > 0 ? (
+              <Link
+                href="/app/payments/reconciliation"
+                className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Needs Review
+                <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-600 px-1.5 py-0.5 text-xs font-bold text-white">
+                  {needsReviewCount}
+                </span>
+              </Link>
+            ) : null}
           </div>
         )}
       />

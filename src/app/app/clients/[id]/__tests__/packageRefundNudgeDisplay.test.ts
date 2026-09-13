@@ -44,6 +44,7 @@ function payment(overrides: Partial<PaymentRow> = {}): PaymentRow {
     stripe_refund_id: "rf_123",
     refund_amount: 30,
     refunded_at: "2026-08-02T00:00:00.000Z",
+    client_package_id: null,
     ...overrides,
   };
 }

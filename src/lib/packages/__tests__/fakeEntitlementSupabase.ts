@@ -278,7 +278,10 @@ class FakeQuery {
  * SupabaseClient`), matching this codebase's existing fake-client
  * convention (see `src/lib/aria/__tests__/digest-observability.test.ts`).
  */
-export function createFakeEntitlementClient(tables: Record<string, FakeTable>) {
+export function createFakeEntitlementClient(
+  tables: Record<string, FakeTable>,
+  rpcHandlers: Record<string, (params: Record<string, unknown>) => { data?: unknown; error?: FakeError | null }> = {},
+) {
   return {
     from(table: string) {
       const t = tables[table];
@@ -289,6 +292,20 @@ export function createFakeEntitlementClient(tables: Record<string, FakeTable>) {
         insert: (payload: Row) => new FakeQuery(t, "insert", payload),
         update: (payload: Row) => new FakeQuery(t, "update", payload),
       };
+    },
+    // PKG-P1: minimal RPC surface -- is_package_payment_settled defaults to
+    // `true` (this fake's other consumers test balance/expiration/refund
+    // conditions, not payment settlement) unless a test overrides it via
+    // rpcHandlers.
+    async rpc(name: string, params: Record<string, unknown>) {
+      if (rpcHandlers[name]) {
+        const result = rpcHandlers[name](params);
+        return { data: result.data ?? null, error: result.error ?? null };
+      }
+      if (name === "is_package_payment_settled") {
+        return { data: true, error: null };
+      }
+      throw new Error(`Unexpected RPC in fake entitlement client: ${name}`);
     },
   };
 }

@@ -73,6 +73,13 @@ function makeChain(resolve: () => FakeResult | Promise<FakeResult>) {
 
 function createFakeSupabase(payments: { id: string; amount: number }[]) {
   const paymentsUpdatePayloads: Record<string, unknown>[] = [];
+  // PKG-P1: updatePaymentRefundByPaymentIntent now delegates each row's
+  // write to _apply_payment_refund_and_reevaluate (CAS-guarded, atomic
+  // re-evaluation) instead of a raw .update() -- this fake models that RPC
+  // minimally (always "applies", matching the prior unconditional-update
+  // behavior these wiring tests assume) and records its params so
+  // assertions can inspect what would have been written, same as before.
+  const rpcCalls: { name: string; params: Record<string, unknown> }[] = [];
 
   const supabase = {
     from(table: string) {
@@ -92,9 +99,21 @@ function createFakeSupabase(payments: { id: string; amount: number }[]) {
       }
       throw new Error(`Unexpected table in fake webhook-wiring db: ${table}`);
     },
+    async rpc(name: string, params: Record<string, unknown>) {
+      rpcCalls.push({ name, params });
+      if (name === "_apply_payment_refund_and_reevaluate") {
+        paymentsUpdatePayloads.push({
+          status: params.p_new_status,
+          refund_amount: params.p_refund_amount,
+          stripe_refund_id: params.p_stripe_refund_id,
+        });
+        return { data: [{ applied: true, package_deactivated: false, conflict_recorded: false }], error: null };
+      }
+      throw new Error(`Unexpected RPC in fake webhook-wiring db: ${name}`);
+    },
   };
 
-  return { supabase, paymentsUpdatePayloads };
+  return { supabase, paymentsUpdatePayloads, rpcCalls };
 }
 
 function createFakeStripe(charge: Partial<Stripe.Charge> | null) {

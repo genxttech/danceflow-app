@@ -2675,6 +2675,8 @@ async function updatePaymentRefundByPaymentIntent(
   paymentIntentId: string,
   refundAmount: number,
   stripeRefundId: string | null,
+  stripeEventId?: string,
+  stripeEventType?: string,
 ) {
   const { data: payments, error: paymentsLookupError } = await supabase
     .from("payments")
@@ -2691,24 +2693,32 @@ async function updatePaymentRefundByPaymentIntent(
     const totalAmount = Number(payment.amount ?? 0);
     const fullyRefunded = refundAmount >= totalAmount;
 
-    const { error: paymentUpdateError } = await supabase
-      .from("payments")
-      .update({
-        status: fullyRefunded ? "refunded" : "paid",
-        refund_amount: refundAmount,
-        refunded_at: new Date().toISOString(),
-        stripe_refund_id: stripeRefundId,
-        notes: fullyRefunded
-          ? "Refund synced from Stripe webhook."
-          : "Partial refund synced from Stripe webhook.",
-      })
-      .eq("id", payment.id);
+    // PKG-P1: CAS-guarded via _apply_payment_refund_and_reevaluate --
+    // legal prior state is 'paid' only (confirmed by direct read: this
+    // loop previously had NO status filter at all, so a refund event could
+    // silently overwrite an already-voided row). Also atomically
+    // re-evaluates and, if needed, deactivates the linked package in the
+    // same transaction -- a full refund removing a package's only paid
+    // basis must not leave it usable.
+    const { data: refundResult, error: refundRpcError } = await supabase.rpc(
+      "_apply_payment_refund_and_reevaluate",
+      {
+        p_payment_id: payment.id,
+        p_new_status: fullyRefunded ? "refunded" : "paid",
+        p_refund_amount: refundAmount,
+        p_stripe_refund_id: stripeRefundId,
+        p_stripe_event_id: stripeEventId ?? `no_event_id:${paymentIntentId}:${payment.id}`,
+        p_stripe_event_type: stripeEventType ?? "charge.refund.updated",
+      },
+    );
 
-    if (paymentUpdateError) {
-      throw new Error(paymentUpdateError.message);
+    if (refundRpcError) {
+      throw new Error(refundRpcError.message);
     }
 
-    updated = true;
+    if (refundResult?.[0]?.applied) {
+      updated = true;
+    }
   }
 
   return updated;
@@ -2796,6 +2806,8 @@ export async function handleStripeRefundUpdated(
   stripe: Stripe,
   refund: Stripe.Refund,
   stripeAccountId?: string | null,
+  stripeEventId?: string,
+  stripeEventType?: string,
 ) {
   const paymentIntentId = stripeObjectId(refund.payment_intent);
   const chargeId = stripeObjectId(refund.charge);
@@ -2847,6 +2859,8 @@ export async function handleStripeRefundUpdated(
     resolvedPaymentIntentId,
     cumulativeRefundAmount,
     stripeRefundId,
+    stripeEventId,
+    stripeEventType,
   );
 
   const eventPaymentUpdated = await updateEventPaymentRefundByPaymentIntent(
@@ -2926,6 +2940,8 @@ export async function handleChargeRefunded(
   stripe: Stripe,
   charge: Stripe.Charge,
   stripeAccountId?: string | null,
+  stripeEventId?: string,
+  stripeEventType?: string,
 ) {
   const paymentIntentId = stripeObjectId(charge.payment_intent);
   const refundAmount = centsToDollars(charge.amount_refunded ?? 0);
@@ -2938,6 +2954,8 @@ export async function handleChargeRefunded(
     paymentIntentId,
     refundAmount,
     latestRefundId,
+    stripeEventId,
+    stripeEventType,
   );
 
   const eventPaymentUpdated = await updateEventPaymentRefundByPaymentIntent(
@@ -3125,6 +3143,8 @@ export async function handlePortalFloorRentalCheckoutCompleted(
 export async function handleClientPaymentRequestCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session,
+  stripeEventId?: string,
+  stripeEventType?: string,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "client_payment_request") return false;
@@ -3166,7 +3186,17 @@ export async function handleClientPaymentRequestCheckoutCompleted(
     );
   }
 
-  const { error: paymentUpdateError } = await supabase
+  // PKG-P1: CAS-guarded -- only transitions FROM 'pending'. Previously this
+  // update had no status filter at all, so a stale/redelivered event could
+  // silently un-void a payment DanceFlow had already explicitly voided (or
+  // re-pay an already-refunded/failed one) and re-activate its package. On
+  // 0 rows affected, record_stale_payment_success_conflict makes its own
+  // determination (duplicate delivery of an already-'paid' row is a safe
+  // no-op; anything else -- voided/failed/refunded -- is a genuine
+  // financial mismatch, recorded for staff review, idempotent by
+  // stripeEventId). No mutation of entitlement ever happens on this path --
+  // the CAS above is the gate.
+  const { data: updatedPayment, error: paymentUpdateError } = await supabase
     .from("payments")
     .update({
       status: "paid",
@@ -3179,10 +3209,28 @@ export async function handleClientPaymentRequestCheckoutCompleted(
       external_reference: sessionId,
       currency,
     })
-    .eq("id", payment.id);
+    .eq("id", payment.id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
 
   if (paymentUpdateError) {
     throw new Error(paymentUpdateError.message);
+  }
+
+  if (!updatedPayment) {
+    if (stripeEventId) {
+      const { error: conflictError } = await supabase.rpc("record_stale_payment_success_conflict", {
+        p_payment_id: payment.id,
+        p_stripe_event_id: stripeEventId,
+        p_stripe_event_type: stripeEventType ?? "checkout.session.completed",
+        p_stripe_session_id: sessionId,
+      });
+      if (conflictError) {
+        throw new Error(conflictError.message);
+      }
+    }
+    return true;
   }
 
   if (payment.client_package_id) {
@@ -3230,6 +3278,8 @@ async function handleCheckoutSessionCompleted(
   stripe: Stripe,
   session: Stripe.Checkout.Session,
   stripeAccountId?: string | null,
+  stripeEventId?: string,
+  stripeEventType?: string,
 ) {
   const handledStudioSubscription = await handleStudioCheckoutCompleted(
     supabase,
@@ -3279,7 +3329,7 @@ async function handleCheckoutSessionCompleted(
   }
 
   const handledClientPaymentRequest =
-    await handleClientPaymentRequestCheckoutCompleted(supabase, session);
+    await handleClientPaymentRequestCheckoutCompleted(supabase, session, stripeEventId, stripeEventType);
 
   if (handledClientPaymentRequest) {
     return;
@@ -4199,13 +4249,41 @@ export async function POST(request: Request) {
 
   try {
     switch (event.type) {
-      case "checkout.session.completed": {
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded": {
+        // PKG-P1: async_payment_succeeded (delayed-settlement methods, e.g.
+        // ACH) routes through the identical handler -- its internal logic
+        // already branches on session.payment_status==='paid' rather than
+        // the event name, and every write path it reaches is now
+        // CAS-guarded (see handleClientPaymentRequestCheckoutCompleted), so
+        // no new business logic is needed here, only this dispatch entry.
         await handleCheckoutSessionCompleted(
           supabase,
           stripe,
           event.data.object as Stripe.Checkout.Session,
           event.account,
+          event.id,
+          event.type,
         );
+        break;
+      }
+
+      case "checkout.session.async_payment_failed": {
+        // PKG-P1: a failure event carries no money -- CAS-guarded
+        // 'pending' -> 'failed' only, then the same atomic re-evaluation
+        // every payment-state transition that can invalidate entitlement
+        // uses. Never a financial mismatch, so never a conflict row.
+        const session = event.data.object as Stripe.Checkout.Session;
+        const paymentId = getString(session.metadata?.paymentId);
+        if (paymentId) {
+          const { error: failError } = await supabase.rpc(
+            "_mark_package_payment_failed_and_reevaluate",
+            { p_payment_id: paymentId, p_stripe_event_id: event.id },
+          );
+          if (failError) {
+            throw new Error(failError.message);
+          }
+        }
         break;
       }
 
@@ -4265,6 +4343,8 @@ export async function POST(request: Request) {
             stripe,
             charge,
             event.account,
+            event.id,
+            event.type,
           );
         }
         break;
@@ -4278,6 +4358,8 @@ export async function POST(request: Request) {
           stripe,
           event.data.object as Stripe.Refund,
           event.account,
+          event.id,
+          event.type,
         );
         break;
       }
@@ -4288,6 +4370,8 @@ export async function POST(request: Request) {
           stripe,
           event.data.object as Stripe.Charge,
           event.account,
+          event.id,
+          event.type,
         );
         break;
       }
