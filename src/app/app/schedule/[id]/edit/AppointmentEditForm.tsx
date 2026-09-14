@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
-import { updateAppointmentAction } from "../../actions";
+import { updateAppointmentAction, updateGroupClassEnrollmentPolicyAction } from "../../actions";
 import InstructorClientSearchField from "../../InstructorClientSearchField";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
@@ -11,6 +11,15 @@ import {
 } from "@/lib/packages/entitlement";
 
 const initialState = { error: "" };
+
+// GC-3.3: staff-authored self-enrollment policy for a group class. No row
+// (null) means legacy/unrestricted behavior -- identical to every class
+// before this slice.
+type EnrollmentPolicy = {
+  publicly_discoverable: boolean;
+  self_enrollment_allowed: boolean;
+  accepted_funding_types: string[] | null;
+};
 
 type ClientOption = {
   id: string;
@@ -383,6 +392,8 @@ export default function AppointmentEditForm({
   studioTimeZone = DEFAULT_STUDIO_TIME_ZONE,
   instructorSearchMode = false,
   initialClientLabel = "",
+  enrollmentPolicy = null,
+  policyBanner = null,
 }: {
   appointment: Appointment;
   clients: ClientOption[];
@@ -397,11 +408,38 @@ export default function AppointmentEditForm({
   // interface instead of a preloaded roster.
   instructorSearchMode?: boolean;
   initialClientLabel?: string;
+  enrollmentPolicy?: EnrollmentPolicy | null;
+  policyBanner?: { kind: "success" | "error"; message: string } | null;
 }) {
   const [state, formAction, pending] = useActionState(
     updateAppointmentAction,
     initialState,
   );
+  const [publiclyDiscoverable, setPubliclyDiscoverable] = useState(
+    enrollmentPolicy?.publicly_discoverable ?? false,
+  );
+  const [selfEnrollmentAllowed, setSelfEnrollmentAllowed] = useState(
+    enrollmentPolicy?.self_enrollment_allowed ?? false,
+  );
+  const [packageEnabled, setPackageEnabled] = useState(
+    enrollmentPolicy?.accepted_funding_types?.includes("package") ?? false,
+  );
+  const [membershipEnabled, setMembershipEnabled] = useState(
+    enrollmentPolicy?.accepted_funding_types?.includes("membership") ?? false,
+  );
+  // Client-side mirror of updateGroupClassEnrollmentPolicyAction's own
+  // resulting-merged-array validation -- the RESULTING array, not "at least
+  // one checkbox checked": a class with a pre-existing unmanaged funding
+  // value (direct_payment/manual_other) already satisfies
+  // group_class_enrollment_policies_discovery_requires_funding even with
+  // both checkboxes off.
+  const preservedFundingTypes = (enrollmentPolicy?.accepted_funding_types ?? []).filter(
+    (value) => value !== "package" && value !== "membership",
+  );
+  const resultingFundingTypeCount =
+    preservedFundingTypes.length + (packageEnabled ? 1 : 0) + (membershipEnabled ? 1 : 0);
+  const policyRequiresFundingType =
+    (publiclyDiscoverable || selfEnrollmentAllowed) && resultingFundingTypeCount === 0;
 
   const [appointmentType, setAppointmentType] = useState(
     appointment.appointment_type,
@@ -506,6 +544,7 @@ export default function AppointmentEditForm({
   }, [clientId, linkedPartnersByClientId]);
 
   return (
+    <>
     <form
       action={formAction}
       className="space-y-6 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.09),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#ffffff_30%)] p-1 text-slate-900"
@@ -1233,5 +1272,150 @@ export default function AppointmentEditForm({
         </div>
       </div>
     </form>
+
+    {appointmentType === "group_class" && !instructorSearchMode ? (
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <details open={publiclyDiscoverable || selfEnrollmentAllowed}>
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+            Student self-enrollment
+          </summary>
+
+          <div className="mt-4 space-y-4">
+            <p className="text-sm text-slate-500">
+              Control whether students and guardians can see or join this class from
+              their portal. Off by default -- turning these on does not change any
+              existing enrollment.
+            </p>
+
+            {policyBanner ? (
+              <div
+                className={`rounded-xl border px-4 py-3 text-sm ${
+                  policyBanner.kind === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-red-200 bg-red-50 text-red-700"
+                }`}
+              >
+                {policyBanner.message}
+              </div>
+            ) : null}
+
+            <form action={updateGroupClassEnrollmentPolicyAction} className="space-y-4">
+              <input type="hidden" name="appointmentId" value={appointment.id} />
+              <input
+                type="hidden"
+                name="returnTo"
+                value={`/app/schedule/${appointment.id}/edit`}
+              />
+
+              <label className="flex items-start gap-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  name="publiclyDiscoverable"
+                  checked={publiclyDiscoverable}
+                  onChange={(event) => setPubliclyDiscoverable(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                />
+                <span>
+                  <span className="font-medium text-slate-900">Publicly discoverable</span>
+                  <br />
+                  Students with a linked portal account can see this class in their
+                  schedule, even if they can&apos;t join it themselves.
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  name="selfEnrollmentAllowed"
+                  checked={selfEnrollmentAllowed}
+                  onChange={(event) => setSelfEnrollmentAllowed(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                />
+                <span>
+                  <span className="font-medium text-slate-900">
+                    Allow student self-enrollment
+                  </span>
+                  <br />
+                  Students with an eligible package or membership can join this class
+                  themselves from the portal.
+                </span>
+              </label>
+
+              {publiclyDiscoverable || selfEnrollmentAllowed ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-medium text-slate-900">
+                    Which funding sources are accepted for this class?
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Applies whenever this class is discoverable or self-enrollable --
+                    not only when self-enrollment is on.
+                  </p>
+
+                  <div className="mt-3 space-y-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        name="packageEnabled"
+                        checked={packageEnabled}
+                        onChange={(event) => setPackageEnabled(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Package
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        name="membershipEnabled"
+                        checked={membershipEnabled}
+                        onChange={(event) => setMembershipEnabled(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Membership
+                    </label>
+                  </div>
+
+                  {policyRequiresFundingType ? (
+                    <p className="mt-3 text-xs font-medium text-red-600">
+                      Select at least one funding source to make this class discoverable
+                      or self-enrollable.
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                // B2 fix (second code review): when both toggles are off, the
+                // interactive Package/Membership checkboxes above are not
+                // rendered at all -- an unmounted <input> contributes nothing
+                // to native FormData, which would otherwise make the server
+                // read "not submitted" as "unchecked" and silently strip
+                // these values from accepted_funding_types on save. These
+                // hidden inputs carry the last-known state (packageEnabled/
+                // membershipEnabled React state, untouched by hiding the
+                // section) through to the server under the same field names,
+                // so turning discoverability/self-enrollment off and saving
+                // preserves the existing funding-type configuration exactly.
+                // Only one of {checkbox, hidden input} for a given name is
+                // ever rendered at a time, so there is never a duplicate
+                // form field. Staff can still freely change Package/
+                // Membership -- and that change is submitted normally --
+                // whenever this section is actually visible.
+                <>
+                  <input type="hidden" name="packageEnabled" value={packageEnabled ? "on" : ""} />
+                  <input type="hidden" name="membershipEnabled" value={membershipEnabled ? "on" : ""} />
+                </>
+              )}
+
+              <button
+                type="submit"
+                disabled={policyRequiresFundingType}
+                className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Save enrollment settings
+              </button>
+            </form>
+          </div>
+        </details>
+      </div>
+    ) : null}
+    </>
   );
 }

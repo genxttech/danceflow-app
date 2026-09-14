@@ -2782,6 +2782,108 @@ export async function cancelClassAttendeeAction(formData: FormData) {
   }
 }
 
+// ============================================================================
+// GC-3.3: minimal staff-side authoring for a group class's self-enrollment
+// policy. A thin wrapper directly against group_class_enrollment_policies
+// (not an RPC) -- the app layer here only resolves the session-scoped
+// supabase client (never createAdminClient(), same reasoning as every other
+// action in this section) and the existing canEditAppointments UX-level
+// gate; the table's own INSERT/UPDATE RLS policies (gc3b: platform_admin or
+// broad staff only, no instructor write) are the real, fine-grained
+// authority -- identical posture to enrollClassAttendeeAction above.
+// ============================================================================
+export async function updateGroupClassEnrollmentPolicyAction(formData: FormData) {
+  const fallback = "/app/schedule";
+
+  try {
+    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+
+    const appointmentId = getString(formData, "appointmentId");
+    const publiclyDiscoverable = getBoolean(formData, "publiclyDiscoverable");
+    const selfEnrollmentAllowed = getBoolean(formData, "selfEnrollmentAllowed");
+    const packageEnabled = getBoolean(formData, "packageEnabled");
+    const membershipEnabled = getBoolean(formData, "membershipEnabled");
+    const returnTo = getString(formData, "returnTo") || `/app/schedule/${appointmentId}/edit`;
+
+    if (!appointmentId) {
+      redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
+    }
+
+    const { data: existing, error: existingError } = await supabase
+      .from("group_class_enrollment_policies")
+      .select("accepted_funding_types")
+      .eq("appointment_id", appointmentId)
+      .maybeSingle<{ accepted_funding_types: string[] | null }>();
+
+    if (existingError) {
+      console.error("Could not load existing group class enrollment policy:", existingError.message);
+      redirect(getErrorRedirect(formData, returnTo, "policy_save_failed"));
+    }
+
+    // Preserve every value this UI doesn't manage (direct_payment,
+    // manual_other -- set only outside this UI, e.g. by support) on every
+    // save; only package/membership are ever added or removed here.
+    const preserved = (existing?.accepted_funding_types ?? []).filter(
+      (value) => value !== "package" && value !== "membership",
+    );
+    const mergedFundingTypes = [
+      ...preserved,
+      ...(packageEnabled ? ["package"] : []),
+      ...(membershipEnabled ? ["membership"] : []),
+    ];
+
+    // Mirrors group_class_enrollment_policies_discovery_requires_funding
+    // (gc3b) -- checked here so a rejected submission gets a clear,
+    // actionable redirect instead of a raw constraint-violation error.
+    // Checks the RESULTING merged array, not "at least one checkbox
+    // checked" -- a class with a pre-existing unmanaged funding value
+    // (direct_payment/manual_other) already satisfies the constraint even
+    // with both checkboxes off.
+    if ((publiclyDiscoverable || selfEnrollmentAllowed) && mergedFundingTypes.length === 0) {
+      redirect(getErrorRedirect(formData, returnTo, "policy_requires_funding_type"));
+    }
+
+    const acceptedFundingTypes = mergedFundingTypes.length > 0 ? mergedFundingTypes : null;
+
+    // Explicit insert-vs-update branch (not a single upsert): the insert
+    // path has nothing pre-existing to preserve and always writes
+    // created_by; the update path preserves created_by/created_at and only
+    // ever touches the three fields this UI manages.
+    const { error } = existing
+      ? await supabase
+          .from("group_class_enrollment_policies")
+          .update({
+            publicly_discoverable: publiclyDiscoverable,
+            self_enrollment_allowed: selfEnrollmentAllowed,
+            accepted_funding_types: acceptedFundingTypes,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("appointment_id", appointmentId)
+      : await supabase.from("group_class_enrollment_policies").insert({
+          studio_id: studioId,
+          appointment_id: appointmentId,
+          publicly_discoverable: publiclyDiscoverable,
+          self_enrollment_allowed: selfEnrollmentAllowed,
+          accepted_funding_types: acceptedFundingTypes,
+          created_by: user.id,
+        });
+
+    if (error) {
+      console.error("Could not save group class enrollment policy:", error.message);
+      redirect(getErrorRedirect(formData, returnTo, "policy_save_failed"));
+    }
+
+    revalidatePath("/app/schedule");
+    revalidatePath(`/app/schedule/${appointmentId}`);
+    revalidatePath(`/app/schedule/${appointmentId}/edit`);
+    redirect(getSuccessRedirect(formData, returnTo, "policy_saved"));
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "policy_save_failed"));
+  }
+}
+
 export async function cancelGroupClassAppointmentAction(formData: FormData) {
   const fallback = "/app/schedule";
 

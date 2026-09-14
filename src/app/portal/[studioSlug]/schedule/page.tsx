@@ -3,8 +3,15 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppointmentSelfServiceActions from "./AppointmentSelfServiceActions";
 import SelfServiceBookingPanel from "./SelfServiceBookingPanel";
+import { selfEnrollGroupClassAction } from "./actions";
 import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
-import { getClassEnrollmentAppointmentsForClient } from "@/lib/schedule/groupClassRoster";
+import {
+  getClassEnrollmentAppointmentsForClient,
+  getJoinableGroupClassesForClient,
+  classifyJoinableClassState,
+  type FundingCandidateRow,
+  type JoinableClassState,
+} from "@/lib/schedule/groupClassRoster";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -754,6 +761,77 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
     lessonRecaps.map((recap) => [recap.appointment_id, recap])
   );
 
+  // GC-3.3: "Classes you can join" -- classes visible via the new
+  // appointments_select RLS branch 5 (publicly_discoverable=true, this
+  // caller has a linked portal relationship at this studio), excluding any
+  // class the client is already enrolled in (derived from `appointments`,
+  // which already merges real-roster + legacy-fallback class enrollments --
+  // see loadAppointments above). For each remaining candidate, resolve its
+  // actual join state via the gc3d preview RPCs, which independently
+  // re-derive their own authorization -- this page's own precompute is a
+  // display optimization only, never trusted as the real gate (the RPC
+  // this section's own forms submit to re-checks everything itself).
+  const alreadyEnrolledAppointmentIds = new Set(
+    appointments
+      .filter((row) => row.appointment_type === "group_class")
+      .map((row) => row.id),
+  );
+
+  const joinableCandidates = (
+    await getJoinableGroupClassesForClient({
+      supabase,
+      studioId: studio.id,
+      nowIso: new Date().toISOString(),
+    })
+  ).filter((row) => !alreadyEnrolledAppointmentIds.has(row.id));
+
+  type JoinableClassView = {
+    id: string;
+    title: string | null;
+    starts_at: string;
+    ends_at: string;
+  } & JoinableClassState;
+
+  const joinableClasses: JoinableClassView[] = await Promise.all(
+    joinableCandidates.map(async (candidate) => {
+      const base = {
+        id: candidate.id,
+        title: candidate.title,
+        starts_at: candidate.starts_at,
+        ends_at: candidate.ends_at,
+      };
+
+      const { data: selfEnrollmentAllowed, error: flagError } = await supabase.rpc(
+        "get_group_class_self_enrollment_flag",
+        { p_appointment_id: candidate.id },
+      );
+
+      if (flagError) {
+        console.error("Could not resolve self-enrollment flag:", flagError.message);
+      }
+
+      let candidateRows: FundingCandidateRow[] = [];
+
+      if (selfEnrollmentAllowed === true) {
+        const { data, error: previewError } = await supabase.rpc(
+          "preview_self_enrollment_funding_candidates",
+          { p_appointment_id: candidate.id, p_client_id: portalClient.id },
+        );
+
+        if (previewError) {
+          console.error("Could not preview funding candidates:", previewError.message);
+        }
+
+        candidateRows = (data ?? []) as FundingCandidateRow[];
+      }
+
+      return {
+        ...base,
+        ...classifyJoinableClassState(selfEnrollmentAllowed ?? null, candidateRows),
+      };
+    }),
+  );
+
   const now = new Date();
   const upcoming = appointments.filter((row) => new Date(row.ends_at) >= now);
   const recent = appointments
@@ -782,12 +860,17 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
           kind: "success" as const,
           message: "Your schedule request was sent to the studio for review.",
         }
-      : query.error
+      : query.success === "class_joined"
         ? {
-            kind: "error" as const,
-            message: decodeURIComponent(query.error),
+            kind: "success" as const,
+            message: "You're enrolled in the class.",
           }
-        : null;
+        : query.error
+          ? {
+              kind: "error" as const,
+              message: decodeURIComponent(query.error),
+            }
+          : null;
 
 
   return (
@@ -918,6 +1001,88 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
               </div>
             )}
           </section>
+
+          {joinableClasses.length > 0 ? (
+            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Classes you can join</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Publicly listed classes at {studioLabel} you have portal access to.
+                </p>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {joinableClasses.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4"
+                  >
+                    <p className="font-medium text-slate-900">{item.title ?? "Group Class"}</p>
+                    <p className="mt-0.5 text-sm text-slate-600">
+                      {formatDateTime(item.starts_at, studioTimeZone)} ·{" "}
+                      {formatTimeRange(item.starts_at, item.ends_at, studioTimeZone)}
+                    </p>
+
+                    {item.state === "not_enrollable" ? (
+                      <p className="mt-3 text-sm text-slate-500">
+                        Online enrollment isn&apos;t available for this class.
+                      </p>
+                    ) : item.state === "zero_eligible" ? (
+                      <p className="mt-3 text-sm text-amber-700">
+                        You don&apos;t currently have an eligible package or membership for
+                        this class.
+                      </p>
+                    ) : (
+                      <form action={selfEnrollGroupClassAction} className="mt-3 space-y-3">
+                        <input type="hidden" name="studioSlug" value={studioSlug} />
+                        <input type="hidden" name="appointmentId" value={item.id} />
+                        <input type="hidden" name="clientId" value={portalClient.id} />
+
+                        {item.state === "multiple" ? (
+                          <div className="space-y-2">
+                            <p className="text-sm text-slate-600">
+                              Choose which funding source to use for this class:
+                            </p>
+                            {item.candidates.map((candidate) => (
+                              <label
+                                key={candidate.value}
+                                className="flex items-center gap-2 text-sm text-slate-700"
+                              >
+                                {/* B3 fix (second code review): no option is
+                                    pre-checked -- the student must actively
+                                    select one. required on a radio group with
+                                    nothing checked correctly blocks submission
+                                    until a real choice is made; pre-checking
+                                    the first option previously made required
+                                    trivially satisfied and let a submission
+                                    silently pick whichever source sorted
+                                    first. */}
+                                <input
+                                  type="radio"
+                                  name="fundingChoice"
+                                  value={candidate.value}
+                                  className="h-4 w-4 border-slate-300"
+                                  required
+                                />
+                                {candidate.label}
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <button
+                          type="submit"
+                          className="inline-flex items-center justify-center rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2 text-sm font-medium text-white hover:opacity-95"
+                        >
+                          Join Class
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
             <div>

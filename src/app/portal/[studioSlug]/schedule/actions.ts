@@ -686,3 +686,132 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
   revalidatePath("/app");
   redirect(appendQueryParam(returnTo, "success", "schedule_request_submitted"));
 }
+
+// ============================================================================
+// GC-3.3: student/guardian self-enrollment into a publicly-discoverable,
+// self-enrollment-enabled group class. Thin wrapper around the
+// self_enroll_class_attendee RPC (20260913091200_gc3d_...sql) -- the RPC's
+// own embedded client_account_links.can_manage_bookings=true check is the
+// real, fine-grained authority; resolvePortalRelationship's
+// can_manage_bookings gate here is the app-layer UX check (matches
+// createPortalScheduleRequestAction's own established posture above).
+// ============================================================================
+
+// Maps self_enroll_class_attendee's specific Postgres exception messages to
+// a distinct, actionable message -- this page's own established convention
+// (see createPortalScheduleRequestAction above) passes plain human-readable
+// text via the error query param directly, not an opaque code requiring a
+// separate page-level dictionary (unlike the staff-side
+// classifyEnrollClassAttendeeError pattern), so this mirrors that.
+function classifySelfEnrollError(message: string): string {
+  if (message.includes("already enrolled")) {
+    return "You are already enrolled in this class.";
+  }
+  if (message.includes("not open for self-enrollment")) {
+    return "Online enrollment isn't available for this class.";
+  }
+  if (message.includes("No eligible package or membership")) {
+    return "You don't currently have an eligible package or membership for this class.";
+  }
+  if (message.includes("single funding source choice is required")) {
+    return "Choose a funding source to join this class.";
+  }
+  if (message.includes("is not an eligible funding source")) {
+    return "That funding source is no longer eligible for this class. Choose another.";
+  }
+  if (message.includes("no available seats remaining")) {
+    return "This class is full.";
+  }
+  if (message.includes("Not authorized")) {
+    return "You're not authorized to enroll this client in this class.";
+  }
+  if (message.includes("not found")) {
+    return "This class could not be found.";
+  }
+  return "Could not join this class. Try again.";
+}
+
+// A single native <input type="radio" name="fundingChoice"> group can only
+// ever set one form field's value -- "package:<id>" / "membership:<id>" is
+// parsed back into the two separate RPC parameters here, so the portal page
+// never needs client-side JS to drive a multi-source choice.
+function parseFundingChoice(raw: string | null): {
+  clientPackageId: string | null;
+  clientMembershipId: string | null;
+} {
+  if (!raw) return { clientPackageId: null, clientMembershipId: null };
+  const [type, id] = raw.split(":");
+  if (type === "package" && id) return { clientPackageId: id, clientMembershipId: null };
+  if (type === "membership" && id) return { clientPackageId: null, clientMembershipId: id };
+  return { clientPackageId: null, clientMembershipId: null };
+}
+
+export async function selfEnrollGroupClassAction(formData: FormData) {
+  const studioSlug = normalizeSlug(getString(formData, "studioSlug"));
+  const appointmentId = getString(formData, "appointmentId");
+  const { clientPackageId, clientMembershipId } = parseFundingChoice(
+    getString(formData, "fundingChoice") || null,
+  );
+  const requestedClientId = getString(formData, "clientId") || null;
+
+  const returnTo = `/portal/${encodeURIComponent(studioSlug)}/schedule`;
+
+  if (!studioSlug || !appointmentId) {
+    redirect(appendQueryParam(returnTo, "error", "Could not join this class. Try again."));
+  }
+
+  const authClient = await createClient();
+
+  const {
+    data: { user },
+  } = await authClient.auth.getUser();
+
+  if (!user) {
+    redirect(`/login?next=${encodeURIComponent(returnTo)}`);
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: studio, error: studioError } = await adminClient
+    .from("studios")
+    .select("id")
+    .eq("slug", studioSlug)
+    .maybeSingle<{ id: string }>();
+
+  if (studioError || !studio) {
+    redirect(appendQueryParam(returnTo, "error", "This class could not be found."));
+  }
+
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+    permission: "can_manage_bookings",
+  });
+
+  if (!relationship) {
+    redirect(appendQueryParam(returnTo, "error", "You're not authorized to enroll this client in this class."));
+  }
+
+  // RPC call runs under the request-scoped, user-JWT-bearing session client
+  // so auth.uid() resolves to the real caller inside
+  // self_enroll_class_attendee -- the RPC's own authorization depends on
+  // this, exactly as every other staff/portal RPC caller in this codebase
+  // (enrollClassAttendeeAction, the P6 self-service RPC family) already
+  // relies on. Never the admin client for this specific call.
+  const { error } = await authClient.rpc("self_enroll_class_attendee", {
+    p_appointment_id: appointmentId,
+    p_client_id: relationship.clientId,
+    p_client_package_id: clientPackageId,
+    p_client_membership_id: clientMembershipId,
+  });
+
+  if (error) {
+    console.error("Could not self-enroll in class:", error.message);
+    redirect(appendQueryParam(returnTo, "error", classifySelfEnrollError(error.message ?? "")));
+  }
+
+  revalidatePath(returnTo);
+  revalidatePath("/app/schedule");
+  redirect(appendQueryParam(returnTo, "success", "class_joined"));
+}
