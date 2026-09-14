@@ -9,6 +9,30 @@ type Params = Promise<{
   id: string;
 }>;
 
+type SearchParams = Promise<{
+  error?: string;
+  success?: string;
+}>;
+
+// GC-3.3: maps updateGroupClassEnrollmentPolicyAction's redirect codes to
+// the banner text shown above the staff self-enrollment toggle block.
+function policyBannerFromSearchParams(query: { error?: string; success?: string }) {
+  if (query.success === "policy_saved") {
+    return { kind: "success" as const, message: "Enrollment settings saved." };
+  }
+  if (query.error === "policy_requires_funding_type") {
+    return {
+      kind: "error" as const,
+      message:
+        "Select at least one funding source to make this class discoverable or self-enrollable.",
+    };
+  }
+  if (query.error === "policy_save_failed") {
+    return { kind: "error" as const, message: "Could not save enrollment settings. Try again." };
+  }
+  return null;
+}
+
 type ClientOption = {
   id: string;
   first_name: string;
@@ -97,6 +121,17 @@ type ClientRelationshipRow = {
   relationship_type: string;
 };
 
+// GC-3.3: shape returned by group_class_enrollment_policies -- read here via
+// the session-scoped supabase client (RLS already allows staff/instructor
+// SELECT for this class, matching the same access this page already has to
+// every other appointment-scoped table). No row means legacy/unrestricted
+// behavior, identical to every class before this slice.
+type EnrollmentPolicy = {
+  publicly_discoverable: boolean;
+  self_enrollment_allowed: boolean;
+  accepted_funding_types: string[] | null;
+};
+
 const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";
 
 async function getStudioTimezone(params: {
@@ -120,10 +155,14 @@ async function getStudioTimezone(params: {
 
 export default async function EditAppointmentPage({
   params,
+  searchParams,
 }: {
   params: Params;
+  searchParams?: SearchParams;
 }) {
   const { id } = await params;
+  const query = (await searchParams) ?? {};
+  const policyBanner = policyBannerFromSearchParams(query);
   const { studioId, studioRole, userId } = await getCurrentStudioContext();
 
   // FC-1B1: independent_instructor is not host-studio staff -- this page
@@ -196,6 +235,7 @@ export default async function EditAppointmentPage({
     { data: clientMembershipsRaw, error: clientMembershipsError },
     { data: membershipBenefitsRaw, error: membershipBenefitsError },
     { data: clientRelationships, error: clientRelationshipsError },
+    { data: enrollmentPolicyRow, error: enrollmentPolicyError },
   ] = await Promise.all([
     appointmentQuery.single(),
 
@@ -279,6 +319,12 @@ export default async function EditAppointmentPage({
       .select("client_id, related_client_id, relationship_type")
       .eq("studio_id", studioId)
       .in("relationship_type", ["partner", "spouse"]),
+
+    supabase
+      .from("group_class_enrollment_policies")
+      .select("publicly_discoverable, self_enrollment_allowed, accepted_funding_types")
+      .eq("appointment_id", id)
+      .maybeSingle<EnrollmentPolicy>(),
   ]);
 
   if (appointmentError || !appointment) {
@@ -311,6 +357,13 @@ export default async function EditAppointmentPage({
 
   if (clientRelationshipsError) {
     throw new Error(`Failed to load client relationships: ${clientRelationshipsError.message}`);
+  }
+
+  // Non-fatal: a missing/unreadable policy row degrades to the same
+  // legacy/unrestricted behavior every pre-GC-3.3 class already has -- this
+  // page's core edit function should never fail because of it.
+  if (enrollmentPolicyError) {
+    console.error("Could not load group class enrollment policy:", enrollmentPolicyError.message);
   }
 
   const benefitsByPlan = new Map<string, MembershipBenefit[]>();
@@ -416,6 +469,8 @@ export default async function EditAppointmentPage({
       studioTimeZone={studioTimeZone}
       instructorSearchMode={isInstructorRole}
       initialClientLabel={initialClientLabel}
+      enrollmentPolicy={(enrollmentPolicyRow ?? null) as EnrollmentPolicy | null}
+      policyBanner={policyBanner}
     />
   );
 }

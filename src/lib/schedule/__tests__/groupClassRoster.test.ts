@@ -5,6 +5,8 @@ import {
   getClassRosterForStaff,
   getOwnClassEnrollmentForAppointment,
   resolveClassAttendeesForNotification,
+  classifyJoinableClassState,
+  type FundingCandidateRow,
 } from "@/lib/schedule/groupClassRoster";
 
 /**
@@ -985,5 +987,67 @@ describe("resolveClassAttendeesForNotification (booked-only, distinct from the h
     });
 
     expect(clientIds).toEqual([]);
+  });
+});
+
+/**
+ * GC-3.3: pure classification of the portal "Classes you can join" section's
+ * 4 states, from the two gc3d preview RPCs' own results (never re-derives
+ * eligibility math itself). Decisions 6/7/9/10 (implementation plan section
+ * 51 item 4): not-enrollable shows no active Join control; zero eligible
+ * sources shows the explanatory state, not a dead-click button; one eligible
+ * source auto-enrolls with no picker; more than one requires an explicit
+ * choice.
+ */
+describe("classifyJoinableClassState", () => {
+  const packageCandidate: FundingCandidateRow = {
+    funding_type: "package",
+    source_id: "pkg-1",
+    label: "10-Class Package",
+    is_unlimited: false,
+    quantity_total: 10,
+    used: 2,
+    remaining: 8,
+  };
+
+  const membershipCandidate: FundingCandidateRow = {
+    funding_type: "membership",
+    source_id: "mem-1",
+    label: "Unlimited Membership",
+    is_unlimited: true,
+    quantity_total: null,
+    used: null,
+    remaining: null,
+  };
+
+  it("state 1: self_enrollment_allowed=false -> not_enrollable, regardless of any candidate rows", () => {
+    expect(classifyJoinableClassState(false, [packageCandidate])).toEqual({
+      state: "not_enrollable",
+    });
+  });
+
+  it("state 1: self_enrollment_allowed=null (no visibility / no policy row) -> not_enrollable", () => {
+    expect(classifyJoinableClassState(null, [])).toEqual({ state: "not_enrollable" });
+  });
+
+  it("state 2: self_enrollment_allowed=true, zero candidates -> zero_eligible", () => {
+    expect(classifyJoinableClassState(true, [])).toEqual({ state: "zero_eligible" });
+  });
+
+  it("state 3: self_enrollment_allowed=true, exactly one candidate -> single, no candidates array carried", () => {
+    const result = classifyJoinableClassState(true, [packageCandidate]);
+    expect(result).toEqual({ state: "single" });
+    expect(result).not.toHaveProperty("candidates");
+  });
+
+  it("state 4: self_enrollment_allowed=true, multiple candidates -> multiple, with type-prefixed values", () => {
+    const result = classifyJoinableClassState(true, [packageCandidate, membershipCandidate]);
+    expect(result).toEqual({
+      state: "multiple",
+      candidates: [
+        { value: "package:pkg-1", label: "10-Class Package" },
+        { value: "membership:mem-1", label: "Unlimited Membership" },
+      ],
+    });
   });
 });

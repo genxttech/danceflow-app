@@ -688,6 +688,123 @@ export async function getClassEnrollmentAppointmentsForClient(params: {
   };
 }
 
+// GC-3.3: a class this portal caller can currently see via the new
+// appointments_select RLS branch 5 (publicly_discoverable=true, caller has
+// a linked portal relationship at this studio) -- deliberately raw/
+// unfiltered by self_enrollment_allowed or funding eligibility here. The
+// caller (the portal page) resolves each class's actual join state via the
+// gc3d preview RPCs (get_group_class_self_enrollment_flag,
+// preview_self_enrollment_funding_candidates), which independently
+// re-derive their own authorization rather than trusting this list's
+// membership as a security boundary -- this function only narrows what's
+// worth previewing, it grants nothing on its own.
+export type JoinableGroupClassRow = {
+  id: string;
+  title: string | null;
+  starts_at: string;
+  ends_at: string;
+  instructors:
+    | { first_name: string; last_name: string }
+    | { first_name: string; last_name: string }[]
+    | null;
+  rooms: { name: string } | { name: string }[] | null;
+};
+
+/**
+ * Every future, currently-discoverable group class this client's portal
+ * identity can see at this studio (RLS branch 5 does the actual visibility
+ * filtering -- this is a thin, unfiltered-beyond-that read, not a second
+ * authorization layer). Callers must separately exclude any class the
+ * client is already enrolled in (e.g. against
+ * getClassEnrollmentAppointmentsForClient's own `upcoming` set) -- this
+ * function has no opinion on enrollment state, only visibility.
+ */
+export async function getJoinableGroupClassesForClient(params: {
+  supabase: SupabaseServerClient;
+  studioId: string;
+  nowIso: string;
+}): Promise<JoinableGroupClassRow[]> {
+  const { supabase, studioId, nowIso } = params;
+
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(
+      `
+      id, title, starts_at, ends_at,
+      instructors ( first_name, last_name ),
+      rooms ( name )
+    `,
+    )
+    .eq("studio_id", studioId)
+    .eq("appointment_type", "group_class")
+    .gte("starts_at", nowIso)
+    .order("starts_at", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to load joinable group classes: ${error.message}`);
+  }
+
+  return (data ?? []) as JoinableGroupClassRow[];
+}
+
+// GC-3.3: shape returned by get_eligible_group_class_funding_candidates /
+// preview_self_enrollment_funding_candidates -- both RPCs share this exact
+// table shape (the internal helper they both delegate to defines it).
+export type FundingCandidateRow = {
+  funding_type: "package" | "membership";
+  source_id: string;
+  label: string;
+  is_unlimited: boolean;
+  quantity_total: number | null;
+  used: number | null;
+  remaining: number | null;
+};
+
+export type FundingCandidateOption = {
+  value: string;
+  label: string;
+};
+
+export type JoinableClassState =
+  | { state: "not_enrollable" }
+  | { state: "zero_eligible" }
+  | { state: "single" }
+  | { state: "multiple"; candidates: FundingCandidateOption[] };
+
+/**
+ * Pure classification of a portal caller's join state for one class, from
+ * the two gc3d preview RPCs' own results -- Decision 6/7/9/10 (GC-3.3
+ * implementation plan, section 51 item 4): a class with self-enrollment
+ * disabled shows no active Join control at all; zero eligible funding
+ * sources shows the explanatory state instead of a dead-click button; one
+ * eligible source auto-enrolls with no picker; more than one requires an
+ * explicit choice. Kept as a standalone pure function (no supabase/network
+ * access) so it's directly unit-testable without mocking a client -- the
+ * portal page calls this after resolving both RPCs, never re-derives this
+ * logic inline.
+ */
+export function classifyJoinableClassState(
+  selfEnrollmentAllowed: boolean | null,
+  candidateRows: FundingCandidateRow[],
+): JoinableClassState {
+  if (selfEnrollmentAllowed !== true) {
+    return { state: "not_enrollable" };
+  }
+
+  const candidates: FundingCandidateOption[] = candidateRows.map((row) => ({
+    value: `${row.funding_type}:${row.source_id}`,
+    label: row.label,
+  }));
+
+  if (candidates.length === 0) {
+    return { state: "zero_eligible" };
+  }
+  if (candidates.length === 1) {
+    return { state: "single" };
+  }
+  return { state: "multiple", candidates };
+}
+
 /**
  * Booked attendee client ids for a class notification event (GC-1.3B).
  * Deliberately booked-only, never the historical rule: a schedule
