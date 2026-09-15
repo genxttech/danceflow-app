@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getIncludedUsageAllowance } from "@/lib/usage/addons";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
+import { resolveStudioBillingPlan } from "@/lib/billing/access";
 
 type PlanCode = "starter" | "growth" | "pro" | null;
 
@@ -52,9 +53,7 @@ export async function resolveLumiPortalAccess(
   const admin = createAdminClient();
   const { data: studio } = await admin
     .from("studios")
-    .select(
-      "id, name, slug, billing_plan, subscription_status, billing_override_enabled, billing_override_expires_at",
-    )
+    .select("id, name, slug")
     .eq("slug", studioSlug)
     .maybeSingle();
 
@@ -77,35 +76,17 @@ export async function resolveLumiPortalAccess(
 
   if (!client) redirect(`/portal/${studioSlug}`);
 
-  const [{ data: settings }, { data: subscription }] = await Promise.all([
+  const [{ data: settings }, billingResolution] = await Promise.all([
     admin
       .from("studio_settings")
       .select("lumi_enabled")
       .eq("studio_id", studio.id)
       .maybeSingle(),
-    admin
-      .from("studio_subscriptions")
-      .select("status, subscription_plans (code)")
-      .eq("studio_id", studio.id)
-      .maybeSingle(),
+    resolveStudioBillingPlan(admin, studio.id),
   ]);
 
-  const planRelation = Array.isArray(subscription?.subscription_plans)
-    ? subscription.subscription_plans[0]
-    : subscription?.subscription_plans;
-  const overrideExpiresAt = studio.billing_override_expires_at
-    ? new Date(studio.billing_override_expires_at)
-    : null;
-  const overrideActive = Boolean(
-    studio.billing_override_enabled &&
-      (!overrideExpiresAt || overrideExpiresAt.getTime() > Date.now()),
-  );
-  const planCode = normalizePlan(
-    planRelation?.code ?? studio.billing_plan,
-  );
-  const billingActive =
-    overrideActive ||
-    isActiveStatus(subscription?.status ?? studio.subscription_status);
+  const planCode = normalizePlan(billingResolution.planCode);
+  const billingActive = isActiveStatus(billingResolution.status);
   const planAllowed =
     billingActive && (planCode === "growth" || planCode === "pro");
   const enabled = settings?.lumi_enabled === true;
