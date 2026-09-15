@@ -460,24 +460,27 @@ function buildCapabilities(
   }
 }
 
-export async function getCurrentStudioPlanForUser() {
-  const supabase = await createClient();
+export type StudioBillingPlanResolution = {
+  studioId: string;
+  status: string;
+  planCode: WorkspacePlanCode;
+  planName: string | null;
+};
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return null;
-  }
-
-  const context = await getCurrentStudioContext();
-  const studioId = context?.studioId ?? null;
-
-  if (!studioId) {
-    return null;
-  }
-
+/**
+ * Canonical studio plan/override resolver. Takes an already-authorized
+ * Supabase client (session-scoped for a staff caller, admin/service-role for
+ * a cross-user portal lookup by slug) so every caller supplies the client
+ * appropriate to its own authorization context, while sharing one
+ * implementation of the override-vs-subscription precedence rules. An active
+ * `billing_override_*` always wins outright over `studio_subscriptions`,
+ * matching what the override column is for (plan access without a live
+ * Stripe subscription) — do not re-derive this logic elsewhere.
+ */
+export async function resolveStudioBillingPlan(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  studioId: string,
+): Promise<StudioBillingPlanResolution> {
   const [
     { data: studio, error: studioError },
     { data: subscription, error: subscriptionError },
@@ -559,6 +562,27 @@ export async function getCurrentStudioPlanForUser() {
     ),
     planName: plan?.name ?? null,
   };
+}
+
+export async function getCurrentStudioPlanForUser() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const context = await getCurrentStudioContext();
+  const studioId = context?.studioId ?? null;
+
+  if (!studioId) {
+    return null;
+  }
+
+  return resolveStudioBillingPlan(supabase, studioId);
 }
 
 export async function getCurrentWorkspaceCapabilitiesForUser(): Promise<WorkspaceCapabilities | null> {
