@@ -16,6 +16,7 @@ import {
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { GUSTO_INTEGRATION_ENABLED } from "@/lib/integrations/gusto/dormant";
 import {
   checkGustoConnectionAction,
   disconnectGustoAction,
@@ -72,6 +73,38 @@ export default async function GustoSettingsPage({
 }: PageProps) {
   const context = await getCurrentStudioContext();
   if (!canManageSettings(context.studioRole ?? "")) redirect("/app");
+
+  if (!GUSTO_INTEGRATION_ENABLED) {
+    // Neutral "not currently available" state for every visitor, regardless
+    // of any existing connection/credential state -- deliberately never
+    // queries studio_gusto_connections or any other Gusto table here.
+    return (
+      <main className="space-y-6 pb-10">
+        <header className="overflow-hidden rounded-[32px] border border-violet-300 bg-gradient-to-br from-[#26103D] via-[#5B197A] to-[#7E22CE] text-white shadow-sm">
+          <div className="p-6 sm:p-8">
+            <Link
+              href="/app/settings/integrations"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-violet-100 hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to integrations
+            </Link>
+            <div className="mt-6 max-w-3xl">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-200">
+                Payroll execution
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold sm:text-4xl">
+                Gusto integration
+              </h1>
+              <p className="mt-3 text-sm leading-6 text-violet-50 sm:text-base">
+                This integration is not currently available.
+              </p>
+            </div>
+          </div>
+        </header>
+      </main>
+    );
+  }
 
   const params = await searchParams;
   const supabase = await createClient();

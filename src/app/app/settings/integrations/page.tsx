@@ -20,6 +20,7 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { studioHasFeature } from "@/lib/billing/access";
 import { createClient } from "@/lib/supabase/server";
+import { GUSTO_INTEGRATION_ENABLED } from "@/lib/integrations/gusto/dormant";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 
 type WaveConnectionRow = {
@@ -222,11 +223,13 @@ export default async function StudioIntegrationHubPage() {
       .select("id, status, google_account_email, calendar_id, calendar_summary, sync_lessons, sync_classes, sync_events, last_sync_at, last_sync_status, last_sync_error")
       .eq("studio_id", context.studioId)
       .maybeSingle<GoogleCalendarConnectionRow>(),
-    supabase
-      .from("studio_gusto_connections")
-      .select("id, status, environment, gusto_company_name, last_health_check_at, last_health_status, last_error")
-      .eq("studio_id", context.studioId)
-      .maybeSingle<GustoConnectionRow>(),
+    GUSTO_INTEGRATION_ENABLED
+      ? supabase
+          .from("studio_gusto_connections")
+          .select("id, status, environment, gusto_company_name, last_health_check_at, last_health_status, last_error")
+          .eq("studio_id", context.studioId)
+          .maybeSingle<GustoConnectionRow>()
+      : Promise.resolve({ data: null as GustoConnectionRow | null, error: null }),
   ]);
 
   if (studioError) throw new Error(`Failed to load Stripe status: ${studioError.message}`);
@@ -288,8 +291,11 @@ export default async function StudioIntegrationHubPage() {
       ? "attention"
       : "available";
 
-  const connectedCount = [stripeReady, waveStatus === "connected", googleStatus === "connected", gustoStatus === "connected"].filter(Boolean).length;
-  const attentionCount = [stripeStatus, waveStatus, googleStatus, gustoStatus].filter((status) => status === "attention").length;
+  const trackedStatuses = GUSTO_INTEGRATION_ENABLED
+    ? [stripeStatus, waveStatus, googleStatus, gustoStatus]
+    : [stripeStatus, waveStatus, googleStatus];
+  const connectedCount = trackedStatuses.filter((status) => status === "connected").length;
+  const attentionCount = trackedStatuses.filter((status) => status === "attention").length;
 
   return (
     <main className="space-y-8">
@@ -315,7 +321,7 @@ export default async function StudioIntegrationHubPage() {
         items={[
           { key: "connected", label: "Connected", value: connectedCount, detail: "Healthy connections", tone: "success" as const },
           { key: "attention", label: "Needs attention", value: attentionCount, detail: "Connections to review", tone: attentionCount ? "warning" as const : "default" as const },
-          { key: "available", label: "Available", value: Math.max(0, 4 - connectedCount - attentionCount), detail: "Ready to connect" },
+          { key: "available", label: "Available", value: Math.max(0, trackedStatuses.length - connectedCount - attentionCount), detail: "Ready to connect" },
         ]}
       />
 
@@ -359,22 +365,24 @@ export default async function StudioIntegrationHubPage() {
             <Signal label="Latest Run" value={latestRun ? `${String(latestRun.status ?? "draft").replaceAll("_", " ")} · ${formatDate(latestRun.created_at)}` : "No runs yet"} />
           </IntegrationCard>
 
-          <IntegrationCard
-            eyebrow="Payroll execution"
-            title="Gusto"
-            description="Connect an existing Gusto company to prepare for reviewed worker mapping and payroll execution. DanceFlow remains the payroll-preparation source of truth."
-            status={gustoStatus}
-            icon={BriefcaseBusiness}
-            action={
-              <ActionLink href="/app/settings/integrations/gusto">
-                {gustoConnected ? "Manage Gusto" : "Connect Gusto"}
-              </ActionLink>
-            }
-          >
-            <Signal label="Company" value={gustoConnection?.gusto_company_name ?? "Not connected"} />
-            <Signal label="Environment" value={String(gustoConnection?.environment ?? "demo")} />
-            <Signal label="Last Health Check" value={gustoConnection?.last_health_check_at ? formatDate(gustoConnection.last_health_check_at) : "Not checked"} />
-          </IntegrationCard>
+          {GUSTO_INTEGRATION_ENABLED ? (
+            <IntegrationCard
+              eyebrow="Payroll execution"
+              title="Gusto"
+              description="Connect an existing Gusto company to prepare for reviewed worker mapping and payroll execution. DanceFlow remains the payroll-preparation source of truth."
+              status={gustoStatus}
+              icon={BriefcaseBusiness}
+              action={
+                <ActionLink href="/app/settings/integrations/gusto">
+                  {gustoConnected ? "Manage Gusto" : "Connect Gusto"}
+                </ActionLink>
+              }
+            >
+              <Signal label="Company" value={gustoConnection?.gusto_company_name ?? "Not connected"} />
+              <Signal label="Environment" value={String(gustoConnection?.environment ?? "demo")} />
+              <Signal label="Last Health Check" value={gustoConnection?.last_health_check_at ? formatDate(gustoConnection.last_health_check_at) : "Not checked"} />
+            </IntegrationCard>
+          ) : null}
         </div>
 
         <aside className="space-y-6">
@@ -418,13 +426,13 @@ export default async function StudioIntegrationHubPage() {
                   <p className="mt-1">Review authorization or the latest sync error.</p>
                 </Link>
               ) : null}
-              {gustoStatus === "attention" ? (
+              {GUSTO_INTEGRATION_ENABLED && gustoStatus === "attention" ? (
                 <Link href="/app/settings/integrations/gusto" className="block rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 hover:bg-amber-100">
                   <p className="font-semibold">Gusto needs attention.</p>
                   <p className="mt-1">Review authorization or the latest connection health error.</p>
                 </Link>
               ) : null}
-              {stripeReady && !waveNeedsReauth && failedWaveRuns === 0 && googleStatus !== "attention" && gustoStatus !== "attention" ? (
+              {stripeReady && !waveNeedsReauth && failedWaveRuns === 0 && googleStatus !== "attention" && (!GUSTO_INTEGRATION_ENABLED || gustoStatus !== "attention") ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
                   <p className="font-semibold">Core integrations look healthy.</p>
                   <p className="mt-1">No immediate integration action is needed.</p>

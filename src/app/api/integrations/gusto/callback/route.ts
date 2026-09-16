@@ -17,6 +17,10 @@ import {
   parseOAuthStateCookie,
   safeOAuthErrorCode,
 } from "@/lib/security/oauth";
+import {
+  GUSTO_INTEGRATION_ENABLED,
+  gustoDormantRouteResponse,
+} from "@/lib/integrations/gusto/dormant";
 
 function settingsRedirect(request: NextRequest, code: string) {
   const response = NextResponse.redirect(
@@ -30,6 +34,10 @@ function settingsRedirect(request: NextRequest, code: string) {
 }
 
 export async function GET(request: NextRequest) {
+  if (!GUSTO_INTEGRATION_ENABLED) {
+    return gustoDormantRouteResponse();
+  }
+
   const code = request.nextUrl.searchParams.get("code");
   const returnedState = request.nextUrl.searchParams.get("state");
   const oauthError = request.nextUrl.searchParams.get("error");

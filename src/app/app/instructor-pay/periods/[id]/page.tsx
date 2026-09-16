@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canDisbursePayroll, canPreparePayroll } from "@/lib/auth/permissions";
+import { GUSTO_INTEGRATION_ENABLED } from "@/lib/integrations/gusto/dormant";
 import {
   approvePeriodEarningAction,
   assignSingleEarningAction,
@@ -209,6 +210,72 @@ export default async function PayrollPeriodPage({
   if (!periodData) notFound();
   const period = periodData as PeriodRow;
 
+  // Each Gusto query is its own conditional constant (rather than one
+  // array-level ternary) so TypeScript infers each position's type
+  // independently instead of collapsing the whole tuple to `unknown[]`.
+  const gustoReadinessQuery = GUSTO_INTEGRATION_ENABLED
+    ? supabase
+        .from("studio_gusto_readiness_reviews")
+        .select("id, status, earning_count, ready_count, blocker_count, reviewed_at, studio_gusto_readiness_items(id, earning_id, instructor_id, gusto_worker_uuid, gusto_job_uuid, readiness_status, blocker_codes, details)")
+        .eq("studio_id", studioId)
+        .eq("pay_period_id", id)
+        .order("reviewed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null });
+  const gustoPreviewQuery = GUSTO_INTEGRATION_ENABLED
+    ? supabase
+        .from("studio_gusto_time_sheet_previews")
+        .select("id, status, shift_count, ready_count, blocker_count, total_hours, time_zone, prepared_at")
+        .eq("studio_id", studioId)
+        .eq("pay_period_id", id)
+        .order("prepared_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null });
+  const gustoTransmissionQuery = GUSTO_INTEGRATION_ENABLED
+    ? supabase
+        .from("studio_gusto_time_sheet_transmissions")
+        .select("id, preview_id, status, item_count, sent_count, failed_count, skipped_count, initiated_at, completed_at, last_error")
+        .eq("studio_id", studioId)
+        .eq("pay_period_id", id)
+        .order("initiated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null });
+  const gustoConnectionQuery = GUSTO_INTEGRATION_ENABLED
+    ? supabase
+        .from("studio_gusto_connections")
+        .select("id, environment, status")
+        .eq("studio_id", studioId)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null });
+  const gustoPeriodsQuery = GUSTO_INTEGRATION_ENABLED
+    ? supabase
+        .from("studio_gusto_pay_periods")
+        .select("id, period_start, period_end, pay_date")
+        .eq("studio_id", studioId)
+        .order("period_start", { ascending: false })
+        .limit(24)
+    : Promise.resolve({ data: [] as { id: string; period_start: string; period_end: string; pay_date: string | null }[], error: null });
+  const gustoPayrollSyncQuery = GUSTO_INTEGRATION_ENABLED
+    ? supabase
+        .from("studio_gusto_payroll_syncs")
+        .select("id, status, gusto_payroll_sync_uuid, gusto_payroll_uuid, initiated_at, last_checked_at, completed_at, last_error")
+        .eq("studio_id", studioId)
+        .eq("pay_period_id", id)
+        .order("initiated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null });
+  const gustoTimeSheetItemsQuery = GUSTO_INTEGRATION_ENABLED
+    ? supabase
+        .from("studio_gusto_time_sheet_transmission_items")
+        .select("id, status, gusto_time_sheet_uuid, gusto_response, studio_gusto_time_sheet_transmissions!inner(pay_period_id)")
+        .eq("studio_id", studioId)
+        .eq("studio_gusto_time_sheet_transmissions.pay_period_id", id)
+    : Promise.resolve({ data: [] as { id: string; status: string; gusto_time_sheet_uuid: string | null; gusto_response: unknown }[], error: null });
+
   const [assignedResult, availableResult, batchesResult, gustoReadinessResult, gustoPreviewResult, gustoTransmissionResult, gustoConnectionResult, gustoPeriodsResult, gustoPayrollSyncResult, gustoTimeSheetItemsResult] = await Promise.all([
     supabase
       .from("instructor_earnings")
@@ -232,54 +299,13 @@ export default async function PayrollPeriodPage({
       .eq("studio_id", studioId)
       .eq("pay_period_id", id)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("studio_gusto_readiness_reviews")
-      .select("id, status, earning_count, ready_count, blocker_count, reviewed_at, studio_gusto_readiness_items(id, earning_id, instructor_id, gusto_worker_uuid, gusto_job_uuid, readiness_status, blocker_codes, details)")
-      .eq("studio_id", studioId)
-      .eq("pay_period_id", id)
-      .order("reviewed_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("studio_gusto_time_sheet_previews")
-      .select("id, status, shift_count, ready_count, blocker_count, total_hours, time_zone, prepared_at")
-      .eq("studio_id", studioId)
-      .eq("pay_period_id", id)
-      .order("prepared_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("studio_gusto_time_sheet_transmissions")
-      .select("id, preview_id, status, item_count, sent_count, failed_count, skipped_count, initiated_at, completed_at, last_error")
-      .eq("studio_id", studioId)
-      .eq("pay_period_id", id)
-      .order("initiated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("studio_gusto_connections")
-      .select("id, environment, status")
-      .eq("studio_id", studioId)
-      .maybeSingle(),
-    supabase
-      .from("studio_gusto_pay_periods")
-      .select("id, period_start, period_end, pay_date")
-      .eq("studio_id", studioId)
-      .order("period_start", { ascending: false })
-      .limit(24),
-    supabase
-      .from("studio_gusto_payroll_syncs")
-      .select("id, status, gusto_payroll_sync_uuid, gusto_payroll_uuid, initiated_at, last_checked_at, completed_at, last_error")
-      .eq("studio_id", studioId)
-      .eq("pay_period_id", id)
-      .order("initiated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("studio_gusto_time_sheet_transmission_items")
-      .select("id, status, gusto_time_sheet_uuid, gusto_response, studio_gusto_time_sheet_transmissions!inner(pay_period_id)")
-      .eq("studio_id", studioId)
-      .eq("studio_gusto_time_sheet_transmissions.pay_period_id", id),
+    gustoReadinessQuery,
+    gustoPreviewQuery,
+    gustoTransmissionQuery,
+    gustoConnectionQuery,
+    gustoPeriodsQuery,
+    gustoPayrollSyncQuery,
+    gustoTimeSheetItemsQuery,
   ]);
 
   if (assignedResult.error) throw new Error(`Failed to load assigned earnings: ${assignedResult.error.message}`);
@@ -442,7 +468,7 @@ export default async function PayrollPeriodPage({
                   <input type="hidden" name="payPeriodId" value={period.id} />
                   <select name="provider" defaultValue="manual" className="rounded-2xl border border-slate-200 px-3 py-2 text-sm">
                     <option value="manual">Provider-neutral CSV</option>
-                    <option value="gusto">Gusto-formatted label</option>
+                    {GUSTO_INTEGRATION_ENABLED ? <option value="gusto">Gusto-formatted label</option> : null}
                     <option value="quickbooks_payroll">QuickBooks Payroll label</option>
                     <option value="adp">ADP label</option>
                   </select>
@@ -454,6 +480,8 @@ export default async function PayrollPeriodPage({
         </div>
       </section>
 
+      {GUSTO_INTEGRATION_ENABLED ? (
+      <>
       <section className="rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-orange-50 p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -793,6 +821,8 @@ export default async function PayrollPeriodPage({
           </div>
         </div>
       </section>
+      </>
+      ) : null}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-semibold text-slate-950">Instructor totals</h2>
