@@ -21,6 +21,10 @@ import {
   type PlanCode,
 } from "@/lib/billing/plans";
 import {
+  resolveDisplayedMonthlyPriceCents,
+  resolveTransparentPricingNote,
+} from "@/lib/billing/founderPricing";
+import {
   getUsageAllowance,
   type UsageAllowanceResult,
 } from "@/lib/usage/addons";
@@ -1048,7 +1052,7 @@ function PlanCard({
 
       <div className="mt-6">
         <p className="text-3xl font-semibold text-slate-950">
-          {formatPlanMoney(plan.amountMonthlyCents)}
+          {formatPlanMoney(resolveDisplayedMonthlyPriceCents(plan))}
           <span className="ml-1 text-base font-medium text-slate-500">
             /month
           </span>
@@ -1064,9 +1068,9 @@ function PlanCard({
         ))}
       </ul>
 
-      {plan.transparentFeeNote ? (
+      {resolveTransparentPricingNote(plan) ? (
         <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
-          {plan.transparentFeeNote}
+          {resolveTransparentPricingNote(plan)}
         </div>
       ) : null}
 
@@ -1105,6 +1109,10 @@ function OrganizerSuiteAddOnCard({
 }) {
   const isActive = activeEntitlement?.status === "active";
   const canChange = canManageAddOns && hasManagedSubscription;
+  const organizerPlan = getBillingPlan("organizer");
+  const organizerSuiteMonthlyPrice = organizerPlan
+    ? formatPlanMoney(resolveDisplayedMonthlyPriceCents(organizerPlan))
+    : null;
 
   return (
     <div className="rounded-[32px] border border-violet-200 bg-white p-7 shadow-sm">
@@ -1198,9 +1206,10 @@ function OrganizerSuiteAddOnCard({
                 </p>
                 <p className="mt-1 text-xs leading-5 text-slate-600">
                   This will add Organizer Suite to your current DanceFlow
-                  subscription for $19/month. Your card on file will be billed
-                  by Stripe as part of your existing monthly subscription. No
-                  separate Stripe checkout page will open.
+                  subscription{organizerSuiteMonthlyPrice ? ` for ${organizerSuiteMonthlyPrice}/month` : ""}. Your card
+                  on file will be billed by Stripe as part of your existing
+                  monthly subscription. No separate Stripe checkout page will
+                  open.
                 </p>
                 <p className="mt-2 text-xs leading-5 text-slate-600">
                   Organizer Suite unlocks ticketing, QR check-in, registrations,

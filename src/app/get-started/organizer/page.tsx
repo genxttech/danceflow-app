@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { formatPlanMoney, getPlansByAudience } from "@/lib/billing/plans";
+import {
+  isFounderPricingActive,
+  resolveDisplayedMonthlyPriceCents,
+  resolveTransparentPricingNote,
+} from "@/lib/billing/founderPricing";
 import { startPaidPathAction } from "../actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
@@ -13,6 +18,8 @@ export default async function OrganizerPricingPage() {
   } = await supabase.auth.getUser();
 
   const organizerPlan = getPlansByAudience("organizer")[0];
+  const founderActive = isFounderPricingActive();
+  const transparentPricingNote = resolveTransparentPricingNote(organizerPlan);
 
   return (
     <>
@@ -41,10 +48,9 @@ export default async function OrganizerPricingPage() {
                   Review pricing before creating your account
                 </p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Founder organizer pricing is available during launch and lasts
-                  for 12 months after your 14-day free trial. When you click
-                  Start Trial, DanceFlow will move you into signup if you are
-                  not already signed in.
+                  {founderActive
+                    ? "Founder organizer pricing is available during launch and lasts for 12 months after your 14-day free trial. When you click Start Trial, DanceFlow will move you into signup if you are not already signed in."
+                    : "When you click Start Trial, DanceFlow will move you into signup if you are not already signed in."}
                 </p>
               </div>
             </div>
@@ -75,10 +81,10 @@ export default async function OrganizerPricingPage() {
                     </p>
                   </div>
 
-                  {organizerPlan.transparentFeeNote ? (
+                  {transparentPricingNote ? (
                     <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-5 py-4">
                       <p className="text-sm leading-6 text-slate-600">
-                        {organizerPlan.transparentFeeNote}
+                        {transparentPricingNote}
                       </p>
                     </div>
                   ) : null}
@@ -91,22 +97,23 @@ export default async function OrganizerPricingPage() {
                 </div>
 
                 <div className="rounded-[28px] bg-slate-950 px-7 py-8 text-white">
-                  {organizerPlan.regularAmountMonthlyCents ? (
+                  {founderActive && organizerPlan.regularAmountMonthlyCents ? (
                     <p className="text-sm font-medium text-slate-300">
                       Founder price · regularly {formatPlanMoney(organizerPlan.regularAmountMonthlyCents)}/mo
                     </p>
                   ) : null}
 
                   <p className="mt-1 text-4xl font-semibold tracking-tight">
-                    {formatPlanMoney(organizerPlan.amountMonthlyCents)}
+                    {formatPlanMoney(resolveDisplayedMonthlyPriceCents(organizerPlan))}
                     <span className="text-base font-medium text-slate-300">
                       /mo
                     </span>
                   </p>
 
                   <p className="mt-3 text-sm leading-6 text-slate-300">
-                    Includes a {organizerPlan.trialDays}-day free trial. Founder
-                    pricing applies for 12 months after the trial during launch.
+                    {founderActive
+                      ? `Includes a ${organizerPlan.trialDays}-day free trial. Founder pricing applies for 12 months after the trial during launch.`
+                      : `Includes a ${organizerPlan.trialDays}-day free trial.`}
                   </p>
 
                   <form action={startPaidPathAction} className="mt-6">

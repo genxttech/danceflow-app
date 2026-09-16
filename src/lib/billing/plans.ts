@@ -35,7 +35,7 @@ export type BillingPlan = {
   regularAmountMonthlyCents?: number;
   description: string;
   trialDays: number;
-  transparentFeeNote?: string;
+  feeStructureNote?: string;
   founderOfferNote?: string;
   features: BillingFeature[];
   highlights: string[];
@@ -154,8 +154,8 @@ export const BILLING_PLANS: BillingPlan[] = [
     trialDays: ORGANIZER_TRIAL_DAYS,
     founderOfferNote:
       "Founder organizer pricing is available during launch and lasts for 12 months after your free trial.",
-    transparentFeeNote:
-      "Transparent pricing: founder pricing is $12/month, regularly $19/month, plus a 3.5% DanceFlow platform fee per ticket sale for standalone organizer workspaces. Standard payment processing fees also apply.",
+    feeStructureNote:
+      "a 3.5% DanceFlow platform fee per ticket sale for standalone organizer workspaces. Standard payment processing fees also apply.",
     features: [
       "organizer_tools",
       "public_events",

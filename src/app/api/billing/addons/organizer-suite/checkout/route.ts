@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+import { isFounderPricingActive } from "@/lib/billing/founderPricing";
 
 type StudioBillingRow = {
   id: string;
@@ -58,9 +59,7 @@ function redirectToBilling(request: NextRequest, params: Record<string, string>)
 }
 
 function getOrganizerSuitePriceId() {
-  const founderActive =
-    process.env.NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE !== "false" &&
-    process.env.FOUNDER_PRICING_ACTIVE !== "false";
+  const founderActive = isFounderPricingActive();
 
   const founderPrice = process.env.STRIPE_PRICE_ORGANIZER_SUITE_ADDON_FOUNDER?.trim();
   const standardPrice = process.env.STRIPE_PRICE_ORGANIZER_SUITE_ADDON_STANDARD?.trim();
