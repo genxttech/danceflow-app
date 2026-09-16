@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canDisbursePayroll, canPreparePayroll } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { GUSTO_INTEGRATION_ENABLED } from "@/lib/integrations/gusto/dormant";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import SellWorkspaceFeedback from "@/components/app/sell/SellWorkspaceFeedback";
 import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
@@ -275,11 +276,13 @@ export default async function InstructorPayPage({
     supabase.from("payroll_pay_periods").select("id, period_start, period_end, pay_date, status, compensation_total, reimbursement_total, deduction_total, net_payment_total").eq("studio_id", studioId).order("period_start", { ascending: false }).limit(24),
     supabase.from("payroll_batches").select("id, pay_period_id, batch_number, provider, provider_batch_reference, status, compensation_total, reimbursement_total, deduction_total, net_payment_total, earning_count, paid_at, payment_method").eq("studio_id", studioId).order("created_at", { ascending: false }).limit(24),
     earningsQuery,
-    supabase
-      .from("studio_gusto_connections")
-      .select("status, gusto_company_name, last_health_status")
-      .eq("studio_id", studioId)
-      .maybeSingle<GustoConnectionRow>(),
+    GUSTO_INTEGRATION_ENABLED
+      ? supabase
+          .from("studio_gusto_connections")
+          .select("status, gusto_company_name, last_health_status")
+          .eq("studio_id", studioId)
+          .maybeSingle<GustoConnectionRow>()
+      : Promise.resolve({ data: null as GustoConnectionRow | null, error: null }),
   ]);
 
   if (instructorsResult.error) {
@@ -409,9 +412,11 @@ export default async function InstructorPayPage({
           <>
             <Link href={exportHref} className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">Export CSV</Link>
             <Link href="/app/instructors" className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]">Manage instructors</Link>
-            <Link href="/app/settings/integrations/gusto" className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100">
-              {gustoConnection?.status === "connected" ? `Gusto: ${gustoConnection.gusto_company_name ?? "Connected"}` : "Connect Gusto"}
-            </Link>
+            {GUSTO_INTEGRATION_ENABLED ? (
+              <Link href="/app/settings/integrations/gusto" className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100">
+                {gustoConnection?.status === "connected" ? `Gusto: ${gustoConnection.gusto_company_name ?? "Connected"}` : "Connect Gusto"}
+              </Link>
+            ) : null}
           </>
         )}
       />
@@ -528,7 +533,7 @@ export default async function InstructorPayPage({
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-950">{formatDate(period.period_start)} – {formatDate(period.period_end)}</p><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass(period.status)}`}>{period.status.replaceAll("_", " ")}</span></div><p className="mt-1 text-sm text-slate-600">Pay date: {period.pay_date ? formatDate(period.pay_date) : "Not set"}</p>
               <p className="mt-2 text-sm font-semibold text-slate-950">Net payment: {formatCurrency(period.net_payment_total)}</p>
               <p className="mt-1 text-xs text-slate-500">Compensation {formatCurrency(period.compensation_total)} · Reimbursements {formatCurrency(period.reimbursement_total)} · Deductions {formatCurrency(period.deduction_total)}</p></div>
-              <div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/periods/${period.id}`} className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800">Open payroll workspace</Link>{["open", "in_review"].includes(period.status) ? <><form action={assignEarningsToPayPeriodAction}><input type="hidden" name="payPeriodId" value={period.id} /><button className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">Assign eligible earnings</button></form><form action={createPayrollBatchAction} className="flex gap-2"><input type="hidden" name="payPeriodId" value={period.id} /><select name="provider" defaultValue="manual" className="rounded-xl border border-slate-200 px-2 py-2 text-xs"><option value="manual">Provider-neutral CSV</option><option value="gusto">Gusto-formatted label</option><option value="quickbooks_payroll">QuickBooks Payroll label</option><option value="adp">ADP label</option></select><button className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Create batch</button></form></> : null}</div></div>
+              <div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/periods/${period.id}`} className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800">Open payroll workspace</Link>{["open", "in_review"].includes(period.status) ? <><form action={assignEarningsToPayPeriodAction}><input type="hidden" name="payPeriodId" value={period.id} /><button className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">Assign eligible earnings</button></form><form action={createPayrollBatchAction} className="flex gap-2"><input type="hidden" name="payPeriodId" value={period.id} /><select name="provider" defaultValue="manual" className="rounded-xl border border-slate-200 px-2 py-2 text-xs"><option value="manual">Provider-neutral CSV</option>{GUSTO_INTEGRATION_ENABLED ? <option value="gusto">Gusto-formatted label</option> : null}<option value="quickbooks_payroll">QuickBooks Payroll label</option><option value="adp">ADP label</option></select><button className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Create batch</button></form></> : null}</div></div>
               <div className="mt-4 space-y-3">{periodBatches.length === 0 ? <p className="text-sm text-slate-500">No payroll batches for this period yet.</p> : periodBatches.map((batch) => <div key={batch.id} className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><p className="font-semibold text-slate-950">Batch #{batch.batch_number} · {batch.provider.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-slate-500">{batch.earning_count} earnings · Compensation {formatCurrency(batch.compensation_total)} · Reimbursements {formatCurrency(batch.reimbursement_total)} · Deductions {formatCurrency(batch.deduction_total)}</p><p className="mt-1 text-sm font-semibold text-slate-950">Net payment: {formatCurrency(batch.net_payment_total)}</p></div><div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/export?batchId=${batch.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">Export batch CSV</Link>{["draft", "in_review"].includes(batch.status) ? <form action={approvePayrollBatchAction}><input type="hidden" name="payrollBatchId" value={batch.id} /><button className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white">Approve batch</button></form> : null}{canMarkPaid && batch.status === "approved" ? <form action={markPayrollBatchPaidAction} className="flex flex-wrap gap-2"><input type="hidden" name="payrollBatchId" value={batch.id} /><select name="paymentMethod" defaultValue="external_payroll" className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs"><option value="external_payroll">External payroll</option><option value="check">Check</option><option value="ach">ACH</option><option value="cash">Cash</option></select><input name="providerBatchReference" className="w-40 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" placeholder="Provider reference" /><button className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white">Mark batch paid</button></form> : null}<span className={`rounded-full px-2.5 py-2 text-xs font-semibold ring-1 ${statusClass(batch.status)}`}>{batch.status.replaceAll("_", " ")}</span></div></div></div>)}</div>
             </div>;
           })}

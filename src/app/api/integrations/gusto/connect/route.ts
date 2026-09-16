@@ -4,11 +4,19 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { buildGustoAuthorizationUrl } from "@/lib/integrations/gusto/client";
 import {
+  GUSTO_INTEGRATION_ENABLED,
+  gustoDormantRouteResponse,
+} from "@/lib/integrations/gusto/dormant";
+import {
   createOAuthStateCookieValue,
   oauthStateCookieOptions,
 } from "@/lib/security/oauth";
 
 export async function GET(request: Request) {
+  if (!GUSTO_INTEGRATION_ENABLED) {
+    return gustoDormantRouteResponse();
+  }
+
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
   const supabase = await createClient();

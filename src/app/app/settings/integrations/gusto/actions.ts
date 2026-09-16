@@ -12,8 +12,19 @@ import {
   getGustoWorkers,
 } from "@/lib/integrations/gusto/client";
 import { getValidGustoAccessToken } from "@/lib/integrations/gusto/token";
+import {
+  GUSTO_DORMANT_STATUS,
+  GUSTO_INTEGRATION_ENABLED,
+} from "@/lib/integrations/gusto/dormant";
 
+// Single chokepoint: every exported action in this file calls gustoContext()
+// as its first step, so gating it here guards all 6 without touching the
+// individual actions or inspecting any connection/credential state first.
 async function gustoContext() {
+  if (!GUSTO_INTEGRATION_ENABLED) {
+    redirect(`/app/settings/integrations/gusto?status=${GUSTO_DORMANT_STATUS}`);
+  }
+
   const { supabase, studioId } = await requireSettingsManageAccess();
   const {
     data: { user },

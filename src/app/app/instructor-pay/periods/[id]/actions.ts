@@ -25,6 +25,10 @@ import {
   requirePayrollDisbursementAccess,
   requirePayrollPrepareAccess,
 } from "@/lib/auth/serverRoleGuard";
+import {
+  GUSTO_DORMANT_STATUS,
+  GUSTO_INTEGRATION_ENABLED,
+} from "@/lib/integrations/gusto/dormant";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -204,6 +208,7 @@ export async function voidEmptyPayPeriodAction(formData: FormData) {
 export async function generateGustoReadinessAction(formData: FormData) {
   const payPeriodId = getString(formData, "payPeriodId");
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     if (!payPeriodId) go("missing", "missing_pay_period");
     const { supabase, studioId, user } = await requirePayrollPrepareAccess();
     const admin = createAdminClient();
@@ -389,6 +394,7 @@ export async function generateGustoTimeSheetPreviewAction(formData: FormData) {
   const payPeriodId = getString(formData, "payPeriodId");
 
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     if (!payPeriodId) go("missing", "missing_pay_period");
 
     const { supabase, studioId, user } = await requirePayrollPrepareAccess();
@@ -650,6 +656,7 @@ export async function sendGustoTimeSheetsAction(formData: FormData) {
   const payPeriodId = getString(formData, "payPeriodId");
 
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     if (!payPeriodId) go("missing", "missing_pay_period");
     if (getString(formData, "confirmation") !== "send") {
       go(payPeriodId, "gusto_send_confirmation_required");
@@ -961,6 +968,7 @@ export async function createMissingGustoDemoJobAction(formData: FormData) {
   const payPeriodId = getString(formData, "payPeriodId");
 
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     requireDemoGustoEnvironment();
 
     if (!payPeriodId) {
@@ -1102,6 +1110,7 @@ export async function alignPayPeriodToGustoDemoAction(formData: FormData) {
   const payPeriodId = getString(formData, "payPeriodId");
 
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     requireDemoGustoEnvironment();
 
     const gustoPayPeriodId = getString(formData, "gustoPayPeriodId");
@@ -1245,6 +1254,7 @@ export async function initiateGustoPayrollSyncAction(formData: FormData) {
   const payPeriodId = getString(formData, "payPeriodId");
 
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     if (!payPeriodId) go("missing", "missing_pay_period");
     if (getString(formData, "confirmation") !== "sync") {
       go(payPeriodId, "gusto_payroll_sync_confirmation_required");
@@ -1527,6 +1537,7 @@ export async function refreshGustoPayrollSyncAction(formData: FormData) {
   const payPeriodId = getString(formData, "payPeriodId");
 
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     if (!payPeriodId) go("missing", "missing_pay_period");
 
     const { supabase, studioId, user } =
@@ -1617,6 +1628,7 @@ export async function refreshGustoTimeSheetStatusesAction(formData: FormData) {
   const payPeriodId = getString(formData, "payPeriodId");
 
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     if (!payPeriodId) go("missing", "missing_pay_period");
 
     const { supabase, studioId, user } =
@@ -1703,6 +1715,7 @@ export async function approveDeliveredGustoTimeSheetsAction(
   const payPeriodId = getString(formData, "payPeriodId");
 
   try {
+    if (!GUSTO_INTEGRATION_ENABLED) go(payPeriodId || "missing", GUSTO_DORMANT_STATUS);
     if (!payPeriodId) go("missing", "missing_pay_period");
     if (getString(formData, "confirmation") !== "approve") {
       go(payPeriodId, "gusto_time_sheet_approval_confirmation_required");
