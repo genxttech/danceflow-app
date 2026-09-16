@@ -7,6 +7,7 @@ import {
   getBillingPlan,
   type PlanAudience,
 } from "@/lib/billing/plans";
+import { resolveDisplayedMonthlyPriceCents } from "@/lib/billing/founderPricing";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 
@@ -185,7 +186,7 @@ export default async function GetStartedCompletePage({
 
                       <div className="text-right">
                         <p className="text-3xl font-semibold tracking-tight text-slate-950">
-                          {formatPlanMoney(plan.amountMonthlyCents)}
+                          {formatPlanMoney(resolveDisplayedMonthlyPriceCents(plan))}
                           <span className="text-base font-medium text-slate-500">
                             /mo
                           </span>

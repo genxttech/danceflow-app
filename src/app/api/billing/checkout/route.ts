@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
+import { isFounderPricingActive } from "@/lib/billing/founderPricing";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
 
@@ -36,9 +37,7 @@ type CheckoutInput = {
 };
 
 
-const FOUNDER_PRICING_ACTIVE =
-  process.env.NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE !== "false" &&
-  process.env.FOUNDER_PRICING_ACTIVE !== "false";
+const FOUNDER_PRICING_ACTIVE = isFounderPricingActive();
 
 type PriceLookupResult = {
   stripePriceId: string | null;

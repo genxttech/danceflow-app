@@ -2,6 +2,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { formatPlanMoney, getPlansByAudience } from "@/lib/billing/plans";
+import {
+  isFounderPricingActive,
+  resolveDisplayedMonthlyPriceCents,
+} from "@/lib/billing/founderPricing";
 import { startPaidPathAction } from "../actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
@@ -32,6 +36,7 @@ export default async function StudioPricingPage() {
   } = await supabase.auth.getUser();
 
   const studioPlans = getPlansByAudience("studio");
+  const founderActive = isFounderPricingActive();
 
   return (
     <>
@@ -57,15 +62,17 @@ export default async function StudioPricingPage() {
               </p>
 
               <div className="mt-8 grid gap-4 text-left sm:grid-cols-2">
-                <div className="rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4">
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                    Founder pricing
-                  </p>
-                  <p className="mt-2 text-sm leading-7 text-violet-950">
-                    Available for the first 25 studios. Founder pricing lasts
-                    for 12 months after your 30-day free trial.
-                  </p>
-                </div>
+                {founderActive ? (
+                  <div className="rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4">
+                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
+                      Founder pricing
+                    </p>
+                    <p className="mt-2 text-sm leading-7 text-violet-950">
+                      Available for the first 25 studios. Founder pricing lasts
+                      for 12 months after your 30-day free trial.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4">
                   <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-700">
@@ -185,14 +192,14 @@ export default async function StudioPricingPage() {
                     </div>
 
                     <div className="mt-4">
-                      {plan.regularAmountMonthlyCents ? (
+                      {founderActive && plan.regularAmountMonthlyCents ? (
                         <p className="text-sm font-medium text-slate-500">
                           Founder price · regularly {formatPlanMoney(plan.regularAmountMonthlyCents)}/mo
                         </p>
                       ) : null}
 
                       <p className="mt-1 text-4xl font-semibold tracking-tight text-slate-950">
-                        {formatPlanMoney(plan.amountMonthlyCents)}
+                        {formatPlanMoney(resolveDisplayedMonthlyPriceCents(plan))}
                         <span className="text-base font-medium text-slate-500">/mo</span>
                       </p>
                     </div>
@@ -202,8 +209,9 @@ export default async function StudioPricingPage() {
                     </p>
 
                     <div className="mt-4 rounded-2xl bg-violet-50 px-4 py-3 text-sm leading-6 text-violet-900">
-                      Includes a {plan.trialDays}-day free trial. Founder pricing
-                      applies for 12 months after the trial for eligible early studios.
+                      {founderActive
+                        ? `Includes a ${plan.trialDays}-day free trial. Founder pricing applies for 12 months after the trial for eligible early studios.`
+                        : `Includes a ${plan.trialDays}-day free trial.`}
                     </div>
 
                     <ul className="mt-6 space-y-2 text-sm leading-7 text-slate-600">
