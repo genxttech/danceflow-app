@@ -272,7 +272,7 @@ begin
 
   insert into public.user_studio_roles (user_id, studio_id, role, active) values
     ('00000000-0000-0000-0000-0000005c1006', '00000000-0000-0000-0000-0000005c0001', 'instructor', true)
-  on conflict (user_id, studio_id, role) do update set active = true;
+  on conflict (studio_id, user_id) do update set active = true;
 
   reset role;
 
