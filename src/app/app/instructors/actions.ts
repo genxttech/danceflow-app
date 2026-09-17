@@ -9,6 +9,7 @@ import {
   getOptionalUploadFile,
   validateUploadFile,
 } from "@/lib/security/uploads";
+import { writeInstructorAuditEvent } from "@/lib/instructors/audit";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -256,6 +257,169 @@ export async function deactivateInstructorAction(formData: FormData) {
     throw new Error(`Deactivate instructor failed: ${error.message}`);
   }
 
+  redirect("/app/instructors");
+}
+
+// Landmark 1A Slice 2 -- manual instructor <-> DanceFlow account linkage
+// corrections. Both actions are studio-scoped via requireInstructorManageAccess()
+// and never trust a client-supplied studio/identity value.
+
+export async function linkInstructorAccountAction(formData: FormData) {
+  const { supabase, studioId, user } = await requireInstructorManageAccess();
+
+  const instructorId = getString(formData, "instructorId");
+  const targetUserId = getString(formData, "targetUserId");
+
+  if (!instructorId || !targetUserId) {
+    throw new Error("Missing instructor or target account.");
+  }
+
+  const { data: instructor, error: instructorError } = await supabase
+    .from("instructors")
+    .select("id, studio_id, user_id")
+    .eq("id", instructorId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (instructorError || !instructor) {
+    throw new Error("Could not find that instructor at your studio.");
+  }
+
+  const { data: targetProfile, error: targetProfileError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", targetUserId)
+    .maybeSingle();
+
+  if (targetProfileError || !targetProfile) {
+    throw new Error("That account could not be found.");
+  }
+
+  const { data: conflictingInstructor, error: conflictError } = await supabase
+    .from("instructors")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("user_id", targetUserId)
+    .neq("id", instructorId)
+    .maybeSingle();
+
+  if (conflictError) {
+    throw new Error("Could not verify that account is not already linked elsewhere.");
+  }
+
+  if (conflictingInstructor) {
+    throw new Error("That account is already linked to a different instructor at this studio.");
+  }
+
+  const previousUserId = instructor.user_id;
+  const isRelink = previousUserId !== null;
+
+  if (previousUserId === targetUserId) {
+    throw new Error("That account is already linked to this instructor.");
+  }
+
+  // Atomic: the update's own WHERE clause re-asserts the exact
+  // previously-read user_id, so a wrong-link correction is one
+  // old-user -> new-user statement -- the row is never observably
+  // user_id IS NULL at any point, regardless of active/can_instruct.
+  const { data: updated, error: updateError } = await supabase
+    .from("instructors")
+    .update({ user_id: targetUserId })
+    .eq("id", instructorId)
+    .eq("studio_id", studioId)
+    .eq("user_id", previousUserId as string | null)
+    .select("id")
+    .maybeSingle();
+
+  if (updateError) {
+    throw new Error(`Could not link account: ${updateError.message}`);
+  }
+
+  if (!updated) {
+    throw new Error("This instructor's link changed since it was loaded. Please try again.");
+  }
+
+  await writeInstructorAuditEvent({
+    studioId,
+    instructorId,
+    actorUserId: user.id,
+    eventType: "account_linked",
+    beforeValue: { user_id: previousUserId },
+    afterValue: { user_id: targetUserId },
+    metadata: { source: "manual_staff_action", matched_via: isRelink ? "manual_relink" : "manual_link" },
+  });
+
+  revalidatePath("/app/instructors");
+  redirect("/app/instructors");
+}
+
+export async function unlinkInstructorAccountAction(formData: FormData) {
+  const { supabase, studioId, user } = await requireInstructorManageAccess();
+
+  const instructorId = getString(formData, "instructorId");
+
+  if (!instructorId) {
+    throw new Error("Missing instructor ID.");
+  }
+
+  const { data: instructor, error: instructorError } = await supabase
+    .from("instructors")
+    .select("id, studio_id, user_id, can_instruct")
+    .eq("id", instructorId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (instructorError || !instructor) {
+    throw new Error("Could not find that instructor at your studio.");
+  }
+
+  if (!instructor.user_id) {
+    throw new Error("This instructor is not currently linked to an account.");
+  }
+
+  // Landmark 1A: standalone unlink must never create a new
+  // (active=true, can_instruct=true, user_id=NULL) row -- that
+  // combination is only ever legacy/pre-existing data, never something
+  // newly created going forward. Correcting a wrong link should use
+  // linkInstructorAccountAction's atomic relink instead, which never
+  // passes through a null-user_id gap.
+  if (instructor.can_instruct === true) {
+    throw new Error(
+      "This instructor currently has instructional capability and cannot be unlinked directly. Use the relink action if you have a replacement account, or revoke instructional capability first."
+    );
+  }
+
+  const previousUserId = instructor.user_id;
+
+  const { data: updated, error: updateError } = await supabase
+    .from("instructors")
+    .update({ user_id: null })
+    .eq("id", instructorId)
+    .eq("studio_id", studioId)
+    .eq("user_id", previousUserId)
+    .eq("can_instruct", false)
+    .select("id")
+    .maybeSingle();
+
+  if (updateError) {
+    throw new Error(`Could not unlink account: ${updateError.message}`);
+  }
+
+  if (!updated) {
+    throw new Error("This instructor's link changed since it was loaded. Please try again.");
+  }
+
+  await writeInstructorAuditEvent({
+    studioId,
+    instructorId,
+    actorUserId: user.id,
+    eventType: "account_unlinked",
+    beforeValue: { user_id: previousUserId },
+    afterValue: { user_id: null },
+    metadata: { source: "manual_staff_action" },
+  });
+
+  revalidatePath("/app/instructors");
   redirect("/app/instructors");
 }
 

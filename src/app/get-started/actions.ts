@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
 import { sendWelcomeToDanceFlowEmail } from "@/lib/notifications/dispatch";
 import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
+import { writeInstructorAuditEvent } from "@/lib/instructors/audit";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -321,11 +322,14 @@ async function ensureOwnerInstructorProfile(params: {
   const { supabase, studioId, userId, userEmail, fullName } = params;
   const { firstName, lastName } = splitFullName(fullName);
 
+  // Landmark 1A Slice 2: canonical lookup now recognizes an already
+  // fully-migrated row (user_id) as well as a legacy profile_user_id-only
+  // row, in one query -- prevents a duplicate insert either way.
   const { data: existingInstructor, error: existingError } = await supabase
     .from("instructors")
-    .select("id, active")
+    .select("id, active, user_id")
     .eq("studio_id", studioId)
-    .eq("profile_user_id", userId)
+    .or(`user_id.eq.${userId},profile_user_id.eq.${userId}`)
     .maybeSingle();
 
   if (existingError) {
@@ -335,7 +339,9 @@ async function ensureOwnerInstructorProfile(params: {
   }
 
   if (existingInstructor) {
-    if (existingInstructor.active === true) return;
+    const needsUserIdBackfill = !existingInstructor.user_id;
+
+    if (existingInstructor.active === true && !needsUserIdBackfill) return;
 
     const { error: reactivateError } = await supabase
       .from("instructors")
@@ -344,6 +350,7 @@ async function ensureOwnerInstructorProfile(params: {
         first_name: firstName,
         last_name: lastName,
         email: userEmail,
+        ...(needsUserIdBackfill ? { user_id: userId } : {}),
       })
       .eq("id", existingInstructor.id);
 
@@ -353,25 +360,55 @@ async function ensureOwnerInstructorProfile(params: {
       );
     }
 
+    if (needsUserIdBackfill) {
+      await writeInstructorAuditEvent({
+        studioId,
+        instructorId: existingInstructor.id,
+        actorUserId: userId,
+        eventType: "account_linked",
+        beforeValue: { user_id: null },
+        afterValue: { user_id: userId },
+        metadata: { source: "owner_onboarding", matched_via: "profile_user_id" },
+      });
+    }
+
     return;
   }
 
-  const { error: insertError } = await supabase.from("instructors").insert({
-    studio_id: studioId,
-    profile_user_id: userId,
-    first_name: firstName,
-    last_name: lastName,
-    email: userEmail,
-    active: true,
-    public_profile_enabled: false,
-    display_order: 0,
-  });
+  // Slice 2: write both user_id (canonical) and profile_user_id (kept
+  // for legacy-consumer compatibility during transition, per Decision 3
+  // item 4) -- both are definitionally the same value here.
+  const { data: insertedInstructor, error: insertError } = await supabase
+    .from("instructors")
+    .insert({
+      studio_id: studioId,
+      user_id: userId,
+      profile_user_id: userId,
+      first_name: firstName,
+      last_name: lastName,
+      email: userEmail,
+      active: true,
+      public_profile_enabled: false,
+      display_order: 0,
+    })
+    .select("id")
+    .single();
 
-  if (insertError) {
+  if (insertError || !insertedInstructor) {
     throw new Error(
-      `Could not create owner instructor profile: ${insertError.message}`
+      `Could not create owner instructor profile: ${insertError?.message ?? "Unknown error."}`
     );
   }
+
+  await writeInstructorAuditEvent({
+    studioId,
+    instructorId: insertedInstructor.id,
+    actorUserId: userId,
+    eventType: "account_linked",
+    beforeValue: null,
+    afterValue: { user_id: userId },
+    metadata: { source: "owner_onboarding", matched_via: "created_new" },
+  });
 }
 
 async function createWorkspaceForUser(params: {
