@@ -190,6 +190,7 @@ export async function updateInstructorAction(
     const yearsExperience = getOptionalInteger(formData, "yearsExperience");
     const displayOrder = getOptionalInteger(formData, "displayOrder") ?? 0;
     const active = getString(formData, "active");
+    const wantsActive = active === "true";
 
     if (!instructorId) {
       return { error: "Missing instructor ID." };
@@ -197,6 +198,34 @@ export async function updateInstructorAction(
 
     if (!firstName || !lastName) {
       return { error: "First name and last name are required." };
+    }
+
+    // Landmark 1A Slice 6: an inactive -> active transition must route
+    // through the seat-gated reactivate_instructor RPC, not a raw update
+    // -- it is the same seat-consuming transition as an ordinary grant
+    // whenever the instructor is already can_instruct=true (Decision 6's
+    // symmetry requirement). Deactivation, and re-saving an already-active
+    // row, never need the RPC -- only the false -> true edge does.
+    const { data: currentInstructor, error: currentInstructorError } = await supabase
+      .from("instructors")
+      .select("active")
+      .eq("id", instructorId)
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+    if (currentInstructorError || !currentInstructor) {
+      return { error: "Could not find that instructor at your studio." };
+    }
+
+    if (!currentInstructor.active && wantsActive) {
+      const { error: reactivateError } = await supabase.rpc("reactivate_instructor", {
+        p_studio_id: studioId,
+        p_instructor_id: instructorId,
+      });
+
+      if (reactivateError) {
+        return { error: reactivateError.message };
+      }
     }
 
     const { error } = await supabase
@@ -221,7 +250,7 @@ export async function updateInstructorAction(
         credentials_verified_by: null,
         years_experience: yearsExperience,
         display_order: displayOrder,
-        active: active === "true",
+        active: wantsActive,
       })
       .eq("id", instructorId)
       .eq("studio_id", studioId);
@@ -421,6 +450,37 @@ export async function unlinkInstructorAccountAction(formData: FormData) {
 
   revalidatePath("/app/instructors");
   redirect("/app/instructors");
+}
+
+// Landmark 1A Slice 6 -- canonical instructional-capability grant. The
+// RPC itself enforces the actor set (platform_admin/studio_owner/
+// studio_admin), the same-studio renter guard, the account-required
+// precondition, idempotency, and the seat-limit boundary -- this action
+// only needs to call it and surface whichever friendly message the RPC
+// raises (all three of its failure messages are already written to be
+// clear and non-leaking, so they are passed through verbatim rather than
+// re-mapped).
+export async function grantInstructorCapabilityAction(formData: FormData) {
+  const { supabase, studioId } = await requireInstructorManageAccess();
+
+  const instructorId = getString(formData, "instructorId");
+
+  if (!instructorId) {
+    throw new Error("Missing instructor ID.");
+  }
+
+  const { error } = await supabase.rpc("grant_instructor_capability", {
+    p_studio_id: studioId,
+    p_instructor_id: instructorId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/app/instructors");
+  revalidatePath(`/app/instructors/${instructorId}`);
+  redirect(`/app/instructors/${instructorId}`);
 }
 
 function createFeedToken() {

@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { canEditClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireInstructorManageAccess } from "@/lib/auth/serverRoleGuard";
 import { revalidatePath } from "next/cache";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 import { getStripe } from "@/lib/payments/stripe";
@@ -503,6 +504,60 @@ export async function updateIndependentInstructorSettingsAction(
   }
 
   redirectWithResult(returnTo, "success", "independent_instructor_updated");
+}
+
+// Landmark 1A Slice 6 -- explicit hybrid-promotion action. Mirrors
+// isEventSlugUniqueError's established shape for safely mapping the
+// instructors_studio_user_unique_idx 23505 conflict to a friendly
+// message, in the unlikely event the resolved account is already linked
+// to a different instructor row at this studio.
+function isInstructorLinkageUniqueError(
+  error: { code?: string; message?: string } | null | undefined,
+) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return (
+    error?.code === "23505" &&
+    message.includes("instructors_studio_user_unique_idx")
+  );
+}
+
+export async function promoteHybridInstructorAction(formData: FormData) {
+  const { supabase, studioId } = await requireInstructorManageAccess();
+
+  const clientId = getString(formData, "clientId");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
+  const attested = formData.get("hybridClientAssignmentAttested") === "on";
+  const workerClassification = getString(formData, "workerClassification");
+
+  if (!clientId) {
+    redirectWithResult(returnTo, "error", "missing_client");
+  }
+
+  if (!attested) {
+    redirectWithResult(returnTo, "error", "hybrid_promotion_missing_attestation");
+  }
+
+  if (!["employee", "contractor"].includes(workerClassification)) {
+    redirectWithResult(returnTo, "error", "hybrid_promotion_invalid_classification");
+  }
+
+  const { error } = await supabase.rpc("promote_hybrid_instructor", {
+    p_studio_id: studioId,
+    p_client_id: clientId,
+    p_hybrid_client_assignment_attested: attested,
+    p_worker_classification: workerClassification,
+  });
+
+  if (error) {
+    if (isInstructorLinkageUniqueError(error)) {
+      redirectWithResult(returnTo, "error", "hybrid_promotion_linkage_conflict");
+    }
+    redirectWithResult(returnTo, "error", "hybrid_promotion_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", "hybrid_promotion_completed");
 }
 
 export async function linkPartnerAction(formData: FormData) {
