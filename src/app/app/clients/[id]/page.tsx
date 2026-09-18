@@ -45,6 +45,7 @@ import {
   markFormerClientPortalAccessAction,
   resolvePortalConflictAction,
   updateIndependentInstructorSettingsAction,
+  promoteHybridInstructorAction,
   adjustLessonCountCorrectionAction,
   addClientAccountLedgerEntryAction,
   addClientActivityNoteAction,
@@ -1575,6 +1576,41 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Could not save independent instructor settings.",
+    };
+  }
+
+  if (search.success === "hybrid_promotion_completed") {
+    return {
+      kind: "success" as const,
+      message: "This instructor is now a hybrid instructor and consumes an active instructor seat.",
+    };
+  }
+
+  if (search.error === "hybrid_promotion_missing_attestation") {
+    return {
+      kind: "error" as const,
+      message: "Hybrid promotion requires the staff attestation checkbox to be confirmed.",
+    };
+  }
+
+  if (search.error === "hybrid_promotion_invalid_classification") {
+    return {
+      kind: "error" as const,
+      message: "Select a worker classification (Employee or Contractor) to complete hybrid promotion.",
+    };
+  }
+
+  if (search.error === "hybrid_promotion_linkage_conflict") {
+    return {
+      kind: "error" as const,
+      message: "This account is already linked to a different instructor at this studio.",
+    };
+  }
+
+  if (search.error === "hybrid_promotion_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not complete hybrid promotion. This studio may have reached its instructor seat limit for the current plan.",
     };
   }
 
@@ -5011,6 +5047,67 @@ export default async function ClientDetailPage({
           Client + Floor-Rental Access
         </p>
       </div>
+    </div>
+  ) : null}
+
+  {isIndependentInstructor && typedClient.linked_instructor_id ? (
+    <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+      <h3 className="text-base font-semibold text-violet-900">
+        Hybrid Instructor Promotion
+      </h3>
+      <p className="mt-1 text-sm leading-6 text-violet-800">
+        Hybrid status is for an independent instructor who <span className="font-semibold">also</span> has a
+        formal instructional relationship with this studio -- the studio assigns/provides clients to them and
+        includes them in this studio&apos;s payroll. This is a transitional bridge until DanceFlow has a full
+        client-assignment system: the attestation below is never inferred and must be explicitly confirmed by
+        an authorized staff member. Promotion consumes one of this studio&apos;s active-instructor seats.
+      </p>
+
+      <form action={promoteHybridInstructorAction} className="mt-4 space-y-3">
+        <input type="hidden" name="clientId" value={typedClient.id} />
+        <input
+          type="hidden"
+          name="returnTo"
+          value={`/app/clients/${typedClient.id}`}
+        />
+
+        <label className="flex items-start gap-2 text-sm text-violet-900">
+          <input
+            type="checkbox"
+            name="hybridClientAssignmentAttested"
+            className="mt-1"
+          />
+          <span>
+            I confirm this studio formally assigns/provides clients to this instructor and will include them
+            in this studio&apos;s payroll/compensation workflow.
+          </span>
+        </label>
+
+        <div>
+          <label className="block text-xs font-medium uppercase tracking-wide text-violet-700">
+            Worker Classification
+          </label>
+          <select
+            name="workerClassification"
+            defaultValue=""
+            required
+            className="mt-1 rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm text-violet-950"
+          >
+            <option value="" disabled>
+              Select classification
+            </option>
+            <option value="employee">Employee</option>
+            <option value="contractor">Contractor</option>
+          </select>
+        </div>
+
+        <button
+          type="submit"
+          className="rounded-xl bg-violet-900 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
+        >
+          Promote to Hybrid Instructor
+        </button>
+      </form>
     </div>
   ) : null}
 

@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageInstructors } from "@/lib/auth/permissions";
+import { grantInstructorCapabilityAction } from "../actions";
 
 type InstructorCredentialRow = {
   id: string;
@@ -33,6 +35,8 @@ type InstructorRow = {
   years_experience?: number | null;
   display_order?: number | null;
   user_id?: string | null;
+  can_instruct: boolean;
+  hybrid_client_assignment_attested?: boolean | null;
 };
 
 function formatStatus(active: boolean) {
@@ -94,6 +98,8 @@ export default async function InstructorDetailPage({
   const typedInstructor = instructor as InstructorRow;
   const credentials = (credentialsResult.data ?? []) as InstructorCredentialRow[];
   const instructorName = `${typedInstructor.first_name} ${typedInstructor.last_name}`.trim();
+  const canGrantCapability =
+    canManageInstructors(context.studioRole) || context.isPlatformAdmin;
 
   return (
     <div className="max-w-5xl space-y-8">
@@ -164,6 +170,40 @@ export default async function InstructorDetailPage({
           <p className="mt-2 text-sm text-slate-600">
             Active instructors can be used in schedule and instructor workflows.
           </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Instructional Capability
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <span
+              className={
+                typedInstructor.can_instruct
+                  ? "h-2.5 w-2.5 rounded-full bg-emerald-500"
+                  : "h-2.5 w-2.5 rounded-full bg-slate-400"
+              }
+            />
+            <p className="text-lg font-semibold text-slate-950">
+              {typedInstructor.can_instruct ? "Granted" : "Not granted"}
+            </p>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">
+            {typedInstructor.can_instruct
+              ? "Counts toward this studio's active instructor seat limit."
+              : "This instructor cannot be assigned to lessons or classes until capability is granted."}
+          </p>
+          {!typedInstructor.can_instruct && canGrantCapability ? (
+            <form action={grantInstructorCapabilityAction} className="mt-4">
+              <input type="hidden" name="instructorId" value={typedInstructor.id} />
+              <button
+                type="submit"
+                className="rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Grant Instructional Capability
+              </button>
+            </form>
+          ) : null}
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-2">
