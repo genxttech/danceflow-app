@@ -7,6 +7,10 @@ import {
   type EntitlementResolutionOutcome,
 } from "@/lib/booking/entitlementResolution";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
+import {
+  isInstructionalAppointmentType,
+  validateAssignableInstructor,
+} from "@/lib/instructors/assignability";
 
 /**
  * Every real caller passes a genuine `createAdminClient()` /
@@ -206,6 +210,23 @@ export async function executeApprovedStudentBookingAction(params: {
 
   const appointmentType = request.lesson_type ?? "private_lesson";
   const isReschedule = request.action_type === "reschedule" && !!request.appointment_id;
+
+  // Landmark 1A Slice 5: the request's instructor_id was allow-list/
+  // active filtered only at slot-generation time, which can be stale by
+  // the time this executes (instant self-service, staff approval of a
+  // queued request, or a race between request and execution) --
+  // re-validate live, right before the real write, regardless of which
+  // branch below (RPC or raw insert/update) ends up performing it.
+  if (isInstructionalAppointmentType(appointmentType)) {
+    const assignabilityError = await validateAssignableInstructor(
+      params.supabase,
+      request.studio_id,
+      request.instructor_id,
+    );
+    if (assignabilityError) {
+      throw new Error(assignabilityError);
+    }
+  }
 
   let entitlement: EntitlementResolutionOutcome;
 

@@ -46,6 +46,18 @@ vi.mock("@/lib/packages/lifecycle", () => ({
   reconcileClientPackageLifecycle: vi.fn().mockResolvedValue({ completedPackageIds: [] }),
 }));
 
+// Landmark 1A Slice 5: this file's fake Supabase client has no real
+// `instructors` table backing the new assignability query, so mock the
+// validator itself -- these tests exercise RPC/update call routing, not
+// assignability, which has its own dedicated coverage in
+// src/lib/instructors/__tests__/assignability.test.ts.
+vi.mock("@/lib/instructors/assignability", () => ({
+  isInstructionalAppointmentType: (type: string) =>
+    ["private_lesson", "group_class", "intro_lesson", "coaching", "practice_party", "event"].includes(type),
+  validateAssignableInstructor: vi.fn().mockResolvedValue(null),
+  assignmentRelationshipChanged: () => true,
+}));
+
 const sendGroupClassCancellationPushMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/notifications/schedulePush", () => ({
   sendAppointmentSchedulePush: vi.fn().mockResolvedValue(undefined),

@@ -56,6 +56,17 @@ vi.mock("@/lib/schedule/conflicts", () => ({
   detectAppointmentConflicts: vi.fn().mockResolvedValue({ hasConflict: false }),
 }));
 
+// Landmark 1A Slice 5: this file's fake Supabase client has no real
+// `instructors` table backing the new assignability query -- mock the
+// validator itself, which has its own dedicated coverage in
+// src/lib/instructors/__tests__/assignability.test.ts.
+vi.mock("@/lib/instructors/assignability", () => ({
+  isInstructionalAppointmentType: (type: string) =>
+    ["private_lesson", "group_class", "intro_lesson", "coaching", "practice_party", "event"].includes(type),
+  validateAssignableInstructor: vi.fn().mockResolvedValue(null),
+  assignmentRelationshipChanged: () => true,
+}));
+
 vi.mock("@/lib/booking/entitlementResolution", () => ({
   resolveEntitlementForBooking: vi.fn().mockResolvedValue({
     outcome: "resolved",
