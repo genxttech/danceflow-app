@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAppointmentCreateAccess } from "@/lib/auth/serverRoleGuard";
 import { requireBookingRequestRelationshipAccess } from "@/lib/auth/bookingRequestAccess";
+import {
+  isInstructionalAppointmentType,
+  validateAssignableInstructor,
+} from "@/lib/instructors/assignability";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
@@ -647,6 +651,23 @@ export async function approveBookingRequestAction(formData: FormData) {
 
   if (!typedRequest.client_id) {
     redirect("/app/schedule/requests?error=missing_client");
+  }
+
+  // Landmark 1A Slice 5: booking_requests.instructor_id was allow-list
+  // filtered at request-creation time, which can be stale by the time
+  // staff approve it -- re-validate live, at the moment the real
+  // appointment is about to be written, not just at request time.
+  if (isInstructionalAppointmentType(typedRequest.appointment_type)) {
+    const assignabilityError = await validateAssignableInstructor(
+      supabase,
+      studioId,
+      typedRequest.instructor_id,
+    );
+    if (assignabilityError) {
+      redirect(
+        `/app/schedule/requests?error=${encodeURIComponent(assignabilityError)}`,
+      );
+    }
   }
 
   let billingFields: {

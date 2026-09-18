@@ -10,6 +10,10 @@ import {
 } from "@/lib/security/uploads";
 import { hasUsableImportedPackageBalance } from "@/lib/packages/importBalance";
 import { computePackageImportActivationPlan } from "@/app/app/settings/import/packageActivationPlan";
+import {
+  isBlockingErrorCode,
+  isDeterministicallyInstructionalSourceRole,
+} from "@/app/app/settings/import/classification";
 
 const IMPORT_BUCKET = "imports";
 
@@ -1421,20 +1425,6 @@ async function finalizeBatch(params: {
   }
 }
 
-function isBlockingErrorCode(errorCode: string) {
-  return [
-    "missing_required_field",
-    "invalid_email",
-    "duplicate_in_file",
-    "ambiguous_existing_match",
-    "duplicate_source_identity",
-    "missing_header",
-    "invalid_datetime",
-    "missing_related_record",
-    "invalid_amount",
-    "execution_failed",
-  ].includes(errorCode);
-}
 
 export async function archiveUnfinishedImportBatchesAction() {
   try {
@@ -2174,25 +2164,28 @@ export async function validateInstructorImportBatchAction(formData: FormData) {
         }
       }
 
-      if (isSourceSpecificStudioMigration && sourceRole) {
-        const normalizedRole = sourceRole.toLowerCase();
-        if (
-          !["instructor", "teacher", "coach"].some((role) =>
-            normalizedRole.includes(role),
-          )
-        ) {
+      // Landmark 1A Slice 5: previously this classification only ran for
+      // Mindbody/WellnessLiving-sourced migrations, and its
+      // staff_role_requires_review result was never blocking -- a
+      // Front-Desk/Studio-Manager-titled row could be silently inserted
+      // into instructors as an inert roster record. Now runs for any
+      // import whenever the source data includes a role/title column at
+      // all (sourceRole non-empty), regardless of source_system, and
+      // routes through addBlocking() so the row is skipped entirely
+      // rather than created. A file with no role/title column at all
+      // (the ordinary "dedicated instructor-only CSV" case) is
+      // unaffected -- there is no signal here to override.
+      if (sourceRole) {
+        if (!isDeterministicallyInstructionalSourceRole(sourceRole)) {
           roleReviewRows += 1;
-          batchErrors.push({
-            import_batch_id: batchId,
-            import_batch_file_id: fileRow.id,
-            row_number: rowNumber,
-            field_name: "role",
-            error_code: "staff_role_requires_review",
-            error_message:
-              `${isMindbody ? "Mindbody" : "WellnessLiving"} staff roles are not granted automatically. Review this role in DanceFlow after import.`,
-            raw_value: sourceRole,
-            row_data: row,
-          });
+          addBlocking(
+            "role",
+            "staff_role_requires_review",
+            isSourceSpecificStudioMigration
+              ? `${isMindbody ? "Mindbody" : "WellnessLiving"} staff roles are not granted automatically. This row was skipped -- review this role and add them as an instructor manually if appropriate.`
+              : "This role does not look instructional. This row was skipped -- review this role and add them as an instructor manually if appropriate.",
+            sourceRole,
+          );
         }
       }
 

@@ -22,6 +22,11 @@ import {
 } from "@/lib/auth/serverRoleGuard";
 import { isIndependentInstructor } from "@/lib/auth/permissions";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
+import {
+  assignmentRelationshipChanged,
+  isInstructionalAppointmentType,
+  validateAssignableInstructor,
+} from "@/lib/instructors/assignability";
 import { requireAppointmentRelationshipAccess } from "@/lib/auth/appointmentAccess";
 import { requireBookingRequestRelationshipAccess } from "@/lib/auth/bookingRequestAccess";
 import {
@@ -1450,6 +1455,15 @@ export async function createAppointmentAction(
         return { error: "The class must end after it starts." };
       }
 
+      const classAssignabilityError = await validateAssignableInstructor(
+        supabase,
+        studioId,
+        classInstructorId,
+      );
+      if (classAssignabilityError) {
+        return { error: classAssignabilityError };
+      }
+
       const { data: newAppointmentId, error: rpcError } = await supabase.rpc(
         "create_group_class_appointment",
         {
@@ -1546,6 +1560,17 @@ export async function createAppointmentAction(
       clientPackageId,
       billingType,
     });
+
+    if (isInstructionalAppointmentType(appointmentType)) {
+      const assignabilityError = await validateAssignableInstructor(
+        supabase,
+        studioId,
+        relations.instructor_id,
+      );
+      if (assignabilityError) {
+        return { error: assignabilityError };
+      }
+    }
 
     if (isFloorSpaceRental(appointmentType)) {
       const floorRentalClientValidation = await validateFloorRentalClient({
@@ -2052,6 +2077,26 @@ export async function updateAppointmentAction(
         return { error: "The class must end after it starts." };
       }
 
+      if (
+        assignmentRelationshipChanged({
+          previousInstructorId: earlyRelationshipResult.appointment.instructor_id,
+          previousStudioId: earlyRelationshipResult.appointment.studio_id,
+          previousAppointmentType: earlyRelationshipResult.appointment.appointment_type,
+          nextInstructorId: classInstructorId,
+          nextStudioId: studioId,
+          nextAppointmentType: earlyRelationshipResult.appointment.appointment_type,
+        })
+      ) {
+        const classAssignabilityError = await validateAssignableInstructor(
+          supabase,
+          studioId,
+          classInstructorId,
+        );
+        if (classAssignabilityError) {
+          return { error: classAssignabilityError };
+        }
+      }
+
       const { error: classUpdateError } = await supabase
         .from("appointments")
         .update({
@@ -2313,6 +2358,27 @@ export async function updateAppointmentAction(
       confirmation_actor_user_id: timeChanged ? null : undefined,
       ...relations,
     };
+
+    if (
+      isInstructionalAppointmentType(appointmentType) &&
+      assignmentRelationshipChanged({
+        previousInstructorId: earlyRelationshipResult.appointment.instructor_id,
+        previousStudioId: earlyRelationshipResult.appointment.studio_id,
+        previousAppointmentType: earlyRelationshipResult.appointment.appointment_type,
+        nextInstructorId: relations.instructor_id,
+        nextStudioId: studioId,
+        nextAppointmentType: appointmentType,
+      })
+    ) {
+      const assignabilityError = await validateAssignableInstructor(
+        supabase,
+        studioId,
+        relations.instructor_id,
+      );
+      if (assignabilityError) {
+        return { error: assignabilityError };
+      }
+    }
 
     if (
       scope === "this_and_future" &&
