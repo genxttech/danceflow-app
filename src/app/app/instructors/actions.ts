@@ -483,6 +483,36 @@ export async function grantInstructorCapabilityAction(formData: FormData) {
   redirect(`/app/instructors/${instructorId}`);
 }
 
+// Landmark 1A Slice 7 -- canonical instructional-capability revocation. The
+// RPC enforces authorization, the exclusive seat lock, idempotency (an
+// already-incapable instructor is a silent no-op), and the future-work
+// blocker (upcoming appointments / live booking requests / live
+// self-service action requests, reported as safe counts only), and it writes
+// the capability_revoked audit event itself. This action only calls it and
+// passes the RPC's own staff-facing message through verbatim.
+export async function revokeInstructorCapabilityAction(formData: FormData) {
+  const { supabase, studioId } = await requireInstructorManageAccess();
+
+  const instructorId = getString(formData, "instructorId");
+
+  if (!instructorId) {
+    throw new Error("Missing instructor ID.");
+  }
+
+  const { error } = await supabase.rpc("revoke_instructor_capability", {
+    p_studio_id: studioId,
+    p_instructor_id: instructorId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/app/instructors");
+  revalidatePath(`/app/instructors/${instructorId}`);
+  redirect(`/app/instructors/${instructorId}`);
+}
+
 function createFeedToken() {
   return randomBytes(32).toString("base64url");
 }

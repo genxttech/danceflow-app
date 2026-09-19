@@ -10,6 +10,16 @@ export const INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE =
  * the two must never diverge. A null instructorId is always valid here;
  * callers decide whether null itself is acceptable for their write path.
  *
+ * Landmark 1A Slice 7: this predicate is now enforced in the database for
+ * every write that puts an instructor on live instructional work -- new or
+ * retargeted appointments, an appointment moving from non-holding to holding
+ * (cancelled -> live, past -> future, non-instructional -> instructional),
+ * and live booking_requests / student_booking_action_requests rows -- by
+ * triggers that share one "holds instructor" definition with
+ * revoke_instructor_capability (_landmark1a_*_holds_instructor). This
+ * helper stays an app-level pre-check for friendlier UX only; it must not
+ * grow a second copy of the hold rules.
+ *
  * The query never distinguishes *why* a candidate fails (nonexistent,
  * wrong studio, inactive, incapable, unlinked) -- every failure reason
  * collapses to the same generic result and the same generic message, so

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageInstructors } from "@/lib/auth/permissions";
 import { grantInstructorCapabilityAction } from "../actions";
+import { RevokeCapabilityControl } from "./RevokeCapabilityControl";
 
 type InstructorCredentialRow = {
   id: string;
@@ -204,6 +205,11 @@ export default async function InstructorDetailPage({
               </button>
             </form>
           ) : null}
+          <RevokeCapabilityControl
+            instructorId={typedInstructor.id}
+            canInstruct={typedInstructor.can_instruct}
+            canManage={canGrantCapability}
+          />
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-2">
