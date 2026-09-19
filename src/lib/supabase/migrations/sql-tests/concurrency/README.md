@@ -28,3 +28,16 @@ always resolve to one of the two allowed outcomes.
 
 `node slice7_race_harness.mjs setup`, then `run`, then `cleanup`, with
 `SLICE7_BAND` set to an unused number.
+
+## Slice 8 tooling (same rules)
+
+`slice8_race_harness.mjs` + `slice8_race_helper.sql` verify the Slice 8 seat
+authority under real concurrency: a downgrade racing a grant / reactivation /
+hybrid promotion / direct instructor write, owner demotion vs grant, two seat
+transitions at the limit, and cross-studio independence. All the rules above
+apply unchanged: DEV only (the harness refuses any other project),
+`slice8_race_helper.sql` is never a migration and is dropped by `cleanup`, and
+the residue it leaves (instructors kept alive by immutable audit rows) must
+never be removed by weakening audit protections. Use `SLICE8_BAND` (a new
+number per run) instead of `SLICE7_BAND`. Synthetic data is identifiable by the
+`t-s8-race-%` studio slug and `t-s8-race-%` email prefixes.
