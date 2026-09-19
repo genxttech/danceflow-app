@@ -407,6 +407,17 @@ export async function upsertTeamMemberRoleAction(formData: FormData) {
       userId: targetUserId,
     });
 
+    // Landmark 1A Slice 8: there is no supported ownership-transfer flow, and
+    // demoting an owner changes counted instructor seats (an owner who is also
+    // an instructor is free only while they hold the owner role). The DB
+    // enforces the seat rule regardless; this refuses the demotion up front.
+    if (
+      existingMembership?.role === "studio_owner" ||
+      existingMembership?.role === "organizer_owner"
+    ) {
+      redirectTeamWithMessage("error", "Owner access can't be changed here.");
+    }
+
     const assigningIntoSameRole =
       existingMembership?.active === true && existingMembership?.role === targetRole;
 

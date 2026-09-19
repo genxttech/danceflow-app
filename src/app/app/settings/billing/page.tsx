@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getInstructorSeatStatus } from "@/lib/instructors/seatStatus";
+import { InstructorSeatNotice } from "@/components/InstructorSeatNotice";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import {
@@ -886,7 +888,7 @@ function UsageAllowanceCard({
             </p>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
               Add extra monthly AI actions for follow-ups, campaign drafts,
-              lesson notes, and insights. Packs renew with the studio's
+              lesson notes, and insights. Packs renew with the studio&apos;s
               subscription and can be removed later.
             </p>
           </div>
@@ -1453,6 +1455,12 @@ export default async function BillingSettingsPage({
     effectiveSubscriptionStatus,
   );
 
+  // Landmark 1A Slice 8: derived over-limit notice (studio workspaces only).
+  const seatStatus =
+    selectedAudience === "organizer"
+      ? null
+      : await getInstructorSeatStatus(supabase, studioId);
+
   const isTrialCompleteEntry = entryMode === "trial-complete";
   const billingReason = getBillingReason(reasonParam);
   const isAccessPaused = billingReason === "access_paused";
@@ -1757,6 +1765,12 @@ export default async function BillingSettingsPage({
           </div>
         ) : null}
       </section>
+
+      {seatStatus?.overLimit ? (
+        <section className="mx-auto max-w-7xl px-6 pt-6">
+          <InstructorSeatNotice status={seatStatus} />
+        </section>
+      ) : null}
 
       <section className="mx-auto max-w-7xl px-6 py-10">
         <div className="space-y-8">

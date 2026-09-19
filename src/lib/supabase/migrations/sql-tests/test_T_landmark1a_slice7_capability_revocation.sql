@@ -24,6 +24,13 @@ insert into public.studios (id, name, slug) values
   ('00000000-0000-0000-0000-00001a701000', 'Slice7 Studio A', 't-landmark1a-s7-studio-a'),
   ('00000000-0000-0000-0000-00001a702000', 'Slice7 Studio B', 't-landmark1a-s7-studio-b');
 
+-- Slice 8: capable-instructor fixtures are inserted directly, which the
+-- DB-level seat gate now authorizes like any other counted-seat transition.
+-- Give both fixture studios a Pro override (limit 15) so seat capacity is not
+-- what this suite is testing (same approach as the Slice 6 suite).
+update public.studios set billing_plan = 'pro', billing_override_enabled = true
+  where id in ('00000000-0000-0000-0000-00001a701000', '00000000-0000-0000-0000-00001a702000');
+
 insert into auth.users (id, email)
 select ('00000000-0000-0000-0000-00001a701' || lpad(gs::text, 3, '0'))::uuid,
        't-landmark1a-s7-a-user' || gs || '@example.test'

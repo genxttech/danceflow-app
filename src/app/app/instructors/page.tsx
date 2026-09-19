@@ -8,6 +8,8 @@ import {
 } from "./actions";
 import { canManageInstructors } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { getInstructorSeatStatus } from "@/lib/instructors/seatStatus";
+import { InstructorSeatNotice } from "@/components/InstructorSeatNotice";
 
 type InstructorCalendarFeedRow = {
   instructor_id: string;
@@ -97,11 +99,16 @@ export default async function InstructorsPage() {
     ])
   );
 
+  // Landmark 1A Slice 8: derived over-limit notice (null => nothing shown).
+  const seatStatus = await getInstructorSeatStatus(supabase, studioId);
+
   const activeCount = typedInstructors.filter((item) => item.active).length;
   const inactiveCount = typedInstructors.filter((item) => !item.active).length;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <InstructorSeatNotice status={seatStatus} showManageLink={false} />
+
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
