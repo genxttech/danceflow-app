@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
+import { INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE } from "@/lib/instructors/assignability";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
@@ -636,11 +637,16 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
     .single();
 
   if (requestError || !bookingRequest) {
+    // Landmark 1A Slice 7: a DB trigger now rejects a live request naming an
+    // instructor who is no longer assignable (revoked, deactivated, unlinked,
+    // or cross-studio). Surface that reason instead of a generic failure.
     redirect(
       appendQueryParam(
         returnTo,
         "error",
-        "Could not submit your schedule request.",
+        requestError?.message?.includes(INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE)
+          ? INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE
+          : "Could not submit your schedule request.",
       ),
     );
   }

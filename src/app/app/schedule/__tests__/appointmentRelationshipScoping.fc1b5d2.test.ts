@@ -46,6 +46,7 @@ vi.mock("@/lib/schedule/conflicts", () => ({
 // validator itself, which has its own dedicated coverage in
 // src/lib/instructors/__tests__/assignability.test.ts.
 vi.mock("@/lib/instructors/assignability", () => ({
+  INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE: "This instructor is no longer available for assignment.",
   isInstructionalAppointmentType: (type: string) =>
     ["private_lesson", "group_class", "intro_lesson", "coaching", "practice_party", "event"].includes(type),
   validateAssignableInstructor: vi.fn().mockResolvedValue(null),
@@ -713,7 +714,10 @@ describe("updateBookingRequestStatusAction / addBookingRequestStaffNoteAction --
   const REQUEST_ID = "req-1";
   const OWN_INSTRUCTOR_ID = "instructor-own";
 
-  function trackingBookingRequestSupabase(request: Record<string, unknown> | null) {
+  function trackingBookingRequestSupabase(
+    request: Record<string, unknown> | null,
+    updateError: { message: string } | null = null,
+  ) {
     const bookingRequestUpdates: Record<string, unknown>[] = [];
     const supabase = {
       from(table: string) {
@@ -734,7 +738,7 @@ describe("updateBookingRequestStatusAction / addBookingRequestStaffNoteAction --
               bookingRequestUpdates.push(payload);
               return {
                 eq: () => ({
-                  eq: () => Promise.resolve({ error: null }),
+                  eq: () => Promise.resolve({ error: updateError }),
                 }),
               };
             },
@@ -745,6 +749,52 @@ describe("updateBookingRequestStatusAction / addBookingRequestStaffNoteAction --
     };
     return { supabase, bookingRequestUpdates };
   }
+
+  it("updateBookingRequestStatusAction (Slice 7): a DB assignability rejection on reopen surfaces the friendly reason", async () => {
+    const { supabase } = trackingBookingRequestSupabase(
+      { id: REQUEST_ID, client_id: "client-1", status: "declined", instructor_id: OWN_INSTRUCTOR_ID },
+      { message: "This instructor is no longer available for assignment." },
+    );
+    requireAppointmentEditAccessMock.mockResolvedValue({
+      supabase,
+      studioId: STUDIO_ID,
+      user: { id: USER_ID },
+      studioRole: "front_desk",
+      isPlatformAdmin: false,
+    });
+    requireBookingRequestRelationshipAccessMock.mockResolvedValue({ ok: true, scope: "broad" });
+
+    const error = (await run(
+      actions.updateBookingRequestStatusAction(formDataFor({ requestId: REQUEST_ID, status: "pending" })),
+    )) as { digest?: string };
+
+    expect(decodeURIComponent(error.digest ?? "")).toContain(
+      "error=This instructor is no longer available for assignment.",
+    );
+    expect(fromCalls).not.toContain("lead_activities");
+  });
+
+  it("updateBookingRequestStatusAction (Slice 7): any other update failure keeps the generic code", async () => {
+    const { supabase } = trackingBookingRequestSupabase(
+      { id: REQUEST_ID, client_id: "client-1", status: "declined", instructor_id: OWN_INSTRUCTOR_ID },
+      { message: "permission denied for table booking_requests" },
+    );
+    requireAppointmentEditAccessMock.mockResolvedValue({
+      supabase,
+      studioId: STUDIO_ID,
+      user: { id: USER_ID },
+      studioRole: "front_desk",
+      isPlatformAdmin: false,
+    });
+    requireBookingRequestRelationshipAccessMock.mockResolvedValue({ ok: true, scope: "broad" });
+
+    const error = (await run(
+      actions.updateBookingRequestStatusAction(formDataFor({ requestId: REQUEST_ID, status: "pending" })),
+    )) as { digest?: string };
+
+    expect(error.digest).toContain("error=booking_request_update_failed");
+    expect(error.digest).not.toContain("permission denied");
+  });
 
   it("updateBookingRequestStatusAction: denied colleague request never reaches the status mutation", async () => {
     const { supabase, bookingRequestUpdates } = trackingBookingRequestSupabase({

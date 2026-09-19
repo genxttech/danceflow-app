@@ -23,6 +23,7 @@ import {
 import { isIndependentInstructor } from "@/lib/auth/permissions";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import {
+  INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE,
   assignmentRelationshipChanged,
   isInstructionalAppointmentType,
   validateAssignableInstructor,
@@ -4920,7 +4921,18 @@ export async function updateBookingRequestStatusAction(formData: FormData) {
       .eq("id", requestId);
 
     if (updateError) {
-      redirect(getErrorRedirect(formData, fallback, "booking_request_update_failed"));
+      // Landmark 1A Slice 7: reopening a request (declined -> pending, or
+      // approved without an appointment) for an instructor who is no longer
+      // assignable is rejected by a DB trigger -- say why.
+      redirect(
+        getErrorRedirect(
+          formData,
+          fallback,
+          updateError.message?.includes(INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE)
+            ? INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE
+            : "booking_request_update_failed",
+        ),
+      );
     }
 
     if (request.client_id) {
