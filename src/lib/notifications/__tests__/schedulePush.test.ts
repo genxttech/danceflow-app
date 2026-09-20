@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 /**
  * GC-1.3B: covers sendAppointmentSchedulePush's class fan-out branch --
@@ -52,6 +52,10 @@ function makeFakeSupabase(tables: Record<string, Row[]>) {
 
 const STUDIO_ID = "studio-1";
 const APPOINTMENT_ID = "class-1";
+// The production code (correctly) sends no push for an appointment that has already started, so these fixtures must
+// stay in the future relative to the clock the tests see. The clock is frozen (Date only) at FIXED_NOW, before the
+// fixture time, so the fixtures never expire as real time passes.
+const FIXED_NOW = "2026-06-01T12:00:00.000Z";
 const FUTURE_STARTS_AT = "2026-09-20T10:00:00.000Z";
 
 function classAppointmentRow() {
@@ -73,6 +77,37 @@ function classAppointmentRow() {
 
 beforeEach(() => {
   sendMobilePushToUserMock.mockClear();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(FIXED_NOW));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("sendAppointmentSchedulePush -- past appointments", () => {
+  it("sends no push once the appointment start time has passed", async () => {
+    vi.setSystemTime(new Date("2026-09-20T10:00:01.000Z")); // one second after FUTURE_STARTS_AT
+    const supabase = makeFakeSupabase({
+      appointments: [classAppointmentRow()],
+      studio_settings: [{ studio_id: STUDIO_ID, timezone: "America/New_York" }],
+      appointment_attendees: [
+        { appointment_id: APPOINTMENT_ID, studio_id: STUDIO_ID, client_id: "client-a", status: "booked" },
+      ],
+      client_account_links: [
+        { studio_id: STUDIO_ID, client_id: "client-a", status: "linked", can_view_schedule: true, user_id: "user-x" },
+      ],
+    });
+
+    await sendAppointmentSchedulePush({
+      supabase: supabase as never,
+      studioId: STUDIO_ID,
+      appointmentId: APPOINTMENT_ID,
+      reason: "confirmed",
+    });
+
+    expect(sendMobilePushToUserMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("sendAppointmentSchedulePush -- group_class fan-out", () => {
