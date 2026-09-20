@@ -192,7 +192,9 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', pg_temp.uid(30), 'email', 't-s8-seat-u30@example.test')::text, true);
   v_err := pg_temp.fails(format('update public.instructors set can_instruct = true where id = %L', pg_temp.iid(32)));
   reset role;
-  assert v_err like '%reached its instructor seat limit%', format('L7 FAILED authenticated staff bypass: %s', v_err);
+  -- Slice 9: the capability-column guard now rejects a direct tenant capability write before the seat gate
+  -- runs (the seat gate stays the enforcement for trusted direct paths: L1-L6 above, service_role in L6).
+  assert v_err like 'Instructor capability can only be changed through the capability workflow.', format('L7 FAILED authenticated staff bypass: %s', v_err);
 
   -- Non-increasing / neutral edits still allowed at the limit.
   update public.instructors set first_name = 'Renamed' where id = pg_temp.iid(31);                 -- metadata

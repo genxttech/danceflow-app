@@ -41,3 +41,27 @@ the residue it leaves (instructors kept alive by immutable audit rows) must
 never be removed by weakening audit protections. Use `SLICE8_BAND` (a new
 number per run) instead of `SLICE7_BAND`. Synthetic data is identifiable by the
 `t-s8-race-%` studio slug and `t-s8-race-%` email prefixes.
+
+## Slice 9 tooling (same rules)
+
+`slice9_race_harness.mjs` + `slice9_race_helper.sql` verify the capability-authority
+boundary under real concurrency: hybrid promotion vs a renter edit, payroll
+deactivation, a classification edit, a competing promotion, and a grant at the
+seat limit; the revoke RPC vs a tenant direct capability write (which the
+capability guard must reject either way); and one lock-order probe (P7). All the
+rules above apply unchanged: DEV only (the harness refuses any other project),
+`slice9_race_helper.sql` is never a migration and is dropped by `cleanup`, and
+the residue it leaves (instructors kept alive by immutable audit rows) must never
+be removed by weakening audit protections. Use `SLICE9_BAND` (a new number per
+run). Synthetic data is identifiable by the `t-s9-race-%` studio slug and
+`t-s9-race-%` email prefixes. A definer function cannot switch roles, so tenant-
+role writes run through the SECURITY INVOKER `_s9_race_tenant_op`, called by
+service_role.
+
+P7 documents the known Slice 8 same-row lock-order residual: the canonical RPC
+order (seat lock, then instructor row) against a tenant direct `active` update of
+a capable row (row lock, then the Slice 8 seat trigger's seat lock). PostgreSQL
+aborts exactly one side with 40P01 (`deadlock detected`); nothing partial is
+written. After Slice 9 this is the only tenant-reachable path to it: capability,
+account and studio changes on capable rows are rejected by the capability guard
+before the seat trigger, and non-capable rows never take the seat lock.
