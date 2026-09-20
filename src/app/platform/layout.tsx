@@ -35,23 +35,24 @@ export default async function PlatformLayout({
       <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
           <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <Link
+              href="/platform"
+              className="shrink-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]"
+            >
               <Image
-                src="/brand/danceflow-logo.png"
+                src="/brand/logo/danceflow-logo-primary-320.png"
                 alt="DanceFlow"
-                width={56}
-                height={56}
-                className="h-12 w-12 object-contain"
+                width={320}
+                height={112}
+                sizes="130px"
+                className="h-auto w-[130px]"
                 priority
               />
-            </div>
+            </Link>
 
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-violet-600">
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
                 Platform Admin
-              </p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
-                DanceFlow Platform
               </h1>
               <p className="mt-1 text-sm text-slate-600">
                 Manage studios, organizer growth, and platform billing from one branded hub.
@@ -107,7 +108,7 @@ export default async function PlatformLayout({
 
       <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[260px_minmax(0,1fr)] lg:px-8">
         <aside className="h-fit rounded-[2rem] border border-slate-200/80 bg-white/95 p-4 shadow-sm">
-          <div className="mb-4 rounded-2xl bg-gradient-to-br from-violet-50 via-white to-slate-50 p-4">
+          <div className="mb-4 rounded-2xl bg-gradient-to-br from-[var(--brand-primary-soft)] via-white to-slate-50 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
               Navigation
             </p>

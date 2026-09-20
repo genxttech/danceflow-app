@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   BarChart3,
   Bell,
@@ -76,9 +76,13 @@ function useCollapsibleSection(args: {
   );
   const [open, setOpen] = useState(Boolean(activeHref) || title === "Today");
 
-  useEffect(() => {
+  // Open the section whenever navigation lands inside it (derive-state pattern; same
+  // behavior as the previous effect, without a synchronous setState inside an effect).
+  const [seenActiveHref, setSeenActiveHref] = useState(activeHref);
+  if (seenActiveHref !== activeHref) {
+    setSeenActiveHref(activeHref);
     if (activeHref) setOpen(true);
-  }, [activeHref]);
+  }
 
   return { activeHref, open, setOpen };
 }
@@ -104,7 +108,7 @@ export function DesktopNavSection({
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-[0.18em] text-white/50 transition hover:bg-white/6 hover:text-white/80"
+        className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-[0.18em] text-white/70 transition hover:bg-white/6 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
       >
         <span>{title}</span>
         {open ? (
@@ -141,7 +145,7 @@ export function DesktopNavSection({
                       "inline-flex min-w-[1.5rem] shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
                       active
                         ? "bg-white/15 text-white"
-                        : "bg-[rgba(216,138,45,0.18)] text-[#FFDCA9]",
+                        : "bg-[var(--brand-accent)]/20 text-[var(--brand-accent-soft)]",
                     ].join(" ")}
                   >
                     {item.badge}
@@ -179,7 +183,7 @@ export function MobileNavSection({
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]/75 hover:bg-[var(--brand-primary-soft)]"
+        className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]"
       >
         <span>{title}</span>
         {open ? (
@@ -202,7 +206,7 @@ export function MobileNavSection({
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={[
-                  "flex items-center justify-between rounded-xl px-3 py-3 text-sm transition",
+                  "flex items-center justify-between rounded-xl px-3 py-3 text-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]",
                   active
                     ? "bg-[var(--brand-primary)] text-white"
                     : "text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]",

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Building2, Check, ChevronsUpDown } from "lucide-react";
+import { useId, useRef, useState } from "react";
+import { Building2, Check, ChevronDown, ChevronRight } from "lucide-react";
 import type { WorkspaceItem } from "./types";
 import { prettyRole } from "./navUtils";
 
@@ -17,6 +17,8 @@ export default function WorkspaceSwitcher({
   mobile?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   if (!workspaces.length) return null;
 
@@ -29,18 +31,18 @@ export default function WorkspaceSwitcher({
     ? "rounded-2xl border border-[var(--brand-border)] bg-white p-4"
     : "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur";
 
-  const labelClass = mobile ? "text-[var(--brand-muted)]" : "text-white/50";
+  const labelClass = mobile ? "text-[var(--brand-muted)]" : "text-white/70";
   const titleClass = mobile ? "text-[var(--brand-text)]" : "text-white";
   const subtitleClass = mobile
     ? "text-[var(--brand-accent-dark)]"
-    : "text-[#FFDCA9]";
+    : "text-[var(--brand-accent-soft)]";
   const buttonClass = mobile
     ? "border-[var(--brand-border)] bg-white text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
     : "border-white/10 bg-white/8 text-white hover:bg-white/12";
 
   const dropdownClass = mobile
     ? "border-[var(--brand-border)] bg-white shadow-xl"
-    : "border-white/10 bg-[#111b45] shadow-2xl";
+    : "border-white/10 bg-[var(--brand-primary-dark)] shadow-2xl";
 
   const itemClass = mobile
     ? "hover:bg-[var(--brand-primary-soft)] text-[var(--brand-text)]"
@@ -48,10 +50,24 @@ export default function WorkspaceSwitcher({
 
   const roleClass = mobile
     ? "text-[var(--brand-accent-dark)]"
-    : "text-[#FFDCA9]";
+    : "text-[var(--brand-accent-soft)]";
+
+  const focusClass = mobile
+    ? "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]"
+    : "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white";
 
   return (
-    <div className={wrapperClass}>
+    <div
+      className={wrapperClass}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open) {
+          // Close the list first (and keep an enclosing drawer open), then return focus.
+          event.stopPropagation();
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+    >
       <p
         className={`text-xs font-semibold uppercase tracking-[0.18em] ${labelClass}`}
       >
@@ -59,9 +75,12 @@ export default function WorkspaceSwitcher({
       </p>
 
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className={`mt-3 flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition ${buttonClass}`}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className={`mt-3 flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition ${buttonClass} ${focusClass}`}
       >
         <div className="min-w-0">
           <p className={`truncate font-medium ${titleClass}`}>
@@ -73,11 +92,16 @@ export default function WorkspaceSwitcher({
           </p>
         </div>
 
-        <ChevronsUpDown className="h-4 w-4 shrink-0" />
+        {open ? (
+          <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0" />
+        ) : (
+          <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" />
+        )}
       </button>
 
       {open ? (
         <div
+          id={panelId}
           className={`mt-3 overflow-hidden rounded-2xl border ${dropdownClass}`}
         >
           <div className="max-h-72 overflow-y-auto p-2">
@@ -99,7 +123,7 @@ export default function WorkspaceSwitcher({
                   />
                   <button
                     type="submit"
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left transition ${itemClass}`}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left transition ${itemClass} ${focusClass}`}
                   >
                     <div className="min-w-0">
                       <p className="truncate font-medium">
