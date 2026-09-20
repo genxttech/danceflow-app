@@ -8,6 +8,36 @@ function one<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
+type MarketplaceStudio = {
+  name: string | null;
+  public_name: string | null;
+  subscription_status: string | null;
+  stripe_connect_charges_enabled: boolean | null;
+};
+
+type MarketplaceContent = {
+  instructor_name: string | null;
+  skill_level: string | null;
+  dance_style: string | null;
+  status: string | null;
+  release_at: string | null;
+  mux_upload_status: string | null;
+  mux_playback_id: string | null;
+};
+
+type MarketplaceRow = {
+  id: string;
+  studio_id: string;
+  name: string;
+  description: string | null;
+  item_type: string;
+  price: number | string;
+  currency: string | null;
+  image_url: string | null;
+  studios: MarketplaceStudio | MarketplaceStudio[] | null;
+  commerce_digital_content: MarketplaceContent | MarketplaceContent[] | null;
+};
+
 function money(value: number | string, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -55,7 +85,7 @@ export default async function MarketplacePage() {
     throw new Error(`Marketplace failed to load: ${error.message}`);
   }
 
-  const rows = (data ?? []).filter((row: any) => {
+  const rows = ((data ?? []) as unknown as MarketplaceRow[]).filter((row) => {
     const studio = one(row.studios);
     const content = one(row.commerce_digital_content);
     return (
@@ -63,6 +93,8 @@ export default async function MarketplacePage() {
       studio?.stripe_connect_charges_enabled === true &&
       content?.status === "published" &&
       (!content.release_at ||
+        // Intentional request-time wall clock in this dynamically rendered Server Component.
+        // eslint-disable-next-line react-hooks/purity
         new Date(content.release_at).getTime() <= Date.now()) &&
       (row.item_type === "video_series" ||
         content.mux_upload_status === "ready")
@@ -71,7 +103,7 @@ export default async function MarketplacePage() {
 
   const thumbnails = await resolveCommerceThumbnails({
     supabase: admin,
-    items: rows.map((row: any) => ({
+    items: rows.map((row) => ({
       id: row.id,
       item_type: row.item_type,
       image_url: row.image_url,
@@ -96,7 +128,7 @@ export default async function MarketplacePage() {
 
         {rows.length ? (
           <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {rows.map((row: any) => {
+            {rows.map((row) => {
               const studio = one(row.studios);
               const content = one(row.commerce_digital_content);
               const imageUrl = thumbnails.get(row.id)?.imageUrl ?? null;

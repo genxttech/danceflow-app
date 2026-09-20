@@ -77,7 +77,7 @@ export default function SmsConsentPage() {
 
           <Section title="Who sends messages">
             <p>
-              Messages are sent by DanceFlow, a participating dance studio, a participating event organizer, or a DanceFlow-powered workspace. DanceFlow provides the software and messaging infrastructure used to send service-related communications connected to the user's studio, lesson, booking, account, or event activity.
+              Messages are sent by DanceFlow, a participating dance studio, a participating event organizer, or a DanceFlow-powered workspace. DanceFlow provides the software and messaging infrastructure used to send service-related communications connected to the user&apos;s studio, lesson, booking, account, or event activity.
             </p>
           </Section>
 
@@ -129,7 +129,7 @@ export default function SmsConsentPage() {
 
           <Section title="Message frequency, rates, and opt-out">
             <p>
-              Message frequency varies based on the user's activity with the participating studio or organizer. Message and data rates may apply depending on the user's wireless carrier and plan.
+              Message frequency varies based on the user&apos;s activity with the participating studio or organizer. Message and data rates may apply depending on the user&apos;s wireless carrier and plan.
             </p>
             <p>
               Users can opt out at any time by replying <strong>STOP</strong>. Users can reply <strong>HELP</strong> for help.
@@ -164,7 +164,7 @@ export default function SmsConsentPage() {
 
           <Section title="Terms, privacy, and support">
             <p>
-              Review DanceFlow's terms and privacy information or contact support with questions about SMS consent and messaging.
+              Review DanceFlow&apos;s terms and privacy information or contact support with questions about SMS consent and messaging.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <Link
