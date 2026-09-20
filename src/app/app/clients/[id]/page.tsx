@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import ClientNoteDateTimeField from "./ClientNoteDateTimeField";
-import { canCreateAppointments, canEditClients, canViewClients } from "@/lib/auth/permissions";
+import { canCreateAppointments, canEditClients, canManageInstructors, canViewClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { resolvePortalConnectionState } from "@/lib/student-identity/portal-connection-state";
 import {
@@ -5050,7 +5050,7 @@ export default async function ClientDetailPage({
     </div>
   ) : null}
 
-  {isIndependentInstructor && typedClient.linked_instructor_id ? (
+  {isIndependentInstructor && typedClient.linked_instructor_id && (canManageInstructors(role) || context.isPlatformAdmin) ? (
     <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4">
       <h3 className="text-base font-semibold text-violet-900">
         Hybrid Instructor Promotion
