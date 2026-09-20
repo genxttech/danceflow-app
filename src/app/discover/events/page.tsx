@@ -3,8 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
 import ShareButton from "@/components/public/ShareButton";
 import CurrentLocationButton from "@/components/public/CurrentLocationButton";
-import PublicSiteHeader from "@/components/public/PublicSiteHeader";
-import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { getResumeBanner } from "./resumeBanner";
 import type { Metadata } from "next";
 
@@ -892,7 +890,6 @@ export default async function DiscoverEventsPage({
 
   return (
     <>
-      <PublicSiteHeader currentPath="events" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-slate-50">
         {resumeBanner ? (
@@ -1327,7 +1324,6 @@ export default async function DiscoverEventsPage({
         </section>
       </main>
 
-      <PublicSiteFooter />
     </>
   );
 }

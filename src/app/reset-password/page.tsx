@@ -1,6 +1,5 @@
 import Link from "next/link";
-import PublicSiteFooter from "@/components/public/PublicSiteFooter";
-import PublicSiteHeader from "@/components/public/PublicSiteHeader";
+import PublicShell from "@/components/public/PublicShell";
 import { createClient } from "@/lib/supabase/server";
 import { updatePasswordAction } from "../(auth)/actions";
 import type { Metadata } from "next";
@@ -47,8 +46,7 @@ export default async function ResetPasswordPage({
   }`;
 
   return (
-    <>
-      <PublicSiteHeader isAuthenticated={false} />
+    <PublicShell>
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
         <section className="mx-auto flex min-h-[70vh] max-w-3xl items-center px-6 py-12 lg:px-8">
@@ -142,7 +140,6 @@ export default async function ResetPasswordPage({
         </section>
       </main>
 
-      <PublicSiteFooter />
-    </>
+    </PublicShell>
   );
 }

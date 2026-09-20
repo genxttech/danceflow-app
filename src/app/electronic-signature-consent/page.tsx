@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import PublicSiteFooter from "@/components/public/PublicSiteFooter";
-import PublicSiteHeader from "@/components/public/PublicSiteHeader";
+import PublicShell from "@/components/public/PublicShell";
 
 export const metadata: Metadata = {
   title: "Electronic Records and Signature Consent",
@@ -24,8 +23,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export default function ElectronicSignatureConsentPage() {
   return (
-    <>
-      <PublicSiteHeader currentPath="home" isAuthenticated={false} />
+    <PublicShell>
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#f8fafc_34%,#ffffff_100%)]">
         <section className="border-b border-slate-200 bg-white">
           <div className="mx-auto max-w-4xl px-6 py-14">
@@ -147,7 +145,6 @@ export default function ElectronicSignatureConsentPage() {
           </Link>
         </section>
       </main>
-      <PublicSiteFooter />
-    </>
+    </PublicShell>
   );
 }

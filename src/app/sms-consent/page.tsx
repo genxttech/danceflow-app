@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PublicShell from "@/components/public/PublicShell";
 
 const consentDisclosure =
   "I agree to receive text messages from DanceFlow and/or the participating dance studio or event organizer related to my lessons, bookings, event registrations, ticket/check-in information, schedule updates, account notices, and reminders. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help. Consent is not a condition of purchase.";
@@ -48,6 +49,7 @@ export const metadata = {
 
 export default function SmsConsentPage() {
   return (
+    <PublicShell>
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#f8fafc_34%,#ffffff_100%)] text-slate-900">
       <div className="mx-auto max-w-5xl px-6 py-12 sm:py-16">
         <div className="rounded-[2rem] border border-orange-100 bg-white/90 p-8 shadow-sm">
@@ -190,5 +192,6 @@ export default function SmsConsentPage() {
         </div>
       </div>
     </main>
+    </PublicShell>
   );
 }
