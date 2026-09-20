@@ -6,6 +6,11 @@ import {
 } from "@/content/knowledgebase/articles";
 import KnowledgebaseAIAssistant from "./KnowledgebaseAIAssistant";
 import KnowledgebaseSearch from "./KnowledgebaseSearch";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Knowledgebase",
+};
 
 export default function KnowledgebasePage() {
   const articles = getPublicKnowledgebaseArticles();

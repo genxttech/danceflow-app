@@ -9,7 +9,7 @@ import {
 } from "@/lib/jobPostings";
 
 export const metadata = {
-  title: "Dance Jobs | DanceFlow",
+  title: "Dance Jobs",
   description:
     "Browse studio hiring posts for instructors, coaches, front desk roles, event staff, and dance operations jobs.",
 };

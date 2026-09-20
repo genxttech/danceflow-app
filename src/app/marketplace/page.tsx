@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveCommerceThumbnails } from "@/lib/commerce/thumbnail";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Marketplace",
+};
 
 export const dynamic = "force-dynamic";
 

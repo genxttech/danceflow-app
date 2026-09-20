@@ -3,6 +3,11 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { createClient } from "@/lib/supabase/server";
 import { updatePasswordAction } from "../(auth)/actions";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Reset Password",
+};
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 

@@ -5,7 +5,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
 export const metadata: Metadata = {
-  title: "Data Processing Addendum | DanceFlow",
+  title: "Data Processing Addendum",
   description: "Data processing terms for DanceFlow business customers.",
   alternates: { canonical: "/dpa" },
 };

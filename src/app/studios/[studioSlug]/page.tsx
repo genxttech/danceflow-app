@@ -296,7 +296,7 @@ export async function generateMetadata({
 
   if (!studio || !hasActivePublicAccess(studio)) {
     return {
-      title: "Studio Profile | DanceFlow",
+      title: "Studio Profile",
       description:
         "Explore public dance studio profiles, events, classes, and ways to connect through DanceFlow.",
     };
@@ -309,7 +309,7 @@ export async function generateMetadata({
   const imageUrl =
     absoluteUrl(studio.public_hero_image_url) ||
     absoluteUrl(studio.public_logo_url) ||
-    `${siteUrl}/brand/danceflow-home-hero.png`;
+    `${siteUrl}/brand/danceflow-og-1200x630.png`;
 
   return {
     title: `${title}${

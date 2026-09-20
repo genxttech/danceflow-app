@@ -5,7 +5,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
 export const metadata: Metadata = {
-  title: "Security and Trust | DanceFlow",
+  title: "Security and Trust",
   description: "Plain-language overview of current DanceFlow safeguards and responsible disclosure.",
   alternates: { canonical: "/security" },
 };

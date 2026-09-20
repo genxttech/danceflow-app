@@ -5,7 +5,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
 export const metadata: Metadata = {
-  title: "Acceptable Use Policy | DanceFlow",
+  title: "Acceptable Use Policy",
   description: "Rules protecting DanceFlow users, workspaces, communications, data, and service reliability.",
   alternates: { canonical: "/acceptable-use" },
 };

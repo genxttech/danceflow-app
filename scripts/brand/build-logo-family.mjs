@@ -16,6 +16,8 @@
 //   * Monochrome / reversed forms reuse the master's alpha as a silhouette (flat colour); scaled sizes use
 //     Lanczos resampling of the master pixels. Icons place the symbol on a canvas; they never alter it.
 //
+// Also builds public/brand/danceflow-og-1200x630.png (brand-neutral social card).
+//
 // Requires `sharp` (installed transitively with Next.js). Not part of the app build.
 
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -249,6 +251,21 @@ await save(await canvas(180, 0.78, SURFACE), ICON_DIR, "danceflow-apple-touch-ic
 await save(await canvas(192, 0.86), ICON_DIR, "danceflow-pwa-192.png");
 await save(await canvas(512, 0.86), ICON_DIR, "danceflow-pwa-512.png");
 await save(await canvas(512, 0.56, SURFACE), ICON_DIR, "danceflow-pwa-maskable-512.png"); // inside the 80% safe zone
+
+// Open Graph / Twitter card (1200x630): the canonical primary logo centred on --brand-surface. Brand-neutral by
+// design: no text, no feature claims (promotional compositions belong to BR-4).
+{
+  const OG_W = 1200;
+  const OG_H = 630;
+  const logoW = 760;
+  const primaryPng = await crop(full, fullBox).png().toBuffer();
+  const logo = await sharp(primaryPng).resize({ width: logoW, kernel: "lanczos3" }).png().toBuffer();
+  const lm = await sharp(logo).metadata();
+  const card = sharp({ create: { width: OG_W, height: OG_H, channels: 4, background: SURFACE } }).composite([
+    { input: logo, left: Math.round((OG_W - lm.width) / 2), top: Math.round((OG_H - lm.height) / 2) },
+  ]);
+  await save(card, join(ROOT, "public/brand"), "danceflow-og-1200x630.png");
+}
 
 // ICO container with embedded PNGs (source asset only; not wired anywhere)
 {

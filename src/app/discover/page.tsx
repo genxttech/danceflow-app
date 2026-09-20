@@ -8,6 +8,11 @@ import {
   UsersRound,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Discover",
+};
 
 type StudioPreviewRow = {
   id: string;

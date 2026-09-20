@@ -6,6 +6,11 @@ import ShareButton from "@/components/public/ShareButton";
 import CurrentLocationButton from "@/components/public/CurrentLocationButton";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Find a Dance Studio",
+};
 
 type SearchParams = Promise<{
   q?: string;

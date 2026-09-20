@@ -6,6 +6,11 @@ import CurrentLocationButton from "@/components/public/CurrentLocationButton";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { getResumeBanner } from "./resumeBanner";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Find Dance Events",
+};
 
 type SearchParams = Promise<{
   q?: string;

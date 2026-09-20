@@ -1045,7 +1045,7 @@ export async function generateMetadata({
 
   if (!event) {
     return {
-      title: "Event | DanceFlow",
+      title: "Event",
       description:
         "Explore public dance events, classes, workshops, competitions, showcases, and registration options on DanceFlow.",
     };
@@ -1056,7 +1056,7 @@ export async function generateMetadata({
 
   if (studio && !hasActivePublicAccess(studio)) {
     return {
-      title: "Event | DanceFlow",
+      title: "Event",
       description:
         "Explore public dance events, classes, workshops, competitions, showcases, and registration options on DanceFlow.",
     };
@@ -1067,7 +1067,7 @@ export async function generateMetadata({
   const eventType = eventTypeLabel(event.event_type);
   const imageUrl =
     absoluteUrl(event.cover_image_url) ||
-    `${siteUrl}/brand/danceflow-home-hero.png`;
+    `${siteUrl}/brand/danceflow-og-1200x630.png`;
 
   return {
     title: `${event.name} | ${eventType}${
