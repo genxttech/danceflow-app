@@ -159,3 +159,6 @@ mobile/student/google-services.json
 
 # Local database backups
 /backups/
+
+# local scratch / brand import staging (never commit)
+_tmp/
