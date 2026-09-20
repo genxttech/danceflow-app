@@ -4,6 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Favorites",
+};
 
 type FavoriteRow = {
   id: string;

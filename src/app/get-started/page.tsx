@@ -8,6 +8,11 @@ import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import { createClient } from "@/lib/supabase/server";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Get Started",
+};
 
 export default async function GetStartedPage() {
   const supabase = await createClient();

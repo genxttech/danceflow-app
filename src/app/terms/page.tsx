@@ -5,7 +5,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
 export const metadata: Metadata = {
-  title: "SaaS Terms | DanceFlow",
+  title: "SaaS Terms",
   description:
     "Terms governing DanceFlow studio, organizer, scheduling, payment, messaging, AI, document, and event-management services.",
   alternates: { canonical: "/terms" },

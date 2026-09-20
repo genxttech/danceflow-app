@@ -12,8 +12,15 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserPlatformRole } from "@/lib/auth/platform";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
+import type { Metadata } from "next";
 import { JsonLd } from "@/components/seo/JsonLd";
 
+// The root layout no longer sets a site-wide canonical (it was inherited by every page); the home page keeps its own.
+export const metadata: Metadata = {
+  alternates: {
+    canonical: "/",
+  },
+};
 
 const discoveryCards = [
   {

@@ -1,7 +1,14 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 const siteUrl = "https://www.idanceflow.com";
+
+// Brand-neutral 1200x630 card (canonical logo on --brand-surface), built by scripts/brand/build-logo-family.mjs.
+const ogImage = "/brand/danceflow-og-1200x630.png";
+
+export const viewport: Viewport = {
+  themeColor: "#5b145e", // --brand-primary
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -25,9 +32,6 @@ export const metadata: Metadata = {
   authors: [{ name: "DanceFlow" }],
   creator: "DanceFlow",
   publisher: "DanceFlow",
-  alternates: {
-    canonical: "/",
-  },
   openGraph: {
     type: "website",
     url: siteUrl,
@@ -37,10 +41,10 @@ export const metadata: Metadata = {
       "Manage your dance studio, grow your community, publish events, collect registrations, and help dancers discover studios and events in one connected platform.",
     images: [
       {
-        url: "/brand/danceflow-home-hero.png",
-        width: 1400,
-        height: 1000,
-        alt: "DanceFlow connects dance studio operations and dancers",
+        url: ogImage,
+        width: 1200,
+        height: 630,
+        alt: "DanceFlow",
       },
     ],
   },
@@ -49,7 +53,7 @@ export const metadata: Metadata = {
     title: "DanceFlow | Dance Studio CRM, Scheduler, and Event Management",
     description:
       "DanceFlow helps studios, instructors, organizers, and dancers connect through scheduling, CRM, events, portals, payments, and public discovery.",
-    images: ["/brand/danceflow-home-hero.png"],
+    images: [ogImage],
   },
   robots: {
     index: true,

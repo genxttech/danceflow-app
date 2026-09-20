@@ -9,6 +9,11 @@ import {
 import { startPaidPathAction } from "../actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Organizer Pricing",
+};
 
 export default async function OrganizerPricingPage() {
   const supabase = await createClient();

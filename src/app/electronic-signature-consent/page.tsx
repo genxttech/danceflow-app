@@ -5,7 +5,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
 export const metadata: Metadata = {
-  title: "Electronic Records and Signature Consent | DanceFlow",
+  title: "Electronic Records and Signature Consent",
   description: "Consent and requirements for using DanceFlow electronic records and signatures.",
   alternates: { canonical: "/electronic-signature-consent" },
 };

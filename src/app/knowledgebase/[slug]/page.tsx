@@ -115,7 +115,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   if (!article || article.audience === "app") {
     return {
-      title: "Knowledgebase Article | DanceFlow",
+      title: "Knowledgebase Article",
       description:
         "Helpful DanceFlow guides for studio owners, organizers, instructors, and dance businesses.",
     };
@@ -124,7 +124,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const canonicalUrl = `https://www.idanceflow.com/knowledgebase/${article.slug}`;
 
   return {
-    title: `${article.title} | DanceFlow Knowledgebase`,
+    title: article.title,
     description: article.description,
     alternates: {
       canonical: canonicalUrl,
@@ -135,11 +135,20 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       url: canonicalUrl,
       siteName: "DanceFlow",
       type: "article",
+      images: [
+        {
+          url: "/brand/danceflow-og-1200x630.png",
+          width: 1200,
+          height: 630,
+          alt: "DanceFlow",
+        },
+      ],
     },
     twitter: {
       card: "summary_large_image",
       title: `${article.title} | DanceFlow Knowledgebase`,
       description: article.description,
+      images: ["/brand/danceflow-og-1200x630.png"],
     },
   };
 }

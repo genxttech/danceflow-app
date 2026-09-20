@@ -5,7 +5,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | DanceFlow",
+  title: "Privacy Policy",
   description:
     "How DanceFlow handles account, studio, student, event, payment, messaging, document, AI, and Google Calendar information.",
   alternates: { canonical: "/privacy" },

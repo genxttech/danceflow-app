@@ -10,7 +10,7 @@ import {
 } from "@/lib/partnerSearch";
 
 export const metadata = {
-  title: "Find a Dance Partner | DanceFlow",
+  title: "Find a Dance Partner",
   description:
     "Browse dancers looking for practice, social dance, showcase, or competition partners.",
 };

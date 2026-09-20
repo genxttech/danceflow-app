@@ -67,7 +67,7 @@ type SlotRow = {
 };
 
 export const metadata: Metadata = {
-  title: "Guest Coach Schedule | DanceFlow",
+  title: "Guest Coach Schedule",
   robots: {
     index: false,
     follow: false,

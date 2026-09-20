@@ -2,6 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { continueExplorerIntoDiscoveryAction } from "../actions";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Explorer Account",
+};
 
 export default async function ExplorerGetStartedPage() {
   const supabase = await createClient();

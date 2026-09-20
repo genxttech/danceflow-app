@@ -3,6 +3,11 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { loginAction, requestPasswordResetAction } from "../actions";
 import { normalizeLocalRedirectPath } from "@/lib/security/redirects";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Log In",
+};
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 

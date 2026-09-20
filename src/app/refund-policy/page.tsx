@@ -5,7 +5,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
 export const metadata: Metadata = {
-  title: "Refund Policy | DanceFlow",
+  title: "Refund Policy",
   description: "DanceFlow subscription refunds and studio or organizer customer-sale refund responsibilities.",
   alternates: { canonical: "/refund-policy" },
 };

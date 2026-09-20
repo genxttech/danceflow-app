@@ -4,6 +4,11 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { signupAction } from "../actions";
 import { normalizeLocalRedirectPath } from "@/lib/security/redirects";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Create Free Account",
+};
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 

@@ -41,7 +41,7 @@ function ConsentPathCard({
 }
 
 export const metadata = {
-  title: "SMS Consent & Messaging Terms | DanceFlow",
+  title: "SMS Consent & Messaging Terms",
   description:
     "Public DanceFlow SMS consent verification page with opt-in methods, consent language, message types, and opt-out instructions.",
 };

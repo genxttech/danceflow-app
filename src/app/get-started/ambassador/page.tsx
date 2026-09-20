@@ -4,6 +4,11 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { createClient } from "@/lib/supabase/server";
 import { claimAmbassadorInviteAction, createAmbassadorAccountAction } from "./actions";
 import { normalizePublicToken, sha256TokenHash } from "@/lib/security/tokens";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Ambassador Invitation",
+};
 
 type SearchParams = Promise<{
   invite?: string;
