@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 export default function PublicSiteFooter() {
@@ -5,18 +6,28 @@ export default function PublicSiteFooter() {
     <footer className="border-t border-slate-200 bg-white">
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.3fr_1fr_1fr_1.2fr] lg:px-8">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-            DanceFlow
-          </p>
+          <Link
+            href="/"
+            className="inline-block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]"
+          >
+            <Image
+              src="/brand/logo/danceflow-logo-primary-320.png"
+              alt="DanceFlow"
+              width={320}
+              height={112}
+              sizes="160px"
+              className="h-auto w-[160px]"
+            />
+          </Link>
           <p className="mt-3 max-w-md text-sm leading-7 text-slate-600">
-            DanceFlow helps run the studio, so owners can focus on teaching.
+            DanceFlow helps run the studio, so you can focus on teaching.
           </p>
         </div>
 
         <div>
           <p className="text-sm font-semibold text-slate-900">Explore</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
-            <Link href="/discover" className="hover:text-slate-900">Discovery Home</Link>
+            <Link href="/discover" className="hover:text-slate-900">Discover</Link>
             <Link href="/discover/studios" className="hover:text-slate-900">Studios</Link>
             <Link href="/discover/events" className="hover:text-slate-900">Events</Link>
             <Link href="/discover/partners" className="hover:text-slate-900">Dance Partners</Link>
@@ -29,7 +40,7 @@ export default function PublicSiteFooter() {
         <div>
           <p className="text-sm font-semibold text-slate-900">Account &amp; Support</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
-            <Link href="/signup" className="hover:text-slate-900">Create Account</Link>
+            <Link href="/signup" className="hover:text-slate-900">Create Free Account</Link>
             <Link href="/login" className="hover:text-slate-900">Log In</Link>
             <Link href="/knowledgebase" className="hover:text-slate-900">Knowledgebase</Link>
             <Link href="/security" className="hover:text-slate-900">Security</Link>
@@ -52,7 +63,10 @@ export default function PublicSiteFooter() {
 
       <div className="border-t border-slate-100">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-5 text-sm text-slate-500 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
-          <p>© {new Date().getFullYear()} DanceFlow. All rights reserved.</p>
+          <div className="space-y-1">
+            <p>© {new Date().getFullYear()} DanceFlow. All rights reserved.</p>
+            <p>DanceFlow is a product of GenX TotalTech LLC.</p>
+          </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Link href="/privacy" className="hover:text-slate-900">Privacy</Link>
             <Link href="/terms" className="hover:text-slate-900">Terms</Link>

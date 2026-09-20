@@ -1,7 +1,5 @@
 import Link from "next/link";
 import { NearMeButton } from "../NearMeButton";
-import PublicSiteHeader from "@/components/public/PublicSiteHeader";
-import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import {
   formatEmploymentType,
   formatJobRole,
@@ -125,7 +123,6 @@ export default async function NowHiringDiscoveryPage({
 
   return (
     <>
-      <PublicSiteHeader currentPath="jobs" isAuthenticated={false} />
 
       <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.10),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#f8fafc_36%,#ffffff_100%)]">
         <section className="border-b border-orange-200/70 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] text-white">
@@ -324,7 +321,6 @@ export default async function NowHiringDiscoveryPage({
         </section>
       </main>
 
-      <PublicSiteFooter />
     </>
   );
 }

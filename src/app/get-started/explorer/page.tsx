@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import PublicShell from "@/components/public/PublicShell";
 import { createClient } from "@/lib/supabase/server";
 import { continueExplorerIntoDiscoveryAction } from "../actions";
 import type { Metadata } from "next";
@@ -20,6 +21,7 @@ export default async function ExplorerGetStartedPage() {
   }
 
   return (
+    <PublicShell isAuthenticated>
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_22%,#f8fafc_100%)]">
       <section className="mx-auto max-w-6xl px-6 py-14 lg:px-8 lg:py-20">
         <div className="mx-auto max-w-3xl text-center">
@@ -148,5 +150,6 @@ export default async function ExplorerGetStartedPage() {
         </div>
       </section>
     </main>
+    </PublicShell>
   );
 }
