@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   DesktopSidebar,
@@ -46,7 +46,14 @@ export default function AppSidebarShell({
   children: ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const currentPathname = usePathname();
+
+  // Closing the modal drawer returns focus to the hamburger that opened it.
+  const closeMobile = useCallback(() => {
+    setMobileOpen(false);
+    requestAnimationFrame(() => menuButtonRef.current?.focus());
+  }, []);
 
   const safePathname = currentPathname || pathname || "/app";
   const safeStudioName = studioName || "Workspace";
@@ -69,6 +76,8 @@ export default function AppSidebarShell({
         userName={safeUserName}
         unreadNotificationsCount={unreadNotificationsCount}
         notifications={safeNotifications}
+        open={mobileOpen}
+        menuButtonRef={menuButtonRef}
         onOpen={() => setMobileOpen(true)}
       />
 
@@ -99,7 +108,7 @@ export default function AppSidebarShell({
         workspaces={workspaces}
         currentStudioId={currentStudioId}
         switchWorkspaceAction={switchWorkspaceAction}
-        onClose={() => setMobileOpen(false)}
+        onClose={closeMobile}
       />
     </div>
   );

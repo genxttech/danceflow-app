@@ -173,7 +173,7 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
             key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
-            className={`block rounded-2xl px-4 py-3 text-sm font-medium transition ${
+            className={`block rounded-2xl px-4 py-3 text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)] ${
               active
                 ? "bg-slate-900 text-white shadow-sm"
                 : "text-slate-700 hover:bg-slate-50"
