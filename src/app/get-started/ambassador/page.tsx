@@ -125,6 +125,8 @@ export default async function AmbassadorInvitePage({
   }
 
   const pageError = errorMessage(params.error);
+  // Intentional request-time wall clock in this dynamically rendered Server Component.
+  // eslint-disable-next-line react-hooks/purity
   const inviteExpired = invite ? new Date(invite.expires_at).getTime() < Date.now() : false;
   const inviteUnavailable = !invite || !invite.active || invite.used_at || inviteExpired;
   const signedInEmail = user?.email?.toLowerCase() ?? null;
