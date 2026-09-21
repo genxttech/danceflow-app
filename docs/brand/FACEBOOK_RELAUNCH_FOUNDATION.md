@@ -17,7 +17,7 @@ This document holds reusable requirements only. No Facebook account was accessed
 
 ## Avatar
 
-- Source: `public/brand/icons/danceflow-social-avatar-1024.png` — the symbol-only couple mark centred on `--brand-surface` (`#fff9f3`), circle-safe (symbol fills ≈ 64 % of the square).
+- Source: `public/brand/icons/danceflow-social-avatar-1024.png` — the approved symbol-only mark on the approved navy disc (a 1024×1024 export of the owner-approved 1080 avatar master in `docs/brand/masters/`), circle-safe (symbol fills ≈ 64 % of the square).
 - Do not use the wide primary logo or the wordmark in the avatar (illegible at avatar size, and Facebook crops to a circle).
 - Alternate for dark contexts: `danceflow-app-icon-source-1024-reversed.png` (white symbol on brand purple).
 

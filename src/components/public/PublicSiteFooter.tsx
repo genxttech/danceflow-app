@@ -14,7 +14,7 @@ export default function PublicSiteFooter() {
               src="/brand/logo/danceflow-logo-primary-320.png"
               alt="DanceFlow"
               width={320}
-              height={112}
+              height={80}
               sizes="160px"
               className="h-auto w-[160px]"
             />

@@ -1,26 +1,30 @@
 #!/usr/bin/env node
-// DanceFlow Branding Relaunch -- BR-1: derives the raster logo family from the
-// approved master artwork WITHOUT redesigning it.
+// DanceFlow brand family generator.
 //
-//   node scripts/brand/build-logo-family.mjs           build public/brand/logo + public/brand/icons
-//   node scripts/brand/build-logo-family.mjs --verify  build, then prove every kept pixel equals the master
+//   node scripts/brand/build-logo-family.mjs           build the family into public/brand and src/app
+//   node scripts/brand/build-logo-family.mjs --verify  verify tracked inputs, regenerate into a temporary
+//                                                      directory, and compare with the committed outputs
+//                                                      (decoded pixels for images, bytes for copies)
 //
-// Rules (see docs/brand/DANCEFLOW_BRAND_GUIDE.md):
-//   * The master is public/brand/danceflow-logo.png (approved dancing-couple mark + script wordmark). Only a
-//     raster master exists; there is NO trustworthy vector source, so nothing here is traced or redrawn.
-//   * Full-colour derivatives are lossless crops: every pixel with alpha > 0 is byte-identical to the master.
-//     The only change is zeroing the RGB of fully transparent pixels (invisible; it removes a hidden glow that
-//     made the master 2.2 MB).
-//   * The symbol-only mark is isolated by connected components of the master's own opaque pixels (couple + sweep),
-//     never re-drawn.
-//   * Monochrome / reversed forms reuse the master's alpha as a silhouette (flat colour); scaled sizes use
-//     Lanczos resampling of the master pixels. Icons place the symbol on a canvas; they never alter it.
+// Sources of truth: the six owner-approved masters tracked in docs/brand/masters/ (see SHA256SUMS.txt there):
+//   danceflow-logo-primary-gradient.svg, danceflow-logo-primary-white.svg,
+//   danceflow-symbol-gradient.svg,       danceflow-symbol-white.svg,
+//   danceflow-app-icon-1024.png,         danceflow-social-avatar-1080.png
+// Nothing outside the repository is read. Inputs are hash-verified first and the script fails closed.
 //
-// Also builds public/brand/danceflow-og-1200x630.png (brand-neutral social card).
+// Derivation rules:
+//   * logo family (primary/symbol, colour/white/mono) <- the SVG masters. Monochrome purple is the white master
+//     with #FFFFFF replaced by the existing UI brand value #5b145e (the approved artwork carries no purple master).
+//   * favicon family (16/32/48 + .ico) and the transparent / reversed icon sources <- the symbol SVG masters.
+//   * app / PWA / apple-touch icons <- the approved app-icon master (Lanczos downscale; the 1024 source is a copy).
+//   * runtime social avatar 1024 <- the approved 1080 avatar master (Lanczos downscale).
+//   * Open Graph card <- the primary gradient logo centred on --brand-surface (#fff9f3); no text or claims.
+// The application palette, typography and token system are not changed by this script.
 //
 // Requires `sharp` (installed transitively with Next.js). Not part of the app build.
 
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -31,244 +35,160 @@ const sharp = require("sharp");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "../..");
-const MASTER = join(ROOT, "public/brand/danceflow-logo.png");
-const LOGO_DIR = join(ROOT, "public/brand/logo");
-const ICON_DIR = join(ROOT, "public/brand/icons");
-mkdirSync(LOGO_DIR, { recursive: true });
-mkdirSync(ICON_DIR, { recursive: true });
+const MASTER_DIR = join(ROOT, "docs/brand/masters");
 
-const PURPLE = { r: 0x5b, g: 0x14, b: 0x5e }; // --brand-primary
+const PURPLE_HEX = "#5b145e"; // --brand-primary (existing UI brand value; NOT the package palette)
 const SURFACE = "#fff9f3"; // --brand-surface
-const PNG_OPTS = { compressionLevel: 9, adaptiveFiltering: true, palette: false }; // lossless (never palette-quantise)
+const PNG_OPTS = { compressionLevel: 9, adaptiveFiltering: true, palette: false }; // lossless, never quantised
 
-const masterBytes = readFileSync(MASTER);
-console.log(`master sha256: ${createHash("sha256").update(masterBytes).digest("hex")}`);
+// Pinned hashes of the approved masters. SHA256SUMS.txt must agree with these.
+const EXPECTED = {
+  "danceflow-logo-primary-gradient.svg": "b80612ffecd5383a1c0dc0b2a5486ea686288221a278d053221e5e077ab3b459",
+  "danceflow-logo-primary-white.svg": "2d75e3e700118228f2f1aba9e3d517b8acdbf70f4c5be0b6a47bd9423946b05c",
+  "danceflow-symbol-gradient.svg": "e2c5fe2f12f9c04f8f51d4337f3e7cb31f385589e88ab02929fc828c3d74ee7d",
+  "danceflow-symbol-white.svg": "eb4ed1f0ff12ce4743aef5b740b5934a8b59494a89b052e905e312ec9591d3d2",
+  "danceflow-app-icon-1024.png": "ea0cb3560d92900f404cf96240771f93b23d8fec0e3328f90415878848c91261",
+  "danceflow-social-avatar-1080.png": "94c357b9e862560ec667b845c30d17a8606ef5c0bb61fc98b04e52d4ff42eff4",
+};
 
-const { data: src, info } = await sharp(masterBytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-const W = info.width;
-const H = info.height;
-const A = (buf, i) => buf[i * 4 + 3];
-
-// ---- connected components over the master's own opaque pixels (alpha >= 40, 5x5 neighbourhood) ----
-const label = new Int32Array(W * H);
-const comps = [];
-for (let s = 0; s < W * H; s++) {
-  if (label[s] || A(src, s) < 40) continue;
-  const id = comps.length + 1;
-  const c = { id, px: 0, x0: W, y0: H, x1: 0, y1: 0 };
-  const stack = [s];
-  label[s] = id;
-  while (stack.length) {
-    const i = stack.pop();
-    const x = i % W;
-    const y = (i / W) | 0;
-    c.px++;
-    if (x < c.x0) c.x0 = x;
-    if (x > c.x1) c.x1 = x;
-    if (y < c.y0) c.y0 = y;
-    if (y > c.y1) c.y1 = y;
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const j = ny * W + nx;
-        if (!label[j] && A(src, j) >= 40) {
-          label[j] = id;
-          stack.push(j);
-        }
-      }
-    }
-  }
-  comps.push(c);
+function fail(message) {
+  console.error(`FAIL: ${message}`);
+  process.exit(1);
 }
-// The couple + sweep and its small accents are every component that ends left of the wordmark ("D" starts near x=541).
-const SYMBOL_X_LIMIT = 560;
-const symbolComps = new Set(comps.filter((c) => c.x1 <= SYMBOL_X_LIMIT).map((c) => c.id));
-const symbolRight = Math.max(...comps.filter((c) => symbolComps.has(c.id)).map((c) => c.x1)) + 6;
-console.log(`components: ${comps.length}; symbol components: ${[...symbolComps].join(",")}; symbol right edge x=${symbolRight}`);
 
-// ---- base RGBA buffers ----
-function cleanTransparent(buf) {
-  const out = Buffer.from(buf);
-  for (let i = 0; i < W * H; i++) {
-    if (out[i * 4 + 3] === 0) {
-      out[i * 4] = 0;
-      out[i * 4 + 1] = 0;
-      out[i * 4 + 2] = 0;
-    }
-  }
-  return out;
-}
-const full = cleanTransparent(src);
+const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
-// Symbol-only: remove pixels that belong to non-symbol components (dilated 3px so no fringe survives), never touching
-// symbol pixels, and drop everything right of the symbol.
-const symbol = Buffer.from(full);
+// ---- 1. verify tracked inputs (fail closed) ----
+const masters = {};
 {
-  const kill = new Uint8Array(W * H);
-  for (let i = 0; i < W * H; i++) {
-    const l = label[i];
-    if (l && !symbolComps.has(l)) {
-      const x = i % W;
-      const y = (i / W) | 0;
-      for (let dy = -3; dy <= 3; dy++) {
-        for (let dx = -3; dx <= 3; dx++) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx >= 0 && ny >= 0 && nx < W && ny < H) kill[ny * W + nx] = 1;
-        }
-      }
-    }
+  const sums = new Map();
+  const sumsPath = join(MASTER_DIR, "SHA256SUMS.txt");
+  if (!existsSync(sumsPath)) fail("docs/brand/masters/SHA256SUMS.txt is missing");
+  for (const line of readFileSync(sumsPath, "utf8").split(/\r?\n/)) {
+    if (!line.trim() || line.startsWith("#")) continue;
+    const [hash, name] = line.trim().split(/\s+/);
+    sums.set(name, hash);
   }
-  for (let i = 0; i < W * H; i++) {
-    const x = i % W;
-    const l = label[i];
-    const isSymbolPixel = l && symbolComps.has(l);
-    if (!isSymbolPixel && (kill[i] || x > symbolRight)) {
-      symbol[i * 4] = 0;
-      symbol[i * 4 + 1] = 0;
-      symbol[i * 4 + 2] = 0;
-      symbol[i * 4 + 3] = 0;
-    }
+  for (const [name, expected] of Object.entries(EXPECTED)) {
+    const path = join(MASTER_DIR, name);
+    if (!existsSync(path)) fail(`missing tracked master ${name}`);
+    const buf = readFileSync(path);
+    const actual = sha256(buf);
+    if (actual !== expected) fail(`${name}: sha256 ${actual} != pinned ${expected}`);
+    if (sums.get(name) !== expected) fail(`${name}: SHA256SUMS.txt disagrees with the pinned hash`);
+    masters[name] = buf;
   }
+  console.log(`inputs verified: ${Object.keys(EXPECTED).length} tracked masters match their pinned SHA-256`);
 }
 
-function bbox(buf, threshold = 8) {
-  let x0 = W, y0 = H, x1 = -1, y1 = -1;
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (buf[(y * W + x) * 4 + 3] >= threshold) {
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        if (y > y1) y1 = y;
-      }
-    }
+const primaryGradientSvg = masters["danceflow-logo-primary-gradient.svg"];
+const primaryWhiteSvg = masters["danceflow-logo-primary-white.svg"];
+const symbolGradientSvg = masters["danceflow-symbol-gradient.svg"];
+const symbolWhiteSvg = masters["danceflow-symbol-white.svg"];
+const appIconMaster = masters["danceflow-app-icon-1024.png"];
+const avatarMaster = masters["danceflow-social-avatar-1080.png"];
+
+const toMono = (svgBuf) => {
+  const text = svgBuf.toString("utf8");
+  if (!text.includes("#FFFFFF")) fail("white master unexpectedly has no #FFFFFF fill");
+  return Buffer.from(text.replaceAll("#FFFFFF", PURPLE_HEX), "utf8");
+};
+const primaryMonoSvg = toMono(primaryWhiteSvg);
+const symbolMonoSvg = toMono(symbolWhiteSvg);
+
+// SVG masters are 600x150 (primary) and 197x272 (symbol); density 288 renders them at 4x (2400x600 / 788x1088).
+const render = (svg, density) => sharp(svg, { density }).ensureAlpha();
+const lanczos = (p, width) => p.resize({ width, kernel: "lanczos3" });
+
+// ---- 2. build every output into `outRoot` (returns the manifest of written files) ----
+async function build(outRoot) {
+  const LOGO_DIR = join(outRoot, "public/brand/logo");
+  const ICON_DIR = join(outRoot, "public/brand/icons");
+  const APP_DIR = join(outRoot, "src/app");
+  for (const d of [LOGO_DIR, ICON_DIR, APP_DIR, join(outRoot, "public/brand")]) mkdirSync(d, { recursive: true });
+
+  const written = [];
+  const record = (path, kind, w, h, bytes) =>
+    written.push({ path: relative(outRoot, path).replaceAll("\\", "/"), kind, w, h, bytes });
+
+  async function savePng(pipeline, dir, name) {
+    const path = join(dir, name);
+    const buf = await pipeline.png(PNG_OPTS).toBuffer();
+    writeFileSync(path, buf);
+    const m = await sharp(buf).metadata();
+    record(path, "image", m.width, m.height, buf.length);
+    return buf;
   }
-  return { x0, y0, x1, y1 };
-}
-function cropBox(b, pad) {
-  const left = Math.max(0, b.x0 - pad);
-  const top = Math.max(0, b.y0 - pad);
-  const right = Math.min(W - 1, b.x1 + pad);
-  const bottom = Math.min(H - 1, b.y1 + pad);
-  return { left, top, width: right - left + 1, height: bottom - top + 1 };
-}
-const PAD = 12;
-const fullBox = cropBox(bbox(full), PAD);
-const symBox = cropBox(bbox(symbol), PAD);
-console.log(`primary crop ${JSON.stringify(fullBox)}; symbol crop ${JSON.stringify(symBox)}`);
-
-// Crop in plain JS (no premultiply / colour round trip), so cropped pixels stay byte-identical to the master.
-function cropRaw(buf, box) {
-  const out = Buffer.alloc(box.width * box.height * 4);
-  for (let y = 0; y < box.height; y++) {
-    buf.copy(out, y * box.width * 4, ((box.top + y) * W + box.left) * 4, ((box.top + y) * W + box.left + box.width) * 4);
+  function saveCopy(bytes, dir, name) {
+    const path = join(dir, name);
+    writeFileSync(path, bytes);
+    record(path, "copy", 0, 0, bytes.length);
   }
-  return out;
-}
-const crop = (buf, box) => sharp(cropRaw(buf, box), { raw: { width: box.width, height: box.height, channels: 4 } });
 
-// mono: flat colour, alpha from the master
-function mono(buf, rgb) {
-  const out = Buffer.from(buf);
-  for (let i = 0; i < W * H; i++) {
-    if (out[i * 4 + 3] === 0) continue;
-    out[i * 4] = rgb.r;
-    out[i * 4 + 1] = rgb.g;
-    out[i * 4 + 2] = rgb.b;
+  // -- logo family from SVG masters --
+  const primaryHi = await render(primaryGradientSvg, 288).png().toBuffer(); // 2400x600
+  await savePng(sharp(primaryHi), LOGO_DIR, "danceflow-logo-primary.png");
+  await savePng(lanczos(sharp(primaryHi), 640), LOGO_DIR, "danceflow-logo-primary-640.png");
+  await savePng(lanczos(sharp(primaryHi), 320), LOGO_DIR, "danceflow-logo-primary-320.png");
+  await savePng(render(primaryWhiteSvg, 144), LOGO_DIR, "danceflow-logo-primary-white.png"); // 1200x300
+  await savePng(render(primaryMonoSvg, 144), LOGO_DIR, "danceflow-logo-primary-mono-purple.png");
+
+  const symbolHi = await render(symbolGradientSvg, 288).png().toBuffer(); // 788x1088
+  await savePng(sharp(symbolHi), LOGO_DIR, "danceflow-symbol.png");
+  await savePng(lanczos(sharp(symbolHi), 256), LOGO_DIR, "danceflow-symbol-256.png");
+  await savePng(lanczos(sharp(symbolHi), 128), LOGO_DIR, "danceflow-symbol-128.png");
+  await savePng(render(symbolWhiteSvg, 288), LOGO_DIR, "danceflow-symbol-white.png");
+  await savePng(render(symbolMonoSvg, 288), LOGO_DIR, "danceflow-symbol-mono-purple.png");
+
+  // -- symbol centred on a square canvas (icon sources, favicons) --
+  async function symbolCanvas(size, fill, svg, background) {
+    // fill = fraction of the canvas height the (portrait) symbol occupies
+    const h = Math.round(size * fill);
+    const inner = await sharp(svg, { density: Math.max(72, Math.ceil((h / 272) * 72 * 4)) })
+      .ensureAlpha()
+      .resize({ height: h, kernel: "lanczos3" })
+      .png()
+      .toBuffer();
+    const m = await sharp(inner).metadata();
+    const base = sharp({ create: { width: size, height: size, channels: 4, background: background ?? { r: 0, g: 0, b: 0, alpha: 0 } } });
+    return base.composite([{ input: inner, left: Math.round((size - m.width) / 2), top: Math.round((size - h) / 2) }]);
   }
-  return out;
-}
-const fullWhite = mono(full, { r: 255, g: 255, b: 255 });
-const fullPurple = mono(full, PURPLE);
-const symWhite = mono(symbol, { r: 255, g: 255, b: 255 });
-const symPurple = mono(symbol, PURPLE);
+  const purpleRgb = { r: 0x5b, g: 0x14, b: 0x5e, alpha: 1 };
+  await savePng(await symbolCanvas(1024, 0.64, symbolGradientSvg), ICON_DIR, "danceflow-icon-source-1024.png"); // transparent
+  await savePng(await symbolCanvas(1024, 0.64, symbolWhiteSvg, purpleRgb), ICON_DIR, "danceflow-app-icon-source-1024-reversed.png");
+  saveCopy(appIconMaster, ICON_DIR, "danceflow-app-icon-source-1024.png"); // approved master, byte copy
 
-const written = [];
-async function save(pipeline, dir, name) {
-  const path = join(dir, name);
-  const buf = await pipeline.png(PNG_OPTS).toBuffer();
-  writeFileSync(path, buf);
-  const m = await sharp(buf).metadata();
-  written.push({ path: relative(ROOT, path).replaceAll("\\", "/"), w: m.width, h: m.height, bytes: buf.length });
-  return buf;
-}
-const resized = (p, width) => p.resize({ width, kernel: "lanczos3", withoutEnlargement: true });
-
-// ---- logo family ----
-for (const [suffix, buf] of [
-  ["", full],
-  ["-white", fullWhite],
-  ["-mono-purple", fullPurple],
-]) {
-  await save(crop(buf, fullBox), LOGO_DIR, `danceflow-logo-primary${suffix}.png`);
-  if (suffix === "") {
-    await save(resized(crop(buf, fullBox), 640), LOGO_DIR, "danceflow-logo-primary-640.png");
-    await save(resized(crop(buf, fullBox), 320), LOGO_DIR, "danceflow-logo-primary-320.png");
+  // -- favicon family from the symbol SVG --
+  const icoPngs = [];
+  for (const s of [16, 32, 48]) {
+    const buf = await savePng(await symbolCanvas(s, 0.94, symbolGradientSvg), ICON_DIR, `danceflow-favicon-${s}.png`);
+    icoPngs.push({ size: s, buf });
   }
-}
-for (const [suffix, buf] of [
-  ["", symbol],
-  ["-white", symWhite],
-  ["-mono-purple", symPurple],
-]) {
-  await save(crop(buf, symBox), LOGO_DIR, `danceflow-symbol${suffix}.png`);
-  if (suffix === "") {
-    await save(resized(crop(buf, symBox), 256), LOGO_DIR, "danceflow-symbol-256.png");
-    await save(resized(crop(buf, symBox), 128), LOGO_DIR, "danceflow-symbol-128.png");
+
+  // -- app / PWA / apple-touch icons from the approved app-icon master --
+  const down = (size) => sharp(appIconMaster).ensureAlpha().resize({ width: size, height: size, kernel: "lanczos3" });
+  await savePng(down(180), ICON_DIR, "danceflow-apple-touch-icon-180.png");
+  await savePng(down(192), ICON_DIR, "danceflow-pwa-192.png");
+  await savePng(down(512), ICON_DIR, "danceflow-pwa-512.png");
+  // Maskable: the same artwork; the symbol spans +/-328 px from centre of 1024 (inside the 80% safe zone radius, 410 px).
+  await savePng(down(512), ICON_DIR, "danceflow-pwa-maskable-512.png");
+
+  // -- runtime social avatar 1024 from the approved 1080 avatar --
+  await savePng(sharp(avatarMaster).ensureAlpha().resize({ width: 1024, height: 1024, kernel: "lanczos3" }), ICON_DIR, "danceflow-social-avatar-1024.png");
+
+  // -- Open Graph / Twitter card 1200x630: primary gradient logo centred on --brand-surface, no text or claims --
+  {
+    const OG_W = 1200;
+    const OG_H = 630;
+    const logo = await lanczos(sharp(primaryHi), 800).png().toBuffer();
+    const lm = await sharp(logo).metadata();
+    const card = sharp({ create: { width: OG_W, height: OG_H, channels: 4, background: SURFACE } }).composite([
+      { input: logo, left: Math.round((OG_W - lm.width) / 2), top: Math.round((OG_H - lm.height) / 2) },
+    ]);
+    await savePng(card, join(outRoot, "public/brand"), "danceflow-og-1200x630.png");
   }
-}
 
-// ---- icons / avatars: symbol centred on a square canvas ----
-const symPng = await crop(symbol, symBox).png().toBuffer();
-const symWhitePng = await crop(symWhite, symBox).png().toBuffer();
-const symMeta = await sharp(symPng).metadata();
-async function canvas(size, fill, background, whitePng) {
-  // fill = fraction of the canvas the symbol's LONGER side may occupy
-  const scale = (size * fill) / Math.max(symMeta.width, symMeta.height);
-  const w = Math.round(symMeta.width * scale);
-  const h = Math.round(symMeta.height * scale);
-  const inner = await sharp(whitePng ?? symPng).resize({ width: w, height: h, kernel: "lanczos3" }).png().toBuffer();
-  const base = sharp({ create: { width: size, height: size, channels: 4, background: background ?? { r: 0, g: 0, b: 0, alpha: 0 } } });
-  return base.composite([{ input: inner, left: Math.round((size - w) / 2), top: Math.round((size - h) / 2) }]);
-}
-// transparent source
-await save(await canvas(1024, 0.86), ICON_DIR, "danceflow-icon-source-1024.png");
-// opaque app-icon sources (stores apply their own mask; no rounded corners baked in)
-await save(await canvas(1024, 0.74, SURFACE), ICON_DIR, "danceflow-app-icon-source-1024.png");
-await save(await canvas(1024, 0.74, { ...PURPLE, alpha: 1 }, symWhitePng), ICON_DIR, "danceflow-app-icon-source-1024-reversed.png");
-// Facebook / social avatar (circle-safe: symbol fills at most ~64% of the square)
-await save(await canvas(1024, 0.64, SURFACE), ICON_DIR, "danceflow-social-avatar-1024.png");
-// browser / OS sizes
-const icoPngs = [];
-for (const s of [16, 32, 48]) {
-  const buf = await save(await canvas(s, 0.96), ICON_DIR, `danceflow-favicon-${s}.png`);
-  icoPngs.push({ size: s, buf });
-}
-await save(await canvas(180, 0.78, SURFACE), ICON_DIR, "danceflow-apple-touch-icon-180.png");
-await save(await canvas(192, 0.86), ICON_DIR, "danceflow-pwa-192.png");
-await save(await canvas(512, 0.86), ICON_DIR, "danceflow-pwa-512.png");
-await save(await canvas(512, 0.56, SURFACE), ICON_DIR, "danceflow-pwa-maskable-512.png"); // inside the 80% safe zone
-
-// Open Graph / Twitter card (1200x630): the canonical primary logo centred on --brand-surface. Brand-neutral by
-// design: no text, no feature claims (promotional compositions belong to BR-4).
-{
-  const OG_W = 1200;
-  const OG_H = 630;
-  const logoW = 760;
-  const primaryPng = await crop(full, fullBox).png().toBuffer();
-  const logo = await sharp(primaryPng).resize({ width: logoW, kernel: "lanczos3" }).png().toBuffer();
-  const lm = await sharp(logo).metadata();
-  const card = sharp({ create: { width: OG_W, height: OG_H, channels: 4, background: SURFACE } }).composite([
-    { input: logo, left: Math.round((OG_W - lm.width) / 2), top: Math.round((OG_H - lm.height) / 2) },
-  ]);
-  await save(card, join(ROOT, "public/brand"), "danceflow-og-1200x630.png");
-}
-
-// ICO container with embedded PNGs (source asset only; not wired anywhere)
-{
+  // -- ICO container with embedded PNGs (16/32/48) --
   const n = icoPngs.length;
   const header = Buffer.alloc(6 + 16 * n);
   header.writeUInt16LE(0, 0);
@@ -288,40 +208,100 @@ await save(await canvas(512, 0.56, SURFACE), ICON_DIR, "danceflow-pwa-maskable-5
     offset += p.buf.length;
   });
   const ico = Buffer.concat([header, ...icoPngs.map((p) => p.buf)]);
-  writeFileSync(join(ICON_DIR, "danceflow-favicon.ico"), ico);
-  written.push({ path: "public/brand/icons/danceflow-favicon.ico", w: "16/32/48", h: "", bytes: ico.length });
+  saveCopy(ico, ICON_DIR, "danceflow-favicon.ico");
+
+  // -- canonical copies used by the Next.js file conventions --
+  saveCopy(ico, APP_DIR, "favicon.ico");
+  saveCopy(readFileSync(join(ICON_DIR, "danceflow-pwa-512.png")), APP_DIR, "icon.png");
+  saveCopy(readFileSync(join(ICON_DIR, "danceflow-apple-touch-icon-180.png")), APP_DIR, "apple-icon.png");
+
+  return written;
 }
 
-console.log("\nwritten:");
-for (const w of written) console.log(`  ${w.path}  ${w.w}x${w.h}  ${(w.bytes / 1024).toFixed(1)} KB`);
+const decoded = async (path) => {
+  const { data, info } = await sharp(path).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  return { data, w: info.width, h: info.height };
+};
 
-// ---- verification: every kept pixel is byte-identical to the master ----
+// Expected pixel dimensions of every generated image (fail closed on drift).
+const EXPECTED_DIMS = {
+  "public/brand/logo/danceflow-logo-primary.png": [2400, 600],
+  "public/brand/logo/danceflow-logo-primary-640.png": [640, 160],
+  "public/brand/logo/danceflow-logo-primary-320.png": [320, 80],
+  "public/brand/logo/danceflow-logo-primary-white.png": [1200, 300],
+  "public/brand/logo/danceflow-logo-primary-mono-purple.png": [1200, 300],
+  "public/brand/logo/danceflow-symbol.png": [788, 1088],
+  "public/brand/logo/danceflow-symbol-256.png": [256, 353],
+  "public/brand/logo/danceflow-symbol-128.png": [128, 177],
+  "public/brand/logo/danceflow-symbol-white.png": [788, 1088],
+  "public/brand/logo/danceflow-symbol-mono-purple.png": [788, 1088],
+  "public/brand/icons/danceflow-icon-source-1024.png": [1024, 1024],
+  "public/brand/icons/danceflow-app-icon-source-1024-reversed.png": [1024, 1024],
+  "public/brand/icons/danceflow-favicon-16.png": [16, 16],
+  "public/brand/icons/danceflow-favicon-32.png": [32, 32],
+  "public/brand/icons/danceflow-favicon-48.png": [48, 48],
+  "public/brand/icons/danceflow-apple-touch-icon-180.png": [180, 180],
+  "public/brand/icons/danceflow-pwa-192.png": [192, 192],
+  "public/brand/icons/danceflow-pwa-512.png": [512, 512],
+  "public/brand/icons/danceflow-pwa-maskable-512.png": [512, 512],
+  "public/brand/icons/danceflow-social-avatar-1024.png": [1024, 1024],
+  "public/brand/danceflow-og-1200x630.png": [1200, 630],
+};
+
 if (process.argv.includes("--verify")) {
-  let bad = 0;
-  let checked = 0;
-  for (const [name, buf, box] of [
-    ["primary", full, fullBox],
-    ["symbol", symbol, symBox],
-  ]) {
-    const out = await crop(buf, box).raw().toBuffer();
-    for (let y = 0; y < box.height; y++) {
-      for (let x = 0; x < box.width; x++) {
-        const o = (y * box.width + x) * 4;
-        const s = ((box.top + y) * W + box.left + x) * 4;
-        if (out[o + 3] === 0) continue; // fully transparent
-        checked++;
-        if (out[o] !== src[s] || out[o + 1] !== src[s + 1] || out[o + 2] !== src[s + 2] || out[o + 3] !== src[s + 3]) bad++;
+  const tmp = mkdtempSync(join(tmpdir(), "danceflow-brand-verify-"));
+  let problems = 0;
+  try {
+    const written = await build(tmp);
+    let compared = 0;
+    for (const w of written) {
+      const fresh = join(tmp, w.path);
+      const committed = join(ROOT, w.path);
+      if (!existsSync(committed)) {
+        console.error(`MISSING committed output: ${w.path}`);
+        problems++;
+        continue;
+      }
+      if (w.kind === "copy") {
+        if (!readFileSync(fresh).equals(readFileSync(committed))) {
+          console.error(`BYTES DIFFER: ${w.path}`);
+          problems++;
+        }
+        compared++;
+        continue;
+      }
+      const a = await decoded(fresh);
+      const b = await decoded(committed);
+      if (a.w !== b.w || a.h !== b.h) {
+        console.error(`DIMENSIONS DIFFER: ${w.path} ${a.w}x${a.h} vs ${b.w}x${b.h}`);
+        problems++;
+        continue;
+      }
+      if (!a.data.equals(b.data)) {
+        console.error(`PIXELS DIFFER: ${w.path}`);
+        problems++;
+      }
+      const exp = EXPECTED_DIMS[w.path];
+      if (exp && (b.w !== exp[0] || b.h !== exp[1])) {
+        console.error(`UNEXPECTED DIMENSIONS: ${w.path} is ${b.w}x${b.h}, expected ${exp[0]}x${exp[1]}`);
+        problems++;
+      }
+      compared++;
+    }
+    for (const p of Object.keys(EXPECTED_DIMS)) {
+      if (!written.some((w) => w.path === p)) {
+        console.error(`NOT GENERATED: ${p}`);
+        problems++;
       }
     }
-    // the exported PNG file must round-trip to the same visible pixels
-    const file = await sharp(join(LOGO_DIR, name === "primary" ? "danceflow-logo-primary.png" : "danceflow-symbol.png"))
-      .ensureAlpha()
-      .raw()
-      .toBuffer();
-    for (let i = 0; i < out.length; i += 4) {
-      if (out[i + 3] !== 0 && (out[i] !== file[i] || out[i + 1] !== file[i + 1] || out[i + 2] !== file[i + 2] || out[i + 3] !== file[i + 3])) bad++;
-    }
+    console.log(`verify: ${compared} outputs compared against a fresh build from tracked inputs, ${problems} problem(s)`);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
   }
-  console.log(`\nverify: ${checked} visible pixels checked across primary + symbol, ${bad} differ from the master`);
-  if (bad) process.exit(1);
+  process.exit(problems ? 1 : 0);
+} else {
+  const written = await build(ROOT);
+  console.log("\nwritten:");
+  for (const w of written) console.log(`  ${w.path}  ${w.kind === "copy" ? `${w.bytes} bytes (copy)` : `${w.w}x${w.h}`}`);
+  console.log(`\n${written.length} files written`);
 }
