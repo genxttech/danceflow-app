@@ -199,7 +199,7 @@ export default async function HomePage() {
     "@type": "Organization",
     name: "DanceFlow",
     url: siteUrl,
-    logo: `${siteUrl}/brand/danceflow-logo.png`,
+    logo: `${siteUrl}/brand/logo/danceflow-logo-primary-640.png`,
     description:
       "DanceFlow provides dance studio CRM, scheduling, public discovery, basic event listings, payments, email marketing, and optional Organizer Suite tools for ticketed event operations.",
   };
@@ -281,10 +281,10 @@ export default async function HomePage() {
                 <div className="mt-6 flex flex-col gap-5 sm:flex-row sm:items-center">
                   <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[32px] bg-white shadow-sm ring-1 ring-slate-200 sm:h-36 sm:w-36">
                     <Image
-                      src="/brand/danceflow-logo.png"
+                      src="/brand/logo/danceflow-symbol-256.png"
                       alt="DanceFlow logo"
-                      width={160}
-                      height={160}
+                      width={256}
+                      height={353}
                       className="h-24 w-24 object-contain sm:h-30 sm:w-30"
                       priority
                     />

@@ -1,0 +1,9 @@
+# DanceFlow approved brand masters (owner-approved artwork, Candidate A).
+# Format: <sha256>  <filename>  <dimensions>  <bytes>
+# The generator (scripts/brand/build-logo-family.mjs) and the guard test verify these before use.
+b80612ffecd5383a1c0dc0b2a5486ea686288221a278d053221e5e077ab3b459  danceflow-logo-primary-gradient.svg  600x150  3546
+2d75e3e700118228f2f1aba9e3d517b8acdbf70f4c5be0b6a47bd9423946b05c  danceflow-logo-primary-white.svg  600x150  2203
+e2c5fe2f12f9c04f8f51d4337f3e7cb31f385589e88ab02929fc828c3d74ee7d  danceflow-symbol-gradient.svg  197x272  1993
+eb4ed1f0ff12ce4743aef5b740b5934a8b59494a89b052e905e312ec9591d3d2  danceflow-symbol-white.svg  197x272  975
+ea0cb3560d92900f404cf96240771f93b23d8fec0e3328f90415878848c91261  danceflow-app-icon-1024.png  1024x1024  50564
+94c357b9e862560ec667b845c30d17a8606ef5c0bb61fc98b04e52d4ff42eff4  danceflow-social-avatar-1080.png  1080x1080  57703

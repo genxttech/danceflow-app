@@ -76,7 +76,7 @@ export function MobileTopBar({
           src="/brand/logo/danceflow-symbol-128.png"
           alt="DanceFlow"
           width={128}
-          height={142}
+          height={177}
           className="h-7 w-auto shrink-0"
         />
 
@@ -136,8 +136,8 @@ export function DesktopSidebar({
                 <Image
                   src="/brand/logo/danceflow-logo-primary-white.png"
                   alt="DanceFlow"
-                  width={1103}
-                  height={387}
+                  width={1200}
+                  height={300}
                   sizes="180px"
                   className="h-auto w-[180px]"
                   priority
@@ -289,7 +289,7 @@ export function MobileSidebar({
                   src="/brand/logo/danceflow-logo-primary-320.png"
                   alt="DanceFlow"
                   width={320}
-                  height={112}
+                  height={80}
                   sizes="150px"
                   className="h-auto w-[150px]"
                 />

@@ -115,7 +115,7 @@ export default async function PortalStudioLayout({
             src="/brand/logo/danceflow-symbol-128.png"
             alt="DanceFlow"
             width={128}
-            height={142}
+            height={177}
             className="h-6 w-auto shrink-0"
           />
         </div>

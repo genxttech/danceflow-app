@@ -34,14 +34,14 @@ export default function PublicSiteHeader({
                 src="/brand/logo/danceflow-symbol-128.png"
                 alt="DanceFlow"
                 width={128}
-                height={142}
+                height={177}
                 className="h-10 w-auto sm:hidden"
               />
               <Image
                 src="/brand/logo/danceflow-logo-primary-640.png"
                 alt="DanceFlow"
                 width={640}
-                height={225}
+                height={160}
                 sizes="150px"
                 className="hidden h-auto w-[150px] sm:block"
               />
