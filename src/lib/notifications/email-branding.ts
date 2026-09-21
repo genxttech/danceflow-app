@@ -1,9 +1,29 @@
+import {
+  EMAIL_FONT_STACK,
+  EMAIL_LEGAL_LINE,
+  EMAIL_SYSTEM_FOOTER_TEXT,
+  EMAIL_TOKENS,
+  ORGANIZER_NAME_FALLBACK,
+  STUDIO_NAME_FALLBACK,
+  emailAssetUrl,
+  emailAttribution,
+  escapeHtml,
+  resolveInitial,
+  sanitizeActionUrl,
+  sanitizeEmailSubject,
+  sanitizePublicImageUrl,
+} from "@/lib/email/brand";
+
+const T = EMAIL_TOKENS;
+
 type EmailBranding = {
   name: string;
   logoUrl?: string | null;
 };
 
-type BrandedEmailParams = {
+export type BrandedEmailMode = "system" | "studio" | "organizer";
+
+export type BrandedEmailParams = {
   previewText: string;
   eyebrow?: string;
   heading: string;
@@ -14,31 +34,18 @@ type BrandedEmailParams = {
   actionLabel?: string | null;
   actionUrl?: string | null;
   detailRows?: Array<{ label: string; value: string }>;
+  /** Overrides the attribution line (kept for existing callers). The legal line is always appended. */
   footerText?: string | null;
+  /** Optional extra line above the attribution (address, expiry, and similar). */
+  footerNote?: string | null;
 };
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function safeHttpUrl(value: string | null | undefined) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-
-  try {
-    const parsed = new URL(raw);
-    if (!["http:", "https:"].includes(parsed.protocol)) return null;
-    if (parsed.username || parsed.password) return null;
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-}
+/** Explicit, test/proof-only switches. Never derived from the environment by production callers. */
+export type RenderBrandedEmailOptions = {
+  assetBaseUrl?: string;
+  allowInsecureImageUrls?: boolean;
+  allowLocalActionUrls?: boolean;
+};
 
 function textToHtmlParagraphs(value: string) {
   return value
@@ -50,62 +57,144 @@ function textToHtmlParagraphs(value: string) {
         .split("\n")
         .map((line) => escapeHtml(line))
         .join("<br />");
-      return `<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#334155;">${lines}</p>`;
+      return `<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:${T.text};">${lines}</p>`;
     })
     .join("");
 }
 
-function emailShell(params: {
-  brandName: string;
-  logoUrl?: string | null;
-  isDanceFlowSystem: boolean;
-  content: BrandedEmailParams;
+const RESPONSIVE_STYLE = `
+      @media only screen and (max-width:480px) {
+        .df-outer { padding: 12px 8px !important; }
+        .df-pad { padding-left: 18px !important; padding-right: 18px !important; }
+        .df-h1 { font-size: 24px !important; }
+        .df-stack { display: block !important; width: 100% !important; box-sizing: border-box !important; }
+        .df-stack-label { border-right-width: 1px !important; border-bottom-width: 0 !important; border-radius: 12px 12px 0 0 !important; }
+        .df-stack-value { border-radius: 0 0 12px 12px !important; }
+      }`;
+
+function systemHeader(
+  content: BrandedEmailParams,
+  options: RenderBrandedEmailOptions,
+) {
+  const logoSrc = emailAssetUrl("primary-white", { baseUrl: options.assetBaseUrl });
+  const eyebrow = content.eyebrow?.trim();
+  const eyebrowHtml = eyebrow
+    ? `<div style="font-size:12px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${T.accentSoft};">${escapeHtml(
+        eyebrow,
+      )}</div>`
+    : "";
+
+  return `<tr>
+              <td class="df-pad" bgcolor="${T.primary}" style="padding:28px 26px;background-color:${T.primary};background-image:linear-gradient(135deg,${T.primary} 0%,${T.primaryDark} 100%);color:${T.white};">
+                <img src="${escapeHtml(logoSrc)}" width="180" height="45" alt="DanceFlow" style="display:block;width:180px;height:45px;border:0;outline:none;text-decoration:none;margin:0 0 18px;" />
+                ${eyebrowHtml}
+                <h1 class="df-h1" style="margin:${eyebrow ? "9px" : "0"} 0 0;font-size:28px;line-height:1.25;font-weight:700;color:${T.white};">${escapeHtml(
+                  content.heading,
+                )}</h1>
+              </td>
+            </tr>`;
+}
+
+function identityBand(params: {
+  name: string;
+  logoUrl: string | null;
 }) {
-  const logoUrl = safeHttpUrl(params.logoUrl);
-  const actionUrl = safeHttpUrl(params.content.actionUrl);
-  const brandName = params.brandName.trim() || "DanceFlow";
-  const headerGradient = params.isDanceFlowSystem
-    ? "linear-gradient(135deg,#2e1065 0%,#4c1d95 58%,#f97316 100%)"
-    : "linear-gradient(135deg,#1e1b4b 0%,#4c1d95 55%,#be185d 100%)";
-  const eyebrow =
-    params.content.eyebrow?.trim() ||
-    (params.isDanceFlowSystem ? "DanceFlow" : brandName);
-  const footer =
-    params.content.footerText?.trim() ||
-    (params.isDanceFlowSystem
-      ? "This is a system message from DanceFlow."
-      : `Sent by ${brandName} through DanceFlow.`);
+  const nameHtml = escapeHtml(params.name);
+  const mark = params.logoUrl
+    ? `<img src="${escapeHtml(params.logoUrl)}" alt="" style="display:block;width:auto;height:auto;max-width:140px;max-height:48px;border:0;outline:none;text-decoration:none;" />`
+    : `<table role="presentation" cellspacing="0" cellpadding="0" aria-hidden="true"><tr><td width="48" height="48" align="center" valign="middle" bgcolor="${T.primarySoft}" style="width:48px;height:48px;background-color:${T.primarySoft};border-radius:12px;color:${T.primary};font-size:22px;font-weight:700;line-height:48px;text-align:center;">${escapeHtml(
+        resolveInitial(params.name),
+      )}</td></tr></table>`;
 
-  const logoHtml = logoUrl
-    ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(
-        brandName,
-      )} logo" style="display:block;max-width:220px;max-height:76px;object-fit:contain;background:#ffffff;border-radius:14px;padding:8px;margin:0 0 18px;" />`
-    : `<div style="display:inline-block;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.22);border-radius:999px;padding:8px 13px;margin:0 0 18px;font-size:13px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;">${escapeHtml(
-        brandName,
-      )}</div>`;
+  // The display name is always visible text beside the mark (logo or initial tile); the logo is decorative.
+  const nameCell = `<td valign="middle" style="padding-left:14px;font-size:18px;font-weight:700;line-height:1.3;color:${T.text};overflow-wrap:break-word;word-wrap:break-word;">${nameHtml}</td>`;
 
-  const greetingHtml = params.content.greeting
-    ? `<p style="margin:0 0 16px;font-size:16px;line-height:1.7;color:#0f172a;">${escapeHtml(
-        params.content.greeting,
+  return `<tr>
+              <td height="4" bgcolor="${T.primary}" style="height:4px;line-height:4px;font-size:0;background-color:${T.primary};">&nbsp;</td>
+            </tr>
+            <tr>
+              <td class="df-pad" style="padding:22px 26px 6px;background-color:${T.white};">
+                <table role="presentation" cellspacing="0" cellpadding="0"><tr>
+                  <td valign="middle">${mark}</td>
+                  ${nameCell}
+                </tr></table>
+              </td>
+            </tr>`;
+}
+
+function studioOrgHeading(content: BrandedEmailParams) {
+  const eyebrow = content.eyebrow?.trim();
+  const eyebrowHtml = eyebrow
+    ? `<div style="font-size:12px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${T.primary};margin:0 0 8px;">${escapeHtml(
+        eyebrow,
+      )}</div>`
+    : "";
+  return `${eyebrowHtml}<h1 class="df-h1" style="margin:0 0 18px;font-size:26px;line-height:1.25;font-weight:700;color:${T.text};">${escapeHtml(
+    content.heading,
+  )}</h1>`;
+}
+
+/**
+ * Single renderer for all DanceFlow HTML email.
+ * - `system`: DanceFlow primary (approved white primary logo on brand primary).
+ * - `studio`: studio identity leads (validated logo, else initial tile + name); DanceFlow only in the footer.
+ * - `organizer`: organizer name leads with an initial tile; the studio logo is never borrowed automatically.
+ */
+export function renderBrandedEmail(
+  mode: BrandedEmailMode,
+  identity: EmailBranding | null,
+  content: BrandedEmailParams,
+  options: RenderBrandedEmailOptions = {},
+) {
+  const isSystem = mode === "system";
+  const identityName = isSystem
+    ? "DanceFlow"
+    : identity?.name?.trim() ||
+      (mode === "organizer" ? ORGANIZER_NAME_FALLBACK : STUDIO_NAME_FALLBACK);
+
+  const logoUrl =
+    mode === "studio"
+      ? sanitizePublicImageUrl(identity?.logoUrl, {
+          allowInsecureImageUrls: options.allowInsecureImageUrls,
+        })
+      : null;
+
+  const actionUrl = sanitizeActionUrl(content.actionUrl, {
+    allowLocalHttp: options.allowLocalActionUrls,
+  });
+
+  const attribution =
+    content.footerText?.trim() ||
+    (isSystem ? EMAIL_SYSTEM_FOOTER_TEXT : emailAttribution(identityName));
+  const footerNote = content.footerNote?.trim();
+
+  const headerRows = isSystem
+    ? systemHeader(content, options)
+    : identityBand({ name: identityName, logoUrl });
+  const headingHtml = isSystem ? "" : studioOrgHeading(content);
+
+  const greetingHtml = content.greeting
+    ? `<p style="margin:0 0 16px;font-size:16px;line-height:1.7;color:${T.text};">${escapeHtml(
+        content.greeting,
       )}</p>`
     : "";
 
-  const introHtml = params.content.intro
-    ? `<p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#334155;">${escapeHtml(
-        params.content.intro,
+  const introHtml = content.intro
+    ? `<p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:${T.text};">${escapeHtml(
+        content.intro,
       )}</p>`
     : "";
 
-  const detailRows = params.content.detailRows ?? [];
+  const detailRows = content.detailRows ?? [];
   const detailsHtml = detailRows.length
     ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:20px 0;border-collapse:separate;border-spacing:0 10px;">
         ${detailRows
           .map(
             (row) => `<tr>
-              <td style="width:34%;padding:13px 15px;border:1px solid #e2e8f0;border-right:0;border-radius:14px 0 0 14px;background:#f8fafc;font-size:12px;font-weight:800;letter-spacing:0.07em;text-transform:uppercase;color:#64748b;">${escapeHtml(
+              <td class="df-stack df-stack-label" style="width:34%;padding:13px 15px;border:1px solid ${T.border};border-right:0;border-radius:12px 0 0 12px;background-color:${T.primarySoft};font-size:12px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:${T.muted};">${escapeHtml(
                 row.label,
               )}</td>
-              <td style="padding:13px 15px;border:1px solid #e2e8f0;border-radius:0 14px 14px 0;background:#ffffff;font-size:15px;font-weight:700;color:#0f172a;">${escapeHtml(
+              <td class="df-stack df-stack-value" style="padding:13px 15px;border:1px solid ${T.border};border-radius:0 12px 12px 0;background-color:${T.white};font-size:15px;font-weight:700;color:${T.text};">${escapeHtml(
                 row.value,
               )}</td>
             </tr>`,
@@ -115,56 +204,55 @@ function emailShell(params: {
     : "";
 
   const actionHtml =
-    actionUrl && params.content.actionLabel
-      ? `<div style="margin:26px 0 8px;text-align:center;">
-          <a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:#4c1d95;color:#ffffff;text-decoration:none;font-weight:800;border-radius:14px;padding:14px 22px;">${escapeHtml(
-            params.content.actionLabel,
-          )}</a>
-        </div>`
+    actionUrl && content.actionLabel
+      ? `<table role="presentation" align="center" cellspacing="0" cellpadding="0" style="margin:26px auto 8px;"><tr>
+          <td bgcolor="${T.primary}" style="background-color:${T.primary};border-radius:12px;">
+            <a href="${escapeHtml(actionUrl)}" style="display:inline-block;padding:14px 24px;font-family:${EMAIL_FONT_STACK};font-size:16px;font-weight:700;line-height:1.2;color:${T.white};text-decoration:none;border-radius:12px;">${escapeHtml(
+              content.actionLabel,
+            )}</a>
+          </td>
+        </tr></table>`
       : "";
+
+  const footerNoteHtml = footerNote
+    ? `<div style="margin:0 0 8px;">${escapeHtml(footerNote)}</div>`
+    : "";
+
+  const title = escapeHtml(sanitizeEmailSubject(content.heading, "DanceFlow"));
+  const preview = escapeHtml(sanitizeEmailSubject(content.previewText, ""));
 
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>${escapeHtml(params.content.heading)}</title>
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title>${title}</title>
+    <style>${RESPONSIVE_STYLE}
+    </style>
   </head>
-  <body style="margin:0;padding:0;background:#f5f3f7;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(
-      params.content.previewText,
-    )}</div>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#f5f3f7;padding:24px 12px;">
+  <body style="margin:0;padding:0;background-color:${T.surface};font-family:${EMAIL_FONT_STACK};color:${T.text};">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${preview}</div>
+    <table role="presentation" class="df-outer" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background-color:${T.surface};padding:24px 12px;">
       <tr>
         <td align="center">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#ffffff;border:1px solid #e9e2ec;border-radius:24px;overflow:hidden;box-shadow:0 18px 45px rgba(30,27,75,0.10);">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background-color:${T.white};border:1px solid ${T.border};border-radius:16px;overflow:hidden;">
+            ${headerRows}
             <tr>
-              <td style="padding:28px 26px;background:${headerGradient};color:#ffffff;">
-                ${logoHtml}
-                <div style="font-size:12px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;color:#fed7aa;">${escapeHtml(
-                  eyebrow,
-                )}</div>
-                <h1 style="margin:9px 0 0;font-size:30px;line-height:1.2;font-weight:800;color:#ffffff;">${escapeHtml(
-                  params.content.heading,
-                )}</h1>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:28px 26px;">
+              <td class="df-pad" style="padding:${isSystem ? "28px" : "16px"} 26px 28px;">
+                ${headingHtml}
                 ${greetingHtml}
                 ${introHtml}
                 ${detailsHtml}
-                ${
-                  params.content.contentHtml
-                    ? params.content.contentHtml
-                    : textToHtmlParagraphs(params.content.bodyText)
-                }
+                ${content.contentHtml ? content.contentHtml : textToHtmlParagraphs(content.bodyText)}
                 ${actionHtml}
               </td>
             </tr>
             <tr>
-              <td style="padding:18px 26px;background:#0f172a;color:#cbd5e1;font-size:12px;line-height:1.7;">
-                ${escapeHtml(footer)}
+              <td class="df-pad" bgcolor="${T.surface}" style="padding:18px 26px;background-color:${T.surface};border-top:1px solid ${T.border};color:${T.muted};font-size:12px;line-height:1.7;">
+                ${footerNoteHtml}<div>${escapeHtml(attribution)}</div>
+                <div>${escapeHtml(EMAIL_LEGAL_LINE)}</div>
               </td>
             </tr>
           </table>
@@ -176,23 +264,14 @@ function emailShell(params: {
 }
 
 export function renderDanceFlowSystemEmail(params: BrandedEmailParams) {
-  return emailShell({
-    brandName: "DanceFlow",
-    isDanceFlowSystem: true,
-    content: params,
-  });
+  return renderBrandedEmail("system", null, params);
 }
 
 export function renderStudioBrandedEmail(
   branding: EmailBranding,
   params: BrandedEmailParams,
 ) {
-  return emailShell({
-    brandName: branding.name,
-    logoUrl: branding.logoUrl,
-    isDanceFlowSystem: false,
-    content: params,
-  });
+  return renderBrandedEmail("studio", branding, params);
 }
 
 export function renderPlainTextAsStudioEmail(params: {
@@ -210,7 +289,6 @@ export function renderPlainTextAsStudioEmail(params: {
       previewText: params.subject,
       heading: params.subject,
       bodyText: params.bodyText,
-      footerText: `Sent by ${params.studioName} through DanceFlow.`,
     },
   );
 }

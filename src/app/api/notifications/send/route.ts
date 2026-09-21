@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
 import { getCronAuthFailure } from "@/lib/security/cron";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { sanitizeEmailSubject } from "@/lib/email/brand";
 
 type DeliveryRow = {
   id: string;
@@ -219,7 +220,7 @@ async function sendEmail(params: {
     body: JSON.stringify({
       from,
       to: [params.to],
-      subject: params.subject,
+      subject: sanitizeEmailSubject(params.subject),
       text: params.text,
       html: params.html,
     }),

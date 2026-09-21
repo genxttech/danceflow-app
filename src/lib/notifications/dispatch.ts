@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sanitizeEmailSubject } from "@/lib/email/brand";
 import { Resend } from "resend";
 import twilio from "twilio";
 import {
@@ -424,7 +425,7 @@ export async function sendWelcomeToDanceFlowEmail(params: {
     const response = await resend.emails.send({
       from,
       to: [to],
-      subject: rendered.subject,
+      subject: sanitizeEmailSubject(rendered.subject),
       text: rendered.text,
       html: rendered.html,
     });
@@ -521,7 +522,7 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
     const response = await resend.emails.send({
       from,
       to: [row.recipient_email],
-      subject: rendered.subject,
+      subject: sanitizeEmailSubject(rendered.subject),
       text: rendered.bodyText,
       html: bodyHtml,
       ...(replyTo ? { replyTo } : {}),
