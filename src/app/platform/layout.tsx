@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import SkipToMainLink from "@/components/shell/SkipToMainLink";
 import PlatformAdminNav from "./PlatformAdminNav";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import {
@@ -32,7 +33,8 @@ export default async function PlatformLayout({
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#f8fafc_0%,#eef2ff_28%,#f8fafc_58%,#f8fafc_100%)]">
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur">
+      <SkipToMainLink />
+      <header className="z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur lg:sticky lg:top-0">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
           <div className="flex items-center gap-4">
             <Link
@@ -51,9 +53,9 @@ export default async function PlatformLayout({
             </Link>
 
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
+              <p className="text-2xl font-semibold tracking-tight text-slate-950">
                 Platform Admin
-              </h1>
+              </p>
               <p className="mt-1 text-sm text-slate-600">
                 Manage studios, organizer growth, and platform billing from one branded hub.
               </p>
@@ -135,7 +137,9 @@ export default async function PlatformLayout({
           </div>
         </aside>
 
-        <main className="min-w-0">{children}</main>
+        <main id="main-content" tabIndex={-1} className="min-w-0 scroll-mt-28 outline-none">
+          {children}
+        </main>
       </div>
     </div>
   );

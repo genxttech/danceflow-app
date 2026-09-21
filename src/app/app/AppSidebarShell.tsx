@@ -9,6 +9,7 @@ import {
   MobileTopBar,
 } from "@/components/app/sidebar/AppShellChrome";
 import { normalizeSections } from "@/components/app/sidebar/navUtils";
+import SkipToMainLink from "@/components/shell/SkipToMainLink";
 import type {
   NotificationItem,
   WorkspaceItem,
@@ -71,6 +72,7 @@ export default function AppSidebarShell({
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[320px_minmax(0,1fr)]">
+      <SkipToMainLink />
       <MobileTopBar
         studioName={safeStudioName}
         userName={safeUserName}
@@ -95,7 +97,9 @@ export default function AppSidebarShell({
         switchWorkspaceAction={switchWorkspaceAction}
       />
 
-      <main className="min-w-0">{children}</main>
+      <main id="main-content" tabIndex={-1} className="min-w-0 outline-none">
+        {children}
+      </main>
 
       <MobileSidebar
         open={mobileOpen}
