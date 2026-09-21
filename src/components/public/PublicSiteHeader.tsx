@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import PublicMobileMenu from "./PublicMobileMenu";
+import SkipToMainLink from "@/components/shell/SkipToMainLink";
 import PublicNavLinks from "./PublicNavLinks";
 import type { PublicNavPath } from "./publicNav";
 
@@ -21,7 +22,9 @@ export default function PublicSiteHeader({
   isAuthenticated = false,
 }: PublicSiteHeaderProps) {
   return (
+    <>
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
+      <SkipToMainLink />
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-4">
@@ -98,5 +101,8 @@ export default function PublicSiteHeader({
         </div>
       </div>
     </header>
+    {/* Skip-link target: zero-height, programmatically focusable, sits just before page content. */}
+    <div id="main-content" tabIndex={-1} className="h-0 outline-none" />
+    </>
   );
 }

@@ -124,7 +124,10 @@ export function DesktopSidebar({
   switchWorkspaceAction: (formData: FormData) => void | Promise<void>;
 }) {
   return (
-    <aside className="hidden lg:sticky lg:top-0 lg:block lg:h-screen">
+    <aside
+      aria-label="Workspace sidebar"
+      className="hidden lg:sticky lg:top-0 lg:block lg:h-screen"
+    >
       <div className="brand-sidebar flex h-full flex-col border-r border-white/10">
         <div className="border-b border-white/10 px-5 py-5">
           <div className="flex items-start justify-between gap-3">
@@ -171,14 +174,16 @@ export function DesktopSidebar({
               />
             ) : null}
 
-            {sections.map((section) => (
-              <DesktopNavSection
-                key={section.title}
-                title={section.title}
-                items={section.items}
-                pathname={pathname}
-              />
-            ))}
+            <nav aria-label="Workspace" className="space-y-6">
+              {sections.map((section) => (
+                <DesktopNavSection
+                  key={section.title}
+                  title={section.title}
+                  items={section.items}
+                  pathname={pathname}
+                />
+              ))}
+            </nav>
           </div>
 
           <div className="mt-10 rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur">
@@ -327,15 +332,17 @@ export function MobileSidebar({
                 />
               ) : null}
 
-              {sections.map((section) => (
-                <MobileNavSection
-                  key={section.title}
-                  title={section.title}
-                  items={section.items}
-                  pathname={pathname}
-                  onNavigate={onClose}
-                />
-              ))}
+              <nav aria-label="Workspace" className="space-y-6">
+                {sections.map((section) => (
+                  <MobileNavSection
+                    key={section.title}
+                    title={section.title}
+                    items={section.items}
+                    pathname={pathname}
+                    onNavigate={onClose}
+                  />
+                ))}
+              </nav>
             </div>
 
             <div className="mt-8 rounded-2xl border border-[var(--brand-border)] bg-white p-4">

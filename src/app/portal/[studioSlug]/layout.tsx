@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
+import SkipToMainLink from "@/components/shell/SkipToMainLink";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ensurePortalProfileAndClientLinks, getAuthUserFullName } from "@/lib/auth/portal-linking";
@@ -88,6 +89,7 @@ export default async function PortalStudioLayout({
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_28%,#f8fafc_100%)]">
+      <SkipToMainLink />
       <header className="border-b border-[var(--brand-border)] bg-[var(--brand-surface)]">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -121,7 +123,13 @@ export default async function PortalStudioLayout({
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="mx-auto max-w-6xl px-4 py-8 outline-none sm:px-6 lg:px-8"
+      >
+        {children}
+      </main>
     </div>
   );
 }

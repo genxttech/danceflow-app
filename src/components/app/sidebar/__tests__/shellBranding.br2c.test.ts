@@ -42,7 +42,7 @@ describe("brand assets", () => {
     expect(platformLayout).not.toContain("DanceFlow Platform");
     expect(platformLayout).not.toMatch(/>\s*DanceFlow\s*</);
     expect(platformLayout).toContain("Platform Admin");
-    expect(platformLayout.match(/<h1/g)?.length).toBe(1);
+    expect(platformLayout).not.toMatch(/<h1[\s>]/); // BR-2D: shell context is a non-heading; pages own the h1
     expect(chrome).toContain('href="/app"');
   });
 });

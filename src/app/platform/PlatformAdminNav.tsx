@@ -164,7 +164,7 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
   }
 
   return (
-    <nav className="space-y-2">
+    <nav aria-label="Platform sections" className="space-y-2">
       {normalizedItems.map((item) => {
         const active = isActivePath(pathname, item.href);
 
