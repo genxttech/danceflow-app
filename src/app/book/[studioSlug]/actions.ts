@@ -10,7 +10,11 @@ import {
   type SelfServiceBlackout,
 } from "@/lib/booking/selfServiceAvailability";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import {
+  buildPublicBookingClientEmail,
+  buildPublicBookingStaffEmail,
+  type StudioEmailSource,
+} from "@/lib/notifications/scheduling-emails";
 import {
   cleanFormText,
   normalizeOptionalPhone,
@@ -394,8 +398,7 @@ function formatBookingRequestDateTime(value: string, timeZone: string) {
 
 async function queueBookingRequestEmails(params: {
   studioId: string;
-  studioName: string;
-  studioLogoUrl: string | null;
+  studio: StudioEmailSource;
   bookingRequestId: string;
   customerName: string;
   customerEmail: string;
@@ -407,75 +410,30 @@ async function queueBookingRequestEmails(params: {
 }) {
   const supabase = createAdminClient();
   const requestedTime = formatBookingRequestDateTime(params.requestedStartsAt, params.studioTimeZone);
-  const firstName = params.customerName.split(" ")[0] || "there";
-  const requestsUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/$/, "")}/app/schedule/requests`;
+  const clientMessage = buildPublicBookingClientEmail({
+    studio: params.studio,
+    customerName: params.customerName,
+    requestedTime,
+  });
 
-  const clientBodyText = [
-    `Hi ${firstName},`,
-    "",
-    `${params.studioName} received your intro lesson request for ${requestedTime}.`,
-    "",
-    "The studio will review the request and follow up with next steps. Your appointment is not confirmed until the studio approves it.",
-    "",
-    "Thanks,",
-    params.studioName,
-  ].join("\n");
-
-  const staffBodyText = [
-    `New intro lesson request for ${params.studioName}`,
-    "",
-    `Client: ${params.customerName}`,
-    `Email: ${params.customerEmail}`,
-    params.customerPhone ? `Phone: ${params.customerPhone}` : null,
-    `Requested time: ${requestedTime}`,
-    params.danceInterests ? `Dance interests: ${params.danceInterests}` : null,
-    params.notes ? `Notes: ${params.notes}` : null,
-    "",
-    `Review request: ${requestsUrl}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const clientBodyHtml = renderStudioBrandedEmail(
-    { name: params.studioName, logoUrl: params.studioLogoUrl },
-    {
-      previewText: `${params.studioName} received your lesson request`,
-      eyebrow: "Lesson Request",
-      heading: "Request Received",
-      greeting: `Hi ${firstName},`,
-      intro: `${params.studioName} received your intro lesson request.`,
-      bodyText: clientBodyText,
-      detailRows: [{ label: "Requested time", value: requestedTime }],
-      footerText: `Sent by ${params.studioName} through DanceFlow.`,
-    },
-  );
-
-  const staffBodyHtml = renderStudioBrandedEmail(
-    { name: params.studioName, logoUrl: params.studioLogoUrl },
-    {
-      previewText: `New intro lesson request from ${params.customerName}`,
-      eyebrow: "New Booking Lead",
-      heading: "New Intro Lesson Request",
-      intro: `${params.customerName} submitted a public booking request.`,
-      bodyText: staffBodyText,
-      detailRows: [
-        { label: "Client", value: params.customerName },
-        { label: "Requested time", value: requestedTime },
-      ],
-      actionLabel: "Review Request",
-      actionUrl: requestsUrl,
-      footerText: `Internal notification from ${params.studioName}, delivered through DanceFlow.`,
-    },
-  );
+  const staffMessage = buildPublicBookingStaffEmail({
+    studio: params.studio,
+    customerName: params.customerName,
+    customerEmail: params.customerEmail,
+    customerPhone: params.customerPhone,
+    requestedTime,
+    danceInterests: params.danceInterests,
+    notes: params.notes,
+  });
 
   const clientInsert = await supabase.from("outbound_deliveries").insert({
     studio_id: params.studioId,
     channel: "email",
     template_key: "booking_request_received_client",
     recipient_email: params.customerEmail,
-    subject: `${params.studioName} received your lesson request`,
-    body_text: clientBodyText,
-    body_html: clientBodyHtml,
+    subject: clientMessage.subject,
+    body_text: clientMessage.bodyText,
+    body_html: clientMessage.bodyHtml,
     related_table: "booking_requests",
     related_id: params.bookingRequestId,
     dedupe_key: `booking-request-received-client:${params.bookingRequestId}`,
@@ -498,9 +456,9 @@ async function queueBookingRequestEmails(params: {
     channel: "email",
     template_key: "booking_request_staff_alert",
     recipient_email: staffEmail,
-    subject: `New intro lesson request: ${params.customerName}`,
-    body_text: staffBodyText,
-    body_html: staffBodyHtml,
+    subject: staffMessage.subject,
+    body_text: staffMessage.bodyText,
+    body_html: staffMessage.bodyHtml,
     related_table: "booking_requests",
     related_id: params.bookingRequestId,
     dedupe_key: `booking-request-staff-alert:${params.bookingRequestId}`,
@@ -777,8 +735,11 @@ export async function createPublicIntroBookingAction(
 
     await queueBookingRequestEmails({
       studioId: studio.id,
-      studioName: studio.public_name?.trim() || studio.name,
-      studioLogoUrl: studio.public_logo_url,
+      studio: {
+        name: studio.name,
+        public_name: studio.public_name,
+        public_logo_url: studio.public_logo_url,
+      },
       bookingRequestId: bookingRequest.id,
       customerName,
       customerEmail: email,

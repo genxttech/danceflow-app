@@ -120,6 +120,48 @@ describe("escapeHtml ratchet", () => {
   });
 });
 
+describe("BR-3B1 base-URL normalization", () => {
+  // Files migrated in BR-3B1: no more hard-coded idanceflow.com fallbacks or NEXT_PUBLIC_SITE_URL/APP_URL reads.
+  const MIGRATED_FILES = [
+    "src/lib/notifications/scheduling-emails.ts",
+    "src/lib/notifications/notification-html.ts",
+    "src/lib/schedule/appointmentConfirmation.ts",
+    "src/lib/commerce/studentMarketplace.ts",
+    "src/lib/accountant-deliveries/deliveries.ts",
+    "src/app/book/[studioSlug]/actions.ts",
+    "src/app/portal/[studioSlug]/schedule/actions.ts",
+    "src/app/app/schedule/requests/actions.ts",
+    "src/app/api/notifications/send/route.ts",
+  ];
+
+  it.each(MIGRATED_FILES)("%s has no hard-coded idanceflow.com fallback or raw site/app URL env read", (file) => {
+    const source = read(...file.split("/"));
+    expect(source).not.toMatch(/https:\/\/(www\.)?idanceflow\.com/);
+    expect(source).not.toMatch(/NEXT_PUBLIC_SITE_URL|NEXT_PUBLIC_APP_URL/);
+  });
+});
+
+describe("dedupeBodyLeadIn stays opt-in and scoped to BR-3B1", () => {
+  // BR-3C/BR-3E callers must not opt in without an explicit later decision.
+  const MUST_NOT_OPT_IN = [
+    "src/lib/notifications/templates.ts",
+    "src/app/api/cron/aria-digest/route.ts",
+    "src/app/platform/invites/actions.ts",
+    "src/app/app/marketing/campaigns/actions.ts",
+    "src/app/app/organizer-campaigns/[id]/actions.ts",
+  ];
+
+  it.each(MUST_NOT_OPT_IN)("%s does not opt into dedupeBodyLeadIn", (file) => {
+    if (!existsSync(join(ROOT, ...file.split("/")))) return;
+    expect(read(...file.split("/"))).not.toMatch(/dedupeBodyLeadIn/);
+  });
+
+  it("the welcome/system email path in dispatch.ts does not opt in", () => {
+    const dispatch = read("src", "lib", "notifications", "dispatch.ts");
+    expect(dispatch).not.toMatch(/dedupeBodyLeadIn/);
+  });
+});
+
 describe("subject sanitizer chokepoints", () => {
   it("wraps the welcome send and the queued send in dispatch.ts", () => {
     const dispatch = read("src", "lib", "notifications", "dispatch.ts").replace(/\r\n/g, "\n");

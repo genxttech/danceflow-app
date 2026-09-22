@@ -1,12 +1,59 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { buildAppUrl, resolveStudioDisplayName } from "@/lib/email/brand";
 
-function getSiteUrl() {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(
-    /\/$/,
+/** Pure builder for the digital-purchase confirmation email (exported for deterministic tests). */
+export function buildMarketplacePurchaseEmail(params: {
+  studio: { name?: string | null; public_name?: string | null; public_logo_url?: string | null };
+  firstName: string | null;
+  itemName: string;
+  orderNumber: string;
+  total: string;
+}) {
+  const studioName = resolveStudioDisplayName(params.studio);
+  const firstName = params.firstName?.trim() || "there";
+  const accountUrl = buildAppUrl("/account");
+  const greeting = `Hi ${firstName},`;
+  const intro = `Your purchase from ${studioName} is complete.`;
+
+  const bodyText = [
+    greeting,
     "",
+    `Your purchase of ${params.itemName} from ${studioName} is complete.`,
+    `Order: ${params.orderNumber}`,
+    `Total: ${params.total}`,
+    "",
+    "Your access has been added to your DanceFlow account.",
+    `Open DanceFlow: ${accountUrl}`,
+    "",
+    "Need help with the content or your purchase? Reply to this email to contact the studio.",
+    "",
+    "Thanks,",
+    studioName,
+  ].join("\n");
+
+  const bodyHtml = renderStudioBrandedEmail(
+    { name: studioName, logoUrl: params.studio.public_logo_url ?? null },
+    {
+      previewText: `${params.itemName} is now available in your DanceFlow account.`,
+      eyebrow: "Purchase Complete",
+      heading: "Your content is ready",
+      greeting,
+      intro,
+      bodyText,
+      detailRows: [
+        { label: "Item", value: params.itemName },
+        { label: "Order", value: params.orderNumber },
+        { label: "Total", value: params.total },
+      ],
+      actionLabel: "Open DanceFlow",
+      actionUrl: accountUrl,
+      dedupeBodyLeadIn: true,
+    },
   );
+
+  return { subject: `Your ${params.itemName} purchase is ready`, bodyText, bodyHtml };
 }
 
 function formatMoney(value: number, currency: string) {
@@ -73,53 +120,15 @@ async function queueStudentMarketplacePurchaseConfirmation(params: {
 
   if (!recipientEmail) return;
 
-  const studioName =
-    studio?.public_name?.trim() || studio?.name || "Your dance studio";
-  const studioLogoUrl = studio?.public_logo_url ?? null;
   const itemName = orderItem?.name_snapshot?.trim() || "Digital content";
-  const firstName = client?.first_name?.trim() || "there";
   const total = formatMoney(Number(order.total ?? 0), order.currency || "USD");
-  const accountUrl = `${getSiteUrl()}/account`;
-
-  const subject = `Your ${itemName} purchase is ready`;
-  const bodyText = [
-    `Hi ${firstName},`,
-    "",
-    `Your purchase of ${itemName} from ${studioName} is complete.`,
-    `Order: ${order.order_number || order.id}`,
-    `Total: ${total}`,
-    "",
-    "Your access has been added to your DanceFlow account.",
-    `Open DanceFlow: ${accountUrl}`,
-    "",
-    "Need help with the content or your purchase? Reply to this email to contact the studio.",
-    "",
-    "Thanks,",
-    studioName,
-  ].join("\n");
-
-  const bodyHtml = renderStudioBrandedEmail(
-    {
-      name: studioName,
-      logoUrl: studioLogoUrl,
-    },
-    {
-      previewText: `${itemName} is now available in your DanceFlow account.`,
-      eyebrow: "Purchase Complete",
-      heading: "Your content is ready",
-      greeting: `Hi ${firstName},`,
-      intro: `Your purchase from ${studioName} is complete.`,
-      bodyText,
-      detailRows: [
-        { label: "Item", value: itemName },
-        { label: "Order", value: order.order_number || order.id },
-        { label: "Total", value: total },
-      ],
-      actionLabel: "Open DanceFlow",
-      actionUrl: accountUrl,
-      footerText: `Sent by ${studioName} through DanceFlow.`,
-    },
-  );
+  const { subject, bodyText, bodyHtml } = buildMarketplacePurchaseEmail({
+    studio: studio ?? {},
+    firstName: client?.first_name ?? null,
+    itemName,
+    orderNumber: order.order_number || order.id,
+    total,
+  });
 
   await queueOutboundDelivery({
     studioId: order.studio_id,

@@ -2,164 +2,34 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
 import { getCronAuthFailure } from "@/lib/security/cron";
-import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 import { sanitizeEmailSubject } from "@/lib/email/brand";
+import {
+  renderNotificationHtml,
+  resolveNotificationStudioBranding,
+  resolveReminderReplyTo,
+  type NotificationDeliveryRow,
+  type NotificationStudioBrandingRow,
+} from "@/lib/notifications/notification-html";
 
-type DeliveryRow = {
-  id: string;
-  studio_id: string;
-  user_id: string | null;
-  client_id: string | null;
-  delivery_type: string;
-  channel: "email" | "sms" | "in_app";
-  status: "pending" | "sent" | "failed" | "cancelled";
-  subject: string | null;
-  body: string | null;
-  metadata: Record<string, unknown> | null;
-  scheduled_for: string;
-};
-
-type StudioBrandingRow = {
-  id: string;
-  name: string;
-  public_name: string | null;
-  public_logo_url: string | null;
-  slug: string | null;
-};
-
-function metadataString(
-  metadata: Record<string, unknown> | null,
-  key: string,
-) {
-  const value = metadata?.[key];
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function formatLessonDateTime(
-  value: string,
-  timeZone: string,
-) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(date);
-}
+type DeliveryRow = NotificationDeliveryRow;
 
 async function getStudioBranding(
   supabase: ReturnType<typeof createAdminClient>,
   studioId: string,
 ) {
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("studios")
-    .select("id, name, public_name, public_logo_url, slug")
+    .select("id, name, public_name, public_logo_url, slug, email")
     .eq("id", studioId)
-    .maybeSingle<StudioBrandingRow>();
+    .maybeSingle<NotificationStudioBrandingRow>();
 
-  if (error || !data) {
-    return {
-      name: "Your dance studio",
-      logoUrl: null,
-      portalUrl: null,
-    };
-  }
-
-  const siteUrl = (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    "https://idanceflow.com"
-  ).replace(/\/$/, "");
-
-  return {
-    name: data.public_name?.trim() || data.name || "Your dance studio",
-    logoUrl: data.public_logo_url,
-    portalUrl: data.slug
-      ? `${siteUrl}/portal/${encodeURIComponent(data.slug)}`
-      : null,
-  };
+  return resolveNotificationStudioBranding(data);
 }
 
-function renderNotificationHtml(params: {
-  delivery: DeliveryRow;
-  studioName: string;
-  studioLogoUrl?: string | null;
-  portalUrl?: string | null;
-}) {
-  const { delivery } = params;
-  const metadata = delivery.metadata ?? {};
-  const clientName = metadataString(metadata, "clientName");
-  const startsAt = metadataString(metadata, "startsAt");
-  const timeZone =
-    metadataString(metadata, "studioTimezone") || "America/New_York";
-  const appointmentTitle =
-    metadataString(metadata, "appointmentTitle") ||
-    metadataString(metadata, "appointmentType")
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (character) => character.toUpperCase()) ||
-    "Lesson";
-
-  if (
-    delivery.delivery_type === "student_lesson_reminder_24h" ||
-    delivery.delivery_type === "student_lesson_reminder_2h"
-  ) {
-    const startsLabel = startsAt
-      ? formatLessonDateTime(startsAt, timeZone)
-      : "your scheduled lesson time";
-    const isSoon = delivery.delivery_type === "student_lesson_reminder_2h";
-
-    return renderStudioBrandedEmail(
-      {
-        name: params.studioName,
-        logoUrl: params.studioLogoUrl,
-      },
-      {
-        previewText:
-          delivery.subject ||
-          `${appointmentTitle} reminder from ${params.studioName}`,
-        eyebrow: "Lesson Reminder",
-        heading: isSoon ? "Your lesson starts soon" : "Your lesson is coming up",
-        greeting: clientName ? `Hi ${clientName},` : "Hello,",
-        intro: isSoon
-          ? `${params.studioName} is looking forward to seeing you soon.`
-          : `${params.studioName} is sending a reminder about your upcoming lesson.`,
-        bodyText:
-          delivery.body ||
-          `You have an upcoming lesson scheduled for ${startsLabel}.`,
-        detailRows: [
-          { label: "Lesson", value: appointmentTitle },
-          { label: "Date and time", value: startsLabel },
-        ],
-        actionLabel: params.portalUrl ? "Open Student Portal" : null,
-        actionUrl: params.portalUrl,
-        footerText: `Sent by ${params.studioName} through DanceFlow.`,
-      },
-    );
-  }
-
-  return renderStudioBrandedEmail(
-    {
-      name: params.studioName,
-      logoUrl: params.studioLogoUrl,
-    },
-    {
-      previewText: delivery.subject || `${params.studioName} notification`,
-      heading: delivery.subject || "Studio Notification",
-      bodyText:
-        delivery.body || "You have a new notification from your dance studio.",
-      actionLabel: params.portalUrl ? "Open DanceFlow" : null,
-      actionUrl: params.portalUrl,
-      footerText: `Sent by ${params.studioName} through DanceFlow.`,
-    },
-  );
-}
+const CLIENT_REMINDER_TYPES = new Set([
+  "student_lesson_reminder_24h",
+  "student_lesson_reminder_2h",
+]);
 
 async function resolveRecipientEmail(
   supabase: ReturnType<typeof createAdminClient>,
@@ -200,6 +70,7 @@ async function sendEmail(params: {
   subject: string;
   text: string;
   html: string;
+  replyTo?: string | null;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
   const from =
@@ -223,6 +94,7 @@ async function sendEmail(params: {
       subject: sanitizeEmailSubject(params.subject),
       text: params.text,
       html: params.html,
+      ...(params.replyTo ? { reply_to: params.replyTo } : {}),
     }),
   });
 
@@ -328,6 +200,12 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
         delivery.studio_id,
       );
 
+      // Reply-To is set only for client reminders, and only when the studio's own email is valid.
+      // Internal staff notifications (owner digest, instructor agenda) keep no Reply-To, as before.
+      const replyTo = CLIENT_REMINDER_TYPES.has(delivery.delivery_type)
+        ? resolveReminderReplyTo(studioBranding.replyToEmail)
+        : null;
+
       await sendEmail({
         to: recipientEmail,
         subject: delivery.subject || `${studioBranding.name} notification`,
@@ -340,6 +218,7 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
           studioLogoUrl: studioBranding.logoUrl,
           portalUrl: studioBranding.portalUrl,
         }),
+        replyTo,
       });
 
       await supabase
