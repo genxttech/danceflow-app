@@ -3681,7 +3681,7 @@ async function buildCompletionAriaOperationalCandidates(params: {
   }
 
   const registrationCountByEvent = new Map<string, number>();
-  let waitlistedByEvent = new Map<string, number>();
+  const waitlistedByEvent = new Map<string, number>();
   for (const registration of (registrationsResult.data ??
     []) as AriaEventRegistrationCountRow[]) {
     if (!registration.event_id) continue;
@@ -4575,7 +4575,7 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
               recipient_phone: null,
               subject,
               body_text: bodyText,
-              body_html: null,
+              body_html: bodyHtml,
               related_table: "automation_actions",
               related_id: action.id,
               dedupe_key: getAriaExecutionDedupeKey({ action, clientId: client.id }),
@@ -7213,7 +7213,7 @@ export async function runScheduledAriaOperationsForStudio(params: {
               recipient_phone: null,
               subject,
               body_text: bodyText,
-              body_html: renderPlainTextAsHtml(bodyText),
+              body_html: bodyHtml,
               related_table: "automation_actions",
               related_id: action.id,
               dedupe_key: getAriaExecutionDedupeKey({ action, clientId: client.id }),

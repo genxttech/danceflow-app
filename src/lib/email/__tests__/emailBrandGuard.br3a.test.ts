@@ -88,7 +88,8 @@ describe("escapeHtml ratchet", () => {
     "src/app/api/platform/daily-digest/route.ts",
     "src/app/app/clients/[id]/actions.ts",
     "src/app/app/documents/actions.ts",
-    "src/app/app/documents/sign/actions.ts",
+    // BR-3B2: src/app/app/documents/sign/actions.ts migrated onto the shared shell and its local
+    // duplicate escapeHtml became genuinely unused, so it was removed -- shrinking this list.
     "src/app/app/marketing/campaigns/[id]/actions.ts",
     "src/app/app/marketing/campaigns/actions.ts",
     "src/app/app/organizer-campaigns/[id]/actions.ts",
@@ -141,6 +142,32 @@ describe("BR-3B1 base-URL normalization", () => {
   });
 });
 
+describe("BR-3B2 base-URL normalization", () => {
+  // Files migrated in BR-3B2: no more hard-coded idanceflow.com fallbacks or raw NEXT_PUBLIC_SITE_URL/
+  // NEXT_PUBLIC_APP_URL reads for customer-facing links.
+  const MIGRATED_FILES = [
+    "src/app/sign/[token]/actions.ts",
+    "src/app/app/documents/sign/actions.ts",
+    "src/app/app/documents/actions.ts",
+    "src/lib/documents/operations.ts",
+  ];
+
+  it.each(MIGRATED_FILES)("%s has no hard-coded idanceflow.com fallback or raw site/app URL env read", (file) => {
+    const source = read(...file.split("/"));
+    expect(source).not.toMatch(/https:\/\/(www\.)?idanceflow\.com/);
+    expect(source).not.toMatch(/NEXT_PUBLIC_SITE_URL|NEXT_PUBLIC_APP_URL/);
+  });
+
+  it("the direct portal invite path deliberately keeps a raw base-URL read for the auth callback/redirect only", () => {
+    // Not migrated to buildAppUrl: the magic-link redirect must resolve to whatever origin this
+    // request's Supabase auth session actually validates against, not the canonical marketing/email
+    // origin. Only the plain, non-auth portal link in this file is canonicalized via buildAppUrl.
+    const source = read("src", "app", "app", "clients", "[id]", "actions.ts");
+    expect(source).toContain("const portalUrl = buildAppUrl(portalPath);");
+    expect(source).toMatch(/NEXT_PUBLIC_SITE_URL|NEXT_PUBLIC_APP_URL/);
+  });
+});
+
 describe("dedupeBodyLeadIn stays opt-in and scoped to BR-3B1", () => {
   // BR-3C/BR-3E callers must not opt in without an explicit later decision.
   const MUST_NOT_OPT_IN = [
@@ -178,5 +205,18 @@ describe("subject sanitizer chokepoints", () => {
     expect(route).toContain('import { sanitizeEmailSubject } from "@/lib/email/brand";');
     expect(route).toContain("subject: sanitizeEmailSubject(params.subject),");
     expect(route).not.toContain("subject: params.subject,");
+  });
+
+  it("wraps both live studio-campaign send sites (BR-3B2)", () => {
+    const campaigns = read("src", "app", "app", "marketing", "campaigns", "actions.ts").replace(/\r\n/g, "\n");
+    expect(campaigns).toContain('import { resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";');
+    expect(campaigns).toMatch(/const subject = sanitizeEmailSubject\(`\[TEST\] \$\{campaign\.subject\}`\);/);
+    expect(campaigns).toMatch(/const subject = sanitizeEmailSubject\(campaign\.subject\);/);
+    // Neither live send call passes the raw, unsanitized campaign.subject to Resend.
+    const sendCalls = campaigns.match(/resend\.emails\.send\(\{[^}]*\}\)/g) ?? [];
+    expect(sendCalls.length).toBe(2);
+    for (const call of sendCalls) {
+      expect(call).not.toMatch(/subject:\s*campaign\.subject/);
+    }
   });
 });

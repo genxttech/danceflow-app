@@ -7,11 +7,16 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewCommunications } from "@/lib/auth/permissions";
 import { requireStudioFeature } from "@/lib/billing/access";
-import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";
 import {
   hasUnsuppressedPackageWarning,
   type PackageWithItems,
 } from "@/lib/packages/entitlement";
+import {
+  buildCampaignEmailHtml,
+  buildCampaignEmailText,
+  type CampaignEmailParams,
+} from "./campaignEmail";
 
 const AUDIENCE_TYPES = new Set([
   "manual",
@@ -35,18 +40,6 @@ type RecipientPreview = {
   name: string;
   source: string;
   unsubscribed: boolean;
-};
-
-type CampaignEmailParams = {
-  studioName: string;
-  studioLogoUrl?: string | null;
-  subject: string;
-  previewText: string | null;
-  bodyText: string;
-  ctaLabel: string | null;
-  ctaUrl: string | null;
-  footerNote: string;
-  unsubscribeUrl?: string | null;
 };
 
 type StudioMarketingFooterSettings = {
@@ -198,47 +191,6 @@ function getStudioReplyToEmail(
     process.env.MARKETING_REPLY_TO_EMAIL ||
     fallbackEmail
   );
-}
-
-function buildCampaignEmailHtml(params: CampaignEmailParams) {
-  const unsubscribeHtml = params.unsubscribeUrl
-    ? `<div style="margin-top:18px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;line-height:1.6;color:#64748b;">You are receiving this because you shared your email with ${escapeHtml(
-        params.studioName,
-      )}. <a href="${escapeHtml(
-        params.unsubscribeUrl,
-      )}" style="color:#6d28d9;text-decoration:underline;">Unsubscribe</a>.</div>`
-    : "";
-
-  return renderStudioBrandedEmail(
-    {
-      name: params.studioName,
-      logoUrl: params.studioLogoUrl ?? null,
-    },
-    {
-      previewText: params.previewText || params.subject,
-      eyebrow: "Studio Update",
-      heading: params.subject,
-      bodyText: params.bodyText,
-      contentHtml: unsubscribeHtml || undefined,
-      actionLabel:
-        params.ctaLabel && params.ctaUrl ? params.ctaLabel : null,
-      actionUrl:
-        params.ctaLabel && params.ctaUrl ? params.ctaUrl : null,
-      footerText: params.footerNote,
-    },
-  );
-}
-
-function buildCampaignEmailText(params: CampaignEmailParams) {
-  const cta =
-    params.ctaLabel && params.ctaUrl
-      ? `\n\n${params.ctaLabel}: ${params.ctaUrl}`
-      : "";
-  const unsubscribe = params.unsubscribeUrl
-    ? `\n\nUnsubscribe: ${params.unsubscribeUrl}`
-    : "";
-
-  return `${params.studioName}\n\n${params.bodyText}${cta}\n\n${params.footerNote}${unsubscribe}`;
 }
 
 async function getUnsubscribedEmails(params: {
@@ -894,18 +846,19 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
       redirect(appendQueryParam(fallback, "campaign_error", "missing_content"));
     }
 
-    const studioName = String(studio?.public_name?.trim() || studio?.name || "Your dance studio");
+    const studioName = resolveStudioDisplayName(studio);
     const studioLogoUrl = studio?.public_logo_url ?? null;
     const footerNote = hasMarketingFooterAddress(studio)
       ? `${buildStudioMarketingFooterNote(studio)} This is a DanceFlow test email. No campaign recipients were contacted.`
       : "This is a DanceFlow test email. No campaign recipients were contacted. Add a marketing footer address in Settings before sending live campaigns.";
     const resend = new Resend(process.env.RESEND_API_KEY);
     const replyTo = getStudioReplyToEmail(studio, userResult.user.email);
+    const subject = sanitizeEmailSubject(`[TEST] ${campaign.subject}`);
 
     const html = buildCampaignEmailHtml({
       studioName,
       studioLogoUrl,
-      subject: `[TEST] ${campaign.subject}`,
+      subject,
       previewText: campaign.preview_text,
       bodyText: campaign.body_text,
       ctaLabel: campaign.cta_label,
@@ -916,7 +869,7 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
     const text = buildCampaignEmailText({
       studioName,
       studioLogoUrl,
-      subject: `[TEST] ${campaign.subject}`,
+      subject,
       previewText: campaign.preview_text,
       bodyText: campaign.body_text,
       ctaLabel: campaign.cta_label,
@@ -927,7 +880,7 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
     const { error: sendError } = await resend.emails.send({
       from: fromEmail,
       to: [testEmail],
-      subject: `[TEST] ${campaign.subject}`,
+      subject,
       html,
       text,
       replyTo,
@@ -1176,10 +1129,11 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       .eq("id", campaign.id)
       .eq("studio_id", studioId);
 
-    const studioName = String(studio?.public_name?.trim() || studio?.name || "Your dance studio");
+    const studioName = resolveStudioDisplayName(studio);
     const studioLogoUrl = studio?.public_logo_url ?? null;
     const footerNote = buildStudioMarketingFooterNote(studio);
     const replyTo = getStudioReplyToEmail(studio, userResult.user.email);
+    const subject = sanitizeEmailSubject(campaign.subject);
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     for (const recipient of pendingRecipients) {
@@ -1188,7 +1142,7 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       const emailParams: CampaignEmailParams = {
         studioName,
         studioLogoUrl,
-        subject: campaign.subject,
+        subject,
         previewText: campaign.preview_text,
         bodyText: campaign.body_text,
         ctaLabel: campaign.cta_label,
@@ -1204,11 +1158,17 @@ export async function sendMarketingCampaignAction(formData: FormData) {
         const result = await resend.emails.send({
           from: fromEmail,
           to: [recipient.email],
-          subject: campaign.subject,
+          subject,
           html,
           text,
           replyTo,
         });
+
+        // Resend resolves (does not throw) on an API-level failure -- `result.error` must be checked
+        // explicitly, or a rejected send silently gets recorded as delivered.
+        if (result.error) {
+          throw new Error(result.error.message || "Send failed");
+        }
 
         const messageId =
           typeof result.data?.id === "string" ? result.data.id : null;

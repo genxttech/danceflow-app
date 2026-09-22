@@ -7,6 +7,7 @@ import {
   renderDanceFlowSystemEmail,
   renderPlainTextAsStudioEmail,
 } from "@/lib/notifications/email-branding";
+import { resolveOutboundFromEmail } from "@/lib/notifications/outbound";
 import {
   getAriaOutcomeExpectation,
   verifyPendingAriaOutcomes,
@@ -73,14 +74,6 @@ function getSiteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(
     /\/$/,
     ""
-  );
-}
-
-function getOutboundFromEmail() {
-  return (
-    process.env.NOTIFICATION_FROM_EMAIL ||
-    process.env.OUTBOUND_EMAIL_FROM ||
-    "DanceFlow <notify@idanceflow.com>"
   );
 }
 
@@ -418,7 +411,7 @@ export async function sendWelcomeToDanceFlowEmail(params: {
   }
 
   const rendered = getWelcomeEmailContent(params);
-  const from = getOutboundFromEmail();
+  const from = resolveOutboundFromEmail();
 
   try {
     const resend = getResendClient();
@@ -489,7 +482,7 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
     return { ok: false, error: "Missing recipient email." };
   }
 
-  const from = getOutboundFromEmail();
+  const from = resolveOutboundFromEmail();
   if (!from) {
     return { ok: false, error: "Missing outbound from email." };
   }

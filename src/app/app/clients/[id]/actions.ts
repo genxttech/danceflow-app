@@ -9,7 +9,9 @@ import { canEditClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireInstructorManageAccess } from "@/lib/auth/serverRoleGuard";
 import { revalidatePath } from "next/cache";
-import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { buildPortalInviteEmail } from "./portalInviteEmail";
+import { normalizeEmail, resolveOutboundFromEmail } from "@/lib/notifications/outbound";
+import { buildAppUrl, resolveStudioDisplayName } from "@/lib/email/brand";
 import { getStripe } from "@/lib/payments/stripe";
 import {
   createOrRefreshClientInvitation,
@@ -297,14 +299,6 @@ async function getBaseUrl() {
 }
 
 
-function getOutboundFromEmail() {
-  return (
-    process.env.NOTIFICATION_FROM_EMAIL ||
-    process.env.OUTBOUND_EMAIL_FROM ||
-    "DanceFlow <notify@idanceflow.com>"
-  );
-}
-
 function getResendClient() {
   const apiKey = process.env.RESEND_API_KEY;
 
@@ -332,6 +326,7 @@ async function sendClientPortalInviteEmail(params: {
   studioLogoUrl?: string | null;
   portalUrl: string;
   isIndependentInstructor?: boolean;
+  replyTo?: string | null;
 }) {
   const to = params.to.trim().toLowerCase();
 
@@ -339,58 +334,10 @@ async function sendClientPortalInviteEmail(params: {
     throw new Error("Missing portal invite recipient.");
   }
 
-  const greetingName = params.clientName?.trim() || "there";
-  const studioName = params.studioName?.trim() || "your studio";
-  const studioLogoUrl = params.studioLogoUrl?.trim() || "";
-  const isIndependentInstructor = params.isIndependentInstructor === true;
-
-  const portalRoleLabel = isIndependentInstructor
-    ? "instructor portal"
-    : "student portal";
-
-  const portalDescription = isIndependentInstructor
-    ? "view your schedule, manage floor-rental activity, and stay connected with the studio"
-    : "view your lessons, packages, payments, and studio updates";
-
-  const from = getOutboundFromEmail();
+  const from = resolveOutboundFromEmail();
   const resend = getResendClient();
 
-  const subject = `${studioName} invited you to join their DanceFlow ${
-    isIndependentInstructor ? "instructor" : "student"
-  } portal`;
-
-  const text = [
-    `Hi ${greetingName},`,
-    "",
-    `${studioName} invited you to access your DanceFlow ${portalRoleLabel}.`,
-    "",
-    `Through your portal, you can ${portalDescription}.`,
-    "",
-    "Use this secure link to accept the invite and go directly to your portal:",
-    params.actionLink,
-    "",
-    "If the button does not work, copy and paste the link above into your browser.",
-    "",
-    `This invite was sent by ${studioName} through DanceFlow.`,
-  ].join("\n");
-
-  const html = renderStudioBrandedEmail(
-    {
-      name: studioName,
-      logoUrl: studioLogoUrl || null,
-    },
-    {
-      previewText: subject,
-      eyebrow: "Portal Invitation",
-      heading: `${studioName} invited you to their ${portalRoleLabel}`,
-      greeting: `Hi ${greetingName},`,
-      intro: `${studioName} invited you to access your DanceFlow ${portalRoleLabel}.`,
-      bodyText: text,
-      actionLabel: "Accept Invite",
-      actionUrl: params.actionLink,
-      footerText: `This invite was sent by ${studioName} through DanceFlow.`,
-    },
-  );
+  const { subject, bodyText: text, bodyHtml: html } = buildPortalInviteEmail(params);
 
   const response = await resend.emails.send({
     from,
@@ -398,6 +345,7 @@ async function sendClientPortalInviteEmail(params: {
     subject,
     text,
     html,
+    ...(params.replyTo ? { replyTo: params.replyTo } : {}),
   });
 
   if (response.error) {
@@ -924,7 +872,7 @@ export async function sendPortalInviteAction(formData: FormData) {
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, name, public_name, public_logo_url, slug")
+    .select("id, name, public_name, public_logo_url, slug, email")
     .eq("id", studioId)
     .single();
 
@@ -932,9 +880,14 @@ export async function sendPortalInviteAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_invite_failed");
   }
 
+  // The magic-link redirect/callback URL below intentionally keeps using `getBaseUrl()`, not `buildAppUrl`:
+  // it must resolve to whatever origin this request's Supabase auth session actually validates against
+  // (which can differ across environments), not the canonical marketing/email origin. Only the plain,
+  // non-auth portal link shown in the email body is canonicalized.
   const baseUrl = await getBaseUrl();
   const portalPath = `/portal/${encodeURIComponent(studio.slug)}`;
-  const portalUrl = `${baseUrl}${portalPath}`;
+  const portalUrl = buildAppUrl(portalPath);
+  const studioReplyTo = normalizeEmail(studio.email);
   const fullName =
     `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined;
 
@@ -1006,10 +959,11 @@ export async function sendPortalInviteAction(formData: FormData) {
       to: email,
       actionLink,
       clientName: fullName,
-      studioName: studio.public_name || studio.name,
+      studioName: resolveStudioDisplayName(studio),
       studioLogoUrl: studio.public_logo_url,
       portalUrl,
       isIndependentInstructor: client.is_independent_instructor === true,
+      replyTo: studioReplyTo,
     });
 
     await recordPortalInviteDelivery({

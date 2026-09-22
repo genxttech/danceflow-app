@@ -16,6 +16,19 @@ type QueueOutboundDeliveryParams = {
 };
 
 
+/**
+ * The shared outbound "From" address resolution, extracted from what were two byte-identical private
+ * copies (`dispatch.ts` and the direct portal-invite send path). Behavior-preserving only: same fallback
+ * precedence, same resulting string for every existing environment combination.
+ */
+export function resolveOutboundFromEmail() {
+  return (
+    process.env.NOTIFICATION_FROM_EMAIL ||
+    process.env.OUTBOUND_EMAIL_FROM ||
+    "DanceFlow <notify@idanceflow.com>"
+  );
+}
+
 export function normalizeEmail(value: string | null | undefined) {
   const email = value?.trim().toLowerCase() || null;
   if (!email) return null;

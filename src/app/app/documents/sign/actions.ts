@@ -10,6 +10,8 @@ import { getOptionalUploadFile, PDF_UPLOAD_MIME_TYPES, safeOriginalFileName, val
 import { createSigningToken, DOCUMENT_FILES_BUCKET, hashSigningToken, sourceStoragePath } from "@/lib/documents/signing";
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { canManageDocumentsRole } from "@/lib/documents/studio-access";
+import { buildAppUrl } from "@/lib/email/brand";
+import { buildSignatureRequestEmail } from "./signatureRequestEmail";
 
 type FieldType = "signature" | "initials" | "printed_name" | "date" | "text" | "checkbox";
 type FieldDraft = { field_type: FieldType; page_number: number; x: number; y: number; width: number; height: number; label: string; required: boolean; placeholder_text?: string | null; default_value?: string | null };
@@ -23,14 +25,6 @@ function signPath(key?: string, value?: string) {
   return key && value
     ? `/app/documents?${key}=${encodeURIComponent(value)}#active-requests`
     : "/app/documents#active-requests";
-}
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 async function requireStudioEnvelope(envelopeId: string) {
   const supabase = await createClient();
@@ -111,33 +105,48 @@ export async function saveSignFieldsAction(formData: FormData) {
   redirect(`/app/documents/sign/${envelopeId}/edit?success=saved`);
 }
 
-async function queueEnvelopeEmail(args: { admin: ReturnType<typeof createAdminClient>; envelope: any; token: string; studioId: string; dedupeKey: string; subjectPrefix?: string }) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://idanceflow.com";
-  const signUrl = `${appUrl}/sign/${encodeURIComponent(args.token)}`;
+type SigningEnvelopeRow = {
+  id: string;
+  title: string | null;
+  signer_name: string | null;
+  signer_email: string;
+  expires_at: string;
+  source_bucket: string | null;
+  source_path: string | null;
+  revision_number: number | null;
+  assignment_id: string | null;
+  source_sha256: string | null;
+  page_count: number | null;
+  page_sizes: unknown;
+};
+
+async function queueEnvelopeEmail(args: { admin: ReturnType<typeof createAdminClient>; envelope: SigningEnvelopeRow; token: string; studioId: string; dedupeKey: string; subjectPrefix?: string }) {
+  const signUrl = buildAppUrl(`/sign/${encodeURIComponent(args.token)}`);
   const expiresInDays = Math.max(1, Math.ceil((new Date(args.envelope.expires_at).getTime() - Date.now()) / 86400000));
 
   const { data: studio } = await args.admin
     .from("studios")
-    .select("name")
+    .select("name, public_name, public_logo_url")
     .eq("id", args.studioId)
     .maybeSingle();
 
-  const studioName = String(studio?.name ?? "Your dance studio").trim() || "Your dance studio";
-  const safeStudioName = escapeHtml(studioName);
-  const safeSignerName = escapeHtml(String(args.envelope.signer_name ?? "Hello"));
-  const safeTitle = escapeHtml(String(args.envelope.title ?? "document"));
-  const subjectLead = args.subjectPrefix
-    ? `${args.subjectPrefix} from ${studioName}`
-    : `${studioName} requests your signature`;
+  const { subject, bodyText, bodyHtml } = buildSignatureRequestEmail({
+    studio,
+    signerName: args.envelope.signer_name,
+    title: args.envelope.title,
+    signUrl,
+    expiresInDays,
+    subjectPrefix: args.subjectPrefix,
+  });
 
   return args.admin.from("outbound_deliveries").insert({
     studio_id: args.studioId,
     channel: "email",
     template_key: "document_sign_request",
     recipient_email: args.envelope.signer_email,
-    subject: `${subjectLead}: ${args.envelope.title}`,
-    body_text: `${args.envelope.signer_name},\n\n${studioName} has sent you "${args.envelope.title}" for review and signature.\n\nReview and sign securely:\n${signUrl}\n\nThis secure link expires in ${expiresInDays} day${expiresInDays === 1 ? "" : "s"}.\n\nThis message was delivered securely by DanceFlow on behalf of ${studioName}.`,
-    body_html: `<p>${safeSignerName},</p><p><strong>${safeStudioName}</strong> has sent you <strong>${safeTitle}</strong> for review and signature.</p><p><a href="${signUrl}">Review and sign securely</a></p><p>This secure link expires in ${expiresInDays} day${expiresInDays === 1 ? "" : "s"}.</p><p style="color:#64748b;font-size:12px">Delivered securely by DanceFlow on behalf of ${safeStudioName}.</p>`,
+    subject,
+    body_text: bodyText,
+    body_html: bodyHtml,
     related_table: "document_sign_envelopes",
     related_id: args.envelope.id,
     dedupe_key: args.dedupeKey,
@@ -180,7 +189,7 @@ export async function resendSignEnvelopeAction(formData: FormData) {
 
 async function createEnvelopeCopy(params: {
   admin: ReturnType<typeof createAdminClient>;
-  envelope: any;
+  envelope: SigningEnvelopeRow;
   studioId: string;
   userId: string;
   userEmail: string | null;

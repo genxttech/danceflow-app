@@ -34,10 +34,27 @@ export type BrandedEmailParams = {
   actionLabel?: string | null;
   actionUrl?: string | null;
   detailRows?: Array<{ label: string; value: string }>;
+  /**
+   * Optional, default absent. A single long/unbreakable line (typically a fallback URL) rendered in its
+   * own paragraph after the normal body content and before the CTA button. Escaped like any other text
+   * field, but given a stronger `word-break:break-all` wrapping rule (in addition to the normal body's
+   * `overflow-wrap`) so a long, punctuation-dense token cannot inflate the email table's intrinsic width
+   * past the viewport. Scoped to only this element -- normal body paragraphs are never affected. Absent
+   * by default; when omitted, every existing caller renders exactly as before.
+   */
+  fallbackLinkText?: string | null;
   /** Overrides the attribution line (kept for existing callers). The legal line is always appended. */
   footerText?: string | null;
   /** Optional extra line above the attribution (address, expiry, and similar). */
   footerNote?: string | null;
+  /**
+   * Optional, default absent. Raw, caller-supplied HTML rendered in the footer band, below any `footerNote`
+   * and above the canonical attribution/legal lines. Never escaped and never merged into `bodyText`/`contentHtml`
+   * — the caller is responsible for safely constructing/escaping whatever it passes here (e.g. a compliance
+   * block with an already-escaped studio name and a clickable unsubscribe link). Absent by default; when
+   * omitted, every existing caller renders exactly as before.
+   */
+  footerHtml?: string | null;
   /**
    * Opt-in, default off. When true, the HTML body omits (exact matches only) a leading paragraph equal to
    * `greeting`, then one equal to `intro`, then a final `<label>: <url>` or `<url>` line whose URL equals the
@@ -63,7 +80,7 @@ function textToHtmlParagraphs(value: string) {
         .split("\n")
         .map((line) => escapeHtml(line))
         .join("<br />");
-      return `<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:${T.text};">${lines}</p>`;
+      return `<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:${T.text};overflow-wrap:break-word;word-wrap:break-word;">${lines}</p>`;
     })
     .join("");
 }
@@ -270,9 +287,20 @@ export function renderBrandedEmail(
         </tr></table>`
       : "";
 
+  // A single long/unbreakable line (e.g. a fallback URL). Stronger word-break than normal body paragraphs,
+  // scoped to only this element, rendered after the body and before the CTA button.
+  const fallbackLinkHtml = content.fallbackLinkText
+    ? `<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:${T.text};word-break:break-all;overflow-wrap:break-word;">${escapeHtml(
+        content.fallbackLinkText,
+      )}</p>`
+    : "";
+
   const footerNoteHtml = footerNote
     ? `<div style="margin:0 0 8px;">${escapeHtml(footerNote)}</div>`
     : "";
+  // Raw, caller-escaped HTML (e.g. a campaign compliance/unsubscribe block). Never escaped here, never
+  // merged into the body — purely additive, and absent by default.
+  const footerHtml = content.footerHtml ?? "";
 
   const bodyForHtml = content.dedupeBodyLeadIn
     ? stripBodyLeadIn(content.bodyText, {
@@ -313,12 +341,13 @@ export function renderBrandedEmail(
                 ${introHtml}
                 ${detailsHtml}
                 ${content.contentHtml ? content.contentHtml : textToHtmlParagraphs(bodyForHtml)}
+                ${fallbackLinkHtml}
                 ${actionHtml}
               </td>
             </tr>
             <tr>
               <td class="df-pad" bgcolor="${T.surface}" style="padding:18px 26px;background-color:${T.surface};border-top:1px solid ${T.border};color:${T.muted};font-size:12px;line-height:1.7;">
-                ${footerNoteHtml}<div>${escapeHtml(attribution)}</div>
+                ${footerNoteHtml}${footerHtml}<div>${escapeHtml(attribution)}</div>
                 <div>${escapeHtml(EMAIL_LEGAL_LINE)}</div>
               </td>
             </tr>

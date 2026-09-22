@@ -437,6 +437,178 @@ describe("BR-3C/BR-3E characterization (must not change without opting in)", () 
   });
 });
 
+describe("footerHtml (BR-3B2, opt-in, default absent)", () => {
+  it("is absent by default: output is byte-identical whether or not the field is present", () => {
+    const withoutField = renderStudioBrandedEmail({ name: "Acme Dance", logoUrl: null }, base);
+    const explicitlyUndefined = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, footerHtml: undefined },
+    );
+    expect(explicitlyUndefined).toBe(withoutField);
+  });
+
+  it("renders raw, unescaped HTML in the footer band", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, footerHtml: '<div>Compliance line. <a href="https://www.idanceflow.com/unsubscribe/x">Unsubscribe</a>.</div>' },
+    );
+    expect(html).toContain('<a href="https://www.idanceflow.com/unsubscribe/x">Unsubscribe</a>');
+    expect(html).not.toContain("&lt;a href");
+  });
+
+  it("does not replace bodyText and does not interact with contentHtml", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, footerHtml: "<div>Footer block.</div>" },
+    );
+    expect(html).toContain("First paragraph.");
+    expect(html).toContain("Second paragraph.");
+    expect(html).toContain("Footer block.");
+  });
+
+  it("renders below any footerNote and above the canonical attribution and legal line", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, footerNote: "A short note.", footerHtml: "<div>Compliance block.</div>" },
+    );
+    const noteIndex = html.indexOf("A short note.");
+    const footerHtmlIndex = html.indexOf("Compliance block.");
+    const attributionIndex = html.indexOf("Sent by Acme Dance through DanceFlow");
+    const legalIndex = html.indexOf(LEGAL);
+    expect(noteIndex).toBeGreaterThan(-1);
+    expect(noteIndex).toBeLessThan(footerHtmlIndex);
+    expect(footerHtmlIndex).toBeLessThan(attributionIndex);
+    expect(attributionIndex).toBeLessThan(legalIndex);
+  });
+
+  it("does not alter dedupeBodyLeadIn behavior when both are used together", () => {
+    const greeting = "Hi Alex,";
+    const intro = "Acme Dance has an update.";
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      {
+        ...base,
+        greeting,
+        intro,
+        bodyText: [greeting, "", intro, "", "Rest of body."].join("\n\n"),
+        dedupeBodyLeadIn: true,
+        footerHtml: "<div>Unsubscribe here.</div>",
+      },
+    );
+    expect(html.match(/Hi Alex,/g)?.length).toBe(1);
+    expect(html.match(/Acme Dance has an update\./g)?.length).toBe(1);
+    expect(html).toContain("Unsubscribe here.");
+  });
+
+  it("canonical attribution and legal line are still always present", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, footerHtml: "<div>Custom compliance block.</div>" },
+    );
+    expect(html).toContain("Sent by Acme Dance through DanceFlow");
+    expect(html).toContain(LEGAL);
+  });
+});
+
+describe("body paragraph long-token wrapping (BR-3B2 owner-QA revision)", () => {
+  it("body paragraphs carry presentation-only overflow-wrap/word-wrap so a long unbroken token (e.g. a URL) cannot force horizontal overflow", () => {
+    const html = renderStudioBrandedEmail({ name: "Acme Dance", logoUrl: null }, base);
+    expect(html).toMatch(
+      /<p style="margin:0 0 16px;font-size:15px;line-height:1\.7;color:[^;"]+;overflow-wrap:break-word;word-wrap:break-word;">/,
+    );
+  });
+
+  it("does not otherwise change paragraph typography, spacing, or color", () => {
+    const html = renderStudioBrandedEmail({ name: "Acme Dance", logoUrl: null }, base);
+    expect(html).toContain("margin:0 0 16px;font-size:15px;line-height:1.7;");
+    expect(html).toContain("First paragraph.");
+    expect(html).toContain("Second paragraph.");
+  });
+
+  it("a long unbroken token still renders as visible, unmodified text (only its CSS wrapping behavior changes)", () => {
+    const longToken =
+      "https://www.idanceflow.com/callback?token_hash=abc123&type=magiclink&next=%2Fstudio-invites%2Fproof-token-abc";
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, bodyText: `Use this link:\n\n${longToken}` },
+    );
+    expect(html).toContain(longToken.replaceAll("&", "&amp;"));
+  });
+});
+
+describe("fallbackLinkText (BR-3B2, opt-in, default absent)", () => {
+  it("is absent by default: output is byte-identical whether or not the field is present", () => {
+    const withoutField = renderStudioBrandedEmail({ name: "Acme Dance", logoUrl: null }, base);
+    const explicitlyUndefined = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, fallbackLinkText: undefined },
+    );
+    expect(explicitlyUndefined).toBe(withoutField);
+  });
+
+  it("escapes the provided value like any other text field", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, fallbackLinkText: `<script>alert(1)</script>` },
+    );
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("renders between the normal body content and the CTA button", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      {
+        ...base,
+        fallbackLinkText: "https://www.idanceflow.com/callback?token_hash=abc&type=magiclink",
+        actionLabel: "Accept Invite",
+        actionUrl: "https://www.idanceflow.com/accept",
+      },
+    );
+    const bodyIndex = html.indexOf("First paragraph.");
+    const fallbackIndex = html.indexOf("token_hash=abc");
+    const ctaIndex = html.indexOf("Accept Invite");
+    expect(bodyIndex).toBeGreaterThan(-1);
+    expect(bodyIndex).toBeLessThan(fallbackIndex);
+    expect(fallbackIndex).toBeLessThan(ctaIndex);
+  });
+
+  it("only the fallback-link element receives word-break:break-all -- normal body paragraphs do not", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, fallbackLinkText: "https://www.idanceflow.com/callback?token_hash=abc" },
+    );
+    expect(html).toMatch(
+      /<p style="margin:0 0 16px;font-size:15px;line-height:1\.7;color:[^;"]+;word-break:break-all;overflow-wrap:break-word;">https:\/\/www\.idanceflow\.com\/callback\?token_hash=abc<\/p>/,
+    );
+    // Normal body paragraphs keep the earlier overflow-wrap/word-wrap addition, never word-break:break-all.
+    const normalBodyParagraphs = html.match(/<p style="margin:0 0 16px;font-size:15px;line-height:1\.7;color:[^;"]+;overflow-wrap:break-word;word-wrap:break-word;">/g) ?? [];
+    expect(normalBodyParagraphs.length).toBeGreaterThan(0);
+    expect(html.match(/word-break:break-all/g)?.length).toBe(1);
+  });
+
+  it("preserves the existing body paragraph wrapping alongside the new field", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, fallbackLinkText: "https://www.idanceflow.com/callback" },
+    );
+    expect(html).toContain("overflow-wrap:break-word;word-wrap:break-word;");
+    expect(html).toContain("First paragraph.");
+    expect(html).toContain("Second paragraph.");
+  });
+
+  it("does not alter bodyText, contentHtml, dedupeBodyLeadIn, footerHtml, or footer attribution behavior", () => {
+    const withField = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...base, fallbackLinkText: "https://www.idanceflow.com/callback", footerHtml: "<div>Compliance.</div>" },
+    );
+    expect(withField).toContain("First paragraph.");
+    expect(withField).toContain("Compliance.");
+    expect(withField).toContain("Sent by Acme Dance through DanceFlow");
+    expect(withField).toContain(LEGAL);
+  });
+});
+
 describe("public API compatibility", () => {
   it("keeps the three original exports callable with unchanged shapes", () => {
     expect(typeof renderDanceFlowSystemEmail).toBe("function");

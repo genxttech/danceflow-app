@@ -12,7 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signing";
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
-import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { buildDocumentAssignmentEmail } from "./documentAssignmentEmail";
 
 export type DocumentActionState = {
   error?: string;
@@ -871,37 +871,16 @@ async function queueDocumentAssignmentEmail(params: {
         : Promise.resolve({ data: null }),
     ]);
 
-  const studioName = studio?.public_name || studio?.name || "Your studio";
+  const isReminder = params.reason === "manual_reminder";
   const clientName = client
     ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim()
     : "there";
-  const documentTitle = template?.title || "a document";
-  const portalUrl = studio?.slug
-    ? `${process.env.NEXT_PUBLIC_APP_URL ?? "https://idanceflow.com"}/portal/${encodeURIComponent(studio.slug)}/documents`
-    : `${process.env.NEXT_PUBLIC_APP_URL ?? "https://idanceflow.com"}/app`;
-  const isReminder = params.reason === "manual_reminder";
-  const subject = isReminder
-    ? `Reminder: ${documentTitle} needs your signature`
-    : `${studioName} assigned a document for your review`;
-  const bodyText = `${clientName || "Hello"},\n\n${studioName} ${isReminder ? "is reminding you to review" : "assigned"} ${documentTitle}.\n\nOpen your DanceFlow portal to review and sign it: ${portalUrl}\n\nThank you,\n${studioName}`;
-  const bodyHtml = renderStudioBrandedEmail(
-    {
-      name: studioName,
-      logoUrl: studio?.public_logo_url ?? null,
-    },
-    {
-      previewText: subject,
-      eyebrow: isReminder ? "Signature Reminder" : "Document Request",
-      heading: isReminder ? "Your signature is still needed" : "A document is ready for review",
-      greeting: `${clientName || "Hello"},`,
-      intro: `${studioName} ${isReminder ? "is reminding you to review" : "assigned"} ${documentTitle}.`,
-      bodyText,
-      detailRows: [{ label: "Document", value: documentTitle }],
-      actionLabel: "Review and Sign",
-      actionUrl: portalUrl,
-      footerText: `Sent by ${studioName} through DanceFlow.`,
-    },
-  );
+  const { subject, bodyText, bodyHtml } = buildDocumentAssignmentEmail({
+    studio,
+    clientName,
+    documentTitle: template?.title ?? null,
+    isReminder,
+  });
   const dedupeKey = isReminder
     ? `document:${params.assignmentId}:manual-reminder:${new Date().toISOString().slice(0, 10)}`
     : `document:${params.assignmentId}:assignment`;
