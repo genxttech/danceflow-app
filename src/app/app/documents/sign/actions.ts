@@ -105,7 +105,22 @@ export async function saveSignFieldsAction(formData: FormData) {
   redirect(`/app/documents/sign/${envelopeId}/edit?success=saved`);
 }
 
-async function queueEnvelopeEmail(args: { admin: ReturnType<typeof createAdminClient>; envelope: any; token: string; studioId: string; dedupeKey: string; subjectPrefix?: string }) {
+type SigningEnvelopeRow = {
+  id: string;
+  title: string | null;
+  signer_name: string | null;
+  signer_email: string;
+  expires_at: string;
+  source_bucket: string | null;
+  source_path: string | null;
+  revision_number: number | null;
+  assignment_id: string | null;
+  source_sha256: string | null;
+  page_count: number | null;
+  page_sizes: unknown;
+};
+
+async function queueEnvelopeEmail(args: { admin: ReturnType<typeof createAdminClient>; envelope: SigningEnvelopeRow; token: string; studioId: string; dedupeKey: string; subjectPrefix?: string }) {
   const signUrl = buildAppUrl(`/sign/${encodeURIComponent(args.token)}`);
   const expiresInDays = Math.max(1, Math.ceil((new Date(args.envelope.expires_at).getTime() - Date.now()) / 86400000));
 
@@ -174,7 +189,7 @@ export async function resendSignEnvelopeAction(formData: FormData) {
 
 async function createEnvelopeCopy(params: {
   admin: ReturnType<typeof createAdminClient>;
-  envelope: any;
+  envelope: SigningEnvelopeRow;
   studioId: string;
   userId: string;
   userEmail: string | null;
