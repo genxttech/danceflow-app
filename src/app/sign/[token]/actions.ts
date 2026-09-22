@@ -8,16 +8,15 @@ import { DOCUMENT_FILES_BUCKET, hashSigningToken, signedStoragePath } from "@/li
 import { consumePublicSigningRateLimit, serverActionIp } from "@/lib/documents/public-signing-security";
 import { advanceEventSigningCheckpoint, normalizeSigningReturnUrl } from "@/lib/documents/event-signing";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
-import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { resolveStudioDisplayName } from "@/lib/email/brand";
+import {
+  buildSigningCompletedSignerEmail,
+  buildSigningCompletedStudioEmail,
+  buildSigningDeclinedStudioEmail,
+  type SigningEmailContext,
+} from "./signingEmails";
 
 const CONSENT_TEXT = "I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own.";
-
-type SigningEmailContext = {
-  studioName: string;
-  studioLogoUrl: string | null;
-  studioSlug: string | null;
-  studioEmail: string | null;
-};
 
 async function getSigningEmailContext(studioId: string): Promise<SigningEmailContext> {
   const admin = createAdminClient();
@@ -28,7 +27,7 @@ async function getSigningEmailContext(studioId: string): Promise<SigningEmailCon
     .maybeSingle();
 
   return {
-    studioName: data?.public_name?.trim() || data?.name || "Your dance studio",
+    studioName: resolveStudioDisplayName(data),
     studioLogoUrl: data?.public_logo_url ?? null,
     studioSlug: data?.slug ?? null,
     studioEmail: data?.email?.trim() || null,
@@ -43,39 +42,13 @@ async function queueSigningCompletedEmails(params: {
   signerEmail: string | null;
 }) {
   const context = await getSigningEmailContext(params.studioId);
-  const portalUrl = context.studioSlug
-    ? `${process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com"}/portal/${encodeURIComponent(context.studioSlug)}/documents`
-    : null;
 
   if (params.signerEmail) {
-    const subject = `${params.title} has been signed`;
-    const bodyText = [
-      `Hi ${params.signerName || "there"},`,
-      "",
-      `Your signature for ${params.title} has been completed successfully.`,
-      portalUrl ? `View your documents: ${portalUrl}` : "",
-      "",
-      `Questions? Reply to this email to contact ${context.studioName}.`,
-      "",
-      "Thanks,",
-      context.studioName,
-    ].filter(Boolean).join("\\n");
-
-    const bodyHtml = renderStudioBrandedEmail(
-      { name: context.studioName, logoUrl: context.studioLogoUrl },
-      {
-        previewText: `${params.title} has been signed.`,
-        eyebrow: "Signature Complete",
-        heading: "Your document is signed",
-        greeting: `Hi ${params.signerName || "there"},`,
-        intro: `Your signature for ${params.title} has been completed successfully.`,
-        bodyText,
-        detailRows: [{ label: "Document", value: params.title }],
-        actionLabel: portalUrl ? "View Documents" : null,
-        actionUrl: portalUrl,
-        footerText: `Sent by ${context.studioName} through DanceFlow.`,
-      },
-    );
+    const { subject, bodyText, bodyHtml } = buildSigningCompletedSignerEmail({
+      context,
+      title: params.title,
+      signerName: params.signerName,
+    });
 
     await queueOutboundDelivery({
       studioId: params.studioId,
@@ -92,28 +65,11 @@ async function queueSigningCompletedEmails(params: {
   }
 
   if (context.studioEmail) {
-    const subject = `Signed: ${params.title}`;
-    const bodyText = [
-      `${params.signerName || "A signer"} completed ${params.title}.`,
-      "",
-      "The signed document is available in DanceFlow.",
-    ].join("\\n");
-
-    const bodyHtml = renderStudioBrandedEmail(
-      { name: context.studioName, logoUrl: context.studioLogoUrl },
-      {
-        previewText: `${params.signerName || "A signer"} completed ${params.title}.`,
-        eyebrow: "Document Completed",
-        heading: "A document has been signed",
-        intro: `${params.signerName || "A signer"} completed ${params.title}.`,
-        bodyText,
-        detailRows: [
-          { label: "Document", value: params.title },
-          { label: "Signer", value: params.signerName || "Signer" },
-        ],
-        footerText: "This operational notice was sent through DanceFlow.",
-      },
-    );
+    const { subject, bodyText, bodyHtml } = buildSigningCompletedStudioEmail({
+      context,
+      title: params.title,
+      signerName: params.signerName,
+    });
 
     await queueOutboundDelivery({
       studioId: params.studioId,
@@ -142,30 +98,12 @@ async function queueSigningDeclinedEmail(params: {
   const context = await getSigningEmailContext(params.studioId);
   if (!context.studioEmail) return;
 
-  const subject = `Declined: ${params.title}`;
-  const bodyText = [
-    `${params.signerName || "The signer"} declined ${params.title}.`,
-    params.reason ? `Reason: ${params.reason}` : "",
-    "",
-    "Review the request in DanceFlow before deciding whether to revise or resend it.",
-  ].filter(Boolean).join("\\n");
-
-  const bodyHtml = renderStudioBrandedEmail(
-    { name: context.studioName, logoUrl: context.studioLogoUrl },
-    {
-      previewText: `${params.title} was declined.`,
-      eyebrow: "Signature Declined",
-      heading: "A signer declined a document",
-      intro: `${params.signerName || "The signer"} declined ${params.title}.`,
-      bodyText,
-      detailRows: [
-        { label: "Document", value: params.title },
-        { label: "Signer", value: params.signerName || "Signer" },
-        ...(params.reason ? [{ label: "Reason", value: params.reason }] : []),
-      ],
-      footerText: "This operational notice was sent through DanceFlow.",
-    },
-  );
+  const { subject, bodyText, bodyHtml } = buildSigningDeclinedStudioEmail({
+    context,
+    title: params.title,
+    signerName: params.signerName,
+    reason: params.reason,
+  });
 
   await queueOutboundDelivery({
     studioId: params.studioId,

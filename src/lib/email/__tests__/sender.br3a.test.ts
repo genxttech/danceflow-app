@@ -85,11 +85,27 @@ describe("BR-3A leaves live sender behavior unchanged", () => {
   }, 60_000);
 
   it("keeps the existing From defaults untouched", () => {
-    expect(read("src", "lib", "notifications", "dispatch.ts")).toContain(
-      '"DanceFlow <notify@idanceflow.com>"',
+    // BR-3B2 extracted dispatch.ts's From-resolution into a shared, exported helper in outbound.ts
+    // (also used by the direct portal-invite send path) -- the literal default now lives there, and
+    // dispatch.ts uses it via that shared import, with the exact same resulting value.
+    const outbound = read("src", "lib", "notifications", "outbound.ts");
+    expect(outbound).toContain('"DanceFlow <notify@idanceflow.com>"');
+    const dispatch = read("src", "lib", "notifications", "dispatch.ts");
+    expect(dispatch).toContain(
+      'import { resolveOutboundFromEmail } from "@/lib/notifications/outbound";',
     );
+    expect(dispatch).not.toContain('"DanceFlow <notify@idanceflow.com>"');
     expect(read("src", "app", "api", "notifications", "send", "route.ts")).toContain(
       '"DanceFlow <notifications@danceflow.app>"',
     );
+  });
+
+  it("the direct portal invite path uses the same shared From resolver (BR-3B2)", () => {
+    const clientsActions = read("src", "app", "app", "clients", "[id]", "actions.ts");
+    expect(clientsActions).toContain(
+      'import { normalizeEmail, resolveOutboundFromEmail } from "@/lib/notifications/outbound";',
+    );
+    expect(clientsActions).toContain("const from = resolveOutboundFromEmail();");
+    expect(clientsActions).not.toMatch(/function getOutboundFromEmail/);
   });
 });
