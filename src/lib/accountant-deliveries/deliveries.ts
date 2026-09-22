@@ -1,8 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
-import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { buildAppUrl, resolveStudioDisplayName } from "@/lib/email/brand";
+import { buildAccountantDeliveryEmail } from "./deliveryEmail";
 import { createAccountantDeliveryToken } from "./tokens";
 import { isSupportedAccountantReport } from "./reports";
+
+export { buildAccountantDeliveryEmail };
 
 export const SUPPORTED_ACCOUNTANT_REPORTS = [
   "profit_loss",
@@ -52,7 +55,7 @@ async function getStudioBranding(
   }
 
   return {
-    name: data?.public_name?.trim() || data?.name?.trim() || "Your dance studio",
+    name: resolveStudioDisplayName(data),
     logoUrl: data?.public_logo_url ?? null,
   };
 }
@@ -104,47 +107,20 @@ export async function createAndQueueAccountantDelivery(params: {
 
   if (error || !delivery) throw new Error(error?.message || "Accountant delivery could not be created.");
 
-  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
-  const link = `${siteUrl}/accountant-delivery/${token}`;
+  const link = buildAppUrl(`/accountant-delivery/${token}`);
   const studioBrand = await getStudioBranding(params.supabase, params.studioId);
-  const bodyText = [
-    `Hi ${params.profile.accountant_name},`,
-    "",
-    `${studioBrand.name} has prepared a secure accounting report package for you.`,
-    "The link expires in 7 days.",
-    "",
+  const { subject, bodyText, bodyHtml } = buildAccountantDeliveryEmail({
+    studio: studioBrand,
+    accountantName: params.profile.accountant_name,
     link,
-    "",
-    "For security, do not forward this link.",
-    "",
-    "Thanks,",
-    studioBrand.name,
-  ].join("\n");
-
-  const bodyHtml = renderStudioBrandedEmail(
-    {
-      name: studioBrand.name,
-      logoUrl: studioBrand.logoUrl,
-    },
-    {
-      previewText: `Secure accounting reports from ${studioBrand.name}`,
-      eyebrow: "Accountant Delivery",
-      heading: "Your secure report package is ready",
-      greeting: `Hi ${params.profile.accountant_name},`,
-      intro: `${studioBrand.name} has prepared a secure accounting report package for you.`,
-      bodyText,
-      actionLabel: "Open secure report package",
-      actionUrl: link,
-      footerText: `Sent by ${studioBrand.name} through DanceFlow. This secure link expires in 7 days.`,
-    },
-  );
+  });
 
   const queued = await queueOutboundDelivery({
     studioId: params.studioId,
     channel: "email",
     templateKey: "accountant_secure_delivery",
     recipientEmail: params.profile.email,
-    subject: `Secure accounting reports from ${studioBrand.name}`,
+    subject,
     bodyText,
     bodyHtml,
     relatedTable: "studio_accountant_deliveries",

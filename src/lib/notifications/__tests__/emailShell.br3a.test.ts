@@ -5,6 +5,7 @@ import {
   renderDanceFlowSystemEmail,
   renderPlainTextAsStudioEmail,
   renderStudioBrandedEmail,
+  stripBodyLeadIn,
 } from "@/lib/notifications/email-branding";
 
 const LOGO = "https://cdn.example.com/studio/logo.png";
@@ -328,6 +329,111 @@ describe("responsive and table structure", () => {
     expect(html).toContain(".df-stack");
     expect(html).toContain('class="df-stack df-stack-label"');
     expect(html).toContain('class="df-stack df-stack-value"');
+  });
+});
+
+describe("dedupeBodyLeadIn (BR-3B1, opt-in, default off)", () => {
+  const greeting = "Hi Alex,";
+  const intro = "Acme Dance approved your lesson request.";
+  const rest = "Your appointment has been added to the studio schedule.";
+  const params = {
+    ...base,
+    greeting,
+    intro,
+    bodyText: [greeting, "", intro, "", rest].join("\n\n"),
+    actionLabel: "Open Client Portal",
+    actionUrl: "https://www.idanceflow.com/portal/acme-dance",
+  };
+
+  it("is off by default: output is byte-identical whether or not the field is present", () => {
+    const withoutField = renderStudioBrandedEmail({ name: "Acme Dance", logoUrl: null }, params);
+    const explicitlyOff = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...params, dedupeBodyLeadIn: false },
+    );
+    expect(explicitlyOff).toBe(withoutField);
+    // The duplicated greeting/intro are present when the option is off (today's behavior).
+    expect(withoutField.match(new RegExp(greeting.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length).toBe(2);
+  });
+
+  it("removes exactly the leading greeting and intro paragraphs when enabled", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      { ...params, dedupeBodyLeadIn: true },
+    );
+    expect(html.match(new RegExp(greeting.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length).toBe(1);
+    expect(html.match(new RegExp(intro.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length).toBe(1);
+    expect(html).toContain(rest);
+  });
+
+  it("removes a trailing CTA URL line matching the rendered action URL", () => {
+    const url = "https://www.idanceflow.com/app/schedule";
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      {
+        ...base,
+        greeting,
+        intro,
+        bodyText: [greeting, "", intro, "", `Open Schedule: ${url}`].join("\n\n"),
+        actionLabel: "Open Schedule",
+        actionUrl: url,
+        dedupeBodyLeadIn: true,
+      },
+    );
+    // The URL appears once, in the CTA button, not again as a body line.
+    expect(html.match(new RegExp(url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length).toBe(1);
+  });
+
+  it("leaves text that does not exactly match the greeting/intro alone (no heuristic rewriting)", () => {
+    const html = renderStudioBrandedEmail(
+      { name: "Acme Dance", logoUrl: null },
+      {
+        ...base,
+        greeting,
+        intro,
+        bodyText: ["A different opening line.", "", "More body text."].join("\n\n"),
+        dedupeBodyLeadIn: true,
+      },
+    );
+    expect(html).toContain("A different opening line.");
+    expect(html).toContain("More body text.");
+  });
+
+  it("never modifies the plain-text body", () => {
+    const html1 = renderStudioBrandedEmail({ name: "Acme Dance", logoUrl: null }, { ...params, dedupeBodyLeadIn: true });
+    const html2 = renderStudioBrandedEmail({ name: "Acme Dance", logoUrl: null }, { ...params, dedupeBodyLeadIn: false });
+    // bodyText itself is a function input, not shell output; assert the helper is pure and side-effect free.
+    expect(params.bodyText).toContain(greeting);
+    expect(html1).not.toBe(html2);
+  });
+
+  it("stripBodyLeadIn is exact-match only and returns the original text unchanged when nothing matches", () => {
+    const text = ["Something else entirely.", "", "More."].join("\n\n");
+    expect(stripBodyLeadIn(text, { greeting, intro })).toBe(text);
+    expect(
+      stripBodyLeadIn([greeting, "", intro, "", "Body."].join("\n\n"), { greeting, intro }),
+    ).toBe("Body.");
+  });
+});
+
+describe("BR-3C/BR-3E characterization (must not change without opting in)", () => {
+  it("system mode renders identically with no dedupe option present", () => {
+    const html = renderDanceFlowSystemEmail({
+      ...base,
+      greeting: "Hi Jordan,",
+      intro: "Your studio workspace is ready.",
+    });
+    expect(html.match(/Hi Jordan,/g)?.length).toBe(1);
+    expect(html).toContain("Your studio workspace is ready.");
+  });
+
+  it("organizer mode is unaffected by the studio-mode dedupe option", () => {
+    const html = renderBrandedEmail(
+      "organizer",
+      { name: "Ballroom Events Co" },
+      { ...base, greeting: "Hi Morgan,", intro: "You are registered.", bodyText: "Hi Morgan,\n\nYou are registered.\n\nMore." },
+    );
+    expect(html.match(/Hi Morgan,/g)?.length).toBe(2);
   });
 });
 

@@ -6,6 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 import { INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE } from "@/lib/instructors/assignability";
+import {
+  buildPortalBookingClientEmail,
+  buildPortalBookingStaffEmail,
+} from "@/lib/notifications/scheduling-emails";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
@@ -159,6 +163,8 @@ function formatStudioTime(value: string | null | undefined, timeZone: string) {
 type StudioRow = {
   id: string;
   name: string;
+  public_name: string | null;
+  public_logo_url: string | null;
   slug: string;
 };
 
@@ -285,7 +291,6 @@ async function notifyStaffOfPortalScheduleRequest(params: {
   const clientName =
     `${params.client.first_name ?? ""} ${params.client.last_name ?? ""}`.trim() ||
     "Portal client";
-  const firstName = params.client.first_name?.trim() || "there";
   const requestedTime = formatRequestDateTime(
     params.requestedStartsAt,
     params.studioTimeZone,
@@ -294,6 +299,13 @@ async function notifyStaffOfPortalScheduleRequest(params: {
   const reviewPath = "/app/schedule/requests?status=pending";
 
   if (clientEmail) {
+    const clientMessage = buildPortalBookingClientEmail({
+      studio: params.studio,
+      clientFirstName: params.client.first_name,
+      lessonType,
+      requestedTime,
+    });
+
     const { error: clientEmailError } = await params.supabase
       .from("outbound_deliveries")
       .insert({
@@ -301,18 +313,9 @@ async function notifyStaffOfPortalScheduleRequest(params: {
         channel: "email",
         template_key: "booking_request_received_client",
         recipient_email: clientEmail,
-        subject: `${params.studio.name} received your schedule request`,
-        body_text: [
-          `Hi ${firstName},`,
-          "",
-          `${params.studio.name} received your request for ${lessonType} on ${requestedTime}.`,
-          "",
-          "The studio will review your request and confirm whether the time is available.",
-          "",
-          "Thanks,",
-          params.studio.name,
-        ].join("\n"),
-        body_html: null,
+        subject: clientMessage.subject,
+        body_text: clientMessage.bodyText,
+        body_html: clientMessage.bodyHtml,
         related_table: "booking_requests",
         related_id: params.bookingRequestId,
         dedupe_key: `portal-schedule-request-client:${params.bookingRequestId}`,
@@ -377,6 +380,13 @@ async function notifyStaffOfPortalScheduleRequest(params: {
       .map((user) => user.email?.trim())
       .filter((email): email is string => Boolean(email));
 
+    const staffMessage = buildPortalBookingStaffEmail({
+      studio: params.studio,
+      clientName,
+      lessonType,
+      requestedTime,
+    });
+
     for (const email of Array.from(new Set(staffEmails))) {
       const { error: staffEmailError } = await params.supabase
         .from("outbound_deliveries")
@@ -385,18 +395,9 @@ async function notifyStaffOfPortalScheduleRequest(params: {
           channel: "email",
           template_key: "booking_request_staff_alert",
           recipient_email: email,
-          subject: `New portal schedule request: ${clientName}`,
-          body_text: [
-            "A portal client requested a lesson time.",
-            "",
-            `Client: ${clientName}`,
-            `Lesson type: ${lessonType}`,
-            `Requested time: ${requestedTime}`,
-            "",
-            "Review the request in DanceFlow:",
-            reviewPath,
-          ].join("\n"),
-          body_html: null,
+          subject: staffMessage.subject,
+          body_text: staffMessage.bodyText,
+          body_html: staffMessage.bodyHtml,
           related_table: "booking_requests",
           related_id: params.bookingRequestId,
           dedupe_key: `portal-schedule-request-staff:${params.bookingRequestId}:${email}`,
@@ -481,7 +482,7 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, name, slug")
+    .select("id, name, public_name, public_logo_url, slug")
     .eq("slug", studioSlug)
     .maybeSingle<StudioRow>();
 

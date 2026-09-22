@@ -16,7 +16,7 @@ type QueueOutboundDeliveryParams = {
 };
 
 
-function normalizeEmail(value: string | null | undefined) {
+export function normalizeEmail(value: string | null | undefined) {
   const email = value?.trim().toLowerCase() || null;
   if (!email) return null;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;

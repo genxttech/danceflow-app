@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildAppUrl } from "@/lib/email/brand";
 
 const CONFIRMABLE_STATUSES = new Set(["scheduled", "rescheduled", "confirmed"]);
 
@@ -8,11 +9,7 @@ function tokenHash(token: string) {
 }
 
 export function appointmentConfirmationSiteUrl() {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    "https://idanceflow.com"
-  ).replace(/\/$/, "");
+  return buildAppUrl("/").replace(/\/$/, "");
 }
 
 export async function createAppointmentConfirmationToken(params: {

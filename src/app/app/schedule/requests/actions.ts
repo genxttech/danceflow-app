@@ -16,7 +16,10 @@ import {
   type EntitlementResolutionOutcome,
 } from "@/lib/booking/entitlementResolution";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
-import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import {
+  buildInstructorAssignmentEmail,
+  buildScheduleDecisionClientEmail,
+} from "@/lib/notifications/scheduling-emails";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -241,9 +244,6 @@ async function queueBookingDecisionEmail(params: {
   const recipientEmail = (client as { email?: string | null } | null)?.email?.trim();
   if (!recipientEmail) return;
 
-  const firstName =
-    (client as { first_name?: string | null } | null)?.first_name?.trim() || "there";
-
   const [{ data: studio }, { data: settingsRow }] = await Promise.all([
     params.supabase
       .from("studios")
@@ -263,65 +263,19 @@ async function queueBookingDecisionEmail(params: {
     public_logo_url?: string | null;
     slug?: string | null;
   } | null;
-  const studioName =
-    studioRow?.public_name?.trim() || studioRow?.name?.trim() || "The studio";
   const studioTimeZone = getStudioTimeZone(
     (settingsRow as { timezone?: string | null } | null)?.timezone,
   );
   const requestedTime = formatBookingRequestDateTime(params.requestedStartsAt, studioTimeZone);
 
   const isApproved = params.status === "approved";
-  const subject = isApproved
-    ? `${studioName} approved your lesson request`
-    : `${studioName} update about your lesson request`;
-
-  const bodyText = isApproved
-    ? [
-        `Hi ${firstName},`,
-        "",
-        `${studioName} approved your lesson request for ${requestedTime}.`,
-        "",
-        "Your appointment has been added to the studio schedule.",
-        params.staffNote ? `Studio note: ${params.staffNote}` : null,
-        "",
-        "Thanks,",
-        studioName,
-      ].filter(Boolean).join("\n")
-    : [
-        `Hi ${firstName},`,
-        "",
-        `${studioName} reviewed your lesson request for ${requestedTime}, but it was not approved for that time.`,
-        params.staffNote ? `Studio note: ${params.staffNote}` : "Please contact the studio if you would like to request another time.",
-        "",
-        "Thanks,",
-        studioName,
-      ].filter(Boolean).join("\n");
-
-  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
-  const portalUrl = studioRow?.slug
-    ? `${siteUrl}/portal/${encodeURIComponent(studioRow.slug)}`
-    : null;
-
-  const bodyHtml = renderStudioBrandedEmail(
-    {
-      name: studioName,
-      logoUrl: studioRow?.public_logo_url ?? null,
-    },
-    {
-      previewText: subject,
-      eyebrow: isApproved ? "Lesson Request Approved" : "Lesson Request Update",
-      heading: isApproved ? "Your lesson request is approved" : "Your lesson request was reviewed",
-      greeting: `Hi ${firstName},`,
-      intro: isApproved
-        ? `${studioName} approved your requested lesson time.`
-        : `${studioName} could not approve the requested time.`,
-      bodyText,
-      detailRows: [{ label: "Requested time", value: requestedTime }],
-      actionLabel: portalUrl ? "Open Client Portal" : undefined,
-      actionUrl: portalUrl ?? undefined,
-      footerText: `Sent by ${studioName} through DanceFlow.`,
-    },
-  );
+  const { subject, bodyText, bodyHtml } = buildScheduleDecisionClientEmail({
+    studio: studioRow ?? {},
+    status: params.status,
+    clientFirstName: (client as { first_name?: string | null } | null)?.first_name ?? null,
+    requestedTime,
+    staffNote: params.staffNote,
+  });
 
   try {
     await queueOutboundDelivery({
@@ -459,7 +413,7 @@ async function queueApprovedInstructorEmail(params: {
         .maybeSingle(),
       params.supabase
         .from("studios")
-        .select("name")
+        .select("name, public_name, public_logo_url, slug")
         .eq("id", params.studioId)
         .maybeSingle(),
       params.supabase
@@ -481,7 +435,6 @@ async function queueApprovedInstructorEmail(params: {
     first_name?: string | null;
     last_name?: string | null;
   } | null;
-  const instructorFirstName = instructorRow?.first_name?.trim() || "there";
   const clientName =
     [clientRow?.first_name, clientRow?.last_name].filter(Boolean).join(" ") ||
     "a client";
@@ -491,8 +444,6 @@ async function queueApprovedInstructorEmail(params: {
     public_logo_url?: string | null;
     slug?: string | null;
   } | null;
-  const studioName =
-    studioRow?.public_name?.trim() || studioRow?.name?.trim() || "The studio";
   const studioTimeZone = getStudioTimeZone(
     (settingsRow as { timezone?: string | null } | null)?.timezone,
   );
@@ -501,41 +452,14 @@ async function queueApprovedInstructorEmail(params: {
     studioTimeZone,
   );
 
-  const subject = `New appointment assigned: ${clientName}`;
-  const bodyText = [
-    `Hi ${instructorFirstName},`,
-    "",
-    `${studioName} approved ${params.appointmentTitle} with ${clientName} for ${appointmentTime}.`,
-    "",
-    "The appointment is now on the studio schedule.",
-    params.staffNote ? `Studio note: ${params.staffNote}` : null,
-    "",
-    "Thanks,",
-    studioName,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const bodyHtml = renderStudioBrandedEmail(
-    {
-      name: studioName,
-      logoUrl: studioRow?.public_logo_url ?? null,
-    },
-    {
-      previewText: subject,
-      eyebrow: "Schedule Assignment",
-      heading: "A new appointment was assigned to you",
-      greeting: `Hi ${instructorFirstName},`,
-      intro: `${studioName} approved a lesson request and added it to the schedule.`,
-      bodyText,
-      detailRows: [
-        { label: "Client", value: clientName },
-        { label: "Appointment", value: params.appointmentTitle },
-        { label: "Time", value: appointmentTime },
-      ],
-      footerText: `Sent by ${studioName} through DanceFlow.`,
-    },
-  );
+  const { subject, bodyText, bodyHtml } = buildInstructorAssignmentEmail({
+    studio: studioRow ?? {},
+    instructorFirstName: instructorRow?.first_name ?? null,
+    clientName,
+    appointmentTitle: params.appointmentTitle,
+    appointmentTime,
+    staffNote: params.staffNote,
+  });
 
   try {
     await queueOutboundDelivery({

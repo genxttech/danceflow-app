@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveStudioDisplayName } from "@/lib/email/brand";
 import { sanitizeEmailSubject } from "@/lib/email/brand";
 import { Resend } from "resend";
 import twilio from "twilio";
@@ -151,7 +152,7 @@ async function getStudioEmailBranding(studioId: string) {
   }
 
   return {
-    name: data.public_name?.trim() || data.name || "Your dance studio",
+    name: resolveStudioDisplayName(data),
     logoUrl: data.public_logo_url,
     replyToEmail: normalizeEmail(data.email),
   };

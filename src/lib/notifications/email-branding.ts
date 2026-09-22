@@ -38,6 +38,12 @@ export type BrandedEmailParams = {
   footerText?: string | null;
   /** Optional extra line above the attribution (address, expiry, and similar). */
   footerNote?: string | null;
+  /**
+   * Opt-in, default off. When true, the HTML body omits (exact matches only) a leading paragraph equal to
+   * `greeting`, then one equal to `intro`, then a final `<label>: <url>` or `<url>` line whose URL equals the
+   * rendered CTA. The plain-text body is never modified and no prose is rewritten.
+   */
+  dedupeBodyLeadIn?: boolean;
 };
 
 /** Explicit, test/proof-only switches. Never derived from the environment by production callers. */
@@ -60,6 +66,56 @@ function textToHtmlParagraphs(value: string) {
       return `<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:${T.text};">${lines}</p>`;
     })
     .join("");
+}
+
+/**
+ * Exact-match removal of the lead-in that callers repeat inside `bodyText` when they also pass `greeting`/`intro`
+ * (and of a trailing CTA URL line). Pure string comparison: anything that does not match exactly is left alone.
+ */
+export function stripBodyLeadIn(
+  bodyText: string,
+  parts: { greeting?: string | null; intro?: string | null; ctaUrls?: string[] },
+) {
+  const paragraphs = bodyText
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  let changed = false;
+
+  const greeting = parts.greeting?.trim();
+  if (greeting && paragraphs[0] === greeting) {
+    paragraphs.shift();
+    changed = true;
+  }
+
+  const intro = parts.intro?.trim();
+  if (intro && paragraphs[0] === intro) {
+    paragraphs.shift();
+    changed = true;
+  }
+
+  const urls = (parts.ctaUrls ?? []).map((url) => url.trim()).filter(Boolean);
+  if (urls.length && paragraphs.length) {
+    const lines = paragraphs[paragraphs.length - 1].split("\n");
+    const last = lines[lines.length - 1].trim();
+    const matches = urls.some(
+      (url) =>
+        last === url ||
+        (last.endsWith(`: ${url}`) && last.length - url.length - 2 > 0 && last.length - url.length - 2 <= 80),
+    );
+    if (matches) {
+      lines.pop();
+      if (lines.length) paragraphs[paragraphs.length - 1] = lines.join("\n").trim();
+      else paragraphs.pop();
+      changed = true;
+    }
+  }
+
+  // Preserve the caller's original text exactly when nothing matched, rather than silently
+  // re-normalizing paragraph spacing.
+  return changed ? paragraphs.join("\n\n") : bodyText;
 }
 
 const RESPONSIVE_STYLE = `
@@ -218,6 +274,17 @@ export function renderBrandedEmail(
     ? `<div style="margin:0 0 8px;">${escapeHtml(footerNote)}</div>`
     : "";
 
+  const bodyForHtml = content.dedupeBodyLeadIn
+    ? stripBodyLeadIn(content.bodyText, {
+        greeting: content.greeting,
+        intro: content.intro,
+        ctaUrls:
+          actionUrl && content.actionLabel
+            ? [actionUrl, content.actionUrl ?? ""]
+            : [],
+      })
+    : content.bodyText;
+
   const title = escapeHtml(sanitizeEmailSubject(content.heading, "DanceFlow"));
   const preview = escapeHtml(sanitizeEmailSubject(content.previewText, ""));
 
@@ -245,7 +312,7 @@ export function renderBrandedEmail(
                 ${greetingHtml}
                 ${introHtml}
                 ${detailsHtml}
-                ${content.contentHtml ? content.contentHtml : textToHtmlParagraphs(content.bodyText)}
+                ${content.contentHtml ? content.contentHtml : textToHtmlParagraphs(bodyForHtml)}
                 ${actionHtml}
               </td>
             </tr>
