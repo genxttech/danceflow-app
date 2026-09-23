@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
+import { buildAppUrl } from "@/lib/email/brand";
 import { createClient } from "@/lib/supabase/server";
 import {
   cleanTextValue,
@@ -29,33 +30,8 @@ function hashInviteToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-function buildBaseUrl() {
-  const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-
-  if (configuredUrl) {
-    return configuredUrl.replace(/\/$/, "");
-  }
-
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-
-  if (vercelUrl) {
-    return `https://${vercelUrl.replace(/\/$/, "")}`;
-  }
-
-  return "http://localhost:3000";
-}
-
 function buildInviteLink(token: string) {
-  return `${buildBaseUrl()}/get-started/ambassador?invite=${encodeURIComponent(token)}`;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return buildAppUrl(`/get-started/ambassador?invite=${encodeURIComponent(token)}`);
 }
 
 function buildInviteEmailHtml({

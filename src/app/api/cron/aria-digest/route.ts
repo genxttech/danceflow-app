@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCronAuthFailure } from "@/lib/security/cron";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { buildAppUrl } from "@/lib/email/brand";
 import {
   classifyAriaDigestFailure,
   logAriaDigestError,
@@ -206,7 +207,7 @@ function buildDigestSummary(params: {
   };
 }
 
-function buildDigestBody(params: {
+export function buildDigestBody(params: {
   studioName: string;
   digestType: DigestType;
   summary: ReturnType<typeof buildDigestSummary>;
@@ -232,17 +233,17 @@ Top actions:
 ${topActionLines}
 
 Open ARIA Operations:
-${(process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/$/, "")}/app/aria/operations`;
+${buildAppUrl("/app/aria/operations")}`;
 }
 
-function buildDigestHtml(params: {
+export function buildDigestHtml(params: {
   studioName: string;
   studioLogoUrl?: string | null;
   digestType: DigestType;
   summary: ReturnType<typeof buildDigestSummary>;
 }) {
   const { studioName, studioLogoUrl, digestType, summary } = params;
-  const operationsUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/$/, "")}/app/aria/operations`;
+  const operationsUrl = buildAppUrl("/app/aria/operations");
   const briefingLabel = digestTypeLabel(digestType);
   const intro =
     digestType === "morning"

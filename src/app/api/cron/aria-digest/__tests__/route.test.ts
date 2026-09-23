@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processDigestRun, type DigestPreferenceRow } from "@/app/api/cron/aria-digest/route";
+import {
+  buildDigestBody,
+  buildDigestHtml,
+  processDigestRun,
+  type DigestPreferenceRow,
+} from "@/app/api/cron/aria-digest/route";
 
 const createAdminClient = vi.fn();
 
@@ -230,5 +235,51 @@ describe("processDigestRun — delivery_id recovery on tracking-update failure",
     expect(outboundInserts).toHaveLength(0);
     expect(failureUpdatePayloads[0]).toMatchObject({ status: "failed", delivery_id: null });
     expect(terminalAlertInserts).toHaveLength(1);
+  });
+});
+
+describe("ARIA digest content (BR-3C canonical URL + shell characterization)", () => {
+  const summary = {
+    digest_type: "morning" as const,
+    open_actions: 3,
+    overdue_actions: 1,
+    assigned_to_recipient: 2,
+    queued_followups: 1,
+    urgent_actions: 1,
+    high_priority_actions: 1,
+    top_actions: [
+      { id: "a1", title: "Follow up with Jane", status: "queued", priority: "urgent", rule_key: "aria_low_package_balance", due_at: null },
+    ],
+  };
+
+  it("the plain-text body links to the canonical DanceFlow origin, never a raw env/preview host", () => {
+    const text = buildDigestBody({ studioName: "Acme Dance", digestType: "morning", summary });
+    expect(text).toContain("https://www.idanceflow.com/app/aria/operations");
+  });
+
+  it("the HTML action URL is the canonical DanceFlow origin", () => {
+    const html = buildDigestHtml({ studioName: "Acme Dance", studioLogoUrl: null, digestType: "morning", summary });
+    expect(html).toContain('href="https://www.idanceflow.com/app/aria/operations"');
+  });
+
+  it("uses the current shared shell (studio identity band, current palette token, legal line) -- not a hand-rolled header", () => {
+    const html = buildDigestHtml({ studioName: "Acme Dance", studioLogoUrl: null, digestType: "morning", summary });
+    expect(html).toContain("Acme Dance");
+    expect(html).toContain("DanceFlow is a product of GenX TotalTech LLC.");
+  });
+
+  it("does not opt into greeting/intro -- dedupeBodyLeadIn duplication fix does not apply here (no greeting/intro rendered)", () => {
+    const html = buildDigestHtml({ studioName: "Acme Dance", studioLogoUrl: null, digestType: "morning", summary });
+    // No standalone greeting/intro paragraph exists in this content -- confirms this file was intentionally
+    // left off the dedupeBodyLeadIn opt-in list (see emailBrandGuard.br3a.test.ts MUST_NOT_OPT_IN).
+    expect(html).not.toContain("Hi ");
+  });
+
+  it("section ordering remains stable: metrics summary, then Top actions", () => {
+    const html = buildDigestHtml({ studioName: "Acme Dance", studioLogoUrl: null, digestType: "morning", summary });
+    const metricsIndex = html.indexOf("Open actions");
+    const topActionsIndex = html.indexOf("Top actions");
+    expect(metricsIndex).toBeGreaterThan(-1);
+    expect(topActionsIndex).toBeGreaterThan(metricsIndex);
   });
 });

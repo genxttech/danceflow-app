@@ -1,13 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolveStudioDisplayName } from "@/lib/email/brand";
-import { sanitizeEmailSubject } from "@/lib/email/brand";
+import { EMAIL_TOKENS, buildAppUrl, escapeHtml, resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";
 import { Resend } from "resend";
 import twilio from "twilio";
 import {
   renderDanceFlowSystemEmail,
   renderPlainTextAsStudioEmail,
 } from "@/lib/notifications/email-branding";
-import { resolveOutboundFromEmail } from "@/lib/notifications/outbound";
+import { normalizeEmail, resolveOutboundFromEmail } from "@/lib/notifications/outbound";
 import {
   getAriaOutcomeExpectation,
   verifyPendingAriaOutcomes,
@@ -70,30 +69,8 @@ function getTwilioClient() {
   return twilio(accountSid, authToken);
 }
 
-function getSiteUrl() {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(
-    /\/$/,
-    ""
-  );
-}
-
 function asString(value: unknown) {
   return typeof value === "string" ? value : "";
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function normalizeEmail(value: string | null | undefined) {
-  const email = value?.trim().toLowerCase() || null;
-  if (!email) return null;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
 function safeTimeZone(value: unknown) {
@@ -269,7 +246,6 @@ function getWelcomeEmailContent(params: {
   workspaceName?: string | null;
   audience: WelcomeEmailAudience;
 }) {
-  const siteUrl = getSiteUrl();
   const firstName =
     params.fullName?.trim().split(/\s+/)[0] ||
     params.workspaceName?.trim() ||
@@ -285,19 +261,19 @@ function getWelcomeEmailContent(params: {
       ? "Welcome to DanceFlow — your studio workspace is ready"
       : "Welcome to DanceFlow";
 
-  const dashboardUrl = params.audience === "public" ? `${siteUrl}/account` : `${siteUrl}/app`;
-  const knowledgebaseUrl = `${siteUrl}/knowledgebase`;
-  const whatIsDanceFlowUrl = `${siteUrl}/knowledgebase/what-is-danceflow`;
-  const studioGettingStartedUrl = `${siteUrl}/knowledgebase/getting-started-checklist-for-studios`;
-  const publicProfileUrl = `${siteUrl}/knowledgebase/setting-up-your-public-studio-profile`;
-  const publicDiscoveryUrl = `${siteUrl}/knowledgebase/making-your-studio-visible-in-public-discovery`;
-  const introRequestsUrl = `${siteUrl}/knowledgebase/setting-up-intro-lesson-requests`;
-  const portalLinkingUrl = `${siteUrl}/knowledgebase/client-portal-linking-invites-vs-existing-accounts`;
-  const payoutsUrl = `${siteUrl}/knowledgebase/billing-payments-and-payouts`;
-  const supportUrl = `${siteUrl}/app/support`;
-  const termsUrl = `${siteUrl}/terms`;
-  const privacyUrl = `${siteUrl}/privacy`;
-  const securityUrl = `${siteUrl}/security`;
+  const dashboardUrl = buildAppUrl(params.audience === "public" ? "/account" : "/app");
+  const knowledgebaseUrl = buildAppUrl("/knowledgebase");
+  const whatIsDanceFlowUrl = buildAppUrl("/knowledgebase/what-is-danceflow");
+  const studioGettingStartedUrl = buildAppUrl("/knowledgebase/getting-started-checklist-for-studios");
+  const publicProfileUrl = buildAppUrl("/knowledgebase/setting-up-your-public-studio-profile");
+  const publicDiscoveryUrl = buildAppUrl("/knowledgebase/making-your-studio-visible-in-public-discovery");
+  const introRequestsUrl = buildAppUrl("/knowledgebase/setting-up-intro-lesson-requests");
+  const portalLinkingUrl = buildAppUrl("/knowledgebase/client-portal-linking-invites-vs-existing-accounts");
+  const payoutsUrl = buildAppUrl("/knowledgebase/billing-payments-and-payouts");
+  const supportUrl = buildAppUrl("/app/support");
+  const termsUrl = buildAppUrl("/terms");
+  const privacyUrl = buildAppUrl("/privacy");
+  const securityUrl = buildAppUrl("/security");
 
   const introLine = isOrganizer
     ? "DanceFlow helps organizers promote events, manage registrations, and connect dancers with places to dance."
@@ -373,23 +349,48 @@ function getWelcomeEmailContent(params: {
     "The DanceFlow Team",
   ].join("\n");
 
+  const htmlBodyText = [
+    introLine,
+    "",
+    "Recommended next steps:",
+    ...nextSteps.map((step) => `• ${step}`),
+    "",
+    "Helpful articles:",
+    ...links.map((link) => `• ${link.label}: ${link.url}`),
+    "",
+    `Support: ${supportUrl}`,
+  ].join("\n");
+
+  // BR-3C owner-QA revision: the "Helpful articles" list's knowledgebase URLs are long, unbroken
+  // tokens that inflate the shell's table intrinsic width past small viewports even with the shell's
+  // standard overflow-wrap (same underlying table-auto-layout behavior as BR-3B2's portal-invite fix).
+  // Rendered here via the shell's existing `contentHtml` capability (no new shell field) so only the
+  // visible URL text in each knowledgebase link can carry the stronger, narrowly scoped
+  // word-break:break-all -- greeting/intro/CTA/footer are unaffected, and the plain-text `text` output
+  // above is untouched.
+  const paragraphStyle = `margin:0 0 16px;font-size:15px;line-height:1.7;color:${EMAIL_TOKENS.text};overflow-wrap:break-word;word-wrap:break-word;`;
+  const nextStepsHtml = nextSteps.map((step) => `• ${escapeHtml(step)}`).join("<br />");
+  const linksHtml = links
+    .map(
+      (link) =>
+        `• ${escapeHtml(link.label)}: <span style="word-break:break-all;overflow-wrap:break-word;">${escapeHtml(link.url)}</span>`,
+    )
+    .join("<br />");
+  const contentHtml = [
+    `<p style="${paragraphStyle}">${escapeHtml(introLine)}</p>`,
+    `<p style="${paragraphStyle}">Recommended next steps:<br />${nextStepsHtml}</p>`,
+    `<p style="${paragraphStyle}">Helpful articles:<br />${linksHtml}</p>`,
+    `<p style="${paragraphStyle}">Support: ${escapeHtml(supportUrl)}</p>`,
+  ].join("");
+
   const html = renderDanceFlowSystemEmail({
     previewText: subject,
     eyebrow: "DanceFlow",
     heading: "Welcome to DanceFlow",
     greeting: `Hi ${firstName},`,
     intro: "We are excited to have you in the DanceFlow community.",
-    bodyText: [
-      introLine,
-      "",
-      "Recommended next steps:",
-      ...nextSteps.map((step) => `• ${step}`),
-      "",
-      "Helpful articles:",
-      ...links.map((link) => `• ${link.label}: ${link.url}`),
-      "",
-      `Support: ${supportUrl}`,
-    ].join("\n"),
+    bodyText: htmlBodyText,
+    contentHtml,
     actionLabel: "Open your dashboard",
     actionUrl: dashboardUrl,
     footerText: "This welcome message was sent by DanceFlow.",

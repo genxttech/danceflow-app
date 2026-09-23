@@ -168,6 +168,29 @@ describe("BR-3B2 base-URL normalization", () => {
   });
 });
 
+describe("BR-3C base-URL normalization", () => {
+  // Files migrated in BR-3C: no more hard-coded idanceflow.com fallbacks or raw NEXT_PUBLIC_SITE_URL/
+  // NEXT_PUBLIC_APP_URL/VERCEL_URL reads for customer/platform-facing links.
+  const MIGRATED_FILES = [
+    "src/app/app/automations/actions.ts",
+    "src/app/api/cron/aria-digest/route.ts",
+    "src/app/api/platform/daily-digest/route.ts",
+    "src/app/platform/invites/actions.ts",
+    "src/lib/notifications/dispatch.ts",
+  ];
+
+  it.each(MIGRATED_FILES)("%s has no raw site/app URL env read for link construction", (file) => {
+    const source = read(...file.split("/"));
+    expect(source).not.toMatch(/NEXT_PUBLIC_SITE_URL|NEXT_PUBLIC_APP_URL|VERCEL_URL/);
+  });
+
+  it("the platform daily digest no longer contains the retired #4b2e83 / #9d174d gradient", () => {
+    const source = read("src", "app", "api", "platform", "daily-digest", "route.ts");
+    expect(source).not.toContain("4b2e83");
+    expect(source).not.toContain("9d174d");
+  });
+});
+
 describe("dedupeBodyLeadIn stays opt-in and scoped to BR-3B1", () => {
   // BR-3C/BR-3E callers must not opt in without an explicit later decision.
   const MUST_NOT_OPT_IN = [
@@ -192,7 +215,10 @@ describe("dedupeBodyLeadIn stays opt-in and scoped to BR-3B1", () => {
 describe("subject sanitizer chokepoints", () => {
   it("wraps the welcome send and the queued send in dispatch.ts", () => {
     const dispatch = read("src", "lib", "notifications", "dispatch.ts").replace(/\r\n/g, "\n");
-    expect(dispatch).toContain('import { sanitizeEmailSubject } from "@/lib/email/brand";');
+    // BR-3C consolidated dispatch.ts's brand.ts imports onto one line (buildAppUrl/escapeHtml/
+    // resolveStudioDisplayName/sanitizeEmailSubject) -- confirm sanitizeEmailSubject is still imported
+    // from the shared module, regardless of which other names share its import statement.
+    expect(dispatch).toMatch(/import\s*\{[^}]*\bsanitizeEmailSubject\b[^}]*\}\s*from\s*"@\/lib\/email\/brand";/);
     const sends = dispatch.match(
       /resend\.emails\.send\(\{[^}]*?subject: sanitizeEmailSubject\(rendered\.subject\)/g,
     );

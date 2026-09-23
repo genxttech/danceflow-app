@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { getCronAuthFailure } from "@/lib/security/cron";
 import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
+import { EMAIL_TOKENS, buildAppUrl, sanitizeEmailSubject } from "@/lib/email/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -252,8 +253,9 @@ export async function GET(request: NextRequest) {
 
   const resendApiKey = process.env.RESEND_API_KEY;
   const digestTo = process.env.PLATFORM_ADMIN_DIGEST_EMAIL;
+  // From behavior intentionally unchanged in BR-3C: this sandbox fallback is preexisting
+  // sender-hardening debt, not addressed here to avoid altering effective From behavior.
   const digestFrom = process.env.PLATFORM_DIGEST_FROM ?? "DanceFlow <onboarding@resend.dev>";
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 
   if (!resendApiKey || !digestTo) {
     return NextResponse.json(
@@ -487,11 +489,11 @@ export async function GET(request: NextRequest) {
   ];
 
   const unresolvedBackendErrors = typedPlatformErrors.length + typedPackageErrors.length;
-  const dashboardUrl = siteUrl ? `${siteUrl}/platform` : "/platform";
-  const alertsUrl = siteUrl ? `${siteUrl}/platform/alerts` : "/platform/alerts";
-  const billingUrl = siteUrl ? `${siteUrl}/platform/billing` : "/platform/billing";
-  const studiosUrl = siteUrl ? `${siteUrl}/platform/studios` : "/platform/studios";
-  const smsUrl = siteUrl ? `${siteUrl}/platform/sms` : "/platform/sms";
+  const dashboardUrl = buildAppUrl("/platform");
+  const alertsUrl = buildAppUrl("/platform/alerts");
+  const billingUrl = buildAppUrl("/platform/billing");
+  const studiosUrl = buildAppUrl("/platform/studios");
+  const smsUrl = buildAppUrl("/platform/sms");
 
   const billingRiskItems = paidAccessWithoutActiveSubscription
     .slice(0, 8)
@@ -537,99 +539,91 @@ export async function GET(request: NextRequest) {
     .map((message) => `${formatDate(message.created_at)} — ${message.provider ?? "provider"} message still ${message.status ?? "queued"}`);
 
   const reportContentHtml = `
-    <div style="font-family:Arial,sans-serif;background:#f8fafc;padding:24px;color:#0f172a;">
-      <div style="max-width:820px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:24px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#4b2e83,#9d174d);color:#ffffff;padding:28px;">
-          <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.18em;text-transform:uppercase;color:#f5d0fe;">DanceFlow Platform Admin</p>
-          <h1 style="margin:0;font-size:28px;line-height:1.2;">Daily Platform Digest</h1>
-          <p style="margin:12px 0 0;color:#fce7f3;">Your 6 AM operating snapshot for billing risk, platform errors, revenue, and workspace activity.</p>
-        </div>
+    <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:${EMAIL_TOKENS.muted};">Your 6 AM operating snapshot for billing risk, platform errors, revenue, and workspace activity.</p>
 
-        <div style="padding:24px;">
-          <h2 style="margin:0 0 12px;font-size:20px;">Needs Attention</h2>
-          <table style="width:100%;border-collapse:collapse;margin-bottom:18px;">
-            <tr>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">Paid-plan access without active subscription</td>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:#be123c;">${paidAccessWithoutActiveSubscription.length}</td>
-            </tr>
-            <tr>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">Unresolved backend/package errors</td>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:#b45309;">${unresolvedBackendErrors}</td>
-            </tr>
-            <tr>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">Never accessed workspaces</td>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;">${neverAccessedStudios.length}</td>
-            </tr>
-            <tr>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">No workspace access in 30+ days</td>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;">${staleAccessStudios.length}</td>
-            </tr>
-            <tr>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">Recently active workspaces</td>
-              <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:#047857;">${recentlyActiveStudios.length}</td>
-            </tr>
-          </table>
+    <h2 style="margin:0 0 12px;font-size:20px;color:${EMAIL_TOKENS.text};">Needs Attention</h2>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">Paid-plan access without active subscription</td>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:#be123c;">${paidAccessWithoutActiveSubscription.length}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">Unresolved backend/package errors</td>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:#b45309;">${unresolvedBackendErrors}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">Never accessed workspaces</td>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;">${neverAccessedStudios.length}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">No workspace access in 30+ days</td>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;">${staleAccessStudios.length}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-weight:700;">Recently active workspaces</td>
+        <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;color:#047857;">${recentlyActiveStudios.length}</td>
+      </tr>
+    </table>
 
-          <div style="display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:24px;">
-            <div style="border:1px solid #fecdd3;background:#fff1f2;border-radius:18px;padding:16px;">
-              <h3 style="margin:0 0 10px;font-size:16px;color:#9f1239;">Billing risks to review</h3>
-              ${simpleList(billingRiskItems, "No paid-access billing risks found.")}
-              ${hiddenActiveItems.length ? `<div style="margin-top:12px;">${simpleList(hiddenActiveItems, "")}</div>` : ""}
-            </div>
-
-            <div style="border:1px solid #fed7aa;background:#fff7ed;border-radius:18px;padding:16px;">
-              <h3 style="margin:0 0 10px;font-size:16px;color:#9a3412;">Latest unresolved backend issues</h3>
-              ${simpleList(errorItems, "No unresolved backend errors found.")}
-              ${packageErrorItems.length ? `<div style="margin-top:12px;"><p style="margin:0 0 6px;font-weight:700;color:#9a3412;">Package deduction issues</p>${simpleList(packageErrorItems, "")}</div>` : ""}
-            </div>
-
-            <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:18px;padding:16px;">
-              <h3 style="margin:0 0 10px;font-size:16px;color:#1d4ed8;">SMS delivery watch</h3>
-              <p style="margin:0 0 8px;color:#334155;"><strong>Recent failed/undelivered:</strong></p>
-              ${simpleList(recentSmsFailures, "No recent SMS delivery failures found.")}
-              <p style="margin:14px 0 8px;color:#334155;"><strong>Recent queued:</strong></p>
-              ${simpleList(recentQueuedSms, "No queued SMS messages found in the latest sample.")}
-            </div>
-
-            <div style="border:1px solid #dbeafe;background:#eff6ff;border-radius:18px;padding:16px;">
-              <h3 style="margin:0 0 10px;font-size:16px;color:#1d4ed8;">Workspace activity</h3>
-              <p style="margin:0 0 8px;color:#334155;"><strong>Never accessed:</strong></p>
-              ${simpleList(neverAccessedItems, "Every workspace has at least one recorded access.")}
-              <p style="margin:14px 0 8px;color:#334155;"><strong>No access in 30+ days:</strong></p>
-              ${simpleList(staleAccessItems, "No stale workspaces found.")}
-            </div>
-          </div>
-
-          <h2 style="margin:0 0 12px;font-size:20px;">Revenue & Growth Snapshot</h2>
-          <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
-            <thead>
-              <tr>
-                <th style="padding:10px;border-bottom:1px solid #cbd5e1;text-align:left;">Metric</th>
-                <th style="padding:10px;border-bottom:1px solid #cbd5e1;text-align:right;">Daily</th>
-                <th style="padding:10px;border-bottom:1px solid #cbd5e1;text-align:right;">Monthly</th>
-                <th style="padding:10px;border-bottom:1px solid #cbd5e1;text-align:right;">YTD</th>
-              </tr>
-            </thead>
-            <tbody>${metricRows(metrics)}</tbody>
-          </table>
-
-          <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            ${actionButton(dashboardUrl, "Open Dashboard", "#4b2e83")}
-            ${actionButton(alertsUrl, "Review Alerts", "#f59e0b", "#111827")}
-            ${actionButton(billingUrl, "Review Billing", "#e11d48")}
-            ${actionButton(studiosUrl, "Review Studios", "#0f172a")}
-            ${actionButton(smsUrl, "Review SMS", "#7c3aed")}
-          </div>
-        </div>
+    <div style="display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:24px;">
+      <div style="border:1px solid #fecdd3;background:#fff1f2;border-radius:18px;padding:16px;">
+        <h3 style="margin:0 0 10px;font-size:16px;color:#9f1239;">Billing risks to review</h3>
+        ${simpleList(billingRiskItems, "No paid-access billing risks found.")}
+        ${hiddenActiveItems.length ? `<div style="margin-top:12px;">${simpleList(hiddenActiveItems, "")}</div>` : ""}
       </div>
+
+      <div style="border:1px solid #fed7aa;background:#fff7ed;border-radius:18px;padding:16px;">
+        <h3 style="margin:0 0 10px;font-size:16px;color:#9a3412;">Latest unresolved backend issues</h3>
+        ${simpleList(errorItems, "No unresolved backend errors found.")}
+        ${packageErrorItems.length ? `<div style="margin-top:12px;"><p style="margin:0 0 6px;font-weight:700;color:#9a3412;">Package deduction issues</p>${simpleList(packageErrorItems, "")}</div>` : ""}
+      </div>
+
+      <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:18px;padding:16px;">
+        <h3 style="margin:0 0 10px;font-size:16px;color:#1d4ed8;">SMS delivery watch</h3>
+        <p style="margin:0 0 8px;color:#334155;"><strong>Recent failed/undelivered:</strong></p>
+        ${simpleList(recentSmsFailures, "No recent SMS delivery failures found.")}
+        <p style="margin:14px 0 8px;color:#334155;"><strong>Recent queued:</strong></p>
+        ${simpleList(recentQueuedSms, "No queued SMS messages found in the latest sample.")}
+      </div>
+
+      <div style="border:1px solid #dbeafe;background:#eff6ff;border-radius:18px;padding:16px;">
+        <h3 style="margin:0 0 10px;font-size:16px;color:#1d4ed8;">Workspace activity</h3>
+        <p style="margin:0 0 8px;color:#334155;"><strong>Never accessed:</strong></p>
+        ${simpleList(neverAccessedItems, "Every workspace has at least one recorded access.")}
+        <p style="margin:14px 0 8px;color:#334155;"><strong>No access in 30+ days:</strong></p>
+        ${simpleList(staleAccessItems, "No stale workspaces found.")}
+      </div>
+    </div>
+
+    <h2 style="margin:0 0 12px;font-size:20px;color:${EMAIL_TOKENS.text};">Revenue &amp; Growth Snapshot</h2>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+      <thead>
+        <tr>
+          <th style="padding:10px;border-bottom:1px solid #cbd5e1;text-align:left;">Metric</th>
+          <th style="padding:10px;border-bottom:1px solid #cbd5e1;text-align:right;">Daily</th>
+          <th style="padding:10px;border-bottom:1px solid #cbd5e1;text-align:right;">Monthly</th>
+          <th style="padding:10px;border-bottom:1px solid #cbd5e1;text-align:right;">YTD</th>
+        </tr>
+      </thead>
+      <tbody>${metricRows(metrics)}</tbody>
+    </table>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      ${actionButton(dashboardUrl, "Open Dashboard", EMAIL_TOKENS.primary)}
+      ${actionButton(alertsUrl, "Review Alerts", "#f59e0b", "#111827")}
+      ${actionButton(billingUrl, "Review Billing", "#e11d48")}
+      ${actionButton(studiosUrl, "Review Studios", "#0f172a")}
+      ${actionButton(smsUrl, "Review SMS", "#7c3aed")}
     </div>
   `;
 
-  const subject = `DanceFlow Daily Platform Digest — ${new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date())}`;
+  const subject = sanitizeEmailSubject(
+    `DanceFlow Daily Platform Digest — ${new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(new Date())}`,
+  );
 
   const text = [
     subject,
@@ -654,13 +648,21 @@ export async function GET(request: NextRequest) {
   });
 
   const resend = new Resend(resendApiKey);
-  await resend.emails.send({
+  const sendResult = await resend.emails.send({
     from: digestFrom,
     to: digestTo,
     subject,
     text,
     html,
   });
+
+  if (sendResult.error) {
+    console.error("Platform daily digest send failed:", sendResult.error);
+    return NextResponse.json(
+      { error: sendResult.error.message || "Platform daily digest send failed." },
+      { status: 502 },
+    );
+  }
 
   return NextResponse.json({
     ok: true,
