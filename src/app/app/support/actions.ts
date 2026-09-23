@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { Resend } from "resend";
 import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
+import { sanitizeEmailSubject } from "@/lib/email/brand";
 
 function getString(formData: FormData, key: string, maxLength = 4000) {
   const value = formData.get(key);
@@ -43,6 +44,9 @@ export async function sendSupportRequestAction(formData: FormData) {
     redirect("/app/support?error=invalid-email");
   }
 
+  // From precedence intentionally left as-is (OUTBOUND_EMAIL_FROM before NOTIFICATION_FROM_EMAIL):
+  // it differs from the shared resolveOutboundFromEmail() precedence, and BR-3C preserves existing
+  // effective From behavior rather than silently switching it.
   const from =
     process.env.OUTBOUND_EMAIL_FROM ||
     process.env.NOTIFICATION_FROM_EMAIL ||
@@ -52,7 +56,7 @@ export async function sendSupportRequestAction(formData: FormData) {
 
   const resend = getResendClient();
 
-  const subject = `DanceFlow support request: ${issueType}`;
+  const subject = sanitizeEmailSubject(`DanceFlow support request: ${issueType}`);
 
   const bodyText = [
     "New DanceFlow support request",

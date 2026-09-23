@@ -91,8 +91,11 @@ describe("BR-3A leaves live sender behavior unchanged", () => {
     const outbound = read("src", "lib", "notifications", "outbound.ts");
     expect(outbound).toContain('"DanceFlow <notify@idanceflow.com>"');
     const dispatch = read("src", "lib", "notifications", "dispatch.ts");
-    expect(dispatch).toContain(
-      'import { resolveOutboundFromEmail } from "@/lib/notifications/outbound";',
+    // BR-3C consolidated dispatch.ts's outbound.ts imports onto one line (normalizeEmail +
+    // resolveOutboundFromEmail) -- confirm resolveOutboundFromEmail is still imported from the shared
+    // module, regardless of which other names share its import statement.
+    expect(dispatch).toMatch(
+      /import\s*\{[^}]*\bresolveOutboundFromEmail\b[^}]*\}\s*from\s*"@\/lib\/notifications\/outbound";/,
     );
     expect(dispatch).not.toContain('"DanceFlow <notify@idanceflow.com>"');
     expect(read("src", "app", "api", "notifications", "send", "route.ts")).toContain(

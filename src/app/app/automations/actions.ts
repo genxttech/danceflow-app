@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
+import { buildAppUrl } from "@/lib/email/brand";
 import {
   ARIA_AUTOMATION_PACKS,
   getAriaAutomationCatalogItem,
@@ -4342,6 +4343,7 @@ ${studioName}`;
       actionLabel,
       actionUrl,
       footerText: `Sent by ${studioName} through DanceFlow.`,
+      dedupeBodyLeadIn: true,
     },
   );
 
@@ -4819,12 +4821,9 @@ function getStudioDisplayName(studio: DraftStudioRow | null | undefined) {
 }
 
 function getPortalUrl(studio: DraftStudioRow | null | undefined, path = "") {
-  const siteUrl = (
-    process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com"
-  ).replace(/\/$/, "");
   const slug = studio?.slug;
-  if (!slug) return siteUrl;
-  return `${siteUrl}/portal/${slug}${path}`;
+  if (!slug) return buildAppUrl("/");
+  return buildAppUrl(`/portal/${slug}${path}`);
 }
 
 function formatDraftDateTime(value: string | null | undefined) {
