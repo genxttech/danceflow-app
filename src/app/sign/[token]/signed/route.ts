@@ -25,7 +25,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
 
   const { data: envelope } = await admin
     .from("document_sign_envelopes")
-    .select("title,status,signed_bucket,signed_path")
+    .select("title,status,signed_bucket,signed_path,expires_at")
     .eq("token_hash", tokenHash)
     .maybeSingle();
   if (
@@ -34,6 +34,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     !envelope.signed_bucket ||
     !envelope.signed_path
   ) {
+    return new NextResponse("Signed document unavailable", { status: 404 });
+  }
+
+  const expiresAtMs = envelope.expires_at
+    ? new Date(envelope.expires_at).getTime()
+    : Number.NaN;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
     return new NextResponse("Signed document unavailable", { status: 404 });
   }
 
