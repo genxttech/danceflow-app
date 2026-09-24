@@ -542,6 +542,18 @@ export default async function PortalDocumentsPage({
                   )}
                   .
                 </p>
+                {item.assignment?.sign_envelope_id ? (
+                  <Link
+                    href={`/portal/${encodeURIComponent(
+                      typedStudio.slug,
+                    )}/documents/${encodeURIComponent(
+                      item.assignment.id,
+                    )}/signed?client=${encodeURIComponent(typedClient.id)}`}
+                    className="mt-4 inline-flex w-full items-center justify-center rounded-2xl border border-emerald-300 bg-white px-4 py-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-50"
+                  >
+                    Download signed document
+                  </Link>
+                ) : null}
               </div>
             ) : item.assignment?.sign_envelope_id ? (
               item.envelope?.status === "draft" ? (
