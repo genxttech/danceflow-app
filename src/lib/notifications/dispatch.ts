@@ -1,7 +1,16 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EMAIL_TOKENS, buildAppUrl, escapeHtml, resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";
 import { Resend } from "resend";
-import twilio from "twilio";
+import {
+  appendSmsOptOutFooter,
+  canSendSms,
+  isAutomatedSmsTemplatePermitted,
+  isSmsSendingApproved,
+  normalizeSmsPhone,
+  sanitizedSmsProviderError,
+  type SmsSkipReason,
+} from "@/lib/sms/compliance";
+import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
 import {
   renderDanceFlowSystemEmail,
   renderPlainTextAsStudioEmail,
@@ -42,6 +51,16 @@ type DispatchResult =
   | { ok: true; providerMessageId?: string | null }
   | { ok: false; error: string };
 
+type SkippedDispatchResult = { ok: false; skipped: true; reason: SmsSkipReason };
+
+type SmsDispatchResult = DispatchResult | SkippedDispatchResult;
+
+function isSkippedDispatchResult(
+  result: SmsDispatchResult,
+): result is SkippedDispatchResult {
+  return !result.ok && "skipped" in result && result.skipped === true;
+}
+
 type RenderedMessage = {
   subject: string;
   bodyText: string;
@@ -56,17 +75,6 @@ function getResendClient() {
     throw new Error("Missing RESEND_API_KEY.");
   }
   return new Resend(apiKey);
-}
-
-function getTwilioClient() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-
-  if (!accountSid || !authToken) {
-    throw new Error("Missing Twilio credentials.");
-  }
-
-  return twilio(accountSid, authToken);
 }
 
 function asString(value: unknown) {
@@ -542,37 +550,147 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
   }
 }
 
-async function sendSms(row: OutboundDeliveryRow): Promise<DispatchResult> {
-  if (!row.recipient_phone) {
-    return { ok: false, error: "Missing recipient phone." };
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function skipSms(reason: SmsSkipReason): SkippedDispatchResult {
+  return { ok: false, skipped: true, reason };
+}
+
+function buildSmsStatusCallbackUrl(origin: string | null | undefined) {
+  const callbackSecret = String(process.env.TWILIO_STATUS_CALLBACK_SECRET ?? "").trim();
+  if (!origin || !callbackSecret) return null;
+
+  return `${origin}/api/sms/twilio/status?secret=${encodeURIComponent(callbackSecret)}`;
+}
+
+/**
+ * A2P-1A: automated SMS fails closed. The first failing condition marks the delivery
+ * skipped with a non-PII reason code and Twilio is never called. Sends go only through
+ * the approved Messaging Service abstraction (`sendTwilioSms`), with the studio STOP/HELP
+ * footer and an `sms_message_logs` row, exactly like manual studio sends.
+ */
+async function sendSms(
+  row: OutboundDeliveryRow,
+  options: { origin?: string | null } = {},
+): Promise<SmsDispatchResult> {
+  if (!isAutomatedSmsTemplatePermitted(row.template_key)) {
+    return skipSms("sms_template_not_permitted");
   }
 
-  const from = process.env.TWILIO_FROM_NUMBER;
-  if (!from) {
-    return { ok: false, error: "Missing TWILIO_FROM_NUMBER." };
+  if (!isSmsSendingApproved()) {
+    return skipSms("sms_not_approved");
   }
+
+  const phoneE164 = normalizeSmsPhone(row.recipient_phone ?? "");
+  if (!phoneE164) {
+    return skipSms("sms_invalid_phone");
+  }
+
+  const recipientClientId = asString(row.payload?.recipientClientId);
+  if (!UUID_PATTERN.test(recipientClientId)) {
+    return skipSms("sms_no_consent");
+  }
+
+  const supabase = createAdminClient();
+
+  const { data: permissions, error: permissionError } = await supabase
+    .from("sms_contact_permissions")
+    .select("client_id, consent_status, opted_out_at, updated_at")
+    .eq("studio_id", row.studio_id)
+    .eq("phone_e164", phoneE164)
+    .order("updated_at", { ascending: false });
+
+  if (permissionError) {
+    return { ok: false, error: "sms_consent_lookup_failed" };
+  }
+
+  const permissionRows = (permissions ?? []) as Array<{
+    client_id: string | null;
+    consent_status: string | null;
+    opted_out_at: string | null;
+  }>;
+
+  if (permissionRows.some((permission) => permission.consent_status === "opted_out")) {
+    return skipSms("sms_opted_out");
+  }
+
+  const clientPermission =
+    permissionRows.find((permission) => permission.client_id === recipientClientId) ?? null;
+
+  if (!canSendSms(clientPermission)) {
+    return skipSms("sms_no_consent");
+  }
+
+  const { data: studio } = await supabase
+    .from("studios")
+    .select("name")
+    .eq("id", row.studio_id)
+    .maybeSingle<{ name: string | null }>();
 
   const rendered = renderMessage(row);
+  const finalBody = appendSmsOptOutFooter(rendered.bodyText, studio?.name ?? null);
 
-  try {
-    const client = getTwilioClient();
+  const { data: logRow, error: logError } = await supabase
+    .from("sms_message_logs")
+    .insert({
+      studio_id: row.studio_id,
+      client_id: recipientClientId,
+      phone_e164: phoneE164,
+      direction: "outbound",
+      message_type: row.template_key,
+      body: finalBody,
+      segment_count: Math.max(1, estimateSmsSegments(finalBody)),
+      status: "queued",
+      provider: "twilio",
+      related_table: row.related_table,
+      related_id: row.related_id,
+      sent_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single<{ id: string }>();
 
-    const message = await client.messages.create({
-      to: row.recipient_phone,
-      from,
-      body: rendered.bodyText,
-    });
+  if (logError || !logRow) {
+    return { ok: false, error: "sms_log_insert_failed" };
+  }
 
-    return {
-      ok: true,
-      providerMessageId: message.sid ?? null,
-    };
-  } catch (error) {
+  const sendResult = await sendTwilioSms({
+    to: phoneE164,
+    body: finalBody,
+    statusCallbackUrl: buildSmsStatusCallbackUrl(options.origin),
+  });
+
+  if (!sendResult.ok) {
+    // Never persist Twilio's raw message text: it can echo request values (phone,
+    // callback URL). This field is shown to studio staff and in platform digests.
+    await supabase
+      .from("sms_message_logs")
+      .update({
+        status: "failed",
+        provider_error_code: sendResult.errorCode ?? null,
+        provider_error_message: sanitizedSmsProviderError(sendResult.errorCode),
+        failed_at: new Date().toISOString(),
+      })
+      .eq("id", logRow.id);
+
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Unknown SMS send error",
+      error: sendResult.errorCode ? `sms_send_failed:${sendResult.errorCode}` : "sms_send_failed",
     };
   }
+
+  await supabase
+    .from("sms_message_logs")
+    .update({
+      provider_message_id: sendResult.sid ?? null,
+      status: sendResult.status === "sent" ? "sent" : "queued",
+    })
+    .eq("id", logRow.id);
+
+  return {
+    ok: true,
+    providerMessageId: sendResult.sid ?? null,
+  };
 }
 
 async function markSent(id: string, providerMessageId?: string | null) {
@@ -591,6 +709,24 @@ async function markSent(id: string, providerMessageId?: string | null) {
 
   if (error) {
     throw new Error(`Failed to mark outbound delivery sent: ${error.message}`);
+  }
+}
+
+/** Records an intentional non-send. `reason` is a fixed code: never a phone, body or consent detail. */
+async function markSkipped(id: string, reason: SmsSkipReason) {
+  const supabase = createAdminClient();
+
+  const { error } = await supabase
+    .from("outbound_deliveries")
+    .update({
+      status: "skipped",
+      error_message: reason,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    throw new Error(`Failed to mark outbound delivery skipped: ${error.message}`);
   }
 }
 
@@ -1036,7 +1172,10 @@ async function requeueFailedAriaDigestDeliveries(limit = 25) {
   return requeued;
 }
 
-export async function dispatchQueuedOutboundDeliveries(limit = 25) {
+export async function dispatchQueuedOutboundDeliveries(
+  limit = 25,
+  options: { origin?: string | null } = {},
+) {
   const supabase = createAdminClient();
   const digestRequeued = await requeueFailedAriaDigestDeliveries(limit);
   const actionRequeued = await requeueFailedAriaActionDeliveries(limit);
@@ -1072,11 +1211,20 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
 
   let sent = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const row of rows) {
     try {
-      const result =
-        row.channel === "email" ? await sendEmail(row) : await sendSms(row);
+      const result: SmsDispatchResult =
+        row.channel === "email"
+          ? await sendEmail(row)
+          : await sendSms(row, { origin: options.origin });
+
+      if (isSkippedDispatchResult(result)) {
+        skipped += 1;
+        await markSkipped(row.id, result.reason);
+        continue;
+      }
 
       if (!result.ok) {
         failed += 1;
@@ -1133,6 +1281,7 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
     requeued,
     sent,
     failed,
+    skipped,
     outcomes,
   };
 }

@@ -1,6 +1,12 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { NextResponse } from "next/server";
-import { normalizeSmsPhone } from "@/lib/sms/compliance";
+import {
+  SMS_HELP_REPLY,
+  SMS_START_NO_PRIOR_CONSENT_REPLY,
+  SMS_START_REPLY,
+  SMS_STOP_REPLY,
+  normalizeSmsPhone,
+} from "@/lib/sms/compliance";
+import { twilioFormParams, verifyTwilioWebhook } from "@/lib/sms/twilioWebhook";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
@@ -54,14 +60,39 @@ function classifyKeyword(body: string) {
   return "message";
 }
 
-export async function POST(request: Request) {
+// A2P-1A: only requests that fail verification count against the per-IP limiter, so
+// genuine STOP messages arriving from shared Twilio egress IPs are never throttled.
+function rejectUnverified(request: Request, status: 403 | 503) {
   const rateLimit = checkRateLimit(
-    rateLimitKey("sms:twilio-inbound", getIpFromRequest(request)),
+    rateLimitKey("sms:twilio-inbound-rejected", getIpFromRequest(request)),
     { limit: 30, windowMs: 10 * 60 * 1000 },
   );
 
   if (!rateLimit.allowed) {
     return rateLimitedJson(rateLimit);
+  }
+
+  return new Response(status === 503 ? "Service unavailable" : "Forbidden", {
+    status,
+    headers: { "Content-Type": "text/plain" },
+  });
+}
+
+export async function POST(request: Request) {
+  let formData: FormData;
+
+  try {
+    formData = await request.formData();
+  } catch {
+    return rejectUnverified(request, 403);
+  }
+
+  // The Twilio signature is verified before any database access or consent mutation.
+  const verification = verifyTwilioWebhook(request, twilioFormParams(formData));
+
+  if (!verification.ok) {
+    console.warn(verification.reason);
+    return rejectUnverified(request, verification.status);
   }
 
   const supabase = getServiceSupabase();
@@ -70,9 +101,7 @@ export async function POST(request: Request) {
     return twiml("Text messaging is temporarily unavailable. Please contact the studio directly.");
   }
 
-  const formData = await request.formData();
   const from = normalizeSmsPhone(String(formData.get("From") ?? ""));
-  const to = normalizeSmsPhone(String(formData.get("To") ?? ""));
   const bodyResult = cleanTextValue(String(formData.get("Body") ?? ""), {
     fieldLabel: "Message",
     maxLength: 1600,
@@ -124,6 +153,8 @@ export async function POST(request: Request) {
   }
 
   if (keyword === "stop") {
+    // consent_source and consent_at are deliberately left intact so the original
+    // opt-in evidence survives the opt-out.
     for (const permission of permissions ?? []) {
       await supabase
         .from("sms_contact_permissions")
@@ -131,17 +162,22 @@ export async function POST(request: Request) {
           consent_status: "opted_out",
           opted_out_at: now,
           opted_out_source: "twilio_inbound_stop",
-          consent_source: "twilio_inbound_stop",
           updated_at: now,
         })
         .eq("id", permission.id);
     }
 
-    return twiml("You are opted out and will no longer receive texts from this workspace. Reply START to opt back in.");
+    return twiml(SMS_STOP_REPLY);
   }
 
   if (keyword === "start") {
-    for (const permission of permissions ?? []) {
+    // START only restores a subscription that previously existed: an opted-out row with
+    // a recorded prior opt-in. It never creates initial consent for unknown or new numbers.
+    const eligible = (permissions ?? []).filter(
+      (permission) => permission.consent_status === "opted_out" && Boolean(permission.consent_at),
+    );
+
+    for (const permission of eligible) {
       await supabase
         .from("sms_contact_permissions")
         .update({
@@ -155,11 +191,11 @@ export async function POST(request: Request) {
         .eq("id", permission.id);
     }
 
-    return twiml("You are opted in to receive texts from this workspace. Reply STOP to opt out.");
+    return twiml(eligible.length > 0 ? SMS_START_REPLY : SMS_START_NO_PRIOR_CONSENT_REPLY);
   }
 
   if (keyword === "help") {
-    return twiml("Reply STOP to opt out of texts. For help, contact the studio or organizer directly.");
+    return twiml(SMS_HELP_REPLY);
   }
 
   return twiml("Thanks for your message. Please contact the studio directly if you need help.");

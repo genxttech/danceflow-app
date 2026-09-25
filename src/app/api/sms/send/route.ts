@@ -6,6 +6,7 @@ import {
   canSendSms,
   getSmsPlatformReadiness,
   normalizeSmsPhone,
+  sanitizedSmsProviderError,
 } from "@/lib/sms/compliance";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
 import { cleanTextValue, normalizeOptionalUuid } from "@/lib/validation/forms";
@@ -122,7 +123,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!canSendSms(permission as any)) {
+    if (!canSendSms(permission)) {
       return NextResponse.json(
         { ok: false, error: "This client must be opted in before you send a text." },
         { status: 400 },
@@ -188,17 +189,14 @@ export async function POST(request: Request) {
         .update({
           status: "failed",
           provider_error_code: sendResult.errorCode ?? null,
-          provider_error_message: sendResult.error ?? "The text could not be sent.",
+          provider_error_message: sanitizedSmsProviderError(sendResult.errorCode),
           failed_at: new Date().toISOString(),
         })
         .eq("id", logRow.id)
         .eq("studio_id", studioId);
 
-      console.error(
-        "Twilio SMS send failed",
-        sendResult.errorCode ?? "",
-        sendResult.error ?? "The text could not be sent.",
-      );
+      // Code only: raw Twilio text can echo request values such as the callback URL.
+      console.error("Twilio SMS send failed", sendResult.errorCode ?? "unknown");
 
       return NextResponse.json(
         { ok: false, error: "The text could not be sent. Please try again." },

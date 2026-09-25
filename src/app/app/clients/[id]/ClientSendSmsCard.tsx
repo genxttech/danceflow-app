@@ -135,6 +135,10 @@ export function ClientSendSmsCard({
           />
         </label>
 
+        <p className="text-xs font-semibold leading-5 text-[var(--brand-text)]">
+          Service-related messages only. Do not send promotional content.
+        </p>
+
         <p className="text-xs leading-5 text-[var(--brand-muted)]">
           Tip: Keep texts brief and personal. DanceFlow adds opt-out language when needed.
         </p>

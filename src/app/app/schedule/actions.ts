@@ -12,6 +12,8 @@ import { stageInstructorEarningForAppointment } from "@/lib/compensation/earning
 import { validateMembershipEntitlement } from "@/lib/memberships/entitlements";
 import { validateClientPackageForBooking } from "@/lib/packages/entitlement";
 import { sendAppointmentSchedulePush, sendGroupClassCancellationPush } from "@/lib/notifications/schedulePush";
+import { isSmsSendingApproved } from "@/lib/sms/compliance";
+import { isTwilioConfigured } from "@/lib/sms/twilio";
 import {
   requireAppointmentCreateAccess,
   requireAppointmentDeleteAccess,
@@ -579,6 +581,7 @@ async function queueAppointmentOutboundDelivery(params: {
     function queueRecipient(
       recipient: NotificationClient | null,
       recipientRole: "primary" | "partner",
+      recipientClientId: string | null,
     ) {
       const recipientEmail =
         typeof recipient?.email === "string" &&
@@ -590,9 +593,11 @@ async function queueAppointmentOutboundDelivery(params: {
         recipient?.phone ?? null,
       );
 
+      // recipientClientId lets dispatch verify SMS consent for this exact studio client.
       const payload = {
         ...basePayload,
         recipientRole,
+        recipientClientId,
       };
 
       if (recipientEmail && !seenEmails.has(recipientEmail)) {
@@ -610,11 +615,7 @@ async function queueAppointmentOutboundDelivery(params: {
         });
       }
 
-      const smsConfigured = Boolean(
-        process.env.TWILIO_ACCOUNT_SID?.trim() &&
-          process.env.TWILIO_AUTH_TOKEN?.trim() &&
-          process.env.TWILIO_FROM_NUMBER?.trim(),
-      );
+      const smsConfigured = isTwilioConfigured() && isSmsSendingApproved();
 
       if (
         smsConfigured &&
@@ -636,13 +637,13 @@ async function queueAppointmentOutboundDelivery(params: {
       }
     }
 
-    queueRecipient(client, "primary");
+    queueRecipient(client, "primary", clientId);
 
     if (
       String(appointment.appointment_type) === "private_lesson" &&
       partnerClientId
     ) {
-      queueRecipient(partnerClient, "partner");
+      queueRecipient(partnerClient, "partner", partnerClientId);
     }
 
     await sendAppointmentSchedulePush({
