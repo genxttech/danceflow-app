@@ -5,6 +5,9 @@ import {
   type Row,
 } from "@/lib/supabase/__tests__/simpleFakeAdminClient";
 import { hashSigningToken } from "@/lib/documents/signing";
+// Resolves to the REAL implementation: the `@/lib/documents/pdf` mock below
+// preserves it unchanged via `importActual`, only stubbing `applySigningFields`.
+import { sha256Hex } from "@/lib/documents/pdf";
 
 /**
  * Regression coverage for the confirmed Public Event Registration
@@ -41,11 +44,20 @@ const ENVELOPE_ID = "envelope-1";
 const TOKEN = "test-signing-token";
 const FIELD_ID = "field-1";
 
+const SOURCE_BYTES = new Uint8Array([1, 2, 3]);
+/** The real, correct source hash for SOURCE_BYTES -- what a genuine envelope would have persisted at creation time. */
+const CORRECT_SOURCE_SHA256 = sha256Hex(SOURCE_BYTES);
+
 function fakeBlob() {
   return {
-    arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    arrayBuffer: async () => SOURCE_BYTES.buffer,
   };
 }
+
+const uploadMock = vi.fn();
+uploadMock.mockResolvedValue({ error: null });
+/** Set true only by the source-mismatch tests below, so an unexpected upload fails loudly rather than silently succeeding. */
+let uploadShouldThrowIfCalled = false;
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
@@ -59,7 +71,12 @@ vi.mock("@/lib/supabase/admin", () => ({
     storage: {
       from: () => ({
         download: async () => ({ data: fakeBlob(), error: null }),
-        upload: async () => ({ error: null }),
+        upload: (...args: unknown[]) => {
+          if (uploadShouldThrowIfCalled) {
+            throw new Error("UNEXPECTED_UPLOAD: signed storage upload must not run after a source-hash mismatch");
+          }
+          return uploadMock(...args);
+        },
         remove: async () => ({ error: null }),
       }),
     },
@@ -70,12 +87,26 @@ vi.mock("next/headers", () => ({
   headers: async () => ({ get: () => "test-agent" }),
 }));
 
-vi.mock("@/lib/documents/pdf", () => ({
-  applySigningFields: async () => ({
-    bytes: new Uint8Array([1, 2, 3]),
-    sha256: "fake-sha256",
-  }),
-}));
+const SIGNED_BYTES = new Uint8Array([1, 2, 3]);
+
+const applySigningFieldsMock = vi.fn();
+// Internally consistent with production's real sha256Hex(bytes) invariant --
+// SIGNED_BYTES happens to share SOURCE_BYTES' content, so CORRECT_SOURCE_SHA256
+// is also the correct hash of these signed bytes.
+applySigningFieldsMock.mockResolvedValue({ bytes: SIGNED_BYTES, sha256: CORRECT_SOURCE_SHA256 });
+
+vi.mock("@/lib/documents/pdf", async () => {
+  // sha256Hex is kept as the REAL implementation (not stubbed) so the new
+  // BR-3D2c1 source-hash check exercises genuine SHA-256 computation over
+  // the fake blob's real bytes, not a hard-coded string.
+  const actual = await vi.importActual<typeof import("@/lib/documents/pdf")>(
+    "@/lib/documents/pdf",
+  );
+  return {
+    ...actual,
+    applySigningFields: (...args: unknown[]) => applySigningFieldsMock(...args),
+  };
+});
 
 vi.mock("@/lib/documents/public-signing-security", () => ({
   serverActionIp: async () => "127.0.0.1",
@@ -130,6 +161,7 @@ function seedEnvelope(overrides: Row = {}) {
     expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
     source_bucket: "document-files",
     source_path: `studios/${STUDIO_ID}/envelopes/${ENVELOPE_ID}/source.pdf`,
+    source_sha256: CORRECT_SOURCE_SHA256,
     return_url: null,
     context_type: "event_checkout",
     context_id: "checkpoint-1",
@@ -179,6 +211,9 @@ beforeEach(() => {
 
   redirectMock.mockClear();
   advanceEventSigningCheckpointMock.mockReset();
+  applySigningFieldsMock.mockClear();
+  uploadMock.mockClear();
+  uploadShouldThrowIfCalled = false;
 });
 
 async function expectRedirectTo(promise: Promise<unknown>, urlSubstring: string) {
@@ -186,6 +221,47 @@ async function expectRedirectTo(promise: Promise<unknown>, urlSubstring: string)
     digest: expect.stringContaining(urlSubstring),
   });
 }
+
+describe("completeSigningAction -- BR-3D2c1 source-hash verification", () => {
+  it("source bytes matching the persisted hash proceed to normal completion", async () => {
+    advanceEventSigningCheckpointMock.mockResolvedValue({ kind: "next", url: "https://app.example.com/sign/next" });
+
+    await expectRedirectTo(completeSigningAction(buildFormData()), "https://app.example.com/sign/next");
+
+    expect(applySigningFieldsMock).toHaveBeenCalledTimes(1);
+    // The exact bytes handed to applySigningFields are the exact bytes that were hashed and compared --
+    // proven by byte-for-byte equality, not object identity, matching the FakeBlob's real downloaded content.
+    const passedBytes = applySigningFieldsMock.mock.calls[0][0].sourceBytes as Uint8Array;
+    expect(Array.from(passedBytes)).toEqual(Array.from(SOURCE_BYTES));
+    expect(envelopesTable.rows.find((r) => r.id === ENVELOPE_ID)?.status).toBe("completed");
+  });
+
+  it("a source-hash mismatch fails closed using the existing generic completion_failed redirect, before any downstream write", async () => {
+    envelopesTable.rows = [];
+    seedEnvelope({ source_sha256: "0000000000000000000000000000000000000000000000000000000000000000" });
+    uploadShouldThrowIfCalled = true;
+
+    await expectRedirectTo(
+      completeSigningAction(buildFormData()),
+      `/sign/${encodeURIComponent(TOKEN)}?error=completion_failed`,
+    );
+
+    expect(applySigningFieldsMock).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(valuesTable.rows).toHaveLength(0);
+    expect(envelopesTable.rows.find((r) => r.id === ENVELOPE_ID)?.status).toBe("sent");
+  });
+
+  it("on success, the persisted signed_sha256 equals sha256Hex of the exact bytes uploaded to signed storage", async () => {
+    advanceEventSigningCheckpointMock.mockResolvedValue({ kind: "next", url: "https://app.example.com/sign/next" });
+
+    await expectRedirectTo(completeSigningAction(buildFormData()), "https://app.example.com/sign/next");
+
+    const uploadedBytes = uploadMock.mock.calls[0][1] as Uint8Array;
+    const persisted = envelopesTable.rows.find((r) => r.id === ENVELOPE_ID);
+    expect(persisted?.signed_sha256).toBe(sha256Hex(uploadedBytes));
+  });
+});
 
 describe("completeSigningAction -- event_checkout continuation (redirect-swallowing regression)", () => {
   it("first-of-two waiver completion advances to the next waiver -- the redirect signal propagates, not swallowed", async () => {

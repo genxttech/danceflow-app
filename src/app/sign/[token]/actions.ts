@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { applySigningFields, type AppliedSignature, type SigningField, type SigningValue } from "@/lib/documents/pdf";
+import { applySigningFields, sha256Hex, type AppliedSignature, type SigningField, type SigningValue } from "@/lib/documents/pdf";
 import { DOCUMENT_FILES_BUCKET, hashSigningToken, signedStoragePath } from "@/lib/documents/signing";
 import { consumePublicSigningRateLimit, serverActionIp } from "@/lib/documents/public-signing-security";
 import { advanceEventSigningCheckpoint, normalizeSigningReturnUrl } from "@/lib/documents/event-signing";
@@ -157,7 +157,7 @@ export async function completeSigningAction(formData: FormData) {
   }
   const { data: envelope } = await admin
     .from("document_sign_envelopes")
-    .select("id,studio_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path,return_url,context_type,context_id,sequence_group_id,sequence_position,sequence_total,event_signing_checkpoint_id")
+    .select("id,studio_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path,source_sha256,return_url,context_type,context_id,sequence_group_id,sequence_position,sequence_total,event_signing_checkpoint_id")
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
@@ -206,6 +206,9 @@ export async function completeSigningAction(formData: FormData) {
   if (sourceError || !sourceBlob) redirect(`/sign/${encodeURIComponent(token)}?error=document_unavailable`);
 
   const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
+  if (sha256Hex(sourceBytes) !== envelope.source_sha256) {
+    redirect(`/sign/${encodeURIComponent(token)}?error=completion_failed`);
+  }
   const signedAt = new Date().toISOString();
   const result = await applySigningFields({
     sourceBytes,
