@@ -4,7 +4,7 @@ import {
   requireStudentApiUser,
   studentApiJsonError,
 } from "@/lib/auth/studentApiAuth";
-import { applySigningFields, type AppliedSignature, type SigningField, type SigningValue } from "@/lib/documents/pdf";
+import { applySigningFields, sha256Hex, type AppliedSignature, type SigningField, type SigningValue } from "@/lib/documents/pdf";
 import {
   DOCUMENT_FILES_BUCKET,
   signedStoragePath,
@@ -147,6 +147,7 @@ export async function POST(
       expires_at,
       source_bucket,
       source_path,
+      source_sha256,
       signed_bucket,
       signed_path,
       completed_at
@@ -279,6 +280,14 @@ export async function POST(
   }
 
   const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
+
+  if (sha256Hex(sourceBytes) !== envelope.source_sha256) {
+    return studentApiJsonError(
+      "The signed document could not be generated.",
+      500,
+    );
+  }
+
   const signedAt = new Date().toISOString();
 
   let result: Awaited<ReturnType<typeof applySigningFields>>;
