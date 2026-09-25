@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export type SmsConsentStatus = "unknown" | "opted_in" | "opted_out";
 
 export const SMS_CONSENT_DISCLOSURE =
@@ -85,6 +87,50 @@ export function appendSmsOptOutFooter(message: string, studioName?: string | nul
   return `${body}\n\n${footer}`;
 }
 
+/**
+ * A2P-1A: the only outbound-delivery templates that may be sent automatically as SMS.
+ * Everything else (including every event template) fails closed until it has
+ * compatible consent storage and is part of the registered campaign.
+ */
+export const SMS_AUTOMATED_TEMPLATES: ReadonlySet<string> = new Set([
+  "appointment_confirmed",
+  "appointment_rescheduled",
+  "appointment_cancelled",
+]);
+
+export function isAutomatedSmsTemplatePermitted(templateKey: string | null | undefined) {
+  return SMS_AUTOMATED_TEMPLATES.has(String(templateKey ?? ""));
+}
+
+/** Inbound keyword auto-replies (A2P-1A). HELP stays within one 160-character GSM segment. */
+export const SMS_HELP_REPLY =
+  "DanceFlow, operated by GenX TotalTech LLC: For help, contact support@idanceflow.com or your dance studio. Reply STOP to opt out. Msg&data rates may apply.";
+
+export const SMS_STOP_REPLY =
+  "You have been unsubscribed and will no longer receive texts from your studio through DanceFlow. Reply START to resubscribe.";
+
+export const SMS_START_REPLY =
+  "You have been resubscribed to texts from your studio through DanceFlow. Msg frequency varies. Msg&data rates may apply. Reply HELP for help, STOP to opt out.";
+
+export const SMS_START_NO_PRIOR_CONSENT_REPLY =
+  "We could not find a prior text subscription for this number. Please contact your studio to opt in.";
+
+/**
+ * Deterministic provider-error text for `sms_message_logs.provider_error_message`.
+ * Raw Twilio messages are never stored because they can echo request values.
+ */
+export function sanitizedSmsProviderError(errorCode: string | null | undefined) {
+  return errorCode ? `Twilio error ${errorCode}` : "The text could not be sent.";
+}
+
+/** Non-PII reason codes recorded when an automated SMS is intentionally not sent. */
+export type SmsSkipReason =
+  | "sms_template_not_permitted"
+  | "sms_not_approved"
+  | "sms_invalid_phone"
+  | "sms_no_consent"
+  | "sms_opted_out";
+
 export function smsConsentLabel(status: SmsConsentStatus): string {
   if (status === "opted_in") return "SMS allowed";
   if (status === "opted_out") return "SMS opted out";
@@ -104,7 +150,7 @@ export function smsConsentTip(status: SmsConsentStatus): string {
 }
 
 export async function upsertSmsConsent(
-  supabase: any,
+  supabase: SupabaseClient,
   input: SmsConsentInput,
 ): Promise<{ data: SmsPermissionRow | null; error: string | null }> {
   const phoneE164 = normalizeSmsPhone(input.phoneRaw);
@@ -132,7 +178,7 @@ export async function upsertSmsConsent(
 }
 
 export async function getSmsPermissionForClient(
-  supabase: any,
+  supabase: SupabaseClient,
   studioId: string,
   clientId: string,
 ): Promise<{ data: SmsPermissionRow | null; error: string | null }> {
@@ -153,7 +199,7 @@ export async function getSmsPermissionForClient(
 }
 
 export async function getSmsPermissionForOrganizerContact(
-  supabase: any,
+  supabase: SupabaseClient,
   organizerId: string,
   organizerContactId: string,
 ): Promise<{ data: SmsPermissionRow | null; error: string | null }> {

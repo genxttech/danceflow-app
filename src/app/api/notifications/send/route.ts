@@ -106,6 +106,14 @@ async function sendEmail(params: {
   return response.json();
 }
 
+function resolveRequestOrigin(request: NextRequest) {
+  try {
+    return new URL(request.url).origin;
+  } catch {
+    return null;
+  }
+}
+
 async function processPendingNotificationDeliveries(request: NextRequest) {
   const authFailure = getCronAuthFailure(request);
   if (authFailure) return authFailure;
@@ -144,8 +152,11 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
   let notificationSent = 0;
   let notificationFailed = 0;
 
+  // Origin of this request, used only to build the SMS status-callback URL (no hostname is hard-coded).
+  const origin = resolveRequestOrigin(request);
+
   if (!pending.length) {
-    const outbound = await dispatchQueuedOutboundDeliveries(100);
+    const outbound = await dispatchQueuedOutboundDeliveries(100, { origin });
 
     return NextResponse.json({
       ok: true,
@@ -246,7 +257,7 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
     }
   }
 
-  const outbound = await dispatchQueuedOutboundDeliveries(100);
+  const outbound = await dispatchQueuedOutboundDeliveries(100, { origin });
 
   return NextResponse.json({
     ok: true,
