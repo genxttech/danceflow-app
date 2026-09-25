@@ -14,11 +14,9 @@ import {
   consumePublicSigningRateLimit,
   requestIp,
 } from "@/lib/documents/public-signing-security";
+import { SIGNING_CONSENT_TEXT } from "@/lib/documents/consent";
 
 type Params = Promise<{ assignmentId: string }>;
-
-const CONSENT_TEXT =
-  "I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own.";
 
 function clean(value: unknown, maxLength: number) {
   return typeof value === "string"
@@ -376,7 +374,7 @@ export async function POST(
       completed_at: signedAt,
       signature_method: method,
       signed_timezone: timezone,
-      consent_text: CONSENT_TEXT,
+      consent_text: SIGNING_CONSENT_TEXT,
       updated_at: signedAt,
     })
     .eq("id", envelope.id)
@@ -417,7 +415,7 @@ export async function POST(
     summary: "Signer completed the document in the DanceFlow student app.",
     metadata: {
       source: "student_mobile_app",
-      consent_text: CONSENT_TEXT,
+      consent_text: SIGNING_CONSENT_TEXT,
       signature_method: method,
       signed_timezone: timezone,
       signed_at: signedAt,

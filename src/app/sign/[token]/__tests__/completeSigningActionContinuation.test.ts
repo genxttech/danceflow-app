@@ -8,6 +8,7 @@ import { hashSigningToken } from "@/lib/documents/signing";
 // Resolves to the REAL implementation: the `@/lib/documents/pdf` mock below
 // preserves it unchanged via `importActual`, only stubbing `applySigningFields`.
 import { sha256Hex } from "@/lib/documents/pdf";
+import { SIGNING_CONSENT_TEXT } from "@/lib/documents/consent";
 
 /**
  * Regression coverage for the confirmed Public Event Registration
@@ -260,6 +261,25 @@ describe("completeSigningAction -- BR-3D2c1 source-hash verification", () => {
     const uploadedBytes = uploadMock.mock.calls[0][1] as Uint8Array;
     const persisted = envelopesTable.rows.find((r) => r.id === ENVELOPE_ID);
     expect(persisted?.signed_sha256).toBe(sha256Hex(uploadedBytes));
+  });
+});
+
+describe("completeSigningAction -- BR-3D2c2 consent evidence correctness", () => {
+  it("persists the complete canonical consent text byte-for-byte, including the previously-omitted policy sentence", async () => {
+    advanceEventSigningCheckpointMock.mockResolvedValue({ kind: "next", url: "https://app.example.com/sign/next" });
+
+    await expectRedirectTo(completeSigningAction(buildFormData()), "https://app.example.com/sign/next");
+
+    const persisted = envelopesTable.rows.find((r) => r.id === ENVELOPE_ID);
+    expect(persisted?.consent_text).toBe(SIGNING_CONSENT_TEXT);
+    expect(persisted?.consent_text).toBe(
+      "I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own. Review the Electronic Records and Signature Consent.",
+    );
+
+    const completedEvent = eventsTable.rows.find((r) => r.event_type === "completed");
+    expect((completedEvent?.metadata as { consent_text?: string } | undefined)?.consent_text).toBe(
+      SIGNING_CONSENT_TEXT,
+    );
   });
 });
 

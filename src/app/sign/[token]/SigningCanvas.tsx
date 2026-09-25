@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, PenLine, RotateCcw, X } from "lucide-react";
 import { completeSigningAction } from "./actions";
+import { SIGNING_CONSENT_ACKNOWLEDGEMENT, SIGNING_CONSENT_POLICY_LEAD_IN, SIGNING_CONSENT_POLICY_LINK_LABEL } from "@/lib/documents/consent";
 
 type Field = {
   id: string;
@@ -49,11 +50,13 @@ function SignatureModal({
   const drawingRef = useRef(false);
   const [mode, setMode] = useState<SignatureMode>("typed");
   const [typedValue, setTypedValue] = useState(kind === "initials" ? initials(signerName) : signerName);
+  const [resetSnapshot, setResetSnapshot] = useState({ kind, signerName, open });
 
-  useEffect(() => {
+  if (resetSnapshot.kind !== kind || resetSnapshot.signerName !== signerName || resetSnapshot.open !== open) {
+    setResetSnapshot({ kind, signerName, open });
     setTypedValue(kind === "initials" ? initials(signerName) : signerName);
     setMode("typed");
-  }, [kind, signerName, open]);
+  }
 
   useEffect(() => {
     if (!open || mode !== "drawn") return;
@@ -199,9 +202,12 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
   const canGoPrevious = page > 1;
   const canGoNext = page < pageCount;
 
-  function goToPage(nextPage: number) {
-    setPage(Math.min(Math.max(nextPage, 1), pageCount));
-  }
+  const goToPage = useCallback(
+    (nextPage: number) => {
+      setPage(Math.min(Math.max(nextPage, 1), pageCount));
+    },
+    [pageCount],
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -222,7 +228,7 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canGoNext, canGoPrevious, page, pageCount]);
+  }, [canGoNext, canGoPrevious, page, pageCount, goToPage]);
 
   return (
     <>
@@ -319,7 +325,15 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
                     >
                       {signature ? (
                         <>
-                          {signature.method === "drawn" ? <img src={signature.value} alt="Applied signature" className="max-h-[70%] max-w-full object-contain" /> : <span className="truncate text-xs italic text-slate-950">{signature.value}</span>}
+                          {signature.method === "drawn" ? (
+                            /* signature.value is a client-generated data: URL from canvas.toDataURL() -- there is
+                               no network image to optimize, and native sizing is intentionally preserved inside
+                               the signing-field overlay. */
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={signature.value} alt="Applied signature" className="max-h-[70%] max-w-full object-contain" />
+                          ) : (
+                            <span className="truncate text-xs italic text-slate-950">{signature.value}</span>
+                          )}
                           <span className="mt-0.5 text-[9px] font-semibold text-emerald-700">Signed {appliedAt[field.id] ?? "now"}</span>
                         </>
                       ) : (
@@ -362,7 +376,7 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <label className="flex gap-3 text-sm leading-6"><input type="checkbox" name="consent" required className="mt-1" /><span>I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own. Review the <a href="/electronic-signature-consent" target="_blank" rel="noreferrer" className="font-semibold text-violet-700 underline">Electronic Records and Signature Consent</a>.</span></label>
+          <label className="flex gap-3 text-sm leading-6"><input type="checkbox" name="consent" required className="mt-1" /><span>{SIGNING_CONSENT_ACKNOWLEDGEMENT} {SIGNING_CONSENT_POLICY_LEAD_IN} <a href="/electronic-signature-consent" target="_blank" rel="noreferrer" className="font-semibold text-violet-700 underline">{SIGNING_CONSENT_POLICY_LINK_LABEL}</a>.</span></label>
           <button className="mt-4 w-full rounded-xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-semibold text-white">Finish and sign</button>
         </div>
       </form>
