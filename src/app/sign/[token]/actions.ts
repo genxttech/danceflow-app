@@ -9,14 +9,13 @@ import { consumePublicSigningRateLimit, serverActionIp } from "@/lib/documents/p
 import { advanceEventSigningCheckpoint, normalizeSigningReturnUrl } from "@/lib/documents/event-signing";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { resolveStudioDisplayName } from "@/lib/email/brand";
+import { SIGNING_CONSENT_TEXT } from "@/lib/documents/consent";
 import {
   buildSigningCompletedSignerEmail,
   buildSigningCompletedStudioEmail,
   buildSigningDeclinedStudioEmail,
   type SigningEmailContext,
 } from "./signingEmails";
-
-const CONSENT_TEXT = "I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own.";
 
 async function getSigningEmailContext(studioId: string): Promise<SigningEmailContext> {
   const admin = createAdminClient();
@@ -260,7 +259,7 @@ export async function completeSigningAction(formData: FormData) {
     completed_at: signedAt,
     signature_method: method,
     signed_timezone: timezone,
-    consent_text: CONSENT_TEXT,
+    consent_text: SIGNING_CONSENT_TEXT,
     updated_at: signedAt,
   })
     .eq("id", envelope.id)
@@ -279,7 +278,7 @@ export async function completeSigningAction(formData: FormData) {
     ip_address: ip,
     user_agent: userAgent,
     summary: "Signer completed the document with an electronic signature.",
-    metadata: { consent_text: CONSENT_TEXT, signature_method: method, signed_timezone: timezone, signed_at: signedAt },
+    metadata: { consent_text: SIGNING_CONSENT_TEXT, signature_method: method, signed_timezone: timezone, signed_at: signedAt },
   });
 
   try {

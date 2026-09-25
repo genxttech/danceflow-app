@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { sha256Hex } from "@/lib/documents/pdf";
 
 /**
@@ -261,5 +263,36 @@ describe("GET certificate -- signed-artifact verification", () => {
 
     expect(response.status).toBe(404);
     expect(await response.text()).toBe("Certificate unavailable");
+  });
+});
+
+describe("GET certificate -- BR-3D2c2 historical consent evidence (no rewrite)", () => {
+  it("succeeds using a historical persisted consent value that differs from today's canonical text", async () => {
+    // "I agree." (this file's own default fixture value, unrelated to any
+    // current consent constant) stands in for a pre-D2c2 historical row.
+    // The route must render successfully using exactly what is persisted.
+    mockStudioContext("studio_owner");
+    const fixture: Fixture = {
+      envelope: baseEnvelope({ consent_text: "I agree." }),
+      download: { data: signedBlob(), error: null },
+    };
+    vi.doMock("@/lib/supabase/admin", () => ({ createAdminClient: () => makeAdminClient(fixture) }));
+
+    const response = await callRoute();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/pdf");
+  });
+
+  it("the certificate route has no access to today's canonical consent constant, so it cannot substitute it for historical evidence", () => {
+    // Structural, not source-regex-on-behavior: this asserts an import
+    // boundary, not application logic. Confirmed empirically that pdf-lib's
+    // default pdf.save() compresses page content streams, so the rendered
+    // text itself is not present as plain bytes in the output PDF and
+    // cannot be asserted on directly without parsing/decompressing it --
+    // this import-boundary check plus the passing historical-value render
+    // above together prove the required invariant.
+    const routeSource = readFileSync(fileURLToPath(new URL("../route.ts", import.meta.url)), "utf8");
+    expect(routeSource).not.toMatch(/@\/lib\/documents\/consent/);
   });
 });

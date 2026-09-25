@@ -4,6 +4,7 @@ import {
   createFakeAdminClient,
   type Row,
 } from "@/lib/supabase/__tests__/simpleFakeAdminClient";
+import { SIGNING_CONSENT_TEXT } from "@/lib/documents/consent";
 
 /**
  * BR-3D2c1: proves the student/mobile completion path (Path B) enforces the
@@ -235,5 +236,22 @@ describe("POST /api/student/documents/[assignmentId]/complete -- BR-3D2c1 source
     const uploadedBytes = uploadMock.mock.calls[0][1] as Uint8Array;
     const persisted = envelopesTable.rows.find((r) => r.id === ENVELOPE_ID);
     expect(persisted?.signed_sha256).toBe(sha256Hex(uploadedBytes));
+  });
+});
+
+describe("POST /api/student/documents/[assignmentId]/complete -- BR-3D2c2 consent evidence correctness", () => {
+  it("persists exactly the same full canonical consent text as the public web completion path", async () => {
+    await callRoute(validBody);
+
+    const persisted = envelopesTable.rows.find((r) => r.id === ENVELOPE_ID);
+    expect(persisted?.consent_text).toBe(SIGNING_CONSENT_TEXT);
+    expect(persisted?.consent_text).toBe(
+      "I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own. Review the Electronic Records and Signature Consent.",
+    );
+
+    const completedEvent = eventsTable.rows.find((r) => r.event_type === "completed");
+    expect((completedEvent?.metadata as { consent_text?: string } | undefined)?.consent_text).toBe(
+      SIGNING_CONSENT_TEXT,
+    );
   });
 });
