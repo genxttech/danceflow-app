@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 import { sha256Hex } from "@/lib/documents/pdf";
 
-function line(page: any, font: any, label: string, value: string, y: number) { page.drawText(label, { x: 54, y, size: 10, font, color: rgb(.35,.35,.42) }); page.drawText(value || "—", { x: 180, y, size: 10, font, color: rgb(.08,.08,.12), maxWidth: 360 }); }
+function line(page: PDFPage, font: PDFFont, label: string, value: string, y: number) { page.drawText(label, { x: 54, y, size: 10, font, color: rgb(.35,.35,.42) }); page.drawText(value || "—", { x: 180, y, size: 10, font, color: rgb(.08,.08,.12), maxWidth: 360 }); }
 function unavailable() { return new NextResponse("Certificate unavailable", { status: 404 }); }
 export async function GET(_request: Request, { params }: { params: Promise<{ envelopeId: string }> }) {
   const { envelopeId } = await params; const context = await getCurrentStudioContext(); if (!canManageDocumentsRole(context.studioRole)) return new NextResponse("Not found", { status: 404 }); const admin = createAdminClient();
