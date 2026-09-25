@@ -98,3 +98,49 @@ describe("SigningCanvas -- BR-3D2c2 shared consent source", () => {
     );
   });
 });
+
+/**
+ * BR-3D2c2 lint-debt correction: SigningCanvas.tsx carried three pre-existing
+ * lint findings (react-hooks/set-state-in-effect, react-hooks/exhaustive-deps,
+ * @next/next/no-img-element) that this slice's diff never introduced, but
+ * which the repo's whole-file "changed-file lint policy" still failed the PR
+ * on, since this slice legitimately touches the file to consume the shared
+ * consent fragments. This is structural, source-text protection only -- not
+ * a runtime React render test -- for the same environment reason documented
+ * above (vitest, environment: "node", no jsdom/testing-library). It proves
+ * the three corrections preserve their documented behavioral contracts
+ * (which trigger a reset, what goToPage depends on, what the signature
+ * preview renders) without needing a full component render.
+ */
+describe("SigningCanvas -- BR-3D2c2 lint-debt correction (structural)", () => {
+  it("Finding A: the modal reset is a render-time adjustment (not an effect) tracking kind, signerName, and open", () => {
+    expect(componentSource).toMatch(
+      /if \(\s*resetSnapshot\.kind !== kind \|\|\s*resetSnapshot\.signerName !== signerName \|\|\s*resetSnapshot\.open !== open\s*\) \{\s*setResetSnapshot\(\{ kind, signerName, open \}\);\s*setTypedValue\(kind === "initials" \? initials\(signerName\) : signerName\);\s*setMode\("typed"\);\s*\}/,
+    );
+    // The old reset effect must no longer exist: no useEffect body sets
+    // typedValue/mode together over exactly this dependency array.
+    expect(componentSource).not.toMatch(
+      /useEffect\(\(\) => \{\s*setTypedValue\(kind === "initials" \? initials\(signerName\) : signerName\);\s*setMode\("typed"\);\s*\}, \[kind, signerName, open\]\);/,
+    );
+  });
+
+  it("Finding B: goToPage is memoized with useCallback over pageCount, and the keydown effect depends on it", () => {
+    expect(componentSource).toMatch(
+      /const goToPage = useCallback\(\s*\(nextPage: number\) => \{\s*setPage\(Math\.min\(Math\.max\(nextPage, 1\), pageCount\)\);\s*\},\s*\[pageCount\],\s*\);/,
+    );
+    expect(componentSource).toMatch(
+      /\}, \[canGoNext, canGoPrevious, page, pageCount, goToPage\]\);/,
+    );
+  });
+
+  it("Finding C: the drawn-signature preview keeps the native <img>, narrowly suppressed, with its existing attributes", () => {
+    const match = componentSource.match(
+      /\/\/ eslint-disable-next-line @next\/next\/no-img-element\s*\n\s*(<img[^>]*\/>)/,
+    );
+    expect(match).not.toBeNull();
+    const imgTag = match?.[1] ?? "";
+    expect(imgTag).toContain('src={signature.value}');
+    expect(imgTag).toContain('alt="Applied signature"');
+    expect(imgTag).toContain('className="max-h-[70%] max-w-full object-contain"');
+  });
+});
