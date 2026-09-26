@@ -2,6 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { recordPublicFormSmsConsent } from "@/lib/sms/publicConsent";
 import { checkPublicFormProtection } from "@/lib/security/bot-protection";
 import {
   cleanFormText,
@@ -174,22 +176,44 @@ export async function submitPublicLeadAction(
       .filter(Boolean)
       .join("\n");
 
-    const { error: insertError } = await supabase.from("clients").insert({
-      studio_id: studio.id,
-      first_name: firstName,
-      last_name: lastName,
-      email,
-      phone,
-      status: "lead",
-      skill_level: skillLevel,
-      dance_interests: danceInterests || null,
-      referral_source: referralSource || sourceLabel,
-      notes: combinedNotes || null,
-    });
+    // A2P-1B: the lead row is written with the server-only admin client (as the public
+    // booking action already does) so the new client id is available for consent
+    // evidence. Every value is server-validated above; the studio comes from the
+    // enabled-studio lookup, never from the browser.
+    const adminSupabase = createAdminClient();
 
-    if (insertError) {
-      return { error: `Lead submission failed: ${insertError.message}` };
+    const { data: insertedClient, error: insertError } = await adminSupabase
+      .from("clients")
+      .insert({
+        studio_id: studio.id,
+        first_name: firstName,
+        last_name: lastName,
+        email,
+        phone,
+        status: "lead",
+        skill_level: skillLevel,
+        dance_interests: danceInterests || null,
+        referral_source: referralSource || sourceLabel,
+        notes: combinedNotes || null,
+      })
+      .select("id")
+      .single<{ id: string }>();
+
+    if (insertError || !insertedClient) {
+      return {
+        error: `Lead submission failed: ${insertError?.message ?? "Unknown error."}`,
+      };
     }
+
+    // Explicit SMS consent only; "Preferred contact method: Text" is never consent.
+    await recordPublicFormSmsConsent({
+      studioId: studio.id,
+      clientId: insertedClient.id,
+      clientIsNew: true,
+      submittedPhone: phone,
+      consentChecked: rawFormString(formData, "smsConsent") === "yes",
+      form: "public_lead_form",
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",

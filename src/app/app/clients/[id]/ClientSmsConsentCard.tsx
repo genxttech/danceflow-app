@@ -2,7 +2,7 @@ import {
   type SmsConsentStatus,
   type SmsPermissionRow,
   normalizeSmsPhone,
-  SMS_CONSENT_DISCLOSURE,
+  buildSmsConsentDisclosure,
   getSmsPlatformReadiness,
   smsConsentLabel,
   smsConsentTip,
@@ -11,6 +11,7 @@ import { updateClientSmsConsentAction } from "./sms-actions";
 
 type ClientSmsConsentCardProps = {
   clientId: string;
+  studioName?: string | null;
   phone: string | null | undefined;
   permission?: SmsPermissionRow | null;
   canManage?: boolean;
@@ -26,6 +27,7 @@ function statusClasses(status: SmsConsentStatus) {
 
 export function ClientSmsConsentCard({
   clientId,
+  studioName,
   phone,
   permission,
   canManage = false,
@@ -84,7 +86,7 @@ export function ClientSmsConsentCard({
 
       <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
         <p className="text-sm font-semibold text-blue-950">Required consent language</p>
-        <p className="mt-2 text-sm leading-6 text-blue-900">{SMS_CONSENT_DISCLOSURE}</p>
+        <p className="mt-2 text-sm leading-6 text-blue-900">{buildSmsConsentDisclosure(studioName)}</p>
         <p className="mt-3 text-xs leading-5 text-blue-800">
           Consent must be optional and should only be marked opted in after the student has agreed to this disclosure.
         </p>

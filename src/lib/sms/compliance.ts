@@ -2,8 +2,30 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type SmsConsentStatus = "unknown" | "opted_in" | "opted_out";
 
-export const SMS_CONSENT_DISCLOSURE =
-  "I agree to receive text messages from my dance studio through DanceFlow, including appointment reminders, schedule updates, event reminders, ticket notifications, and client service messages. Message frequency varies. Message and data rates may apply. Reply HELP for help. Reply STOP to unsubscribe. Consent is not required to purchase or use services.";
+/**
+ * A2P-1B: version marker for the canonical SMS consent disclosure. It is stored in
+ * `sms_contact_permissions.consent_note` as evidence of the exact wording shown.
+ * Bump it whenever the disclosure wording changes.
+ */
+export const SMS_CONSENT_DISCLOSURE_VERSION = "a2p1b-v1";
+
+/** Closing sentence of the disclosure; the public checkbox renders it with links. */
+export const SMS_CONSENT_LINKS_SENTENCE = "See our Terms and Privacy Policy.";
+
+/**
+ * Body of the canonical disclosure (everything before the Terms/Privacy sentence).
+ * Shared by the public opt-in checkbox and the staff verbal/written consent script.
+ */
+export function buildSmsConsentDisclosureBody(studioName: string | null | undefined) {
+  const studio = String(studioName ?? "").trim() || "your dance studio";
+
+  return `Yes, I agree to receive text messages from ${studio} through DanceFlow, a software platform owned and operated by GenX TotalTech LLC, about my inquiry, lesson bookings and appointments (including confirmations, changes and cancellations), and other service-related messages from the studio. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is optional and is not a condition of purchase.`;
+}
+
+/** The full canonical SMS consent disclosure for a studio. */
+export function buildSmsConsentDisclosure(studioName: string | null | undefined) {
+  return `${buildSmsConsentDisclosureBody(studioName)} ${SMS_CONSENT_LINKS_SENTENCE}`;
+}
 
 export const SMS_CONSENT_REVIEW_URL = "https://idanceflow.com/sms-consent";
 

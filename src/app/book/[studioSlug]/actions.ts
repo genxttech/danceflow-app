@@ -10,6 +10,7 @@ import {
   type SelfServiceBlackout,
 } from "@/lib/booking/selfServiceAvailability";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recordPublicFormSmsConsent } from "@/lib/sms/publicConsent";
 import {
   buildPublicBookingClientEmail,
   buildPublicBookingStaffEmail,
@@ -587,10 +588,12 @@ export async function createPublicIntroBookingAction(
     }
 
     let clientId: string | null = null;
+    let clientIsNew = false;
+    let existingClientPhone: string | null = null;
 
     const { data: existingClientByEmail } = await supabase
       .from("clients")
-      .select("id")
+      .select("id, phone")
       .eq("studio_id", studio.id)
       .eq("email", email)
       .limit(1)
@@ -598,6 +601,7 @@ export async function createPublicIntroBookingAction(
 
     if (existingClientByEmail?.id) {
       clientId = existingClientByEmail.id;
+      existingClientPhone = existingClientByEmail.phone ?? null;
     } else {
       const { data: insertedClient, error: clientInsertError } = await supabase
         .from("clients")
@@ -624,7 +628,24 @@ export async function createPublicIntroBookingAction(
       }
 
       clientId = insertedClient.id;
+      clientIsNew = true;
     }
+
+    if (!clientId) {
+      return { error: "Could not create lead: Unknown error." };
+    }
+
+    // A2P-1B: record explicit SMS consent before any duplicate-request redirect. For an
+    // existing client, consent is only recorded for the phone already on file.
+    await recordPublicFormSmsConsent({
+      studioId: studio.id,
+      clientId,
+      clientIsNew,
+      existingClientPhone,
+      submittedPhone: phone,
+      consentChecked: rawFormString(formData, "smsConsent") === "yes",
+      form: "public_booking_form",
+    });
 
     const { data: duplicateRequest } = await supabase
       .from("booking_requests")

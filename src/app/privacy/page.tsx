@@ -42,6 +42,10 @@ export default function PrivacyPage() {
           <div className="space-y-6">
             <Section title="1. Scope and roles">
               <p>
+                DanceFlow is a software platform owned and operated by GenX TotalTech
+                LLC (&ldquo;DanceFlow,&rdquo; &ldquo;we,&rdquo; &ldquo;us&rdquo;).
+              </p>
+              <p>
                 This Privacy Policy explains how DanceFlow collects, uses, discloses,
                 and protects personal information through our websites, applications,
                 studio software, portals, booking and event tools, payments,
@@ -145,8 +149,9 @@ export default function PrivacyPage() {
               <p>
                 Mobile information and SMS consent records are not sold, rented, or
                 shared with third parties or affiliates for their own marketing or
-                promotional purposes. Users may reply STOP to opt out where supported.
-                Additional information is available at{" "}
+                promotional purposes. Users may reply STOP to opt out or HELP for help
+                where supported. Message frequency varies, and message and data rates
+                may apply. Additional information is available at{" "}
                 <Link href="/sms-consent" className="font-semibold text-slate-950 underline">
                   SMS Consent and Messaging Terms
                 </Link>

@@ -9,7 +9,7 @@ BR-2 (product shell), BR-3 (emails and documents), BR-4 (public website) and BR-
 
 - **Master brand:** `DanceFlow` (one word, capital D and F). Never `Dance Flow`, `Danceflow`, or `Dance-Flow`. Lowercase `danceflow` is allowed only in URLs, identifiers, package/bundle ids and file names. `DANCEFLOW` is allowed only as a deliberate uppercase typographic treatment of the wordmark label.
 - **Legal entity:** GenX TotalTech LLC.
-- **Canonical relationship:** "DanceFlow is a product of GenX TotalTech LLC."
+- **Canonical relationship:** "DanceFlow is a software platform owned and operated by GenX TotalTech LLC." (owner-approved for A2P-1C; used on the public footer, Terms, Privacy, SMS Consent and in SMS consent disclosures). The email legal line (`EMAIL_LEGAL_LINE`) still reads "DanceFlow is a product of GenX TotalTech LLC." pending a later email cleanup; the two are consistent in meaning.
 - DanceFlow stays visually dominant on every customer-facing product surface. The legal entity appears where it is required or expected, in quiet type, never as a competing brand.
 
 ### Where the legal entity must appear
@@ -17,7 +17,7 @@ BR-2 (product shell), BR-3 (emails and documents), BR-4 (public website) and BR-
 | Context | Rule |
 |---|---|
 | Legal pages (Terms, Privacy, DPA, Acceptable Use, Refund Policy, SMS Consent, Electronic Signature Consent, Security) | Name the contracting entity. |
-| Copyright / site footer | "© {year} DanceFlow" plus the relationship line, e.g. "DanceFlow is a product of GenX TotalTech LLC." |
+| Copyright / site footer | "© {year} DanceFlow" plus the relationship line: "DanceFlow is a software platform owned and operated by GenX TotalTech LLC." |
 | Contracts and order forms | Full legal name as the contracting party. |
 | Payment / merchant disclosures | Wherever a merchant or seller-of-record disclosure is legally required. |
 | Google Play (and any store) developer identity | The developer account carries the legal entity where the store requires it; the store listing itself is branded DanceFlow. |
@@ -264,7 +264,7 @@ Reusable, app-agnostic rules only. The number, names and boundaries of apps are 
 3. **ARIA acronym expansion and pronoun cleanup** — deferred to a later copy review; ARIA stays the canonical visible assistant name.
 4. **Mobile app icons** (legacy `DF` monogram) — not modified until mobile branding is planned.
 5. **Dark-surface token** and **production font family** — deliberately not decided (see §6.4, §7).
-6. **Legal line placement** in the product (footer, legal pages, emails, structured data) — implemented in BR-2/BR-3/BR-4. The wording itself is approved: "DanceFlow is a product of GenX TotalTech LLC."
+6. **Legal line placement** in the product (footer, legal pages, emails, structured data) — implemented in BR-2/BR-3/BR-4. Public surfaces use the A2P-1C wording "DanceFlow is a software platform owned and operated by GenX TotalTech LLC."; email footers still use "DanceFlow is a product of GenX TotalTech LLC." until a later email cleanup.
 
 ---
 
