@@ -8,6 +8,7 @@ import { canManageMemberships, canSellMemberships } from "@/lib/auth/permissions
 import { ensureConnectedStripeCustomer } from "@/lib/payments/customer";
 import { getStripe } from "@/lib/payments/stripe";
 import { ensureConnectedStripeRecurringPrice } from "@/lib/payments/subscriptions";
+import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
 import { recordManualMembershipPayment } from "@/lib/memberships/manual-payment";
 import { reconcileStudioMembershipPeriods } from "@/lib/memberships/renewal";
 import { MEMBERSHIP_BENEFIT_TYPES, MEMBERSHIP_USAGE_PERIODS } from "@/lib/memberships/benefitTypes";
@@ -192,6 +193,7 @@ async function requireStudioConnectReadyForMemberships(studioId: string) {
       `
       stripe_connected_account_id,
       stripe_connect_onboarding_complete,
+      stripe_connect_charges_enabled,
       stripe_connect_payouts_enabled
     `,
     )
@@ -208,12 +210,15 @@ async function requireStudioConnectReadyForMemberships(studioId: string) {
     );
   }
 
+  // PAY-DC-1: new membership sales, card setup and card replacement also require
+  // the connected account to be able to accept charges.
   if (
     !studio.stripe_connect_onboarding_complete ||
+    !studio.stripe_connect_charges_enabled ||
     !studio.stripe_connect_payouts_enabled
   ) {
     throw new Error(
-      "This studio has not completed Stripe payout setup yet. Membership checkout is not available.",
+      "This studio has not completed Stripe payment setup yet. Membership checkout is not available.",
     );
   }
 
@@ -1134,6 +1139,19 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
       );
     }
 
+    // PAY-DC-1: operate only in the verified connected account that owns the
+    // subscription. Missing or mismatched account context fails closed before
+    // any Stripe call; there is no platform fallback.
+    const cancelAccount = await resolveMembershipStripeAccount({
+      supabase,
+      studioId,
+      stripeAccountId: stripeSubscriptionRow.stripe_account_id,
+    });
+
+    if (!cancelAccount.ok) {
+      redirect(addQueryParam(returnTo, "error", cancelAccount.code));
+    }
+
     const stripe = getStripe();
 
     const updatedSubscription = await stripe.subscriptions.update(
@@ -1141,9 +1159,7 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
       {
         cancel_at_period_end: true,
       },
-      stripeSubscriptionRow.stripe_account_id
-        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
-        : undefined,
+      { stripeAccount: cancelAccount.stripeAccount },
     );
 
     const primaryItem = updatedSubscription.items?.data?.[0] ?? null;
@@ -1196,10 +1212,9 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
       throw error;
     }
 
-    const message =
-      error instanceof Error ? error.message : "membership_cancel_failed";
-
-    redirect(addQueryParam(returnTo, "error", message));
+    // Fixed code only: raw provider/database error text is never placed in the URL.
+    console.error("membership_cancel_failed");
+    redirect(addQueryParam(returnTo, "error", "membership_cancel_failed"));
   }
 }
 
@@ -1280,6 +1295,17 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
       );
     }
 
+    // PAY-DC-1: verified connected account only; fail closed otherwise.
+    const reactivateAccount = await resolveMembershipStripeAccount({
+      supabase,
+      studioId,
+      stripeAccountId: stripeSubscriptionRow.stripe_account_id,
+    });
+
+    if (!reactivateAccount.ok) {
+      redirect(addQueryParam(returnTo, "error", reactivateAccount.code));
+    }
+
     const stripe = getStripe();
 
     const updatedSubscription = await stripe.subscriptions.update(
@@ -1287,9 +1313,7 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
       {
         cancel_at_period_end: false,
       },
-      stripeSubscriptionRow.stripe_account_id
-        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
-        : undefined,
+      { stripeAccount: reactivateAccount.stripeAccount },
     );
 
     const primaryItem = updatedSubscription.items?.data?.[0] ?? null;
@@ -1340,10 +1364,9 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
       throw error;
     }
 
-    const message =
-      error instanceof Error ? error.message : "membership_reactivate_failed";
-
-    redirect(addQueryParam(returnTo, "error", message));
+    // Fixed code only: raw provider/database error text is never placed in the URL.
+    console.error("membership_reactivate_failed");
+    redirect(addQueryParam(returnTo, "error", "membership_reactivate_failed"));
   }
 }
 
@@ -1532,6 +1555,20 @@ export async function retryDelinquentMembershipBillingAction(
       );
     }
 
+    // PAY-DC-1: retry may only update and pay in the verified connected account
+    // that owns the subscription. Missing or mismatched context fails closed
+    // before any Stripe call; the GenX platform account is never used.
+    const retryAccount = await resolveMembershipStripeAccount({
+      supabase,
+      studioId,
+      stripeAccountId: stripeSubscriptionRow.stripe_account_id,
+    });
+
+    if (!retryAccount.ok) {
+      redirect(addQueryParam(returnTo, "error", retryAccount.code));
+    }
+
+    const connectedAccountOptions = { stripeAccount: retryAccount.stripeAccount };
     const stripe = getStripe();
 
     await stripe.subscriptions.update(
@@ -1541,9 +1578,7 @@ export async function retryDelinquentMembershipBillingAction(
         cancel_at_period_end: false,
         collection_method: "charge_automatically",
       },
-      stripeSubscriptionRow.stripe_account_id
-        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
-        : undefined,
+      connectedAccountOptions,
     );
 
     const invoices = await stripe.invoices.list(
@@ -1552,9 +1587,7 @@ export async function retryDelinquentMembershipBillingAction(
         status: "open",
         limit: 10,
       },
-      stripeSubscriptionRow.stripe_account_id
-        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
-        : undefined,
+      connectedAccountOptions,
     );
 
     const payableInvoice = invoices.data.find(
@@ -1570,19 +1603,16 @@ export async function retryDelinquentMembershipBillingAction(
     await stripe.invoices.pay(
       payableInvoice.id,
       { payment_method: defaultPaymentMethodId },
-      stripeSubscriptionRow.stripe_account_id
-        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
-        : undefined,
+      connectedAccountOptions,
     );
 
     redirect(addQueryParam(returnTo, "success", "membership_retry_submitted"));
   } catch (error) {
     if (isRedirectError(error)) throw error;
 
-    const message =
-      error instanceof Error ? error.message : "membership_retry_failed";
-
-    redirect(addQueryParam(returnTo, "error", message));
+    // Fixed code only: raw provider/database error text is never placed in the URL.
+    console.error("membership_retry_failed");
+    redirect(addQueryParam(returnTo, "error", "membership_retry_failed"));
   }
 }
 
