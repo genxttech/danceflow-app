@@ -6,6 +6,7 @@ import {
   SupabaseClient,
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
+import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
 import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
 import {
   reconcilePackageStripeRefund,
@@ -327,11 +328,18 @@ async function upsertStripePaymentMethodRecord(
     clientId: string;
     customerId: string;
     paymentMethodId: string;
+    /** PAY-DC-1: the connected account that owns the customer/payment method. */
+    stripeAccountId: string;
   },
 ) {
-  const { studioId, clientId, customerId, paymentMethodId } = input;
+  const { studioId, clientId, customerId, paymentMethodId, stripeAccountId } = input;
+  const connectedAccountOptions = { stripeAccount: stripeAccountId };
 
-  const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+  const paymentMethod = await stripe.paymentMethods.retrieve(
+    paymentMethodId,
+    {},
+    connectedAccountOptions,
+  );
 
   const type = paymentMethod.type ?? null;
   const brand = paymentMethod.card?.brand ?? null;
@@ -384,11 +392,15 @@ async function upsertStripePaymentMethodRecord(
   const isDefault = !currentDefaults || currentDefaults.length === 0;
 
   if (isDefault) {
-    await stripe.customers.update(customerId, {
-      invoice_settings: {
-        default_payment_method: paymentMethodId,
+    await stripe.customers.update(
+      customerId,
+      {
+        invoice_settings: {
+          default_payment_method: paymentMethodId,
+        },
       },
-    });
+      connectedAccountOptions,
+    );
   }
 
   const { error: insertMethodError } = await supabase
@@ -3273,7 +3285,7 @@ export async function handleClientPaymentRequestCheckoutCompleted(
   return true;
 }
 
-async function handleCheckoutSessionCompleted(
+export async function handleCheckoutSessionCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
   session: Stripe.Checkout.Session,
@@ -3281,11 +3293,11 @@ async function handleCheckoutSessionCompleted(
   stripeEventId?: string,
   stripeEventType?: string,
 ) {
-  const handledStudioSubscription = await handleStudioCheckoutCompleted(
-    supabase,
-    stripe,
-    session,
-  );
+  // PAY-DC-1: DanceFlow SaaS billing sessions live on the platform account and
+  // never carry event.account; connected (studio) sessions are never treated as SaaS.
+  const handledStudioSubscription = stripeAccountId
+    ? false
+    : await handleStudioCheckoutCompleted(supabase, stripe, session);
 
   if (handledStudioSubscription) {
     return;
@@ -3343,40 +3355,62 @@ async function handleCheckoutSessionCompleted(
     throw new Error("Missing checkout session metadata.");
   }
 
-  if (session.mode === "setup") {
-    const setupIntentId = getString(session.setup_intent);
-
-    if (!setupIntentId) {
-      throw new Error("Setup session missing setup intent.");
-    }
-
-    const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
-    const paymentMethodId = getString(setupIntent.payment_method);
-
-    if (!paymentMethodId) {
-      throw new Error("Setup intent missing payment method.");
-    }
-
-    await upsertStripePaymentMethodRecord(supabase, stripe, {
+  if (session.mode === "setup" || session.mode === "subscription") {
+    // PAY-DC-1: membership setup/subscription sessions are created on the studio's
+    // connected account. Require event.account and verify it is the studio's
+    // connected account before any Stripe call; never read them on the platform.
+    const verifiedAccount = await resolveMembershipStripeAccount({
+      supabase,
       studioId,
-      clientId,
-      customerId,
-      paymentMethodId,
+      stripeAccountId,
     });
 
-    return;
-  }
+    if (!verifiedAccount.ok) {
+      throw new Error(verifiedAccount.code);
+    }
 
-  if (session.mode === "subscription") {
+    const connectedAccountOptions = { stripeAccount: verifiedAccount.stripeAccount };
+
+    if (session.mode === "setup") {
+      const setupIntentId = getString(session.setup_intent);
+
+      if (!setupIntentId) {
+        throw new Error("Setup session missing setup intent.");
+      }
+
+      const setupIntent = await stripe.setupIntents.retrieve(
+        setupIntentId,
+        {},
+        connectedAccountOptions,
+      );
+      const paymentMethodId = getString(setupIntent.payment_method);
+
+      if (!paymentMethodId) {
+        throw new Error("Setup intent missing payment method.");
+      }
+
+      await upsertStripePaymentMethodRecord(supabase, stripe, {
+        studioId,
+        clientId,
+        customerId,
+        paymentMethodId,
+        stripeAccountId: verifiedAccount.stripeAccount,
+      });
+
+      return;
+    }
+
     const subscriptionId = getString(session.subscription);
 
     if (!subscriptionId) {
       throw new Error("Subscription checkout session missing subscription id.");
     }
 
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
-      expand: ["default_payment_method", "customer"],
-    });
+    const subscription = await stripe.subscriptions.retrieve(
+      subscriptionId,
+      { expand: ["default_payment_method", "customer"] },
+      connectedAccountOptions,
+    );
 
     const defaultPaymentMethodId =
       typeof subscription.default_payment_method === "string"
@@ -3386,9 +3420,11 @@ async function handleCheckoutSessionCompleted(
     let paymentMethodId = defaultPaymentMethodId;
 
     if (!paymentMethodId) {
-      const customer = await stripe.customers.retrieve(customerId, {
-        expand: ["invoice_settings.default_payment_method"],
-      });
+      const customer = await stripe.customers.retrieve(
+        customerId,
+        { expand: ["invoice_settings.default_payment_method"] },
+        connectedAccountOptions,
+      );
 
       if (!("deleted" in customer) || customer.deleted !== true) {
         paymentMethodId =
@@ -3407,20 +3443,25 @@ async function handleCheckoutSessionCompleted(
       clientId,
       customerId,
       paymentMethodId,
+      stripeAccountId: verifiedAccount.stripeAccount,
     });
   }
 }
 
-async function handleInvoicePaid(
+export async function handleInvoicePaid(
   supabase: SupabaseClient,
   stripe: Stripe,
   invoice: Stripe.Invoice,
   stripeAccountId?: string | null,
 ) {
-  const studioInvoiceHandled = await upsertStudioInvoice({
-    supabase,
-    invoice,
-  });
+  // PAY-DC-1: DanceFlow SaaS invoices are platform-scoped (no event.account);
+  // connected studio invoices are never processed as SaaS billing.
+  const studioInvoiceHandled = stripeAccountId
+    ? false
+    : await upsertStudioInvoice({
+        supabase,
+        invoice,
+      });
 
   const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
 
@@ -3551,6 +3592,9 @@ async function handleInvoicePaid(
         cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
         default_payment_method_id: defaultPaymentMethodId,
         latest_invoice_id: latestInvoiceId,
+        // PAY-DC-1: record the Stripe-provided owning account (null only for
+        // platform-scoped legacy events), so membership actions can verify it.
+        stripe_account_id: stripeAccountId ?? null,
         updated_at: new Date().toISOString(),
       };
 
@@ -3578,7 +3622,10 @@ async function handleInvoicePaid(
     }
   }
 
-  if ((!resolvedStudioId || !resolvedClientId) && stripeCustomerId) {
+  // PAY-DC-1: the legacy platform-only `stripe_customers` table is consulted only for
+  // platform-scoped (legacy) invoices. Connected-account invoices never use it; their
+  // customer ids belong to the studio's account, not the platform.
+  if ((!resolvedStudioId || !resolvedClientId) && stripeCustomerId && !stripeAccountId) {
     const { data: stripeCustomerRow, error: stripeCustomerRowError } =
       await supabase
         .from("stripe_customers")
@@ -4381,11 +4428,14 @@ export async function POST(request: Request) {
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
 
-        const handled = await upsertStudioSubscription({
-          supabase,
-          stripe,
-          subscription,
-        });
+        // PAY-DC-1: only platform-scoped events can be DanceFlow SaaS subscriptions.
+        const handled = event.account
+          ? false
+          : await upsertStudioSubscription({
+              supabase,
+              stripe,
+              subscription,
+            });
 
         if (!handled) {
           await upsertStripeSubscriptionRecord(

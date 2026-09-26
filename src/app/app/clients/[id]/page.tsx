@@ -86,6 +86,10 @@ export type ClientRecord = {
   created_at: string;
 };
 
+// PAY-DC-1: shown when a Stripe-backed membership's payment account cannot be verified.
+const MEMBERSHIP_PAYMENT_ACCOUNT_REVIEW_MESSAGE =
+  "This membership's payment account needs review before billing changes can be made. Contact DanceFlow support to update its payment setup.";
+
 type ClientPortalInviteDeliveryRow = {
   id: string;
   template_key: string | null;
@@ -1754,6 +1758,13 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "membership_payment_account_unverified") {
+    return {
+      kind: "error" as const,
+      message: MEMBERSHIP_PAYMENT_ACCOUNT_REVIEW_MESSAGE,
+    };
+  }
+
   if (search.error === "membership_retry_not_allowed") {
     return {
       kind: "error" as const,
@@ -2989,6 +3000,37 @@ export default async function ClientDetailPage({
     typedActiveMembership,
     membershipPayments
   );
+
+  // PAY-DC-1: a Stripe-backed membership may only be managed in the verified connected
+  // account that owns it. When the stored account is missing or does not match the
+  // studio's connected account, retry/cancel/reactivate are paused here (the server
+  // actions also fail closed). No account ids are shown.
+  let membershipPaymentAccountUnverified = false;
+
+  if (typedActiveMembership) {
+    const [{ data: membershipStripeSubscription }, { data: studioPaymentAccount }] =
+      await Promise.all([
+        supabase
+          .from("stripe_subscriptions")
+          .select("stripe_subscription_id, stripe_account_id")
+          .eq("client_membership_id", typedActiveMembership.id)
+          .eq("studio_id", studioId)
+          .maybeSingle(),
+        supabase
+          .from("studios")
+          .select("stripe_connected_account_id")
+          .eq("id", studioId)
+          .maybeSingle(),
+      ]);
+
+    if (membershipStripeSubscription?.stripe_subscription_id) {
+      const storedAccount = membershipStripeSubscription.stripe_account_id ?? null;
+      const studioAccount = studioPaymentAccount?.stripe_connected_account_id ?? null;
+
+      membershipPaymentAccountUnverified =
+        !storedAccount || !studioAccount || storedAccount !== studioAccount;
+    }
+  }
   const activePackages = typedPackages.filter((p) => p.active);
   const nextAppointment = typedUpcoming[0];
   const lastAppointment = typedRecent[0];
@@ -4028,7 +4070,8 @@ export default async function ClientDetailPage({
               <input type="hidden" name="returnTo" value={returnTo} />
               <button
                 type="submit"
-                className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-2 hover:bg-[var(--brand-primary-soft)]"
+                disabled={membershipPaymentAccountUnverified}
+                className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-2 hover:bg-[var(--brand-primary-soft)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Retry Billing
               </button>
@@ -4041,6 +4084,12 @@ export default async function ClientDetailPage({
               Review Payments
             </Link>
           </div>
+
+          {membershipPaymentAccountUnverified ? (
+            <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              {MEMBERSHIP_PAYMENT_ACCOUNT_REVIEW_MESSAGE}
+            </p>
+          ) : null}
         </SectionCard>
       ) : null}
 
@@ -4153,6 +4202,12 @@ export default async function ClientDetailPage({
             </div>
           ) : null}
 
+          {membershipPaymentAccountUnverified ? (
+            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              {MEMBERSHIP_PAYMENT_ACCOUNT_REVIEW_MESSAGE}
+            </div>
+          ) : null}
+
           <div className="mt-5 flex flex-wrap gap-3">
             {!typedActiveMembership.cancel_at_period_end ? (
               <form action={cancelMembershipAtPeriodEndAction}>
@@ -4165,7 +4220,8 @@ export default async function ClientDetailPage({
                 <input type="hidden" name="returnTo" value={billingReturnTo} />
                 <button
                   type="submit"
-                  className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-red-700 hover:bg-red-100"
+                  disabled={membershipPaymentAccountUnverified}
+                  className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cancel at Period End
                 </button>
@@ -4181,7 +4237,8 @@ export default async function ClientDetailPage({
                 <input type="hidden" name="returnTo" value={billingReturnTo} />
                 <button
                   type="submit"
-                  className="rounded-2xl border border-green-200 bg-green-50 px-4 py-2 text-green-700 hover:bg-green-100"
+                  disabled={membershipPaymentAccountUnverified}
+                  className="rounded-2xl border border-green-200 bg-green-50 px-4 py-2 text-green-700 hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Turn Auto-Renew Back On
                 </button>
