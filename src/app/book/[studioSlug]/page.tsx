@@ -668,6 +668,7 @@ export default async function PublicIntroBookingPage({
                   ) : (
                     <BookingRequestForm
                       studioSlug={typedStudio.slug}
+                      studioName={typedStudio.name}
                       slotStart={selectedSlot.start}
                       slotEnd={selectedSlot.end}
                       instructorId={selectedSlot.instructorId}

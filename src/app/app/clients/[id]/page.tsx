@@ -3652,6 +3652,7 @@ export default async function ClientDetailPage({
         <ClientCommunicationWorkspace
           clientId={typedClient.id}
           clientName={`${typedClient.first_name} ${typedClient.last_name}`}
+          studioName={studio?.name ?? null}
           phone={typedClient.phone}
           smsPermission={typedSmsPermission}
           smsMessages={typedSmsMessages}

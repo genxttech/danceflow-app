@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useMemo } from "react";
+import { useActionState, useState } from "react";
+import SmsConsentCheckbox from "@/components/public/SmsConsentCheckbox";
 import { createPublicIntroBookingAction } from "./actions";
 
 const BOT_HONEYPOT_FIELD = "df_website";
@@ -15,6 +16,7 @@ const labelClass = "mb-2 block text-sm font-semibold text-slate-800";
 
 export default function BookingRequestForm({
   studioSlug,
+  studioName,
   slotStart,
   slotEnd,
   instructorId,
@@ -23,6 +25,7 @@ export default function BookingRequestForm({
   ctaText,
 }: {
   studioSlug: string;
+  studioName: string;
   slotStart: string;
   slotEnd: string;
   instructorId: string;
@@ -34,7 +37,7 @@ export default function BookingRequestForm({
     createPublicIntroBookingAction,
     initialState
   );
-  const botStartedAt = useMemo(() => String(Date.now()), []);
+  const [botStartedAt] = useState(() => String(Date.now()));
 
   return (
     <div className="mt-5 space-y-5">
@@ -125,6 +128,8 @@ export default function BookingRequestForm({
             />
           </div>
         </div>
+
+        <SmsConsentCheckbox studioName={studioName} />
 
         <div>
           <label htmlFor="danceInterests" className={labelClass}>

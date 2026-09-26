@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useMemo } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
+import SmsConsentCheckbox from "@/components/public/SmsConsentCheckbox";
 import {
   submitPublicLeadAction,
   type PublicLeadFormState,
@@ -55,7 +56,7 @@ export default function PublicLeadForm({
     submitPublicLeadAction,
     initialState
   );
-  const botStartedAt = useMemo(() => String(Date.now()), []);
+  const [botStartedAt] = useState(() => String(Date.now()));
 
   if (!studio) {
     return (
@@ -191,6 +192,8 @@ export default function PublicLeadForm({
             />
           </div>
         </div>
+
+        <SmsConsentCheckbox studioName={studio.name} />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>

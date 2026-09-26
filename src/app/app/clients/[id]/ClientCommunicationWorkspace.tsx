@@ -148,6 +148,7 @@ function timelineTone(kind: TimelineItem["kind"]) {
 export default function ClientCommunicationWorkspace({
   clientId,
   clientName,
+  studioName,
   phone,
   smsPermission,
   smsMessages,
@@ -169,6 +170,7 @@ export default function ClientCommunicationWorkspace({
 }: {
   clientId: string;
   clientName: string;
+  studioName?: string | null;
   phone: string | null;
   smsPermission: SmsPermissionRow | null;
   smsMessages: SmsMessageLogRow[];
@@ -371,6 +373,7 @@ export default function ClientCommunicationWorkspace({
 
           <ClientSmsConsentCard
             clientId={clientId}
+            studioName={studioName}
             phone={phone}
             permission={smsPermission}
             canManage={canManage}

@@ -36,6 +36,10 @@ export default function TermsPage() {
             </h1>
             <p className="mt-4 text-base leading-7 text-slate-600">Effective: {updated}</p>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600">
+              DanceFlow is a software platform owned and operated by GenX TotalTech
+              LLC (&ldquo;DanceFlow,&rdquo; &ldquo;we,&rdquo; &ldquo;us&rdquo;).
+            </p>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600">
               These SaaS Terms govern access to DanceFlow. By creating an account,
               starting a trial, purchasing a subscription, managing a workspace, or
               otherwise using DanceFlow, you agree to these Terms.
@@ -162,10 +166,18 @@ export default function TermsPage() {
             <Section title="8. Communications">
               <p>
                 Customers may use DanceFlow to send transactional or marketing email,
-                SMS, push notifications, and related communications. Customers must have
-                a lawful basis and any required consent before contacting a person, and
+                push notifications, and related communications. Customers must have a
+                lawful basis and any required consent before contacting a person, and
                 must honor opt-outs, unsubscribe requests, quiet-hour rules, and sender
                 identification requirements.
+              </p>
+              <p>
+                SMS text messaging through DanceFlow is limited to transactional and
+                service-related messages, such as replies to inquiries, scheduling
+                communications, and appointment confirmations, changes, and
+                cancellations. Customers may send SMS only to people who have given the
+                required consent to receive texts from them. Marketing and promotional
+                SMS is not part of the DanceFlow SMS program.
               </p>
               <p>
                 SMS consent is optional and is not a condition of purchase. Additional

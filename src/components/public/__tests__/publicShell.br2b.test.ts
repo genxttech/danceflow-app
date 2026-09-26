@@ -61,7 +61,9 @@ describe("header branding", () => {
 describe("footer", () => {
   it("has the approved mission and relationship line verbatim", () => {
     expect(footer).toContain("DanceFlow helps run the studio, so you can focus on teaching.");
-    expect(footer).toContain("DanceFlow is a product of GenX TotalTech LLC.");
+    expect(footer).toContain(
+      "DanceFlow is a software platform owned and operated by GenX TotalTech LLC.",
+    );
     expect(footer).not.toContain("so owners can focus");
   });
 

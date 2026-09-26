@@ -1,8 +1,13 @@
 import Link from "next/link";
 import PublicShell from "@/components/public/PublicShell";
+import { buildSmsConsentDisclosure } from "@/lib/sms/compliance";
 
-const consentDisclosure =
-  "I agree to receive text messages from DanceFlow and/or the participating dance studio or event organizer related to my lessons, bookings, event registrations, ticket/check-in information, schedule updates, account notices, and reminders. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help. Consent is not a condition of purchase.";
+const OWNERSHIP_STATEMENT =
+  "DanceFlow is a software platform owned and operated by GenX TotalTech LLC.";
+
+const consentDisclosure = buildSmsConsentDisclosure("[Studio Name]");
+
+const STOP_HELP_FOOTER = "Harbor Dance Studio: Reply STOP to opt out. Reply HELP for help.";
 
 function Section({
   title,
@@ -41,10 +46,18 @@ function ConsentPathCard({
   );
 }
 
+function SampleMessage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="whitespace-pre-line rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-800">
+      {children}
+    </div>
+  );
+}
+
 export const metadata = {
   title: "SMS Consent & Messaging Terms",
   description:
-    "Public DanceFlow SMS consent verification page with opt-in methods, consent language, message types, and opt-out instructions.",
+    "How dance studios using DanceFlow collect SMS consent, what service messages are sent, and how to opt out.",
 };
 
 export default function SmsConsentPage() {
@@ -60,48 +73,50 @@ export default function SmsConsentPage() {
             SMS Consent & Messaging Terms
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-8 text-slate-700">
-            DanceFlow provides communication tools that allow participating dance studios and event organizers to send service-related text messages to students, clients, leads, attendees, and registered participants who have opted in.
+            {OWNERSHIP_STATEMENT} Participating dance studios use DanceFlow to send
+            service-related text messages to their own students, clients,
+            parents/guardians, and prospective clients who have explicitly opted in to
+            receive texts from that studio through DanceFlow.
           </p>
           <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600">
-            This public page is provided so end users, studios, organizers, and compliance reviewers can verify DanceFlow SMS consent language, opt-in methods, message types, and opt-out instructions without accessing private student, client, or event registration accounts.
+            This page documents how SMS consent is collected, the exact consent language
+            shown, which messages are sent, and how to opt out.
           </p>
         </div>
 
         <div className="mt-8 grid gap-6">
-          <Section title="Reviewer verification" eyebrow="A2P 10DLC campaign review">
-            <p>
-              Some DanceFlow opt-in screens are located inside a private client portal, studio account workflow, booking workflow, or event registration flow. Those areas may require a user account, studio access, or an active event registration to view.
-            </p>
-            <p>
-              This page documents the public SMS consent process so campaign reviewers can verify how end users provide consent, what consent language is shown, what types of messages may be sent, and how users can opt out.
-            </p>
-          </Section>
-
           <Section title="Who sends messages">
             <p>
-              Messages are sent by DanceFlow, a participating dance studio, a participating event organizer, or a DanceFlow-powered workspace. DanceFlow provides the software and messaging infrastructure used to send service-related communications connected to the user&apos;s studio, lesson, booking, account, or event activity.
+              Messages are sent by the participating dance studio to its own contacts,
+              through DanceFlow. DanceFlow provides the software and messaging
+              infrastructure; GenX TotalTech LLC owns and operates DanceFlow and does not
+              operate the dance studio. Each message identifies the studio by name.
             </p>
           </Section>
 
           <Section title="How SMS consent is collected">
             <p>
-              End users may opt in by providing a mobile phone number and affirmatively agreeing to receive SMS messages through a clear consent disclosure. SMS consent is collected separately from account creation, purchases, waivers, and general service terms.
+              SMS consent is always optional and is collected separately from any other
+              agreement. The consent checkbox is unchecked by default, is not required to
+              submit a form, and is separate from any &ldquo;preferred contact
+              method&rdquo; choice. Choosing a preferred contact method does not opt a
+              person in to text messages.
             </p>
-            <p>
-              SMS consent is optional. Users may complete account setup, event registration, ticket purchase, booking requests, and other DanceFlow-powered service actions without agreeing to receive SMS messages.
-            </p>
-            <div className="grid gap-4 md:grid-cols-2">
-              <ConsentPathCard title="Client portal profile or account settings">
-                Users may add or update a mobile phone number and opt in to receive service-related SMS messages from their studio or DanceFlow-powered workspace.
+            <div className="grid gap-4 md:grid-cols-3">
+              <ConsentPathCard title="Studio inquiry form">
+                A person submitting a studio&apos;s public DanceFlow inquiry form may
+                enter a mobile number and check the optional SMS consent box shown
+                below.
               </ConsentPathCard>
-              <ConsentPathCard title="Event registration or ticket checkout">
-                Event attendees may opt in while registering for a DanceFlow-powered event or purchasing event tickets, when SMS reminders or event updates are available.
+              <ConsentPathCard title="Intro lesson booking form">
+                A person requesting an intro lesson through a studio&apos;s public
+                DanceFlow booking form may enter a mobile number and check the same
+                optional SMS consent box.
               </ConsentPathCard>
-              <ConsentPathCard title="Booking request or inquiry form">
-                Prospective clients may opt in when submitting a lesson booking request, inquiry form, or other studio communication request.
-              </ConsentPathCard>
-              <ConsentPathCard title="Direct studio or organizer relationship">
-                Studio or organizer staff may record SMS consent only after the user gives permission during an existing client, student, attendee, or customer relationship.
+              <ConsentPathCard title="Consent given directly to the studio">
+                A student or client may give consent directly to the studio, verbally or
+                in writing, after being read or shown the same disclosure. Authorized
+                studio staff then record that consent in DanceFlow.
               </ConsentPathCard>
             </div>
           </Section>
@@ -112,71 +127,89 @@ export default function SmsConsentPage() {
               <p className="mt-3">{consentDisclosure}</p>
             </div>
             <p>
-              The SMS consent checkbox should be unchecked by default. Users must actively choose to opt in before SMS messages are sent through DanceFlow.
+              &ldquo;[Studio Name]&rdquo; is replaced with the participating studio&apos;s
+              name, and &ldquo;Terms&rdquo; and &ldquo;Privacy Policy&rdquo; link to the
+              pages below. Texts are sent only after a person has opted in.
             </p>
           </Section>
 
           <Section title="Types of messages">
-            <p>Text messages may include service-related communications such as:</p>
+            <p>Text messages are limited to service-related communications:</p>
             <ul className="list-disc space-y-2 pl-6">
-              <li>Appointment confirmations and reminders</li>
-              <li>Schedule changes and lesson updates</li>
-              <li>Booking request follow-up and client service messages</li>
-              <li>Event reminders and registration updates</li>
-              <li>Ticket, QR code, check-in, and event attendance information</li>
-              <li>Floor rental confirmations and reminders</li>
-              <li>Package balance, account, or operational notifications from the studio or organizer</li>
+              <li>
+                One-to-one messages from authorized studio staff, such as replies to an
+                inquiry, lesson booking and scheduling coordination, and client-service
+                questions
+              </li>
+              <li>Lesson appointment confirmations</li>
+              <li>Lesson appointment reschedules</li>
+              <li>Lesson appointment cancellations</li>
             </ul>
+            <p>
+              No marketing or promotional text messages are sent under this program.
+            </p>
           </Section>
 
           <Section title="Message frequency, rates, and opt-out">
             <p>
-              Message frequency varies based on the user&apos;s activity with the participating studio or organizer. Message and data rates may apply depending on the user&apos;s wireless carrier and plan.
+              Message frequency varies based on the person&apos;s lessons and
+              interactions with the studio. Message and data rates may apply depending on
+              the person&apos;s wireless carrier and plan.
             </p>
             <p>
-              Users can opt out at any time by replying <strong>STOP</strong>. Users can reply <strong>HELP</strong> for help.
+              Reply <strong>STOP</strong> at any time to opt out. Reply{" "}
+              <strong>HELP</strong> for help, or contact support@idanceflow.com or the
+              studio directly.
             </p>
             <p>
-              Consent to receive SMS messages is not a condition of purchase and is not required to use DanceFlow, register for an event, buy a ticket, book a lesson, or receive studio services.
+              Consent to receive text messages is optional and is not a condition of
+              purchase or of receiving studio services.
             </p>
           </Section>
 
           <Section title="Example SMS messages">
             <div className="space-y-3">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-800">
-                DanceFlow: Reminder from [Studio Name]: Your private lesson is tomorrow at 6:00 PM. Reply STOP to opt out.
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-800">
-                DanceFlow: Your registration for [Event Name] is confirmed. View your details in your portal. Reply STOP to opt out.
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-800">
-                DanceFlow: [Studio Name] updated your schedule. Log in to your client portal to review. Reply HELP for help or STOP to opt out.
-              </div>
+              <SampleMessage>
+                {`Hi Alex,\n\nYour private lesson is confirmed for Tue, Oct 14, 2026, 6:00 PM EDT.\nInstructor: Jamie Rivera.\n\nWe look forward to seeing you.\n\n${STOP_HELP_FOOTER}`}
+              </SampleMessage>
+              <SampleMessage>
+                {`Hi Alex,\n\nYour private lesson has been rescheduled to Thu, Oct 16, 2026, 5:00 PM EDT.\n\nPlease contact the studio if you have any questions.\n\n${STOP_HELP_FOOTER}`}
+              </SampleMessage>
+              <SampleMessage>
+                {`Hi Alex, thanks for your inquiry! We have an intro lesson opening Thursday at 5 PM. Would you like us to hold it?\n\n${STOP_HELP_FOOTER}`}
+              </SampleMessage>
             </div>
+            <p className="text-xs text-slate-500">
+              Examples use a fictional studio and client.
+            </p>
           </Section>
 
           <Section title="Privacy and data sharing">
             <p>
-              Mobile phone numbers and SMS consent records are not sold, rented, or shared with third parties or affiliates for their own marketing or promotional purposes.
+              Mobile phone numbers and SMS consent records are not sold, rented, or shared
+              with third parties or affiliates for their own marketing or promotional
+              purposes.
             </p>
             <p>
-              SMS opt-in data and consent records are used to provide requested messaging services and to operate, secure, and support the DanceFlow platform.
+              SMS opt-in data and consent records are used to provide requested messaging
+              services and to operate, secure, and support the DanceFlow platform.
             </p>
           </Section>
 
           <Section title="Terms, privacy, and support">
             <p>
-              Review DanceFlow&apos;s terms and privacy information or contact support with questions about SMS consent and messaging.
+              Review DanceFlow&apos;s Terms and Privacy Policy, or contact support with
+              questions about SMS consent and messaging.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <Link
-                href="/terms-and-conditions"
+                href="/terms"
                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-50"
               >
-                Terms and Conditions
+                Terms
               </Link>
               <Link
-                href="/privacy-policy"
+                href="/privacy"
                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-50"
               >
                 Privacy Policy
