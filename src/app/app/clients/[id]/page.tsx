@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { REFUND_OWNERSHIP_ERROR_MESSAGES } from "@/lib/payments/paymentStripeAccount";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
@@ -1888,6 +1889,18 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Stripe could not complete the refund.",
+    };
+  }
+
+  if (
+    search.error === "refund_payment_account_mismatch" ||
+    search.error === "refund_payment_account_unverified" ||
+    search.error === "refund_payment_account_unavailable" ||
+    search.error === "refund_ownership_check_failed"
+  ) {
+    return {
+      kind: "error" as const,
+      message: REFUND_OWNERSHIP_ERROR_MESSAGES[search.error],
     };
   }
 
