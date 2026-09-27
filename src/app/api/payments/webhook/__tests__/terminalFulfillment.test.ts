@@ -95,6 +95,7 @@ type FakeSession = {
   amount_cents: number;
   currency: string;
   stripe_payment_intent_id: string;
+  stripe_account_id: string;
 };
 
 type FakeClientPackage = {
@@ -216,6 +217,10 @@ function basePayment(overrides: Partial<FakePayment> = {}): FakePayment {
   };
 }
 
+// PAY-DC-2B: the connected account the Terminal PaymentIntent was created on;
+// webhook events must come from it.
+const TERMINAL_ACCOUNT = "acct_terminal_1";
+
 function baseSession(overrides: Partial<FakeSession> = {}): FakeSession {
   return {
     id: "session-1",
@@ -224,6 +229,7 @@ function baseSession(overrides: Partial<FakeSession> = {}): FakeSession {
     amount_cents: 2000,
     currency: "usd",
     stripe_payment_intent_id: "pi_123",
+    stripe_account_id: TERMINAL_ACCOUNT,
     ...overrides,
   };
 }
@@ -262,6 +268,7 @@ describe("P0.2 — Terminal / Quick Charge / Quick Pay webhook fulfillment", () 
           paymentId: "payment-1",
         },
       }),
+      TERMINAL_ACCOUNT,
     );
 
     expect(handled).toBe(true);
@@ -284,6 +291,7 @@ describe("P0.2 — Terminal / Quick Charge / Quick Pay webhook fulfillment", () 
           paymentId: "payment-1",
         },
       }),
+      TERMINAL_ACCOUNT,
     );
 
     expect(handled).toBe(true);
@@ -305,8 +313,8 @@ describe("P0.2 — Terminal / Quick Charge / Quick Pay webhook fulfillment", () 
       },
     });
 
-    await handleTerminalPaymentIntentSucceeded(supabase as never, intent);
-    await handleTerminalPaymentIntentSucceeded(supabase as never, intent);
+    await handleTerminalPaymentIntentSucceeded(supabase as never, intent, TERMINAL_ACCOUNT);
+    await handleTerminalPaymentIntentSucceeded(supabase as never, intent, TERMINAL_ACCOUNT);
 
     expect(state.payment.status).toBe("paid");
     expect(state.paymentUpdateAttempts).toBe(2);
@@ -330,6 +338,7 @@ describe("P0.2 — Terminal / Quick Charge / Quick Pay webhook fulfillment", () 
           paymentId: "payment-1",
         },
       }),
+      TERMINAL_ACCOUNT,
     );
 
     expect(handled).toBe(true);
@@ -352,6 +361,7 @@ describe("P0.2 — Terminal / Quick Charge / Quick Pay webhook fulfillment", () 
           paymentId: "payment-1",
         },
       }),
+      TERMINAL_ACCOUNT,
     );
 
     expect(handled).toBe(false);
@@ -375,6 +385,7 @@ describe("P0.2 — Terminal / Quick Charge / Quick Pay webhook fulfillment", () 
             paymentId: "payment-1",
           },
         }),
+        TERMINAL_ACCOUNT,
       ),
     ).rejects.toThrow("amount or currency does not match");
 
@@ -399,6 +410,7 @@ describe("P0.2 — Terminal / Quick Charge / Quick Pay webhook fulfillment", () 
             paymentId: "payment-1",
           },
         }),
+        TERMINAL_ACCOUNT,
       ),
     ).rejects.toThrow("Terminal payment session was not found");
 
@@ -415,6 +427,7 @@ describe("P0.2 — Terminal / Quick Charge / Quick Pay webhook fulfillment", () 
       handleTerminalPaymentIntentSucceeded(
         supabase as never,
         fakePaymentIntent({ metadata: { source: "danceflow_terminal_quick_charge" } }),
+        TERMINAL_ACCOUNT,
       ),
     ).rejects.toThrow("missing fulfillment metadata");
   });
