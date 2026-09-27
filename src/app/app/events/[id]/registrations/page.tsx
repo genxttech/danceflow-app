@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import {
+  isRefundOwnershipErrorCode,
+  REFUND_OWNERSHIP_ERROR_MESSAGES,
+} from "@/lib/payments/paymentStripeAccount";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { isOrganizerWorkspaceRole, canManageEventRegistrations } from "@/lib/auth/permissions";
@@ -579,6 +583,13 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Could not mark registration paid.",
+    };
+  }
+
+  if (isRefundOwnershipErrorCode(search.error)) {
+    return {
+      kind: "error" as const,
+      message: REFUND_OWNERSHIP_ERROR_MESSAGES[search.error],
     };
   }
 

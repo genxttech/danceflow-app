@@ -422,6 +422,8 @@ export async function resolvePortalFloorRentalCheckoutSession(params: {
     .update({
       stripe_checkout_session_id: session.id,
       external_reference: session.id,
+      // PAY-DC-2A: immutable owner = the exact account the session was created on.
+      stripe_account_id: connectedAccountId,
     })
     .eq("id", row.id)
     .eq("status", "pending")

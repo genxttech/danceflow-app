@@ -305,6 +305,8 @@ export async function POST(request: NextRequest) {
         stripe_terminal_reader_id: reader.stripe_reader_id,
         stripe_terminal_location_id: reader.stripe_location_id,
         stripe_payment_intent_id: paymentIntent.id,
+        // PAY-DC-2A: immutable owner = the account the PaymentIntent was created on.
+        stripe_account_id: connectedAccountId,
       })
       .eq("id", payment.id)
       .eq("studio_id", studio.id);

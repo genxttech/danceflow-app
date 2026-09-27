@@ -14,6 +14,12 @@ import { normalizeEmail, resolveOutboundFromEmail } from "@/lib/notifications/ou
 import { buildAppUrl, resolveStudioDisplayName } from "@/lib/email/brand";
 import { getStripe } from "@/lib/payments/stripe";
 import {
+  classifyRefundStripeError,
+  persistProvenStripeAccount,
+  proveStripeAccountOwnership,
+  selectStoredStripeAccount,
+} from "@/lib/payments/paymentStripeAccount";
+import {
   createOrRefreshClientInvitation,
   disconnectClientAccount,
   linkExistingClientAccount,
@@ -1676,7 +1682,7 @@ export async function refundClientPaymentAction(formData: FormData) {
   const { data: payment, error: paymentError } = await adminSupabase
     .from("payments")
     .select(
-      "id, studio_id, client_id, amount, currency, status, payment_type, payment_method, payment_channel, source, notes, stripe_payment_intent_id, stripe_charge_id, stripe_refund_id, refund_amount"
+      "id, studio_id, client_id, amount, currency, status, payment_type, payment_method, payment_channel, source, notes, stripe_payment_intent_id, stripe_charge_id, stripe_refund_id, refund_amount, stripe_account_id"
     )
     .eq("id", paymentId)
     .eq("studio_id", studioId)
@@ -1713,17 +1719,56 @@ export async function refundClientPaymentAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "refund_exceeds_remaining");
   }
 
-  const { data: studio, error: studioError } = await adminSupabase
-    .from("studios")
-    .select("id, stripe_connected_account_id")
-    .eq("id", studioId)
-    .single();
+  // PAY-DC-2A: a stored owner is authoritative and is used as-is; the studio's
+  // current connected account is only a proof candidate when ownership is NULL.
+  const stripe = getStripe();
+  const storedOwner = selectStoredStripeAccount([payment.stripe_account_id]);
+  let refundStripeAccount: string;
 
-  if (studioError || !studio?.stripe_connected_account_id) {
-    redirectWithResult(returnTo, "error", "refund_stripe_not_connected");
+  if (storedOwner.kind === "conflict") {
+    redirectWithResult(returnTo, "error", "refund_payment_account_mismatch");
   }
 
-  const stripe = getStripe();
+  if (storedOwner.kind === "stored") {
+    refundStripeAccount = storedOwner.stripeAccount;
+  } else {
+    const { data: studio, error: studioError } = await adminSupabase
+      .from("studios")
+      .select("id, stripe_connected_account_id")
+      .eq("id", studioId)
+      .single();
+
+    if (studioError || !studio?.stripe_connected_account_id) {
+      redirectWithResult(returnTo, "error", "refund_stripe_not_connected");
+    }
+
+    const proof = await proveStripeAccountOwnership({
+      candidateAccountId: studio.stripe_connected_account_id,
+      paymentIntentId,
+      chargeId,
+      stripe,
+    });
+
+    if (!proof.ok) {
+      redirectWithResult(returnTo, "error", proof.code);
+    }
+
+    const persisted = await persistProvenStripeAccount({
+      supabase: adminSupabase,
+      table: "payments",
+      ids: [payment.id],
+      stripeAccount: proof.stripeAccount,
+    });
+
+    if (!persisted) {
+      redirectWithResult(returnTo, "error", "refund_payment_account_mismatch");
+    }
+
+    refundStripeAccount = proof.stripeAccount;
+  }
+
+  let refundFailureCode: "refund_payment_account_unavailable" | "refund_stripe_failed" =
+    "refund_stripe_failed";
   const refund = await stripe.refunds
     .create(
       {
@@ -1742,17 +1787,18 @@ export async function refundClientPaymentAction(formData: FormData) {
         },
       },
       {
-        stripeAccount: studio.stripe_connected_account_id,
+        stripeAccount: refundStripeAccount,
         idempotencyKey: `danceflow_client_refund_${paymentId}_${Math.round(requestedAmount * 100)}_${Math.round(alreadyRefunded * 100)}`,
       }
     )
     .catch((error: unknown) => {
-      console.error("Stripe client payment refund failed", error);
+      refundFailureCode = classifyRefundStripeError(error);
+      console.error("Stripe client payment refund failed", refundFailureCode);
       return null;
     });
 
   if (!refund?.id) {
-    redirectWithResult(returnTo, "error", "refund_stripe_failed");
+    redirectWithResult(returnTo, "error", refundFailureCode);
   }
 
   const nextRefundAmount = Math.round((alreadyRefunded + requestedAmount) * 100) / 100;

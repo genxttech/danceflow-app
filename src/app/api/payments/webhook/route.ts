@@ -2049,6 +2049,8 @@ async function handleEventRegistrationCheckoutCompleted(
     if (updatePaymentError) {
       throw new Error(updatePaymentError.message);
     }
+
+    await stampEventPaymentOwner(supabase, existingPayment.id, stripeAccountId);
   } else {
     const { error: insertPaymentError } = await supabase
       .from("event_payments")
@@ -2063,6 +2065,7 @@ async function handleEventRegistrationCheckoutCompleted(
         stripe_payment_intent_id: paymentIntentId,
         external_reference: sessionId,
         notes: "Created by Stripe checkout.session.completed webhook.",
+        stripe_account_id: stripeAccountId ?? null,
       });
 
     if (insertPaymentError) {
@@ -2197,6 +2200,7 @@ async function handleEventCartOrderCheckoutCompleted(
           external_reference: sessionId,
           notes:
             "Created by Stripe checkout.session.completed webhook for event cart order.",
+          stripe_account_id: stripeAccountId ?? null,
         });
 
       if (paymentInsertError) {
@@ -2344,6 +2348,7 @@ async function handleEventCartOrderPaymentIntentSucceeded(
           external_reference: paymentIntentId,
           notes:
             "Created by Stripe payment_intent.succeeded webhook for native event checkout.",
+          stripe_account_id: stripeAccountId ?? null,
         });
 
       if (paymentInsertError) {
@@ -2682,17 +2687,50 @@ async function syncFeeDetailsForCharge(
   );
 }
 
+/**
+ * PAY-DC-2A: a row with a stored owner is only reconciled by an event from that
+ * same Stripe account. Rows without a stored owner keep legacy behavior.
+ */
+function refundEventMatchesStoredOwner(
+  storedAccountId: string | null | undefined,
+  stripeAccountId: string | null | undefined,
+) {
+  if (!storedAccountId) return true;
+  if (storedAccountId === (stripeAccountId ?? null)) return true;
+  console.error("refund_webhook_account_mismatch");
+  return false;
+}
+
+async function stampEventPaymentOwner(
+  supabase: SupabaseClient,
+  eventPaymentId: string,
+  stripeAccountId: string | null | undefined,
+) {
+  if (!stripeAccountId) return;
+
+  const { error } = await supabase
+    .from("event_payments")
+    .update({ stripe_account_id: stripeAccountId })
+    .eq("id", eventPaymentId)
+    .is("stripe_account_id", null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 async function updatePaymentRefundByPaymentIntent(
   supabase: SupabaseClient,
   paymentIntentId: string,
   refundAmount: number,
   stripeRefundId: string | null,
+  stripeAccountId: string | null | undefined,
   stripeEventId?: string,
   stripeEventType?: string,
 ) {
   const { data: payments, error: paymentsLookupError } = await supabase
     .from("payments")
-    .select("id, amount")
+    .select("id, amount, stripe_account_id")
     .eq("stripe_payment_intent_id", paymentIntentId);
 
   if (paymentsLookupError) {
@@ -2702,6 +2740,10 @@ async function updatePaymentRefundByPaymentIntent(
   let updated = false;
 
   for (const payment of payments ?? []) {
+    if (!refundEventMatchesStoredOwner(payment.stripe_account_id, stripeAccountId)) {
+      continue;
+    }
+
     const totalAmount = Number(payment.amount ?? 0);
     const fullyRefunded = refundAmount >= totalAmount;
 
@@ -2741,11 +2783,12 @@ async function updateEventPaymentRefundByPaymentIntent(
   paymentIntentId: string,
   refundAmount: number,
   stripeRefundId: string | null,
+  stripeAccountId: string | null | undefined,
 ) {
   const { data: eventPayments, error: paymentLookupError } = await supabase
     .from("event_payments")
     .select(
-      "id, registration_id, amount, refund_amount, stripe_payment_intent_id",
+      "id, registration_id, amount, refund_amount, stripe_payment_intent_id, stripe_account_id",
     )
     .eq("stripe_payment_intent_id", paymentIntentId);
 
@@ -2753,7 +2796,9 @@ async function updateEventPaymentRefundByPaymentIntent(
     throw new Error(paymentLookupError.message);
   }
 
-  const rows = eventPayments ?? [];
+  const rows = (eventPayments ?? []).filter((row) =>
+    refundEventMatchesStoredOwner(row.stripe_account_id, stripeAccountId),
+  );
   if (rows.length === 0) return false;
 
   const totalAmount = rows.reduce(
@@ -2871,6 +2916,7 @@ export async function handleStripeRefundUpdated(
     resolvedPaymentIntentId,
     cumulativeRefundAmount,
     stripeRefundId,
+    stripeAccountId,
     stripeEventId,
     stripeEventType,
   );
@@ -2880,6 +2926,7 @@ export async function handleStripeRefundUpdated(
     resolvedPaymentIntentId,
     cumulativeRefundAmount,
     stripeRefundId,
+    stripeAccountId,
   );
 
   // Package Refund P0, Slice 2c-1: refund.created/refund.updated (and
@@ -2966,6 +3013,7 @@ export async function handleChargeRefunded(
     paymentIntentId,
     refundAmount,
     latestRefundId,
+    stripeAccountId,
     stripeEventId,
     stripeEventType,
   );
@@ -2975,6 +3023,7 @@ export async function handleChargeRefunded(
     paymentIntentId,
     refundAmount,
     latestRefundId,
+    stripeAccountId,
   );
 
   await syncFeeDetailsForCharge(
@@ -3672,6 +3721,8 @@ export async function handleInvoicePaid(
       stripe_invoice_id: stripeInvoiceId,
       stripe_charge_id: chargeId,
       currency,
+      // PAY-DC-2A: Stripe-signed event.account owns the charge; NULL = platform-scoped legacy event.
+      stripe_account_id: stripeAccountId ?? null,
     })
     .select("id")
     .single();

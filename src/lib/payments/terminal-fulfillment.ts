@@ -259,7 +259,7 @@ export async function fulfillTerminalPayment({
   const { data: session, error: sessionLookupError } = await supabase
     .from("terminal_payment_sessions")
     .select(
-      "id, studio_id, payment_id, amount_cents, currency, stripe_payment_intent_id",
+      "id, studio_id, payment_id, amount_cents, currency, stripe_payment_intent_id, stripe_account_id",
     )
     .eq("id", sessionId)
     .eq("studio_id", studioId)
@@ -449,6 +449,20 @@ export async function fulfillTerminalPayment({
           `Terminal payment event payment update failed: ${eventPaymentUpdateError.message}`,
         );
       }
+
+      if (session.stripe_account_id) {
+        const { error: eventPaymentOwnerError } = await supabase
+          .from("event_payments")
+          .update({ stripe_account_id: session.stripe_account_id })
+          .eq("id", existingEventPayment.id)
+          .is("stripe_account_id", null);
+
+        if (eventPaymentOwnerError) {
+          throw new Error(
+            `Terminal payment event payment owner update failed: ${eventPaymentOwnerError.message}`,
+          );
+        }
+      }
     } else {
       const { error: eventPaymentInsertError } = await supabase
         .from("event_payments")
@@ -461,6 +475,8 @@ export async function fulfillTerminalPayment({
           status: "paid",
           source: "terminal_ticket_sale",
           stripe_payment_intent_id: paymentIntentId,
+          // PAY-DC-2A: owner = the terminal session's account (the PaymentIntent's account).
+          stripe_account_id: session.stripe_account_id ?? null,
         });
 
       if (eventPaymentInsertError) {

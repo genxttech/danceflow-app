@@ -2,9 +2,16 @@
 
 import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseServiceClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
+import {
+  classifyRefundStripeError,
+  persistProvenStripeAccount,
+  proveStripeAccountOwnership,
+  selectStoredStripeAccount,
+} from "@/lib/payments/paymentStripeAccount";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageEventRegistrations } from "@/lib/auth/permissions";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
@@ -716,7 +723,7 @@ async function ensureTicketRowsForRegistration(params: {
     throw new Error(attendeesLookupError.message);
   }
 
-  const attendeesBySortOrder = new Map<number, any>();
+  const attendeesBySortOrder = new Map<number, NonNullable<typeof existingAttendees>[number]>();
   for (const attendee of existingAttendees ?? []) {
     const sortOrder = Number(attendee.sort_order ?? 1);
     if (!attendeesBySortOrder.has(sortOrder)) {
@@ -1272,7 +1279,7 @@ export async function checkInEventTicketCodeAction(formData: FormData) {
           } else {
             const now = new Date().toISOString();
             const serviceSupabase = createServiceRoleClient();
-            const writeSupabase: any = serviceSupabase ?? supabase;
+            const writeSupabase: SupabaseClient = serviceSupabase ?? supabase;
 
             if (!isGroupClass) {
               const { error: attendeeUpdateError } = await writeSupabase
@@ -1493,7 +1500,7 @@ export async function checkInEventRegistrationAction(formData: FormData) {
           } else {
             const now = new Date().toISOString();
             const serviceSupabase = createServiceRoleClient();
-            const writeSupabase: any = serviceSupabase ?? supabase;
+            const writeSupabase: SupabaseClient = serviceSupabase ?? supabase;
 
             if (!isGroupClass) {
               if (targetAttendees.length > 0) {
@@ -2158,22 +2165,77 @@ export async function refundEventRegistrationAction(formData: FormData) {
     const currency = registration.currency ?? "USD";
 
     if (registration.stripe_payment_intent_id) {
-      const studio = singleRelation(event.studios);
-      const connectedAccountId = studio?.stripe_connected_account_id ?? null;
+      const paymentIntentId = registration.stripe_payment_intent_id;
 
-      if (!connectedAccountId) {
-        throw new Error("The studio Stripe account could not be resolved for this refund.");
+      // PAY-DC-2A: a stored owner is authoritative and is used as-is; the studio's
+      // current connected account is only a proof candidate when ownership is NULL.
+      const ownership = await loadEventRefundOwnership({
+        supabase,
+        studioId,
+        registrationId,
+        paymentIntentId,
+      });
+
+      if (!ownership) {
+        redirect(buildReturnUrl(eventId, "error=refund_ownership_check_failed"));
       }
 
       const stripe = getStripe();
-      await stripe.refunds.create(
-        {
-          payment_intent: registration.stripe_payment_intent_id,
-        },
-        {
-          stripeAccount: connectedAccountId,
-        },
-      );
+      const storedOwner = selectStoredStripeAccount(ownership.storedAccountIds);
+      let refundStripeAccount: string;
+
+      if (storedOwner.kind === "conflict") {
+        redirect(buildReturnUrl(eventId, "error=refund_payment_account_mismatch"));
+      }
+
+      if (storedOwner.kind === "stored") {
+        refundStripeAccount = storedOwner.stripeAccount;
+      } else {
+        const studio = singleRelation(event.studios);
+        const proof = await proveStripeAccountOwnership({
+          candidateAccountId: studio?.stripe_connected_account_id ?? null,
+          paymentIntentId,
+          chargeId: null,
+          stripe,
+        });
+
+        if (!proof.ok) {
+          redirect(buildReturnUrl(eventId, `error=${proof.code}`));
+        }
+
+        const persisted = await persistProvenStripeAccount({
+          supabase,
+          table: "event_payments",
+          ids: ownership.unownedEventPaymentIds,
+          stripeAccount: proof.stripeAccount,
+        });
+
+        if (!persisted) {
+          redirect(buildReturnUrl(eventId, "error=refund_payment_account_mismatch"));
+        }
+
+        refundStripeAccount = proof.stripeAccount;
+      }
+
+      try {
+        await stripe.refunds.create(
+          {
+            payment_intent: paymentIntentId,
+          },
+          {
+            stripeAccount: refundStripeAccount,
+          },
+        );
+      } catch (refundError) {
+        const code = classifyRefundStripeError(refundError);
+        console.error("Stripe event registration refund failed", code);
+        redirect(
+          buildReturnUrl(
+            eventId,
+            `error=${code === "refund_payment_account_unavailable" ? code : "refund_failed"}`,
+          ),
+        );
+      }
     }
 
     await markRegistrationPaymentStatus({
@@ -2248,8 +2310,44 @@ export async function refundEventRegistrationAction(formData: FormData) {
     }
 
     redirect(buildReturnUrl(eventId, "success=registration_refunded"));
-  } catch {
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
     redirect(buildReturnUrl(eventId, "error=refund_failed"));
   }
+}
+
+async function loadEventRefundOwnership(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  registrationId: string;
+  paymentIntentId: string;
+}): Promise<{ storedAccountIds: Array<string | null>; unownedEventPaymentIds: string[] } | null> {
+  const { supabase, studioId, registrationId, paymentIntentId } = params;
+
+  const { data: eventPayments, error: eventPaymentsError } = await supabase
+    .from("event_payments")
+    .select("id, stripe_account_id")
+    .eq("registration_id", registrationId)
+    .eq("stripe_payment_intent_id", paymentIntentId);
+
+  if (eventPaymentsError) return null;
+
+  const { data: payments, error: paymentsError } = await supabase
+    .from("payments")
+    .select("id, stripe_account_id")
+    .eq("studio_id", studioId)
+    .eq("stripe_payment_intent_id", paymentIntentId);
+
+  if (paymentsError) return null;
+
+  const eventPaymentRows = (eventPayments ?? []) as Array<{ id: string; stripe_account_id: string | null }>;
+  const paymentRows = (payments ?? []) as Array<{ id: string; stripe_account_id: string | null }>;
+
+  return {
+    storedAccountIds: [...eventPaymentRows, ...paymentRows].map((row) => row.stripe_account_id),
+    unownedEventPaymentIds: eventPaymentRows
+      .filter((row) => !row.stripe_account_id)
+      .map((row) => row.id),
+  };
 }
 
