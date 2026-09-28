@@ -11,6 +11,7 @@ import {
   canTakePayments,
 } from "@/lib/auth/permissions";
 import UnifiedSalesForm from "./UnifiedSalesForm";
+import { sellErrorMessage, sellSuccessMessage } from "./sellFeedback";
 
 type SearchParams = Promise<{
   type?: string;
@@ -160,31 +161,6 @@ function calculateClientBalances(rows: LedgerRow[]) {
   }, {});
 }
 
-function messageFromCode(code: string | undefined) {
-  if (!code) return null;
-  const normalized = decodeURIComponent(code);
-  const known: Record<string, string> = {
-    missing_client: "Choose a client before completing the sale.",
-    invalid_client: "The selected client ID is invalid. Please select the client again.",
-    missing_package: "Choose a package before completing the sale.",
-    missing_sale_selection: "Choose a client and product before completing the sale.",
-    missing_plan: "Choose a membership plan before completing the sale.",
-    invalid_plan: "The selected membership plan ID is invalid. Please select the plan again.",
-    missing_start: "Choose a membership start date.",
-    client_not_found: "The selected client could not be found.",
-    plan_not_found: "The selected membership plan could not be found.",
-    plan_inactive: "This membership plan is inactive.",
-    active_membership_exists: "This client already has an active or pending membership.",
-    recurring_consent_required: "Recurring billing consent is required for card reader enrollment.",
-    terminal_membership_amount_required: "Card reader enrollment requires a positive first payment amount.",
-    membership_confirm_removed_use_single_page_sale: "Use the unified sales page to complete membership sales.",
-    membership_payment_method_saved: "Payment method saved.",
-    membership_subscription_created: "Membership subscription created.",
-    membership_assigned: "Membership assigned.",
-  };
-  return known[normalized] ?? normalized.replaceAll("_", " ");
-}
-
 export default async function NewSalePage({
   searchParams,
 }: {
@@ -201,8 +177,9 @@ export default async function NewSalePage({
           : params.type === "digital_product"
             ? "digital_product"
             : "package";
-  const error = messageFromCode(params.error);
-  const success = messageFromCode(params.success);
+  // PAY-DC-2C: fixed copy only; params are already decoded by Next.
+  const error = sellErrorMessage(params.error);
+  const success = sellSuccessMessage(params.success);
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();

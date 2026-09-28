@@ -257,8 +257,9 @@ describe("new sales and card flows run on the studio's connected account", () =>
       ),
     );
 
-    expect(target).toContain("error=");
-    expect(decodeURIComponent(target)).toContain("has not completed Stripe payment setup");
+    // PAY-DC-2C: the readiness failure is a fixed code, never raw text.
+    expect(target).toContain("error=membership_stripe_setup_incomplete");
+    expect(decodeURIComponent(target)).not.toContain("has not completed Stripe payment setup");
     expect(stripeCalls).toHaveLength(0);
   });
 });
