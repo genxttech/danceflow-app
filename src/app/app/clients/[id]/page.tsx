@@ -1,6 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { REFUND_OWNERSHIP_ERROR_MESSAGES } from "@/lib/payments/paymentStripeAccount";
+import {
+  MEMBERSHIP_ERROR_MESSAGES,
+  MEMBERSHIP_SUCCESS_MESSAGES,
+} from "@/lib/memberships/membershipMessages";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
@@ -2021,6 +2025,18 @@ function getBanner(search: { success?: string; error?: string }) {
       message:
         "Could not determine which portal relationship to disconnect for this client. Contact support if this persists.",
     };
+  }
+
+  // PAY-DC-2C: remaining membership codes use fixed shared copy; other unknown codes
+  // still render nothing on this page.
+  const membershipError = search.error ? MEMBERSHIP_ERROR_MESSAGES[search.error] : undefined;
+  if (membershipError && Object.prototype.hasOwnProperty.call(MEMBERSHIP_ERROR_MESSAGES, search.error!)) {
+    return { kind: "error" as const, message: membershipError };
+  }
+
+  const membershipSuccess = search.success ? MEMBERSHIP_SUCCESS_MESSAGES[search.success] : undefined;
+  if (membershipSuccess && Object.prototype.hasOwnProperty.call(MEMBERSHIP_SUCCESS_MESSAGES, search.success!)) {
+    return { kind: "success" as const, message: membershipSuccess };
   }
 
   return null;

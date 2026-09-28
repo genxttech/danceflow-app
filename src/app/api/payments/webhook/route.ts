@@ -8,6 +8,10 @@ import {
 import { getStripe } from "@/lib/payments/stripe";
 import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
 import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
+import {
+  handleChargeDisputeEvent,
+  resolveStudioIdForStripeAccount,
+} from "@/lib/payments/paymentDisputes";
 import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
 import {
   reconcilePackageStripeRefund,
@@ -4045,25 +4049,6 @@ export async function handleInvoicePaymentFailed(
   }
 }
 
-async function resolveStudioIdForStripeAccount(
-  supabase: SupabaseClient,
-  stripeAccountId: string | null,
-) {
-  if (!stripeAccountId) return null;
-
-  const { data: studio, error } = await supabase
-    .from("studios")
-    .select("id")
-    .eq("stripe_connected_account_id", stripeAccountId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return studio?.id ?? null;
-}
-
 function getStripeBalanceTransactionId(
   value: string | Stripe.BalanceTransaction | null | undefined,
 ) {
@@ -4722,6 +4707,16 @@ export async function POST(request: Request) {
           studioId: payoutSync.studioId,
         });
 
+        break;
+      }
+
+      case "charge.dispute.created":
+      case "charge.dispute.updated":
+      case "charge.dispute.closed":
+      case "charge.dispute.funds_withdrawn":
+      case "charge.dispute.funds_reinstated": {
+        // PAY-DC-2C: record the dispute for the proven studio and notify on creation.
+        await handleChargeDisputeEvent({ supabase, event });
         break;
       }
 

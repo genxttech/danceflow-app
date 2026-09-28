@@ -10,6 +10,11 @@ import { getStripe } from "@/lib/payments/stripe";
 import { ensureConnectedStripeRecurringPrice } from "@/lib/payments/subscriptions";
 import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
 import { recordManualMembershipPayment } from "@/lib/memberships/manual-payment";
+import {
+  logMembershipActionError,
+  MembershipActionError,
+  membershipErrorCode,
+} from "@/lib/memberships/membershipErrors";
 import { reconcileStudioMembershipPeriods } from "@/lib/memberships/renewal";
 import { MEMBERSHIP_BENEFIT_TYPES, MEMBERSHIP_USAGE_PERIODS } from "@/lib/memberships/benefitTypes";
 
@@ -201,13 +206,11 @@ async function requireStudioConnectReadyForMemberships(studioId: string) {
     .single();
 
   if (error || !studio) {
-    throw new Error("Could not load studio payment settings.");
+    throw new MembershipActionError("membership_stripe_settings_unavailable");
   }
 
   if (!studio.stripe_connected_account_id) {
-    throw new Error(
-      "This studio has not connected Stripe yet. Membership checkout is not available.",
-    );
+    throw new MembershipActionError("membership_stripe_not_connected");
   }
 
   // PAY-DC-1: new membership sales, card setup and card replacement also require
@@ -217,9 +220,7 @@ async function requireStudioConnectReadyForMemberships(studioId: string) {
     !studio.stripe_connect_charges_enabled ||
     !studio.stripe_connect_payouts_enabled
   ) {
-    throw new Error(
-      "This studio has not completed Stripe payment setup yet. Membership checkout is not available.",
-    );
+    throw new MembershipActionError("membership_stripe_setup_incomplete");
   }
 
   return {
@@ -686,9 +687,9 @@ export async function startMembershipPaymentMethodSetupAction(
     redirect(session.url);
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    const message =
-      error instanceof Error ? error.message : "stripe_session_failed";
-    redirect(addQueryParam(returnTo, "error", message));
+    const code = membershipErrorCode(error, "membership_card_setup_failed");
+    logMembershipActionError(code, error);
+    redirect(addQueryParam(returnTo, "error", code));
   }
 }
 
@@ -899,10 +900,9 @@ export async function sellMembershipAction(formData: FormData) {
   } catch (error) {
     if (isRedirectError(error)) throw error;
 
-    const message =
-      error instanceof Error ? error.message : "membership_sale_failed";
-
-    redirect(addQueryParam(returnTo, "error", message));
+    const code = membershipErrorCode(error, "membership_sale_failed");
+    logMembershipActionError(code, error);
+    redirect(addQueryParam(returnTo, "error", code));
   }
 }
 
@@ -1048,13 +1048,9 @@ export async function startTerminalMembershipEnrollmentAction(formData: FormData
     redirect(`/app/payments/terminal/${payment.id}?success=terminal_payment_ready`);
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    redirect(
-      addQueryParam(
-        returnTo,
-        "error",
-        error instanceof Error ? error.message : "terminal_membership_failed"
-      )
-    );
+    const code = membershipErrorCode(error, "terminal_membership_failed");
+    logMembershipActionError(code, error);
+    redirect(addQueryParam(returnTo, "error", code));
   }
 }
 
@@ -1451,12 +1447,9 @@ export async function collectReplacementPaymentMethodAction(
   } catch (error) {
     if (isRedirectError(error)) throw error;
 
-    const message =
-      error instanceof Error
-        ? error.message
-        : "membership_payment_method_update_failed";
-
-    redirect(addQueryParam(returnTo, "error", message));
+    const code = membershipErrorCode(error, "membership_payment_method_update_failed");
+    logMembershipActionError(code, error);
+    redirect(addQueryParam(returnTo, "error", code));
   }
 }
 
@@ -1783,7 +1776,7 @@ export async function recordExternalMembershipPaymentAction(formData: FormData) 
         .eq("payment_channel", "manual")
         .limit(1)
         .maybeSingle();
-      if (duplicateError) throw new Error(duplicateError.message);
+      if (duplicateError) throw new MembershipActionError("membership_payment_failed");
       if (duplicate) redirect(addQueryParam(returnTo, "error", "membership_payment_duplicate_reference"));
     }
 
@@ -1803,13 +1796,9 @@ export async function recordExternalMembershipPaymentAction(formData: FormData) 
     redirect(addQueryParam(returnTo, "success", "membership_external_payment_recorded"));
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    redirect(
-      addQueryParam(
-        returnTo,
-        "error",
-        error instanceof Error ? error.message : "membership_payment_failed",
-      ),
-    );
+    const code = membershipErrorCode(error, "membership_payment_failed");
+    logMembershipActionError(code, error);
+    redirect(addQueryParam(returnTo, "error", code));
   }
 }
 
@@ -1919,14 +1908,8 @@ export async function reconcileMembershipRenewalsAction(formData: FormData) {
   } catch (error) {
     if (isRedirectError(error)) throw error;
 
-    redirect(
-      addQueryParam(
-        returnTo,
-        "error",
-        error instanceof Error
-          ? error.message
-          : "membership_reconcile_failed",
-      ),
-    );
+    const code = membershipErrorCode(error, "membership_reconcile_failed");
+    logMembershipActionError(code, error);
+    redirect(addQueryParam(returnTo, "error", code));
   }
 }

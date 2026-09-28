@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ensureMembershipPeriodForDate } from "@/lib/memberships/renewal";
+import { MembershipActionError } from "@/lib/memberships/membershipErrors";
 
 type MembershipPaymentInput = {
   supabase: SupabaseClient;
@@ -57,7 +58,12 @@ export async function recordManualMembershipPayment(input: MembershipPaymentInpu
     .eq("client_id", clientId)
     .single();
 
-  if (membershipError || !rawMembership) throw new Error("Membership was not found for this client.");
+  if (membershipError || !rawMembership) {
+    throw new MembershipActionError(
+      "membership_client_membership_not_found",
+      "Membership was not found for this client.",
+    );
+  }
   let membership = rawMembership as MembershipRow;
 
   if (
@@ -98,14 +104,14 @@ export async function recordManualMembershipPayment(input: MembershipPaymentInpu
   const targetPeriod = await loadPeriod(targetStart, targetEnd);
 
   if (["paid", "waived"].includes(targetPeriod?.payment_status ?? "")) {
-    throw new Error("The membership period covering this payment is already paid or waived.");
+    throw new MembershipActionError("membership_period_already_settled", "The membership period covering this payment is already paid or waived.");
   }
 
   const amountDue = Number(targetPeriod?.amount_due ?? membership.price_snapshot ?? 0);
   const priorPaid = Number(targetPeriod?.amount_paid ?? 0);
   const nextPaid = Math.round((priorPaid + amount) * 100) / 100;
   if (amountDue > 0 && nextPaid > amountDue) {
-    throw new Error("This payment is greater than the remaining membership balance.");
+    throw new MembershipActionError("membership_payment_exceeds_balance", "This payment is greater than the remaining membership balance.");
   }
 
   const nextStatus = amountDue <= 0 || nextPaid >= amountDue ? "paid" : "partial";

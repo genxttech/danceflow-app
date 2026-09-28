@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import SellWorkspaceHeader from "@/components/app/sell/SellWorkspaceHeader";
 import SellWorkspaceEmptyState from "@/components/app/sell/SellWorkspaceEmptyState";
+import SellWorkspaceFeedback from "@/components/app/sell/SellWorkspaceFeedback";
+import { resolveFeedbackMessage } from "@/lib/memberships/membershipMessages";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import {
   archiveMembershipPlanAction,
@@ -13,6 +15,8 @@ import {
 
 type SearchParams = Promise<{
   status?: string;
+  error?: string;
+  success?: string;
 }>;
 
 type MembershipPlanRow = {
@@ -128,6 +132,9 @@ export default async function MembershipPlansPage({
 }) {
   const params = await searchParams;
   const statusFilter = params.status ?? "all";
+  // PAY-DC-2C: fixed copy only for the reconcile action's feedback.
+  const feedbackError = resolveFeedbackMessage(params.error, "error");
+  const feedbackSuccess = resolveFeedbackMessage(params.success, "success");
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
@@ -236,6 +243,9 @@ export default async function MembershipPlansPage({
           </>
         )}
       />
+
+      {feedbackError ? <SellWorkspaceFeedback tone="error">{feedbackError}</SellWorkspaceFeedback> : null}
+      {feedbackSuccess ? <SellWorkspaceFeedback tone="success">{feedbackSuccess}</SellWorkspaceFeedback> : null}
 
       <CompactSummaryStrip
         className="rounded-2xl border border-[var(--brand-border)] bg-white"
