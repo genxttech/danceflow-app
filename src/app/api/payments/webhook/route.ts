@@ -7,6 +7,7 @@ import {
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
+import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
 import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
 import {
   reconcilePackageStripeRefund,
@@ -127,9 +128,10 @@ async function assertEventOrderPaymentMatches(params: {
   return order;
 }
 
-async function handleStudentMarketplacePaymentIntentSucceeded(
+export async function handleStudentMarketplacePaymentIntentSucceeded(
   supabase: SupabaseClient,
   paymentIntent: Stripe.PaymentIntent,
+  stripeAccountId?: string | null,
 ) {
   if (getString(paymentIntent.metadata?.source) !== "commerce_digital_marketplace") {
     return false;
@@ -138,6 +140,33 @@ async function handleStudentMarketplacePaymentIntentSucceeded(
   const orderId = getString(paymentIntent.metadata?.order_id);
   if (!orderId) {
     throw new Error("Marketplace PaymentIntent is missing order_id metadata.");
+  }
+
+  // PAY-DC-2B: the order's stored connected account and PaymentIntent are
+  // authoritative; the event must come from that account for that PaymentIntent.
+  const { data: order, error: orderError } = await supabase
+    .from("commerce_orders")
+    .select("id, studio_id, metadata")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (orderError) {
+    throw new Error(orderError.message);
+  }
+
+  const orderMetadata = (order?.metadata ?? {}) as Record<string, unknown>;
+  const orderAccountId = getString(orderMetadata.stripe_connected_account_id);
+  const orderPaymentIntentId = getString(orderMetadata.stripe_payment_intent_id);
+  const metadataStudioId = getString(paymentIntent.metadata?.studio_id);
+
+  if (
+    !order ||
+    !stripeAccountId ||
+    orderAccountId !== stripeAccountId ||
+    orderPaymentIntentId !== paymentIntent.id ||
+    (metadataStudioId && metadataStudioId !== order.studio_id)
+  ) {
+    throw new Error("marketplace_event_account_mismatch");
   }
 
   const amount =
@@ -150,6 +179,17 @@ async function handleStudentMarketplacePaymentIntentSucceeded(
     amount,
     currency: paymentIntent.currency,
   });
+
+  const { error: ownerError } = await supabase
+    .from("payments")
+    .update({ stripe_account_id: stripeAccountId })
+    .eq("commerce_order_id", order.id)
+    .eq("studio_id", order.studio_id)
+    .is("stripe_account_id", null);
+
+  if (ownerError) {
+    throw new Error(ownerError.message);
+  }
 
   return true;
 }
@@ -169,6 +209,7 @@ const TERMINAL_PAYMENT_INTENT_SOURCES = new Set<string | null>([
 export async function handleTerminalPaymentIntentSucceeded(
   supabase: SupabaseClient,
   paymentIntent: Stripe.PaymentIntent,
+  stripeAccountId?: string | null,
 ) {
   if (
     !TERMINAL_PAYMENT_INTENT_SOURCES.has(
@@ -187,7 +228,7 @@ export async function handleTerminalPaymentIntentSucceeded(
 
   const { data: session, error: sessionError } = await supabase
     .from("terminal_payment_sessions")
-    .select("id, amount_cents, currency")
+    .select("id, amount_cents, currency, stripe_account_id")
     .eq("studio_id", studioId)
     .eq("payment_id", paymentId)
     .eq("stripe_payment_intent_id", paymentIntent.id)
@@ -199,6 +240,12 @@ export async function handleTerminalPaymentIntentSucceeded(
 
   if (!session) {
     throw new Error("Terminal payment session was not found.");
+  }
+
+  // PAY-DC-2B: the event must come from the connected account the Terminal
+  // PaymentIntent was created on (stored immutably on the session).
+  if (!stripeAccountId || session.stripe_account_id !== stripeAccountId) {
+    throw new Error("terminal_event_account_mismatch");
   }
 
   if (
@@ -424,7 +471,50 @@ async function upsertStripePaymentMethodRecord(
   }
 }
 
-async function upsertStripeSubscriptionRecord(
+/**
+ * PAY-DC-2B: proves a connected event's account belongs to the studio named in
+ * subscription metadata. A stored subscription owner is authoritative (it must
+ * match both studio and account); only a subscription with no stored owner falls
+ * back to the studio's current connected account.
+ */
+async function verifyConnectedStudio(
+  supabase: SupabaseClient,
+  studioId: string,
+  stripeAccountId: string,
+  subscriptionId: string,
+) {
+  const { data: stored, error: storedError } = await supabase
+    .from("stripe_subscriptions")
+    .select("studio_id, stripe_account_id")
+    .eq("stripe_subscription_id", subscriptionId)
+    .maybeSingle();
+
+  if (storedError) {
+    throw new Error(storedError.message);
+  }
+
+  if (stored?.studio_id && stored.studio_id !== studioId) {
+    return false;
+  }
+
+  if (stored?.stripe_account_id) {
+    return stored.stripe_account_id === stripeAccountId;
+  }
+
+  const { data: studio, error: studioError } = await supabase
+    .from("studios")
+    .select("stripe_connected_account_id")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  if (studioError) {
+    throw new Error(studioError.message);
+  }
+
+  return studio?.stripe_connected_account_id === stripeAccountId;
+}
+
+export async function upsertStripeSubscriptionRecord(
   supabase: SupabaseClient,
   subscription: Stripe.Subscription,
   stripeAccountId?: string | null,
@@ -441,6 +531,26 @@ async function upsertStripeSubscriptionRecord(
   const studioId = metadata.studioId || null;
   const clientId = metadata.clientId || null;
   const membershipPlanId = metadata.membershipPlanId || null;
+
+  // PAY-DC-2B: for connected events, metadata alone never decides the tenant.
+  if (stripeAccountId) {
+    if (!studioId) {
+      // Not a DanceFlow membership subscription (no studio metadata): no tenant, no write.
+      console.error("subscription_event_unowned");
+      return;
+    }
+
+    if (
+      !(await verifyConnectedStudio(
+        supabase,
+        studioId,
+        stripeAccountId,
+        stripeSubscriptionId,
+      ))
+    ) {
+      throw new Error("subscription_event_studio_mismatch");
+    }
+  }
 
   const currentPeriodStartUnix = getNumber(
     (subscription as unknown as { current_period_start?: number })
@@ -3036,9 +3146,29 @@ export async function handleChargeRefunded(
   return paymentUpdated || eventPaymentUpdated;
 }
 
+/**
+ * PAY-DC-2B: a payment with a stored owner (PAY-DC-2A) is only settled by an
+ * event from that same account. Returns the owner to stamp on the pending ->
+ * paid transition for legacy rows that have none yet.
+ */
+function assertPaymentEventOwner(
+  storedAccountId: string | null | undefined,
+  stripeAccountId: string | null | undefined,
+) {
+  if (storedAccountId) {
+    if (storedAccountId !== (stripeAccountId ?? null)) {
+      throw new Error("payment_event_account_mismatch");
+    }
+    return {};
+  }
+
+  return stripeAccountId ? { stripe_account_id: stripeAccountId } : {};
+}
+
 export async function handlePortalFloorRentalCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session,
+  stripeAccountId?: string | null,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "portal_floor_rental_balance_payment") return false;
@@ -3096,7 +3226,7 @@ export async function handlePortalFloorRentalCheckoutCompleted(
   // floor-rental balance can never produce two payments rows.
   const { data: payment, error: paymentLookupError } = await supabase
     .from("payments")
-    .select("id, studio_id, client_id, amount, status")
+    .select("id, studio_id, client_id, amount, status, stripe_account_id")
     .eq("id", paymentId)
     .maybeSingle();
 
@@ -3107,6 +3237,8 @@ export async function handlePortalFloorRentalCheckoutCompleted(
   if (!payment) {
     throw new Error("Portal floor rental balance payment record not found.");
   }
+
+  const ownerStamp = assertPaymentEventOwner(payment.stripe_account_id, stripeAccountId);
 
   if (payment.status !== "pending") {
     // Already transitioned by a prior delivery of this same event, or
@@ -3167,6 +3299,7 @@ export async function handlePortalFloorRentalCheckoutCompleted(
       stripe_payment_intent_id: paymentIntentId,
       paid_at: new Date().toISOString(),
       notes: `Floor rental payment for appointments: ${appointmentIds.join(", ")}`,
+      ...ownerStamp,
     })
     .eq("id", payment.id)
     .eq("status", "pending")
@@ -3206,6 +3339,7 @@ export async function handleClientPaymentRequestCheckoutCompleted(
   session: Stripe.Checkout.Session,
   stripeEventId?: string,
   stripeEventType?: string,
+  stripeAccountId?: string | null,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "client_payment_request") return false;
@@ -3227,7 +3361,7 @@ export async function handleClientPaymentRequestCheckoutCompleted(
   const { data: payment, error: paymentLookupError } = await supabase
     .from("payments")
     .select(
-      "id, studio_id, client_id, client_package_id, client_membership_id, amount, status",
+      "id, studio_id, client_id, client_package_id, client_membership_id, amount, status, stripe_account_id",
     )
     .eq("id", paymentId)
     .maybeSingle();
@@ -3239,6 +3373,8 @@ export async function handleClientPaymentRequestCheckoutCompleted(
   if (!payment) {
     throw new Error("Client payment request not found.");
   }
+
+  const ownerStamp = assertPaymentEventOwner(payment.stripe_account_id, stripeAccountId);
 
   const expectedAmount = Number(payment.amount ?? 0);
   if (Math.abs(expectedAmount - amountTotal) > 0.01) {
@@ -3269,6 +3405,7 @@ export async function handleClientPaymentRequestCheckoutCompleted(
       external_payment_id: sessionId,
       external_reference: sessionId,
       currency,
+      ...ownerStamp,
     })
     .eq("id", payment.id)
     .eq("status", "pending")
@@ -3383,14 +3520,20 @@ export async function handleCheckoutSessionCompleted(
   }
 
   const handledPortalFloorRental =
-    await handlePortalFloorRentalCheckoutCompleted(supabase, session);
+    await handlePortalFloorRentalCheckoutCompleted(supabase, session, stripeAccountId);
 
   if (handledPortalFloorRental) {
     return;
   }
 
   const handledClientPaymentRequest =
-    await handleClientPaymentRequestCheckoutCompleted(supabase, session, stripeEventId, stripeEventType);
+    await handleClientPaymentRequestCheckoutCompleted(
+      supabase,
+      session,
+      stripeEventId,
+      stripeEventType,
+      stripeAccountId,
+    );
 
   if (handledClientPaymentRequest) {
     return;
@@ -3560,12 +3703,22 @@ export async function handleInvoicePaid(
       error: localStripeSubscriptionError,
     } = await supabase
       .from("stripe_subscriptions")
-      .select("studio_id, client_id, client_membership_id")
+      .select("studio_id, client_id, client_membership_id, stripe_account_id")
       .eq("stripe_subscription_id", stripeSubscriptionId)
       .maybeSingle();
 
     if (localStripeSubscriptionError) {
       throw new Error(localStripeSubscriptionError.message);
+    }
+
+    // PAY-DC-2B: a subscription with a stored owner only accepts invoices from
+    // that same account.
+    if (
+      localStripeSubscription?.stripe_account_id &&
+      localStripeSubscription.stripe_account_id !== (stripeAccountId ?? null)
+    ) {
+      console.error("membership_invoice_account_mismatch");
+      return;
     }
 
     if (localStripeSubscription) {
@@ -3587,6 +3740,21 @@ export async function handleInvoicePaid(
     const localMembershipIdFromMetadata = getString(
       subscription.metadata?.localMembershipId,
     );
+
+    // PAY-DC-2B: a connected event may only resolve the studio named in
+    // subscription metadata when that studio is proven to own this account.
+    if (
+      stripeAccountId &&
+      studioIdFromMetadata &&
+      !(await verifyConnectedStudio(
+        supabase,
+        studioIdFromMetadata,
+        stripeAccountId,
+        stripeSubscriptionId,
+      ))
+    ) {
+      throw new Error("subscription_event_studio_mismatch");
+    }
 
     if (studioIdFromMetadata && clientIdFromMetadata) {
       resolvedStudioId = studioIdFromMetadata;
@@ -3780,15 +3948,20 @@ export async function handleInvoicePaid(
   }
 }
 
-async function handleInvoicePaymentFailed(
+export async function handleInvoicePaymentFailed(
   supabase: SupabaseClient,
   stripe: Stripe,
   invoice: Stripe.Invoice,
+  stripeAccountId?: string | null,
 ) {
-  const studioInvoiceHandled = await upsertStudioInvoice({
-    supabase,
-    invoice,
-  });
+  // PAY-DC-2B: DanceFlow SaaS invoices are platform-scoped (no event.account);
+  // connected (studio) invoices are never treated as SaaS billing.
+  const studioInvoiceHandled = stripeAccountId
+    ? false
+    : await upsertStudioInvoice({
+        supabase,
+        invoice,
+      });
 
   const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
 
@@ -3807,7 +3980,7 @@ async function handleInvoicePaymentFailed(
   const { data: stripeSubscription, error: stripeSubscriptionError } =
     await supabase
       .from("stripe_subscriptions")
-      .select("studio_id, client_id, client_membership_id")
+      .select("studio_id, client_id, client_membership_id, stripe_account_id")
       .eq("stripe_subscription_id", stripeSubscriptionId)
       .maybeSingle();
 
@@ -3819,6 +3992,15 @@ async function handleInvoicePaymentFailed(
     !stripeSubscription?.studio_id ||
     !stripeSubscription?.client_membership_id
   ) {
+    return;
+  }
+
+  // PAY-DC-2B: a connected event may only mark a membership past due when the
+  // subscription's stored account is exactly that account; a platform event
+  // only applies to legacy platform subscriptions (no stored account).
+  const storedAccountId = stripeSubscription.stripe_account_id ?? null;
+  if ((stripeAccountId ?? null) !== storedAccountId) {
+    console.error("membership_invoice_account_unverified");
     return;
   }
 
@@ -4259,38 +4441,37 @@ export async function POST(request: Request) {
   const body = await request.text();
   const headerList = await headers();
   const signature = headerList.get("stripe-signature");
-  const webhookSecrets = [
-    process.env.STRIPE_WEBHOOK_SECRET,
-    process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
-  ].filter((value): value is string =>
-    Boolean(value && value.trim().length > 0),
-  );
 
-  if (webhookSecrets.length === 0) {
-    console.error("Stripe webhook secret is not configured.");
-    return webhookResponse("Webhook is not configured.", 503);
-  }
+  // PAY-DC-2B: the verifying secret determines the event's scope; platform
+  // events never carry event.account and Connect events always do.
+  const verification = verifyStripeWebhook({
+    body,
+    signature,
+    platformSecret: process.env.STRIPE_WEBHOOK_SECRET,
+    connectSecret: process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
+    stripe,
+  });
 
-  if (!signature) {
-    return webhookResponse("Invalid webhook request.", 400);
-  }
-
-  let event: Stripe.Event | null = null;
-  let lastSignatureError: unknown = null;
-
-  for (const webhookSecret of webhookSecrets) {
-    try {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-      break;
-    } catch (error) {
-      lastSignatureError = error;
+  if (!verification.ok) {
+    if (verification.reason === "not_configured") {
+      console.error("Stripe webhook secret is not configured.");
+      return webhookResponse("Webhook is not configured.", 503);
     }
-  }
 
-  if (!event) {
-    logWebhookError("Stripe webhook signature verification failed", lastSignatureError);
+    if (verification.reason === "missing_signature") {
+      return webhookResponse("Invalid webhook request.", 400);
+    }
+
+    if (verification.reason === "scope_mismatch") {
+      console.error("webhook_scope_mismatch");
+      return webhookResponse("Invalid webhook scope.", 400);
+    }
+
+    console.error("Stripe webhook signature verification failed");
     return webhookResponse("Invalid webhook signature.", 400);
   }
+
+  const event = verification.event;
 
   const supabase = getSupabaseAdmin();
   const payloadHash = createHash("sha256").update(body).digest("hex");
@@ -4391,12 +4572,14 @@ export async function POST(request: Request) {
           await handleStudentMarketplacePaymentIntentSucceeded(
             supabase,
             paymentIntent,
+            event.account,
           );
         const handledTerminal = handledMarketplace
           ? false
           : await handleTerminalPaymentIntentSucceeded(
               supabase,
               paymentIntent,
+              event.account,
             );
         const handledEventCart = handledMarketplace || handledTerminal
           ? false
@@ -4514,6 +4697,7 @@ export async function POST(request: Request) {
           supabase,
           stripe,
           event.data.object as Stripe.Invoice,
+          event.account,
         );
         break;
       }
