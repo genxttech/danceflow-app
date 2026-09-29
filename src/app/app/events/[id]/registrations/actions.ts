@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createSupabaseServiceClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import {
@@ -577,19 +578,40 @@ async function logEventPayment(params: {
     stripePaymentIntentId = null,
   } = params;
 
-  const { error } = await supabase.from("event_payments").insert({
-    event_id: registration.event_id,
-    registration_id: registration.id,
-    amount,
-    currency,
-    payment_method: paymentMethod,
-    status,
-    source,
-    stripe_payment_intent_id: stripePaymentIntentId,
-  });
+  // PAY-DC-2D: the caller has already enforced the registration-manage role and
+  // event/studio scope. The row itself is inserted under the caller's RLS; only
+  // the Stripe identity (which tenant roles may not write) is copied afterwards
+  // with the service role, from the server-written registration value, onto
+  // exactly this just-inserted row of this registration.
+  const { data: inserted, error } = await supabase
+    .from("event_payments")
+    .insert({
+      event_id: registration.event_id,
+      registration_id: registration.id,
+      amount,
+      currency,
+      payment_method: paymentMethod,
+      status,
+      source,
+    })
+    .select("id")
+    .single<{ id: string }>();
 
-  if (error) {
-    throw new Error(error.message);
+  if (error || !inserted) {
+    throw new Error(error?.message ?? "event_payment_insert_failed");
+  }
+
+  if (stripePaymentIntentId) {
+    const { error: identityError } = await createAdminClient()
+      .from("event_payments")
+      .update({ stripe_payment_intent_id: stripePaymentIntentId })
+      .eq("id", inserted.id)
+      .eq("registration_id", registration.id)
+      .is("stripe_payment_intent_id", null);
+
+    if (identityError) {
+      throw new Error(identityError.message);
+    }
   }
 }
 
@@ -2203,8 +2225,11 @@ export async function refundEventRegistrationAction(formData: FormData) {
           redirect(buildReturnUrl(eventId, `error=${proof.code}`));
         }
 
+        // PAY-DC-2D: role, event/studio scope and the registration were verified
+        // above, and the ids were read under the caller's RLS for this
+        // registration; only the owner stamp itself needs the service role.
         const persisted = await persistProvenStripeAccount({
-          supabase,
+          supabase: createAdminClient(),
           table: "event_payments",
           ids: ownership.unownedEventPaymentIds,
           stripeAccount: proof.stripeAccount,

@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
+
+const CONNECT_PROVISIONING_ROLES = new Set(["studio_owner", "studio_admin"]);
+
+function canProvisionConnectedAccount(
+  studioRole: string | null | undefined,
+  isPlatformAdmin: boolean | null | undefined,
+) {
+  return Boolean(isPlatformAdmin) || CONNECT_PROVISIONING_ROLES.has(studioRole ?? "");
+}
 
 function getBaseUrl() {
   return (
@@ -32,6 +42,15 @@ async function handleOnboarding() {
 
   const studioId = context.studioId;
 
+  // PAY-DC-2D (N2): the connected account id is server-write only. Only a studio
+  // owner/admin (or platform admin) of this studio may provision it; this check
+  // runs before any Stripe account is created or the service role is used.
+  if (!canProvisionConnectedAccount(context.studioRole, context.isPlatformAdmin)) {
+    return NextResponse.redirect(
+      new URL("/app/settings/billing?error=connect_onboarding_unauthorized", getBaseUrl())
+    );
+  }
+
   const { data: studio, error: studioError } = await supabase
     .from("studios")
     .select("id, stripe_connected_account_id")
@@ -58,16 +77,19 @@ async function handleOnboarding() {
       },
     });
 
-    connectedAccountId = account.id;
-
-    const { error: saveError } = await supabase
+    // Written with the service role only while the stored account is still NULL,
+    // so an existing connected account is never overwritten.
+    const { data: saved, error: saveError } = await createAdminClient()
       .from("studios")
       .update({
-        stripe_connected_account_id: connectedAccountId,
+        stripe_connected_account_id: account.id,
       })
-      .eq("id", studioId);
+      .eq("id", studioId)
+      .is("stripe_connected_account_id", null)
+      .select("id, stripe_connected_account_id")
+      .maybeSingle();
 
-    if (saveError) {
+    if (saveError || !saved || saved.stripe_connected_account_id !== account.id) {
       return NextResponse.redirect(
         new URL(
           "/app/settings/billing?error=save_connected_account_failed",
@@ -75,6 +97,8 @@ async function handleOnboarding() {
         )
       );
     }
+
+    connectedAccountId = account.id;
   }
 
   await stripe.accounts.update(connectedAccountId, {

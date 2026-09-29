@@ -384,11 +384,13 @@ describe("A2P-1A source guards", () => {
   });
 
   it("event SMS enqueue sites are unchanged; dispatch rejects their templates", () => {
-    const register = read("src", "app", "events", "[slug]", "register", "actions.ts");
+    // PAY-DC-2D retired the legacy public register action (and with it the
+    // waitlist enqueue site); the paid-registration SMS enqueue remains in the
+    // webhook and is still rejected by dispatch.
+    const webhook = read("src", "app", "api", "payments", "webhook", "route.ts");
 
-    expect(register).toContain('templateKey: "event_waitlist_confirmation"');
-    expect(register).toContain('templateKey: "event_registration_confirmed"');
-    expect(register).toContain('channel: "sms"');
+    expect(webhook).toContain('templateKey: "event_registration_confirmed"');
+    expect(webhook).toContain('channel: "sms"');
 
     const compliance = read("src", "lib", "sms", "compliance.ts");
     expect(compliance).not.toMatch(/"event_[a-z_]+"/);

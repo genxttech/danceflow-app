@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageMemberships, canSellMemberships } from "@/lib/auth/permissions";
 import { ensureConnectedStripeCustomer } from "@/lib/payments/customer";
@@ -1165,7 +1166,10 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
         ? primaryItem.current_period_end
         : null;
 
-    const { error: updateStripeSubscriptionError } = await supabase
+    // PAY-DC-2D: stripe_subscriptions is service-role-write only. The membership
+    // role gate, the studio-scoped row lookup and the verified connected account
+    // above authorize this; the write is pinned to that row and studio.
+    const { error: updateStripeSubscriptionError } = await createAdminClient()
       .from("stripe_subscriptions")
       .update({
         status: updatedSubscription.status,
@@ -1175,7 +1179,8 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
           : undefined,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", stripeSubscriptionRow.id);
+      .eq("id", stripeSubscriptionRow.id)
+      .eq("studio_id", studioId);
 
     if (updateStripeSubscriptionError) {
       throw new Error(updateStripeSubscriptionError.message);
@@ -1319,7 +1324,8 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
         ? primaryItem.current_period_end
         : null;
 
-    const { error: updateStripeSubscriptionError } = await supabase
+    // PAY-DC-2D: service-role write, authorized as in the cancel action above.
+    const { error: updateStripeSubscriptionError } = await createAdminClient()
       .from("stripe_subscriptions")
       .update({
         status: updatedSubscription.status,
@@ -1329,7 +1335,8 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
           : undefined,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", stripeSubscriptionRow.id);
+      .eq("id", stripeSubscriptionRow.id)
+      .eq("studio_id", studioId);
 
     if (updateStripeSubscriptionError) {
       throw new Error(updateStripeSubscriptionError.message);

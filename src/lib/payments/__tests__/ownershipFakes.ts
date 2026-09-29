@@ -4,15 +4,32 @@
  */
 
 export type Row = Record<string, unknown>;
-export type Mutation = { table: string; op: "insert" | "update"; values: Row; ids: string[] };
+export type Mutation = {
+  table: string;
+  op: "insert" | "update";
+  values: Row;
+  ids: string[];
+  client: "user" | "admin";
+};
 
-export function createOwnershipFakeSupabase(seed: Record<string, Row[]> = {}) {
+/** Returns an error message to reject a tenant (user-client) row write, else null. */
+export type RowGuard = (table: string, before: Row | null, after: Row) => string | null;
+
+export function createOwnershipFakeSupabase(
+  seed: Record<string, Row[]> = {},
+  options: { rowGuard?: RowGuard } = {},
+) {
   const tables: Record<string, Row[]> = {};
   for (const [name, rows] of Object.entries(seed)) tables[name] = rows.map((row) => ({ ...row }));
   const mutations: Mutation[] = [];
   const fromCalls: string[] = [];
 
-  function from(table: string) {
+  function makeFrom(clientKind: "user" | "admin") {
+    return (table: string) => from(table, clientKind);
+  }
+
+  function from(table: string, clientKind: "user" | "admin" = "user") {
+    const guard = clientKind === "user" ? options.rowGuard : undefined;
     fromCalls.push(table);
     tables[table] ??= [];
     let op: "select" | "insert" | "update" = "select";
@@ -28,8 +45,14 @@ export function createOwnershipFakeSupabase(seed: Record<string, Row[]> = {}) {
           id: `${table}-new-${rows.length + index + 1}`,
           ...row,
         }));
+        for (const row of list) {
+          const rejection = guard?.(table, null, row);
+          if (rejection) {
+            return Promise.resolve({ data: null, error: { message: rejection, code: "42501" } });
+          }
+        }
         rows.push(...list);
-        mutations.push({ table, op, values: list[0], ids: list.map((row) => String(row.id)) });
+        mutations.push({ table, op, values: { ...list[0] }, ids: list.map((row) => String(row.id)), client: clientKind });
         return result(list, mode);
       }
 
@@ -38,6 +61,12 @@ export function createOwnershipFakeSupabase(seed: Record<string, Row[]> = {}) {
 
       if (op === "update") {
         const patch = (values ?? {}) as Row;
+        for (const row of matched) {
+          const rejection = guard?.(table, row, { ...row, ...patch });
+          if (rejection) {
+            return Promise.resolve({ data: null, error: { message: rejection, code: "42501" } });
+          }
+        }
         if ("stripe_account_id" in patch) {
           const blocked = matched.some(
             (row) =>
@@ -51,7 +80,7 @@ export function createOwnershipFakeSupabase(seed: Record<string, Row[]> = {}) {
           }
         }
         for (const row of matched) Object.assign(row, patch);
-        mutations.push({ table, op, values: patch, ids: matched.map((row) => String(row.id)) });
+        mutations.push({ table, op, values: patch, ids: matched.map((row) => String(row.id)), client: clientKind });
       }
 
       return result(matched, mode);
@@ -97,8 +126,10 @@ export function createOwnershipFakeSupabase(seed: Record<string, Row[]> = {}) {
       },
       single: () => exec("single"),
       maybeSingle: () => exec("maybeSingle"),
-      then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
-        exec("many").then(resolve, reject),
+      then: (
+        resolve: (value: { data: unknown; error: { message: string; code?: string } | null }) => unknown,
+        reject?: (reason: unknown) => unknown,
+      ) => exec("many").then(resolve, reject),
     };
 
     return builder;
@@ -111,7 +142,9 @@ export function createOwnershipFakeSupabase(seed: Record<string, Row[]> = {}) {
   }
 
   return {
-    client: { from, rpc },
+    client: { from: makeFrom("user"), rpc },
+    /** Service-role client: bypasses rowGuard (as service_role passes the DB guards). */
+    adminClient: { from: makeFrom("admin"), rpc },
     tables,
     mutations,
     rpcCalls,
