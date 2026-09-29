@@ -23,6 +23,11 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => fake.current!.client,
 }));
 
+// PAY-DC-2D: stripe_subscriptions writes use the service role; same fake store.
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => fake.current!.client,
+}));
+
 vi.mock("@/lib/auth/studio", () => ({
   getCurrentStudioContext: async () => ({
     studioId: "studio-1",

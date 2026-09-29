@@ -184,8 +184,21 @@ describe("connected webhook writes persist the owner", () => {
   });
 
   it("event registration checkout stores stripe_account_id = event.account on event_payments", async () => {
+    // PAY-DC-2D fixture: the registration carries its server-stored checkout
+    // session and event studio, whose connected account is the event account.
     const db = createOwnershipFakeSupabase({
-      event_registrations: [{ id: "reg-1", total_amount: 40, total_price: 40, currency: "usd", payment_status: "pending" }],
+      event_registrations: [
+        {
+          id: "reg-1",
+          total_amount: 40,
+          total_price: 40,
+          currency: "usd",
+          payment_status: "pending",
+          stripe_checkout_session_id: "cs_evt",
+          events: { studio_id: "studio-1" },
+        },
+      ],
+      studios: [{ id: "studio-1", stripe_connected_account_id: A }],
       event_payments: [],
     });
     const session = {

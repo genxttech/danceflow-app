@@ -2091,6 +2091,155 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
   }
 }
 
+/**
+ * PAY-DC-2D (M3): an async payment failure may only fail the pending payment
+ * whose server-persisted checkout session and Stripe owner are exactly this
+ * session and the Stripe-signed event.account. A stale or superseded session,
+ * or any other mismatch, is skipped (code-only log, no write) rather than
+ * trusting metadata.paymentId.
+ */
+export async function asyncPaymentFailureMatchesStoredPayment(
+  supabase: SupabaseClient,
+  params: { paymentId: string; sessionId: string; stripeAccountId: string | null },
+) {
+  const { data, error } = await supabase
+    .from("payments")
+    .select("id, status, stripe_checkout_session_id, stripe_account_id")
+    .eq("id", params.paymentId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const payment = data as {
+    status: string | null;
+    stripe_checkout_session_id: string | null;
+    stripe_account_id: string | null;
+  } | null;
+
+  if (
+    !payment ||
+    payment.status !== "pending" ||
+    !params.sessionId ||
+    payment.stripe_checkout_session_id !== params.sessionId ||
+    !params.stripeAccountId ||
+    payment.stripe_account_id !== params.stripeAccountId
+  ) {
+    console.error("package_payment_failed_reference_mismatch");
+    return false;
+  }
+
+  return true;
+}
+
+type EventCheckoutBindingTarget =
+  | { kind: "registration"; id: string; sessionId: string }
+  | { kind: "order_session"; id: string; sessionId: string }
+  | { kind: "order_payment_intent"; id: string; paymentIntentId: string }
+  | { kind: "private_lesson_slot"; id: string; sessionId: string };
+
+/**
+ * PAY-DC-2D (M1): event checkout completions may only mutate the registration,
+ * order or slot whose server-persisted Stripe reference is exactly this Stripe
+ * object, and only when the Stripe-signed event.account is the owning studio's
+ * connected account (studios.stripe_connected_account_id is server-write only).
+ * Metadata ids alone never select the row to fulfil. Throws a fixed code
+ * before any mutation.
+ */
+export async function assertEventCheckoutBinding(
+  supabase: SupabaseClient,
+  target: EventCheckoutBindingTarget,
+  stripeAccountId: string | null | undefined,
+) {
+  if (!stripeAccountId) {
+    throw new Error("event_payment_account_mismatch");
+  }
+
+  let storedReference: string | null = null;
+  let expectedReference: string;
+  let studioId: string | null = null;
+
+  if (target.kind === "registration") {
+    const { data, error } = await supabase
+      .from("event_registrations")
+      .select("id, stripe_checkout_session_id, events(studio_id)")
+      .eq("id", target.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("event_payment_reference_mismatch");
+    const row = data as {
+      stripe_checkout_session_id: string | null;
+      events: { studio_id: string | null } | { studio_id: string | null }[] | null;
+    };
+    const event = Array.isArray(row.events) ? row.events[0] : row.events;
+    storedReference = row.stripe_checkout_session_id;
+    expectedReference = target.sessionId;
+    studioId = event?.studio_id ?? null;
+  } else if (target.kind === "order_session" || target.kind === "order_payment_intent") {
+    const { data, error } = await supabase
+      .from("event_orders")
+      .select("id, studio_id, stripe_checkout_session_id, stripe_payment_intent_id")
+      .eq("id", target.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("event_payment_reference_mismatch");
+    const row = data as {
+      studio_id: string | null;
+      stripe_checkout_session_id: string | null;
+      stripe_payment_intent_id: string | null;
+    };
+    if (target.kind === "order_session") {
+      storedReference = row.stripe_checkout_session_id;
+      expectedReference = target.sessionId;
+    } else {
+      storedReference = row.stripe_payment_intent_id;
+      expectedReference = target.paymentIntentId;
+    }
+    studioId = row.studio_id;
+  } else {
+    const { data, error } = await supabase
+      .from("event_private_lesson_slots")
+      .select("id, studio_id, stripe_checkout_session_id, events(studio_id)")
+      .eq("id", target.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("event_payment_reference_mismatch");
+    const row = data as {
+      studio_id: string | null;
+      stripe_checkout_session_id: string | null;
+      events: { studio_id: string | null } | { studio_id: string | null }[] | null;
+    };
+    const event = Array.isArray(row.events) ? row.events[0] : row.events;
+    storedReference = row.stripe_checkout_session_id;
+    expectedReference = target.sessionId;
+    studioId = event?.studio_id ?? row.studio_id;
+  }
+
+  if (!expectedReference || storedReference !== expectedReference) {
+    throw new Error("event_payment_reference_mismatch");
+  }
+
+  if (!studioId) {
+    throw new Error("event_payment_account_mismatch");
+  }
+
+  const { data: studio, error: studioError } = await supabase
+    .from("studios")
+    .select("stripe_connected_account_id")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  if (studioError) throw new Error(studioError.message);
+
+  if (
+    !studio?.stripe_connected_account_id ||
+    studio.stripe_connected_account_id !== stripeAccountId
+  ) {
+    throw new Error("event_payment_account_mismatch");
+  }
+}
+
 async function handleEventRegistrationCheckoutCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
@@ -2115,6 +2264,12 @@ async function handleEventRegistrationCheckoutCompleted(
   const sessionId = session.id;
   const amountTotal = Number(session.amount_total ?? 0) / 100;
   const currency = (session.currency ?? "usd").toUpperCase();
+
+  await assertEventCheckoutBinding(
+    supabase,
+    { kind: "registration", id: registrationId, sessionId },
+    stripeAccountId,
+  );
 
   await assertEventRegistrationPaymentMatches({
     supabase,
@@ -2238,6 +2393,12 @@ async function handleEventCartOrderCheckoutCompleted(
   const currency = (session.currency ?? "usd").toUpperCase();
   const paidAt = new Date().toISOString();
 
+  await assertEventCheckoutBinding(
+    supabase,
+    { kind: "order_session", id: orderId, sessionId },
+    stripeAccountId,
+  );
+
   await assertEventOrderPaymentMatches({
     supabase,
     orderId,
@@ -2245,12 +2406,12 @@ async function handleEventCartOrderCheckoutCompleted(
     currency,
   });
 
+  // The order's checkout session id is bound above and never rewritten here.
   const { error: orderUpdateError } = await supabase
     .from("event_orders")
     .update({
       status: "confirmed",
       payment_status: "paid",
-      stripe_checkout_session_id: sessionId,
       stripe_payment_intent_id: paymentIntentId,
       total_amount: amountTotal,
       currency,
@@ -2278,7 +2439,6 @@ async function handleEventCartOrderCheckoutCompleted(
       .update({
         status: "confirmed",
         payment_status: "paid",
-        stripe_checkout_session_id: sessionId,
         stripe_payment_intent_id: paymentIntentId,
       })
       .eq("id", registration.id);
@@ -2389,6 +2549,12 @@ async function handleEventCartOrderPaymentIntentSucceeded(
   const currency = (paymentIntent.currency ?? "usd").toUpperCase();
   const paidAt = new Date().toISOString();
 
+  await assertEventCheckoutBinding(
+    supabase,
+    { kind: "order_payment_intent", id: orderId, paymentIntentId },
+    stripeAccountId,
+  );
+
   await assertEventOrderPaymentMatches({
     supabase,
     orderId,
@@ -2396,12 +2562,12 @@ async function handleEventCartOrderPaymentIntentSucceeded(
     currency,
   });
 
+  // The order's PaymentIntent id is bound above and never rewritten here.
   const { error: orderUpdateError } = await supabase
     .from("event_orders")
     .update({
       status: "confirmed",
       payment_status: "paid",
-      stripe_payment_intent_id: paymentIntentId,
       total_amount: amountTotal,
       currency,
       paid_at: paidAt,
@@ -2517,6 +2683,7 @@ async function handleEventCartOrderPaymentIntentSucceeded(
 async function handleEventPrivateLessonCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session,
+  stripeAccountId?: string | null,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "event_private_lesson_slot") return false;
@@ -2532,6 +2699,12 @@ async function handleEventPrivateLessonCheckoutCompleted(
 
   const paymentIntentId = getString(session.payment_intent);
   const amountTotal = Number(session.amount_total ?? 0) / 100;
+
+  await assertEventCheckoutBinding(
+    supabase,
+    { kind: "private_lesson_slot", id: slotId, sessionId: session.id },
+    stripeAccountId,
+  );
 
   const { data: privateLessonSlot, error: privateLessonSlotError } =
     await supabase
@@ -2552,21 +2725,12 @@ async function handleEventPrivateLessonCheckoutCompleted(
     );
   }
 
-  if (
-    privateLessonSlot.stripe_checkout_session_id &&
-    privateLessonSlot.stripe_checkout_session_id !== session.id
-  ) {
-    throw new Error(
-      "Private lesson checkout session did not match the held slot.",
-    );
-  }
-
+  // The slot's checkout session id is bound above and never rewritten here.
   const { error: slotUpdateError } = await supabase
     .from("event_private_lesson_slots")
     .update({
       status: "booked",
       payment_status: "paid",
-      stripe_checkout_session_id: session.id,
       stripe_payment_intent_id: paymentIntentId,
       booked_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -3505,7 +3669,7 @@ export async function handleCheckoutSessionCompleted(
   }
 
   const handledPrivateLessonSlot =
-    await handleEventPrivateLessonCheckoutCompleted(supabase, session);
+    await handleEventPrivateLessonCheckoutCompleted(supabase, session, stripeAccountId);
 
   if (handledPrivateLessonSlot) {
     return;
@@ -4539,7 +4703,14 @@ export async function POST(request: Request) {
         // uses. Never a financial mismatch, so never a conflict row.
         const session = event.data.object as Stripe.Checkout.Session;
         const paymentId = getString(session.metadata?.paymentId);
-        if (paymentId) {
+        if (
+          paymentId &&
+          (await asyncPaymentFailureMatchesStoredPayment(supabase, {
+            paymentId,
+            sessionId: session.id,
+            stripeAccountId: event.account ?? null,
+          }))
+        ) {
           const { error: failError } = await supabase.rpc(
             "_mark_package_payment_failed_and_reevaluate",
             { p_payment_id: paymentId, p_stripe_event_id: event.id },

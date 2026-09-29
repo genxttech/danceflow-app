@@ -35,6 +35,8 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => db.client }));
+// PAY-DC-2D: the owner stamp uses the service role; same fake store.
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => db.client }));
 vi.mock("@/lib/auth/studio", () => ({
   getCurrentStudioContext: async () => ({
     studioId: STUDIO_ID,
