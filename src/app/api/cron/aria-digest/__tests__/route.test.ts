@@ -265,7 +265,7 @@ describe("ARIA digest content (BR-3C canonical URL + shell characterization)", (
   it("uses the current shared shell (studio identity band, current palette token, legal line) -- not a hand-rolled header", () => {
     const html = buildDigestHtml({ studioName: "Acme Dance", studioLogoUrl: null, digestType: "morning", summary });
     expect(html).toContain("Acme Dance");
-    expect(html).toContain("DanceFlow is a product of GenX TotalTech LLC.");
+    expect(html).toContain("DanceFlow is a software platform owned and operated by GenX TotalTech LLC.");
   });
 
   it("does not opt into greeting/intro -- dedupeBodyLeadIn duplication fix does not apply here (no greeting/intro rendered)", () => {

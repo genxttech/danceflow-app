@@ -9,7 +9,7 @@ BR-2 (product shell), BR-3 (emails and documents), BR-4 (public website) and BR-
 
 - **Master brand:** `DanceFlow` (one word, capital D and F). Never `Dance Flow`, `Danceflow`, or `Dance-Flow`. Lowercase `danceflow` is allowed only in URLs, identifiers, package/bundle ids and file names. `DANCEFLOW` is allowed only as a deliberate uppercase typographic treatment of the wordmark label.
 - **Legal entity:** GenX TotalTech LLC.
-- **Canonical relationship:** "DanceFlow is a software platform owned and operated by GenX TotalTech LLC." (owner-approved for A2P-1C; used on the public footer, Terms, Privacy, SMS Consent and in SMS consent disclosures). The email legal line (`EMAIL_LEGAL_LINE`) still reads "DanceFlow is a product of GenX TotalTech LLC." pending a later email cleanup; the two are consistent in meaning.
+- **Canonical relationship:** "DanceFlow is a software platform owned and operated by GenX TotalTech LLC." (owner-approved for A2P-1C; used on the public footer, Terms, Privacy, SMS Consent and in SMS consent disclosures). Since PAY-DC-3 the email legal line (`EMAIL_LEGAL_LINE`) uses the same wording, in both HTML and plain-text email (see §1.1).
 - DanceFlow stays visually dominant on every customer-facing product surface. The legal entity appears where it is required or expected, in quiet type, never as a competing brand.
 
 ### Where the legal entity must appear
@@ -29,6 +29,19 @@ BR-2 (product shell), BR-3 (emails and documents), BR-4 (public website) and BR-
 Product headers, navigation, sidebar, buttons, hero and marketing copy, email headers, PDF headers, app icons and social avatars use DanceFlow only.
 
 **Current state (audit, 2026-09-20):** "GenX TotalTech LLC" appears nowhere in the product. This is a gap to close in BR-2 (footer, legal pages), BR-3 (emails/PDFs) and BR-4 (structured data).
+
+### 1.1 Transactional email sender and merchant identity (PAY-DC-3 — source of truth)
+
+These rules are implemented once and BR-3 (and any later email work) must reuse the helpers rather than recreate the policy.
+
+| Rule | Policy | Helper |
+|---|---|---|
+| Legal line | Exactly "DanceFlow is a software platform owned and operated by GenX TotalTech LLC." in the HTML footer of every branded email and at the end of the plain-text part of every DanceFlow transactional send. Marketing-campaign text is out of scope (CAN-SPAM work). The legal entity name lives only in `src/lib/email/brand.ts`. | `EMAIL_LEGAL_LINE`, `appendEmailLegalText` (`src/lib/email/brand.ts`) |
+| Sender display name | Client-facing transactional email in a studio or organizer context is sent as `"{Studio or Organizer public name} via DanceFlow" <notify@idanceflow.com>`: the organizer's name for organizer events, otherwise the studio's `public_name`, then `name`. An empty or unsafe name falls back to `DanceFlow`. The sending address/domain stays DanceFlow's (environment override preserved). Only an explicit template-key allowlist (plus the rule-driven `automation_*` / `aria_execution_*` client families) qualifies; staff, system, platform, SaaS and marketing email stays `DanceFlow`. | `isClientFacingTemplateKey`, `resolveClientSenderDisplayName` (`src/lib/notifications/senderIdentity.ts`); `resolveOutboundFromEmail({ senderName })` (`src/lib/notifications/outbound.ts`); `formatFrom` (`src/lib/email/sender.ts`, quoted and header-safe) |
+| Reply-To | Unchanged: the studio's operational email (or an explicit address); system templates carry none. | `src/lib/notifications/outbound.ts` |
+| Merchant line | Payment-bearing client emails may state who took the payment only from persisted payment facts: paid status, total > 0 and exactly one stored Stripe owner (`event_payments` / `payments.stripe_account_id`, server-written only). Studio: "Your payment was made to {Studio}. DanceFlow provides the software used to manage this transaction." | `resolveEmailMerchantIdentity`, `resolveEventMerchantLine` (`src/lib/notifications/merchantIdentity.ts`) |
+| Organizer wording | Event charges are direct charges on the owning studio's connected account, so organizer emails say "This transaction was processed for {Organizer} through DanceFlow." — never that the payment was made to the organizer. Organizer Stripe columns are never used. | same |
+| Fail-safe omission | Free, zero-total, pending, manual / pay-at-door, waitlist, legacy / NULL-owner, conflicting-owner or otherwise unproven payments get no merchant line — it is omitted, never guessed. Branding preference, caller-supplied flags and tenant-writable order metadata are never inputs. The line never contains Stripe ids (`acct_`, `pi_`, `ch_` …), statement descriptors or the legal entity name. | same |
 
 ---
 
@@ -264,7 +277,7 @@ Reusable, app-agnostic rules only. The number, names and boundaries of apps are 
 3. **ARIA acronym expansion and pronoun cleanup** — deferred to a later copy review; ARIA stays the canonical visible assistant name.
 4. **Mobile app icons** (legacy `DF` monogram) — not modified until mobile branding is planned.
 5. **Dark-surface token** and **production font family** — deliberately not decided (see §6.4, §7).
-6. **Legal line placement** in the product (footer, legal pages, emails, structured data) — implemented in BR-2/BR-3/BR-4. Public surfaces use the A2P-1C wording "DanceFlow is a software platform owned and operated by GenX TotalTech LLC."; email footers still use "DanceFlow is a product of GenX TotalTech LLC." until a later email cleanup.
+6. **Legal line placement** in the product (footer, legal pages, emails, structured data) — implemented in BR-2/BR-3/BR-4. Public surfaces use the A2P-1C wording "DanceFlow is a software platform owned and operated by GenX TotalTech LLC."; since PAY-DC-3 email footers (HTML and plain text) use the same wording (§1.1).
 
 ---
 

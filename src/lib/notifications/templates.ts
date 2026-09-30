@@ -24,6 +24,13 @@ type EventOutboundTemplateParams = {
   brandLogoUrl?: string | null;
   ticketCodes?: TicketCodeLine[];
   purchasedItems?: TicketPurchaseLine[];
+  /**
+   * PAY-DC-3: the merchant sentence from `resolveEmailMerchantIdentity` (persisted payment facts only).
+   * Omitted when the payment is free, pending, manual or its owner is unproven.
+   */
+  merchantLine?: string | null;
+  /** PAY-DC-3: subject wording. The body and dedupe keys are unchanged. */
+  subjectKind?: "confirmation" | "reminder";
 };
 
 function money(value: number, currency: string) {
@@ -151,6 +158,19 @@ function ticketCardsHtml(params: EventOutboundTemplateParams) {
     </div>`;
 }
 
+/** PAY-DC-3 (D-F): brand identity in the subject; the brand is the organizer or studio shown in the email. */
+export function buildEventEmailSubject(params: {
+  eventName: string;
+  brandName?: string | null;
+  subjectKind?: "confirmation" | "reminder";
+}) {
+  const brand = params.brandName?.trim();
+  const suffix = brand ? ` — ${brand}` : "";
+  return params.subjectKind === "reminder"
+    ? `Reminder: ${params.eventName}${suffix}`
+    : `Registration confirmed for ${params.eventName}${suffix}`;
+}
+
 export function buildEventWaitlistEmailTemplate(
   params: EventOutboundTemplateParams,
 ) {
@@ -205,6 +225,7 @@ export function buildEventConfirmedEmailTemplate(
   const greeting = params.attendeeFirstName || attendeeName(params) || "there";
   const totalLabel =
     params.totalPrice > 0 ? money(params.totalPrice, params.currency) : "Free";
+  const merchantLine = params.merchantLine?.trim() || "";
 
   const purchaseRows = params.purchasedItems ?? [];
   const purchaseLines = purchaseRows.length
@@ -226,6 +247,7 @@ export function buildEventConfirmedEmailTemplate(
     `Your registration is confirmed for ${params.eventName}.`,
     ...purchaseLines,
     `Total: ${totalLabel}`,
+    merchantLine,
     ticketCodeText(params),
     "",
     `Event page: ${params.eventUrl}`,
@@ -241,11 +263,20 @@ export function buildEventConfirmedEmailTemplate(
     <div style="padding:13px 15px;border-radius:14px;background:#ecfdf5;border:1px solid #a7f3d0;font-size:15px;color:#065f46;">
       <strong>Total:</strong> ${escapeHtml(totalLabel)}
     </div>
+    ${
+      merchantLine
+        ? `<p style="margin:10px 0 0;font-size:13px;line-height:1.6;color:#64748b;">${escapeHtml(merchantLine)}</p>`
+        : ""
+    }
     ${ticketCardsHtml(params)}
   `;
 
   return {
-    subject: `Registration confirmed for ${params.eventName}`,
+    subject: buildEventEmailSubject({
+      eventName: params.eventName,
+      brandName: params.brandName,
+      subjectKind: params.subjectKind,
+    }),
     bodyText,
     bodyHtml: renderStudioBrandedEmail(brand, {
       previewText: `Registration confirmed for ${params.eventName}`,

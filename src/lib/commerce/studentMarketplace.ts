@@ -2,6 +2,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 import { buildAppUrl, resolveStudioDisplayName } from "@/lib/email/brand";
+import { resolveEmailMerchantIdentity } from "@/lib/notifications/merchantIdentity";
 
 /** Pure builder for the digital-purchase confirmation email (exported for deterministic tests). */
 export function buildMarketplacePurchaseEmail(params: {
@@ -10,12 +11,15 @@ export function buildMarketplacePurchaseEmail(params: {
   itemName: string;
   orderNumber: string;
   total: string;
+  /** PAY-DC-3: merchant sentence from persisted payment facts only; omitted when unproven. */
+  merchantLine?: string | null;
 }) {
   const studioName = resolveStudioDisplayName(params.studio);
   const firstName = params.firstName?.trim() || "there";
   const accountUrl = buildAppUrl("/account");
   const greeting = `Hi ${firstName},`;
   const intro = `Your purchase from ${studioName} is complete.`;
+  const merchantLine = params.merchantLine?.trim() || "";
 
   const bodyText = [
     greeting,
@@ -23,6 +27,7 @@ export function buildMarketplacePurchaseEmail(params: {
     `Your purchase of ${params.itemName} from ${studioName} is complete.`,
     `Order: ${params.orderNumber}`,
     `Total: ${params.total}`,
+    ...(merchantLine ? [merchantLine] : []),
     "",
     "Your access has been added to your DanceFlow account.",
     `Open DanceFlow: ${accountUrl}`,
@@ -53,7 +58,7 @@ export function buildMarketplacePurchaseEmail(params: {
     },
   );
 
-  return { subject: `Your ${params.itemName} purchase is ready`, bodyText, bodyHtml };
+  return { subject: `Your purchase from ${studioName}: ${params.itemName}`, bodyText, bodyHtml };
 }
 
 function formatMoney(value: number, currency: string) {
@@ -122,12 +127,33 @@ async function queueStudentMarketplacePurchaseConfirmation(params: {
 
   const itemName = orderItem?.name_snapshot?.trim() || "Digital content";
   const total = formatMoney(Number(order.total ?? 0), order.currency || "USD");
+
+  // PAY-DC-3 (D-B): the merchant line trusts only the service-role stamped payments.stripe_account_id,
+  // never the tenant-writable order metadata. Not stamped yet (e.g. the student confirm route) → no line.
+  const { data: ownerRows, error: ownerError } = await params.supabase
+    .from("payments")
+    .select("stripe_account_id")
+    .eq("commerce_order_id", order.id)
+    .eq("studio_id", order.studio_id);
+  const storedOwnerAccountIds = ownerError
+    ? []
+    : ((ownerRows ?? []) as Array<{ stripe_account_id: string | null }>).map(
+        (row) => row.stripe_account_id,
+      );
+  const merchant = resolveEmailMerchantIdentity({
+    paymentStatus: order.payment_status,
+    totalAmount: order.total,
+    storedOwnerAccountIds,
+    studioName: resolveStudioDisplayName(studio ?? {}, ""),
+  });
+
   const { subject, bodyText, bodyHtml } = buildMarketplacePurchaseEmail({
     studio: studio ?? {},
     firstName: client?.first_name ?? null,
     itemName,
     orderNumber: order.order_number || order.id,
     total,
+    merchantLine: merchant?.sentence ?? null,
   });
 
   await queueOutboundDelivery({
@@ -144,12 +170,33 @@ async function queueStudentMarketplacePurchaseConfirmation(params: {
   });
 }
 
+/** Queues the purchase confirmation; a failure is logged and never fails fulfilment. */
+export async function queueStudentMarketplacePurchaseConfirmationSafely(params: {
+  supabase: SupabaseClient;
+  orderId: string;
+  entitlementId: string;
+}) {
+  try {
+    await queueStudentMarketplacePurchaseConfirmation(params);
+  } catch (emailError) {
+    console.error(
+      "Marketplace purchase confirmation queue failed",
+      emailError instanceof Error ? emailError.message : emailError,
+    );
+  }
+}
+
 export async function finalizeStudentMarketplacePayment(input: {
   supabase: SupabaseClient;
   orderId: string;
   paymentIntentId: string;
   amount: number;
   currency: string;
+  /**
+   * PAY-DC-3 (D-B): the webhook passes `false`, stamps the trusted payment owner, then queues the
+   * confirmation itself so the merchant line can be proven. Defaults to queueing here.
+   */
+  queueConfirmation?: boolean;
 }) {
   const { data, error } = await input.supabase.rpc(
     "commerce_finalize_student_digital_order",
@@ -167,17 +214,12 @@ export async function finalizeStudentMarketplacePayment(input: {
 
   const entitlementId = String(data);
 
-  try {
-    await queueStudentMarketplacePurchaseConfirmation({
+  if (input.queueConfirmation !== false) {
+    await queueStudentMarketplacePurchaseConfirmationSafely({
       supabase: input.supabase,
       orderId: input.orderId,
       entitlementId,
     });
-  } catch (emailError) {
-    console.error(
-      "Marketplace purchase confirmation queue failed",
-      emailError instanceof Error ? emailError.message : emailError,
-    );
   }
 
   return entitlementId;

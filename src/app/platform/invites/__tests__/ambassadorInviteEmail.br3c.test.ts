@@ -76,7 +76,7 @@ describe("ambassador invite email content (BR-3C render-based, real shell + real
     expect(html).toContain(`href="${inviteLink}"`);
     expect(html).toContain(">Accept Your Invite<");
     expect(html).toContain("Hi Jordan,");
-    expect(html).toContain("DanceFlow is a product of GenX TotalTech LLC.");
+    expect(html).toContain("DanceFlow is a software platform owned and operated by GenX TotalTech LLC.");
     // Escaping is handled by the shared shell itself -- confirms removing the dead local escapeHtml
     // duplicate has no effect on actual output.
     expect(html).not.toContain("<script>");

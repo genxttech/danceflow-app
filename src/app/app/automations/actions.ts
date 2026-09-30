@@ -4878,25 +4878,13 @@ Thank you,
     action_body: action.body || "We wanted to follow up with you.",
   });
 
+  // PAY-DC-3 (D-A): no hand-built HTML. With body_html left empty, dispatch renders the stored text in the
+  // standard studio-branded shell (studio name/logo, attribution and canonical legal footer) at send time.
   return {
     subject,
     bodyText,
-    bodyHtml: renderPlainTextAsHtml(bodyText),
+    bodyHtml: null,
   };
-}
-
-function renderPlainTextAsHtml(bodyText: string) {
-  const escaped = bodyText
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-  return escaped
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br />")}</p>`)
-    .join("");
 }
 
 export async function createAutomationEmailDraftAction(formData: FormData) {
@@ -5165,7 +5153,7 @@ export async function saveAutomationEmailDraftAction(formData: FormData) {
       .update({
         subject,
         body_text: bodyText,
-        body_html: renderPlainTextAsHtml(bodyText),
+        body_html: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", deliveryId)
@@ -5257,7 +5245,7 @@ export async function queueAutomationEmailDraftAction(formData: FormData) {
   if (subject && bodyText) {
     updatePayload.subject = subject;
     updatePayload.body_text = bodyText;
-    updatePayload.body_html = renderPlainTextAsHtml(bodyText);
+    updatePayload.body_html = null;
   }
 
   const adminSupabase = createAdminClient();

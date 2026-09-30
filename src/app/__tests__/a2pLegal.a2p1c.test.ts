@@ -34,10 +34,10 @@ describe("canonical relationship statement", () => {
     expect(footer).not.toContain("DanceFlow is a product of GenX TotalTech LLC.");
   });
 
-  it("the email legal line is intentionally unchanged", () => {
-    expect(read("src", "lib", "email", "brand.ts")).toContain(
-      'EMAIL_LEGAL_LINE = "DanceFlow is a product of GenX TotalTech LLC."',
-    );
+  it("the email legal line now uses the canonical relationship wording (PAY-DC-3)", () => {
+    const brand = collapse(read("src", "lib", "email", "brand.ts"));
+    expect(brand).toContain(`EMAIL_LEGAL_LINE = "${RELATIONSHIP}.";`);
+    expect(brand).not.toContain("DanceFlow is a product of GenX TotalTech LLC.");
   });
 
   it("Terms and Privacy define DanceFlow as the GenX-operated platform", () => {

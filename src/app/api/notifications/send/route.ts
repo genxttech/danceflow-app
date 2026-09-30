@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
 import { getCronAuthFailure } from "@/lib/security/cron";
-import { sanitizeEmailSubject } from "@/lib/email/brand";
+import { appendEmailLegalText, sanitizeEmailSubject } from "@/lib/email/brand";
+import { resolveOutboundFromEmail } from "@/lib/notifications/outbound";
+import { resolveClientSenderDisplayName } from "@/lib/notifications/senderIdentity";
 import {
   renderNotificationHtml,
   resolveNotificationStudioBranding,
@@ -23,7 +25,10 @@ async function getStudioBranding(
     .eq("id", studioId)
     .maybeSingle<NotificationStudioBrandingRow>();
 
-  return resolveNotificationStudioBranding(data);
+  return {
+    ...resolveNotificationStudioBranding(data),
+    senderDisplayName: resolveClientSenderDisplayName({ studio: data }),
+  };
 }
 
 const CLIENT_REMINDER_TYPES = new Set([
@@ -71,12 +76,11 @@ async function sendEmail(params: {
   text: string;
   html: string;
   replyTo?: string | null;
+  senderName?: string | null;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from =
-    process.env.NOTIFICATION_FROM_EMAIL ||
-    process.env.RESEND_FROM_EMAIL ||
-    "DanceFlow <notifications@danceflow.app>";
+  // PAY-DC-3 (D4): the standard outbound sender; client lesson reminders carry the studio display name.
+  const from = resolveOutboundFromEmail({ senderName: params.senderName });
 
   if (!apiKey) {
     throw new Error("RESEND_API_KEY is not configured.");
@@ -92,7 +96,7 @@ async function sendEmail(params: {
       from,
       to: [params.to],
       subject: sanitizeEmailSubject(params.subject),
-      text: params.text,
+      text: appendEmailLegalText(params.text),
       html: params.html,
       ...(params.replyTo ? { reply_to: params.replyTo } : {}),
     }),
@@ -213,7 +217,8 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
 
       // Reply-To is set only for client reminders, and only when the studio's own email is valid.
       // Internal staff notifications (owner digest, instructor agenda) keep no Reply-To, as before.
-      const replyTo = CLIENT_REMINDER_TYPES.has(delivery.delivery_type)
+      const isClientReminder = CLIENT_REMINDER_TYPES.has(delivery.delivery_type);
+      const replyTo = isClientReminder
         ? resolveReminderReplyTo(studioBranding.replyToEmail)
         : null;
 
@@ -230,6 +235,7 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
           portalUrl: studioBranding.portalUrl,
         }),
         replyTo,
+        senderName: isClientReminder ? studioBranding.senderDisplayName : null,
       });
 
       await supabase

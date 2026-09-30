@@ -26,8 +26,12 @@ import {
   buildEventConfirmedEmailTemplate,
   buildEventConfirmedSmsTemplate,
 } from "@/lib/notifications/templates";
-import { finalizeStudentMarketplacePayment } from "@/lib/commerce/studentMarketplace";
+import {
+  finalizeStudentMarketplacePayment,
+  queueStudentMarketplacePurchaseConfirmationSafely,
+} from "@/lib/commerce/studentMarketplace";
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
+import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -176,12 +180,13 @@ export async function handleStudentMarketplacePaymentIntentSucceeded(
   const amount =
     Number(paymentIntent.amount_received ?? paymentIntent.amount ?? 0) / 100;
 
-  await finalizeStudentMarketplacePayment({
+  const entitlementId = await finalizeStudentMarketplacePayment({
     supabase,
     orderId,
     paymentIntentId: paymentIntent.id,
     amount,
     currency: paymentIntent.currency,
+    queueConfirmation: false,
   });
 
   const { error: ownerError } = await supabase
@@ -194,6 +199,13 @@ export async function handleStudentMarketplacePaymentIntentSucceeded(
   if (ownerError) {
     throw new Error(ownerError.message);
   }
+
+  // PAY-DC-3 (D-B): queue only after the trusted owner is stamped, so the merchant line reads it.
+  await queueStudentMarketplacePurchaseConfirmationSafely({
+    supabase,
+    orderId,
+    entitlementId,
+  });
 
   return true;
 }
@@ -1666,6 +1678,7 @@ type PaidEventRegistrationConfirmationRow = {
   quantity: number;
   total_price: number;
   currency: string;
+  payment_status: string | null;
   events:
     | { id: string; slug: string; name: string; organizer_id: string | null }
     | { id: string; slug: string; name: string; organizer_id: string | null }[]
@@ -1696,6 +1709,7 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
         quantity,
         total_price,
         currency,
+        payment_status,
         events (
           id,
           slug,
@@ -1767,6 +1781,15 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
       organizerId: eventValue.organizer_id ?? null,
     });
 
+    // PAY-DC-3: merchant line from persisted facts only (paid status, total, stored event_payments owner).
+    const merchantLine = await resolveEventMerchantLine({
+      supabase: params.supabase,
+      registrationIds: [registration.id],
+      paymentStatus: registration.payment_status,
+      totalAmount: registration.total_price,
+      branding,
+    });
+
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: eventValue.name,
       attendeeFirstName: registration.attendee_first_name,
@@ -1779,6 +1802,7 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
       ticketCodes,
       brandName: branding.name,
       brandLogoUrl: branding.logoUrl,
+      merchantLine,
     });
 
     const smsBody = buildEventConfirmedSmsTemplate({
@@ -1804,6 +1828,7 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
         relatedTable: "event_registrations",
         relatedId: registration.id,
         dedupeKey: `event_registration_confirmed:email:${registration.id}`,
+        senderDisplayName: branding.senderDisplayName,
       }),
       queueOutboundDelivery({
         studioId: registration.studio_id,
@@ -1866,6 +1891,7 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
         buyer_phone,
         total_amount,
         currency,
+        payment_status,
         events (
           id,
           slug,
@@ -2036,6 +2062,15 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
       organizerId: eventValue.organizer_id ?? null,
     });
 
+    // PAY-DC-3: merchant line from persisted facts only (order paid status/total, stored event_payments owners).
+    const merchantLine = await resolveEventMerchantLine({
+      supabase: params.supabase,
+      registrationIds: typedRegistrations.map((registration) => registration.id),
+      paymentStatus: order.payment_status,
+      totalAmount: order.total_amount,
+      branding,
+    });
+
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: eventValue.name,
       attendeeFirstName: firstName,
@@ -2049,6 +2084,7 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
       purchasedItems: finalPurchasedItems,
       brandName: branding.name,
       brandLogoUrl: branding.logoUrl,
+      merchantLine,
     });
 
     const smsBody = buildEventConfirmedSmsTemplate({
@@ -2074,6 +2110,7 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
         relatedTable: "event_registrations",
         relatedId: primaryRegistration.id,
         dedupeKey: `event_cart_order_confirmed:email:${order.id}`,
+        senderDisplayName: branding.senderDisplayName,
       }),
       queueOutboundDelivery({
         studioId: order.studio_id ?? primaryRegistration.studio_id,

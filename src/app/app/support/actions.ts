@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { Resend } from "resend";
 import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
-import { sanitizeEmailSubject } from "@/lib/email/brand";
+import { appendEmailLegalText, sanitizeEmailSubject } from "@/lib/email/brand";
 
 function getString(formData: FormData, key: string, maxLength = 4000) {
   const value = formData.get(key);
@@ -97,7 +97,7 @@ export async function sendSupportRequestAction(formData: FormData) {
     to: [to],
     replyTo: email,
     subject,
-    text: bodyText,
+    text: appendEmailLegalText(bodyText),
     html: bodyHtml,
   });
 

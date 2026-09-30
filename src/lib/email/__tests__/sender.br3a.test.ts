@@ -25,15 +25,18 @@ function walk(dir: string, out: string[] = []) {
 describe("target sender", () => {
   it("defines notify@idanceflow.com as the target transactional sender", () => {
     expect(TRANSACTIONAL_FROM_ADDRESS).toBe("notify@idanceflow.com");
-    expect(TRANSACTIONAL_FROM).toBe("DanceFlow <notify@idanceflow.com>");
+    expect(TRANSACTIONAL_FROM).toBe('"DanceFlow" <notify@idanceflow.com>');
   });
 
-  it("formats From values and strips characters that could break the header", () => {
-    expect(formatFrom()).toBe("DanceFlow <notify@idanceflow.com>");
+  it("formats From values and strips characters that could break the header (PAY-DC-3 quoted form)", () => {
+    expect(formatFrom()).toBe('"DanceFlow" <notify@idanceflow.com>');
     expect(formatFrom('Evil <x@y.com>\r\nBcc: z@y.com "', "Notify@IDanceFlow.com")).toBe(
-      "Evil x@y.com Bcc: z@y.com <notify@idanceflow.com>",
+      '"Evil x y.com Bcc z y.com" <notify@idanceflow.com>',
     );
-    expect(formatFrom("   ", "a@b.co")).toBe("a@b.co");
+    expect(formatFrom("Smith, Jones; (Dance): Studio", "a@b.co")).toBe(
+      '"Smith Jones Dance Studio" <a@b.co>',
+    );
+    expect(formatFrom("   ", "a@b.co")).toBe('"DanceFlow" <a@b.co>');
     expect(() => formatFrom("DanceFlow", "not-an-email")).toThrow();
     expect(() => formatFrom("DanceFlow", "a@b.com\r\nBcc: c@d.com")).toThrow();
   });
@@ -75,13 +78,18 @@ describe("reply-to resolution", () => {
   });
 });
 
-describe("BR-3A leaves live sender behavior unchanged", () => {
-  it("is not imported by any live send path", () => {
+describe("live sender wiring (BR-3A defaults, PAY-DC-3 production dependency)", () => {
+  it("is imported only by the shared outbound resolver and the sender-identity policy (PAY-DC-3)", () => {
     const importers = walk(join(ROOT, "src"))
       .filter((f) => /\.(ts|tsx)$/.test(f))
       .filter((f) => !f.includes("__tests__") && !f.endsWith(join("lib", "email", "sender.ts")))
-      .filter((f) => readFileSync(f, "utf8").includes("@/lib/email/sender"));
-    expect(importers).toEqual([]);
+      .filter((f) => readFileSync(f, "utf8").includes("@/lib/email/sender"))
+      .map((f) => f.slice(ROOT.length + 1).replace(/\\/g, "/"))
+      .sort();
+    expect(importers).toEqual([
+      "src/lib/notifications/outbound.ts",
+      "src/lib/notifications/senderIdentity.ts",
+    ]);
   }, 60_000);
 
   it("keeps the existing From defaults untouched", () => {
@@ -98,17 +106,20 @@ describe("BR-3A leaves live sender behavior unchanged", () => {
       /import\s*\{[^}]*\bresolveOutboundFromEmail\b[^}]*\}\s*from\s*"@\/lib\/notifications\/outbound";/,
     );
     expect(dispatch).not.toContain('"DanceFlow <notify@idanceflow.com>"');
-    expect(read("src", "app", "api", "notifications", "send", "route.ts")).toContain(
-      '"DanceFlow <notifications@danceflow.app>"',
-    );
+    // PAY-DC-3 (D4): the lesson-reminder route no longer has its own danceflow.app fallback.
+    const reminderRoute = read("src", "app", "api", "notifications", "send", "route.ts");
+    expect(reminderRoute).not.toContain("notifications@danceflow.app");
+    expect(reminderRoute).toContain("resolveOutboundFromEmail({ senderName: params.senderName })");
   });
 
-  it("the direct portal invite path uses the same shared From resolver (BR-3B2)", () => {
+  it("the direct portal invite path uses the same shared From resolver (BR-3B2, PAY-DC-3 sender name)", () => {
     const clientsActions = read("src", "app", "app", "clients", "[id]", "actions.ts");
     expect(clientsActions).toContain(
       'import { normalizeEmail, resolveOutboundFromEmail } from "@/lib/notifications/outbound";',
     );
-    expect(clientsActions).toContain("const from = resolveOutboundFromEmail();");
+    expect(clientsActions).toContain(
+      "const from = resolveOutboundFromEmail({ senderName: params.senderDisplayName });",
+    );
     expect(clientsActions).not.toMatch(/function getOutboundFromEmail/);
   });
 });

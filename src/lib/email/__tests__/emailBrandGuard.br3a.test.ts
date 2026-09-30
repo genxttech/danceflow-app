@@ -228,7 +228,9 @@ describe("subject sanitizer chokepoints", () => {
 
   it("wraps the notification send route", () => {
     const route = read("src", "app", "api", "notifications", "send", "route.ts").replace(/\r\n/g, "\n");
-    expect(route).toContain('import { sanitizeEmailSubject } from "@/lib/email/brand";');
+    expect(route).toMatch(
+      /import\s*\{[^}]*\bsanitizeEmailSubject\b[^}]*\}\s*from\s*"@\/lib\/email\/brand";/,
+    );
     expect(route).toContain("subject: sanitizeEmailSubject(params.subject),");
     expect(route).not.toContain("subject: params.subject,");
   });

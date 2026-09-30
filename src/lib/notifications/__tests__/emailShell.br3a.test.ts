@@ -9,7 +9,7 @@ import {
 } from "@/lib/notifications/email-branding";
 
 const LOGO = "https://cdn.example.com/studio/logo.png";
-const LEGAL = "DanceFlow is a product of GenX TotalTech LLC.";
+const LEGAL = "DanceFlow is a software platform owned and operated by GenX TotalTech LLC.";
 const TOKEN_HEXES = new Set(Object.values(EMAIL_TOKENS).map((h) => h.toLowerCase()));
 const LEGACY_HEXES = [
   "#4c1d95",
