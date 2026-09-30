@@ -1,5 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { EMAIL_TOKENS, buildAppUrl, escapeHtml, resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";
+import { EMAIL_TOKENS, appendEmailLegalText, buildAppUrl, escapeHtml, resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";
+import {
+  isClientFacingTemplateKey,
+  resolveClientSenderDisplayName,
+} from "@/lib/notifications/senderIdentity";
 import { Resend } from "resend";
 import {
   appendSmsOptOutFooter,
@@ -126,6 +130,7 @@ async function getStudioEmailBranding(studioId: string) {
       name: "Your dance studio",
       logoUrl: null,
       replyToEmail: null,
+      senderDisplayName: null,
     };
   }
 
@@ -133,7 +138,23 @@ async function getStudioEmailBranding(studioId: string) {
     name: resolveStudioDisplayName(data),
     logoUrl: data.public_logo_url,
     replyToEmail: normalizeEmail(data.email),
+    senderDisplayName: resolveClientSenderDisplayName({ studio: data }),
   };
+}
+
+/**
+ * PAY-DC-3 (D2): allowlisted client-facing email is sent as `"{name} via DanceFlow"`. Event emails carry the
+ * organizer/studio display name resolved at queue time; every other allowlisted key uses the studio's name.
+ * Everything else keeps the configured `DanceFlow` sender.
+ */
+async function resolveDeliveryFrom(row: OutboundDeliveryRow) {
+  if (!isClientFacingTemplateKey(row.template_key)) return resolveOutboundFromEmail();
+
+  const queuedSenderName = asString(row.payload?.senderDisplayName).trim();
+  if (queuedSenderName) return resolveOutboundFromEmail({ senderName: queuedSenderName });
+
+  const branding = await getStudioEmailBranding(row.studio_id);
+  return resolveOutboundFromEmail({ senderName: branding.senderDisplayName });
 }
 
 function isDanceFlowSystemTemplate(templateKey: string) {
@@ -429,7 +450,7 @@ export async function sendWelcomeToDanceFlowEmail(params: {
       from,
       to: [to],
       subject: sanitizeEmailSubject(rendered.subject),
-      text: rendered.text,
+      text: appendEmailLegalText(rendered.text),
       html: rendered.html,
     });
 
@@ -491,7 +512,7 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
     return { ok: false, error: "Missing recipient email." };
   }
 
-  const from = resolveOutboundFromEmail();
+  const from = await resolveDeliveryFrom(row);
   if (!from) {
     return { ok: false, error: "Missing outbound from email." };
   }
@@ -526,7 +547,7 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
       from,
       to: [row.recipient_email],
       subject: sanitizeEmailSubject(rendered.subject),
-      text: rendered.bodyText,
+      text: appendEmailLegalText(rendered.bodyText),
       html: bodyHtml,
       ...(replyTo ? { replyTo } : {}),
     });

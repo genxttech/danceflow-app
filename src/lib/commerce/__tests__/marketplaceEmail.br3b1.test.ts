@@ -10,7 +10,8 @@ describe("buildMarketplacePurchaseEmail", () => {
       orderNumber: "ORD-1001",
       total: "$49.00",
     });
-    expect(msg.subject).toBe("Your Technique Masterclass purchase is ready");
+    // PAY-DC-3 (D-F): the studio brand leads the subject.
+    expect(msg.subject).toBe("Your purchase from Acme Dance: Technique Masterclass");
     expect(msg.bodyHtml).toContain("https://www.idanceflow.com/account");
     expect(msg.bodyHtml).toContain("Sent by Acme Dance through DanceFlow.");
     expect(msg.bodyHtml).not.toContain("Acme Dance LLC");

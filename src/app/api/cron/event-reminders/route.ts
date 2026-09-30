@@ -8,6 +8,7 @@ import {
 } from "@/lib/notifications/templates";
 import { sendEventRegistrationPush } from "@/lib/notifications/eventPush";
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
+import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ type EventReminderCandidate = {
   quantity: number;
   total_price: number | null;
   currency: string | null;
+  payment_status: string | null;
   events:
     | {
         id: string;
@@ -116,6 +118,7 @@ async function queueUpcomingEventReminders() {
       quantity,
       total_price,
       currency,
+      payment_status,
       events (
         id,
         slug,
@@ -169,8 +172,18 @@ async function queueUpcomingEventReminders() {
       organizerId: eventValue.organizer_id,
     });
 
+    // PAY-DC-3: reminders also go to free/manual registrations, so the merchant line is gated per row on
+    // persisted facts (paid status, total, stored event_payments owner).
+    const merchantLine = await resolveEventMerchantLine({
+      supabase,
+      registrationIds: [row.id],
+      paymentStatus: row.payment_status,
+      totalAmount: row.total_price,
+      branding,
+    });
+
     const emailTemplate = buildEventConfirmedEmailTemplate({
-      eventName: `${eventValue.name} — Reminder`,
+      eventName: eventValue.name,
       attendeeFirstName: row.attendee_first_name,
       attendeeLastName: row.attendee_last_name,
       ticketTypeName: ticketTypeValue?.name ?? "Event ticket",
@@ -180,6 +193,8 @@ async function queueUpcomingEventReminders() {
       eventUrl,
       brandName: branding.name,
       brandLogoUrl: branding.logoUrl,
+      merchantLine,
+      subjectKind: "reminder",
     });
 
     const smsBody = buildEventConfirmedSmsTemplate({
@@ -207,6 +222,7 @@ async function queueUpcomingEventReminders() {
         relatedTable: "event_registrations",
         relatedId: row.id,
         dedupeKey: `event_registration_reminder_24h:email:${row.id}:${reminderKey}`,
+        senderDisplayName: branding.senderDisplayName,
       }),
       queueOutboundDelivery({
         studioId: row.studio_id,

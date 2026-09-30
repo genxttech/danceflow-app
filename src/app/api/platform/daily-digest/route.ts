@@ -3,7 +3,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { getCronAuthFailure } from "@/lib/security/cron";
 import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
-import { EMAIL_TOKENS, buildAppUrl, sanitizeEmailSubject } from "@/lib/email/brand";
+import { EMAIL_TOKENS, appendEmailLegalText, buildAppUrl, sanitizeEmailSubject } from "@/lib/email/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -652,7 +652,7 @@ export async function GET(request: NextRequest) {
     from: digestFrom,
     to: digestTo,
     subject,
-    text,
+    text: appendEmailLegalText(text),
     html,
   });
 

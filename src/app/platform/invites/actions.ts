@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
-import { buildAppUrl } from "@/lib/email/brand";
+import { appendEmailLegalText, buildAppUrl } from "@/lib/email/brand";
 import { createClient } from "@/lib/supabase/server";
 import {
   cleanTextValue,
@@ -116,7 +116,9 @@ async function sendAmbassadorInviteEmail({
       to: [to],
       subject: "Your DanceFlow Ambassador Pro invite",
       html: buildInviteEmailHtml({ recipientName, inviteLink, durationMonths }),
-      text: buildInviteEmailText({ recipientName, inviteLink, durationMonths }),
+      text: appendEmailLegalText(
+        buildInviteEmailText({ recipientName, inviteLink, durationMonths }),
+      ),
     }),
   });
 

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { extractSenderAddress, formatFrom } from "@/lib/email/sender";
 
 type QueueOutboundDeliveryParams = {
   studioId: string;
@@ -13,20 +14,34 @@ type QueueOutboundDeliveryParams = {
   relatedId?: string | null;
   dedupeKey?: string | null;
   replyToEmail?: string | null;
+  /**
+   * PAY-DC-3 (D-G): the client sender display name resolved at queue time (organizer events), stored in the
+   * delivery payload. Only honored at send time for allowlisted client-facing template keys.
+   */
+  senderDisplayName?: string | null;
 };
 
-
 /**
- * The shared outbound "From" address resolution, extracted from what were two byte-identical private
- * copies (`dispatch.ts` and the direct portal-invite send path). Behavior-preserving only: same fallback
- * precedence, same resulting string for every existing environment combination.
+ * The shared outbound "From" resolution. The address keeps its environment override precedence
+ * (`NOTIFICATION_FROM_EMAIL` → `OUTBOUND_EMAIL_FROM` → `notify@idanceflow.com`).
+ *
+ * Without a sender name the configured value is returned unchanged (staff / system / platform email stays
+ * `DanceFlow`). With a client sender name (PAY-DC-3, D2) the display name is replaced by that name through
+ * `formatFrom`, keeping the configured address.
  */
-export function resolveOutboundFromEmail() {
-  return (
+export function resolveOutboundFromEmail(options: { senderName?: string | null } = {}) {
+  const configured =
     process.env.NOTIFICATION_FROM_EMAIL ||
     process.env.OUTBOUND_EMAIL_FROM ||
-    "DanceFlow <notify@idanceflow.com>"
-  );
+    "DanceFlow <notify@idanceflow.com>";
+
+  const senderName = options.senderName?.trim();
+  if (!senderName) return configured;
+
+  const address = extractSenderAddress(configured);
+  if (!address) return configured;
+
+  return formatFrom(senderName, address);
 }
 
 export function normalizeEmail(value: string | null | undefined) {
@@ -103,6 +118,9 @@ export async function queueOutboundDelivery(params: QueueOutboundDeliveryParams)
     related_table: params.relatedTable || null,
     related_id: params.relatedId || null,
     dedupe_key: params.dedupeKey || null,
+    ...(params.senderDisplayName?.trim()
+      ? { payload: { senderDisplayName: params.senderDisplayName.trim() } }
+      : {}),
     status: "queued" as const,
     updated_at: new Date().toISOString(),
   };

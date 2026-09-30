@@ -240,7 +240,7 @@ describe("welcome email 'Helpful articles' overflow fix (BR-3C owner-QA revision
     expect(html).toContain("Recommended next steps:");
     expect(html).toContain("Open your studio workspace.");
     expect(html).toContain("Support: https://www.idanceflow.com/app/support");
-    expect(html).toContain("DanceFlow is a product of GenX TotalTech LLC.");
+    expect(html).toContain("DanceFlow is a software platform owned and operated by GenX TotalTech LLC.");
   });
 
   // The actual 375px render-based overflow measurement (Playwright, matching the proof-pack method) is

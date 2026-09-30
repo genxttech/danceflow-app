@@ -28,7 +28,9 @@ export const EMAIL_FONT_STACK = "Arial, Helvetica, sans-serif";
 /** Canonical production origin for email assets and customer links (matches the app's own canonical host). */
 export const EMAIL_CANONICAL_ORIGIN = "https://www.idanceflow.com";
 
-export const EMAIL_LEGAL_LINE = "DanceFlow is a product of GenX TotalTech LLC.";
+/** Canonical legal line (PAY-DC-3). The only place the legal entity name lives in email code. */
+export const EMAIL_LEGAL_LINE =
+  "DanceFlow is a software platform owned and operated by GenX TotalTech LLC.";
 export const EMAIL_SYSTEM_FOOTER_TEXT = "This is a system message from DanceFlow.";
 export const STUDIO_NAME_FALLBACK = "Your dance studio";
 export const ORGANIZER_NAME_FALLBACK = "Your event organizer";
@@ -56,6 +58,16 @@ export function emailFooterLines(
             (mode === "organizer" ? ORGANIZER_NAME_FALLBACK : STUDIO_NAME_FALLBACK),
         );
   return [attribution, EMAIL_LEGAL_LINE];
+}
+
+/**
+ * Appends the canonical legal line to a plain-text email body so the text part matches the HTML footer.
+ * Idempotent: a body that already carries the line is returned unchanged.
+ */
+export function appendEmailLegalText(text: string | null | undefined) {
+  const body = (text ?? "").trimEnd();
+  if (body.includes(EMAIL_LEGAL_LINE)) return body;
+  return body ? `${body}\n\n${EMAIL_LEGAL_LINE}` : EMAIL_LEGAL_LINE;
 }
 
 /** The one HTML escaper for email presentation code. */

@@ -80,10 +80,11 @@ describe("automation draft-preview characterization stays green (deliberate excl
     expect(draftsPageSource).toContain("body_text");
   });
 
-  it("renderAutomationEmailDraft's own draft-only body_html remains a deliberately unmigrated bare fragment", () => {
-    // Confirms the deliberate exclusion: the draft-creation path was intentionally left alone because
-    // nothing reads its body_html and it is fully overwritten by getAriaExecutionEmail's correct output
-    // before any real send. If this ever changes, the exclusion should be revisited, not silently kept.
-    expect(source).toMatch(/bodyHtml:\s*renderPlainTextAsHtml\(bodyText\),\s*\n\s*\};\s*\n\}/);
+  it("automation_* client emails no longer store a bare HTML fragment (PAY-DC-3 D-A)", () => {
+    // The exclusion was revisited in PAY-DC-3: automation_* client emails (draft creation, draft edit,
+    // queue-with-edits and auto-send) were sent as bare <p> fragments with no shell or legal footer. They
+    // now store no body_html, so dispatch renders the stored text in the standard studio-branded shell.
+    expect(source).toMatch(/bodyHtml:\s*null,\s*\n\s*\};\s*\n\}/);
+    expect(source).not.toContain("renderPlainTextAsHtml");
   });
 });

@@ -18,6 +18,7 @@ import { canManageEventRegistrations } from "@/lib/auth/permissions";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { buildEventConfirmedEmailTemplate } from "@/lib/notifications/templates";
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
+import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
 
 type RegistrationRow = {
   id: string;
@@ -983,6 +984,20 @@ async function queueTicketConfirmationResend(params: {
     organizerId: event.organizer_id,
   });
 
+  // PAY-DC-3: merchant line only when every resent registration is paid and exactly one stored
+  // event_payments owner exists (read under the staff session's existing RLS).
+  const merchantLine = await resolveEventMerchantLine({
+    supabase: params.supabase,
+    registrationIds: relatedRegistrations.map((relatedRegistration) => relatedRegistration.id),
+    paymentStatus: relatedRegistrations.every(
+      (relatedRegistration) => relatedRegistration.payment_status === "paid",
+    )
+      ? "paid"
+      : registration.payment_status,
+    totalAmount: totalPrice,
+    branding,
+  });
+
   const template = buildEventConfirmedEmailTemplate({
     eventName: event.name,
     attendeeFirstName: registration.attendee_first_name,
@@ -999,6 +1014,7 @@ async function queueTicketConfirmationResend(params: {
     purchasedItems: purchasedItems.length > 1 ? purchasedItems : undefined,
     brandName: branding.name,
     brandLogoUrl: branding.logoUrl,
+    merchantLine,
   });
 
   const result = await queueOutboundDelivery({
@@ -1012,6 +1028,7 @@ async function queueTicketConfirmationResend(params: {
     relatedTable: "event_registrations",
     relatedId: registration.id,
     dedupeKey: `event_registration_resend:email:${registration.id}:${Date.now()}`,
+    senderDisplayName: branding.senderDisplayName,
   });
 
   if (!result.queued) {

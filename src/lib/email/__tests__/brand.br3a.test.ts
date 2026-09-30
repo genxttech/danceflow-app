@@ -46,7 +46,7 @@ describe("palette and constants", () => {
   });
 
   it("carries the approved legal line and attribution wording", () => {
-    expect(EMAIL_LEGAL_LINE).toBe("DanceFlow is a product of GenX TotalTech LLC.");
+    expect(EMAIL_LEGAL_LINE).toBe("DanceFlow is a software platform owned and operated by GenX TotalTech LLC.");
     expect(emailAttribution("Michael Curtis Studio")).toBe(
       "Sent by Michael Curtis Studio through DanceFlow.",
     );

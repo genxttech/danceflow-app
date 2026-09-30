@@ -84,7 +84,7 @@ describe("ARIA execution email — default branch (BR-3C render-based, real shel
 
   it("canonical attribution/legal line is intact", () => {
     expect(html).toContain(`Sent by ${studioName} through DanceFlow.`);
-    expect(html).toContain("DanceFlow is a product of GenX TotalTech LLC.");
+    expect(html).toContain("DanceFlow is a software platform owned and operated by GenX TotalTech LLC.");
   });
 
   it("plain-text bodyText itself is completely unaffected by dedupeBodyLeadIn (HTML-only defect)", () => {

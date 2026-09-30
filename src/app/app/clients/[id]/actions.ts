@@ -11,7 +11,8 @@ import { requireInstructorManageAccess } from "@/lib/auth/serverRoleGuard";
 import { revalidatePath } from "next/cache";
 import { buildPortalInviteEmail } from "./portalInviteEmail";
 import { normalizeEmail, resolveOutboundFromEmail } from "@/lib/notifications/outbound";
-import { buildAppUrl, resolveStudioDisplayName } from "@/lib/email/brand";
+import { appendEmailLegalText, buildAppUrl, resolveStudioDisplayName } from "@/lib/email/brand";
+import { resolveClientSenderDisplayName } from "@/lib/notifications/senderIdentity";
 import { getStripe } from "@/lib/payments/stripe";
 import {
   classifyRefundStripeError,
@@ -333,6 +334,7 @@ async function sendClientPortalInviteEmail(params: {
   portalUrl: string;
   isIndependentInstructor?: boolean;
   replyTo?: string | null;
+  senderDisplayName?: string | null;
 }) {
   const to = params.to.trim().toLowerCase();
 
@@ -340,7 +342,8 @@ async function sendClientPortalInviteEmail(params: {
     throw new Error("Missing portal invite recipient.");
   }
 
-  const from = resolveOutboundFromEmail();
+  // PAY-DC-3 (D2): client portal invites are sent as "{Studio} via DanceFlow".
+  const from = resolveOutboundFromEmail({ senderName: params.senderDisplayName });
   const resend = getResendClient();
 
   const { subject, bodyText: text, bodyHtml: html } = buildPortalInviteEmail(params);
@@ -349,7 +352,7 @@ async function sendClientPortalInviteEmail(params: {
     from,
     to: [to],
     subject,
-    text,
+    text: appendEmailLegalText(text),
     html,
     ...(params.replyTo ? { replyTo: params.replyTo } : {}),
   });
@@ -970,6 +973,7 @@ export async function sendPortalInviteAction(formData: FormData) {
       portalUrl,
       isIndependentInstructor: client.is_independent_instructor === true,
       replyTo: studioReplyTo,
+      senderDisplayName: resolveClientSenderDisplayName({ studio }),
     });
 
     await recordPortalInviteDelivery({

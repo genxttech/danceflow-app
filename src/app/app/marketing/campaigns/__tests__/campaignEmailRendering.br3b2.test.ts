@@ -51,7 +51,7 @@ describe("buildCampaignEmailHtml (BR-3B2 defect G: body/unsubscribe)", () => {
   it("canonical DanceFlow attribution and legal line are never overridden by the compliance block", () => {
     const html = buildCampaignEmailHtml(BASE_PARAMS);
     expect(html).toContain("Sent by Acme Dance through DanceFlow.");
-    expect(html).toContain("DanceFlow is a product of GenX TotalTech LLC.");
+    expect(html).toContain("DanceFlow is a software platform owned and operated by GenX TotalTech LLC.");
   });
 
   it("footer hierarchy order: body, then compliance/unsubscribe block, then canonical attribution, then legal line", () => {
@@ -60,7 +60,7 @@ describe("buildCampaignEmailHtml (BR-3B2 defect G: body/unsubscribe)", () => {
     const complianceIndex = html.indexOf("123 Main St");
     const unsubscribeIndex = html.indexOf("Unsubscribe");
     const attributionIndex = html.indexOf("Sent by Acme Dance through DanceFlow.");
-    const legalIndex = html.indexOf("DanceFlow is a product of GenX TotalTech LLC.");
+    const legalIndex = html.indexOf("DanceFlow is a software platform owned and operated by GenX TotalTech LLC.");
 
     expect(bodyIndex).toBeGreaterThan(-1);
     expect(bodyIndex).toBeLessThan(complianceIndex);
