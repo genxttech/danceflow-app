@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+import { verifyStudioSaasSubscription } from "@/lib/billing/saasSubscriptionOwnership";
 import { isFounderPricingActive } from "@/lib/billing/founderPricing";
 
 type StudioBillingRow = {
@@ -163,9 +164,20 @@ export async function POST(request: NextRequest) {
     }
 
     const stripe = getStripe();
-    const subscription = await stripe.subscriptions.retrieve(studio.stripe_subscription_id, {
-      expand: ["items.data.price"],
+
+    // PAY-DC-4A: prove the subscription is this studio's before any Stripe mutation or entitlement write.
+    const ownership = await verifyStudioSaasSubscription({
+      stripe,
+      supabaseAdmin,
+      studioId: studio.id,
+      subscriptionId: studio.stripe_subscription_id,
     });
+
+    if (!ownership.ok) {
+      return redirectToBilling(request, { error: ownership.code });
+    }
+
+    const subscription = ownership.subscription;
 
     const existingItem = subscription.items.data.find((item) => item.price?.id === priceId);
 

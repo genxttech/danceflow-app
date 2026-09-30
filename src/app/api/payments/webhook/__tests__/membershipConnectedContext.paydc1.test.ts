@@ -64,6 +64,8 @@ function seedDb(rows: Record<string, FakeRow[]> = {}) {
     stripe_payment_methods: [],
     stripe_subscriptions: [],
     payments: [],
+    clients: [{ id: CLIENT_ID, studio_id: "studio-1" }],
+    client_memberships: [{ id: "mem_1", studio_id: "studio-1", client_id: CLIENT_ID }],
     ...rows,
   });
   const tables: string[] = [];
