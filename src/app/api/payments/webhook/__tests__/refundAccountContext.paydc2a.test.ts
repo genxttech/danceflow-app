@@ -171,7 +171,10 @@ describe("connected webhook writes persist the owner", () => {
       studio_billing_customers: [],
       payments: [],
       client_membership_periods: [],
-      client_memberships: [{ id: "mem-1", studio_id: "studio-1" }],
+      clients: [{ id: "11111111-1111-4111-8111-111111111111", studio_id: "studio-1" }],
+      client_memberships: [
+        { id: "mem-1", studio_id: "studio-1", client_id: "11111111-1111-4111-8111-111111111111" },
+      ],
     });
   }
 

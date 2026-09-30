@@ -54,7 +54,12 @@ export async function POST(request: NextRequest) {
 
     const studioId = context.studioId;
 
-    const { data: billingCustomer, error: billingCustomerError } = await supabase
+    // PAY-DC-4A: the billing customer comes from the server-written mapping (service role), never from a
+    // tenant-controlled value.
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const supabaseAdmin = createAdminClient();
+
+    const { data: billingCustomer, error: billingCustomerError } = await supabaseAdmin
       .from("studio_billing_customers")
       .select("stripe_customer_id")
       .eq("studio_id", studioId)

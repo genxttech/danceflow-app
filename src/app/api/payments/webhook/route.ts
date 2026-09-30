@@ -32,6 +32,7 @@ import {
 } from "@/lib/commerce/studentMarketplace";
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
+import { assertMembershipReferencesBelongToStudio } from "@/lib/payments/membershipReferenceOwnership";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -566,6 +567,13 @@ export async function upsertStripeSubscriptionRecord(
     ) {
       throw new Error("subscription_event_studio_mismatch");
     }
+
+    // PAY-DC-4A (G1): metadata client/membership must belong to the verified studio before any write.
+    await assertMembershipReferencesBelongToStudio(supabase, {
+      studioId,
+      clientId,
+      membershipId: localMembershipId,
+    });
   }
 
   const currentPeriodStartUnix = getNumber(
@@ -3962,6 +3970,15 @@ export async function handleInvoicePaid(
     }
 
     if (studioIdFromMetadata && clientIdFromMetadata) {
+      // PAY-DC-4A (G1): prove the metadata client/membership before the stripe_subscriptions write.
+      if (stripeAccountId) {
+        await assertMembershipReferencesBelongToStudio(supabase, {
+          studioId: studioIdFromMetadata,
+          clientId: clientIdFromMetadata,
+          membershipId: localMembershipIdFromMetadata ?? resolvedClientMembershipId,
+        });
+      }
+
       resolvedStudioId = studioIdFromMetadata;
       resolvedClientId = clientIdFromMetadata;
       resolvedClientMembershipId =
@@ -4067,6 +4084,16 @@ export async function handleInvoicePaid(
 
   if (!resolvedStudioId || !resolvedClientId) {
     return;
+  }
+
+  // PAY-DC-4A (G1): a connected invoice may only book against a client and membership of the resolved
+  // studio (covers both the stored-row and metadata paths). Platform-scoped legacy invoices unchanged.
+  if (stripeAccountId) {
+    await assertMembershipReferencesBelongToStudio(supabase, {
+      studioId: resolvedStudioId,
+      clientId: resolvedClientId,
+      membershipId: resolvedClientMembershipId,
+    });
   }
 
   const amountPaid = Number(invoice.amount_paid ?? 0) / 100;

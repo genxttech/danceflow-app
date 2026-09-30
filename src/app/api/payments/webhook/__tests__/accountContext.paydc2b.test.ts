@@ -224,7 +224,8 @@ describe("subscription + invoice.paid tenant verification", () => {
     return db({
       studios: [{ id: "studio-1", stripe_connected_account_id: studioAccount }],
       stripe_subscriptions: stored,
-      client_memberships: [{ id: "mem-1", studio_id: "studio-1", status: "pending" }],
+      clients: [{ id: "client-1", studio_id: "studio-1" }],
+      client_memberships: [{ id: "mem-1", studio_id: "studio-1", client_id: "client-1", status: "pending" }],
       payments: [],
       studio_billing_customers: [],
     });
