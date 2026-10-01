@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveStudioIdForStripeAccount } from "@/lib/payments/paymentDisputes";
 
 /**
  * Package Refund P0, Slice 2c-1: dedicated service module for invoking the
@@ -79,6 +80,91 @@ export function buildPackageRefundReconciliationInput(
 }
 
 /**
+ * PKG-REFUND-1 (L1): package-refund reconciliation and restoration are bound
+ * to the verified Stripe account that delivered the webhook (PAY-DC-2B
+ * guarantees event.account is present exactly for Connect-signed events).
+ * This reuses the PAY-DC-2C Connect ownership rule (attributeConnectDispute):
+ *   - a payment with a stored PAY-DC-2A owner is eligible only when that owner
+ *     equals the webhook account;
+ *   - a legacy payment with no stored owner is eligible only when its studio is
+ *     the studio server-side mapped to the webhook account
+ *     (studios.stripe_connected_account_id, PAY-DC-2D write-locked);
+ *   - a platform-scoped event (no account) proves no studio ownership, so
+ *     nothing is eligible.
+ * Ineligible payments get a fixed code and no RPC call, so no package-credit
+ * or reconciliation mutation. Lookup errors still throw (webhook retry).
+ */
+export const PACKAGE_REFUND_OWNER_MISMATCH = "package_refund_owner_mismatch";
+export const PACKAGE_REFUND_OWNER_UNVERIFIED = "package_refund_owner_unverified";
+
+type PackageRefundPaymentRow = {
+  id: string;
+  studio_id: string;
+  stripe_account_id: string | null;
+};
+
+type OwnerDecision =
+  | { eligible: true; payment: PackageRefundPaymentRow }
+  | {
+      eligible: false;
+      payment: PackageRefundPaymentRow;
+      code: typeof PACKAGE_REFUND_OWNER_MISMATCH | typeof PACKAGE_REFUND_OWNER_UNVERIFIED;
+    };
+
+async function loadOwnerBoundPackagePayments(
+  supabase: SupabaseClient,
+  stripePaymentIntentId: string,
+  stripeAccountId: string | null | undefined,
+): Promise<OwnerDecision[]> {
+  const { data: payments, error: paymentsLookupError } = await supabase
+    .from("payments")
+    .select("id, studio_id, stripe_account_id")
+    .eq("stripe_payment_intent_id", stripePaymentIntentId);
+
+  if (paymentsLookupError) {
+    throw new Error(paymentsLookupError.message);
+  }
+
+  const verifiedAccountId = stripeAccountId ?? null;
+  let mappedStudioId: string | null | undefined;
+  const decisions: OwnerDecision[] = [];
+
+  for (const payment of (payments ?? []) as PackageRefundPaymentRow[]) {
+    const storedAccountId = payment.stripe_account_id ?? null;
+
+    if (storedAccountId !== null) {
+      decisions.push(
+        storedAccountId === verifiedAccountId
+          ? { eligible: true, payment }
+          : { eligible: false, payment, code: PACKAGE_REFUND_OWNER_MISMATCH },
+      );
+      continue;
+    }
+
+    if (!verifiedAccountId) {
+      decisions.push({ eligible: false, payment, code: PACKAGE_REFUND_OWNER_UNVERIFIED });
+      continue;
+    }
+
+    if (mappedStudioId === undefined) {
+      mappedStudioId = await resolveStudioIdForStripeAccount(supabase, verifiedAccountId);
+    }
+
+    decisions.push(
+      mappedStudioId && payment.studio_id === mappedStudioId
+        ? { eligible: true, payment }
+        : { eligible: false, payment, code: PACKAGE_REFUND_OWNER_UNVERIFIED },
+    );
+  }
+
+  for (const decision of decisions) {
+    if (!decision.eligible) console.error(decision.code);
+  }
+
+  return decisions;
+}
+
+/**
  * Resolves every `payments` row for the given Stripe payment intent and
  * calls `reconcile_package_stripe_refund` for each one. Not every matching
  * payment is package-related -- the RPC itself gates on
@@ -91,19 +177,29 @@ export function buildPackageRefundReconciliationInput(
 export async function reconcilePackageStripeRefund(
   supabase: SupabaseClient,
   input: StripeRefundReconciliationInput,
+  stripeAccountId: string | null | undefined,
 ): Promise<PackageRefundReconciliationResult[]> {
-  const { data: payments, error: paymentsLookupError } = await supabase
-    .from("payments")
-    .select("id, studio_id")
-    .eq("stripe_payment_intent_id", input.stripePaymentIntentId);
-
-  if (paymentsLookupError) {
-    throw new Error(paymentsLookupError.message);
-  }
+  const decisions = await loadOwnerBoundPackagePayments(
+    supabase,
+    input.stripePaymentIntentId,
+    stripeAccountId,
+  );
 
   const results: PackageRefundReconciliationResult[] = [];
 
-  for (const payment of payments ?? []) {
+  for (const decision of decisions) {
+    const { payment } = decision;
+    if (!decision.eligible) {
+      results.push({
+        paymentId: payment.id,
+        studioId: payment.studio_id,
+        reconciliationId: null,
+        outcome: decision.code,
+        applied: false,
+      });
+      continue;
+    }
+
     const { data, error } = await supabase.rpc("reconcile_package_stripe_refund", {
       p_studio_id: payment.studio_id,
       p_payment_id: payment.id,
@@ -140,7 +236,8 @@ export async function reconcilePackageStripeRefund(
  * review RPC) later reversing -- failing or being canceled after initially
  * succeeding, a real, documented Stripe behavior for ACH/bank-debit
  * refunds -- must restore exactly what it voided. See
- * restore_package_refund_reconciliation (20260830090000_package_refund_reversal_restoration_rpc.sql)
+ * restore_package_refund_reconciliation (20261003090000_pkgrefund1_package_refund_reversal_restoration.sql,
+ * which supersedes 20260830090000)
  * for the restoration algorithm itself; this type/function pair is only the
  * decision of *whether* a given refund-status observation represents a
  * reversal, mirroring buildPackageRefundReconciliationInput's own
@@ -205,19 +302,30 @@ export async function restorePackageRefundReconciliation(
   supabase: SupabaseClient,
   stripePaymentIntentId: string,
   input: StripeRefundReversalInput,
+  stripeAccountId: string | null | undefined,
 ): Promise<PackageRefundReversalResult[]> {
-  const { data: payments, error: paymentsLookupError } = await supabase
-    .from("payments")
-    .select("id, studio_id")
-    .eq("stripe_payment_intent_id", stripePaymentIntentId);
-
-  if (paymentsLookupError) {
-    throw new Error(paymentsLookupError.message);
-  }
+  const decisions = await loadOwnerBoundPackagePayments(
+    supabase,
+    stripePaymentIntentId,
+    stripeAccountId,
+  );
 
   const results: PackageRefundReversalResult[] = [];
 
-  for (const payment of payments ?? []) {
+  for (const decision of decisions) {
+    const { payment } = decision;
+    if (!decision.eligible) {
+      results.push({
+        paymentId: payment.id,
+        studioId: payment.studio_id,
+        reconciliationId: null,
+        outcome: decision.code,
+        restoredItemCount: 0,
+        applied: false,
+      });
+      continue;
+    }
+
     const { data, error } = await supabase.rpc("restore_package_refund_reconciliation", {
       p_studio_id: payment.studio_id,
       p_stripe_refund_id: input.stripeRefundId,

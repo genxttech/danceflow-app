@@ -8,6 +8,9 @@ import {
   type StripeRefundEventContext,
 } from "@/lib/payments/package-refund-reconciliation";
 
+// PKG-REFUND-1: payments are owned by the account that delivered the webhook.
+const OWNER_ACCOUNT = "acct_owner";
+
 /**
  * Package Refund P0, Slice 2c-1: unit coverage for the webhook-side service
  * module. The actual Case A/B/C/idempotency/identity logic lives entirely
@@ -18,7 +21,7 @@ import {
  */
 
 function createFakeSupabase(options: {
-  payments: { id: string; studio_id: string }[];
+  payments: { id: string; studio_id: string; stripe_account_id: string | null }[];
   paymentsError?: { message: string } | null;
   rpcImpl?: (params: Record<string, unknown>) => { data: unknown; error: { message: string } | null };
 }) {
@@ -56,8 +59,8 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
   it("resolves every payment row for the payment intent and calls the RPC once per payment", async () => {
     const { supabase, rpcCalls } = createFakeSupabase({
       payments: [
-        { id: "payment-1", studio_id: "studio-1" },
-        { id: "payment-2", studio_id: "studio-2" },
+        { id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT },
+        { id: "payment-2", studio_id: "studio-2", stripe_account_id: OWNER_ACCOUNT },
       ],
     });
 
@@ -67,7 +70,7 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
       stripeChargeId: "ch_123",
       refundAmountCents: 5000,
       refundStatus: "succeeded",
-    });
+    }, OWNER_ACCOUNT);
 
     expect(rpcCalls).toHaveLength(2);
     expect(rpcCalls[0]).toMatchObject({
@@ -84,7 +87,7 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
 
   it("passes the refund amount through unmodified -- never converts cents to dollars", async () => {
     const { supabase, rpcCalls } = createFakeSupabase({
-      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      payments: [{ id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT }],
     });
 
     await reconcilePackageStripeRefund(supabase as never, {
@@ -93,14 +96,14 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
       stripeChargeId: null,
       refundAmountCents: 12345,
       refundStatus: "succeeded",
-    });
+    }, OWNER_ACCOUNT);
 
     expect(rpcCalls[0].p_refund_amount_cents).toBe(12345);
   });
 
   it("omits p_occurred_at when not supplied, includes it when supplied", async () => {
     const { supabase, rpcCalls } = createFakeSupabase({
-      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      payments: [{ id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT }],
     });
 
     await reconcilePackageStripeRefund(supabase as never, {
@@ -109,7 +112,7 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
       stripeChargeId: null,
       refundAmountCents: 100,
       refundStatus: "succeeded",
-    });
+    }, OWNER_ACCOUNT);
     expect(rpcCalls[0]).not.toHaveProperty("p_occurred_at");
 
     await reconcilePackageStripeRefund(supabase as never, {
@@ -119,13 +122,13 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
       refundAmountCents: 100,
       refundStatus: "succeeded",
       occurredAt: "2026-08-22T00:00:00.000Z",
-    });
+    }, OWNER_ACCOUNT);
     expect(rpcCalls[1]).toMatchObject({ p_occurred_at: "2026-08-22T00:00:00.000Z" });
   });
 
   it("maps the RPC's returned row shape correctly, including a not_package_related fallback", async () => {
     const { supabase } = createFakeSupabase({
-      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      payments: [{ id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT }],
       rpcImpl: () => ({ data: [{ reconciliation_id: null, outcome: "not_package_related", applied: false }], error: null }),
     });
 
@@ -135,7 +138,7 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
       stripeChargeId: null,
       refundAmountCents: 100,
       refundStatus: "succeeded",
-    });
+    }, OWNER_ACCOUNT);
 
     expect(results).toEqual([
       {
@@ -157,7 +160,7 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
       stripeChargeId: null,
       refundAmountCents: 100,
       refundStatus: "succeeded",
-    });
+    }, OWNER_ACCOUNT);
 
     expect(results).toEqual([]);
     expect(rpcCalls).toHaveLength(0);
@@ -176,13 +179,13 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
         stripeChargeId: null,
         refundAmountCents: 100,
         refundStatus: "succeeded",
-      }),
+      }, OWNER_ACCOUNT),
     ).rejects.toThrow("lookup failed");
   });
 
   it("throws when the RPC call itself errors -- propagates to the webhook's retry-on-500 handling", async () => {
     const { supabase } = createFakeSupabase({
-      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      payments: [{ id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT }],
       rpcImpl: () => ({ data: null, error: { message: "rpc failed" } }),
     });
 
@@ -193,7 +196,7 @@ describe("Package Refund P0, Slice 2c-1: reconcilePackageStripeRefund", () => {
         stripeChargeId: null,
         refundAmountCents: 100,
         refundStatus: "succeeded",
-      }),
+      }, OWNER_ACCOUNT),
     ).rejects.toThrow("rpc failed");
   });
 });
@@ -283,7 +286,7 @@ describe("Package Refund P0, Slice 2c-1: buildPackageRefundReconciliationInput",
  * "is this observation a reversal at all" (buildPackageRefundReversalInput).
  */
 function createFakeReversalSupabase(options: {
-  payments: { id: string; studio_id: string }[];
+  payments: { id: string; studio_id: string; stripe_account_id: string | null }[];
   paymentsError?: { message: string } | null;
   rpcImpl?: (params: Record<string, unknown>) => { data: unknown; error: { message: string } | null };
 }) {
@@ -321,15 +324,15 @@ describe("Package Refund P0, Slice 2c-3: restorePackageRefundReconciliation", ()
   it("resolves every payment row for the payment intent and calls the RPC once per payment", async () => {
     const { supabase, rpcCalls } = createFakeReversalSupabase({
       payments: [
-        { id: "payment-1", studio_id: "studio-1" },
-        { id: "payment-2", studio_id: "studio-2" },
+        { id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT },
+        { id: "payment-2", studio_id: "studio-2", stripe_account_id: OWNER_ACCOUNT },
       ],
     });
 
     const results = await restorePackageRefundReconciliation(supabase as never, "pi_123", {
       stripeRefundId: "rf_123",
       newRefundStatus: "failed",
-    });
+    }, OWNER_ACCOUNT);
 
     expect(rpcCalls).toHaveLength(2);
     expect(rpcCalls[0]).toMatchObject({
@@ -343,39 +346,39 @@ describe("Package Refund P0, Slice 2c-3: restorePackageRefundReconciliation", ()
 
   it("never sends p_payment_id -- the RPC looks up its target by stripe_refund_id alone", async () => {
     const { supabase, rpcCalls } = createFakeReversalSupabase({
-      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      payments: [{ id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT }],
     });
 
     await restorePackageRefundReconciliation(supabase as never, "pi_123", {
       stripeRefundId: "rf_123",
       newRefundStatus: "canceled",
-    });
+    }, OWNER_ACCOUNT);
 
     expect(rpcCalls[0]).not.toHaveProperty("p_payment_id");
   });
 
   it("omits p_occurred_at when not supplied, includes it when supplied", async () => {
     const { supabase, rpcCalls } = createFakeReversalSupabase({
-      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      payments: [{ id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT }],
     });
 
     await restorePackageRefundReconciliation(supabase as never, "pi_123", {
       stripeRefundId: "rf_123",
       newRefundStatus: "failed",
-    });
+    }, OWNER_ACCOUNT);
     expect(rpcCalls[0]).not.toHaveProperty("p_occurred_at");
 
     await restorePackageRefundReconciliation(supabase as never, "pi_123", {
       stripeRefundId: "rf_124",
       newRefundStatus: "failed",
       occurredAt: "2026-08-30T00:00:00.000Z",
-    });
+    }, OWNER_ACCOUNT);
     expect(rpcCalls[1]).toMatchObject({ p_occurred_at: "2026-08-30T00:00:00.000Z" });
   });
 
   it("maps the RPC's returned row shape correctly, including a not_reconciled fallback", async () => {
     const { supabase } = createFakeReversalSupabase({
-      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      payments: [{ id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT }],
       rpcImpl: () => ({
         data: [{ reconciliation_id: null, outcome: "not_reconciled", restored_item_count: 0, applied: false }],
         error: null,
@@ -385,7 +388,7 @@ describe("Package Refund P0, Slice 2c-3: restorePackageRefundReconciliation", ()
     const results = await restorePackageRefundReconciliation(supabase as never, "pi_123", {
       stripeRefundId: "rf_123",
       newRefundStatus: "failed",
-    });
+    }, OWNER_ACCOUNT);
 
     expect(results).toEqual([
       {
@@ -405,7 +408,7 @@ describe("Package Refund P0, Slice 2c-3: restorePackageRefundReconciliation", ()
     const results = await restorePackageRefundReconciliation(supabase as never, "pi_no_match", {
       stripeRefundId: "rf_123",
       newRefundStatus: "failed",
-    });
+    }, OWNER_ACCOUNT);
 
     expect(results).toEqual([]);
     expect(rpcCalls).toHaveLength(0);
@@ -421,13 +424,13 @@ describe("Package Refund P0, Slice 2c-3: restorePackageRefundReconciliation", ()
       restorePackageRefundReconciliation(supabase as never, "pi_123", {
         stripeRefundId: "rf_123",
         newRefundStatus: "failed",
-      }),
+      }, OWNER_ACCOUNT),
     ).rejects.toThrow("lookup failed");
   });
 
   it("throws when the RPC call itself errors -- propagates to the webhook's retry-on-500 handling", async () => {
     const { supabase } = createFakeReversalSupabase({
-      payments: [{ id: "payment-1", studio_id: "studio-1" }],
+      payments: [{ id: "payment-1", studio_id: "studio-1", stripe_account_id: OWNER_ACCOUNT }],
       rpcImpl: () => ({ data: null, error: { message: "rpc failed" } }),
     });
 
@@ -435,7 +438,7 @@ describe("Package Refund P0, Slice 2c-3: restorePackageRefundReconciliation", ()
       restorePackageRefundReconciliation(supabase as never, "pi_123", {
         stripeRefundId: "rf_123",
         newRefundStatus: "failed",
-      }),
+      }, OWNER_ACCOUNT),
     ).rejects.toThrow("rpc failed");
   });
 });
