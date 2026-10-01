@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// LAUNCH-SEC-1B: the module graph now includes the server-only client photo
+// signer; the package is a Next.js build-time guard and is not resolvable here.
+vi.mock("server-only", () => ({}));
+
 import type { ClientRecord } from "@/app/app/clients/[id]/page";
 
 /**

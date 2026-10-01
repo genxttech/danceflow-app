@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
+// LAUNCH-SEC-1B: the module graph now includes the server-only client photo
+// signer; the package is a Next.js build-time guard and is not resolvable here.
+vi.mock("server-only", () => ({}));
+
 /**
  * FC-1B1: independent_instructor is not host-studio staff. This page
  * previously exposed the full studio client roster (name, email, phone,

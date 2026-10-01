@@ -9,6 +9,7 @@ import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireClientEditAccess } from "@/lib/auth/serverRoleGuard";
+import { CLIENT_PHOTO_BUCKET, parseClientPhotoObjectPath } from "@/lib/clients/clientPhotoAccess";
 import {
   CLIENT_REFERRAL_SOURCE_OPTIONS,
   CLIENT_SKILL_LEVEL_OPTIONS,
@@ -64,7 +65,6 @@ function appendQueryParam(url: string, key: string, value: string) {
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
 }
 
-const CLIENT_PHOTO_BUCKET = "client-photos";
 const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024;
 
 const CLIENT_DANCE_STYLE_VALUES = [
@@ -121,16 +121,19 @@ const CLIENT_DANCE_GOAL_VALUES = [
 ] as const;
 
 
+// LAUNCH-SEC-1B: callers must have passed requireClientEditAccess() for this
+// studio before calling. The upload uses the service role (no tenant storage
+// policy is needed) and returns the bare object path, which is what gets
+// stored in clients.photo_url; pages sign it server-side for display.
 async function uploadClientPhoto(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
   clientId: string;
   file: File | null;
 }) {
-  const { supabase, studioId, clientId, file } = params;
+  const { studioId, clientId, file } = params;
 
   if (!file) {
-    return { url: null as string | null, error: null as string | null };
+    return { path: null as string | null, error: null as string | null };
   }
 
   const validation = await validateUploadFile(file, {
@@ -143,13 +146,19 @@ async function uploadClientPhoto(params: {
 
   if (!validation.ok) {
     return {
-      url: null,
+      path: null,
       error: validation.error,
     };
   }
 
   const photoPath = `${studioId}/${clientId}/${Date.now()}-${crypto.randomUUID()}.${validation.extension}`;
-  const { error: uploadError } = await supabase.storage
+  const parsedPath = parseClientPhotoObjectPath(photoPath);
+  if (!parsedPath || parsedPath.studioId !== studioId || parsedPath.clientId !== clientId) {
+    return { path: null, error: "Client photo upload failed." };
+  }
+
+  const admin = createAdminClient();
+  const { error: uploadError } = await admin.storage
     .from(CLIENT_PHOTO_BUCKET)
     .upload(photoPath, file, {
       cacheControl: "3600",
@@ -159,14 +168,12 @@ async function uploadClientPhoto(params: {
 
   if (uploadError) {
     return {
-      url: null,
+      path: null,
       error: `Client photo upload failed: ${uploadError.message}`,
     };
   }
 
-  const { data } = supabase.storage.from(CLIENT_PHOTO_BUCKET).getPublicUrl(photoPath);
-
-  return { url: data.publicUrl, error: null as string | null };
+  return { path: photoPath, error: null as string | null };
 }
 
 
@@ -864,7 +871,6 @@ export async function createClientAction(
     const clientId = randomUUID();
     createdClientId = clientId;
     const photoResult = await uploadClientPhoto({
-      supabase,
       studioId,
       clientId,
       file: clientPhoto,
@@ -880,7 +886,7 @@ export async function createClientAction(
       id: clientId,
       studio_id: studioId,
       ...payload,
-      photo_url: photoResult.url,
+      photo_url: photoResult.path,
     });
 
     if (error) {
@@ -1203,7 +1209,6 @@ export async function updateClientAction(
     });
 
     const photoResult = await uploadClientPhoto({
-      supabase,
       studioId,
       clientId,
       file: clientPhoto,
@@ -1215,7 +1220,7 @@ export async function updateClientAction(
 
     const updatePayload = {
       ...payload,
-      ...(photoResult.url ? { photo_url: photoResult.url } : {}),
+      ...(photoResult.path ? { photo_url: photoResult.path } : {}),
     };
 
     const { error } = await supabase
