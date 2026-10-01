@@ -32,6 +32,13 @@ import type Stripe from "stripe";
  *     covered in package-refund-reconciliation.test.ts.
  */
 
+// PKG-REFUND-2 released the committed hold (false). This file keeps proving the
+// held gate itself -- every call site must stay unreachable whenever the hold is
+// true -- so the hold is pinned to true here, in this file only.
+vi.mock("@/lib/payments/package-refund-release-hold", () => ({
+  PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD: true,
+}));
+
 const reconcileMock = vi.fn<(supabase: unknown, input: unknown) => Promise<unknown[]>>();
 reconcileMock.mockResolvedValue([]);
 const restoreMock = vi.fn<(supabase: unknown, paymentIntentId: unknown, input: unknown) => Promise<unknown[]>>();

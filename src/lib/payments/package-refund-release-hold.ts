@@ -1,12 +1,11 @@
-// Package Refund P0 RELEASE HOLD: the Package Refund reconciliation RPCs
-// (reconcile_package_stripe_refund, resolve_partial_refund_credit_review,
-// restore_package_refund_reconciliation) have not been applied to
-// development or production. Until they have, calling any of them 500s
-// whatever caller reaches them -- for the Stripe webhook, the *entire*
-// event, not just the package-related part of it -- because PostgREST
-// can't find the function. Held explicitly here rather than reverting the
-// merged Package Refund work, so the implementation stays intact and fully
-// verified for later activation.
+// Package Refund P0 RELEASE HOLD. Released by PKG-REFUND-2: the Package
+// Refund reconciliation RPCs (reconcile_package_stripe_refund,
+// get_client_package_refund_financial_state,
+// resolve_partial_refund_credit_review, restore_package_refund_reconciliation)
+// and the refund-ledger unique index were applied and verified in DEV and
+// PROD before this value was set to false. While held, none of these call
+// sites reach the RPCs; setting it back to true re-holds every call site
+// (a missing RPC would otherwise 500 the *entire* Stripe webhook event).
 //
 // Single source of truth for every Package Refund reconciliation call
 // site -- both automatic (the Stripe webhook's forward reconciliation and
@@ -23,4 +22,4 @@
 // migrations have been applied to the target environment and verified
 // there (see the Package Refund pre-activation hardening/runbook
 // material) -- never as an isolated, standalone change.
-export const PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD = true;
+export const PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD = false;

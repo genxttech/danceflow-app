@@ -4,9 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 
 /**
- * PKG-REFUND-1: the activated webhook path, with the release hold disabled
- * INSIDE THIS TEST ONLY (module mock). The committed constant stays true --
- * asserted by the source invariant at the bottom of this file.
+ * PKG-REFUND-1: the activated webhook path. The release hold is mocked to
+ * false here so this file proves the activated behavior independently of the
+ * committed value; PKG-REFUND-2 released the hold, and the source invariant at
+ * the bottom of this file now enforces the committed value false.
  *
  * Uses the real package-refund-reconciliation module end to end so the
  * webhook's verified Stripe account is proven to reach the owner binding.
@@ -157,10 +158,10 @@ describe("source invariants", () => {
   const root = process.cwd();
   const read = (path: string) => readFileSync(join(root, path), "utf8").replace(/\r\n/g, "\n");
 
-  it("the committed release hold is still true", () => {
+  it("the committed release hold is released (false) by PKG-REFUND-2", () => {
     const source = read("src/lib/payments/package-refund-release-hold.ts");
-    expect(source).toMatch(/export const PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD = true;/);
-    expect(source).not.toMatch(/PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD = false/);
+    expect(source).toMatch(/export const PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD = false;/);
+    expect(source).not.toMatch(/PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD = true/);
   });
 
   it("the webhook passes the verified Stripe account into both package-refund helpers", () => {
