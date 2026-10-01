@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import EditClientForm from "./EditClientForm";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canEditClients } from "@/lib/auth/permissions";
+import { createClientPhotoSignedUrl } from "@/lib/clients/clientPhotoAccess";
 
 type Params = Promise<{
   id: string;
@@ -118,6 +119,14 @@ if (!canEditClients(role)) {
     throw new Error(`Failed to load instructors: ${instructorsError.message}`);
   }
 
+  // LAUNCH-SEC-1B: sign the stored photo server-side for this studio/client and
+  // pass only the signed URL to the client component, never the stored value.
+  const { photo_url: storedPhotoValue, ...clientForForm } = client as ClientRow;
+  const photoSignedUrl = await createClientPhotoSignedUrl(storedPhotoValue, {
+    studioId,
+    clientId: clientForForm.id,
+  });
+
   return (
     <div className="space-y-6 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
@@ -159,7 +168,7 @@ if (!canEditClients(role)) {
       </section>
 
       <div className="mx-auto max-w-5xl">
-        <EditClientForm client={client as ClientRow} />
+        <EditClientForm client={clientForForm} photoSignedUrl={photoSignedUrl} />
       </div>
     </div>
   );

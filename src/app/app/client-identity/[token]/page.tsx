@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { checkInClientIdentityAppointmentAction } from "./actions";
 import { normalizePublicToken } from "@/lib/security/tokens";
+import { createClientPhotoSignedUrl } from "@/lib/clients/clientPhotoAccess";
 
 type Params = Promise<{
   token: string;
@@ -193,6 +194,12 @@ export default async function ClientIdentityPage({
   const typedClient = client as ClientRow;
   const clientName = `${typedClient.first_name} ${typedClient.last_name}`.trim();
   const initials = getInitials(typedClient.first_name, typedClient.last_name);
+  // LAUNCH-SEC-1B: signed only after the token-scoped RPC authorized this
+  // client, and only for the RPC's studio and the returned client id.
+  const clientPhotoSignedUrl = await createClientPhotoSignedUrl(typedClient.photo_url, {
+    studioId,
+    clientId: typedClient.id,
+  });
 
   // FC-1B5D2 D2C-0B (corrected post-review): sourced through the
   // minimized, TOKEN-authorized get_client_appointments_for_checkin RPC
@@ -264,9 +271,9 @@ export default async function ClientIdentityPage({
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-4">
             <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[28px] border border-white/20 bg-white/10 text-2xl font-semibold">
-              {typedClient.photo_url ? (
+              {clientPhotoSignedUrl ? (
                 <img
-                  src={typedClient.photo_url}
+                  src={clientPhotoSignedUrl}
                   alt={`${clientName} headshot`}
                   className="h-full w-full object-cover"
                 />

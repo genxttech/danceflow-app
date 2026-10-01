@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClientPhotoSignedUrl } from "@/lib/clients/clientPhotoAccess";
 import { REFUND_OWNERSHIP_ERROR_MESSAGES } from "@/lib/payments/paymentStripeAccount";
 import {
   MEMBERSHIP_ERROR_MESSAGES,
@@ -2746,6 +2747,12 @@ export default async function ClientDetailPage({
       : CLIENT_DETAIL_DEFAULT_TIME_ZONE;
   const typedClient = client as ClientRecord;
   const clientInitials = `${typedClient.first_name.slice(0, 1)}${typedClient.last_name.slice(0, 1)}`.toUpperCase();
+  // LAUNCH-SEC-1B: the stored photo value is signed server-side for this
+  // studio/client only; the raw stored value never reaches the browser.
+  const clientPhotoSignedUrl = await createClientPhotoSignedUrl(typedClient.photo_url, {
+    studioId,
+    clientId: typedClient.id,
+  });
   const clientDanceInterests = parseClientList(typedClient.dance_interests);
   const clientDanceGoals = parseClientList(typedClient.dance_goals);
   const clientQrUrl = clientQrImageUrl(typedStudio.slug, typedClient.id);
@@ -3340,9 +3347,9 @@ export default async function ClientDetailPage({
             <aside className="rounded-2xl border border-violet-200 bg-[linear-gradient(180deg,#faf5ff_0%,#fff7ed_100%)] p-3">
               <div className="overflow-hidden rounded-3xl border border-slate-200 bg-[var(--brand-primary-soft)]">
                 <div className="flex aspect-square items-center justify-center bg-white text-3xl font-semibold text-[var(--brand-primary)]">
-                  {typedClient.photo_url ? (
+                  {clientPhotoSignedUrl ? (
                     <img
-                      src={typedClient.photo_url}
+                      src={clientPhotoSignedUrl}
                       alt={`${typedClient.first_name} ${typedClient.last_name}`}
                       className="h-full w-full object-cover"
                     />

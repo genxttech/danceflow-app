@@ -23,7 +23,6 @@ type ClientRecord = {
   skill_level: string | null;
   notes: string | null;
   referral_source: string | null;
-  photo_url: string | null;
   status: string;
 };
 
@@ -211,8 +210,12 @@ function GoalCheckboxes({
 
 export default function EditClientForm({
   client,
+  photoSignedUrl,
 }: {
   client: ClientRecord;
+  // LAUNCH-SEC-1B: a short-lived URL signed on the server; the stored photo
+  // value is never passed to the browser.
+  photoSignedUrl: string | null;
 }) {
   const [state, formAction, pending] = useActionState(
     updateClientAction,
@@ -243,9 +246,9 @@ export default function EditClientForm({
         <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
             <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white text-xl font-semibold text-slate-500">
-              {client.photo_url ? (
+              {photoSignedUrl ? (
                 <img
-                  src={client.photo_url}
+                  src={photoSignedUrl}
                   alt={`${client.first_name} ${client.last_name}`}
                   className="h-full w-full object-cover"
                 />

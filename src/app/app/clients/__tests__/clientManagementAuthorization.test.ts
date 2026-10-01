@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+// LAUNCH-SEC-1B: the module graph now includes the server-only client photo
+// signer; the package is a Next.js build-time guard and is not resolvable here.
+vi.mock("server-only", () => ({}));
+
 /**
  * FC-1B5A: createClientAction, updateClientAction, and archiveClientAction
  * previously acquired their Supabase context via a local, unguarded
