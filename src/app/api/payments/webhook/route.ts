@@ -3272,7 +3272,7 @@ export async function handleStripeRefundUpdated(
   });
 
   if (packageReconciliationInput && !PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD) {
-    await reconcilePackageStripeRefund(supabase, packageReconciliationInput);
+    await reconcilePackageStripeRefund(supabase, packageReconciliationInput, stripeAccountId);
   }
 
   // Package Refund P0, Slice 2c-3: the same refund.updated/charge.refund.updated
@@ -3295,7 +3295,12 @@ export async function handleStripeRefundUpdated(
   });
 
   if (packageReversalInput && !PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD) {
-    await restorePackageRefundReconciliation(supabase, resolvedPaymentIntentId, packageReversalInput);
+    await restorePackageRefundReconciliation(
+      supabase,
+      resolvedPaymentIntentId,
+      packageReversalInput,
+      stripeAccountId,
+    );
   }
 
   if (resolvedCharge) {
