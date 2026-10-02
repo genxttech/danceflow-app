@@ -2,6 +2,10 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
+import StudioSmsRegistrations, {
+  type StudioOption,
+  type StudioSmsRegistrationRow,
+} from "./StudioSmsRegistrations";
 
 type SmsMessageLogRow = {
   id: string;
@@ -143,12 +147,19 @@ function StatusPill({ status }: { status: string | null | undefined }) {
   );
 }
 
-export default async function PlatformSmsPage() {
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+function firstParam(value: string | string[] | undefined) {
+  return (Array.isArray(value) ? value[0] : value) ?? null;
+}
+
+export default async function PlatformSmsPage({ searchParams }: { searchParams: SearchParams }) {
   await requirePlatformAdmin();
 
+  const params = await searchParams;
   const supabase = await createClient();
 
-  const [logsResult, consentResult] = await Promise.all([
+  const [logsResult, consentResult, registrationsResult, studiosResult] = await Promise.all([
     supabase
       .from("sms_message_logs")
       .select(
@@ -161,10 +172,20 @@ export default async function PlatformSmsPage() {
       .select("id, studio_id, organizer_id, client_id, organizer_contact_id, phone_e164, consent_status, updated_at")
       .order("updated_at", { ascending: false })
       .limit(500),
+    supabase
+      .from("studio_sms_registrations")
+      .select(
+        "id, studio_id, messaging_service_sid, campaign_sid, sender_e164, registration_status, approved_at, review_note, updated_at",
+      )
+      .order("updated_at", { ascending: false })
+      .limit(500),
+    supabase.from("studios").select("id, name").order("name", { ascending: true }).limit(1000),
   ]);
 
   const logs = (logsResult.data ?? []) as SmsMessageLogRow[];
   const consentRows = (consentResult.data ?? []) as SmsConsentRow[];
+  const registrations = (registrationsResult.data ?? []) as StudioSmsRegistrationRow[];
+  const studios = (studiosResult.data ?? []) as StudioOption[];
 
   const twilioConfigured = Boolean(
     process.env.TWILIO_ACCOUNT_SID &&
@@ -328,14 +349,23 @@ export default async function PlatformSmsPage() {
         </div>
       </section>
 
-      {(logsResult.error || consentResult.error) ? (
+      {(logsResult.error || consentResult.error || registrationsResult.error) ? (
         <section className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
           <p className="font-semibold">Some SMS data could not be loaded.</p>
           <p className="mt-2 leading-6">
-            {logsResult.error?.message ?? consentResult.error?.message}
+            {logsResult.error?.message ??
+              consentResult.error?.message ??
+              registrationsResult.error?.message}
           </p>
         </section>
       ) : null}
+
+      <StudioSmsRegistrations
+        studios={studios}
+        registrations={registrations}
+        notice={firstParam(params.registration) === "saved"}
+        error={firstParam(params.registration_error)}
+      />
 
       <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
