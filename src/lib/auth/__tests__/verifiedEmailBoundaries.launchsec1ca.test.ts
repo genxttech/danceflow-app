@@ -130,6 +130,19 @@ describe("LAUNCH-SEC-1C-A application boundaries", () => {
     expect(read(join(ROOT, "src/app/(auth)/callback/route.ts"))).toContain('supabase.rpc("accept_pending_team_invitations"');
   });
 
+  it("skip paths only navigate: they never bind, record proof or change credentials", () => {
+    const page = read(join(ROOT, "src/app/account/verify-email/page.tsx"));
+    const skip = page.slice(page.indexOf("1C-B MUST NOT rely on UI routing"), page.indexOf("Skip for now"));
+    expect(skip).toContain("<Link");
+    expect(skip).toContain("href={continueHref}");
+    expect(skip).not.toMatch(/action=|bindPasswordAction|sendVerificationEmailAction/);
+
+    const mobile = read(join(ROOT, "mobile/student/app/auth/secure-account.tsx"));
+    const later = mobile.slice(mobile.indexOf("// \"Not now\" only navigates"), mobile.indexOf("return (", mobile.indexOf("async function handleLater()")));
+    expect(later).toContain("1C-B MUST NOT rely on UI routing");
+    expect(later).not.toMatch(/bindAccountPassword|rpc\(|danceflowApiFetch/);
+  });
+
   it("mobile records proof only after its own email-link verifyOtp, never after setSession or PKCE", () => {
     const auth = read(join(ROOT, "mobile/student/src/lib/auth.tsx"));
     const tokenBranch = auth.slice(auth.indexOf("if (tokenHash) {"), auth.indexOf("if (code) {"));

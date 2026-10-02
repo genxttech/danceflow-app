@@ -49,6 +49,9 @@ export default function SecureAccountScreen() {
     }
   }
 
+  // "Not now" only navigates: no proof, no binding, no credential change.
+  // Acceptable only while 1C-B is not live; 1C-B MUST NOT rely on UI routing,
+  // enforcement belongs at the database/server claim boundaries.
   async function handleLater() {
     clearEmailBindingRequired();
     router.replace("/(tabs)/home");

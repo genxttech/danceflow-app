@@ -369,6 +369,23 @@ begin
   r := public.record_email_proof_web();
   if r <> 'no_fresh_mailbox_auth' then raise exception 'FAIL T-launchsec1ca-email-change-session-no-proof: %', r; end if;
   reset role;
+
+  -- A later fresh mailbox authentication for the NEW address (after the
+  -- marker margin) creates a first proof for it: binding_required, not bound.
+  insert into auth.sessions (id, user_id, created_at, updated_at) values
+    ('00000000-0000-0000-0000-000000ca3002', '00000000-0000-0000-0000-000000ca0003', now(), now());
+  insert into auth.mfa_amr_claims (id, session_id, created_at, updated_at, authentication_method) values
+    (gen_random_uuid(), '00000000-0000-0000-0000-000000ca3002', now() + interval '40 seconds', now() + interval '40 seconds', 'otp');
+  set local role authenticated;
+  perform pg_temp.as_user('00000000-0000-0000-0000-000000ca0003', '00000000-0000-0000-0000-000000ca3002');
+  r := public.record_email_proof_web();
+  if r <> 'binding_required' then raise exception 'FAIL T-launchsec1ca-new-email-later-proof: %', r; end if;
+  if public.my_verified_email() is not null then raise exception 'FAIL T-launchsec1ca-new-email-not-eligible-before-binding'; end if;
+  reset role;
+  if not exists (select 1 from public.verified_email_identities where user_id = '00000000-0000-0000-0000-000000ca0003'
+                 and email = 'ca-u3-new@example.test' and credential_status = 'binding_required') then
+    raise exception 'FAIL T-launchsec1ca-new-email-proof-row';
+  end if;
   raise notice 'PASS T-launchsec1ca-email-change-requires-fresh-proof';
 end $$;
 

@@ -127,6 +127,12 @@ export default async function VerifyEmailPage({
                     Save password and continue
                   </button>
                 </form>
+                {/*
+                  Skipping only navigates away: it records no proof, never binds and
+                  changes no credential state. It is acceptable only while 1C-B is
+                  not live. 1C-B MUST NOT rely on UI routing; enforcement belongs at
+                  the database/server claim boundaries (the verified-email helper).
+                */}
                 <Link
                   href={continueHref}
                   className="mt-3 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50"
