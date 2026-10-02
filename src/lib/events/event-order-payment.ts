@@ -314,6 +314,16 @@ export async function startEventOrderPayment(params: {
   const currency = (order.currency || "USD").toLowerCase();
 
   if (totalAmount <= 0) {
+    // `total_amount` is written as 0 at insert by the student checkout route
+    // and only finalized after registrations/items exist, so 0 alone is not
+    // proof the order is free. The authoritative total is the
+    // `requested_total_cents` stashed atomically at insert; a positive value
+    // here means the order is still being initialized (or failed mid-way)
+    // and must never be confirmed without payment.
+    const authoritativeCents = order.metadata?.requested_total_cents;
+    if (typeof authoritativeCents === "number" && authoritativeCents > 0) {
+      throw new Error("This event checkout is still being prepared. Please try again in a moment.");
+    }
     const now = new Date().toISOString();
     await admin.from("event_orders").update({ status: "confirmed", payment_status: "paid", paid_at: now, updated_at: now }).eq("id", order.id).eq("status", "pending");
     if (registrationIds.length) {
