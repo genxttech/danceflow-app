@@ -127,6 +127,9 @@ export default function SmsConsentPage() {
               <p className="mt-3">{consentDisclosure}</p>
             </div>
             <p>
+              This page explains the program in general. It is not a sign-up form: each
+              studio&apos;s own inquiry and booking forms show this language with the
+              studio&apos;s real name next to an unchecked, optional checkbox.
               &ldquo;[Studio Name]&rdquo; is replaced with the participating studio&apos;s
               name, and &ldquo;Terms&rdquo; and &ldquo;Privacy Policy&rdquo; link to the
               pages below. Texts are sent only after a person has opted in.
@@ -137,9 +140,9 @@ export default function SmsConsentPage() {
             <p>Text messages are limited to service-related communications:</p>
             <ul className="list-disc space-y-2 pl-6">
               <li>
-                One-to-one messages from authorized studio staff, such as replies to an
-                inquiry, lesson booking and scheduling coordination, and client-service
-                questions
+                One-to-one messages from authorized studio staff to a client who
+                has opted in, such as lesson booking and scheduling coordination and
+                client-service questions
               </li>
               <li>Lesson appointment confirmations</li>
               <li>Lesson appointment reschedules</li>
@@ -176,11 +179,16 @@ export default function SmsConsentPage() {
                 {`Hi Alex,\n\nYour private lesson has been rescheduled to Thu, Oct 16, 2026, 5:00 PM EDT.\n\nPlease contact the studio if you have any questions.\n\n${STOP_HELP_FOOTER}`}
               </SampleMessage>
               <SampleMessage>
-                {`Hi Alex, thanks for your inquiry! We have an intro lesson opening Thursday at 5 PM. Would you like us to hold it?\n\n${STOP_HELP_FOOTER}`}
+                {`Hi Alex,\n\nYour private lesson scheduled for Thu, Oct 16, 2026, 5:00 PM EDT has been cancelled.\nInstructor: Jamie Rivera.\n\nPlease contact the studio if you would like to reschedule.\n\n${STOP_HELP_FOOTER}`}
+              </SampleMessage>
+              <SampleMessage>
+                {`Hi Alex, this is Harbor Dance Studio. Does Saturday at 10 AM still work for your lesson?\n\n${STOP_HELP_FOOTER}`}
               </SampleMessage>
             </div>
             <p className="text-xs text-slate-500">
-              Examples use a fictional studio and client.
+              The first three examples are automatic lesson appointment messages. The last is a
+              one-to-one message typed by studio staff to a client who has opted in. Examples
+              use a fictional studio and client.
             </p>
           </Section>
 
