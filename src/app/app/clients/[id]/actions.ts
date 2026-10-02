@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { buildTokenHashCallbackUrl } from "@/lib/auth/verificationLink";
 import { Resend } from "resend";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -953,11 +954,16 @@ export async function sendPortalInviteAction(formData: FormData) {
       throw magicLinkError;
     }
 
+    // LAUNCH-SEC-1C-A1: a brand-new invitee gets a `signup` token; the link
+    // must carry the type the generator issued (unsupported types fail closed).
     const tokenHash = magicLinkData.properties?.hashed_token;
     const actionLink = tokenHash
-      ? `${baseUrl}/callback?token_hash=${encodeURIComponent(
+      ? buildTokenHashCallbackUrl({
+          baseUrl,
           tokenHash,
-        )}&type=magiclink&next=${encodeURIComponent(invitePath)}`
+          verificationType: magicLinkData.properties?.verification_type,
+          nextPath: invitePath,
+        })
       : magicLinkData.properties?.action_link;
 
     if (!actionLink) {
