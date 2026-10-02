@@ -114,19 +114,19 @@ describe("LAUNCH-SEC-1C-A application boundaries", () => {
     expect(actions).not.toMatch(/record_email_proof|recordEmailProof/);
   });
 
-  it("1C-B is not started: no app code consumes my_verified_email yet", () => {
-    const users = walk(join(ROOT, "src"))
-      .filter((file) => read(file).includes("my_verified_email"))
+  it("my_verified_email is consumed only through the verifiedIdentity accessor (1C-B)", () => {
+    const callers = walk(join(ROOT, "src"))
+      .filter((file) => /rpc\(\s*"my_verified_email"/.test(read(file)))
       .map((file) => relative(ROOT, file).replace(/\\/g, "/"));
-    // verifiedEmail.ts only documents the helper; nothing calls it before 1C-B.
-    expect(users).toEqual(["src/lib/auth/verifiedEmail.ts"]);
-    expect(read(join(ROOT, "src/lib/auth/verifiedEmail.ts"))).not.toMatch(/rpc\(\s*"my_verified_email"/);
+    expect(callers).toEqual(["src/lib/auth/verifiedIdentity.ts"]);
   });
 
-  it("existing claim paths are untouched", () => {
-    for (const file of ["src/lib/auth/portal-linking.ts", "src/app/api/student/marketplace/[catalogItemId]/checkout/route.ts"]) {
-      expect(read(join(ROOT, file))).not.toMatch(/verifiedEmail|record_email_proof|email_binding/);
-    }
+  it("email-based claim paths are gated by the verified email (1C-B)", () => {
+    const linking = read(join(ROOT, "src/lib/auth/portal-linking.ts"));
+    expect(linking.indexOf("verifiedEmailMatches(verifiedEmail, normalizedEmail)")).toBeLessThan(
+      linking.indexOf("\"claim_client_account_invitation\""),
+    );
+    expect(read(join(ROOT, "src/app/api/student/marketplace/[catalogItemId]/checkout/route.ts"))).toContain("getMyVerifiedEmail(");
     expect(read(join(ROOT, "src/app/(auth)/callback/route.ts"))).toContain('supabase.rpc("accept_pending_team_invitations"');
   });
 

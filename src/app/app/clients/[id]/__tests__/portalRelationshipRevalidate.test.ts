@@ -136,6 +136,13 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     ...createFakeClientWithIlike(currentTables),
+    // LAUNCH-SEC-1C-B fixture: the linked profile has verified and bound the
+    // client's email (verified_email_for_user returns that profile's email).
+    rpc: async (fn: string, args: { p_user_id?: string }) => {
+      if (fn !== "verified_email_for_user") return { data: null, error: null };
+      const profile = currentTables.profiles?.rows.find((row) => row.id === args?.p_user_id);
+      return { data: profile?.email ?? null, error: null };
+    },
     auth: {
       admin: {
         listUsers: async () => ({ data: { users: [] }, error: null }),

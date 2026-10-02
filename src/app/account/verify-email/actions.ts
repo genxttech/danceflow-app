@@ -17,6 +17,13 @@ import {
 } from "@/lib/security/redirects";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { getMyVerifiedEmail } from "@/lib/auth/verifiedIdentity";
+import {
+  claimGroupLessonRecapsForUser,
+  ensurePortalProfileAndClientLinks,
+  getAuthUserFullName,
+  getGroupLessonRecapTokenFromPath,
+} from "@/lib/auth/portal-linking";
 
 function field(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -26,6 +33,42 @@ function field(formData: FormData, key: string) {
 function pathWith(nextPath: string, key: string, value: string) {
   const base = buildEmailVerificationPath(nextPath || null);
   return `${base}${base.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`;
+}
+
+/*
+  LAUNCH-SEC-1C-B: run the email-based claims (team invitations, client
+  invitations, group recaps) on the NEW post-binding session so a just-bound
+  user does not wait for another sign-in. Every claim re-checks the verified
+  email in the database; failures are logged by code only and never block.
+*/
+async function syncVerifiedClaimsAfterBinding(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  nextPath: string,
+) {
+  try {
+    const verifiedEmail = await getMyVerifiedEmail(supabase);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!verifiedEmail || !user) return;
+
+    await supabase.rpc("accept_pending_team_invitations", { p_email: verifiedEmail });
+    await ensurePortalProfileAndClientLinks({
+      userId: user.id,
+      email: verifiedEmail,
+      fullName: getAuthUserFullName(user),
+      verifiedEmail,
+    });
+    await claimGroupLessonRecapsForUser({
+      userId: user.id,
+      email: verifiedEmail,
+      verifiedEmail,
+      recapToken: getGroupLessonRecapTokenFromPath(nextPath),
+    });
+  } catch {
+    console.warn("post_binding_claim_sync_failed");
+  }
 }
 
 // Sends a mailbox link to the signed-in user's CURRENT auth email only.
@@ -118,6 +161,8 @@ export async function bindPasswordAction(formData: FormData) {
     if (nextPath) search.set("next", nextPath);
     redirect(`/login?${search.toString()}`);
   }
+
+  await syncVerifiedClaimsAfterBinding(supabase, nextPath);
 
   redirect(nextPath || "/account");
 }

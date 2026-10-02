@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { linkExistingClientAccount } from "@/lib/student-identity/lifecycle";
+import { getVerifiedEmailForUser, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import {
   cleanTextValue,
   getValidationError,
@@ -504,6 +505,8 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
   let skippedAlreadyLinked = 0;
   let skippedNoAuthUser = 0;
   let skippedMismatchedLink = 0;
+  let skippedUnverified = 0;
+  let skippedClosedRelationship = 0;
   const failures: string[] = [];
 
   for (const client of clients ?? []) {
@@ -534,6 +537,16 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
       failures.push(`${normalizedEmail}: client is linked to a different account`);
       continue;
     }
+    // LAUNCH-SEC-1C-B: never revive a relationship the studio closed, and only
+    // link accounts that verified and bound this exact email.
+    if (clientLinks.some((link) => link.user_id === matchingAuthUser.id && ["disconnected", "former_client", "rejected", "conflict"].includes(link.status))) {
+      skippedClosedRelationship += 1;
+      continue;
+    }
+    if (!verifiedEmailMatches(await getVerifiedEmailForUser(adminSupabase, matchingAuthUser.id), normalizedEmail)) {
+      skippedUnverified += 1;
+      continue;
+    }
 
     try {
       await linkExistingClientAccount({ studioId, clientId: String(client.id), userId: matchingAuthUser.id, invitedEmail: normalizedEmail });
@@ -550,6 +563,8 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
     `Already linked: ${skippedAlreadyLinked}.`,
     `No auth user: ${skippedNoAuthUser}.`,
     `Mismatched existing links skipped: ${skippedMismatchedLink}.`,
+    `Unverified email skipped: ${skippedUnverified}.`,
+    `Closed relationships not revived: ${skippedClosedRelationship}.`,
     `Failures: ${failures.length}.`,
     failures.length ? `Details: ${failures.slice(0, 10).join(" | ")}` : "",
   ].filter(Boolean).join(" ");

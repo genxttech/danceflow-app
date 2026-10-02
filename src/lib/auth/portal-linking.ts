@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeUuidToken } from "@/lib/security/tokens";
+import { escapeLikePattern, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import { reactivateDanceFlowAccount } from "@/lib/student-identity/account-security";
 import { portalClientPath } from "@/lib/student-identity/portal-context";
 
@@ -13,12 +14,15 @@ type EnsurePortalProfileAndClientLinksParams = {
   email: string | null | undefined;
   fullName?: string | null;
   studioId?: string | null;
+  /** LAUNCH-SEC-1C-B: the caller session's verified email (getMyVerifiedEmail). */
+  verifiedEmail: string | null;
 };
 
 type GroupLessonRecapRecipientClaimRow = {
   id: string;
   recap_id: string;
   delivery_status: string;
+  guest_email?: string | null;
 };
 
 export function getGroupLessonRecapTokenFromPath(
@@ -76,11 +80,16 @@ async function claimGroupLessonRecapRecipient(params: {
 export async function claimGroupLessonRecapsForUser(params: {
   userId: string;
   email: string | null | undefined;
+  /** LAUNCH-SEC-1C-B: the caller session's verified email (getMyVerifiedEmail). */
+  verifiedEmail: string | null;
   recapToken?: string | null;
 }) {
   const { userId } = params;
   const recapToken = normalizeUuidToken(params.recapToken ?? null);
   const normalizedEmail = params.email?.trim().toLowerCase() ?? "";
+  // LAUNCH-SEC-1C-B: email-based recap claims need the verified current email;
+  // the secure recap token path stays possession-authorized.
+  const emailClaimAllowed = verifiedEmailMatches(params.verifiedEmail, normalizedEmail);
 
   if (!userId) {
     return { claimedCount: 0 };
@@ -114,11 +123,11 @@ export async function claimGroupLessonRecapsForUser(params: {
     }
   }
 
-  if (normalizedEmail) {
+  if (normalizedEmail && emailClaimAllowed) {
     const { data: emailRecipients, error: emailError } = await admin
       .from("group_lesson_recap_recipients")
-      .select("id, recap_id, delivery_status")
-      .ilike("guest_email", normalizedEmail)
+      .select("id, recap_id, delivery_status, guest_email")
+      .ilike("guest_email", escapeLikePattern(normalizedEmail))
       .neq("delivery_status", "revoked")
       .limit(50);
 
@@ -129,6 +138,8 @@ export async function claimGroupLessonRecapsForUser(params: {
     }
 
     for (const recipient of emailRecipients ?? []) {
+      // Exact normalized equality (no wildcard identity matching).
+      if (String(recipient.guest_email ?? "").trim().toLowerCase() !== normalizedEmail) continue;
       recipientsById.set(
         recipient.id,
         recipient as GroupLessonRecapRecipientClaimRow,
@@ -163,6 +174,7 @@ export async function ensurePortalProfileAndClientLinks({
   email,
   fullName,
   studioId,
+  verifiedEmail,
 }: EnsurePortalProfileAndClientLinksParams) {
   const normalizedEmail = email?.trim().toLowerCase() ?? "";
 
@@ -215,22 +227,29 @@ export async function ensurePortalProfileAndClientLinks({
     throw new Error(`Dancer profile sync failed: ${dancerProfileError.message}`);
   }
 
-  const { data: claimed, error: claimError } = await admin.rpc(
-    "claim_client_account_invitation",
-    {
-      p_user_id: userId,
-      p_email: normalizedEmail,
-      p_studio_id: studioId || null,
-    },
-  );
+  // LAUNCH-SEC-1C-B: email-based invitation claims require the caller's
+  // verified, bound current email on a live session (the database also
+  // re-checks the bound proof). Existing linked relationships are unaffected.
+  let claimedClientIds: string[] = [];
 
-  if (claimError) {
-    throw new Error(`Portal invitation claim failed: ${claimError.message}`);
+  if (verifiedEmailMatches(verifiedEmail, normalizedEmail)) {
+    const { data: claimed, error: claimError } = await admin.rpc(
+      "claim_client_account_invitation",
+      {
+        p_user_id: userId,
+        p_email: normalizedEmail,
+        p_studio_id: studioId || null,
+      },
+    );
+
+    if (claimError) {
+      throw new Error(`Portal invitation claim failed: ${claimError.message}`);
+    }
+
+    claimedClientIds = (claimed ?? []).map((item: { client_id: string }) =>
+      String(item.client_id),
+    );
   }
-
-  const claimedClientIds = (claimed ?? []).map((item: { client_id: string }) =>
-    String(item.client_id),
-  );
 
   const { data: existingLinks, error: existingError } = await admin
     .from("client_account_links")

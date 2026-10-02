@@ -17,6 +17,7 @@ import {
 } from "@/lib/auth/portal-linking";
 import { getAccessibleStudioRolesForUser } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { getMyVerifiedEmail } from "@/lib/auth/verifiedIdentity";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmailVerificationLink } from "@/lib/auth/verifiedEmail";
 
@@ -192,15 +193,20 @@ async function syncAccountAfterAuth(params: {
     fullName,
   });
 
+  // LAUNCH-SEC-1C-B: email-based claims require this session's verified email.
+  const verifiedEmail = await getMyVerifiedEmail(supabase);
+
   await ensurePortalProfileAndClientLinks({
     userId,
     email,
     fullName,
+    verifiedEmail,
   });
 
   await claimGroupLessonRecapsForUser({
     userId,
     email,
+    verifiedEmail,
     recapToken: getGroupLessonRecapTokenFromPath(nextPath),
   });
 }

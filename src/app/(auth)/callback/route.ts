@@ -23,6 +23,7 @@ import {
   type EmailProofResult,
 } from "@/lib/auth/verifiedEmail";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getMyVerifiedEmail } from "@/lib/auth/verifiedIdentity";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -345,6 +346,9 @@ export async function GET(request: NextRequest) {
   }
 
   const email = user.email?.trim().toLowerCase() ?? "";
+  // LAUNCH-SEC-1C-B: email-based claims require this live session's verified,
+  // bound email (a first proof is binding_required, so nothing is claimed yet).
+  const verifiedEmail = await getMyVerifiedEmail(supabase);
   let acceptedTeamInvitationCount = 0;
   let claimedGroupRecapCount = 0;
 
@@ -357,12 +361,14 @@ export async function GET(request: NextRequest) {
         userId: user.id,
         email,
         fullName: getAuthUserFullName(user),
+        verifiedEmail,
       });
     }
 
     const claimResult = await claimGroupLessonRecapsForUser({
       userId: user.id,
       email,
+      verifiedEmail,
       recapToken: getGroupLessonRecapTokenFromPath(requestedNextPath),
     });
     claimedGroupRecapCount = claimResult.claimedCount;
