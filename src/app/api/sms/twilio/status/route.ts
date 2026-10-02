@@ -125,11 +125,49 @@ export async function POST(request: Request) {
     updatePayload.failed_at = timestamp;
   }
 
-  const { error } = await supabase
+  // SMS-A2P-2: scope the callback to the studio that owns the logged message. When that
+  // studio has a registration, the callback must come from its own Messaging Service,
+  // so one studio's sender can never update another studio's log.
+  const { data: logRow, error: lookupError } = await supabase
     .from("sms_message_logs")
-    .update(updatePayload)
+    .select("id, studio_id")
     .eq("provider", "twilio")
-    .eq("provider_message_id", messageSid);
+    .eq("provider_message_id", messageSid)
+    .limit(1)
+    .maybeSingle<{ id: string; studio_id: string | null }>();
+
+  if (lookupError) {
+    console.error("Twilio status callback lookup failed", lookupError.message);
+    return NextResponse.json({ ok: false, error: "Status callback could not be processed." }, { status: 500 });
+  }
+
+  if (!logRow) {
+    return NextResponse.json({ ok: true });
+  }
+
+  if (logRow.studio_id) {
+    const { data: registration, error: registrationError } = await supabase
+      .from("studio_sms_registrations")
+      .select("messaging_service_sid")
+      .eq("studio_id", logRow.studio_id)
+      .maybeSingle<{ messaging_service_sid: string | null }>();
+
+    if (registrationError) {
+      console.error("Twilio status callback registration lookup failed", registrationError.message);
+      return NextResponse.json({ ok: false, error: "Status callback could not be processed." }, { status: 500 });
+    }
+
+    const callbackServiceSid = String(formData.get("MessagingServiceSid") ?? "").trim();
+
+    if (registration?.messaging_service_sid && callbackServiceSid !== registration.messaging_service_sid) {
+      console.warn("sms_status_sender_mismatch");
+      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    }
+  }
+
+  let update = supabase.from("sms_message_logs").update(updatePayload).eq("id", logRow.id);
+  if (logRow.studio_id) update = update.eq("studio_id", logRow.studio_id);
+  const { error } = await update;
 
   if (error) {
     console.error("Twilio status callback update failed", error.message);

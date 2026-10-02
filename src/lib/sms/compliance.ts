@@ -92,19 +92,24 @@ export function canSendSms(
   return permission.consent_status === "opted_in" && !permission.opted_out_at;
 }
 
+/** SMS-A2P-2: studio display name used in message footers and keyword replies. */
+export function smsStudioLabel(studioName?: string | null) {
+  const name = String(studioName ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  return name || "Your dance studio";
+}
+
+/**
+ * Every studio SMS ends with the sending studio's name plus STOP/HELP. The footer is
+ * always applied (body text such as "reply stop" can no longer suppress it) and is only
+ * skipped when the body already ends with this exact footer, so it is never duplicated.
+ */
 export function appendSmsOptOutFooter(message: string, studioName?: string | null): string {
   const body = String(message ?? "").trim();
-  const name = String(studioName ?? "").trim();
+  const footer = `${smsStudioLabel(studioName)}: Reply STOP to opt out. Reply HELP for help.`;
 
-  const lowerBody = body.toLowerCase();
-
-  if (lowerBody.includes("reply stop") || lowerBody.includes("stop to opt out")) {
+  if (body.endsWith(footer)) {
     return body;
   }
-
-  const footer = name
-    ? `${name}: Reply STOP to opt out. Reply HELP for help.`
-    : "Reply STOP to opt out. Reply HELP for help.";
 
   return `${body}\n\n${footer}`;
 }
@@ -124,18 +129,29 @@ export function isAutomatedSmsTemplatePermitted(templateKey: string | null | und
   return SMS_AUTOMATED_TEMPLATES.has(String(templateKey ?? ""));
 }
 
-/** Inbound keyword auto-replies (A2P-1A). HELP stays within one 160-character GSM segment. */
-export const SMS_HELP_REPLY =
-  "DanceFlow, operated by GenX TotalTech LLC: For help, contact support@idanceflow.com or your dance studio. Reply STOP to opt out. Msg&data rates may apply.";
+/**
+ * Inbound keyword auto-replies, scoped to the studio that owns the receiving sender
+ * (SMS-A2P-2). HELP names the studio and the DanceFlow/GenX service relationship.
+ */
+export function buildSmsHelpReply(studioName?: string | null) {
+  return `${smsStudioLabel(studioName)} texts through DanceFlow, operated by GenX TotalTech LLC. For help, contact support@idanceflow.com or the studio. Reply STOP to opt out. Msg&data rates may apply.`;
+}
 
-export const SMS_STOP_REPLY =
-  "You have been unsubscribed and will no longer receive texts from your studio through DanceFlow. Reply START to resubscribe.";
+export function buildSmsStopReply(studioName?: string | null) {
+  return `You have been unsubscribed and will no longer receive texts from ${smsStudioLabel(studioName)} through DanceFlow. Reply START to resubscribe.`;
+}
 
-export const SMS_START_REPLY =
-  "You have been resubscribed to texts from your studio through DanceFlow. Msg frequency varies. Msg&data rates may apply. Reply HELP for help, STOP to opt out.";
+export function buildSmsStartReply(studioName?: string | null) {
+  return `You have been resubscribed to texts from ${smsStudioLabel(studioName)} through DanceFlow. Msg frequency varies. Msg&data rates may apply. Reply HELP for help, STOP to opt out.`;
+}
 
-export const SMS_START_NO_PRIOR_CONSENT_REPLY =
-  "We could not find a prior text subscription for this number. Please contact your studio to opt in.";
+export function buildSmsStartNoPriorConsentReply(studioName?: string | null) {
+  return `We could not find a prior text subscription for this number with ${smsStudioLabel(studioName)}. Please contact the studio to opt in.`;
+}
+
+/** Sent when an inbound message cannot be tied to exactly one studio sender; nothing is changed. */
+export const SMS_UNROUTED_REPLY =
+  "We could not match this message to a studio. Please contact your dance studio directly, or support@idanceflow.com for help.";
 
 /**
  * Deterministic provider-error text for `sms_message_logs.provider_error_message`.
@@ -149,6 +165,7 @@ export function sanitizedSmsProviderError(errorCode: string | null | undefined) 
 export type SmsSkipReason =
   | "sms_template_not_permitted"
   | "sms_not_approved"
+  | "sms_studio_not_approved"
   | "sms_invalid_phone"
   | "sms_no_consent"
   | "sms_opted_out";
@@ -315,7 +332,7 @@ export function getSmsPlatformReadiness(): SmsPlatformReadiness {
       label: "Approved",
       canSend: true,
       studioMessage: "Text messaging is available for opted-in students.",
-      platformMessage: "Carrier approval is marked approved. Production SMS sending is enabled.",
+      platformMessage: "Carrier approval is marked approved. Studios send only while their own registration is approved.",
     };
   }
 

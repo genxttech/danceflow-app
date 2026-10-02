@@ -1,11 +1,13 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import {
-  SMS_HELP_REPLY,
-  SMS_START_NO_PRIOR_CONSENT_REPLY,
-  SMS_START_REPLY,
-  SMS_STOP_REPLY,
+  SMS_UNROUTED_REPLY,
+  buildSmsHelpReply,
+  buildSmsStartNoPriorConsentReply,
+  buildSmsStartReply,
+  buildSmsStopReply,
   normalizeSmsPhone,
 } from "@/lib/sms/compliance";
+import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
 import { twilioFormParams, verifyTwilioWebhook } from "@/lib/sms/twilioWebhook";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
@@ -125,9 +127,32 @@ export async function POST(request: Request) {
 
   const keyword = classifyKeyword(body);
 
+  // SMS-A2P-2: tie the message to exactly one studio via the receiving sender
+  // (MessagingServiceSid and/or To). If it cannot be tied to one studio nothing is
+  // read or changed, so a reply can never affect another studio's consent.
+  const routing = await resolveStudioFromInboundSender(supabase, {
+    messagingServiceSid: String(formData.get("MessagingServiceSid") ?? ""),
+    to: String(formData.get("To") ?? ""),
+  });
+
+  if (!routing.ok) {
+    console.warn(`sms_inbound_unrouted:${routing.reason}`);
+    return twiml(SMS_UNROUTED_REPLY);
+  }
+
+  const studioId = routing.studioId;
+
+  const { data: studioRow } = await supabase
+    .from("studios")
+    .select("name")
+    .eq("id", studioId)
+    .maybeSingle<{ name: string | null }>();
+  const studioName = studioRow?.name ?? null;
+
   const { data: permissions } = await supabase
     .from("sms_contact_permissions")
     .select("*")
+    .eq("studio_id", studioId)
     .eq("phone_e164", from)
     .order("updated_at", { ascending: false })
     .limit(20);
@@ -136,8 +161,8 @@ export async function POST(request: Request) {
 
   for (const permission of permissions ?? []) {
     await supabase.from("sms_message_logs").insert({
-      studio_id: permission.studio_id ?? null,
-      organizer_id: permission.organizer_id ?? null,
+      studio_id: studioId,
+      organizer_id: null,
       client_id: permission.client_id ?? null,
       organizer_contact_id: permission.organizer_contact_id ?? null,
       phone_e164: from,
@@ -167,7 +192,7 @@ export async function POST(request: Request) {
         .eq("id", permission.id);
     }
 
-    return twiml(SMS_STOP_REPLY);
+    return twiml(buildSmsStopReply(studioName));
   }
 
   if (keyword === "start") {
@@ -191,11 +216,15 @@ export async function POST(request: Request) {
         .eq("id", permission.id);
     }
 
-    return twiml(eligible.length > 0 ? SMS_START_REPLY : SMS_START_NO_PRIOR_CONSENT_REPLY);
+    return twiml(
+      eligible.length > 0
+        ? buildSmsStartReply(studioName)
+        : buildSmsStartNoPriorConsentReply(studioName),
+    );
   }
 
   if (keyword === "help") {
-    return twiml(SMS_HELP_REPLY);
+    return twiml(buildSmsHelpReply(studioName));
   }
 
   return twiml("Thanks for your message. Please contact the studio directly if you need help.");

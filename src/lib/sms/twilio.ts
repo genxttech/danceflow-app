@@ -7,6 +7,8 @@ import {
 export type TwilioSendSmsInput = {
   to: string;
   body: string;
+  /** SMS-A2P-2: the studio's own approved Messaging Service. There is no global fallback. */
+  messagingServiceSid: string;
   statusCallbackUrl?: string | null;
 };
 
@@ -22,15 +24,12 @@ function cleanEnv(value: string | undefined) {
   return String(value ?? "").trim();
 }
 
-function getTwilioConfig() {
-  const messagingServiceSid =
-    cleanEnv(process.env.TWILIO_MESSAGING_SERVICE_SID) ||
-    cleanEnv(process.env.TWILIO_MESSAGE_SERVICE_SID);
+const MESSAGING_SERVICE_SID_PATTERN = /^MG[0-9a-fA-F]{32}$/;
 
+function getTwilioConfig() {
   return {
     accountSid: cleanEnv(process.env.TWILIO_ACCOUNT_SID),
     authToken: cleanEnv(process.env.TWILIO_AUTH_TOKEN),
-    messagingServiceSid,
   };
 }
 
@@ -40,9 +39,6 @@ export function getTwilioMissingConfigKeys() {
 
   if (!config.accountSid) missing.push("TWILIO_ACCOUNT_SID");
   if (!config.authToken) missing.push("TWILIO_AUTH_TOKEN");
-  if (!config.messagingServiceSid) {
-    missing.push("TWILIO_MESSAGING_SERVICE_SID or TWILIO_MESSAGE_SERVICE_SID");
-  }
 
   return missing;
 }
@@ -90,6 +86,16 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
     };
   }
 
+  const messagingServiceSid = String(input.messagingServiceSid ?? "").trim();
+
+  if (!MESSAGING_SERVICE_SID_PATTERN.test(messagingServiceSid)) {
+    return {
+      ok: false,
+      error: "Text messaging is not set up for this studio yet.",
+      errorCode: "sms_studio_not_approved",
+    };
+  }
+
   const body = input.body.trim();
 
   if (!body) {
@@ -98,7 +104,7 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
 
   const params = new URLSearchParams();
   params.set("To", normalizedTo);
-  params.set("MessagingServiceSid", config.messagingServiceSid);
+  params.set("MessagingServiceSid", messagingServiceSid);
   params.set("Body", body);
 
   if (input.statusCallbackUrl) {

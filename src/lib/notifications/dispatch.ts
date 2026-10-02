@@ -9,11 +9,11 @@ import {
   appendSmsOptOutFooter,
   canSendSms,
   isAutomatedSmsTemplatePermitted,
-  isSmsSendingApproved,
   normalizeSmsPhone,
   sanitizedSmsProviderError,
   type SmsSkipReason,
 } from "@/lib/sms/compliance";
+import { resolveStudioSmsSender } from "@/lib/sms/studioSender";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
 import {
   renderDanceFlowSystemEmail,
@@ -599,8 +599,16 @@ async function sendSms(
     return skipSms("sms_template_not_permitted");
   }
 
-  if (!isSmsSendingApproved()) {
-    return skipSms("sms_not_approved");
+  const supabase = createAdminClient();
+
+  // SMS-A2P-2: the studio's own approved registration supplies the Messaging Service;
+  // the global platform status is only the emergency master switch inside the resolver.
+  const senderResult = await resolveStudioSmsSender(supabase, row.studio_id);
+  if (!senderResult.ok) {
+    if (senderResult.reason === "sms_registration_lookup_failed") {
+      return { ok: false, error: "sms_registration_lookup_failed" };
+    }
+    return skipSms(senderResult.reason);
   }
 
   const phoneE164 = normalizeSmsPhone(row.recipient_phone ?? "");
@@ -612,8 +620,6 @@ async function sendSms(
   if (!UUID_PATTERN.test(recipientClientId)) {
     return skipSms("sms_no_consent");
   }
-
-  const supabase = createAdminClient();
 
   const { data: permissions, error: permissionError } = await supabase
     .from("sms_contact_permissions")
@@ -678,6 +684,7 @@ async function sendSms(
   const sendResult = await sendTwilioSms({
     to: phoneE164,
     body: finalBody,
+    messagingServiceSid: senderResult.sender.messagingServiceSid,
     statusCallbackUrl: buildSmsStatusCallbackUrl(options.origin),
   });
 
