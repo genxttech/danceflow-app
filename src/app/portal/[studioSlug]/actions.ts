@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
+import { getMyVerifiedEmail } from "@/lib/auth/verifiedIdentity";
 import { confirmOwnedAppointment } from "@/lib/schedule/appointmentConfirmation";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 import {
@@ -151,6 +152,8 @@ export async function submitPortalBookingRequestAction(formData: FormData) {
         email: user.email,
         fullName: getAuthUserFullName(user),
         studioId: studio.id,
+        // LAUNCH-SEC-1C-B: no verified email on this session -> no email claim.
+        verifiedEmail: await getMyVerifiedEmail(supabase),
       });
 
       relationship = await resolvePortalRelationship({

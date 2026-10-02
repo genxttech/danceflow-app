@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/payments/stripe";
-import { getStudentApiUser, normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
+import {
+  createStudentApiUserScopedClient,
+  getStudentApiUser,
+  normalizeStudentApiUuid,
+} from "@/lib/auth/studentApiAuth";
+import {
+  escapeLikePattern,
+  getMyVerifiedEmail,
+  verifiedEmailMatches,
+} from "@/lib/auth/verifiedIdentity";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 type Params = { params: Promise<{ catalogItemId: string }> };
@@ -9,6 +18,9 @@ type Params = { params: Promise<{ catalogItemId: string }> };
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
+
+// LAUNCH-SEC-1C-B: relationships a purchase must never silently revive.
+const NON_REVIVABLE_LINK_STATUSES = ["disconnected", "former_client", "rejected", "conflict"];
 
 function one<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -128,46 +140,81 @@ export async function POST(request: NextRequest, { params }: Params) {
   let clientId = existingSelfLink?.client_id ?? null;
 
   if (!clientId) {
-    const { data: matchingClients, error: matchingClientError } = await admin
+    // LAUNCH-SEC-1C-B (T1-B): linking this purchase to a studio customer
+    // record needs the buyer's verified, bound current email on this live
+    // session. Matching is exact normalized email equality in this studio;
+    // a client held by another account, or a relationship the studio closed
+    // (disconnected/former/rejected/conflict), is never auto-linked or
+    // revived -- that needs a fresh studio invitation.
+    const verifiedEmail = await getMyVerifiedEmail(
+      await createStudentApiUserScopedClient(request),
+    );
+
+    if (!verifiedEmailMatches(verifiedEmail, normalizedEmail)) {
+      return jsonError(
+        "Verify your email address before purchasing from this studio.",
+        403,
+      );
+    }
+
+    const { data: candidateClients, error: matchingClientError } = await admin
       .from("clients")
-      .select("id")
+      .select("id, email")
       .eq("studio_id", item.studio_id)
-      .ilike("email", normalizedEmail)
+      .ilike("email", escapeLikePattern(normalizedEmail))
       .order("created_at", { ascending: true })
-      .limit(2);
+      .limit(5);
 
     if (matchingClientError) {
       return jsonError("Your customer record could not be resolved.", 500);
     }
 
-    if ((matchingClients ?? []).length > 1) {
+    const matchingClients = (candidateClients ?? []).filter(
+      (candidate) =>
+        String(candidate.email ?? "").trim().toLowerCase() === normalizedEmail,
+    );
+
+    if (matchingClients.length > 1) {
       return jsonError(
         "This studio has duplicate customer records for your email. Contact the studio before purchasing.",
         409,
       );
     }
 
-    clientId = matchingClients?.[0]?.id ?? null;
+    clientId = matchingClients[0]?.id ?? null;
 
     if (clientId) {
-      const { data: conflictingLink, error: conflictingLinkError } = await admin
+      const { data: clientLinks, error: clientLinksError } = await admin
         .from("client_account_links")
-        .select("id, user_id")
+        .select("id, user_id, status")
         .eq("studio_id", item.studio_id)
-        .eq("client_id", clientId)
-        .eq("status", "linked")
-        .eq("relationship_type", "self")
-        .neq("user_id", user.id)
-        .limit(1)
-        .maybeSingle();
+        .eq("client_id", clientId);
 
-      if (conflictingLinkError) {
+      if (clientLinksError) {
         return jsonError("The customer relationship could not be verified.", 500);
       }
 
-      if (conflictingLink) {
+      if (
+        (clientLinks ?? []).some(
+          (link) =>
+            link.status === "linked" && link.user_id && link.user_id !== user.id,
+        )
+      ) {
         return jsonError(
           "A different DanceFlow account is already connected to this studio customer record. Contact the studio before purchasing.",
+          409,
+        );
+      }
+
+      if (
+        (clientLinks ?? []).some(
+          (link) =>
+            link.user_id === user.id &&
+            NON_REVIVABLE_LINK_STATUSES.includes(String(link.status)),
+        )
+      ) {
+        return jsonError(
+          "Your connection to this studio was closed. Ask the studio to send you a new invitation before purchasing.",
           409,
         );
       }

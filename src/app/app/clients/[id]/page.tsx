@@ -1991,6 +1991,14 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "portal_account_unverified") {
+    return {
+      kind: "error" as const,
+      message:
+        "This account has not verified this email address yet. Send a portal invite instead, or ask them to verify their email and try again.",
+    };
+  }
+
   if (search.error === "portal_account_not_found") {
     return {
       kind: "error" as const,

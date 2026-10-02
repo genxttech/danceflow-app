@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildTokenHashCallbackUrl } from "@/lib/auth/verificationLink";
+import { getVerifiedEmailForUser, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import { Resend } from "resend";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -643,6 +644,14 @@ export async function linkPortalAccessAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_account_not_found");
   }
 
+  // LAUNCH-SEC-1C-B: linking an existing account by email requires that
+  // account to have verified and bound this exact email. Otherwise the studio
+  // sends a portal invitation (token-authorized) instead.
+  const targetVerifiedEmail = await getVerifiedEmailForUser(createAdminClient(), profile.id);
+  if (!verifiedEmailMatches(targetVerifiedEmail, email)) {
+    redirectWithResult(returnTo, "error", "portal_account_unverified");
+  }
+
   try {
     await linkExistingClientAccount({
       studioId,
@@ -811,6 +820,17 @@ export async function resolvePortalConflictAction(formData: FormData) {
       matchingUserId = profile?.id ?? null;
     } catch {
       redirectWithResult(returnTo, "error", "portal_lookup_failed");
+    }
+
+    // LAUNCH-SEC-1C-B: same verified-email requirement as direct linking.
+    if (
+      matchingUserId &&
+      !verifiedEmailMatches(
+        await getVerifiedEmailForUser(createAdminClient(), matchingUserId),
+        email,
+      )
+    ) {
+      redirectWithResult(returnTo, "error", "portal_account_unverified");
     }
   }
 
