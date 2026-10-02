@@ -16,6 +16,13 @@ import {
   PORTAL_SELECTED_STUDIO_COOKIE,
 } from "@/lib/auth/portal-linking";
 import { getAccessibleStudioRolesForUser, isOrganizerRole } from "@/lib/auth/studio";
+import {
+  buildEmailVerificationPath,
+  recordEmailProof,
+  revokeOtherSessions,
+  type EmailProofResult,
+} from "@/lib/auth/verifiedEmail";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -169,6 +176,24 @@ export function pickPreferredWorkspace(params: {
   return roles[0];
 }
 
+/*
+  LAUNCH-SEC-1C-A: after a first mailbox proof the user must bind a password
+  before continuing. A recovery link's own destination (/reset-password) is
+  replaced by binding, which sets the password; its inner `next` is kept.
+*/
+export function resolveEmailBindingDestination(destination: string, revokeFailed: boolean) {
+  let after: string | null = destination;
+
+  if (destination.startsWith("/reset-password")) {
+    const inner = new URL(destination, "http://callback.local").searchParams.get("next");
+    after = inner ? normalizeRedirectParam(inner, "http://callback.local", null) : null;
+  }
+
+  const path = buildEmailVerificationPath(after && after !== "/account" ? after : null);
+  if (!revokeFailed) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}revoke=failed`;
+}
+
 export function getPostAuthDestination(params: {
   requestedNextPath: string | null;
   fallbackNextPath: string | null;
@@ -236,7 +261,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  let response = NextResponse.redirect(new URL("/account", request.url));
+  const response = NextResponse.redirect(new URL("/account", request.url));
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -292,6 +317,31 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(buildLoginErrorPath("missing-user-after-callback"), request.url)
     );
+  }
+
+  /*
+    LAUNCH-SEC-1C-A: proof is recorded only after the server itself completed
+    the token_hash verifyOtp exchange, and the database decides (fresh 'otp'
+    mailbox authentication on this live session). Query parameters such as
+    `type` and `next` never create proof. The PKCE code path stays fail-closed
+    (no proof) until its session evidence is captured in DEV acceptance.
+  */
+  let proofResult: EmailProofResult = "not_recorded";
+  let revokeFailed = false;
+
+  if (tokenHash) {
+    proofResult = await recordEmailProof(supabase, "web");
+
+    if (proofResult === "binding_required") {
+      const {
+        data: { session: proofSession },
+      } = await supabase.auth.getSession();
+
+      revokeFailed = !(await revokeOtherSessions(
+        createAdminClient(),
+        proofSession?.access_token ?? "",
+      ));
+    }
   }
 
   const email = user.email?.trim().toLowerCase() ?? "";
@@ -372,7 +422,12 @@ export async function GET(request: NextRequest) {
     portalPath,
   });
 
-  const destinationUrl = new URL(destination, request.url);
+  const destinationUrl = new URL(
+    proofResult === "binding_required"
+      ? resolveEmailBindingDestination(destination, revokeFailed)
+      : destination,
+    request.url,
+  );
 
   if (acceptedTeamInvitationCount > 0) {
     destinationUrl.searchParams.set(

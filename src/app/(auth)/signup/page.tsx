@@ -52,8 +52,8 @@ export default async function SignupPage({
     ? "Create your studio account"
     : "Create your organizer account";
   const description = isStudio
-    ? "Set up your password-based studio account so you can continue into billing and launch your studio workspace."
-    : "Set up your password-based organizer account so you can continue into billing and launch your organizer workspace.";
+    ? "Confirm your email, create your password, then continue into billing and launch your studio workspace."
+    : "Confirm your email, create your password, then continue into billing and launch your organizer workspace.";
 
   const planLabel = selectedPlan || (isStudio ? "studio trial" : "organizer trial");
   const effectiveNext =
@@ -102,12 +102,12 @@ export default async function SignupPage({
               </p>
 
               <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-                Create your password login
+                Start with your email
               </h2>
 
               <p className="mt-4 text-base leading-7 text-slate-600">
-                Business accounts use email and password so billing ownership,
-                workspace access, and account recovery stay clear and consistent.
+                We will email you a secure link. After you confirm it, you will
+                create your password and review the business agreements before billing.
               </p>
 
               <form action={submitSignup} className="mt-8 space-y-5">
@@ -154,77 +154,17 @@ export default async function SignupPage({
                   />
                 </div>
 
-                <div>
-                  <label
-                    htmlFor="password"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Password
-                  </label>
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    placeholder="At least 8 characters"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                  />
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <label className="flex items-start gap-3 text-sm leading-6 text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="legalAccepted"
-                      required
-                      className="mt-1 h-4 w-4 rounded border-slate-300"
-                    />
-                    <span>
-                      I agree to the{" "}
-                      <Link
-                        href="/terms"
-                        target="_blank"
-                        className="font-semibold text-slate-950 underline"
-                      >
-                        DanceFlow SaaS Terms
-                      </Link>
-                      , acknowledge the{" "}
-                      <Link
-                        href="/privacy"
-                        target="_blank"
-                        className="font-semibold text-slate-950 underline"
-                      >
-                        Privacy Policy
-                      </Link>
-                      , and agree that the{" "}
-                      <Link
-                        href="/dpa"
-                        target="_blank"
-                        className="font-semibold text-slate-950 underline"
-                      >
-                        Data Processing Addendum
-                      </Link>{" "}
-                      applies when DanceFlow processes customer data for this
-                      business account.
-                    </span>
-                  </label>
-                </div>
-
                 <button
                   type="submit"
                   className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white hover:bg-violet-700"
                 >
-                  {isStudio
-                    ? "Continue to Studio Billing"
-                    : "Continue to Organizer Billing"}
+                  Email me a secure link
                 </button>
               </form>
 
               <p className="mt-4 text-xs leading-6 text-slate-500">
-                If this email already has an account, you will be sent to the correct
-                login flow so you can continue setup instead of creating a duplicate.
+                If this email already has an account, the link signs you in so you can
+                continue setup instead of creating a duplicate.
               </p>
             </section>
 
@@ -267,7 +207,7 @@ export default async function SignupPage({
                   Business account setup
                 </p>
                 <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                  <li>• Password-based login only</li>
+                  <li>• Email confirmed before your password is set</li>
                   <li>• Cleaner billing ownership</li>
                   <li>• Better workspace recovery and account control</li>
                 </ul>

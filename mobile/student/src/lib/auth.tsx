@@ -13,10 +13,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { reactivateDanceFlowAccount } from "@/lib/accountControls";
+import { recordMobileEmailProof } from "@/lib/emailVerification";
 
 type AuthContextValue = {
   session: Session | null;
   loading: boolean;
+  identityCheckPending: boolean;
+  emailBindingRequired: boolean;
+  clearEmailBindingRequired: () => void;
   continueWithEmail: (email: string) => Promise<void>;
   handleAuthUrl: (url: string) => Promise<boolean>;
   sendPasswordReset: (email: string) => Promise<void>;
@@ -73,16 +77,32 @@ async function clearPersistedSupabaseSessions() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [identityCheckPending, setIdentityCheckPending] = useState(false);
+  const [emailBindingRequired, setEmailBindingRequired] = useState(false);
 
   const handleAuthUrl = useCallback(async (url: string) => {
     const { code, tokenHash, type, accessToken, refreshToken } = extractAuthParams(url);
 
     if (tokenHash) {
-      const { error } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: type === "recovery" ? "recovery" : "magiclink"
-      });
-      if (error) throw error;
+      setIdentityCheckPending(true);
+
+      try {
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: type === "recovery" ? "recovery" : "magiclink"
+        });
+        if (error) throw error;
+
+        // LAUNCH-SEC-1C-A: only this app-performed email-link verification may
+        // record proof; the database decides. A first proof requires binding.
+        if ((await recordMobileEmailProof()) === "binding_required") {
+          await supabase.auth.signOut({ scope: "others" }).catch(() => undefined);
+          setEmailBindingRequired(true);
+        }
+      } finally {
+        setIdentityCheckPending(false);
+      }
+
       return true;
     }
 
@@ -245,9 +265,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const clearEmailBindingRequired = useCallback(() => setEmailBindingRequired(false), []);
+
   const value = useMemo(
-    () => ({ session, loading, continueWithEmail, handleAuthUrl, sendPasswordReset, signOut }),
-    [continueWithEmail, handleAuthUrl, loading, sendPasswordReset, session, signOut]
+    () => ({
+      session,
+      loading,
+      identityCheckPending,
+      emailBindingRequired,
+      clearEmailBindingRequired,
+      continueWithEmail,
+      handleAuthUrl,
+      sendPasswordReset,
+      signOut
+    }),
+    [
+      clearEmailBindingRequired,
+      continueWithEmail,
+      emailBindingRequired,
+      handleAuthUrl,
+      identityCheckPending,
+      loading,
+      sendPasswordReset,
+      session,
+      signOut
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

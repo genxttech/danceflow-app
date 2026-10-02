@@ -2,7 +2,6 @@
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { cookies, headers } from "next/headers";
-import { recordBusinessLegalAcceptance } from "@/lib/legal/agreements";
 import { redirect } from "next/navigation";
 import {
   getTrustedRequestOrigin,
@@ -18,6 +17,8 @@ import {
 } from "@/lib/auth/portal-linking";
 import { getAccessibleStudioRolesForUser } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmailVerificationLink } from "@/lib/auth/verifiedEmail";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -28,24 +29,6 @@ async function getBaseUrl() {
   const headerStore = await headers();
   return getTrustedRequestOrigin(headerStore);
 }
-
-async function getRequestAuditContext() {
-  const headerStore = await headers();
-  const forwardedFor =
-    headerStore.get("x-forwarded-for") ??
-    headerStore.get("x-real-ip") ??
-    headerStore.get("cf-connecting-ip") ??
-    headerStore.get("x-vercel-forwarded-for");
-
-  const ipAddress = forwardedFor
-    ? forwardedFor.split(",")[0]?.trim().slice(0, 128) || null
-    : null;
-
-  const userAgent = headerStore.get("user-agent")?.slice(0, 1000) ?? null;
-
-  return { ipAddress, userAgent };
-}
-
 
 function getPostLoginPath(hasWorkspaceRole: boolean) {
   return hasWorkspaceRole ? "/app" : "/account";
@@ -163,28 +146,6 @@ function buildLoginRedirectPath(params: {
   return query ? `/login?${query}` : "/login";
 }
 
-function isExistingUserError(message: string) {
-  const normalized = message.toLowerCase();
-
-  return (
-    normalized.includes("already registered") ||
-    normalized.includes("already been registered") ||
-    normalized.includes("user already registered") ||
-    normalized.includes("already exists")
-  );
-}
-
-function isEmailConfirmationError(message: string) {
-  const normalized = message.toLowerCase();
-
-  return (
-    normalized.includes("email not confirmed") ||
-    normalized.includes("email confirmation") ||
-    normalized.includes("confirm your email") ||
-    normalized.includes("not confirmed")
-  );
-}
-
 async function upsertProfile(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
@@ -247,11 +208,9 @@ async function syncAccountAfterAuth(params: {
 export async function signupAction(formData: FormData) {
   const fullName = getString(formData, "fullName");
   const email = getString(formData, "email").toLowerCase();
-  const password = getString(formData, "password");
   const signupIntent = getString(formData, "signupIntent") || "public";
   const selectedPlan = getString(formData, "selectedPlan");
   const nextPath = getString(formData, "nextPath");
-  const legalAccepted = formData.get("legalAccepted") === "on";
 
   if (!fullName || !email) {
     return { error: "Full name and email are required." };
@@ -305,119 +264,42 @@ export async function signupAction(formData: FormData) {
     );
   }
 
-  if (!legalAccepted) {
-    return {
-      error:
-        "You must agree to the DanceFlow SaaS Terms and acknowledge the Privacy Policy before creating a business account.",
-    };
-  }
-
-  if (!password) {
-    return { error: "Password is required." };
-  }
-
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
-  }
-
-  const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+  /*
+    LAUNCH-SEC-1C-A: business signup is passwordless-first and no longer
+    depends on Supabase "Confirm email" being OFF:
+      email -> DanceFlow mailbox link (token_hash) -> /callback proof ->
+      create password (binding) -> new session -> trial setup.
+    Intent/plan travel in the new user's metadata (set server-side) and in a
+    normalized local `next` path; neither grants anything. Business legal
+    acceptance is recorded later by the existing authenticated /legal/accept
+    gate that trial setup and billing already enforce.
+  */
+  const sent = await sendEmailVerificationLink({
+    adminClient: createAdminClient(),
     email,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        signup_intent: signupIntent,
-        selected_plan: selectedPlan || null,
-      },
+    baseUrl: await getBaseUrl(),
+    nextPath: redirectPath,
+    purpose: "signup",
+    userMetadata: {
+      full_name: fullName,
+      signup_intent: signupIntent,
+      selected_plan: selectedPlan || null,
     },
   });
 
-  if (signUpError) {
-    if (isExistingUserError(signUpError.message)) {
-      redirect(
-        buildLoginRedirectPath({
-          email,
-          loginIntent: signupIntent,
-          selectedPlan,
-          nextPath: redirectPath,
-          mode: "resume-signup",
-        })
-      );
-    }
-
-    return { error: signUpError.message };
+  if (!sent) {
+    return { error: "We could not send your confirmation email. Please try again in a moment." };
   }
 
-  let authenticatedUser = signUpData.user ?? null;
-
-  if (!authenticatedUser?.id) {
-    return { error: "User account was not created." };
-  }
-
-  /*
-    For the 3-step trial flow, production Supabase must have:
-    Authentication → Providers → Email → Confirm email = OFF.
-
-    If Confirm email is OFF, signUpData.session should exist immediately.
-    This fallback attempts to establish a password session if Supabase created
-    the user but did not attach the session to the response.
-  */
-  if (!signUpData.session) {
-    const { data: signInData, error: signInError } =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-    if (signInError) {
-      if (isEmailConfirmationError(signInError.message)) {
-        return {
-          error:
-            "This account was created, but email confirmation is still blocking the trial checkout flow. Turn off Confirm email in Supabase Authentication → Providers → Email, then test again with a fresh email.",
-        };
-      }
-
-      return {
-        error: `Account was created, but automatic sign-in failed: ${signInError.message}`,
-      };
-    }
-
-    if (!signInData.user?.id) {
-      return {
-        error:
-          "Account was created, but no active session was returned. Please check Supabase email confirmation settings.",
-      };
-    }
-
-    authenticatedUser = signInData.user;
-  }
-
-  try {
-    await syncAccountAfterAuth({
-      supabase,
-      userId: authenticatedUser.id,
+  redirect(
+    buildLoginRedirectPath({
       email,
-      fullName,
+      loginIntent: signupIntent,
+      selectedPlan,
       nextPath: redirectPath,
-    });
-
-    const auditContext = await getRequestAuditContext();
-
-    await recordBusinessLegalAcceptance({
-      supabase,
-      userId: authenticatedUser.id,
-      source: "business_signup",
-      intent: signupIntent === "organizer" ? "organizer" : "studio",
-      ipAddress: auditContext.ipAddress,
-      userAgent: auditContext.userAgent,
-    });
-  } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : "Account setup failed.",
-    };
-  }
-
-  redirect(redirectPath);
+      mode: "check-email",
+    })
+  );
 }
 
 export async function loginAction(formData: FormData) {

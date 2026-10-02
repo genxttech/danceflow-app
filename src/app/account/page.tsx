@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { createClient } from "@/lib/supabase/server";
 import { reactivateDanceFlowAccount } from "@/lib/student-identity/account-security";
+import { getEmailBindingStatus } from "@/lib/auth/verifiedEmail";
 import {
   deactivateAccountAction,
   deleteAccountAction,
@@ -709,6 +710,8 @@ export default async function AccountPage({
 
   await reactivateDanceFlowAccount(user);
 
+  const emailBindingStatus = await getEmailBindingStatus(supabase);
+
   const { data: legalAcceptances, error: legalAcceptancesError } =
     await supabase
       .from("legal_agreement_acceptances")
@@ -1028,6 +1031,20 @@ export default async function AccountPage({
       <PublicSiteHeader currentPath="account" isAuthenticated />
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {emailBindingStatus !== "bound" ? (
+          <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm leading-6 text-slate-800">
+              <span className="font-semibold">Verify your email.</span> Confirm your email and set a password to keep your DanceFlow account secure.
+            </p>
+            <Link
+              href="/account/verify-email"
+              className="inline-flex shrink-0 items-center justify-center rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
+            >
+              {emailBindingStatus === "binding_ready" ? "Create password" : "Verify email"}
+            </Link>
+          </div>
+        ) : null}
+
         {search.success === "email_change_requested" ? (
           <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
             Email change requested. Complete the confirmation steps sent by email.
