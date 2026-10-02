@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import {
@@ -59,6 +60,28 @@ async function getOrganizerWorkspaceContext() {
     !isOrganizerOwner(context.studioRole) &&
     !isPlatformAdmin(context.studioRole)
   ) {
+    throw new Error("Only the organizer owner can create or manage the organizer profile.");
+  }
+
+  // LAUNCH-SEC-2A: the writes below run with the service role, so the owner
+  // authority is re-established from the caller's own active owner row for
+  // this exact workspace (studio_owner is shown as organizer_owner in an
+  // organizer workspace) -- never from organizer_users or client input.
+  const { data: ownerRole, error: ownerRoleError } = await createAdminClient()
+    .from("user_studio_roles")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("studio_id", context.studioId)
+    .eq("active", true)
+    .in("role", ["studio_owner", "organizer_owner"])
+    .limit(1)
+    .maybeSingle();
+
+  if (ownerRoleError) {
+    throw new Error("Could not verify organizer access.");
+  }
+
+  if (!ownerRole) {
     throw new Error("Only the organizer owner can create or manage the organizer profile.");
   }
 
@@ -136,7 +159,11 @@ export async function createOrganizerAction(
       };
     }
 
-    const { data: organizer, error: organizerError } = await supabase
+    // LAUNCH-SEC-2A: organizers and organizer_users are server-written only
+    // (tenant RLS writes are closed), so these writes use the service role.
+    const admin = createAdminClient();
+
+    const { data: organizer, error: organizerError } = await admin
       .from("organizers")
       .insert({
         studio_id: studioId,
@@ -163,7 +190,7 @@ export async function createOrganizerAction(
       };
     }
 
-    const { error: accessError } = await supabase.from("organizer_users").upsert(
+    const { error: accessError } = await admin.from("organizer_users").upsert(
       {
         organizer_id: organizer.id,
         user_id: userId,

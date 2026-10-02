@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/payments/stripe";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageWorkspaceSubscription } from "@/lib/billing/subscriptionAuthority";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 function buildAppUrl(request: NextRequest) {
@@ -9,11 +10,6 @@ function buildAppUrl(request: NextRequest) {
     process.env.NEXT_PUBLIC_SITE_URL ||
     request.nextUrl.origin
   );
-}
-
-function canManageBilling(role: string | null | undefined, isPlatformAdminRole: boolean) {
-  if (isPlatformAdminRole) return true;
-  return role === "studio_owner" || role === "organizer_owner";
 }
 
 async function createClientFromRequest() {
@@ -48,7 +44,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.redirect(new URL("/app", request.url));
     }
 
-    if (!canManageBilling(context.studioRole, context.isPlatformAdmin)) {
+    if (!canManageWorkspaceSubscription(context.studioRole, context.isPlatformAdmin)) {
       return NextResponse.redirect(new URL("/app", request.url));
     }
 

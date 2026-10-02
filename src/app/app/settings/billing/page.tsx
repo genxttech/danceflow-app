@@ -13,6 +13,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getInstructorSeatStatus } from "@/lib/instructors/seatStatus";
 import { InstructorSeatNotice } from "@/components/InstructorSeatNotice";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageWorkspaceSubscription } from "@/lib/billing/subscriptionAuthority";
 import { getStripe } from "@/lib/payments/stripe";
 import {
   BILLING_PLANS,
@@ -131,14 +132,6 @@ function isPlanCode(value: string | undefined): value is PlanCode {
 
 function isAudience(value: string | undefined): value is PlanAudience {
   return value === "studio" || value === "organizer";
-}
-
-function canManageBilling(
-  role: string | null | undefined,
-  isPlatformAdminRole: boolean,
-) {
-  if (isPlatformAdminRole) return true;
-  return role === "studio_owner" || role === "organizer_owner";
 }
 
 function getAudienceFromRole(role: string | null | undefined): PlanAudience {
@@ -1296,7 +1289,7 @@ export default async function BillingSettingsPage({
     redirect("/account");
   }
 
-  const canAccessBilling = canManageBilling(
+  const canAccessBilling = canManageWorkspaceSubscription(
     context.studioRole,
     context.isPlatformAdmin,
   );
