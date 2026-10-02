@@ -173,13 +173,13 @@ export default function SmsConsentPage() {
           <Section title="Example SMS messages">
             <div className="space-y-3">
               <SampleMessage>
-                {`Hi Alex,\n\nYour private lesson is confirmed for Tue, Oct 14, 2026, 6:00 PM EDT.\nInstructor: Jamie Rivera.\n\nWe look forward to seeing you.\n\n${STOP_HELP_FOOTER}`}
+                {`Hi Alex,\nYour private lesson is confirmed for Wed, Oct 14, 2026, 6:00 PM EDT.\nIt is scheduled to end at Wed, Oct 14, 2026, 6:30 PM EDT.\nInstructor: Jamie Rivera.\nWe look forward to seeing you.\n\n${STOP_HELP_FOOTER}`}
               </SampleMessage>
               <SampleMessage>
-                {`Hi Alex,\n\nYour private lesson has been rescheduled to Thu, Oct 16, 2026, 5:00 PM EDT.\n\nPlease contact the studio if you have any questions.\n\n${STOP_HELP_FOOTER}`}
+                {`Hi Alex,\nYour private lesson has been rescheduled to Fri, Oct 16, 2026, 5:00 PM EDT.\nIt is scheduled to end at Fri, Oct 16, 2026, 5:30 PM EDT.\nInstructor: Jamie Rivera.\nPlease contact the studio if you have any questions.\n\n${STOP_HELP_FOOTER}`}
               </SampleMessage>
               <SampleMessage>
-                {`Hi Alex,\n\nYour private lesson scheduled for Thu, Oct 16, 2026, 5:00 PM EDT has been cancelled.\nInstructor: Jamie Rivera.\n\nPlease contact the studio if you would like to reschedule.\n\n${STOP_HELP_FOOTER}`}
+                {`Hi Alex,\nYour private lesson scheduled for Fri, Oct 16, 2026, 5:00 PM EDT has been cancelled.\nInstructor: Jamie Rivera.\nPlease contact the studio if you would like to reschedule.\n\n${STOP_HELP_FOOTER}`}
               </SampleMessage>
               <SampleMessage>
                 {`Hi Alex, this is Harbor Dance Studio. Does Saturday at 10 AM still work for your lesson?\n\n${STOP_HELP_FOOTER}`}
