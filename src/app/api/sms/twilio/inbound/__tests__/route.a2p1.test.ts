@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getExpectedTwilioSignature } from "twilio/lib/webhooks/webhooks";
-import { createFakeSupabase, type FakeRow } from "@/lib/sms/__tests__/fakeSupabase";
+import { createFakeSupabase as createBaseFake, type FakeRow } from "@/lib/sms/__tests__/fakeSupabase";
 
-/** A2P-1A: inbound Twilio webhook — signature first, STOP/START/HELP semantics. */
+/**
+ * A2P-1A + SMS-A2P-2: inbound Twilio webhook — signature first, then STOP/START/HELP
+ * scoped to the single studio that owns the receiving sender.
+ */
 
 const fake = vi.hoisted(() => ({ current: null as ReturnType<typeof createFakeSupabase> | null }));
 
@@ -13,10 +16,11 @@ vi.mock("@supabase/supabase-js", () => ({
 
 import { POST } from "@/app/api/sms/twilio/inbound/route";
 import {
-  SMS_HELP_REPLY,
-  SMS_START_NO_PRIOR_CONSENT_REPLY,
-  SMS_START_REPLY,
-  SMS_STOP_REPLY,
+  SMS_UNROUTED_REPLY,
+  buildSmsHelpReply,
+  buildSmsStartNoPriorConsentReply,
+  buildSmsStartReply,
+  buildSmsStopReply,
 } from "@/lib/sms/compliance";
 
 const TEST_TOKEN = "fake-test-auth-token";
@@ -24,6 +28,33 @@ const WEBHOOK_URL = "https://www.idanceflow.com/api/sms/twilio/inbound";
 const PHONE = "+15550100123";
 const STUDIO_A = "11111111-1111-4111-8111-111111111111";
 const STUDIO_B = "22222222-2222-4222-8222-222222222222";
+const SENDER_A = "+15550109999";
+const SENDER_B = "+15550108888";
+const SERVICE_A = `MG${"a1".repeat(16)}`;
+const SERVICE_B = `MG${"b2".repeat(16)}`;
+
+function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
+  const registration = (studioId: string, sid: string, sender: string): FakeRow => ({
+    id: `reg-${studioId}`,
+    studio_id: studioId,
+    messaging_service_sid: sid,
+    campaign_sid: `QE${"0f".repeat(16)}`,
+    sender_e164: sender,
+    registration_status: "approved",
+  });
+
+  return createBaseFake({
+    studios: [
+      { id: STUDIO_A, name: "Harbor Dance Studio" },
+      { id: STUDIO_B, name: "Lakeside Ballroom" },
+    ],
+    studio_sms_registrations: [
+      registration(STUDIO_A, SERVICE_A, SENDER_A),
+      registration(STUDIO_B, SERVICE_B, SENDER_B),
+    ],
+    ...seed,
+  });
+}
 
 const ENV_KEYS = ["TWILIO_AUTH_TOKEN", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
 const savedEnv: Record<string, string | undefined> = {};
@@ -48,9 +79,21 @@ function permission(overrides: FakeRow): FakeRow {
 
 function inboundRequest(
   body: string,
-  options: { sign?: "valid" | "invalid" | "missing"; ip?: string; from?: string } = {},
+  options: {
+    sign?: "valid" | "invalid" | "missing";
+    ip?: string;
+    from?: string;
+    to?: string;
+    serviceSid?: string;
+  } = {},
 ) {
-  const params = { From: options.from ?? PHONE, To: "+15550109999", Body: body, MessageSid: "SMinbound1" };
+  const params: Record<string, string> = {
+    From: options.from ?? PHONE,
+    To: options.to ?? SENDER_A,
+    Body: body,
+    MessageSid: "SMinbound1",
+  };
+  if (options.serviceSid) params.MessagingServiceSid = options.serviceSid;
   const headers: Record<string, string> = {
     "content-type": "application/x-www-form-urlencoded",
     "x-forwarded-for": options.ip ?? `203.0.113.${++ipCounter % 250}`,
@@ -105,7 +148,7 @@ describe("signature enforcement", () => {
     delete process.env.TWILIO_AUTH_TOKEN;
     fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "p1" })] });
 
-    const params = { From: PHONE, To: "+15550109999", Body: "STOP", MessageSid: "SMinbound1" };
+    const params = { From: PHONE, To: SENDER_A, Body: "STOP", MessageSid: "SMinbound1" };
     const response = await POST(
       new Request(WEBHOOK_URL, {
         method: "POST",
@@ -144,7 +187,7 @@ describe("signature enforcement", () => {
 });
 
 describe("STOP", () => {
-  it("opts out every row for the phone and preserves consent_source and consent_at", async () => {
+  it("opts out only the receiving studio and preserves consent_source and consent_at", async () => {
     fake.current = createFakeSupabase({
       sms_contact_permissions: [
         permission({ id: "p1", consent_source: "studio_staff_manual" }),
@@ -156,7 +199,8 @@ describe("STOP", () => {
     const xml = await response.text();
 
     expect(response.status).toBe(200);
-    expect(xml).toContain(xmlEscape(SMS_STOP_REPLY));
+    expect(xml).toContain(xmlEscape(buildSmsStopReply("Harbor Dance Studio")));
+    expect(xml).toContain("Harbor Dance Studio");
 
     const [p1, p2] = fake.current.rows("sms_contact_permissions");
     expect(p1).toMatchObject({
@@ -166,11 +210,20 @@ describe("STOP", () => {
       consent_at: "2026-09-01T00:00:00.000Z",
     });
     expect(p1.opted_out_at).toBeTruthy();
-    expect(p2).toMatchObject({ consent_status: "opted_out", consent_source: "public_lead_form" });
+    // Studio B's consent for the same phone is untouched.
+    expect(p2).toMatchObject({ consent_status: "opted_in", consent_source: "public_lead_form", opted_out_at: null });
 
     const inboundLogs = fake.current.rows("sms_message_logs");
-    expect(inboundLogs).toHaveLength(2);
-    expect(inboundLogs[0]).toMatchObject({ direction: "inbound", message_type: "stop", status: "received" });
+    expect(inboundLogs).toHaveLength(1);
+    expect(inboundLogs[0]).toMatchObject({
+      studio_id: STUDIO_A,
+      direction: "inbound",
+      message_type: "stop",
+      status: "received",
+    });
+    expect(
+      fake.current.mutations.filter((m) => m.table === "sms_contact_permissions").flatMap((m) => m.ids),
+    ).toEqual(["p1"]);
   });
 
   it.each(["STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"])("%s is treated as STOP", async (keyword) => {
@@ -195,18 +248,24 @@ describe("START", () => {
         }),
         permission({
           id: "never",
-          studio_id: STUDIO_B,
           consent_status: "opted_out",
           consent_at: null,
           opted_out_at: "2026-09-10T00:00:00.000Z",
           opted_out_source: "studio_staff_manual",
         }),
         permission({ id: "unknown", consent_status: "unknown", consent_at: null, consent_source: null }),
+        permission({
+          id: "otherStudioOptedOut",
+          studio_id: STUDIO_B,
+          consent_status: "opted_out",
+          consent_at: "2026-09-01T00:00:00.000Z",
+          opted_out_at: "2026-09-10T00:00:00.000Z",
+        }),
       ],
     });
 
     const response = await POST(inboundRequest("START"));
-    expect(await response.text()).toContain(xmlEscape(SMS_START_REPLY));
+    expect(await response.text()).toContain(xmlEscape(buildSmsStartReply("Harbor Dance Studio")));
 
     const rows = Object.fromEntries(
       fake.current.rows("sms_contact_permissions").map((row) => [String(row.id), row]),
@@ -220,6 +279,8 @@ describe("START", () => {
     });
     expect(rows.prior.consent_at).not.toBe("2026-09-01T00:00:00.000Z");
     expect(rows.never).toMatchObject({ consent_status: "opted_out", consent_at: null });
+    // Studio B's opted-out row (with prior consent) is NOT restored by a START to Studio A.
+    expect(rows.otherStudioOptedOut).toMatchObject({ consent_status: "opted_out" });
     expect(rows.unknown).toMatchObject({ consent_status: "unknown", consent_at: null });
   });
 
@@ -230,7 +291,7 @@ describe("START", () => {
 
     const response = await POST(inboundRequest("YES"));
 
-    expect(await response.text()).toContain(xmlEscape(SMS_START_NO_PRIOR_CONSENT_REPLY));
+    expect(await response.text()).toContain(xmlEscape(buildSmsStartNoPriorConsentReply("Harbor Dance Studio")));
     expect(fake.current.rows("sms_contact_permissions")[0]).toMatchObject({ consent_status: "unknown" });
     expect(fake.current.mutations.filter((mutation) => mutation.table === "sms_contact_permissions")).toHaveLength(0);
   });
@@ -240,25 +301,95 @@ describe("START", () => {
 
     const response = await POST(inboundRequest("UNSTOP"));
 
-    expect(await response.text()).toContain(xmlEscape(SMS_START_NO_PRIOR_CONSENT_REPLY));
+    expect(await response.text()).toContain(xmlEscape(buildSmsStartNoPriorConsentReply("Harbor Dance Studio")));
     expect(fake.current.rows("sms_contact_permissions")).toHaveLength(0);
   });
 });
 
 describe("HELP", () => {
-  it("returns the exact branded single-segment response", async () => {
-    fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "p1" })] });
+  it("names the receiving studio and the DanceFlow/GenX relationship, mutating nothing", async () => {
+    fake.current = createFakeSupabase({
+      sms_contact_permissions: [permission({ id: "p1" }), permission({ id: "p2", studio_id: STUDIO_B })],
+    });
 
     for (const keyword of ["HELP", "info"]) {
       const response = await POST(inboundRequest(keyword));
-      expect(await response.text()).toBe(`<Response><Message>${xmlEscape(SMS_HELP_REPLY)}</Message></Response>`);
+      expect(await response.text()).toBe(
+        `<Response><Message>${xmlEscape(buildSmsHelpReply("Harbor Dance Studio"))}</Message></Response>`,
+      );
     }
 
-    expect(SMS_HELP_REPLY).toBe(
-      "DanceFlow, operated by GenX TotalTech LLC: For help, contact support@idanceflow.com or your dance studio. Reply STOP to opt out. Msg&data rates may apply.",
-    );
-    expect(SMS_HELP_REPLY.length).toBeLessThanOrEqual(160);
-    expect(/^[\x20-\x7e]*$/.test(SMS_HELP_REPLY)).toBe(true);
-    expect(fake.current.rows("sms_contact_permissions")[0]).toMatchObject({ consent_status: "opted_in" });
+    const reply = buildSmsHelpReply("Harbor Dance Studio");
+    expect(reply).toContain("Harbor Dance Studio");
+    expect(reply).toContain("DanceFlow, operated by GenX TotalTech LLC");
+    expect(reply).toContain("Reply STOP to opt out");
+    expect(reply).not.toContain("Lakeside Ballroom");
+    expect(fake.current.rows("sms_contact_permissions")).toMatchObject([
+      { consent_status: "opted_in" },
+      { consent_status: "opted_in" },
+    ]);
+    expect(fake.current.mutations.filter((m) => m.table === "sms_contact_permissions")).toHaveLength(0);
+  });
+
+  it("a different studio's sender yields that studio's own HELP text", async () => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [] });
+
+    const response = await POST(inboundRequest("HELP", { to: SENDER_B }));
+
+    expect(await response.text()).toContain("Lakeside Ballroom");
+  });
+});
+
+describe("sender routing", () => {
+  it("STOP to Studio B's sender opts out only Studio B", async () => {
+    fake.current = createFakeSupabase({
+      sms_contact_permissions: [permission({ id: "a" }), permission({ id: "b", studio_id: STUDIO_B })],
+    });
+
+    await POST(inboundRequest("STOP", { to: SENDER_B, serviceSid: SERVICE_B }));
+
+    const rows = Object.fromEntries(fake.current.rows("sms_contact_permissions").map((r) => [String(r.id), r]));
+    expect(rows.a).toMatchObject({ consent_status: "opted_in" });
+    expect(rows.b).toMatchObject({ consent_status: "opted_out" });
+  });
+
+  it("MessagingServiceSid alone (no To) routes to its studio", async () => {
+    fake.current = createFakeSupabase({
+      sms_contact_permissions: [permission({ id: "a" }), permission({ id: "b", studio_id: STUDIO_B })],
+    });
+
+    await POST(inboundRequest("STOP", { to: "", serviceSid: SERVICE_B }));
+
+    const rows = Object.fromEntries(fake.current.rows("sms_contact_permissions").map((r) => [String(r.id), r]));
+    expect(rows.a).toMatchObject({ consent_status: "opted_in" });
+    expect(rows.b).toMatchObject({ consent_status: "opted_out" });
+  });
+
+  it.each([
+    ["unknown sender", { to: "+15550107777" }],
+    ["service SID and To that disagree", { to: SENDER_A, serviceSid: SERVICE_B }],
+    ["no sender fields", { to: "" }],
+  ])("%s -> no database mutation and a neutral reply", async (_name, options) => {
+    fake.current = createFakeSupabase({
+      sms_contact_permissions: [permission({ id: "a" }), permission({ id: "b", studio_id: STUDIO_B })],
+    });
+
+    const response = await POST(inboundRequest("STOP", options));
+
+    expect(await response.text()).toContain(xmlEscape(SMS_UNROUTED_REPLY));
+    expect(fake.current.mutations).toHaveLength(0);
+    expect(fake.current.rows("sms_contact_permissions")).toMatchObject([
+      { consent_status: "opted_in" },
+      { consent_status: "opted_in" },
+    ]);
+  });
+
+  it("a suspended studio's recipients can still STOP", async () => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "a" })] });
+    fake.current.rows("studio_sms_registrations")[0].registration_status = "suspended";
+
+    await POST(inboundRequest("STOP"));
+
+    expect(fake.current.rows("sms_contact_permissions")[0]).toMatchObject({ consent_status: "opted_out" });
   });
 });

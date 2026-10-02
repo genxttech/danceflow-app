@@ -27,6 +27,22 @@ const PHONE_E164 = "+15550100123";
 
 const fetchMock = vi.fn();
 
+const SERVICE_SID = `MG${"a1".repeat(16)}`;
+const CAMPAIGN_SID = `QE${"0f".repeat(16)}`;
+
+function registration(overrides: FakeRow = {}): FakeRow {
+  return {
+    id: "reg-1",
+    studio_id: STUDIO_ID,
+    messaging_service_sid: SERVICE_SID,
+    campaign_sid: CAMPAIGN_SID,
+    sender_e164: "+15550109999",
+    registration_status: "approved",
+    ...overrides,
+  };
+}
+
+
 const ENV_KEYS = [
   "DANCEFLOW_SMS_STATUS",
   "SMS_PLATFORM_STATUS",
@@ -89,6 +105,7 @@ function seed(rows: { delivery?: FakeRow; permissions?: FakeRow[] } = {}) {
     outbound_deliveries: [rows.delivery ?? smsRow()],
     sms_contact_permissions: rows.permissions ?? [],
     studios: [{ id: STUDIO_ID, name: "Harbor Dance Studio" }],
+    studio_sms_registrations: [registration()],
   });
   return fake.current;
 }
@@ -108,7 +125,6 @@ beforeEach(() => {
   process.env.DANCEFLOW_SMS_STATUS = "approved";
   process.env.TWILIO_ACCOUNT_SID = "ACtest0000000000000000000000000000";
   process.env.TWILIO_AUTH_TOKEN = "fake-test-auth-token";
-  process.env.TWILIO_MESSAGING_SERVICE_SID = "MGtest0000000000000000000000000000";
   process.env.TWILIO_FROM_NUMBER = "+15550109999";
   process.env.TWILIO_STATUS_CALLBACK_SECRET = "fake-callback-secret";
 
@@ -264,7 +280,7 @@ describe("automated SMS approved send path", () => {
     expect(url).toContain("/Messages.json");
 
     const params = new URLSearchParams(String(init.body));
-    expect(params.get("MessagingServiceSid")).toBe("MGtest0000000000000000000000000000");
+    expect(params.get("MessagingServiceSid")).toBe(SERVICE_SID);
     expect(params.get("From")).toBeNull();
     expect(params.get("To")).toBe(PHONE_E164);
 

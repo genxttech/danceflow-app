@@ -7,6 +7,9 @@ import { createFakeSupabase, type FakeRow } from "@/lib/sms/__tests__/fakeSupaba
 
 const fake = vi.hoisted(() => ({ current: null as ReturnType<typeof createFakeSupabase> | null }));
 
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => fake.current!.client,
+}));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => fake.current!.client,
 }));
@@ -34,6 +37,22 @@ const ENV_KEYS = [
 ] as const;
 const savedEnv: Record<string, string | undefined> = {};
 const fetchMock = vi.fn();
+
+const SERVICE_SID = `MG${"a1".repeat(16)}`;
+const CAMPAIGN_SID = `QE${"0f".repeat(16)}`;
+
+function registration(overrides: FakeRow = {}): FakeRow {
+  return {
+    id: "reg-1",
+    studio_id: STUDIO_ID,
+    messaging_service_sid: SERVICE_SID,
+    campaign_sid: CAMPAIGN_SID,
+    sender_e164: "+15550109999",
+    registration_status: "approved",
+    ...overrides,
+  };
+}
+
 let ipCounter = 0;
 
 function seed(permissions: FakeRow[]) {
@@ -41,6 +60,7 @@ function seed(permissions: FakeRow[]) {
     studios: [{ id: STUDIO_ID, name: "Harbor Dance Studio" }],
     clients: [{ id: CLIENT_ID, studio_id: STUDIO_ID, phone: "(555) 010-0123" }],
     sms_contact_permissions: permissions,
+    studio_sms_registrations: [registration()],
   });
   return fake.current;
 }
@@ -77,7 +97,6 @@ beforeEach(() => {
   process.env.DANCEFLOW_SMS_STATUS = "approved";
   process.env.TWILIO_ACCOUNT_SID = "ACtest0000000000000000000000000000";
   process.env.TWILIO_AUTH_TOKEN = "fake-test-auth-token";
-  process.env.TWILIO_MESSAGING_SERVICE_SID = "MGtest0000000000000000000000000000";
 
   fetchMock.mockReset();
   fetchMock.mockResolvedValue(
@@ -106,7 +125,7 @@ describe("manual studio SMS", () => {
     expect(twilioCalls()).toHaveLength(1);
 
     const params = new URLSearchParams(String((twilioCalls()[0] as [string, RequestInit])[1].body));
-    expect(params.get("MessagingServiceSid")).toBe("MGtest0000000000000000000000000000");
+    expect(params.get("MessagingServiceSid")).toBe(SERVICE_SID);
     expect(params.get("To")).toBe(PHONE_E164);
     expect(String(params.get("Body"))).toMatch(/Harbor Dance Studio: Reply STOP to opt out\. Reply HELP for help\.$/);
 

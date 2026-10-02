@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveStudioSmsSender } from "@/lib/sms/studioSender";
 import {
   appendSmsOptOutFooter,
   canSendSms,
@@ -130,11 +132,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const smsReadiness = getSmsPlatformReadiness();
+    // SMS-A2P-2: send only through this studio's own approved registration. The
+    // registration table is platform-admin-only under RLS, so it is read server-side.
+    const senderResult = await resolveStudioSmsSender(createAdminClient(), studioId);
 
-    if (!smsReadiness.canSend) {
+    if (!senderResult.ok) {
+      if (senderResult.reason === "sms_registration_lookup_failed") {
+        return NextResponse.json(
+          { ok: false, error: "Text messaging could not be verified. Please try again." },
+          { status: 500 },
+        );
+      }
+
       return NextResponse.json(
-        { ok: false, error: smsReadiness.studioMessage },
+        {
+          ok: false,
+          error:
+            senderResult.reason === "sms_not_approved"
+              ? getSmsPlatformReadiness().studioMessage
+              : "Text messaging is not set up for your studio yet. Contact DanceFlow support to finish carrier registration.",
+        },
         { status: 503 },
       );
     }
@@ -180,6 +197,7 @@ export async function POST(request: Request) {
     const sendResult = await sendTwilioSms({
       to: phoneE164,
       body: finalBody,
+      messagingServiceSid: senderResult.sender.messagingServiceSid,
       statusCallbackUrl: callbackUrl,
     });
 

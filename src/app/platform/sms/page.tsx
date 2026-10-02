@@ -188,9 +188,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   const studios = (studiosResult.data ?? []) as StudioOption[];
 
   const twilioConfigured = Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      (process.env.TWILIO_MESSAGING_SERVICE_SID || process.env.TWILIO_MESSAGE_SERVICE_SID),
+    process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN,
   );
 
   const callbackConfigured = Boolean(process.env.TWILIO_STATUS_CALLBACK_SECRET);
@@ -306,7 +304,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
           <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
             <p className="font-semibold">Safe activation</p>
             <p className="mt-1">
-              Production SMS sends are blocked unless <code>DANCEFLOW_SMS_STATUS=approved</code> or <code>SMS_PLATFORM_STATUS=approved</code>. Current status: <span className="font-semibold">{smsReadiness.label}</span>.
+              Production SMS sends are blocked unless <code>DANCEFLOW_SMS_STATUS=approved</code> or <code>SMS_PLATFORM_STATUS=approved</code>. Current status: <span className="font-semibold">{smsReadiness.label}</span>. This is the platform-wide master switch: a studio can also send only while its own registration below is approved.
             </p>
           </div>
         </div>
