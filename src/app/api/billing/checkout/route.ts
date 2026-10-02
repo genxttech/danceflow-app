@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
+import { canManageWorkspaceSubscription } from "@/lib/billing/subscriptionAuthority";
 import { isFounderPricingActive } from "@/lib/billing/founderPricing";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
@@ -328,6 +329,19 @@ async function handleCheckout(request: NextRequest) {
           path: requestedPath ?? sharedPlan.audience,
           entry: entryMode,
           recommended: sharedPlan.code,
+        })
+      );
+    }
+
+    // LAUNCH-SEC-2A: both branches below (new plan checkout and the billing
+    // portal for an existing subscription) are owner-level billing actions.
+    if (!canManageWorkspaceSubscription(context.studioRole, context.isPlatformAdmin)) {
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "billing_owner_required",
+          path: requestedPath ?? sharedPlan.audience,
+          entry: entryMode,
         })
       );
     }
