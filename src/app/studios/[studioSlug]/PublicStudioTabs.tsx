@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { decodeHashId, resolveDeepLinkTab } from "./deepLink";
 
 type PublicStudioTab = {
   key: string;
@@ -18,6 +20,43 @@ export default function PublicStudioTabs({
   tabs: PublicStudioTab[];
 }) {
   const router = useRouter();
+
+  // A URL hash never reaches the server, so a link like /studios/{slug}#lead would render
+  // the default tab with the target section hidden. Open the tab that owns the hash target,
+  // on first load and on later hash changes, then bring the target into view.
+  useEffect(() => {
+    const validTabs = tabs.map((tab) => tab.key);
+
+    function applyHash() {
+      const hash = window.location.hash;
+      const nextTab = resolveDeepLinkTab(
+        hash,
+        activeTab,
+        (id) => {
+          const target = document.getElementById(id);
+          if (!target) return null;
+          const panel = target.closest("[data-studio-tab]");
+          return { panelTab: panel?.getAttribute("data-studio-tab") ?? null };
+        },
+        validTabs,
+      );
+
+      if (nextTab) {
+        router.replace(`/studios/${studioSlug}?tab=${nextTab}`);
+        return;
+      }
+
+      const id = decodeHashId(hash);
+      const target = id ? document.getElementById(id) : null;
+      if (target && target.closest("[data-studio-tab]")?.getAttribute("data-studio-tab") === activeTab) {
+        target.scrollIntoView({ block: "start" });
+      }
+    }
+
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, [activeTab, studioSlug, tabs, router]);
 
   return (
     <nav

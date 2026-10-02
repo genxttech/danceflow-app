@@ -820,7 +820,7 @@ export default async function PublicStudioPage({
         <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-8">
-              <section id="overview" className={tabPanelClass(activeStudioTab === "overview", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
+              <section id="overview" data-studio-tab="overview" className={tabPanelClass(activeStudioTab === "overview", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   Welcome to {title}
                 </h2>
@@ -853,7 +853,7 @@ export default async function PublicStudioPage({
                 </div>
               </section>
 
-              <section id="about" className={tabPanelClass(activeStudioTab === "about", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
+              <section id="about" data-studio-tab="about" className={tabPanelClass(activeStudioTab === "about", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   About This Studio
                 </h2>
@@ -864,7 +864,7 @@ export default async function PublicStudioPage({
                 </p>
               </section>
 
-              <section id="dance-styles" className={tabPanelClass(activeStudioTab === "dance-styles", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
+              <section id="dance-styles" data-studio-tab="dance-styles" className={tabPanelClass(activeStudioTab === "dance-styles", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   Dance Styles
                 </h2>
@@ -888,7 +888,7 @@ export default async function PublicStudioPage({
                 )}
               </section>
 
-              <section id="staff" className={tabPanelClass(activeStudioTab === "staff", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
+              <section id="staff" data-studio-tab="staff" className={tabPanelClass(activeStudioTab === "staff", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <div className="flex flex-wrap items-end justify-between gap-4">
                   <div>
                     <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-700">
@@ -1006,7 +1006,7 @@ export default async function PublicStudioPage({
                 )}
               </section>
 
-              <section id="offerings" className={tabPanelClass(activeStudioTab === "offerings", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
+              <section id="offerings" data-studio-tab="offerings" className={tabPanelClass(activeStudioTab === "offerings", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   Offerings
                 </h2>
@@ -1030,7 +1030,7 @@ export default async function PublicStudioPage({
                 )}
               </section>
 
-              <section id="events" className={tabPanelClass(activeStudioTab === "events", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
+              <section id="events" data-studio-tab="events" className={tabPanelClass(activeStudioTab === "events", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <div className="flex flex-wrap items-end justify-between gap-4">
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
@@ -1131,6 +1131,7 @@ export default async function PublicStudioPage({
               {studio.public_lead_enabled ? (
                 <section
                   id="lead"
+                  data-studio-tab="contact"
                   className={tabPanelClass(activeStudioTab === "contact", "scroll-mt-24 rounded-[2rem] border border-violet-200 bg-violet-50 p-6 shadow-sm")}
                 >
                   <div className="mb-5">
@@ -1160,7 +1161,7 @@ export default async function PublicStudioPage({
             </div>
 
             <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
-              <section id="contact" className={tabPanelClass(activeStudioTab === "contact", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
+              <section id="contact" data-studio-tab="contact" className={tabPanelClass(activeStudioTab === "contact", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
                 <h2 className="text-xl font-semibold tracking-tight text-slate-950">
                   Contact Information
                 </h2>
