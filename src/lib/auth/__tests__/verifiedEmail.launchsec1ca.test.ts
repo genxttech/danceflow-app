@@ -185,7 +185,7 @@ describe("LAUNCH-SEC-1C-A verification email", () => {
   it("sends a token_hash /callback link to exactly the given address", async () => {
     sendMock.mockResolvedValue({ data: { id: "m1" }, error: null });
     const generateLink = vi.fn(async () => ({
-      data: { properties: { hashed_token: "hash-123" } },
+      data: { properties: { hashed_token: "hash-123", verification_type: "magiclink" } },
       error: null,
     }));
 

@@ -125,6 +125,26 @@ describe("LAUNCH-SEC-1C-A callback proof recording", () => {
     expect(adminSignOut).not.toHaveBeenCalled();
   });
 
+  it("LAUNCH-SEC-1C-A1 D/E: the token is verified with the link's type (signup or magiclink)", async () => {
+    await callback("token_hash=new-owner&type=signup&next=%2Fget-started%2Fcomplete");
+    await callback("token_hash=existing&type=magiclink");
+    expect(verifyOtp.mock.calls.map((call) => call[0])).toEqual([
+      { token_hash: "new-owner", type: "signup" },
+      { token_hash: "existing", type: "magiclink" },
+    ]);
+  });
+
+  it("LAUNCH-SEC-1C-A1 G: a link type alone never creates proof; the database decides after verification", async () => {
+    exchangeFails = true;
+    await callback("token_hash=tampered&type=recovery");
+    expect(rpcCalls).not.toContain("record_email_proof_web");
+    exchangeFails = false;
+    proofAnswer = "no_fresh_mailbox_auth";
+    const location = await callback("token_hash=tampered&type=signup&next=%2Fapp");
+    expect(rpcCalls.filter((fn) => fn === "record_email_proof_web")).toHaveLength(1);
+    expect(location.pathname).toBe("/app");
+  });
+
   it("recovery destinations are replaced by binding, keeping only a safe inner next", () => {
     expect(resolveEmailBindingDestination("/reset-password?intent=studio&next=%2Fapp", false)).toBe(
       "/account/verify-email?next=%2Fapp",

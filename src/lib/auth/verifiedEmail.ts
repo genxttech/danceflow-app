@@ -5,6 +5,7 @@ import { Resend } from "resend";
 import { appendEmailLegalText, sanitizeEmailSubject } from "@/lib/email/brand";
 import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
 import { resolveOutboundFromEmail } from "@/lib/notifications/outbound";
+import { buildTokenHashCallbackUrl } from "@/lib/auth/verificationLink";
 
 /*
   LAUNCH-SEC-1C-A: verified-email proof and credential binding.
@@ -206,9 +207,19 @@ export async function sendEmailVerificationLink(params: {
     return false;
   }
 
-  const actionUrl = `${params.baseUrl}/callback?token_hash=${encodeURIComponent(
+  // LAUNCH-SEC-1C-A1: use the type the generator actually issued (`signup` for
+  // a brand-new address, `magiclink` otherwise); unsupported types fail closed.
+  const actionUrl = buildTokenHashCallbackUrl({
+    baseUrl: params.baseUrl,
     tokenHash,
-  )}&type=magiclink&next=${encodeURIComponent(params.nextPath)}`;
+    verificationType: data?.properties?.verification_type,
+    nextPath: params.nextPath,
+  });
+
+  if (!actionUrl) {
+    logCode("email_verification_link_unsupported_type", data?.properties?.verification_type);
+    return false;
+  }
 
   const isSignup = params.purpose === "signup";
   const subject = isSignup

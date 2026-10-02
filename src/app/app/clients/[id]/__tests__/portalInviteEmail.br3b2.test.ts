@@ -228,8 +228,11 @@ describe("magic-link/token semantics characterization (source-level, read-only)"
     expect(source).toContain('type: "magiclink"');
     expect(source).toContain("adminSupabase.auth.admin.generateLink");
     expect(source).toContain("magicLinkData.properties?.hashed_token");
-    expect(source).toContain("token_hash=");
-    expect(source).toContain("type=magiclink");
+    // LAUNCH-SEC-1C-A1: the link type is the generator-issued verification_type
+    // (signup for a brand-new invitee), built by the shared allowlisted builder.
+    expect(source).toContain("buildTokenHashCallbackUrl({");
+    expect(source).toContain("verificationType: magicLinkData.properties?.verification_type");
+    expect(source).not.toContain("type=magiclink");
   });
 
   it("the auth callback/redirect origin still uses getBaseUrl, not the canonical buildAppUrl helper", () => {
@@ -240,6 +243,7 @@ describe("magic-link/token semantics characterization (source-level, read-only)"
     expect(source).toContain("const baseUrl = await getBaseUrl();");
     expect(source).toContain("const portalUrl = buildAppUrl(portalPath);");
     expect(source).toMatch(/redirectTo = `\$\{baseUrl\}\/callback\?next=/);
-    expect(source).toMatch(/actionLink = tokenHash\s*\n\s*\? `\$\{baseUrl\}\/callback\?token_hash=/);
+    // LAUNCH-SEC-1C-A1: the token link is built by the shared builder from the same baseUrl.
+    expect(source).toMatch(/actionLink = tokenHash\s*\n\s*\? buildTokenHashCallbackUrl\(\{\s*\n\s*baseUrl,/);
   });
 });
