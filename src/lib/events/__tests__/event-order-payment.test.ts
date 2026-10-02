@@ -674,3 +674,143 @@ describe("startEventOrderPayment", () => {
     expect(second.checkoutUrl).toBeDefined();
   });
 });
+
+describe("startEventOrderPayment zero-total guard (LAUNCH-SEC-2C)", () => {
+  async function start(orderId: string, paymentMode: "checkout" | "payment_sheet" = "payment_sheet") {
+    return startEventOrderPayment({
+      request: fakeRequest(),
+      orderId,
+      surface: "student_app",
+      paymentMode,
+    });
+  }
+
+  it("does not free-confirm a reused order whose total is still 0 but whose authoritative total is positive", async () => {
+    const supabase = createFakeAdminClient({ event_orders: ordersTable });
+    const params = {
+      studioId: STUDIO_ID,
+      eventId: EVENT_ID,
+      requestedTotalCents: 2000,
+      ticketSelectionSignature: TWO_GA_TICKETS_SIGNATURE,
+      insertPayload: {
+        total_amount: 0,
+        status: "pending",
+        payment_status: "pending",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        events: { id: EVENT_ID, slug: "spring-showcase", name: "Spring Showcase" },
+        studios: {
+          stripe_connected_account_id: "acct_1",
+          stripe_connect_charges_enabled: true,
+          stripe_connect_payouts_enabled: true,
+          stripe_connect_onboarding_complete: true,
+        },
+        buyer_email: "buyer@example.com",
+        metadata: { requested_total_cents: 2000, ticket_selection_signature: TWO_GA_TICKETS_SIGNATURE },
+      },
+    };
+    // Original attempt inserted the order but has not yet written the real total.
+    const first = await resolveEventOrderForCheckout({ supabase: supabase as never, clientRequestId: "req-race", ...params });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    registrationsTable.rows.push({ id: "reg-1", order_id: first.order.id, status: "pending", payment_status: "pending" });
+
+    // Same-clientRequestId retry reuses the row and reaches payment start.
+    const retry = await resolveEventOrderForCheckout({ supabase: supabase as never, clientRequestId: "req-race", ...params });
+    expect(retry.ok && retry.order.id).toBe(first.order.id);
+
+    await expect(start(first.order.id)).rejects.toThrow(/still being prepared/);
+
+    const order = ordersTable.rows.find((r) => r.id === first.order.id);
+    expect(order?.status).toBe("pending");
+    expect(order?.payment_status).toBe("pending");
+    expect(registrationsTable.rows[0].status).toBe("pending");
+    expect(registrationsTable.rows[0].payment_status).toBe("pending");
+    expect(currentFakeStripe.createCalls).toHaveLength(0);
+    expect(ordersTable.rows).toHaveLength(1);
+  });
+
+  it("fails closed in checkout mode too for an incompletely initialized paid order", async () => {
+    const order = seedOrder({ total_amount: 0, metadata: { requested_total_cents: 500 } });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id, status: "pending", payment_status: "pending" });
+
+    await expect(start(order.id as string, "checkout")).rejects.toThrow(/still being prepared/);
+    expect(ordersTable.rows[0].status).toBe("pending");
+    expect(currentFakeStripe.sessionCreateCalls).toHaveLength(0);
+  });
+
+  it("still free-confirms a legitimate free order whose authoritative total is 0", async () => {
+    const order = seedOrder({ total_amount: 0, metadata: { requested_total_cents: 0 } });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id, status: "pending", payment_status: "pending" });
+
+    const result = await start(order.id as string);
+
+    expect(result.completed).toBe(true);
+    expect(ordersTable.rows[0].status).toBe("confirmed");
+    expect(ordersTable.rows[0].payment_status).toBe("paid");
+    expect(registrationsTable.rows[0].status).toBe("confirmed");
+    expect(currentFakeStripe.createCalls).toHaveLength(0);
+  });
+
+  it("still free-confirms other-caller orders with no requested_total_cents metadata (legacy shape)", async () => {
+    const order = seedOrder({ total_amount: 0, metadata: { source: "event_cart_v1" } });
+    const result = await start(order.id as string);
+    expect(result.completed).toBe(true);
+    expect(ordersTable.rows[0].payment_status).toBe("paid");
+  });
+
+  it("follows the normal payment flow once the positive total is finalized", async () => {
+    const order = seedOrder({ total_amount: 20, metadata: { requested_total_cents: 2000 } });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({ order_id: order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
+
+    const result = await start(order.id as string);
+
+    expect(result.clientSecret).toBeDefined();
+    expect(currentFakeStripe.createCalls).toHaveLength(1);
+    expect(ordersTable.rows[0].status).toBe("pending");
+  });
+
+  it("is idempotent: retries after finalization reuse one order and one PaymentIntent", async () => {
+    const supabase = createFakeAdminClient({ event_orders: ordersTable });
+    const params = {
+      studioId: STUDIO_ID,
+      eventId: EVENT_ID,
+      requestedTotalCents: 2000,
+      ticketSelectionSignature: TWO_GA_TICKETS_SIGNATURE,
+      insertPayload: {
+        total_amount: 0,
+        status: "pending",
+        payment_status: "pending",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        currency: "usd",
+        events: { id: EVENT_ID, slug: "spring-showcase", name: "Spring Showcase" },
+        studios: {
+          stripe_connected_account_id: "acct_1",
+          stripe_connect_charges_enabled: true,
+          stripe_connect_payouts_enabled: true,
+          stripe_connect_onboarding_complete: true,
+        },
+        buyer_email: "buyer@example.com",
+        metadata: { requested_total_cents: 2000, ticket_selection_signature: TWO_GA_TICKETS_SIGNATURE },
+      },
+    };
+    const first = await resolveEventOrderForCheckout({ supabase: supabase as never, clientRequestId: "req-idem", ...params });
+    if (!first.ok) throw new Error("setup failed");
+    const row = ordersTable.rows[0];
+    registrationsTable.rows.push({ id: "reg-1", order_id: first.order.id });
+    itemsTable.rows.push({ order_id: first.order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
+
+    await expect(start(first.order.id)).rejects.toThrow(/still being prepared/);
+    row.total_amount = 20; // original attempt finalizes the total
+
+    const retry = await resolveEventOrderForCheckout({ supabase: supabase as never, clientRequestId: "req-idem", ...params });
+    expect(retry.ok && retry.order.id).toBe(first.order.id);
+    const a = await start(first.order.id);
+    const b = await start(first.order.id);
+
+    expect(a.clientSecret).toBeDefined();
+    expect(b.clientSecret).toBeDefined();
+    expect(ordersTable.rows).toHaveLength(1);
+    expect(currentFakeStripe.createCalls).toHaveLength(1);
+  });
+});
