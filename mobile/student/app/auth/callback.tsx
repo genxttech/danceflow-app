@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, type Href } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
@@ -13,7 +13,7 @@ function cleanParam(value: string | string[] | null | undefined) {
 }
 
 export default function AuthCallbackScreen() {
-  const { session, loading } = useAuth();
+  const { session, loading, identityCheckPending, emailBindingRequired } = useAuth();
   const routeParams = useLocalSearchParams<{
     error?: string | string[];
     error_code?: string | string[];
@@ -22,10 +22,10 @@ export default function AuthCallbackScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (session?.access_token) {
-      router.replace("/(tabs)/home");
+    if (session?.access_token && !identityCheckPending) {
+      router.replace(emailBindingRequired ? ("/auth/secure-account" as Href) : "/(tabs)/home");
     }
-  }, [session?.access_token]);
+  }, [emailBindingRequired, identityCheckPending, session?.access_token]);
 
   useEffect(() => {
     const routeError =

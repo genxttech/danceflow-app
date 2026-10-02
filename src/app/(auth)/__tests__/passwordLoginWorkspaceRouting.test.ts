@@ -19,6 +19,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  * /app vs portal vs /account outcome.
  */
 
+vi.mock("server-only", () => ({}));
+
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) =>
