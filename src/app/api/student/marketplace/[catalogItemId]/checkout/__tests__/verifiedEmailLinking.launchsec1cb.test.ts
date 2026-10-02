@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
@@ -113,6 +115,23 @@ describe("LAUNCH-SEC-1C-B marketplace auto-linking (T1-B)", () => {
     await checkout();
     expect(linkWrites()).toHaveLength(1);
     expect(linkWrites()[0]).toMatchObject({ op: "insert", payload: { client_id: "client-1", user_id: USER_ID, status: "linked" } });
+  });
+
+  it("the successful link carries a provenance value allowed by client_account_links_initiated_by_check", async () => {
+    candidateClients = [{ id: "client-1", email: "pat_x@example.test" }];
+    await checkout();
+    const payload = linkWrites()[0]?.payload as Record<string, unknown> | undefined;
+    expect(payload).toMatchObject({ relationship_type: "self", initiated_by: "dancer", status: "linked" });
+
+    const migration = readFileSync(
+      join(process.cwd(), "src/lib/supabase/migrations/20260713_student_identity_profile_foundation.sql"),
+      "utf8",
+    );
+    const check = migration.match(/client_account_links_initiated_by_check\s+check\s*\(\s*initiated_by in \(([^)]*)\)/i);
+    const allowed = [...(check?.[1] ?? "").matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(allowed).toEqual(["system", "legacy_backfill", "legacy_email_repair", "studio", "dancer", "guardian"]);
+    expect(allowed).toContain(payload?.initiated_by);
+    expect(allowed).not.toContain("student");
   });
 
   it("a wildcard-like stored address is never treated as the buyer's identity", async () => {

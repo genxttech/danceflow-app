@@ -266,7 +266,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       user_id: user.id,
       status: "linked",
       relationship_type: "self",
-      initiated_by: "student",
+      initiated_by: "dancer",
       invited_email: normalizedEmail,
       can_view_schedule: true,
       can_view_billing: true,
