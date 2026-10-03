@@ -11,6 +11,12 @@ import {
   sendMarketingCampaignTestEmailAction,
 } from "../actions";
 import CampaignAIAssistant from "../CampaignAIAssistant";
+import CampaignAllowancePanel from "../CampaignAllowancePanel";
+import {
+  campaignAllowanceMessageFromQuery,
+  evaluateCampaignAllowance,
+  getCampaignAllowanceState,
+} from "@/lib/usage/campaignAllowance";
 
 type Params = Promise<{
   id: string;
@@ -21,6 +27,12 @@ type SearchParams = Promise<{
   campaign_sent?: string;
   recipients_generated?: string;
   campaign_error?: string;
+  allowance_reason?: string;
+  allowance_recipients?: string;
+  allowance_total?: string;
+  allowance_used?: string;
+  allowance_remaining?: string;
+  allowance_plan?: string;
 }>;
 
 type CampaignRow = {
@@ -790,15 +802,22 @@ export default async function MarketingCampaignDetailPage({
   ];
   const hasMarketingFooter = hasMarketingFooterAddress(studioFooter);
   const marketingFooterAddress = formatMarketingFooterAddress(studioFooter);
+  // ENT-1: the send path re-checks the monthly allowance atomically; this only informs the page and disables the button.
+  const allowanceDecision = evaluateCampaignAllowance(
+    await getCampaignAllowanceState({ type: "studio", studioId: campaign.studio_id }, { campaignId: campaign.id }),
+    recipientStatusCounts.pending,
+  );
   const canSendCampaign =
     hasMarketingFooter &&
     hasGeneratedRecipients &&
     recipientStatusCounts.pending > 0 &&
+    allowanceDecision.allowed &&
     campaign.status !== "sent" &&
     campaign.status !== "sending";
-  const campaignError = campaignErrorMessage(
-    resolvedSearchParams.campaign_error,
-  );
+  const campaignError =
+    resolvedSearchParams.campaign_error === "allowance_exceeded"
+      ? campaignAllowanceMessageFromQuery(resolvedSearchParams)
+      : campaignErrorMessage(resolvedSearchParams.campaign_error);
 
   return (
     <main className="min-h-screen bg-[var(--brand-page-bg)] px-4 py-6 text-[var(--brand-text)] sm:px-6 lg:px-8">
@@ -1392,6 +1411,9 @@ export default async function MarketingCampaignDetailPage({
                     </p>
                   )}
                 </div>
+                {campaign.status !== "sent" && recipientStatusCounts.pending > 0 ? (
+                  <CampaignAllowancePanel decision={allowanceDecision} />
+                ) : null}
                 <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                   <p className="font-bold">Marketing permission reminder</p>
                   <p className="mt-1">

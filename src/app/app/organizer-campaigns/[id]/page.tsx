@@ -20,6 +20,12 @@ import {
   updateOrganizerCampaignDraftAction,
 } from "./actions";
 import CampaignAIAssistant from "../../marketing/campaigns/CampaignAIAssistant";
+import CampaignAllowancePanel from "../../marketing/campaigns/CampaignAllowancePanel";
+import {
+  campaignAllowanceMessageFromQuery,
+  evaluateCampaignAllowance,
+  getCampaignAllowanceState,
+} from "@/lib/usage/campaignAllowance";
 
 type Params = Promise<{
   id: string;
@@ -31,6 +37,12 @@ type SearchParams = Promise<{
   recipients_generated?: string;
   campaign_sent?: string;
   campaign_error?: string;
+  allowance_reason?: string;
+  allowance_recipients?: string;
+  allowance_total?: string;
+  allowance_used?: string;
+  allowance_remaining?: string;
+  allowance_plan?: string;
   recipient_status?: string;
   source?: string;
 }>;
@@ -519,7 +531,7 @@ async function buildAudiencePreview(params: {
       );
     contacts = (data ?? []) as OrganizerContactRow[];
   } else if (eventId) {
-    let registrationsQuery = supabase
+    const registrationsQuery = supabase
       .from("organizer_contact_registrations")
       .select("organizer_contact_id, payment_status, checked_in_at")
       .eq("organizer_id", organizerId)
@@ -807,9 +819,15 @@ export default async function OrganizerCampaignDetailPage({
   const blockingReadinessIssues = readinessItems.filter(
     (item) => !item.optional && !item.ready,
   );
+  // ENT-1: the send path re-checks the monthly allowance atomically; this only informs the page and disables the button.
+  const allowanceDecision = evaluateCampaignAllowance(
+    await getCampaignAllowanceState({ type: "organizer", organizerId: campaign.organizer_id }, { campaignId: campaign.id }),
+    recipientTotals.pending,
+  );
   const campaignReadyToSend =
     !isLocked &&
     pendingRecipientsReady &&
+    allowanceDecision.allowed &&
     blockingReadinessIssues.length === 0 &&
     campaign.status !== "sent" &&
     campaign.status !== "sending";
@@ -930,7 +948,11 @@ export default async function OrganizerCampaignDetailPage({
         </div>
       ) : null}
 
-      {resolvedSearchParams.campaign_error ? (
+      {resolvedSearchParams.campaign_error === "allowance_exceeded" ? (
+        <div className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-800">
+          {campaignAllowanceMessageFromQuery(resolvedSearchParams)}
+        </div>
+      ) : resolvedSearchParams.campaign_error ? (
         <div className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-800">
           Campaign action failed:{" "}
           {resolvedSearchParams.campaign_error.replaceAll("_", " ")}.
@@ -1607,6 +1629,9 @@ export default async function OrganizerCampaignDetailPage({
                   Save draft changes and prepare recipients again if you changed the audience or content.
                 </p>
               </div>
+              {campaign.status !== "sent" && recipientTotals.pending > 0 ? (
+                <CampaignAllowancePanel decision={allowanceDecision} />
+              ) : null}
               {!testSentThisSession ? (
                 <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                   <p className="font-semibold">Test email not confirmed</p>

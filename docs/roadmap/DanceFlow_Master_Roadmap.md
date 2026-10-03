@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v1.2 |
-| **Last reconciled against main** | `f189d15cbef301a24e3410b79f20d3bcef7135d9` (BR-4 merged and LIVE; plus the BR-5 candidate branch, not yet merged) |
+| **Roadmap version** | v1.3 |
+| **Last reconciled against main** | `1310e3a107404c7c81fd031696dcf9cf120c76d6` (BR-5 merged as PR #137 on top of BR-4 `f189d15`, which is LIVE); plus the ENT-1 candidate branch, not yet merged |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
 | **Current external dependency** | Twilio / per-studio A2P campaign review and ConfiDance setup |
-| **Current recommended next roadmap phase** | Phase 3 — Branding Relaunch: BR-4 is LIVE in production; BR-5 is COMPLETE on its candidate branch and awaiting merge; the next branding slice is BR-6 — Promotional Media |
+| **Current recommended next roadmap phase** | Phase 3 — Branding Relaunch: BR-4 is LIVE; BR-5 is MERGED (PR #137); BR-6 — Promotional Media is active but parked awaiting the professional ARIA voice recording. Product work continues in parallel with Phase 4: ENT-1 (email-campaign recipient allowance) is complete on its candidate branch |
 
 > **Explicit note:** BR-4 was shaped by Featured Events and Partner Match maturity and was **not blocked** by either; their public-claim restrictions remain in force for BR-5 onward. See [Featured Events](#strategic-module-featured-events), [Partner Match](#strategic-module-partner-match) and Phase 3 §Public-claim restrictions.
 
@@ -202,7 +202,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 ## Phase 3 — Branding Relaunch / Public Branding & Launch Readiness
 
-**STATUS:** PARTIAL — MATERIAL WORK REMAINS (BR-1, BR-2, BR-3 and BR-4 delivered; BR-4 is live; BR-5 is complete on its candidate branch and awaits merge; BR-6 and BR-7 remain). **Recommended next active roadmap work: BR-6 — Promotional Media, after the BR-5 PR is merged.**
+**STATUS:** PARTIAL — MATERIAL WORK REMAINS (BR-1 to BR-5 delivered: BR-4 is live and BR-5 is merged as PR #137; BR-6 is active but parked awaiting the professional ARIA voice recording; BR-7 has not started). **Active branding work: BR-6 — Promotional Media (branch `br-6-promotional-media`, not merged).**
 
 **OBJECTIVE:** A full relaunch of DanceFlow's identity, public presence and launch materials — not merely a logo swap.
 
@@ -218,15 +218,15 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
   - **BR-4B — audience pathways and navigation.** Value-stage pages `/for-studios`, `/for-instructors` and `/for-organizers` with per-page metadata and sitemap entries (independent instructors use the studio plans; no separate instructor plan, price or entitlement); dancers continue through `/discover`, retuned as the dancer entry point; public navigation reduced to Discover and For Business (no misleading "Pricing" label; no standalone `/pricing` route); footer "For Business" column; trial and founder copy on the get-started and pricing pages now derived from the canonical plan definitions (the organizer pages previously said 14 days while the plan and checkout use 30; the "first 25 studios" count was removed).
   - **BR-4C — attribution and vocabulary.** First-touch campaign attribution: one shared capture in the public header reads only `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` and `ref`, stores them in one first-party cookie (`df_attr`, 30 days, SameSite=Lax, Secure on https) and never stores URLs, referrers or PII; signup re-validates the cookie and copies only namespaced `attribution_*` fields into auth user metadata (no database change); one clarifying sentence added to the Privacy Policy; stable campaign destinations documented in `docs/brand/PUBLIC_DESTINATIONS.md`. Vocabulary convergence: "DanceFlow Discovery" → "Discover", "DanceFlow Organizer Workspace" → "Organizer Suite", the retired "DanceFlow Workspace" label removed, and "Studio Portal" → "Student Portal" only where the surface is the client/dancer-facing portal.
   - **BR-4D — final QA and closeout.** "Studios coming soon" replaced with an honest empty state; shared footer link targets enlarged; hero/eyebrow text contrast fixed; claims-guard source coverage extended to the remaining public launch surfaces; responsive, keyboard and accessibility review of the BR-4 surfaces; focused security/privacy review; roadmap and current-state closeout.
-- **BR-5 Event / Print Collateral — COMPLETE on candidate branch `br-5-event-print-collateral` (awaiting merge; static collateral only: no application runtime, database, Stripe, Twilio or auth change).** One deliberately small, reusable system, documented in `docs/brand/collateral/COLLATERAL_GUIDE.md` (strategy in `COLLATERAL_STRATEGY.md`):
+- **BR-5 Event / Print Collateral — COMPLETE and MERGED (PR #137, main `1310e3a`; static collateral only: no application runtime, database, Stripe, Twilio or auth change; no deployment needed).** One deliberately small, reusable system, documented in `docs/brand/collateral/COLLATERAL_GUIDE.md` (strategy in `COLLATERAL_STRATEGY.md`):
   - **Assets:** a 33" × 81" event banner (QR → `/`); Letter two-sided studio, independent-instructor and organizer sheets (one template, three copy variants; QR → `/for-studios`, `/for-instructors`, `/for-organizers`); a 4" × 6" two-sided dancer card (QR → `/discover`); and two social templates (1080 × 1080 and 1080 × 1920), each with a product-awareness and an event-presence ("Find DanceFlow at {event}") variant, with no QR.
   - **System:** all copy in `docs/brand/collateral/copy.json` (BR-4 wording reused and drift-tested); HTML/CSS templates; a deterministic builder (`scripts/brand/build-collateral.mjs`, `--verify`) using the repo's Playwright, `qrcode` and `pdf-lib`; vector QR codes with attribution tags on the BR-4 convention (`utm_source` asset type, `utm_medium=qr`, `utm_campaign=br5-launch`, `utm_content` audience-version); a focused test (`collateral.br5.test.ts`) for claims restrictions, QR/attribution URLs, export dimensions and builder QA.
   - **Limits recorded honestly:** the banner is a **vendor-neutral master; final vendor fit, bleed and bottom-feed adjustment are required before a print order** (vendor not chosen); PDFs are RGB with embedded fonts and trim/bleed boxes, with **no CMYK or PDF/X conversion** (done by the printer); static QR codes cannot distinguish events (attribution is first-touch only); type is the system stack (Segoe UI in these proofs); the dancer card photo is an existing hero crop at about 310 dpi.
 
 **REMAINING DELIVERABLES**
 - **BR-4** — COMPLETE and LIVE (see above).
-- **BR-5 — Event / Print Collateral Strategy and Production** — COMPLETE on its candidate branch (see above); remaining step is the human merge. Still open outside BR-5: choosing a banner vendor and the vendor-specific final file; CMYK/press conversion at the printer; actually posting the Facebook / social content.
-- **BR-6** Promotional media / video (next branding slice after the BR-5 merge).
+- **BR-5 — Event / Print Collateral Strategy and Production** — COMPLETE and MERGED (see above). Still open outside BR-5: choosing a banner vendor and the vendor-specific final file; CMYK/press conversion at the printer; actually posting the Facebook / social content.
+- **BR-6** Promotional media / video — **ACTIVE, PARKED.** Rough Cut 3 visual system and motion engine built on `br-6-promotional-media` (head `1f19305`, not merged, not pushed). The owner locked a first-person master narrated by ARIA herself (`docs/brand/media/VOICEOVER_V4.md`); a professional female voice actor is being engaged. The next full master render waits for the professional recording (`media/_work/voice/aria-pro/`, WAV 48 kHz 24-bit). No music is sourced or licensed; the music arc is timed against the performance later. BR-6 is not complete.
 - **BR-7** Final branding / public-launch QA, including remaining visible micro-polish (for example the "Location coming soon", "Studio image coming soon" and "Public page coming soon" placeholder strings on Discover cards).
 - Vocabulary: converged for the BR-4 scope. Retained on purpose: platform-admin labels ("Organizer Workspace(s)", "DanceFlow Platform Admin"), the host-studio floor-rental portal wording, and generic lowercase "studio portal" prose in the knowledgebase.
 - Documentation cleanup: stale statements in `docs/brand/DANCEFLOW_BRAND_GUIDE.md` (§11 "vector master deferred", §12 legacy icon note, §7 "wordmark is artwork (script)", BR-2 status). Not a blocking phase.
@@ -262,7 +262,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 **DEFERRED / POST-LAUNCH ITEMS:** The polish backlog above if not absorbed by BR-7.
 
-**EVIDENCE / RELEASE REFERENCES:** Released c808724 / `dpl_BEu8q5cjsxJaJUi4pjYvmYDwn1QZ` (BR-1, BR-2C, BR-2D); `docs/brand/`. BR-4: merged as PR #136 (BR-4A–C commits `0f0ee77`, `69812d5`, `461741e`, plus BR-4D) to main `f189d15cbef301a24e3410b79f20d3bcef7135d9`; live as `dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K` (prior production `dpl_G8vf1vywXJ8K9nNK4AbTuHdruR21`). BR-5: candidate branch `br-5-event-print-collateral`; not yet merged (static collateral, no deployment needed).
+**EVIDENCE / RELEASE REFERENCES:** Released c808724 / `dpl_BEu8q5cjsxJaJUi4pjYvmYDwn1QZ` (BR-1, BR-2C, BR-2D); `docs/brand/`. BR-4: merged as PR #136 (BR-4A–C commits `0f0ee77`, `69812d5`, `461741e`, plus BR-4D) to main `f189d15cbef301a24e3410b79f20d3bcef7135d9`; live as `dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K` (prior production `dpl_G8vf1vywXJ8K9nNK4AbTuHdruR21`). BR-5: merged as PR #137 (main `1310e3a`; static collateral, no deployment needed).
 
 ### A. Brand identity foundation
 Logo system (primary horizontal mark, symbol-only use, favicon/app icon, social avatar) exists. Compact horizontal and descriptor lockups are not adopted (locked). Typography/color/gradient rules follow the current application palette and fonts (locked). Product-facing identity: DanceFlow, with "Studio Portal" and similar legacy descriptors being removed.
@@ -319,16 +319,17 @@ These were enforced for BR-4 and remain in force for all later public materials 
 **PRODUCT INTENT:** Plans (starter / growth / pro; organizer) and add-ons control access and usage predictably, with clear upgrade paths.
 
 **COMPLETED CAPABILITIES**
+- **ENT-1 — email-campaign recipient allowance enforcement: COMPLETE on candidate branch `ent-1-email-campaign-allowance` (awaiting focused review and merge; DEV migration applied and verified; PROD migration still required).** Studio and organizer campaign sends now enforce the monthly recipient allowance (starter 0, growth 1,000, pro 5,000, organizer 1,000, unchanged) atomically in the database, with two scopes kept apart: the ENTITLEMENT scope is the whole logical campaign (admitted all-or-nothing; capacity for every pending recipient is committed at admission under a per-workspace/feature/month advisory lock, and later 500-recipient delivery batches continue under that same commitment, so no concurrent campaign can take it and an admitted campaign is never left partially mailed by allowance), while the DELIVERY scope stays the existing safe batch. Per batch: reserve (admit or continue) → send → settle with only the recipients whose send succeeded (the commitment shrinks to what is still pending; failed recipients release their share; the campaign closes when nothing is pending). Capacity is never released while a batch is unsettled; a stale open batch is reconciled from the durable per-recipient `sent` records, so a successful send cannot stay uncounted. A campaign that does not fit sends nothing; zero allowance blocks; an inactive or unresolvable entitlement fails closed. Tenant-scoped, no email add-on or pricing implied. Reservation functions are service-role only (`usage_reservations`, migration `20261013090000`); proven with SQL tests, a DEV concurrency harness and app tests. ENT-1 also corrects the organizer send pipeline, which ignored the provider's resolved `{ error }` result and recorded rejected sends as `sent`. Only this slice is complete: Phase 4 remains PARTIAL.
 - 22-key `BillingFeature` union; `PLAN_FEATURES` and `ORGANIZER_PLAN_FEATURES`; `studioHasFeature`, `requireStudioFeature` (redirects to billing with reason), organizer feature helpers; billing overrides; organizer-suite add-on entitlement. Used in about 66 files under `src/app/app`.
 - Usage/credits foundation: `UsageFeatureKey` (`ai_action`, `sms_message`, `sms_segment`, `email_campaign_recipient`), AI allowances by plan, AI credit packs with checkout, seat limits.
 - Owner billing authority hardened (LAUNCH-SEC-2A).
 
 **REMAINING DELIVERABLES**
 - SMS has no plan gate or usage consumption (SMS allowance is hard-coded to 0; no `BillingFeature` entry). Per-studio A2P approval exists but is not a plan entitlement.
-- Email-campaign recipient allowance is defined but no enforcement call was found in campaign actions.
+- ~~Email-campaign recipient allowance is defined but not enforced~~ — DONE for studio and organizer campaigns by ENT-1 (candidate branch; see above). Not done: an email add-on / credit product (none is approved), and enforcement for any other email path (for example ARIA-originated sends).
 - No `BillingFeature` keys for payroll, marketplace, or ARIA beyond `ai_assistant`.
 - No reusable upgrade-prompt component (only a billing-page query-param landing).
-- No usage ledger writes outside `addons.ts` (and lumi portal).
+- Usage ledger writes outside `addons.ts` (and lumi portal): ENT-1 adds reservation-based writes for campaign recipients; no other new metering.
 - Future entitlement needs: Featured Events promotion (see module), Partner Match is intentionally free.
 
 **LOCKED DECISIONS:** Starter has no AI or email allowance by design. Pricing amounts live in Phase 22.
@@ -349,7 +350,7 @@ These were enforced for BR-4 and remain in force for all later public materials 
 
 **DEFERRED / POST-LAUNCH ITEMS:** None currently identified.
 
-**EVIDENCE / RELEASE REFERENCES:** `src/lib/billing/{plans,access}.ts`, `src/lib/usage/addons.ts`.
+**EVIDENCE / RELEASE REFERENCES:** `src/lib/billing/{plans,access}.ts`, `src/lib/usage/addons.ts`. ENT-1: `src/lib/usage/campaignAllowance.ts`, migration `src/lib/supabase/migrations/20261013090000_ent1_usage_allowance_reservations.sql` (rollback and SQL test alongside; race harness `sql-tests/concurrency/ent1_race_harness.mjs`), campaign send actions under `src/app/app/marketing/campaigns/` and `src/app/app/organizer-campaigns/`.
 
 ---
 
@@ -692,7 +693,7 @@ These were enforced for BR-4 and remain in force for all later public materials 
 
 **PRODUCT INTENT:** Studios and organizers create and send compliant, effective campaigns without leaving DanceFlow.
 
-**COMPLETED CAPABILITIES:** Draft/test-send/recipient-generation/send for plain-text email campaigns (single CTA); fixed audiences (manual, all active clients, new leads, inactive clients, event attendees); unsubscribe table and public unsubscribe routes with compliance footer and consent acknowledgment; AI draft assistant; parallel organizer campaign system; tests for actions, authorization and email rendering.
+**COMPLETED CAPABILITIES:** Draft/test-send/recipient-generation/send for plain-text email campaigns (single CTA); fixed audiences (manual, all active clients, new leads, inactive clients, event attendees); unsubscribe table and public unsubscribe routes with compliance footer and consent acknowledgment; AI draft assistant; parallel organizer campaign system; tests for actions, authorization and email rendering; monthly recipient allowance enforced for studio and organizer sends (ENT-1, candidate branch).
 
 **REMAINING DELIVERABLES**
 - Edit/update-draft action and UI (unconfirmed).
@@ -1356,6 +1357,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | v1.3 | Corrected the stale BR-5 state: BR-5 is MERGED (PR #137, main `1310e3a`). BR-6 recorded as active but parked (first-person ARIA master locked; waiting for the professional ARIA recording; branch `br-6-promotional-media` head `1f19305`, not merged). ENT-1 (monthly email-campaign recipient allowance, studio and organizer, atomic reserve/finalize/release) marked COMPLETE on its candidate branch `ent-1-email-campaign-allowance`: DEV migration `20261013090000` applied and verified, PROD migration required. Phase 4 stays PARTIAL (SMS gating, payroll/marketplace/ARIA keys and the upgrade-prompt component remain). |
 | 2026-10-03 | v1.2 | BR-4 recorded as merged (PR #136, main `f189d15`) and LIVE (`dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K`). BR-5 Event / Print Collateral marked COMPLETE on its candidate branch (awaiting merge): banner master (vendor fit pending), three business sheets, dancer card, social templates, QR/attribution convention, collateral guide, builder and focused test. Phase 3 stays PARTIAL: BR-6 and BR-7 remain; next slice after the BR-5 merge is BR-6. No migration or runtime change. |
 | 2026-10-03 | v1.1 | BR-4 Public Website & Launch Messaging marked COMPLETE on its candidate branch (awaiting merge): messaging architecture and homepage, audience pages and public navigation, first-touch campaign attribution, vocabulary convergence, claims guard and final public-site QA. Phase 3 stays PARTIAL: BR-5, BR-6 and BR-7 remain; next slice after merge is BR-5. No migration. |
 | 2026-10-02 | v1.0 | Materialized the canonical 26-phase roadmap into version control. Reconciled against main `2266f5f`. Added full Branding / Public Launch Readiness scope. Added Featured Events strategic module. Added Partner Match strategic module and public-acquisition intent. Preserved the deferred/post-launch register. Established Phase 3 / BR-4 as next active roadmap work. Twilio remains a parallel external dependency. |

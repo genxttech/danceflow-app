@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { reserveCampaignSendAllowance, settleCampaignBatch } from "@/lib/usage/campaignAllowance";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
 const AUDIENCE_TYPES = new Set([
@@ -485,7 +486,7 @@ async function getOrganizerCampaignRecipients(params: {
 
     contacts = (data ?? []) as OrganizerContactRow[];
   } else if (eventId) {
-    let registrationsQuery = supabase
+    const registrationsQuery = supabase
       .from("organizer_contact_registrations")
       .select("organizer_contact_id, payment_status, checked_in_at")
       .eq("organizer_id", organizerId)
@@ -919,106 +920,170 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
     redirect(appendQuery(fallback, "campaign_error", "final_confirmation_required"));
   }
 
-  await supabase
-    .from("organizer_marketing_campaigns")
-    .update({ status: "sending", updated_at: new Date().toISOString() })
-    .eq("id", campaign.id)
-    .eq("organizer_id", campaign.organizer_id);
+  // ENT-1: monthly recipient allowance. The eligible count is every pending recipient of this campaign (not just this
+  // action's batch): if it does not fit the remaining allowance NOTHING is sent. The reservation is atomic in the
+  // database, so concurrent sends cannot overshoot; it is finalized below with the recipients that actually succeeded.
+  const { count: eligiblePendingCount } = await supabase
+    .from("organizer_marketing_campaign_recipients")
+    .select("id", { count: "exact", head: true })
+    .eq("campaign_id", campaign.id)
+    .eq("organizer_id", campaign.organizer_id)
+    .eq("status", "pending");
 
-  const { data: linkedStudio } = organizer?.studio_id
-    ? await supabase
-        .from("studios")
-        .select(
-          "public_logo_url, email, address_line_1, address_line_2, city, state, postal_code, country",
-        )
-        .eq("id", organizer.studio_id)
-        .maybeSingle<LinkedStudioEmailSettings>()
-    : { data: null };
+  const reservation = await reserveCampaignSendAllowance({
+    workspace: { type: "organizer", organizerId: campaign.organizer_id },
+    campaignId: campaign.id,
+    eligibleTotal: Math.max(Number(eligiblePendingCount ?? 0), pendingRecipients.length),
+    batchRecipientIds: pendingRecipients.map((recipient) => recipient.id),
+    userId: user.id,
+    source: "organizer_campaign_send",
+    relatedTable: "organizer_marketing_campaigns",
+  });
 
-  if (!hasOrganizerMarketingAddress(linkedStudio)) {
+  if (!reservation.ok) {
+    let blockedUrl = fallback;
+    for (const [key, value] of Object.entries(reservation.query)) {
+      blockedUrl = appendQuery(blockedUrl, key, String(value));
+    }
+    redirect(blockedUrl);
+  }
+
+  let sentCount = 0;
+
+  try {
     await supabase
       .from("organizer_marketing_campaigns")
-      .update({ status: "draft", updated_at: new Date().toISOString() })
+      .update({ status: "sending", updated_at: new Date().toISOString() })
       .eq("id", campaign.id)
       .eq("organizer_id", campaign.organizer_id);
 
-    redirect(
-      appendQuery(fallback, "campaign_error", "missing_marketing_footer"),
-    );
-  }
+    const { data: linkedStudio } = organizer?.studio_id
+      ? await supabase
+          .from("studios")
+          .select(
+            "public_logo_url, email, address_line_1, address_line_2, city, state, postal_code, country",
+          )
+          .eq("id", organizer.studio_id)
+          .maybeSingle<LinkedStudioEmailSettings>()
+      : { data: null };
 
-  const organizerName = String(organizer?.name ?? "DanceFlow Organizer");
-  const organizerLogoUrl = linkedStudio?.public_logo_url ?? null;
-  const replyTo = getOrganizerReplyToEmail({
-    linkedStudio,
-    fallbackEmail: user.email,
-  });
-  const footerNote = getOrganizerFooterNote({
-    organizerName,
-    linkedStudio,
-  });
-  const resend = new Resend(process.env.RESEND_API_KEY);
-
-  for (const recipient of pendingRecipients) {
-    const token = String(recipient.unsubscribe_token ?? "").trim();
-    const unsubscribeUrl = token
-      ? `${getSiteUrl()}/unsubscribe/organizer-marketing/${token}`
-      : null;
-
-    const emailParams: OrganizerCampaignEmailParams = {
-      organizerName,
-      organizerLogoUrl,
-      subject: campaign.subject,
-      previewText: campaign.preview_text,
-      bodyText: campaign.body_text,
-      ctaLabel: campaign.cta_label,
-      ctaUrl: campaign.cta_url,
-      footerNote,
-      unsubscribeUrl,
-    };
-
-    const html = buildOrganizerCampaignEmailHtml(emailParams);
-    const text = buildOrganizerCampaignEmailText(emailParams);
-
-    try {
-      const result = await resend.emails.send({
-        from: fromEmail,
-        to: [recipient.email],
-        subject: campaign.subject,
-        html,
-        text,
-        replyTo,
-      });
-
-      const messageId =
-        typeof result.data?.id === "string" ? result.data.id : null;
-
+    if (!hasOrganizerMarketingAddress(linkedStudio)) {
       await supabase
-        .from("organizer_marketing_campaign_recipients")
-        .update({
-          status: "sent",
-          provider_message_id: messageId,
-          error_message: null,
-          sent_at: new Date().toISOString(),
-        })
-        .eq("id", recipient.id)
+        .from("organizer_marketing_campaigns")
+        .update({ status: "draft", updated_at: new Date().toISOString() })
+        .eq("id", campaign.id)
         .eq("organizer_id", campaign.organizer_id);
-    } catch (error) {
-      console.error("send organizer campaign recipient failed", {
-        campaignId: campaign.id,
-        recipientId: recipient.id,
-        error,
-      });
 
-      await supabase
-        .from("organizer_marketing_campaign_recipients")
-        .update({
-          status: "failed",
-          error_message: error instanceof Error ? error.message : "Send failed",
-        })
-        .eq("id", recipient.id)
-        .eq("organizer_id", campaign.organizer_id);
+      redirect(
+        appendQuery(fallback, "campaign_error", "missing_marketing_footer"),
+      );
     }
+
+    const organizerName = String(organizer?.name ?? "DanceFlow Organizer");
+    const organizerLogoUrl = linkedStudio?.public_logo_url ?? null;
+    const replyTo = getOrganizerReplyToEmail({
+      linkedStudio,
+      fallbackEmail: user.email,
+    });
+    const footerNote = getOrganizerFooterNote({
+      organizerName,
+      linkedStudio,
+    });
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
+    for (const recipient of pendingRecipients) {
+      const token = String(recipient.unsubscribe_token ?? "").trim();
+      const unsubscribeUrl = token
+        ? `${getSiteUrl()}/unsubscribe/organizer-marketing/${token}`
+        : null;
+
+      const emailParams: OrganizerCampaignEmailParams = {
+        organizerName,
+        organizerLogoUrl,
+        subject: campaign.subject,
+        previewText: campaign.preview_text,
+        bodyText: campaign.body_text,
+        ctaLabel: campaign.cta_label,
+        ctaUrl: campaign.cta_url,
+        footerNote,
+        unsubscribeUrl,
+      };
+
+      const html = buildOrganizerCampaignEmailHtml(emailParams);
+      const text = buildOrganizerCampaignEmailText(emailParams);
+
+      try {
+        const result = await resend.emails.send({
+          from: fromEmail,
+          to: [recipient.email],
+          subject: campaign.subject,
+          html,
+          text,
+          replyTo,
+        });
+
+        // Resend's send() does not throw on an API-level failure: it resolves { data: null, error } (the SDK's
+        // Response<T> is { data: T; error: null } | { data: null; error: ErrorResponse }), so a non-null error means the
+        // message was NOT accepted. Without this check a rejected send was recorded as 'sent' (the studio path has always
+        // checked it). A failed recipient must not be recorded as sent and must not consume allowance.
+        if (result.error) {
+          throw new Error(result.error.message || "Send failed");
+        }
+
+        const messageId =
+          typeof result.data?.id === "string" ? result.data.id : null;
+
+        sentCount += 1; // the provider accepted this recipient: this is what consumes allowance
+
+        await supabase
+          .from("organizer_marketing_campaign_recipients")
+          .update({
+            status: "sent",
+            provider_message_id: messageId,
+            error_message: null,
+            sent_at: new Date().toISOString(),
+          })
+          .eq("id", recipient.id)
+          .eq("organizer_id", campaign.organizer_id);
+      } catch (error) {
+        console.error("send organizer campaign recipient failed", {
+          campaignId: campaign.id,
+          recipientId: recipient.id,
+          error,
+        });
+
+        await supabase
+          .from("organizer_marketing_campaign_recipients")
+          .update({
+            status: "failed",
+            error_message: error instanceof Error ? error.message : "Send failed",
+          })
+          .eq("id", recipient.id)
+          .eq("organizer_id", campaign.organizer_id);
+      }
+    }
+  } finally {
+    // Successful recipients become usage and the commitment shrinks to what is still pending (also when a redirect or an
+    // unexpected error leaves this block early, for example the missing marketing footer). If settling fails the capacity
+    // stays held and the batch is reconciled later: a successful send is never left uncounted.
+    let pendingAfter: number | null = null;
+    try {
+      const { count } = await supabase
+        .from("organizer_marketing_campaign_recipients")
+        .select("id", { count: "exact", head: true })
+        .eq("campaign_id", campaign.id)
+        .eq("organizer_id", campaign.organizer_id)
+        .eq("status", "pending");
+      pendingAfter = count === null || count === undefined ? null : Number(count);
+    } catch (error) {
+      console.error("pending recipient count failed after send", error);
+    }
+    await settleCampaignBatch({
+      reservationId: reservation.reservationId,
+      sentCount,
+      pendingRemaining: pendingAfter,
+      metadata: { campaign_id: campaign.id, attempted: pendingRecipients.length },
+    });
   }
 
   const { count: remainingPendingCount } = await supabase
