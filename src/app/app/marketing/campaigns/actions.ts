@@ -9,6 +9,11 @@ import { canViewCommunications } from "@/lib/auth/permissions";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";
 import {
+  CampaignAllowanceBlockedError,
+  finalizeCampaignAllowance,
+  reserveCampaignSendAllowance,
+} from "@/lib/usage/campaignAllowance";
+import {
   hasUnsuppressedPackageWarning,
   type PackageWithItems,
 } from "@/lib/packages/entitlement";
@@ -1123,83 +1128,119 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       );
     }
 
-    await supabase
-      .from("marketing_campaigns")
-      .update({ status: "sending", updated_at: new Date().toISOString() })
-      .eq("id", campaign.id)
-      .eq("studio_id", studioId);
+    // ENT-1: monthly recipient allowance. The eligible count is every pending recipient of this campaign (not just this
+    // action's batch): if it does not fit the remaining allowance NOTHING is sent. The reservation is atomic in the
+    // database, so concurrent sends cannot overshoot; it is finalized below with the recipients that actually succeeded.
+    const { count: eligiblePendingCount } = await supabase
+      .from("marketing_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaign.id)
+      .eq("studio_id", studioId)
+      .eq("status", "pending");
 
-    const studioName = resolveStudioDisplayName(studio);
-    const studioLogoUrl = studio?.public_logo_url ?? null;
-    const footerNote = buildStudioMarketingFooterNote(studio);
-    const replyTo = getStudioReplyToEmail(studio, userResult.user.email);
-    const subject = sanitizeEmailSubject(campaign.subject);
-    const resend = new Resend(process.env.RESEND_API_KEY);
+    const reservation = await reserveCampaignSendAllowance({
+      workspace: { type: "studio", studioId },
+      campaignId: campaign.id,
+      eligibleTotal: Math.max(Number(eligiblePendingCount ?? 0), pendingRecipients.length),
+      batchRecipientIds: pendingRecipients.map((recipient) => recipient.id),
+      userId: userResult.user.id,
+      source: "marketing_campaign_send",
+      relatedTable: "marketing_campaigns",
+    });
 
-    for (const recipient of pendingRecipients) {
-      const unsubscribeUrl = `${getSiteUrl()}/unsubscribe/marketing/${recipient.unsubscribe_token}`;
+    if (!reservation.ok) {
+      throw new CampaignAllowanceBlockedError(reservation.query);
+    }
 
-      const emailParams: CampaignEmailParams = {
-        studioName,
-        studioLogoUrl,
-        subject,
-        previewText: campaign.preview_text,
-        bodyText: campaign.body_text,
-        ctaLabel: campaign.cta_label,
-        ctaUrl: campaign.cta_url,
-        footerNote,
-        unsubscribeUrl,
-      };
+    let sentCount = 0;
 
-      const html = buildCampaignEmailHtml(emailParams);
-      const text = buildCampaignEmailText(emailParams);
+    try {
+      await supabase
+        .from("marketing_campaigns")
+        .update({ status: "sending", updated_at: new Date().toISOString() })
+        .eq("id", campaign.id)
+        .eq("studio_id", studioId);
 
-      try {
-        const result = await resend.emails.send({
-          from: fromEmail,
-          to: [recipient.email],
+      const studioName = resolveStudioDisplayName(studio);
+      const studioLogoUrl = studio?.public_logo_url ?? null;
+      const footerNote = buildStudioMarketingFooterNote(studio);
+      const replyTo = getStudioReplyToEmail(studio, userResult.user.email);
+      const subject = sanitizeEmailSubject(campaign.subject);
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      for (const recipient of pendingRecipients) {
+        const unsubscribeUrl = `${getSiteUrl()}/unsubscribe/marketing/${recipient.unsubscribe_token}`;
+
+        const emailParams: CampaignEmailParams = {
+          studioName,
+          studioLogoUrl,
           subject,
-          html,
-          text,
-          replyTo,
-        });
+          previewText: campaign.preview_text,
+          bodyText: campaign.body_text,
+          ctaLabel: campaign.cta_label,
+          ctaUrl: campaign.cta_url,
+          footerNote,
+          unsubscribeUrl,
+        };
 
-        // Resend resolves (does not throw) on an API-level failure -- `result.error` must be checked
-        // explicitly, or a rejected send silently gets recorded as delivered.
-        if (result.error) {
-          throw new Error(result.error.message || "Send failed");
+        const html = buildCampaignEmailHtml(emailParams);
+        const text = buildCampaignEmailText(emailParams);
+
+        try {
+          const result = await resend.emails.send({
+            from: fromEmail,
+            to: [recipient.email],
+            subject,
+            html,
+            text,
+            replyTo,
+          });
+
+          // Resend resolves (does not throw) on an API-level failure -- `result.error` must be checked
+          // explicitly, or a rejected send silently gets recorded as delivered.
+          if (result.error) {
+            throw new Error(result.error.message || "Send failed");
+          }
+
+          sentCount += 1; // the provider accepted this recipient: this is what consumes allowance
+
+          const messageId =
+            typeof result.data?.id === "string" ? result.data.id : null;
+
+          await supabase
+            .from("marketing_campaign_recipients")
+            .update({
+              status: "sent",
+              provider_message_id: messageId,
+              error_message: null,
+              sent_at: new Date().toISOString(),
+            })
+            .eq("id", recipient.id)
+            .eq("studio_id", studioId);
+        } catch (error) {
+          console.error("send campaign recipient failed", {
+            campaignId: campaign.id,
+            recipientId: recipient.id,
+            error,
+          });
+
+          await supabase
+            .from("marketing_campaign_recipients")
+            .update({
+              status: "failed",
+              error_message:
+                error instanceof Error ? error.message : "Send failed",
+            })
+            .eq("id", recipient.id)
+            .eq("studio_id", studioId);
         }
-
-        const messageId =
-          typeof result.data?.id === "string" ? result.data.id : null;
-
-        await supabase
-          .from("marketing_campaign_recipients")
-          .update({
-            status: "sent",
-            provider_message_id: messageId,
-            error_message: null,
-            sent_at: new Date().toISOString(),
-          })
-          .eq("id", recipient.id)
-          .eq("studio_id", studioId);
-      } catch (error) {
-        console.error("send campaign recipient failed", {
-          campaignId: campaign.id,
-          recipientId: recipient.id,
-          error,
-        });
-
-        await supabase
-          .from("marketing_campaign_recipients")
-          .update({
-            status: "failed",
-            error_message:
-              error instanceof Error ? error.message : "Send failed",
-          })
-          .eq("id", recipient.id)
-          .eq("studio_id", studioId);
       }
+    } finally {
+      // Successful recipients become usage; the unused part of the reservation is released (also on an unexpected throw).
+      await finalizeCampaignAllowance({
+        reservationId: reservation.reservationId,
+        sentCount,
+        metadata: { campaign_id: campaign.id, attempted: pendingRecipients.length },
+      });
     }
 
     const { count: remainingPendingCount } = await supabase
@@ -1230,6 +1271,14 @@ export async function sendMarketingCampaignAction(formData: FormData) {
         .eq("studio_id", studioId);
     }
   } catch (error) {
+    if (error instanceof CampaignAllowanceBlockedError) {
+      // Nothing was sent. Redirect from the catch (not the try body) so the structured limit result reaches the page.
+      let blockedUrl = fallback;
+      for (const [key, value] of Object.entries(error.query)) {
+        blockedUrl = appendQueryParam(blockedUrl, key, String(value));
+      }
+      redirect(blockedUrl);
+    }
     console.error("sendMarketingCampaignAction failed", error);
     redirect(appendQueryParam(fallback, "campaign_error", "send_failed"));
   }

@@ -36,7 +36,7 @@ type UsageEntitlementRow = {
   quantity_included: number | null;
 };
 
-function getCurrentMonthlyPeriod(now = new Date()) {
+export function getCurrentMonthlyPeriod(now = new Date()) {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
