@@ -2072,7 +2072,7 @@ export default async function BillingSettingsPage({
               >
                 <span>
                   {selectedAudience === "organizer"
-                    ? "Go to Organizer Workspace"
+                    ? "Go to Organizer Suite"
                     : "Go to Studio Workspace"}
                 </span>
                 <ArrowRight className="h-4 w-4" />

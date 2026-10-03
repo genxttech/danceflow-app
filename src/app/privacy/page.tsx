@@ -178,6 +178,13 @@ export default function PrivacyPage() {
                 feature operation. Browser controls may limit some technologies, but
                 disabling them can affect functionality.
               </p>
+              <p>
+                If you arrive through a DanceFlow campaign or QR link, we may save the
+                campaign source from that link (such as its utm parameters) in a
+                first-party cookie for up to 30 days, and with your account if you sign
+                up, to understand which outreach is working. It contains no personal
+                information and is not shared with advertising networks.
+              </p>
             </Section>
 
             <Section title="10. Data retention">

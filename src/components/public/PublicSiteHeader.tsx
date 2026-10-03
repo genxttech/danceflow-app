@@ -3,6 +3,7 @@ import Link from "next/link";
 import PublicMobileMenu from "./PublicMobileMenu";
 import SkipToMainLink from "@/components/shell/SkipToMainLink";
 import PublicNavLinks from "./PublicNavLinks";
+import AttributionCapture from "./AttributionCapture";
 import type { PublicNavPath } from "./publicNav";
 
 type PublicSiteHeaderProps = {
@@ -23,6 +24,8 @@ export default function PublicSiteHeader({
 }: PublicSiteHeaderProps) {
   return (
     <>
+    {/* BR-4C: one shared first-touch campaign capture for every public entry page. */}
+    <AttributionCapture />
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
       <SkipToMainLink />
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">

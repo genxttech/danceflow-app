@@ -506,8 +506,8 @@ function PortalCards({ linkedPortals }: { linkedPortals: LinkedPortalItem[] }) {
   if (linkedPortals.length === 0) {
     return (
       <EmptyState
-        title="No linked studio portals yet"
-        description="When a studio links your account or sends you a client portal invite, your studio portals will appear here."
+        title="No linked student portals yet"
+        description="When a studio links your account or sends you a client portal invite, your student portals will appear here."
       />
     );
   }
@@ -804,7 +804,7 @@ export default async function AccountPage({
 
   if (portalLinksError) {
     throw new Error(
-      `Failed to load studio portals: ${portalLinksError.message}`,
+      `Failed to load student portals: ${portalLinksError.message}`,
     );
   }
 
@@ -1098,7 +1098,7 @@ export default async function AccountPage({
                 </h1>
                 <p className="mt-5 max-w-3xl text-base leading-8 text-orange-50">
                   Your DanceFlow home keeps your favorite studios, saved events,
-                  registrations, and linked studio portals in one place.
+                  registrations, and linked student portals in one place.
                 </p>
 
                 <div className="mt-7 flex flex-wrap gap-3">
@@ -1133,7 +1133,7 @@ export default async function AccountPage({
                   <p>1. Explore studios and events in public discovery.</p>
                   <p>2. Save favorites so they are easy to find later.</p>
                   <p>
-                    3. Open any linked studio portal when a studio connects your
+                    3. Open any linked student portal when a studio connects your
                     account.
                   </p>
                 </div>
@@ -1165,7 +1165,7 @@ export default async function AccountPage({
               className="border-sky-100 bg-sky-50/70"
             />
             <AccountStatCard
-              label="Studio Portals"
+              label="Student Portals"
               value={linkedPortals.length}
               detail="Linked access"
               className="border-emerald-100 bg-emerald-50/70"
@@ -1207,9 +1207,9 @@ export default async function AccountPage({
         <div className="mt-8 space-y-8">
           <section className="rounded-[32px] border border-emerald-100 bg-white p-6 shadow-sm sm:p-7">
             <SectionHeader
-              eyebrow="My Studio Portals"
+              eyebrow="My Student Portals"
               title="Private access from studios you are linked to"
-              description="Your public DanceFlow account stays separate from studio portals. When a studio links your account, that studio’s portal appears here."
+              description="Your public DanceFlow account stays separate from student portals. When a studio links your account, that studio’s portal appears here."
             />
             <PortalCards linkedPortals={linkedPortals} />
           </section>
@@ -1251,7 +1251,7 @@ export default async function AccountPage({
             <SectionHeader
               eyebrow="Registered Events"
               title="Events you have registered for"
-              description="Your public event registrations stay with this account, even if you also have studio portal access."
+              description="Your public event registrations stay with this account, even if you also have student portal access."
               actionHref="/discover/events"
               actionLabel="Browse Events"
             />
@@ -1510,7 +1510,7 @@ export default async function AccountPage({
                 <p className="mt-2 text-sm leading-7 text-slate-600">
                   Visit the knowledgebase or contact support if you need help
                   with public accounts, favorites, event registrations, or
-                  studio portal access.
+                  student portal access.
                 </p>
               </div>
 

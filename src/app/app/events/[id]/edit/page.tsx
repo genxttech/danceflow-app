@@ -446,7 +446,7 @@ export default async function EditEventPage({ params }: { params: Params }) {
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
                 {organizerWorkspace
-                  ? "DanceFlow Organizer Workspace"
+                  ? "Organizer Suite"
                   : "DanceFlow Events"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">

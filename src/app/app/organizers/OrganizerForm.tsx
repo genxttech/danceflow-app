@@ -71,7 +71,7 @@ export default function OrganizerForm() {
       <section className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-            DanceFlow Organizer Workspace
+            Organizer Suite
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
             Create Organizer

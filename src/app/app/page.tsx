@@ -845,7 +845,7 @@ function SectionCard({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
-              DanceFlow Workspace
+              Workspace
             </p>
             <h2 className="mt-2 text-xl font-semibold text-slate-950">
               {title}
@@ -1760,7 +1760,7 @@ export default async function AppDashboardPage({
                     <span className="font-medium text-white">
                       {currentWorkspace?.studioName ||
                         workspace?.name ||
-                        "Organizer Workspace"}
+                        "Organizer Suite"}
                     </span>
                   </span>
                   <span className="inline-flex rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium ring-1 ring-white/15">

@@ -490,7 +490,7 @@ export function buildStudioSections(params: {
   // FC-1B4: whether this user currently has a status='linked'
   // client_account_links row at the selected studio -- distinct from
   // user_studio_roles.active (see FC-1B4 lifecycle trace). Only meaningful
-  // for the independent-instructor branch below; the "My Studio Portal"
+  // for the independent-instructor branch below; the "My Student Portal"
   // link must not be shown when there is no live portal relationship to
   // send them to, even though their /app staff access is unaffected.
   hasLinkedPortalAccess?: boolean;
@@ -522,7 +522,7 @@ export function buildStudioSections(params: {
           ...(portalHref && hasLinkedPortalAccess
             ? [
                 {
-                  label: "My Studio Portal",
+                  label: "My Student Portal",
                   href: portalHref,
                   icon: "clients" as const,
                 },
@@ -1061,7 +1061,7 @@ export default async function AppLayout({
       })
     : { activeCount: 0, highPriorityCount: 0 };
 
-  // FC-1B4: the independent-instructor "My Studio Portal" sidebar link must
+  // FC-1B4: the independent-instructor "My Student Portal" sidebar link must
   // reflect a live client_account_links relationship at this studio, not
   // just the studio having a slug -- user_studio_roles.active (the /app
   // staff role) and this portal link are two intentionally separate

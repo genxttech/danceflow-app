@@ -70,7 +70,7 @@ describe("buildStudioSections - independent instructor (FC-1B4)", () => {
     expect(hrefs).toContain("/knowledgebase");
   });
 
-  it("shows My Studio Portal when there is a linked client_account_links row", () => {
+  it("shows My Student Portal when there is a linked client_account_links row", () => {
     const sections = buildStudioSections({
       ...baseIndependentInstructorParams,
       hasLinkedPortalAccess: true,
@@ -79,7 +79,7 @@ describe("buildStudioSections - independent instructor (FC-1B4)", () => {
     expect(allHrefs(sections)).toContain("/portal/test-studio");
   });
 
-  it("hides My Studio Portal when there is no linked client_account_links row", () => {
+  it("hides My Student Portal when there is no linked client_account_links row", () => {
     const sections = buildStudioSections({
       ...baseIndependentInstructorParams,
       hasLinkedPortalAccess: false,
@@ -88,13 +88,13 @@ describe("buildStudioSections - independent instructor (FC-1B4)", () => {
     expect(allHrefs(sections)).not.toContain("/portal/test-studio");
   });
 
-  it("hides My Studio Portal when hasLinkedPortalAccess is omitted (defaults to false)", () => {
+  it("hides My Student Portal when hasLinkedPortalAccess is omitted (defaults to false)", () => {
     const sections = buildStudioSections({ ...baseIndependentInstructorParams });
 
     expect(allHrefs(sections)).not.toContain("/portal/test-studio");
   });
 
-  it("hides My Studio Portal when portalHref itself is null, regardless of link status", () => {
+  it("hides My Student Portal when portalHref itself is null, regardless of link status", () => {
     const sections = buildStudioSections({
       ...baseIndependentInstructorParams,
       portalHref: null,
@@ -102,7 +102,7 @@ describe("buildStudioSections - independent instructor (FC-1B4)", () => {
     });
 
     expect(sections.flatMap((s) => s.items.map((i) => i.label))).not.toContain(
-      "My Studio Portal",
+      "My Student Portal",
     );
   });
 });
