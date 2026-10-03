@@ -73,7 +73,7 @@ export function AudienceHero({
         className="absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top_left,rgba(216,138,45,0.16),transparent_48%),radial-gradient(circle_at_top_right,rgba(91,20,94,0.12),transparent_45%)]"
       />
       <div className="relative mx-auto max-w-5xl px-6 py-16 sm:py-20 lg:px-8 lg:py-24">
-        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#9a5a10]">
           {eyebrow}
         </p>
         <h1 className="mt-5 max-w-3xl text-balance text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">

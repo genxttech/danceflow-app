@@ -2,13 +2,13 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v1.0 |
-| **Last reconciled against main** | `2266f5fdd0ac51394a4b5915c2408a08f4532cce` |
+| **Roadmap version** | v1.1 |
+| **Last reconciled against main** | `ba3d2256db513f60eb4e6adca6e4b4f0fc435c83` (plus the BR-4 candidate branch, not yet merged) |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
 | **Current external dependency** | Twilio / per-studio A2P campaign review and ConfiDance setup |
-| **Current recommended next roadmap phase** | Phase 3 — Branding Relaunch / BR-4 Public Website & Launch Messaging |
+| **Current recommended next roadmap phase** | Phase 3 — Branding Relaunch: BR-4 is COMPLETE on its candidate branch and awaiting merge; the next slice after merge is BR-5 — Event / Print Collateral Strategy and Production |
 
-> **Explicit note:** BR-4 scope is modified by Featured Events and Partner Match maturity, but it is **not blocked** by either. See [Featured Events](#strategic-module-featured-events), [Partner Match](#strategic-module-partner-match) and Phase 3 §BR-4 restrictions.
+> **Explicit note:** BR-4 was shaped by Featured Events and Partner Match maturity and was **not blocked** by either; their public-claim restrictions remain in force for BR-5 onward. See [Featured Events](#strategic-module-featured-events), [Partner Match](#strategic-module-partner-match) and Phase 3 §Public-claim restrictions.
 
 ---
 
@@ -202,7 +202,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 ## Phase 3 — Branding Relaunch / Public Branding & Launch Readiness
 
-**STATUS:** PARTIAL — MATERIAL WORK REMAINS. **Recommended next active roadmap work: BR-4.**
+**STATUS:** PARTIAL — MATERIAL WORK REMAINS (BR-1, BR-2, BR-3 and BR-4 delivered; BR-4 awaits merge; BR-5, BR-6 and BR-7 remain). **Recommended next active roadmap work: BR-5, after the BR-4 PR is merged.**
 
 **OBJECTIVE:** A full relaunch of DanceFlow's identity, public presence and launch materials — not merely a logo swap.
 
@@ -213,13 +213,18 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 - **BR-2A–2D:** public metadata/assets, public shell, authenticated shell branding, shell accessibility/responsive QA (released c808724, 2026-09-21).
 - **Email/document branding:** shared email shell and branded document/campaign emails with tests (`emailShell.br3a`, `…br3b2`); studio-named sender identity (PAY-DC-3). BR-3 therefore appears complete — **confirm and record formally**.
 - Public SMS/ConfiDance proof pages aligned (SMS-A2P-3B/3C).
+- **BR-4 Public Website & Launch Messaging — COMPLETE on candidate branch `br-4-public-website-launch-messaging` (awaiting merge; no migration).** Delivered as four slices:
+  - **BR-4A — messaging architecture and homepage.** Approved positioning headline "The dance platform that helps do the work—not just track it."; homepage rebuilt around one primary action, four concept rows with shipped-capability proof on demand, a compact who-it-is-for list, an accurate Discover band, a short trust section and one final call to action; site metadata and structured data moved off the generic "studio CRM" framing; homepage trial/founder wording derived from the pricing logic (no studio count); public copy centralized in `src/lib/public/homeCopy.ts`; claims guard foundation.
+  - **BR-4B — audience pathways and navigation.** Value-stage pages `/for-studios`, `/for-instructors` and `/for-organizers` with per-page metadata and sitemap entries (independent instructors use the studio plans; no separate instructor plan, price or entitlement); dancers continue through `/discover`, retuned as the dancer entry point; public navigation reduced to Discover and For Business (no misleading "Pricing" label; no standalone `/pricing` route); footer "For Business" column; trial and founder copy on the get-started and pricing pages now derived from the canonical plan definitions (the organizer pages previously said 14 days while the plan and checkout use 30; the "first 25 studios" count was removed).
+  - **BR-4C — attribution and vocabulary.** First-touch campaign attribution: one shared capture in the public header reads only `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` and `ref`, stores them in one first-party cookie (`df_attr`, 30 days, SameSite=Lax, Secure on https) and never stores URLs, referrers or PII; signup re-validates the cookie and copies only namespaced `attribution_*` fields into auth user metadata (no database change); one clarifying sentence added to the Privacy Policy; stable campaign destinations documented in `docs/brand/PUBLIC_DESTINATIONS.md`. Vocabulary convergence: "DanceFlow Discovery" → "Discover", "DanceFlow Organizer Workspace" → "Organizer Suite", the retired "DanceFlow Workspace" label removed, and "Studio Portal" → "Student Portal" only where the surface is the client/dancer-facing portal.
+  - **BR-4D — final QA and closeout.** "Studios coming soon" replaced with an honest empty state; shared footer link targets enlarged; hero/eyebrow text contrast fixed; claims-guard source coverage extended to the remaining public launch surfaces; responsive, keyboard and accessibility review of the BR-4 surfaces; focused security/privacy review; roadmap and current-state closeout.
 
 **REMAINING DELIVERABLES**
-- **BR-4** Public Website & Launch Messaging (next).
-- **BR-5** Facebook / social launch content and collateral.
+- **BR-4** — COMPLETE on its candidate branch (see above); remaining step is the human merge and deployment (BR-4 changes runtime public-site code).
+- **BR-5 — Event / Print Collateral Strategy and Production** (next after BR-4 merges), including the Facebook / social launch content. The asset count is not locked; choose the smallest strong set.
 - **BR-6** Promotional media / video.
-- **BR-7** Final brand QA.
-- Vocabulary sweep: legacy "Studio Portal", "Organizer Workspace", "DanceFlow Discovery" strings remain in about 29 source files (counts were 6 / 14 / 9 files incl. tests at last count; the guide's earlier baseline was 13 / 15 / 11). "DanceFlow Workspace" is retired; organizer descriptors should converge in BR-4.
+- **BR-7** Final branding / public-launch QA, including remaining visible micro-polish (for example the "Location coming soon", "Studio image coming soon" and "Public page coming soon" placeholder strings on Discover cards).
+- Vocabulary: converged for the BR-4 scope. Retained on purpose: platform-admin labels ("Organizer Workspace(s)", "DanceFlow Platform Admin"), the host-studio floor-rental portal wording, and generic lowercase "studio portal" prose in the knowledgebase.
 - Documentation cleanup: stale statements in `docs/brand/DANCEFLOW_BRAND_GUIDE.md` (§11 "vector master deferred", §12 legacy icon note, §7 "wordmark is artwork (script)", BR-2 status). Not a blocking phase.
 - Mobile student app still ships the retired couple/script logo and DF monogram icon (see Phase 20; do not pull mobile redesign ahead of Phase 18).
 
@@ -229,15 +234,21 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 - Sora/Inter were not adopted as the application font system.
 - The compact horizontal lockup and the descriptor lockup ("Studio Operating System") were **not adopted**; the symbol is the compact mark. Any future adoption needs separate owner approval.
 - Do not create a palette/font decision slice before further branding work.
-- Messaging direction: **"Software that helps do the work—not just track it."**
+- Messaging direction: **"Software that helps do the work—not just track it."**; approved homepage H1: **"The dance platform that helps do the work—not just track it."**
+- Public audience architecture: `/for-studios`, `/for-instructors`, `/for-organizers`; dancers use `/discover`; there is no `/for-dancers` page and no standalone `/pricing` route. Independent instructors are business users on the existing studio plans (no instructor-only plan, price or entitlement).
+- Public navigation is deliberately small: Discover and For Business (plus Favorites/Account when signed in). Plans and trials are reached from the audience pages and "Get Started".
+- Trial length and founder wording on public surfaces are derived from the canonical plan definitions and `isFounderPricingActive()`; no remaining-studio count is ever shown.
+- Attribution is first-touch only, allowlisted to the six campaign keys, with no PII, URLs or referrers; no latest-touch tracking and no third-party analytics.
+- Vocabulary: "Discover", "Organizer Suite", and "Student Portal" only for the client/dancer-facing portal; "DanceFlow Workspace" is not a product name.
+- A public-copy claims guard (`src/lib/public/__tests__/homeCopy.br4a.test.ts`) protects Featured Events, Partner Match, SOC 2, Competition OS and ARIA-autonomy restrictions.
 
 **PROPOSED BUT NOT APPROVED:** Print/media asset list (see D and E); the final set is not locked.
 
-**UNRESOLVED PRODUCT DECISIONS:** Final collateral asset count; video cut list; QR destination strategy; whether any public pricing page precedes Phase 22.
+**UNRESOLVED PRODUCT DECISIONS:** Final collateral asset count; video cut list. (Resolved in BR-4: QR/campaign destinations are fixed in `docs/brand/PUBLIC_DESTINATIONS.md`; no standalone pricing page precedes Phase 22.) Demo-request / interest-capture storage is deferred to later Marketing/CRM work.
 
 **DEPENDENCIES:** None blocking BR-4. Store/app-specific assets wait on Phase 18. See [Featured Events](#strategic-module-featured-events) and [Partner Match](#strategic-module-partner-match) restrictions below.
 
-**WEB IMPLICATIONS:** BR-4 touches the public home, get-started flows, discovery entry points, pricing presentation and audience pages.
+**WEB IMPLICATIONS:** BR-4 changed the public home, audience pages, navigation and footer, Discover framing, get-started/pricing copy, metadata and sitemap; deployment is required after the BR-4 PR merges.
 
 **MOBILE IMPLICATIONS:** App-store identity, screenshots, store listing and the student-app logo replacement wait on Phase 18 (see I below).
 
@@ -247,7 +258,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 **DEFERRED / POST-LAUNCH ITEMS:** The polish backlog above if not absorbed by BR-7.
 
-**EVIDENCE / RELEASE REFERENCES:** Released c808724 / `dpl_BEu8q5cjsxJaJUi4pjYvmYDwn1QZ` (BR-1, BR-2C, BR-2D); `docs/brand/`.
+**EVIDENCE / RELEASE REFERENCES:** Released c808724 / `dpl_BEu8q5cjsxJaJUi4pjYvmYDwn1QZ` (BR-1, BR-2C, BR-2D); `docs/brand/`. BR-4: candidate branch `br-4-public-website-launch-messaging` (BR-4A–C commits `0f0ee77`, `69812d5`, `461741e`, plus the BR-4D closeout commit that is the PR head); not yet merged or deployed.
 
 ### A. Brand identity foundation
 Logo system (primary horizontal mark, symbol-only use, favicon/app icon, social avatar) exists. Compact horizontal and descriptor lockups are not adopted (locked). Typography/color/gradient rules follow the current application palette and fonts (locked). Product-facing identity: DanceFlow, with "Studio Portal" and similar legacy descriptors being removed.
@@ -274,22 +285,24 @@ Considered: 33" × 81" vertical banner(s) (dancer/public; and studios / independ
 Considered: 60-second master launch video; 30-second social/ad cut; 15-second short-form cut; event booth/display loop; studio / independent-instructor version; organizer version; dancer/public-discovery version; later app-store/Google Play version; real product footage; branded motion graphics; professional voiceover; CTA/QR destination; export specifications. None exists in the repo today.
 
 ### F. Event conversion infrastructure
-Considered: audience landing pages; trackable QR codes; UTM/campaign tracking; event lead capture; studio demo request; independent-instructor interest; organizer interest; dancer signup/download; follow-up sequences; attribution. Present today: generic lead form, get-started flows, in-app lead management. Not found: QR/UTM campaign tracking, a demo-request flow, marketing follow-up sequences.
+Considered: audience landing pages; trackable QR codes; UTM/campaign tracking; event lead capture; studio demo request; independent-instructor interest; organizer interest; dancer signup/download; follow-up sequences; attribution. Delivered in BR-4: audience landing pages (`/for-studios`, `/for-instructors`, `/for-organizers`, `/discover`), stable campaign destinations, and first-touch UTM/ref attribution carried into signup metadata (see Delivered above). Still not built: QR images and trackable print assets (BR-5), a demo-request / interest-capture flow (deferred; needs storage), marketing follow-up sequences, and an attribution reporting view.
 
 ### G. Final launch maturity QA
 Dead links; placeholder content; unfinished screens; empty states; CTA clarity; responsive behavior; QR/deep links; trust/credibility presentation; brand consistency. (No placeholder or "coming soon" text was found in a grep; dead-link and CTA checks are unverified.)
 
 ### H. Branding work that can proceed now
-Messaging architecture and audience value propositions; BR-4 public website with audience landing pages; vocabulary sweep; print collateral and event-conversion infrastructure pointing at web destinations; promo video using web product footage; social launch content; brand QA.
+BR-4 is complete (messaging architecture, audience pages, vocabulary, attribution foundation). Remaining and unblocked: print collateral pointing at the fixed web destinations (BR-5), social launch content, promo video using web product footage (BR-6), and brand QA (BR-7).
 
 ### I. Branding work that must wait for Phase 18 (mobile decisions)
 App-store / Google Play video variants, store listing, screenshots and icon packaging; student-app logo/icon replacement; dancer signup/download flow and app deep-link/QR behavior; anything naming DanceFlow Business or judge/competition apps.
 
-### BR-4 restrictions (Featured Events / Partner Match)
+### Public-claim restrictions (applied in BR-4; continue through BR-5 onward)
+These were enforced for BR-4 and remain in force for all later public materials (collateral, media, social) until the underlying capabilities ship. The BR-4 claims guard tests them for the public site.
 - No meaningful Featured Events promotion claim; avoid "Featured" language beyond implemented behavior.
 - Partner Match may be described only as the existing dance-partner directory.
 - No claims of algorithmic matching, compatibility scoring, guaranteed or fast connections, an already-complete acquisition funnel, or "free forever".
 - No Partner Match landing push, sitemap entry or SEO campaign until moderation and a working web request path exist.
+- No Competition OS claims (judging, scoring, results, awards, live heat management), no SOC 2 claim, and no unrestricted-ARIA-autonomy claim.
 
 ---
 
@@ -1339,4 +1352,5 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | v1.1 | BR-4 Public Website & Launch Messaging marked COMPLETE on its candidate branch (awaiting merge): messaging architecture and homepage, audience pages and public navigation, first-touch campaign attribution, vocabulary convergence, claims guard and final public-site QA. Phase 3 stays PARTIAL: BR-5, BR-6 and BR-7 remain; next slice after merge is BR-5. No migration. |
 | 2026-10-02 | v1.0 | Materialized the canonical 26-phase roadmap into version control. Reconciled against main `2266f5f`. Added full Branding / Public Launch Readiness scope. Added Featured Events strategic module. Added Partner Match strategic module and public-acquisition intent. Preserved the deferred/post-launch register. Established Phase 3 / BR-4 as next active roadmap work. Twilio remains a parallel external dependency. |

@@ -324,10 +324,25 @@ export default async function DiscoverLandingPage() {
 
         {typedFeaturedStudios.length === 0 ? (
           <div className="mt-8 rounded-[32px] border border-[var(--brand-border)] bg-white px-6 py-16 text-center shadow-sm">
-            <h3 className="text-xl font-semibold text-slate-950">Studios coming soon</h3>
-            <p className="mt-2 text-slate-600">
-              Public studio listings will appear here as studios publish their profiles.
+            <h3 className="text-xl font-semibold text-slate-950">No studio profiles to show right now</h3>
+            <p className="mx-auto mt-2 max-w-xl text-slate-600">
+              Studios appear here when they publish a public profile. Browse the full
+              studio directory, or explore events, dance partner listings and jobs.
             </p>
+            <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Link
+                href="/discover/studios"
+                className="inline-flex items-center justify-center rounded-2xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[var(--brand-primary-dark)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]"
+              >
+                Browse all studios
+              </Link>
+              <Link
+                href="/discover/events"
+                className="inline-block py-1.5 text-sm font-semibold text-[var(--brand-primary)] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]"
+              >
+                Explore events
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">

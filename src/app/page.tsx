@@ -186,7 +186,7 @@ export default async function HomePage() {
           <div className="relative mx-auto max-w-7xl px-6 py-16 sm:py-20 lg:px-8 lg:py-28">
             <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#9a5a10]">
                   {HOME_HERO.eyebrow}
                 </p>
 

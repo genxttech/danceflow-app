@@ -40,6 +40,17 @@ const MARKETING_SOURCES = [
   ["src", "app", "for-instructors", "page.tsx"],
   ["src", "app", "for-organizers", "page.tsx"],
   ["src", "app", "discover", "page.tsx"],
+  // BR-4D: remaining public launch surfaces that carry marketing or pricing copy
+  ["src", "app", "discover", "studios", "page.tsx"],
+  ["src", "app", "discover", "events", "page.tsx"],
+  ["src", "app", "discover", "partners", "page.tsx"],
+  ["src", "app", "discover", "jobs", "page.tsx"],
+  ["src", "app", "get-started", "page.tsx"],
+  ["src", "app", "get-started", "studio", "page.tsx"],
+  ["src", "app", "get-started", "organizer", "page.tsx"],
+  ["src", "components", "public", "PublicSiteFooter.tsx"],
+  ["src", "components", "public", "audience", "AudienceParts.tsx"],
+  ["src", "lib", "billing", "plans.ts"],
 ] as const;
 
 /** Comments document the restrictions themselves, so the guard reads code and copy only. */
