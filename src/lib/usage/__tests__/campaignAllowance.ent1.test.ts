@@ -496,3 +496,97 @@ describe("campaign-level reservation: admission, continuation, settle, reconcile
     expect(evaluateCampaignAllowance(view, 501).allowed).toBe(false);
   });
 });
+
+describe("stale 500-recipient batch reconciliation reads recipient state in safe chunks", () => {
+  const BATCH = Array.from({ length: 500 }, (_, i) => `rcp-${String(i).padStart(3, "0")}`);
+  const SENT = 337; // recipients 0..336 were marked sent before the request died
+  const workspace = { type: "studio", studioId: STUDIO } as const;
+  const settleCalls = () => db.rpcCalls.filter((c) => c.name === "settle_usage_reservation");
+
+  async function openStaleBatch() {
+    plan("growth");
+    const admitted = await reserveCampaignSendAllowance({
+      workspace, campaignId: "camp-a", eligibleTotal: 800, batchRecipientIds: BATCH, userId: "user-1",
+      source: "marketing_campaign_send", relatedTable: "marketing_campaigns", deps: { admin: asAdmin(db) },
+    });
+    if (!admitted.ok) throw new Error("expected admission");
+    db.tables.marketing_campaign_recipients = [
+      ...BATCH.map((id, i) => ({ id, campaign_id: "camp-a", studio_id: STUDIO, status: i < SENT ? "sent" : i < 360 ? "failed" : "pending" })),
+      ...Array.from({ length: 300 }, (_, i) => ({ id: `later-${i}`, campaign_id: "camp-a", studio_id: STUDIO, status: "pending" })),
+    ];
+    db.tables.usage_reservations[0].batch_started_at = new Date(Date.now() - 3_600_000).toISOString();
+    return admitted;
+  }
+
+  let lookupDown = false;
+  /** Records the size of every `.in()` lookup on the recipients table; while `lookupDown`, the chunk that starts at recipient 200 fails. */
+  function spyOnLookups() {
+    const sizes: number[] = [];
+    const realFrom = db.from.bind(db);
+    db.from = (table: string) => {
+      const builder = realFrom(table) as unknown as { in: (col: string, values: unknown[]) => unknown };
+      if (table !== "marketing_campaign_recipients") return builder as never;
+      const realIn = builder.in.bind(builder);
+      builder.in = (col: string, values: unknown[]) => {
+        sizes.push(values.length);
+        if (lookupDown && values[0] === BATCH[200]) return Promise.resolve({ data: null, error: { message: "chunk lookup failed" }, count: null });
+        return realIn(col, values);
+      };
+      return builder as never;
+    };
+    return sizes;
+  }
+
+  it("splits the lookup so no query receives more than 200 ids, examines all 500, and settles ONCE with the aggregate", async () => {
+    await openStaleBatch();
+    const sizes = spyOnLookups();
+    expect(await reconcileStaleCampaignBatches(workspace, { admin: asAdmin(db) })).toBe(1);
+    expect(sizes).toEqual([200, 200, 100]);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(200);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(500);
+    expect(settleCalls()).toHaveLength(1); // one logical settlement, never one per chunk
+    expect(settleCalls()[0].args).toMatchObject({ p_batch_sent: SENT, p_pending_remaining: 140 + 300 });
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(SENT);
+    expect(db.tables.usage_events).toHaveLength(1);
+    expect(db.tables.usage_reservations[0].batch_started_at).toBeNull();
+  });
+
+  it("repeated reconciliation changes nothing: no double count", async () => {
+    await openStaleBatch();
+    await reconcileStaleCampaignBatches(workspace, { admin: asAdmin(db) });
+    await reconcileStaleCampaignBatches(workspace, { admin: asAdmin(db) });
+    await studioState();
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(SENT);
+    expect(db.tables.usage_events).toHaveLength(1);
+    expect(settleCalls()).toHaveLength(1);
+  });
+
+  it("if ANY chunk lookup fails nothing is settled or counted and the commitment stays intact; a later retry reconciles the whole batch", async () => {
+    await openStaleBatch();
+    lookupDown = true;
+    const failing = spyOnLookups(); // the second chunk fails
+    expect(await reconcileStaleCampaignBatches(workspace, { admin: asAdmin(db) })).toBe(0);
+    expect(failing.slice(0, 2)).toEqual([200, 200]); // stopped at the failed chunk: no partial count was used
+    expect(failing).not.toContain(100); // the third chunk was never read, nothing was counted from a partial read
+    expect(settleCalls()).toHaveLength(0);
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "reserved", quantity_reserved: 800, quantity_consumed: 0 });
+    expect(db.tables.usage_reservations[0].batch_started_at).toBeTruthy(); // still unresolved, still conservative
+    // the capacity is still held: another campaign cannot take it
+    const other = await reserveCampaignSendAllowance({
+      workspace, campaignId: "camp-b", eligibleTotal: 201, batchRecipientIds: ["x"], userId: "user-1",
+      source: "marketing_campaign_send", relatedTable: "marketing_campaigns", deps: { admin: asAdmin(db) },
+    });
+    expect(other.ok).toBe(false);
+
+    // the lookup recovers: the entire logical batch is retried (all three chunks again) and counted once
+    lookupDown = false;
+    failing.length = 0;
+    expect(await reconcileStaleCampaignBatches(workspace, { admin: asAdmin(db) })).toBe(1);
+    expect(failing).toEqual([200, 200, 100]);
+    expect(settleCalls()).toHaveLength(1);
+    expect(settleCalls()[0].args).toMatchObject({ p_batch_sent: SENT });
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(SENT);
+    expect(db.tables.usage_reservations[0].batch_started_at).toBeNull();
+  });
+});

@@ -439,6 +439,36 @@ const RECIPIENT_TABLES = {
 type StaleBatchRow = { id: string; related_id: string | null; batch_recipient_ids: string[] | null };
 
 /**
+ * Largest number of recipient ids sent in one `.in()` lookup. A PostgREST GET carries the ids in the URL: a 500-id batch
+ * (about 18 KB) overflows the request/header limit (verified against DEV: 300 ids work, 400 fail), so the lookup is chunked.
+ */
+export const RECONCILE_ID_CHUNK = 200;
+
+/**
+ * Counts the 'sent' recipients among a batch's ids, reading in chunks of at most RECONCILE_ID_CHUNK. Returns null if ANY chunk
+ * cannot be read: a partial count is never returned, missing recipients are never inferred as failures.
+ */
+async function countSentRecipients(
+  admin: AdminClient,
+  args: { table: string; column: string; workspaceId: string; campaignId: string; ids: string[] },
+): Promise<number | null> {
+  let total = 0;
+  for (let i = 0; i < args.ids.length; i += RECONCILE_ID_CHUNK) {
+    const chunk = args.ids.slice(i, i + RECONCILE_ID_CHUNK);
+    const { count, error } = await admin
+      .from(args.table)
+      .select("id", { count: "exact", head: true })
+      .eq(args.column, args.workspaceId)
+      .eq("campaign_id", args.campaignId)
+      .eq("status", "sent")
+      .in("id", chunk);
+    if (error) return null;
+    total += Number(count ?? 0);
+  }
+  return total;
+}
+
+/**
  * Repairs batches a crashed request left open past the stale window. The durable truth is the per-recipient 'sent' record
  * the delivery pipeline writes: the open batch recorded exactly which recipients it was about to mail, so the successes are
  * counted from those rows and settled (idempotently) with the campaign's current pending count. Until it succeeds the
@@ -465,25 +495,27 @@ export async function reconcileStaleCampaignBatches(workspace: CampaignWorkspace
 
     for (const row of stale as StaleBatchRow[]) {
       if (!row.related_id) continue;
-      const ids = row.batch_recipient_ids ?? [];
+      try {
+        const ids = row.batch_recipient_ids ?? [];
+        const sentCount = await countSentRecipients(admin, { table, column, workspaceId, campaignId: row.related_id, ids });
+        // cannot establish the truth (any chunk or the pending count failed): do not settle, do not count, stay conservative;
+        // a later reconciliation retries the whole logical batch
+        if (sentCount === null) continue;
+        const pending = await admin.from(table).select("id", { count: "exact", head: true }).eq(column, workspaceId).eq("campaign_id", row.related_id).eq("status", "pending");
+        if (pending.error) continue;
 
-      const [sent, pending] = await Promise.all([
-        ids.length
-          ? admin.from(table).select("id", { count: "exact", head: true }).eq(column, workspaceId).eq("campaign_id", row.related_id).eq("status", "sent").in("id", ids)
-          : Promise.resolve({ count: 0, error: null }),
-        admin.from(table).select("id", { count: "exact", head: true }).eq(column, workspaceId).eq("campaign_id", row.related_id).eq("status", "pending"),
-      ]);
-
-      if (sent.error || pending.error) continue; // cannot establish the truth: stay conservative
-
-      const ok = await settleCampaignBatch({
-        reservationId: row.id,
-        sentCount: Number(sent.count ?? 0),
-        pendingRemaining: Number(pending.count ?? 0),
-        metadata: { reconciled: true },
-        deps: { admin },
-      });
-      if (ok) settled += 1;
+        // chunks are only for READING recipient state: the batch is settled once, with the aggregate
+        const ok = await settleCampaignBatch({
+          reservationId: row.id,
+          sentCount,
+          pendingRemaining: Number(pending.count ?? 0),
+          metadata: { reconciled: true },
+          deps: { admin },
+        });
+        if (ok) settled += 1;
+      } catch (error) {
+        console.error("Campaign allowance reconcile failed for one batch", error);
+      }
     }
   } catch (error) {
     console.error("Campaign allowance reconcile failed", error);
