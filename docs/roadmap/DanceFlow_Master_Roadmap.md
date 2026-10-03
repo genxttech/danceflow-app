@@ -25,6 +25,21 @@
 
 Companion file: [`DanceFlow_Current_State.md`](DanceFlow_Current_State.md) (short, operational snapshot; update it whenever main, the PROD deployment, or the active slice changes).
 
+## ROADMAP MAINTENANCE RULE
+
+**No roadmap-affecting feature, slice, phase, architectural decision or major product decision is considered fully closed until this canonical roadmap has been updated.**
+
+- Every roadmap-affecting phase closeout must update, as applicable, both [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md) and [`DanceFlow_Current_State.md`](DanceFlow_Current_State.md), in the same PR or in an explicit closeout PR.
+- **The Master Roadmap preserves:** product intent, completed scope, remaining scope, locked decisions, proposed items, unresolved decisions, dependencies, sequencing, and meaningful deferrals.
+- **Current State preserves only the operational snapshot:** current main, current PROD deployment, active phase, next slice, external dependencies, pending migrations, release holds, and current blockers/gates.
+- Completed roadmap items are marked **COMPLETE** rather than deleted.
+- Superseded decisions remain recorded as superseded when losing that history would make later reasoning ambiguous.
+- Proposed items must not silently become approved requirements.
+- Newly discovered product requirements are added deliberately, rather than living only in chat or session history.
+- If implementation changes roadmap sequencing or dependencies, update the roadmap before closing that work.
+- Chat history, release notes and old planning documents may provide evidence, but they do not override the canonical roadmap when it is available.
+
+
 ### Evidence confidence
 
 Statuses below come from a read-only reconciliation of main `2266f5f` (source, migrations, tests, release history). Evidence is largely "the routes, tables, migrations and tests exist"; it does not prove each feature behaves correctly end to end. Items marked **(unverified)** were not confirmed beyond existence or a grep. Do not read "implemented" as "QA'd" unless the item says so.

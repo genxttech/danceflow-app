@@ -4,6 +4,8 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 **Last updated:** 2026-10-02 (roadmap v1.0)
 
+> **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
+
 ## Release state
 
 | | |
