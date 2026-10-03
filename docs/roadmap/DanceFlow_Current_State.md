@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-03 (roadmap v1.1, BR-4 closeout)
+**Last updated:** 2026-10-03 (roadmap v1.2, BR-5 closeout)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,28 +10,32 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `ba3d2256db513f60eb4e6adca6e4b4f0fc435c83` (docs-only roadmap merge; application code identical to `2266f5f`) |
-| **CURRENT PROD DEPLOYMENT** | `dpl_G8vf1vywXJ8K9nNK4AbTuHdruR21` (source `2266f5fdd0ac51394a4b5915c2408a08f4532cce`) |
+| **CURRENT MAIN** | `f189d15cbef301a24e3410b79f20d3bcef7135d9` (BR-4 squash merge, PR #136) |
+| **CURRENT PROD DEPLOYMENT** | `dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K` (source `f189d15cbef301a24e3410b79f20d3bcef7135d9`; BR-4 live on `www.idanceflow.com` and `idanceflow.com`; prior production `dpl_G8vf1vywXJ8K9nNK4AbTuHdruR21`) |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
 | **PRIMARY REPO LINK** | DEV |
-| **NON-TWILIO LAUNCH STATUS** | READY / CLOSED; no new launch blocker from BR-4 (full validation green) |
-| **PENDING PROD MIGRATIONS** | None (BR-4 has no migration) |
+| **NON-TWILIO LAUNCH STATUS** | READY / CLOSED; no new launch blocker from BR-4 or BR-5 |
+| **PENDING PROD MIGRATIONS** | None (BR-4 and BR-5 have no migration) |
 | **PACKAGE REFUND HOLD** | Released / `false` |
 | **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified outside the Twilio operational dependency |
+| **KNOWN HYGIENE DEBT** | 8 pre-existing lint errors in 4 public pages (not introduced by BR-4 or BR-5); they keep the changed-file lint step in CI red when those files are touched |
 
-## BR-4 candidate (not yet merged)
+BR-4 (Public Website & Launch Messaging) is merged and live. Public smoke of the live domains and the live attribution cookie passed; authenticated production smoke was intentionally omitted.
+
+## BR-5 candidate (not yet merged)
 
 | | |
 |---|---|
-| **Candidate branch** | `br-4-public-website-launch-messaging` |
-| **Branch base** | `ba3d2256db513f60eb4e6adca6e4b4f0fc435c83` (current main) |
-| **Slice commits** | BR-4A `0f0ee77`, BR-4B `69812d5`, BR-4C `461741e`, BR-4D closeout = the PR head commit |
-| **Exact candidate head** | The head commit of the BR-4 pull request (a commit cannot contain its own SHA; read it from the PR) |
-| **Status** | BR-4: COMPLETE ON CANDIDATE BRANCH / AWAITING MERGE |
-| **Deployment** | Required only after the BR-4 PR is merged (BR-4 changes runtime public-site code). Not deployed. |
+| **Candidate branch** | `br-5-event-print-collateral` |
+| **Branch base** | `f189d15cbef301a24e3410b79f20d3bcef7135d9` (current main) |
+| **Exact candidate head** | The head commit of the BR-5 pull request (a commit cannot contain its own SHA; read it from the PR or the branch) |
+| **Status** | BR-5: COMPLETE ON CANDIDATE BRANCH / AWAITING MERGE |
+| **Deployment** | Not needed: BR-5 is static collateral (docs, templates, exports, one builder script, one test) and does not change the application runtime |
+| **Banner** | Vendor-neutral master only. Final vendor fit, bleed and bottom-feed adjustment are required before a print order (vendor not chosen) |
+| **Print color** | RGB PDFs with embedded fonts; no CMYK or PDF/X conversion (done by the printer) |
 
-The feature branch is not main. Do not treat BR-4 as live until it is merged and promoted.
+The feature branch is not main. Do not treat BR-5 as merged until the pull request is merged.
 
 ## Twilio status
 
@@ -39,13 +43,15 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 
 ## Current roadmap position
 
-**ACTIVE PHASE:** Phase 3 — Branding Relaunch
+**ACTIVE PHASE:** Phase 3 — Branding Relaunch (PARTIAL)
 
-**BR-4 (Public Website & Launch Messaging):** COMPLETE ON CANDIDATE BRANCH / AWAITING MERGE
+**BR-4 (Public Website & Launch Messaging):** COMPLETE AND LIVE
 
-**NEXT ROADMAP SLICE AFTER MERGE:** BR-5 — Event / Print Collateral Strategy and Production (including Facebook / social launch content). BR-6 (promotional media) and BR-7 (final branding / public-launch QA) follow. Phase 3 is not complete until they are done.
+**BR-5 (Event / Print Collateral):** COMPLETE ON CANDIDATE BRANCH / AWAITING MERGE
 
-### Public-claim restrictions (still in force for BR-5 onward)
+**NEXT ROADMAP SLICE AFTER THE BR-5 MERGE:** BR-6 — Promotional Media (not started). BR-7 (final branding / public-launch QA) follows. Phase 3 is not complete until both are done.
+
+### Public-claim restrictions (still in force for BR-6 onward)
 - No meaningful Featured Events promotion claim; avoid "Featured" language beyond implemented behavior.
 - Partner Match may be described only as the existing dance-partner directory; no compatibility or matching claims, no "free forever" promise, no Partner Match SEO launch until moderation and a web request path exist.
 - No Competition OS claims (judging, scoring, results, awards, live heat management).
@@ -57,6 +63,7 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 - Twilio / Sachin
 - Migration Center real-studio pilot validation
 - Eventual pricing cutover business/configuration decision
+- Banner vendor / stand selection (BR-5 follow-up, needed only before a banner print order)
 
 ## Major product decisions still open
 
@@ -69,9 +76,10 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 - Whether to pull Partner Match moderation and the web request path forward
 - Competition scoring system(s) and where judging runs
 - Plan placement of SMS, payroll, marketplace and ARIA features
-- BR collateral asset count and video cut list (BR-5 / BR-6)
+- Video cut list (BR-6)
 - Demo-request / interest-capture storage (deferred; needs a storage decision)
+- Per-event print attribution (static QR codes cannot distinguish events; needs a per-event print run or a signup survey question)
 
 ## NEXT GATE
 
-Human review and merge of the BR-4 pull request, then deploy the merged build, then begin BR-5.
+Human review of the BR-5 collateral and merge of the BR-5 pull request, then BR-6 — Promotional Media.

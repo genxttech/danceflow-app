@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DanceFlow event banner (vendor-neutral master)</title>
+<style>
+{{{baseCss}}}
+@page { size: 34in 82in; margin: 0; }
+/* Page = 33in x 81in trim + 0.5in bleed on every side. Safe rectangle: 1in sides, 3in top, 10in bottom (trim-relative). */
+body { width: 34in; height: 82in; position: relative; overflow: hidden; background: var(--brand-surface); }
+.trim { position: absolute; left: .5in; top: .5in; width: 33in; height: 81in; }
+.safe { position: absolute; left: 1.5in; top: 3.5in; width: 31in; height: 68in; display: flex; flex-direction: column; align-items: flex-start; }
+.logo { width: 25in; }
+.rule { width: 5in; height: .34in; margin-top: 1.2in; }
+h1 { font-size: 232pt; line-height: 1.03; font-weight: 700; letter-spacing: -.025em; margin-top: 1.2in; color: var(--brand-text); text-wrap: balance; }
+.support { font-size: 78pt; line-height: 1.26; color: var(--brand-muted); margin-top: 1.4in; max-width: 30in; text-wrap: balance; }
+.cue { font-size: 82pt; font-weight: 600; color: var(--brand-primary); margin-top: 1.3in; letter-spacing: .005em; white-space: nowrap; }
+.cue span { color: var(--brand-accent); padding: 0 .3in; }
+.cta-panel { width: 31in; margin-top: 1.4in; border-radius: .8in; padding: 1.3in 1.5in 1.5in; display: flex; flex-direction: column; align-items: center; }
+.cta { font-size: 112pt; font-weight: 700; text-align: center; line-height: 1.1; letter-spacing: -.01em; }
+.qr-tile { width: 14in; height: 14in; margin-top: 1.1in; border-radius: .5in; }
+.url { font-size: 80pt; font-weight: 600; color: var(--brand-primary); margin-top: 1.6in; align-self: center; letter-spacing: .01em; }
+{{#if guides}}
+.g { position: absolute; pointer-events: none; }
+.g-top { left: 0; top: 0; width: 34in; height: 3.5in; background: rgba(220,0,0,.18); }
+.g-bottom { left: 0; bottom: 0; width: 34in; height: 10.5in; background: rgba(220,0,0,.18); }
+.g-sides { top: 0; height: 82in; width: 1.5in; background: rgba(220,0,0,.18); }
+.g-trim { left: .5in; top: .5in; width: 33in; height: 81in; border: .06in dashed #0a6; }
+.g-qrband { left: 0; width: 34in; border-top: .04in dotted #06c; border-bottom: .04in dotted #06c; background: rgba(0,100,200,.06); }
+{{/if}}
+</style>
+</head>
+<body>
+<div class="trim"></div>
+<div class="safe" data-safe>
+  <img class="logo" src="{{logoSrc}}" alt="DanceFlow">
+  <div class="rule"></div>
+  <h1 data-fontprobe>{{banner.headline}}</h1>
+  <p class="support">{{banner.support}}</p>
+  <p class="cue">{{#each audiencesView}}{{label}}{{#if sep}}<span>•</span>{{/if}}{{/each}}</p>
+  <div class="cta-panel panel-brand" data-keep>
+    <p class="cta">{{banner.cta}}</p>
+    <div class="qr-tile" data-qr>{{{qrSvg}}}</div>
+  </div>
+  <p class="url">{{url}}</p>
+</div>
+{{#if guides}}
+<div class="g g-top"></div><div class="g g-bottom"></div>
+<div class="g g-sides" style="left:0"></div><div class="g g-sides" style="right:0"></div>
+<div class="g g-trim"></div>
+<div class="g g-qrband" style="top:{{qrBandTop}}in;height:{{qrBandHeight}}in"></div>
+{{/if}}
+</body>
+</html>

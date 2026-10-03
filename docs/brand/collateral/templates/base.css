@@ -1,0 +1,34 @@
+/* BR-5 collateral: shared tokens and type. Values come from the Brand Guide section 6 (not new tokens).
+   Typography: the application's system sans stack (guide section 7). No font is loaded or adopted; the builder
+   records which family actually rendered and the PDFs embed it. */
+:root {
+  --brand-primary: #5b145e;
+  --brand-primary-dark: #431046;
+  --brand-primary-soft: #f6edf7;
+  --brand-accent: #d88a2d;
+  --brand-accent-soft: #f7e2c4;
+  --brand-surface: #fff9f3;
+  --brand-border: #ead9cb;
+  --brand-text: #2b1b2a;
+  --brand-muted: #6f5b6b;
+  /* Small gold text on light grounds uses the BR-4 contrast-checked value (5.46:1 on surface). */
+  --eyebrow: #9a5a10;
+  --font: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #fff; }
+body {
+  font-family: var(--font);
+  color: var(--brand-text);
+  -webkit-font-smoothing: antialiased;
+  font-kerning: normal;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+img, svg { display: block; }
+.panel-brand { background: linear-gradient(180deg, var(--brand-primary) 0%, var(--brand-primary-dark) 100%); color: #fff; }
+.rule { background: var(--brand-accent); }
+.qr-tile { background: #fff; line-height: 0; }
+.qr-tile svg { width: 100%; height: 100%; }
+.logo { height: auto; }

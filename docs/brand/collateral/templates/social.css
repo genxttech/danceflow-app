@@ -1,0 +1,20 @@
+/* Shared by social-square.html and social-story.html. Pixels, 1:1 with the exported PNG. */
+body { position: relative; overflow: hidden; }
+.frame { position: absolute; display: flex; flex-direction: column; }
+.logo { height: auto; }
+.eyebrow-rule { width: 96px; height: 8px; }
+.headline { font-weight: 700; letter-spacing: -.02em; }
+.cue { font-weight: 600; letter-spacing: .01em; }
+.cue span { color: var(--brand-accent); padding: 0 14px; }
+.event .cue span { color: var(--brand-accent); }
+.url { font-weight: 600; letter-spacing: .01em; }
+.awareness { background: var(--brand-surface); color: var(--brand-text); }
+.awareness .support { color: var(--brand-muted); }
+.awareness .cue, .awareness .url { color: var(--brand-primary); }
+.event { background: linear-gradient(180deg, var(--brand-primary) 0%, var(--brand-primary-dark) 100%); color: #fff; }
+.event .lead { color: var(--brand-accent-soft); font-weight: 600; }
+.event .support { color: #f1e4f2; }
+.event .cue { color: var(--brand-accent-soft); }
+.event .url { color: #fff; }
+.event .field { font-weight: 700; letter-spacing: -.02em; }
+.event .detail { color: var(--brand-accent-soft); font-weight: 600; }

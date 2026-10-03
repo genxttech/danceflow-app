@@ -1,6 +1,6 @@
-# BR-5 Collateral Strategy (DRAFT — awaiting production approval)
+# BR-5 Collateral Strategy (approved; produced)
 
-Status: strategy only. No final assets exist yet. Source of messaging truth is BR-4 (`src/lib/public/homeCopy.ts`, `src/lib/public/audienceCopy.ts`). Brand rules live in `DANCEFLOW_BRAND_GUIDE.md`; destinations and attribution mechanics live in `PUBLIC_DESTINATIONS.md`. This file does not duplicate either.
+Status: approved by the owner and produced; the operating guide is [`COLLATERAL_GUIDE.md`](COLLATERAL_GUIDE.md). Source of messaging truth is BR-4 (`src/lib/public/homeCopy.ts`, `src/lib/public/audienceCopy.ts`). Brand rules live in `DANCEFLOW_BRAND_GUIDE.md`; destinations and attribution mechanics live in `PUBLIC_DESTINATIONS.md`. This file does not duplicate either.
 
 ## 1. Architecture: eight pieces from four templates
 
@@ -117,3 +117,14 @@ All BR-4 restrictions carry over: no Featured Events promotion or boosting, Part
 4. **Dancer-card photo.** Use the existing `danceflow-home-hero.png` crop (recommended) or a new owner-supplied photograph.
 5. **Banner vendor** and its exact template (width/height may shift by up to 0.5"); final fit happens after the vendor is chosen.
 6. **Event name placeholder** for the "event presence" social variant is a text field; the owner supplies each event's name and date at use time.
+
+## 10. Owner decisions as locked, and deviations in production
+
+- **Banner destination:** `/` (the BR-4 homepage routes all four audiences), not `/for-studios`. Banner `utm_content` is `booth-v1`.
+- **Studio and instructor sheets:** kept separate (same template, distinct copy, destination and QR attribution).
+- **Typeface:** system sans stack; builds render it as Segoe UI and the PDFs embed it.
+- **Dancer-card photo:** crop of the existing `danceflow-path-hero.png` (about 310 dpi at card size); no new photography.
+- **Banner vendor:** deferred. The banner is a vendor-neutral master in `exports/review/`, not a print-ready file.
+- **Folder structure:** exports are split into `review/`, `print/` and `social/` (the banner lives only in `review/` until a vendor template exists). Templates are in `templates/`.
+- **Dancer card contents:** four rows (studios, events, dance partner listings, jobs); Marketplace/learning was left out to keep the card light.
+- **Attribution `ref`/`utm_term`:** defined but unused in v1 assets.
