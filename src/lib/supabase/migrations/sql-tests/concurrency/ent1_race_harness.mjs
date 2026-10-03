@@ -1,21 +1,22 @@
 #!/usr/bin/env node
-// ENT-1 -- real concurrency verification of reserve_usage_allowance (DEV ONLY).
+// ENT-1 -- real concurrency verification of the campaign-level allowance reservation (DEV ONLY).
 //
-//   ENT1_BAND=<n> node ent1_race_harness.mjs run
+//   ENT1_BAND=<n> node ent1_race_harness.mjs
 //
-// Every competing request is its own PostgREST RPC (own backend connection, own
-// transaction), fired at the same instant with Promise.all. The per-workspace
-// advisory lock must serialize them so that, however they interleave:
-//   - the sum of granted reservations never exceeds the allowance;
-//   - concurrent campaigns that cannot all fit are granted all-or-nothing each
-//     (no partial reservation);
-//   - finalizing concurrently with new reservations never double counts.
+// Every competing request is its own PostgREST RPC (own backend connection, own transaction), fired at the same instant
+// with Promise.all. The per-workspace advisory lock must serialize them so that, however they interleave:
+//   A. the sum of admitted campaigns never exceeds the allowance, and each is admitted whole (no partial admission);
+//   B. settling concurrently with new admissions records only successes and never lets used + committed pass the allowance;
+//   C. MULTI-BATCH: a campaign admitted for 600 recipients (more than one 500-recipient batch) keeps its capacity for the
+//      later batch while 20 other campaigns race for it, and its second batch is never refused;
+//   D. a double submit of the same campaign admits it once (the second is 'in_progress');
+//   E. capacity of an unsettled batch is never released.
 //
-// Safety: refuses unless the linked project AND the API URL are DEV
-// (epdrtzcydvnoidwrepqz). Never reads a PROD credential. It creates one synthetic
-// studio (slug t-ent1-race-<band>) and deletes it, with all of its usage rows,
-// at the end of the run. Use a new ENT1_BAND for every run.
+// Safety: refuses unless the linked project AND the API URL are DEV (epdrtzcydvnoidwrepqz). Never reads a PROD credential.
+// It creates one synthetic studio (slug t-ent1-race-<band>) and deletes it, with all of its usage rows, at the end of the run.
+// Use a new ENT1_BAND for every run.
 
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,20 +46,24 @@ async function rest(path, init = {}) {
   if (!res.ok) throw new Error(`${path} -> ${res.status} ${text}`);
   return text ? JSON.parse(text) : null;
 }
+const now = new Date();
 const period = {
-  start: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString().slice(0, 10),
-  end: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1)).toISOString().slice(0, 10),
+  start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10),
+  end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10),
 };
-const reserve = (studioId, qty, allowance, key) =>
+const uuids = (n) => Array.from({ length: n }, () => randomUUID());
+const reserve = (studioId, pending, allowance, key, batch = Math.min(pending, 500)) =>
   rest("rpc/reserve_usage_allowance", {
     method: "POST",
     body: JSON.stringify({
       p_workspace_type: "studio", p_studio_id: studioId, p_organizer_id: null, p_feature_key: "email_campaign_recipient",
-      p_quantity: qty, p_allowance: allowance, p_period_start: period.start, p_period_end: period.end,
+      p_quantity: pending, p_allowance: allowance, p_period_start: period.start, p_period_end: period.end,
       p_idempotency_key: key, p_source: "ent1_race", p_related_table: null, p_related_id: null, p_created_by: null,
+      p_batch_recipient_ids: uuids(batch), p_stale_seconds: 900,
     }),
   });
-const finalize = (id, consumed) => rest("rpc/finalize_usage_reservation", { method: "POST", body: JSON.stringify({ p_reservation_id: id, p_quantity_consumed: consumed }) });
+const settle = (id, sent, pending) =>
+  rest("rpc/settle_usage_reservation", { method: "POST", body: JSON.stringify({ p_reservation_id: id, p_batch_sent: sent, p_pending_remaining: pending }) });
 
 let failures = 0;
 const check = (name, ok, detail = "") => { console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` ${detail}` : ""}`); if (!ok) failures += 1; };
@@ -67,38 +72,61 @@ async function used(studioId) {
   const rows = await rest(`usage_monthly_summaries?studio_id=eq.${studioId}&feature_key=eq.email_campaign_recipient&period_start=eq.${period.start}&select=quantity_used`);
   return rows[0]?.quantity_used ?? 0;
 }
+async function committed(studioId) {
+  const rows = await rest(`usage_reservations?studio_id=eq.${studioId}&status=eq.reserved&select=quantity_reserved,quantity_consumed`);
+  return rows.reduce((s, r) => s + r.quantity_reserved - r.quantity_consumed, 0);
+}
 
 const [studio] = await rest("studios", { method: "POST", body: JSON.stringify({ name: `ENT-1 race ${band}`, slug }) });
 try {
-  // A. 30 concurrent requests of 100 against an allowance of 1000: exactly 10 may be granted.
-  let results = await Promise.all(Array.from({ length: 30 }, (_, i) => reserve(studio.id, 100, 1000, `a-${i}`)));
-  let granted = results.filter((r) => r.ok);
-  check("A1 exactly 10 of 30 concurrent 100-recipient reservations granted", granted.length === 10, `granted=${granted.length}`);
-  check("A2 granted total never exceeds the allowance", granted.reduce((s, r) => s + r.quantity, 0) <= 1000);
-  check("A3 refusals are limit_reached", results.filter((r) => !r.ok).every((r) => r.reason === "limit_reached"));
+  // A. 30 concurrent admissions of 100 against 1000: exactly 10, each whole.
+  const a = await Promise.all(Array.from({ length: 30 }, (_, i) => reserve(studio.id, 100, 1000, `a-${i}`)));
+  const admitted = a.filter((r) => r.ok);
+  check("A1 exactly 10 of 30 concurrent 100-recipient campaigns admitted", admitted.length === 10, `admitted=${admitted.length}`);
+  check("A2 refusals are limit_reached and commit nothing", a.filter((r) => !r.ok).every((r) => r.reason === "limit_reached") && (await committed(studio.id)) === 1000);
 
-  // B. Finalize 6 of them with 100 successes, 4 with 40 (failures consume nothing) while 8 new requests race in.
-  const live = granted.map((r) => r.reservation_id);
+  // B. settle (successes only) while 8 new campaigns race for the freed capacity.
   const racing = Array.from({ length: 8 }, (_, i) => reserve(studio.id, 100, 1000, `b-${i}`));
-  const finals = live.map((id, i) => finalize(id, i < 6 ? 100 : 40));
-  const [afterB, ...fin] = [await Promise.all(racing), ...(await Promise.all(finals))];
-  check("B1 all finalizations ok", fin.every((f) => f.ok));
-  const usedNow = await used(studio.id);
-  check("B2 usage equals successful recipients only", usedNow === 6 * 100 + 4 * 40, `used=${usedNow}`);
-  const grantedB = afterB.filter((r) => r.ok).length;
-  check("B3 racing reservations never pushed used + reserved over 1000", usedNow + grantedB * 100 <= 1000, `used=${usedNow} grantedB=${grantedB}`);
+  const settles = admitted.map((r, i) => settle(r.reservation_id, i < 6 ? 100 : 40, 0)); // 6 fully delivered, 4 with 60 failures
+  const [afterB, ...fin] = [await Promise.all(racing), ...(await Promise.all(settles))];
+  check("B1 all settles ok", fin.every((f) => f.ok));
+  const usedB = await used(studio.id);
+  check("B2 usage equals successful recipients only", usedB === 6 * 100 + 4 * 40, `used=${usedB}`);
+  const commB = await committed(studio.id);
+  check("B3 used + committed never exceeds the allowance", usedB + commB <= 1000, `used=${usedB} committed=${commB}`);
 
-  // C. Two campaigns of 600 against 1000 (fresh key space, after releasing B reservations): all or nothing each.
-  const open = await rest(`usage_reservations?studio_id=eq.${studio.id}&status=eq.reserved&select=id`);
-  await Promise.all(open.map((o) => rest("rpc/release_usage_reservation", { method: "POST", body: JSON.stringify({ p_reservation_id: o.id }) })));
-  const remaining = 1000 - (await used(studio.id));
-  const pair = await Promise.all([reserve(studio.id, remaining - 10, 1000, "c-1"), reserve(studio.id, remaining - 10, 1000, "c-2")]);
-  check("C1 two campaigns that cannot both fit: exactly one is granted", pair.filter((r) => r.ok).length === 1, JSON.stringify(pair.map((r) => r.ok)));
-  check("C2 the refused one reserved nothing", (await rest(`usage_reservations?studio_id=eq.${studio.id}&idempotency_key=in.(c-1,c-2)&select=id`)).length === 1);
+  // clean slate for C: settle every open campaign with nothing more pending, then use a fresh workspace state
+  for (const r of afterB.filter((x) => x.ok)) await settle(r.reservation_id, 0, 0);
+  const base = await used(studio.id); // 760
+  const allowanceC = base + 1000; // 1000 free for the multi-batch scenario
 
-  // D. The same key fired 20 times concurrently returns one reservation.
-  const same = await Promise.all(Array.from({ length: 20 }, () => reserve(studio.id, 1, 1000, "d-same")));
-  check("D1 one key, 20 concurrent calls: one reservation", new Set(same.filter((r) => r.ok).map((r) => r.reservation_id)).size === 1);
+  // C. MULTI-BATCH under contention.
+  const m = await reserve(studio.id, 600, allowanceC, "c-multi", 500); // admitted for all 600, mails a 500 batch
+  check("C1 the 600-recipient campaign is admitted whole", m.ok && m.committed === 600, JSON.stringify(m));
+  const m1 = await settle(m.reservation_id, 500, 100); // 500 delivered, 100 still pending
+  check("C2 first batch settled: commitment shrinks to the 100 still pending", m1.ok && m1.quantity_still_committed === 100, JSON.stringify(m1));
+  // 20 other campaigns of 100 race with the campaign's own second batch
+  const thieves = Array.from({ length: 20 }, (_, i) => reserve(studio.id, 100, allowanceC, `c-thief-${i}`));
+  const second = reserve(studio.id, 100, allowanceC, "c-multi", 100);
+  const [secondResult, ...thiefResults] = await Promise.all([second, ...thieves]);
+  check("C3 the campaign's second batch is NEVER refused (it continues under its commitment)", secondResult.ok && secondResult.continued === true, JSON.stringify(secondResult));
+  const grantedThieves = thiefResults.filter((r) => r.ok).length;
+  // 1000 free: 500 used by the campaign + 100 committed to it => 400 free => exactly 4 thieves of 100
+  check("C4 other campaigns got exactly the uncommitted capacity (4 of 20)", grantedThieves === 4, `granted=${grantedThieves}`);
+  const m2 = await settle(m.reservation_id, 100, 0);
+  check("C5 the campaign finishes: all 600 recorded, reservation finalized", m2.ok && m2.status === "finalized" && (await used(studio.id)) === base + 600, JSON.stringify(m2));
+  for (const r of thiefResults.filter((x) => x.ok)) await settle(r.reservation_id, 0, 0);
+
+  // D. double submit of one campaign: admitted once.
+  const key = "d-double";
+  const d = await Promise.all(Array.from({ length: 10 }, () => reserve(studio.id, 50, allowanceC + 5000, key, 50)));
+  check("D1 one campaign key fired 10 times concurrently admits exactly once", d.filter((r) => r.ok).length === 1 && d.filter((r) => r.reason === "in_progress").length === 9, JSON.stringify(d.map((r) => r.ok ? "ok" : r.reason)));
+
+  // E. an unsettled batch keeps its capacity.
+  const free = allowanceC + 5000 - base - 600 - 50 + 0; // remaining after D's open batch (50) and usage so far
+  const e = await reserve(studio.id, free + 1, allowanceC + 5000, "e-over");
+  check("E1 capacity of an open (unsettled) batch is never released", !e.ok && e.reason === "limit_reached", JSON.stringify(e));
+  await settle(d.find((r) => r.ok).reservation_id, 0, 0);
 } finally {
   await rest(`studios?id=eq.${studio.id}`, { method: "DELETE" });
   console.log(`cleanup: deleted synthetic studio ${slug}`);

@@ -161,12 +161,32 @@ describe("organizer campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(db.tables.usage_reservations[0]).toMatchObject({ status: "finalized", quantity_reserved: 10, quantity_consumed: 6 });
   });
 
-  it("keeps the existing delivery semantics: the provider accepting the call is a send (nothing about delivery changed)", async () => {
+  // Provider contract (Resend SDK 6.x): send() does not throw on an API-level failure. It resolves a Response<T> that is
+  // { data: T, error: null } on acceptance or { data: null, error: ErrorResponse } on failure. A non-null error means the
+  // message was NOT accepted. The organizer pipeline used to ignore it and record the recipient as 'sent'; ENT-1 fixes that
+  // so a failed recipient is recorded as failed and never consumes allowance (the studio pipeline always checked it).
+  it("PROVIDER CONTRACT: a resolved { data: null, error } is a failed recipient: recorded as failed, no allowance consumed", async () => {
     seed([{ id: "c1", pending: 3 }]);
-    h.send.mockResolvedValue({ data: null, error: { message: "api error" } }); // this pipeline has always treated a resolved call as sent
+    h.send.mockResolvedValue({ data: null, error: { message: "api error", statusCode: 422, name: "validation_error" } });
     await send("c1");
-    expect(statuses("c1")).toEqual({ sent: 3 });
-    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(3);
+    expect(statuses("c1")).toEqual({ failed: 3 });
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(0);
+    expect(db.tables.usage_events).toHaveLength(0);
+    expect(db.tables.organizer_marketing_campaign_recipients.every((r) => r.error_message === "api error")).toBe(true);
+  });
+
+  it("PROVIDER CONTRACT: an accepted send ({ data: { id }, error: null }) is sent and consumes allowance; mixed outcomes are counted per recipient", async () => {
+    seed([{ id: "c1", pending: 6 }]);
+    h.send.mockImplementation(async (args: { to: string[] }) => {
+      const email = args.to[0];
+      if (/-r0@/.test(email)) return { data: null, error: { message: "rejected" } }; // resolved failure
+      if (/-r1@/.test(email)) throw new Error("network down"); // thrown failure
+      return { data: { id: "ok-" + email }, error: null }; // accepted
+    });
+    await send("c1");
+    expect(statuses("c1")).toEqual({ failed: 2, sent: 4 });
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(4);
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "finalized", quantity_consumed: 4 });
   });
 
   it("a missing marketing footer after reserving releases the whole reservation and sends nothing", async () => {
@@ -176,8 +196,8 @@ describe("organizer campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(url).toContain("campaign_error=missing_marketing_footer");
     expect(h.send).not.toHaveBeenCalled();
     expect(usedThisMonth(db, "organizer_id", ORG)).toBe(0);
-    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "finalized", quantity_consumed: 0 });
-    // the allowance is free again
+    // a campaign that mailed nobody holds no commitment: the allowance is free again
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "released", quantity_consumed: 0 });
     expect(db.tables.usage_reservations.filter((r) => r.status === "reserved")).toHaveLength(0);
   });
 
@@ -188,6 +208,54 @@ describe("organizer campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(results.filter((u) => u?.includes("allowance_exceeded"))).toHaveLength(1);
     expect(h.send).toHaveBeenCalledTimes(500);
     expect(usedThisMonth(db, "organizer_id", ORG)).toBe(500);
+  });
+
+  it("MULTI-BATCH: a later batch continues under the campaign's commitment; another campaign cannot take it in between", async () => {
+    seed([{ id: "c1", pending: 600 }, { id: "c2", pending: 450 }]);
+    expect(await send("c1")).toContain("campaign_sent=1"); // admitted for all 600, mails the first 500
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(500);
+    // 1000 - 500 used - 100 still committed to c1 = 400 free: c2 (450) must wait, whatever it tries
+    expect(await send("c2")).toContain("allowance_exceeded");
+    expect(statuses("c2")).toEqual({ pending: 450 });
+    expect(await send("c1")).toContain("campaign_sent=1"); // the second batch is never blocked by c2's attempt
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(600);
+    expect(db.tables.organizer_marketing_campaigns.find((c) => c.id === "c1")?.status).toBe("sent");
+    expect(statuses("c1")).toEqual({ sent: 600 });
+  });
+
+  it("MULTI-BATCH: failures in the first batch release only their own share; the later batch still runs", async () => {
+    seed([{ id: "c1", pending: 700 }]);
+    h.send.mockImplementation(async (args: { to: string[] }) => {
+      if (/-r[0-9]@/.test(args.to[0])) throw new Error("down"); // r0..r9 fail
+      return { data: { id: "ok" }, error: null };
+    });
+    await send("c1");
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(490);
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "reserved", quantity_consumed: 490 });
+    expect(Number(db.tables.usage_reservations[0].quantity_reserved) - 490).toBe(200); // only the still-pending 200 stay committed
+    h.send.mockResolvedValue({ data: { id: "ok" }, error: null });
+    await send("c1");
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(690);
+  });
+
+  it("DURABLE: a settle outage never releases capacity or loses the successes; the next state read reconciles them once", async () => {
+    seed([{ id: "c1", pending: 10 }, { id: "c2", pending: 991 }]);
+    const original = db.failRpc;
+    original.add("settle_usage_reservation");
+    expect(await send("c1")).toContain("campaign_sent=1"); // all 10 mailed and recorded as sent
+    expect(statuses("c1")).toEqual({ sent: 10 });
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(0); // not recorded yet...
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "reserved" });
+    // ...but the capacity is still held: c2 (991) cannot be admitted into the 10 that were just mailed
+    expect(await send("c2")).toContain("allowance_exceeded");
+    // the database recovers; the unsettled batch is stale (the request is long gone)
+    original.delete("settle_usage_reservation");
+    db.tables.usage_reservations[0].batch_started_at = new Date(Date.now() - 3_600_000).toISOString();
+    // the next time anything reads the allowance, the 10 successes are counted from the durable 'sent' records, once
+    expect(await send("c2")).toContain("allowance_exceeded"); // 991 > 990
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(10);
+    expect(db.tables.usage_reservations[0].status).toBe("finalized");
+    expect(db.tables.usage_events).toHaveLength(1);
   });
 
   it("many concurrent sends never exceed the monthly allowance", async () => {

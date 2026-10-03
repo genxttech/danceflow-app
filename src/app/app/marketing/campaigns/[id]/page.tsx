@@ -804,7 +804,7 @@ export default async function MarketingCampaignDetailPage({
   const marketingFooterAddress = formatMarketingFooterAddress(studioFooter);
   // ENT-1: the send path re-checks the monthly allowance atomically; this only informs the page and disables the button.
   const allowanceDecision = evaluateCampaignAllowance(
-    await getCampaignAllowanceState({ type: "studio", studioId: campaign.studio_id }),
+    await getCampaignAllowanceState({ type: "studio", studioId: campaign.studio_id }, { campaignId: campaign.id }),
     recipientStatusCounts.pending,
   );
   const canSendCampaign =

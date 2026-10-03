@@ -176,13 +176,13 @@ describe("studio campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(db.tables.usage_reservations[0]).toMatchObject({ status: "finalized", quantity_reserved: 10, quantity_consumed: 6 });
   });
 
-  it("when every recipient fails nothing is recorded and the whole reservation is released", async () => {
+  it("when every recipient fails nothing is recorded and nothing stays committed", async () => {
     seed([{ id: "c1", pending: 5 }]);
     h.send.mockRejectedValue(new Error("down"));
     await send("c1");
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
     expect(db.tables.usage_events).toHaveLength(0);
-    expect(db.tables.usage_reservations[0].quantity_consumed).toBe(0);
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "released", quantity_consumed: 0 });
   });
 
   it("an unexpected error mid-send still finalizes with the recipients already mailed", async () => {
@@ -212,7 +212,8 @@ describe("studio campaign send: monthly recipient allowance (ENT-1)", () => {
     await send("c1");
     // sends 1..4 reached the provider before the outage; the outage is caught per recipient, the rest continue
     expect(calls).toBe(6);
-    expect(db.tables.usage_reservations[0].status).toBe("finalized");
+    expect(["finalized", "reserved"]).toContain(db.tables.usage_reservations[0].status);
+    expect(db.tables.usage_reservations[0].batch_started_at).toBeNull(); // the batch was settled, not left open
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(Number(db.tables.usage_reservations[0].quantity_consumed));
     expect(Number(db.tables.usage_reservations[0].quantity_consumed)).toBeGreaterThan(0);
   });
@@ -244,14 +245,68 @@ describe("studio campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(statuses("c1")).toEqual({ pending: 600 });
   });
 
-  it("a campaign mailed over two actions consumes allowance per successful batch", async () => {
+  it("a campaign mailed over two actions consumes allowance per successful batch, under ONE reservation", async () => {
     seed([{ id: "c1", pending: 600 }]);
     await send("c1");
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(500);
     expect(campaignStatus("c1")).toBe("draft"); // 100 still pending
+    expect(db.tables.usage_reservations).toHaveLength(1);
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "reserved", quantity_consumed: 500, quantity_reserved: 600 });
     await send("c1");
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(600);
     expect(campaignStatus("c1")).toBe("sent");
+    expect(db.tables.usage_reservations).toHaveLength(1);
+    expect(db.tables.usage_reservations[0].status).toBe("finalized");
+  });
+
+  it("MULTI-BATCH: another campaign cannot take the capacity committed to a campaign in progress, and the later batch is never blocked", async () => {
+    seed([{ id: "c1", pending: 600 }, { id: "c2", pending: 450 }]);
+    expect(await send("c1")).toContain("campaign_sent=1");
+    expect(await send("c2")).toContain("allowance_exceeded"); // 400 free, 450 needed: c2 sends nothing
+    expect(statuses("c2")).toEqual({ pending: 450 });
+    expect(await send("c1")).toContain("campaign_sent=1"); // second batch continues
+    expect(statuses("c1")).toEqual({ sent: 600 });
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(600);
+  });
+
+  it("MULTI-BATCH: no allowance level other than a campaign's own size can leave it partially mailed (1,500 recipients on pro)", async () => {
+    h.plan = { studioId: STUDIO, status: "active", planCode: "pro", planName: "Pro" };
+    seed([{ id: "big", pending: 1500 }, ...Array.from({ length: 6 }, (_, i) => ({ id: `o${i}`, pending: 700 }))]);
+    expect(await send("big")).toContain("campaign_sent=1"); // admitted for 1,500, mails 500
+    // other campaigns race for what is left: 5,000 - 500 used - 1,000 still committed = 3,500 free: five 700s fit, the sixth must not
+    const others = await Promise.all(Array.from({ length: 6 }, (_, i) => send(`o${i}`)));
+    expect(others.filter((u) => u?.includes("allowance_exceeded")).length).toBeGreaterThanOrEqual(1);
+    expect(await send("big")).toContain("campaign_sent=1");
+    expect(await send("big")).toContain("campaign_sent=1");
+    expect(statuses("big")).toEqual({ sent: 1500 }); // never partially mailed
+  });
+
+  it("DURABLE: if settling is unavailable, successful sends are not lost and capacity is not reused; the next state read reconciles them once", async () => {
+    seed([{ id: "c1", pending: 10 }, { id: "c2", pending: 991 }]);
+    db.failRpc.add("settle_usage_reservation");
+    expect(await send("c1")).toContain("campaign_sent=1");
+    expect(statuses("c1")).toEqual({ sent: 10 });
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
+    expect(db.tables.usage_reservations[0].status).toBe("reserved");
+    expect(await send("c2")).toContain("allowance_exceeded"); // the 10 mailed recipients' capacity is still held
+    db.failRpc.delete("settle_usage_reservation");
+    db.tables.usage_reservations[0].batch_started_at = new Date(Date.now() - 3_600_000).toISOString();
+    expect(await send("c2")).toContain("allowance_exceeded");
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(10);
+    expect(db.tables.usage_events).toHaveLength(1);
+    expect(db.tables.usage_reservations[0].status).toBe("finalized");
+  });
+
+  it("a second action while the campaign's first batch is still open is a lock, never a second send", async () => {
+    seed([{ id: "c1", pending: 5 }]);
+    db.failRpc.add("settle_usage_reservation");
+    await send("c1"); // leaves the batch open (settle unavailable), campaign now 'sent' in the fake: reopen it to retry
+    db.tables.marketing_campaigns[0].status = "draft";
+    for (const r of db.tables.marketing_campaign_recipients) r.status = "pending";
+    h.send.mockClear();
+    const url = await send("c1");
+    expect(url).toContain("campaign_error=campaign_locked");
+    expect(h.send).not.toHaveBeenCalled();
   });
 
   it("repeating a finished send changes nothing (already sent) and never reserves again", async () => {

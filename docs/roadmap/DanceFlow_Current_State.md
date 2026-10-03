@@ -39,8 +39,8 @@ BR-4 (Public Website & Launch Messaging) is merged and live. Public smoke of the
 | **Candidate branch** | `ent-1-email-campaign-allowance` |
 | **Branch base** | `1310e3a107404c7c81fd031696dcf9cf120c76d6` (current main) |
 | **Exact candidate head** | The head commit of the ENT-1 branch or pull request (a commit cannot contain its own SHA) |
-| **Status** | ENT-1: COMPLETE ON CANDIDATE BRANCH / AWAITING FOCUSED REVIEW. Monthly email-campaign recipient allowance enforced for studio and organizer sends (atomic reserve, send, finalize successes only, release the rest) |
-| **Migration** | `20261013090000_ent1_usage_allowance_reservations.sql`: applied and verified in DEV; **PROD migration required** (not applied) |
+| **Status** | ENT-1: COMPLETE ON CANDIDATE BRANCH / AWAITING FINAL FOCUSED REVIEW. Monthly email-campaign recipient allowance enforced for studio and organizer sends: whole-campaign atomic admission, delivery in the existing batches under that one commitment, success-only durable settlement, stale-batch reconciliation. Also fixes the organizer send pipeline recording provider-rejected sends as sent |
+| **Migration** | `20261013090000_ent1_usage_allowance_reservations.sql` (a single file; an earlier per-batch candidate of it was DEV-only and was dropped from DEV before this version was applied): applied and verified in DEV; **PROD migration required** (not applied) |
 | **Deployment** | Required after the PROD migration (application change) |
 | **Phase 4** | Remains PARTIAL: SMS gating, payroll/marketplace/ARIA billing keys and the upgrade-prompt component are not done |
 

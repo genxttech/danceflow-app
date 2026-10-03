@@ -821,7 +821,7 @@ export default async function OrganizerCampaignDetailPage({
   );
   // ENT-1: the send path re-checks the monthly allowance atomically; this only informs the page and disables the button.
   const allowanceDecision = evaluateCampaignAllowance(
-    await getCampaignAllowanceState({ type: "organizer", organizerId: campaign.organizer_id }),
+    await getCampaignAllowanceState({ type: "organizer", organizerId: campaign.organizer_id }, { campaignId: campaign.id }),
     recipientTotals.pending,
   );
   const campaignReadyToSend =

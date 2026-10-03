@@ -10,8 +10,8 @@ import { requireStudioFeature } from "@/lib/billing/access";
 import { resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";
 import {
   CampaignAllowanceBlockedError,
-  finalizeCampaignAllowance,
   reserveCampaignSendAllowance,
+  settleCampaignBatch,
 } from "@/lib/usage/campaignAllowance";
 import {
   hasUnsuppressedPackageWarning,
@@ -1235,10 +1235,24 @@ export async function sendMarketingCampaignAction(formData: FormData) {
         }
       }
     } finally {
-      // Successful recipients become usage; the unused part of the reservation is released (also on an unexpected throw).
-      await finalizeCampaignAllowance({
+      // Successful recipients become usage and the commitment shrinks to what is still pending (also on an unexpected throw).
+      // If settling fails the capacity stays held and the batch is reconciled later: a successful send is never left uncounted.
+      let pendingAfter: number | null = null;
+      try {
+        const { count } = await supabase
+          .from("marketing_campaign_recipients")
+          .select("id", { count: "exact", head: true })
+          .eq("campaign_id", campaign.id)
+          .eq("studio_id", studioId)
+          .eq("status", "pending");
+        pendingAfter = count === null || count === undefined ? null : Number(count);
+      } catch (error) {
+        console.error("pending recipient count failed after send", error);
+      }
+      await settleCampaignBatch({
         reservationId: reservation.reservationId,
         sentCount,
+        pendingRemaining: pendingAfter,
         metadata: { campaign_id: campaign.id, attempted: pendingRecipients.length },
       });
     }

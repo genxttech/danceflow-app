@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { finalizeCampaignAllowance, reserveCampaignSendAllowance } from "@/lib/usage/campaignAllowance";
+import { reserveCampaignSendAllowance, settleCampaignBatch } from "@/lib/usage/campaignAllowance";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 
 const AUDIENCE_TYPES = new Set([
@@ -1022,10 +1022,18 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
           replyTo,
         });
 
+        // Resend's send() does not throw on an API-level failure: it resolves { data: null, error } (the SDK's
+        // Response<T> is { data: T; error: null } | { data: null; error: ErrorResponse }), so a non-null error means the
+        // message was NOT accepted. Without this check a rejected send was recorded as 'sent' (the studio path has always
+        // checked it). A failed recipient must not be recorded as sent and must not consume allowance.
+        if (result.error) {
+          throw new Error(result.error.message || "Send failed");
+        }
+
         const messageId =
           typeof result.data?.id === "string" ? result.data.id : null;
 
-        sentCount += 1; // the existing pipeline treats a resolved send as sent: this is what consumes allowance
+        sentCount += 1; // the provider accepted this recipient: this is what consumes allowance
 
         await supabase
           .from("organizer_marketing_campaign_recipients")
@@ -1055,11 +1063,25 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
       }
     }
   } finally {
-    // Successful recipients become usage; the unused part of the reservation is released (also when a redirect or an
-    // unexpected error leaves this block early, for example the missing marketing footer).
-    await finalizeCampaignAllowance({
+    // Successful recipients become usage and the commitment shrinks to what is still pending (also when a redirect or an
+    // unexpected error leaves this block early, for example the missing marketing footer). If settling fails the capacity
+    // stays held and the batch is reconciled later: a successful send is never left uncounted.
+    let pendingAfter: number | null = null;
+    try {
+      const { count } = await supabase
+        .from("organizer_marketing_campaign_recipients")
+        .select("id", { count: "exact", head: true })
+        .eq("campaign_id", campaign.id)
+        .eq("organizer_id", campaign.organizer_id)
+        .eq("status", "pending");
+      pendingAfter = count === null || count === undefined ? null : Number(count);
+    } catch (error) {
+      console.error("pending recipient count failed after send", error);
+    }
+    await settleCampaignBatch({
       reservationId: reservation.reservationId,
       sentCount,
+      pendingRemaining: pendingAfter,
       metadata: { campaign_id: campaign.id, attempted: pendingRecipients.length },
     });
   }

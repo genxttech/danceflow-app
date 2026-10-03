@@ -3,8 +3,8 @@ import { createFakeDb, monthStart, usedThisMonth, type FakeDb } from "./fakeCamp
 
 /**
  * ENT-1: the monthly email-campaign recipient allowance. Allowance resolution (plan policy, fail-closed entitlement),
- * the pure preflight, the user-facing language, and the reserve / finalize / release client over the reservation
- * functions. The database functions themselves are verified against the real database by
+ * the pure preflight, the user-facing language, and the campaign-level reserve / settle / reconcile client over the
+ * reservation functions. The database functions themselves are verified against the real database by
  * sql-tests/test_T_ent1_usage_allowance_reservations.sql and concurrency/ent1_race_harness.mjs.
  */
 
@@ -21,13 +21,13 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 const {
   campaignAllowanceMessageFromQuery,
   campaignAllowanceQuery,
-  campaignBatchKey,
+  campaignReservationKey,
   describeCampaignAllowanceBlock,
   evaluateCampaignAllowance,
-  finalizeCampaignAllowance,
   getCampaignAllowanceState,
-  releaseCampaignAllowance,
+  reconcileStaleCampaignBatches,
   reserveCampaignSendAllowance,
+  settleCampaignBatch,
 } = await import("../campaignAllowance");
 
 const STUDIO = "studio-a";
@@ -125,20 +125,19 @@ describe("allowance resolution (policy unchanged: starter 0, growth 1,000, pro 5
     expect(s.totalAllowance).toBe(1250);
   });
 
-  it("remaining subtracts recorded usage and live reservations, but not expired ones or this month's neighbours", async () => {
+  it("remaining subtracts recorded usage and the capacity still committed to campaigns in progress (consumed excluded)", async () => {
     plan("growth");
-    const soon = new Date(Date.now() + 600_000).toISOString();
-    const past = new Date(Date.now() - 600_000).toISOString();
     db.tables.usage_monthly_summaries.push(
       { studio_id: STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), quantity_used: 300 },
       { studio_id: OTHER_STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), quantity_used: 900 },
       { studio_id: STUDIO, feature_key: "email_campaign_recipient", period_start: "2020-01-01", quantity_used: 777 },
     );
     db.tables.usage_reservations.push(
-      { studio_id: STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), status: "reserved", quantity_reserved: 100, expires_at: soon },
-      { studio_id: STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), status: "reserved", quantity_reserved: 50, expires_at: past },
-      { studio_id: STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), status: "released", quantity_reserved: 40, expires_at: soon },
-      { studio_id: OTHER_STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), status: "reserved", quantity_reserved: 500, expires_at: soon },
+      // 250 committed in total, 150 of it already consumed (and already inside the 300 used): 100 still committed
+      { studio_id: STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), status: "reserved", quantity_reserved: 250, quantity_consumed: 150, idempotency_key: "campaign:x", batch_started_at: null },
+      { studio_id: STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), status: "released", quantity_reserved: 40, quantity_consumed: 0, idempotency_key: "campaign:y", batch_started_at: null },
+      { studio_id: STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), status: "finalized", quantity_reserved: 60, quantity_consumed: 60, idempotency_key: "campaign:z", batch_started_at: null },
+      { studio_id: OTHER_STUDIO, feature_key: "email_campaign_recipient", period_start: monthStart(new Date()), status: "reserved", quantity_reserved: 500, quantity_consumed: 0, idempotency_key: "campaign:w", batch_started_at: null },
     );
     const s = await studioState();
     expect(s.used).toBe(300);
@@ -223,15 +222,14 @@ describe("language: contextual upgrade only, no add-on, no pricing", () => {
   });
 });
 
-describe("campaignBatchKey", () => {
-  it("is stable for the same recipients in any order and differs when they differ", () => {
-    expect(campaignBatchKey("c1", ["a", "b", "c"])).toBe(campaignBatchKey("c1", ["c", "a", "b"]));
-    expect(campaignBatchKey("c1", ["a", "b"])).not.toBe(campaignBatchKey("c1", ["a", "b", "c"]));
-    expect(campaignBatchKey("c1", ["a"])).not.toBe(campaignBatchKey("c2", ["a"]));
+describe("campaignReservationKey", () => {
+  it("is one stable key per campaign: every batch of a campaign continues under the same logical send", () => {
+    expect(campaignReservationKey("c1")).toBe("campaign:c1");
+    expect(campaignReservationKey("c1")).not.toBe(campaignReservationKey("c2"));
   });
 });
 
-describe("reserve / finalize / release", () => {
+describe("campaign-level reservation: admission, continuation, settle, reconcile", () => {
   const ids = (n: number, prefix = "r") => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
   const reserve = (over: { eligible?: number; batch?: string[]; campaignId?: string } = {}) =>
     reserveCampaignSendAllowance({
@@ -244,6 +242,10 @@ describe("reserve / finalize / release", () => {
       relatedTable: "marketing_campaigns",
       deps: { admin: asAdmin(db) },
     });
+  const settle = (reservationId: string, sentCount: number, pendingRemaining: number | null) =>
+    settleCampaignBatch({ reservationId, sentCount, pendingRemaining, deps: { admin: asAdmin(db) } });
+  const reservations = () => db.tables.usage_reservations;
+  const rpc = (name: string) => db.rpcCalls.filter((c) => c.name === name);
 
   it("blocks before reserving when the campaign does not fit, and never calls the database to reserve", async () => {
     plan("growth");
@@ -257,7 +259,7 @@ describe("reserve / finalize / release", () => {
       expect(result.query.allowance_total).toBe("1000");
       expect(result.query.allowance_used).toBe("840");
     }
-    expect(db.rpcCalls.filter((c) => c.name === "reserve_usage_allowance")).toHaveLength(0);
+    expect(rpc("reserve_usage_allowance")).toHaveLength(0);
   });
 
   it("a starter / zero-allowance workspace is blocked without any reservation", async () => {
@@ -276,53 +278,6 @@ describe("reserve / finalize / release", () => {
     expect(db.rpcCalls).toHaveLength(0);
   });
 
-  it("reserves exactly the batch, scoped to the workspace, with the server-resolved allowance", async () => {
-    plan("growth");
-    const result = await reserve({ eligible: 10, batch: ids(10) });
-    expect(result.ok).toBe(true);
-    const call = db.rpcCalls.find((c) => c.name === "reserve_usage_allowance")!;
-    expect(call.args).toMatchObject({ p_workspace_type: "studio", p_studio_id: STUDIO, p_organizer_id: null, p_feature_key: "email_campaign_recipient", p_quantity: 10, p_allowance: 1000, p_created_by: "user-1" });
-  });
-
-  it("reserves the WHOLE campaign's eligible recipients atomically, not just the batch it mails now", async () => {
-    plan("growth");
-    const result = await reserve({ eligible: 600, batch: ids(500) });
-    expect(result.ok).toBe(true);
-    expect(db.rpcCalls.find((c) => c.name === "reserve_usage_allowance")!.args.p_quantity).toBe(600);
-    if (!result.ok) return;
-    await finalizeCampaignAllowance({ reservationId: result.reservationId, sentCount: 500, deps: { admin: asAdmin(db) } });
-    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(500);
-    expect((await studioState()).remaining).toBe(500); // the 100 not mailed this time are released
-  });
-
-  it("another sender taking the allowance between the read and the reservation blocks this send (the database is authoritative)", async () => {
-    plan("growth");
-    db.tables.usage_reservations.push({
-      id: "other", studio_id: STUDIO, workspace_type: "studio", feature_key: "email_campaign_recipient", period_start: monthStart(new Date()),
-      status: "reserved", quantity_reserved: 995, expires_at: new Date(Date.now() + 600_000).toISOString(), idempotency_key: "x",
-    });
-    // the read-only preflight sees 5 remaining; this batch needs 10 -> blocked by the preflight itself
-    expect((await reserve({ batch: ids(10) })).ok).toBe(false);
-    // simulate the race: the preflight saw room, then the other reservation landed
-    db.tables.usage_reservations[0].quantity_reserved = 0;
-    const originalFrom = db.from.bind(db);
-    let swapped = false;
-    db.from = (table: string) => {
-      const builder = originalFrom(table);
-      if (table === "usage_reservations" && !swapped) {
-        swapped = true;
-        queueMicrotask(() => { db.tables.usage_reservations[0].quantity_reserved = 995; });
-      }
-      return builder;
-    };
-    const raced = await reserve({ batch: ids(10) });
-    expect(raced.ok).toBe(false);
-    if (!raced.ok) {
-      expect(raced.reason).toBe("limit_reached");
-      expect(raced.query.allowance_remaining).toBe("5");
-    }
-  });
-
   it("a database error while reserving fails closed", async () => {
     plan("growth");
     db.failRpc.add("reserve_usage_allowance");
@@ -331,91 +286,213 @@ describe("reserve / finalize / release", () => {
     if (!result.ok) expect(result.reason).toBe("lookup_failed");
   });
 
-  it("finalize records only the recipients that succeeded; failed recipients consume nothing", async () => {
+  it("MULTI-BATCH: a campaign larger than one delivery batch commits its WHOLE eligible set at admission", async () => {
     plan("growth");
-    const result = await reserve({ batch: ids(10) });
-    if (!result.ok) throw new Error("expected a reservation");
-    expect(await finalizeCampaignAllowance({ reservationId: result.reservationId, sentCount: 7, deps: { admin: asAdmin(db) } })).toBe(true);
-    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(7);
-    // the 3 unused are released: 993 remain
-    expect((await studioState()).remaining).toBe(993);
+    const result = await reserve({ eligible: 600, batch: ids(500) });
+    expect(result.ok).toBe(true);
+    const call = rpc("reserve_usage_allowance")[0];
+    expect(call.args).toMatchObject({ p_workspace_type: "studio", p_studio_id: STUDIO, p_organizer_id: null, p_quantity: 600, p_allowance: 1000, p_idempotency_key: "campaign:camp-1", p_created_by: "user-1" });
+    expect((call.args.p_batch_recipient_ids as string[]).length).toBe(500); // delivery scope stays the safe batch
+    expect(Number(reservations()[0].quantity_reserved)).toBe(600);
+    expect((await studioState()).remaining).toBe(400);
   });
 
-  it("zero successes record no usage at all", async () => {
+  it("MULTI-BATCH: the first batch does not release capacity the later batch needs; a concurrent campaign cannot steal it", async () => {
     plan("growth");
-    const result = await reserve({ batch: ids(10) });
-    if (!result.ok) throw new Error("expected a reservation");
-    await finalizeCampaignAllowance({ reservationId: result.reservationId, sentCount: 0, deps: { admin: asAdmin(db) } });
+    const first = await reserve({ eligible: 600, batch: ids(500, "a") });
+    if (!first.ok) throw new Error("expected admission");
+    expect(await settle(first.reservationId, 500, 100)).toBe(true);
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(500);
+    // 1000 - 500 used - 100 still committed to the first campaign = 400 free: a 401-recipient campaign cannot take its 100
+    const thief = await reserve({ campaignId: "camp-thief", eligible: 401, batch: ids(401, "t") });
+    expect(thief.ok).toBe(false);
+    expect((await studioState()).remaining).toBe(400);
+  });
+
+  it("MULTI-BATCH: the later batch continues under the original reservation even after other campaigns used everything else", async () => {
+    plan("growth");
+    const first = await reserve({ campaignId: "camp-a", eligible: 600, batch: ids(500, "a") });
+    if (!first.ok) throw new Error("expected admission");
+    const other = await reserve({ campaignId: "camp-b", eligible: 400, batch: ids(400, "b") });
+    expect(other.ok).toBe(true); // fills the rest of the allowance exactly
+    expect(await settle(first.reservationId, 500, 100)).toBe(true);
+    if (other.ok) expect(await settle(other.reservationId, 400, 0)).toBe(true);
+    expect((await studioState()).remaining).toBe(0); // 900 used + 100 committed to camp-a
+    // the second batch of camp-a: nothing is free, yet it continues (its 100 are already committed)
+    const second = await reserve({ campaignId: "camp-a", eligible: 100, batch: ids(100, "a2") });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.continued).toBe(true);
+    expect(second.reservationId).toBe(first.reservationId);
+    expect(await settle(second.reservationId, 100, 0)).toBe(true);
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(1000);
+    expect(reservations().find((r) => r.id === first.reservationId)?.status).toBe("finalized");
+  });
+
+  it("MULTI-BATCH: no entitlement condition leaves an admitted campaign partially sent because allowance was consumed after admission", async () => {
+    plan("growth");
+    const first = await reserve({ campaignId: "camp-a", eligible: 1000, batch: ids(500, "a") });
+    if (!first.ok) throw new Error("expected admission");
+    // everyone else is blocked for the whole time, whatever they try
+    for (let i = 0; i < 5; i += 1) expect((await reserve({ campaignId: `x${i}`, eligible: 1, batch: ["x"] })).ok).toBe(false);
+    await settle(first.reservationId, 500, 500);
+    for (let i = 0; i < 5; i += 1) expect((await reserve({ campaignId: `y${i}`, eligible: 1, batch: ["y"] })).ok).toBe(false);
+    const second = await reserve({ campaignId: "camp-a", eligible: 500, batch: ids(500, "a2") });
+    expect(second.ok).toBe(true);
+    if (second.ok) await settle(second.reservationId, 500, 0);
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(1000);
+  });
+
+  it("failed recipients in a batch release only their own share; successes are the only usage", async () => {
+    plan("growth");
+    const first = await reserve({ campaignId: "camp-a", eligible: 700, batch: ids(500, "a") });
+    if (!first.ok) throw new Error("expected admission");
+    // 450 of the 500 delivered, 50 failed, 200 still pending
+    await settle(first.reservationId, 450, 200);
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(450);
+    expect((await studioState()).remaining).toBe(350); // 1000 - 450 used - 200 still committed
+    const next = await reserve({ campaignId: "camp-a", eligible: 200, batch: ids(200, "a2") });
+    expect(next.ok && next.continued).toBe(true);
+    if (next.ok) await settle(next.reservationId, 150, 0); // 50 more fail
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(600);
+    expect((await studioState()).remaining).toBe(400); // the failed recipients' capacity is free again
+  });
+
+  it("a campaign that mailed nobody holds no commitment", async () => {
+    plan("growth");
+    const result = await reserve({ eligible: 100, batch: ids(100) });
+    if (!result.ok) throw new Error("expected admission");
+    await settle(result.reservationId, 0, 0);
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
     expect(db.tables.usage_events).toHaveLength(0);
     expect((await studioState()).remaining).toBe(1000);
   });
 
-  it("a repeated finalize does not double count", async () => {
+  it("settle is idempotent: a retry never double counts", async () => {
     plan("growth");
-    const result = await reserve({ batch: ids(10) });
-    if (!result.ok) throw new Error("expected a reservation");
-    await finalizeCampaignAllowance({ reservationId: result.reservationId, sentCount: 4, deps: { admin: asAdmin(db) } });
-    await finalizeCampaignAllowance({ reservationId: result.reservationId, sentCount: 4, deps: { admin: asAdmin(db) } });
+    const result = await reserve({ eligible: 10, batch: ids(10) });
+    if (!result.ok) throw new Error("expected admission");
+    await settle(result.reservationId, 4, 6);
+    await settle(result.reservationId, 4, 6);
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(4);
   });
 
-  it("a repeated identical send reuses the same reservation (idempotent), never reserving twice", async () => {
+  it("a second action on a campaign whose batch is still open is refused as a lock, not an allowance problem", async () => {
     plan("growth");
-    const first = await reserve({ batch: ids(10) });
-    const second = await reserve({ batch: ids(10) });
-    expect(first.ok && second.ok && first.reservationId === second.reservationId).toBe(true);
-    expect(db.tables.usage_reservations).toHaveLength(1);
-    expect((await studioState()).remaining).toBe(990);
+    const first = await reserve({ eligible: 10, batch: ids(10) });
+    expect(first.ok).toBe(true);
+    const second = await reserve({ eligible: 10, batch: ids(10) });
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.reason).toBe("in_progress");
+      expect(second.query).toEqual({ campaign_error: "campaign_locked" });
+    }
+    expect(reservations()).toHaveLength(1);
   });
 
-  it("finalize retries once on a transient error and reports a persistent failure", async () => {
+  it("DURABLE: if settling keeps failing, the capacity stays held (never released) and the batch stays open", async () => {
     plan("growth");
-    const result = await reserve({ batch: ids(10) });
-    if (!result.ok) throw new Error("expected a reservation");
+    const result = await reserve({ eligible: 100, batch: ids(100) });
+    if (!result.ok) throw new Error("expected admission");
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    db.failRpc.add("finalize_usage_reservation");
-    expect(await finalizeCampaignAllowance({ reservationId: result.reservationId, sentCount: 3, deps: { admin: asAdmin(db) } })).toBe(false);
-    expect(db.rpcCalls.filter((c) => c.name === "finalize_usage_reservation")).toHaveLength(2);
+    db.failRpc.add("settle_usage_reservation");
+    expect(await settle(result.reservationId, 60, 0)).toBe(false);
+    expect(rpc("settle_usage_reservation")).toHaveLength(3); // retried
     errorSpy.mockRestore();
-  });
-
-  it("release frees the reservation without recording usage", async () => {
-    plan("growth");
-    const result = await reserve({ batch: ids(10) });
-    if (!result.ok) throw new Error("expected a reservation");
-    expect(await releaseCampaignAllowance({ reservationId: result.reservationId, deps: { admin: asAdmin(db) } })).toBe(true);
+    // 60 successful sends are not recorded yet, but the 100 stay committed: nobody can reuse that capacity
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
-    expect((await studioState()).remaining).toBe(1000);
+    expect(reservations()[0].status).toBe("reserved");
+    expect(reservations()[0].batch_started_at).toBeTruthy();
+    expect((await studioState()).remaining).toBe(900);
+    const other = await reserve({ campaignId: "camp-other", eligible: 901, batch: ids(901, "o") });
+    expect(other.ok).toBe(false);
   });
 
-  it("concurrent campaigns that cannot both fit: exactly one is reserved, none partially", async () => {
+  it("DURABLE: a stale unsettled batch is reconciled from the durable 'sent' records, exactly once, before anything is admitted", async () => {
+    plan("growth");
+    const batch = ids(100, "a");
+    const result = await reserve({ campaignId: "camp-a", eligible: 150, batch });
+    if (!result.ok) throw new Error("expected admission");
+    // the request died: 60 recipients were marked sent, 10 failed, 30 were never reached; 50 more were never in the batch
+    db.tables.marketing_campaign_recipients = [
+      ...batch.map((id, i) => ({ id, campaign_id: "camp-a", studio_id: STUDIO, status: i < 60 ? "sent" : i < 70 ? "failed" : "pending" })),
+      ...ids(50, "later").map((id) => ({ id, campaign_id: "camp-a", studio_id: STUDIO, status: "pending" })),
+    ];
+    reservations()[0].batch_started_at = new Date(Date.now() - 3_600_000).toISOString();
+
+    // capacity is still held while unresolved...
+    expect(reservations()[0].status).toBe("reserved");
+    // ...and the next state read repairs it
+    const state = await studioState();
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(60);
+    expect(reservations()[0].batch_started_at).toBeNull();
+    expect(state.used).toBe(60);
+    expect(state.reserved).toBe(80); // 30 + 50 still pending stay committed; the 10 failed were released
+    // repeated reconciliation changes nothing
+    await studioState();
+    await reconcileStaleCampaignBatches({ type: "studio", studioId: STUDIO }, { admin: asAdmin(db) });
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(60);
+    // and the campaign can continue
+    const next = await reserve({ campaignId: "camp-a", eligible: 80, batch: ids(80, "n") });
+    expect(next.ok && next.continued).toBe(true);
+  });
+
+  it("DURABLE: if the truth cannot be established the stale batch stays open and everything fails closed", async () => {
+    plan("growth");
+    const result = await reserve({ campaignId: "camp-a", eligible: 100, batch: ids(100) });
+    if (!result.ok) throw new Error("expected admission");
+    reservations()[0].batch_started_at = new Date(Date.now() - 3_600_000).toISOString();
+    const realFrom = db.from.bind(db);
+    db.from = (table: string) => {
+      if (table === "marketing_campaign_recipients") throw new Error("recipients unavailable");
+      return realFrom(table);
+    };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const blocked = await reserve({ campaignId: "camp-a", eligible: 100, batch: ids(100, "b") });
+    errorSpy.mockRestore();
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.reason).toBe("lookup_failed");
+    expect(reservations()[0].status).toBe("reserved");
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
+  });
+
+  it("concurrent campaigns that cannot both fit: exactly one is admitted, none partially", async () => {
     plan("growth");
     const [a, b, c] = await Promise.all([
       reserve({ campaignId: "camp-a", batch: ids(600, "a") }),
       reserve({ campaignId: "camp-b", batch: ids(600, "b") }),
       reserve({ campaignId: "camp-c", batch: ids(600, "c") }),
     ]);
-    const granted = [a, b, c].filter((r) => r.ok);
-    expect(granted).toHaveLength(1);
-    const reservedTotal = db.tables.usage_reservations.filter((r) => r.status === "reserved").reduce((s, r) => s + Number(r.quantity_reserved), 0);
-    expect(reservedTotal).toBe(600);
+    expect([a, b, c].filter((r) => r.ok)).toHaveLength(1);
+    expect(reservations().filter((r) => r.status === "reserved").reduce((s, r) => s + Number(r.quantity_reserved), 0)).toBe(600);
   });
 
   it("many concurrent campaigns never overshoot the monthly allowance", async () => {
     plan("growth");
     const results = await Promise.all(Array.from({ length: 25 }, (_, i) => reserve({ campaignId: `camp-${i}`, batch: ids(100, `c${i}-`) })));
-    const reservedTotal = db.tables.usage_reservations.filter((r) => r.status === "reserved").reduce((s, r) => s + Number(r.quantity_reserved), 0);
     expect(results.filter((r) => r.ok)).toHaveLength(10);
-    expect(reservedTotal).toBeLessThanOrEqual(1000);
+    expect(reservations().reduce((s, r) => s + Number(r.quantity_reserved), 0)).toBeLessThanOrEqual(1000);
   });
 
-  it("workspaces are independent: studio B's reservations never affect studio A", async () => {
+  it("workspaces are independent: studio B's commitments never affect studio A", async () => {
     plan("growth");
     db.tables.usage_reservations.push({
       id: "b", studio_id: OTHER_STUDIO, workspace_type: "studio", feature_key: "email_campaign_recipient", period_start: monthStart(new Date()),
-      status: "reserved", quantity_reserved: 1000, expires_at: new Date(Date.now() + 600_000).toISOString(), idempotency_key: "x",
+      status: "reserved", quantity_reserved: 1000, quantity_consumed: 0, idempotency_key: "campaign:other", batch_started_at: null,
     });
-    expect((await reserve({ batch: ids(1000) })).ok).toBe(true);
+    expect((await reserve({ eligible: 1000, batch: ids(500) })).ok).toBe(true);
+  });
+
+  it("the page/preflight state counts capacity already committed to this campaign as available to it", async () => {
+    plan("growth");
+    const first = await reserve({ campaignId: "camp-a", eligible: 600, batch: ids(500, "a") });
+    if (!first.ok) throw new Error("expected admission");
+    await settle(first.reservationId, 500, 100);
+    const view = await getCampaignAllowanceState({ type: "studio", studioId: STUDIO }, { admin: asAdmin(db), campaignId: "camp-a" });
+    expect(view.campaignCommitted).toBe(100);
+    expect(view.remaining).toBe(400);
+    expect(view.available).toBe(500);
+    expect(evaluateCampaignAllowance(view, 100).allowed).toBe(true);
+    expect(evaluateCampaignAllowance(view, 501).allowed).toBe(false);
   });
 });

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveStudioBillingPlan } from "@/lib/billing/access";
 import { getBillingPlan } from "@/lib/billing/plans";
@@ -10,13 +9,22 @@ import { getCurrentMonthlyPeriod, getIncludedUsageAllowance } from "@/lib/usage/
  * Policy (unchanged): starter 0, growth 1,000, pro 5,000, organizer 1,000 recipients per month, plus any active
  * `email_campaign_recipient` add-on entitlement rows (none is sold today; nothing here offers one).
  *
- * Model: the server action resolves the workspace's allowance (this module, canonical plan resolution, fail closed),
- * then the database reserves it atomically (`reserve_usage_allowance`, serialized per workspace/feature/month),
- * the action sends, and finalizes with the number of recipients whose send actually succeeded
- * (`finalize_usage_reservation` records exactly that as usage; the rest of the reservation is released). Failed
- * recipients never consume allowance. The reservation functions are service_role only: this module runs them with the
- * admin client after the calling action has authorized the caller and derived the workspace from its own context.
- * The database computes current usage; no client-supplied usage total is ever trusted.
+ * Two scopes, kept apart. ENTITLEMENT = the whole logical campaign send: the database commits capacity for every pending
+ * recipient at admission (all-or-nothing, atomic, serialized per workspace/feature/month), and later delivery batches
+ * continue under that same commitment, so no concurrent campaign can take capacity already committed to it and a later
+ * batch never fails merely because another campaign started after this one was admitted. DELIVERY = the existing safe
+ * batch (500 recipients per action).
+ *
+ * Per batch: reserve (admit or continue) -> send -> settle with the recipients whose send succeeded
+ * (`settle_usage_reservation` records exactly that as usage, shrinks the commitment to consumed + still-pending, and closes
+ * the campaign when nothing is pending). Failed recipients never consume allowance. Capacity is NEVER released while a batch
+ * is unsettled: if the settle call fails the commitment stays held, and any stale open batch is reconciled from the durable
+ * per-recipient 'sent' records before anything else is admitted for the workspace, so a successful send cannot end up
+ * permanently uncounted.
+ *
+ * The reservation functions are service_role only: this module runs them with the admin client after the calling action has
+ * authorized the caller and derived the workspace from its own context. The database computes current usage and
+ * commitments; no client-supplied usage total is ever trusted.
  */
 
 export const EMAIL_CAMPAIGN_USAGE_FEATURE = "email_campaign_recipient" as const;
@@ -29,7 +37,11 @@ export type CampaignAllowanceBlockReason =
   | "inactive_subscription"
   | "no_allowance"
   | "limit_reached"
-  | "lookup_failed";
+  | "lookup_failed"
+  | "in_progress";
+
+/** An open batch older than this is treated as a crashed request and reconciled (must match the database default). */
+export const STALE_BATCH_SECONDS = 900;
 
 export type CampaignAllowanceState = {
   /** True only when an active/trialing subscription resolved and the plan includes a positive allowance. */
@@ -42,10 +54,14 @@ export type CampaignAllowanceState = {
   totalAllowance: number;
   /** Recipients already recorded as used this month. */
   used: number;
-  /** Recipients reserved by sends that are in progress right now. */
+  /** Capacity committed to campaigns in progress (consumed excluded): admitted, not yet sent or settled. */
   reserved: number;
   /** total - used - reserved, never below zero. */
   remaining: number;
+  /** The part of `reserved` committed to THIS campaign (0 when no campaign is given or it holds none). */
+  campaignCommitted: number;
+  /** remaining + campaignCommitted: what this campaign may use. */
+  available: number;
   periodStart: string;
   periodEnd: string;
 };
@@ -77,6 +93,8 @@ function failedState(reason: CampaignAllowanceBlockReason, partial: Partial<Camp
     used: 0,
     reserved: 0,
     remaining: 0,
+    campaignCommitted: 0,
+    available: 0,
     periodStart,
     periodEnd,
     ...partial,
@@ -89,12 +107,17 @@ function failedState(reason: CampaignAllowanceBlockReason, partial: Partial<Camp
  */
 export async function getCampaignAllowanceState(
   workspace: CampaignWorkspace,
-  deps: { admin?: AdminClient } = {},
+  deps: { admin?: AdminClient; campaignId?: string } = {},
 ): Promise<CampaignAllowanceState> {
   const { periodStart, periodEnd } = getCurrentMonthlyPeriod();
 
   try {
     const admin = deps.admin ?? createAdminClient();
+
+    // Before reading the position, repair any batch a crashed request left unsettled, so successful sends are counted
+    // and the position is true. Best effort: if it fails the capacity simply stays held (conservative).
+    await reconcileStaleCampaignBatches(workspace, { admin });
+
     const studio = workspace.type === "studio";
     const workspaceId = studio ? workspace.studioId : workspace.organizerId;
     const column = studio ? "studio_id" : "organizer_id";
@@ -145,12 +168,11 @@ export async function getCampaignAllowanceState(
         .maybeSingle<{ quantity_used: number | null }>(),
       admin
         .from("usage_reservations")
-        .select("quantity_reserved")
+        .select("quantity_reserved, quantity_consumed, idempotency_key")
         .eq(column, workspaceId)
         .eq("feature_key", EMAIL_CAMPAIGN_USAGE_FEATURE)
         .eq("period_start", periodStart)
-        .eq("status", "reserved")
-        .gt("expires_at", new Date().toISOString()),
+        .eq("status", "reserved"),
     ]);
 
     if (entitlements.error || summary.error || reservations.error) return failedState("lookup_failed");
@@ -160,11 +182,16 @@ export async function getCampaignAllowanceState(
       0,
     );
     const used = Math.max(0, summary.data?.quantity_used ?? 0);
-    const reserved = (reservations.data ?? []).reduce(
-      (total: number, row: { quantity_reserved: number | null }) => total + Math.max(0, row.quantity_reserved ?? 0),
-      0,
-    );
+    type ReservationRow = { quantity_reserved: number | null; quantity_consumed: number | null; idempotency_key: string | null };
+    const committedOf = (row: ReservationRow) => Math.max(0, (row.quantity_reserved ?? 0) - (row.quantity_consumed ?? 0));
+    const reserved = (reservations.data ?? []).reduce((total: number, row: ReservationRow) => total + committedOf(row), 0);
+    const campaignCommitted = deps.campaignId
+      ? (reservations.data ?? [])
+          .filter((row: ReservationRow) => row.idempotency_key === campaignReservationKey(deps.campaignId as string))
+          .reduce((total: number, row: ReservationRow) => total + committedOf(row), 0)
+      : 0;
     const totalAllowance = includedAllowance + addonAllowance;
+    const remaining = Math.max(0, totalAllowance - used - reserved);
 
     return {
       entitled: totalAllowance > 0,
@@ -176,7 +203,9 @@ export async function getCampaignAllowanceState(
       totalAllowance,
       used,
       reserved,
-      remaining: Math.max(0, totalAllowance - used - reserved),
+      remaining,
+      campaignCommitted,
+      available: remaining + campaignCommitted,
       periodStart,
       periodEnd,
     };
@@ -186,10 +215,18 @@ export async function getCampaignAllowanceState(
   }
 }
 
-/** Pure preflight: may a campaign with this many eligible recipients be sent right now? Exactly at the limit is allowed. */
+/**
+ * Pure preflight: may a campaign with this many eligible (pending) recipients be sent right now? Capacity already committed
+ * to THIS campaign counts as available to it. Exactly at the limit is allowed.
+ */
 export function evaluateCampaignAllowance(state: CampaignAllowanceState, recipients: number): CampaignAllowanceDecision {
-  const allowed = state.entitled && state.totalAllowance > 0 && recipients > 0 && recipients <= state.remaining;
-  return { allowed, recipients, state, remainingAfterSend: allowed ? state.remaining - recipients : null };
+  const allowed = state.entitled && state.totalAllowance > 0 && recipients > 0 && recipients <= state.available;
+  return { allowed, recipients, state, remainingAfterSend: allowed ? state.available - recipients : null };
+}
+
+/** One logical send per campaign: every batch of a campaign continues under this key. */
+export function campaignReservationKey(campaignId: string) {
+  return `campaign:${campaignId}`;
 }
 
 /* ------------------------------------------------------------------------------------------ messages and redirects */
@@ -210,6 +247,9 @@ export function describeCampaignAllowanceBlock(args: {
   if (args.reason === "inactive_subscription") {
     return "Your subscription must be active before campaigns can be sent. Nothing was sent.";
   }
+  if (args.reason === "in_progress") {
+    return "This campaign is already sending. Nothing further was started.";
+  }
   if (args.reason === "lookup_failed") {
     return "We could not confirm your monthly campaign allowance, so nothing was sent. Please try again.";
   }
@@ -224,31 +264,25 @@ export function describeCampaignAllowanceBlock(args: {
   );
 }
 
-export type CampaignAllowanceQuery = {
-  campaign_error: "allowance_exceeded";
-  allowance_reason: CampaignAllowanceBlockReason;
-  allowance_recipients: string;
-  allowance_total: string;
-  allowance_used: string;
-  allowance_remaining: string;
-  allowance_plan?: string;
-};
+export type CampaignAllowanceQuery = Record<string, string>;
 
 /** Structured limit result carried on the redirect back to the campaign page (counts and plan name only). */
 export function campaignAllowanceQuery(state: CampaignAllowanceState, recipients: number, reason?: CampaignAllowanceBlockReason): CampaignAllowanceQuery {
+  // a second action on a campaign that is already sending is a lock, not an allowance problem
+  if (reason === "in_progress") return { campaign_error: "campaign_locked" };
   const query: CampaignAllowanceQuery = {
     campaign_error: "allowance_exceeded",
     allowance_reason: reason ?? state.blockedReason ?? "limit_reached",
     allowance_recipients: String(recipients),
     allowance_total: String(state.totalAllowance),
-    allowance_used: String(state.used + state.reserved),
-    allowance_remaining: String(state.remaining),
+    allowance_used: String(state.used + state.reserved - state.campaignCommitted),
+    allowance_remaining: String(state.available),
   };
   if (state.planName) query.allowance_plan = state.planName;
   return query;
 }
 
-const REASONS: CampaignAllowanceBlockReason[] = ["inactive_subscription", "no_allowance", "limit_reached", "lookup_failed"];
+const REASONS: CampaignAllowanceBlockReason[] = ["inactive_subscription", "no_allowance", "limit_reached", "lookup_failed", "in_progress"];
 
 /** Rebuilds the message from the redirect's query string (numbers are validated; nothing is rendered unparsed). */
 export function campaignAllowanceMessageFromQuery(query: Record<string, string | undefined>) {
@@ -268,35 +302,29 @@ export function campaignAllowanceMessageFromQuery(query: Record<string, string |
   });
 }
 
-/* ------------------------------------------------------------------------------------------ reserve / finalize / release */
+/* ------------------------------------------------------------------------------------------ reserve / settle / reconcile */
 
 export type CampaignSendReservation =
-  | { ok: true; reservationId: string; state: CampaignAllowanceState }
+  | { ok: true; reservationId: string; continued: boolean; state: CampaignAllowanceState }
   | { ok: false; reason: CampaignAllowanceBlockReason; state: CampaignAllowanceState; query: CampaignAllowanceQuery };
-
-/** Stable per recipient set: a retried identical batch maps to the same reservation. */
-export function campaignBatchKey(campaignId: string, recipientIds: string[]) {
-  const digest = createHash("sha256").update([...recipientIds].sort().join(",")).digest("hex").slice(0, 32);
-  return `campaign:${campaignId}:${digest}`;
-}
 
 type ReserveRpcResult = {
   ok?: boolean;
   reason?: string;
   reservation_id?: string;
+  continued?: boolean;
   allowance?: number;
   used?: number;
-  reserved?: number;
+  committed?: number;
   remaining?: number;
 };
 
 /**
- * Preflight + atomic reservation for one send batch. `eligibleTotal` is every pending recipient of the campaign: if it
- * exceeds the remaining allowance NOTHING is sent (no partial campaign, recipient order never decides who is mailed).
- * `batchRecipientIds` is the batch this action will mail now (the existing per-action cap); it only identifies the
- * request (idempotency). The eligible total is what is reserved atomically in the database, and finalize records only the
- * recipients actually mailed and releases the rest. A campaign larger than one batch is therefore guaranteed to fit when its
- * first batch starts; each later batch is judged again on the recipients still pending.
+ * Preflight + atomic admission or continuation of one logical campaign send. `eligibleTotal` is every pending recipient of
+ * the campaign (not just this action's batch): if the campaign does not fit, NOTHING is sent (no partial campaign, recipient
+ * order never decides who is mailed). The database commits capacity for ALL of them at admission; later batches of the same
+ * campaign continue under that commitment even if other campaigns were admitted in between. `batchRecipientIds` is the
+ * batch this action mails now: it is recorded on the open batch so a crashed request can be reconciled exactly.
  */
 export async function reserveCampaignSendAllowance(args: {
   workspace: CampaignWorkspace;
@@ -308,7 +336,7 @@ export async function reserveCampaignSendAllowance(args: {
   relatedTable: string;
   deps?: { admin?: AdminClient };
 }): Promise<CampaignSendReservation> {
-  const state = await getCampaignAllowanceState(args.workspace, args.deps);
+  const state = await getCampaignAllowanceState(args.workspace, { admin: args.deps?.admin, campaignId: args.campaignId });
   const blocked = (reason: CampaignAllowanceBlockReason, s: CampaignAllowanceState): CampaignSendReservation => ({
     ok: false,
     reason,
@@ -318,7 +346,8 @@ export async function reserveCampaignSendAllowance(args: {
 
   if (!state.entitled) return blocked(state.blockedReason ?? "lookup_failed", state);
 
-  const decision = evaluateCampaignAllowance(state, args.eligibleTotal);
+  const pending = Math.max(args.eligibleTotal, args.batchRecipientIds.length);
+  const decision = evaluateCampaignAllowance(state, pending);
   if (!decision.allowed) return blocked("limit_reached", state);
 
   try {
@@ -329,17 +358,17 @@ export async function reserveCampaignSendAllowance(args: {
       p_studio_id: studio ? (args.workspace as { studioId: string }).studioId : null,
       p_organizer_id: studio ? null : (args.workspace as { organizerId: string }).organizerId,
       p_feature_key: EMAIL_CAMPAIGN_USAGE_FEATURE,
-      // The WHOLE campaign's eligible recipients are reserved atomically (not just this action's batch), so a concurrent
-      // sender cannot slip a smaller batch in and leave this campaign half-mailed. What is not mailed is released on finalize.
-      p_quantity: Math.max(args.eligibleTotal, args.batchRecipientIds.length),
+      p_quantity: pending,
       p_allowance: state.totalAllowance,
       p_period_start: state.periodStart,
       p_period_end: state.periodEnd,
-      p_idempotency_key: campaignBatchKey(args.campaignId, args.batchRecipientIds),
+      p_idempotency_key: campaignReservationKey(args.campaignId),
       p_source: args.source,
       p_related_table: args.relatedTable,
       p_related_id: args.campaignId,
       p_created_by: args.userId,
+      p_batch_recipient_ids: args.batchRecipientIds,
+      p_stale_seconds: STALE_BATCH_SECONDS,
     });
 
     const result = (data ?? {}) as ReserveRpcResult;
@@ -350,57 +379,116 @@ export async function reserveCampaignSendAllowance(args: {
     }
 
     if (!result.ok || !result.reservation_id) {
+      if (result.reason === "in_progress") return blocked("in_progress", state);
+      if (result.reason === "needs_reconcile") return blocked("lookup_failed", state); // could not be repaired just now: fail closed
       // The database is authoritative: another send took the allowance between our read and the reservation.
       const refreshed: CampaignAllowanceState = {
         ...state,
         used: result.used ?? state.used,
-        reserved: result.reserved ?? state.reserved,
+        reserved: result.committed ?? state.reserved,
         remaining: result.remaining ?? 0,
+        available: result.remaining ?? 0,
+        campaignCommitted: 0,
       };
       return blocked(result.reason === "no_allowance" ? "no_allowance" : "limit_reached", refreshed);
     }
 
-    return { ok: true, reservationId: result.reservation_id, state };
+    return { ok: true, reservationId: result.reservation_id, continued: Boolean(result.continued), state };
   } catch (error) {
     console.error("Campaign allowance reservation failed", error);
     return blocked("lookup_failed", state);
   }
 }
 
-/** Records the recipients whose send succeeded (0 allowed) and releases the rest. Retries once; logs on failure. */
-export async function finalizeCampaignAllowance(args: {
+/**
+ * Closes the open batch: records the recipients whose send succeeded (0 allowed) as usage, shrinks the campaign's commitment to
+ * what is still pending, and closes the campaign when nothing is pending. Retried; if it still fails the commitment stays
+ * HELD (never released) and the unsettled batch is reconciled later, so a successful send cannot become permanently
+ * uncounted. `pendingRemaining` null (unknown) records usage but keeps the whole commitment.
+ */
+export async function settleCampaignBatch(args: {
   reservationId: string;
   sentCount: number;
+  pendingRemaining: number | null;
   metadata?: Record<string, unknown>;
   deps?: { admin?: AdminClient };
 }) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const admin = args.deps?.admin ?? createAdminClient();
-      const { data, error } = await admin.rpc("finalize_usage_reservation", {
+      const { data, error } = await admin.rpc("settle_usage_reservation", {
         p_reservation_id: args.reservationId,
-        p_quantity_consumed: Math.max(0, args.sentCount),
+        p_batch_sent: Math.max(0, args.sentCount),
+        p_pending_remaining: args.pendingRemaining,
         p_metadata: args.metadata ?? {},
       });
       if (!error && (data as { ok?: boolean } | null)?.ok) return true;
-      console.error("Campaign allowance finalize failed", { attempt, error, data });
+      console.error("Campaign allowance settle failed", { attempt, error, data });
     } catch (error) {
-      console.error("Campaign allowance finalize failed", { attempt, error });
+      console.error("Campaign allowance settle failed", { attempt, error });
     }
   }
   return false;
 }
 
-export async function releaseCampaignAllowance(args: { reservationId: string; deps?: { admin?: AdminClient } }) {
+const RECIPIENT_TABLES = {
+  studio: { table: "marketing_campaign_recipients", column: "studio_id" },
+  organizer: { table: "organizer_marketing_campaign_recipients", column: "organizer_id" },
+} as const;
+
+type StaleBatchRow = { id: string; related_id: string | null; batch_recipient_ids: string[] | null };
+
+/**
+ * Repairs batches a crashed request left open past the stale window. The durable truth is the per-recipient 'sent' record
+ * the delivery pipeline writes: the open batch recorded exactly which recipients it was about to mail, so the successes are
+ * counted from those rows and settled (idempotently) with the campaign's current pending count. Until it succeeds the
+ * capacity stays committed. Returns how many batches were settled.
+ */
+export async function reconcileStaleCampaignBatches(workspace: CampaignWorkspace, deps: { admin?: AdminClient } = {}) {
+  let settled = 0;
   try {
-    const admin = args.deps?.admin ?? createAdminClient();
-    const { error } = await admin.rpc("release_usage_reservation", { p_reservation_id: args.reservationId });
-    if (error) console.error("Campaign allowance release failed", error);
-    return !error;
+    const admin = deps.admin ?? createAdminClient();
+    const studio = workspace.type === "studio";
+    const workspaceId = studio ? workspace.studioId : workspace.organizerId;
+    const { table, column } = RECIPIENT_TABLES[workspace.type];
+    const staleBefore = new Date(Date.now() - STALE_BATCH_SECONDS * 1000).toISOString();
+
+    const { data: stale, error } = await admin
+      .from("usage_reservations")
+      .select("id, related_id, batch_recipient_ids")
+      .eq(studio ? "studio_id" : "organizer_id", workspaceId)
+      .eq("feature_key", EMAIL_CAMPAIGN_USAGE_FEATURE)
+      .eq("status", "reserved")
+      .lt("batch_started_at", staleBefore);
+
+    if (error || !stale?.length) return 0;
+
+    for (const row of stale as StaleBatchRow[]) {
+      if (!row.related_id) continue;
+      const ids = row.batch_recipient_ids ?? [];
+
+      const [sent, pending] = await Promise.all([
+        ids.length
+          ? admin.from(table).select("id", { count: "exact", head: true }).eq(column, workspaceId).eq("campaign_id", row.related_id).eq("status", "sent").in("id", ids)
+          : Promise.resolve({ count: 0, error: null }),
+        admin.from(table).select("id", { count: "exact", head: true }).eq(column, workspaceId).eq("campaign_id", row.related_id).eq("status", "pending"),
+      ]);
+
+      if (sent.error || pending.error) continue; // cannot establish the truth: stay conservative
+
+      const ok = await settleCampaignBatch({
+        reservationId: row.id,
+        sentCount: Number(sent.count ?? 0),
+        pendingRemaining: Number(pending.count ?? 0),
+        metadata: { reconciled: true },
+        deps: { admin },
+      });
+      if (ok) settled += 1;
+    }
   } catch (error) {
-    console.error("Campaign allowance release failed", error);
-    return false;
+    console.error("Campaign allowance reconcile failed", error);
   }
+  return settled;
 }
 
 /**

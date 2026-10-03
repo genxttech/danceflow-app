@@ -1,6 +1,6 @@
 /**
  * ENT-1 test support: a tiny in-memory database that behaves like the pieces the campaign send path touches, including
- * the three reservation functions (same semantics as 20261013090000_ent1_usage_allowance_reservations.sql, which is
+ * the two reservation functions (same semantics as 20261013090000_ent1_usage_allowance_reservations.sql, which is
  * verified against the real database by the SQL test and the DEV race harness).
  *
  * The reservation functions run synchronously inside one tick, like the real functions run inside one locked transaction,
@@ -49,7 +49,15 @@ class Builder implements PromiseLike<{ data: unknown; error: unknown; count?: nu
     return this;
   }
   gt(col: string, value: unknown) {
-    this.filters.push((row) => String(row[col]) > String(value));
+    this.filters.push((row) => row[col] != null && String(row[col]) > String(value));
+    return this;
+  }
+  lt(col: string, value: unknown) {
+    this.filters.push((row) => row[col] != null && String(row[col]) < String(value));
+    return this;
+  }
+  in(col: string, values: unknown[]) {
+    this.filters.push((row) => values.includes(row[col]));
     return this;
   }
   limit(n: number) {
@@ -96,8 +104,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       if (db.failRpc.has(name)) return { data: null, error: { message: `${name} failed` } };
       // one tick, no awaits inside: serialized like the advisory lock
       if (name === "reserve_usage_allowance") return { data: reserve(db, args), error: null };
-      if (name === "finalize_usage_reservation") return { data: finalize(db, args), error: null };
-      if (name === "release_usage_reservation") return { data: release(db, args), error: null };
+      if (name === "settle_usage_reservation") return { data: settle(db, args), error: null };
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },
   };
@@ -117,25 +124,38 @@ function reserve(db: FakeDb, args: Record<string, unknown>) {
   const allowance = Number(args.p_allowance);
   if (!(quantity > 0) || !(allowance >= 0)) throw new Error("invalid reserve arguments");
   const reservations = db.tables.usage_reservations;
-  const now = db.now().getTime();
-  for (const r of reservations) {
-    if (r.status === "reserved" && new Date(String(r.expires_at)).getTime() <= now && sameWorkspace(r, args.p_workspace_type, ws) && r.feature_key === args.p_feature_key) r.status = "expired";
-  }
-  const existing = reservations.find(
-    (r) => sameWorkspace(r, args.p_workspace_type, ws) && r.feature_key === args.p_feature_key && r.idempotency_key === args.p_idempotency_key && (r.status === "reserved" || r.status === "finalized"),
-  );
+  const staleMs = Number(args.p_stale_seconds ?? 900) * 1000;
+  const inPeriod = (r: Row) => sameWorkspace(r, args.p_workspace_type, ws) && r.feature_key === args.p_feature_key && r.period_start === args.p_period_start;
+
+  const used = Number(db.tables.usage_monthly_summaries.find((s) => sameWorkspace(s, args.p_workspace_type, ws) && s.feature_key === args.p_feature_key && s.period_start === args.p_period_start)?.quantity_used ?? 0);
+  let committed = reservations.filter((r) => r.status === "reserved" && inPeriod(r)).reduce((sum, r) => sum + Number(r.quantity_reserved) - Number(r.quantity_consumed), 0);
+  const existing = reservations.find((r) => r.status === "reserved" && inPeriod(r) && r.idempotency_key === args.p_idempotency_key);
+  const batchIds = (args.p_batch_recipient_ids as string[] | undefined) ?? [];
+
+  if (allowance <= 0) return { ok: false, reason: "no_allowance", allowance, used, committed, remaining: 0 };
+
   if (existing) {
-    if (existing.status === "finalized") return { ok: false, reason: "already_finalized", reservation_id: existing.id };
-    return { ok: true, idempotent: true, reservation_id: existing.id, quantity: existing.quantity_reserved };
+    if (existing.batch_started_at) {
+      const age = db.now().getTime() - new Date(String(existing.batch_started_at)).getTime();
+      return { ok: false, reason: age < staleMs ? "in_progress" : "needs_reconcile", reservation_id: existing.id };
+    }
+    const remainingCommit = Number(existing.quantity_reserved) - Number(existing.quantity_consumed);
+    if (quantity > remainingCommit) {
+      const extra = quantity - remainingCommit;
+      if (used + committed + extra > allowance) {
+        return { ok: false, reason: "limit_reached", allowance, used, committed, remaining: Math.max(0, allowance - used - committed + remainingCommit) };
+      }
+      existing.quantity_reserved = Number(existing.quantity_reserved) + extra;
+      committed += extra;
+    }
+    existing.batch_started_at = db.now().toISOString();
+    existing.batch_recipient_ids = batchIds;
+    return { ok: true, continued: true, reservation_id: existing.id, allowance, used, committed, remaining: allowance - used - committed };
   }
-  const used = Number(
-    db.tables.usage_monthly_summaries.find((s) => sameWorkspace(s, args.p_workspace_type, ws) && s.feature_key === args.p_feature_key && s.period_start === args.p_period_start)?.quantity_used ?? 0,
-  );
-  const reserved = reservations
-    .filter((r) => r.status === "reserved" && sameWorkspace(r, args.p_workspace_type, ws) && r.feature_key === args.p_feature_key && r.period_start === args.p_period_start)
-    .reduce((sum, r) => sum + Number(r.quantity_reserved), 0);
-  if (allowance <= 0) return { ok: false, reason: "no_allowance", allowance, used, reserved, remaining: 0 };
-  if (used + reserved + quantity > allowance) return { ok: false, reason: "limit_reached", allowance, used, reserved, remaining: Math.max(0, allowance - used - reserved) };
+
+  if (used + committed + quantity > allowance) {
+    return { ok: false, reason: "limit_reached", allowance, used, committed, remaining: Math.max(0, allowance - used - committed) };
+  }
   const row: Row = {
     id: `res-${reservations.length + 1}`,
     workspace_type: args.p_workspace_type,
@@ -152,36 +172,42 @@ function reserve(db: FakeDb, args: Record<string, unknown>) {
     related_table: args.p_related_table,
     related_id: args.p_related_id,
     created_by: args.p_created_by,
-    expires_at: new Date(now + 900_000).toISOString(),
+    batch_started_at: db.now().toISOString(),
+    batch_recipient_ids: batchIds,
   };
   reservations.push(row);
-  return { ok: true, idempotent: false, reservation_id: row.id, quantity, allowance, used, reserved: reserved + quantity, remaining: allowance - used - reserved - quantity };
+  return { ok: true, continued: false, reservation_id: row.id, allowance, used, committed: committed + quantity, remaining: allowance - used - committed - quantity };
 }
 
-function finalize(db: FakeDb, args: Record<string, unknown>) {
+function settle(db: FakeDb, args: Record<string, unknown>) {
   const r = db.tables.usage_reservations.find((x) => x.id === args.p_reservation_id);
   if (!r) return { ok: false, reason: "not_found" };
-  if (r.status === "finalized") return { ok: true, idempotent: true, quantity_consumed: r.quantity_consumed };
-  if (r.status === "released") return { ok: false, reason: "released" };
-  const consumed = Number(args.p_quantity_consumed);
-  if (!(consumed >= 0) || consumed > Number(r.quantity_reserved)) throw new Error("invalid consumed quantity");
-  if (consumed > 0) {
-    db.tables.usage_events.push({ studio_id: r.studio_id, organizer_id: r.organizer_id, feature_key: r.feature_key, quantity: consumed, source: r.source, related_id: r.related_id, created_by: r.created_by });
+  if (r.status !== "reserved" || !r.batch_started_at) return { ok: true, idempotent: true, status: r.status, quantity_consumed: r.quantity_consumed };
+  const sent = Number(args.p_batch_sent);
+  const pending = args.p_pending_remaining === null || args.p_pending_remaining === undefined ? null : Number(args.p_pending_remaining);
+  const batch = (r.batch_recipient_ids as string[]) ?? [];
+  if (!(sent >= 0) || Number(r.quantity_consumed) + sent > Number(r.quantity_reserved)) throw new Error("invalid sent quantity");
+  if (batch.length > 0 && sent > batch.length) throw new Error("sent exceeds the open batch");
+  if (sent > 0) {
+    db.tables.usage_events.push({ studio_id: r.studio_id, organizer_id: r.organizer_id, feature_key: r.feature_key, quantity: sent, source: r.source, related_id: r.related_id, created_by: r.created_by, metadata: args.p_metadata });
     const summary = db.tables.usage_monthly_summaries.find((s) => sameWorkspace(s, r.workspace_type, r.studio_id ?? r.organizer_id) && s.feature_key === r.feature_key && s.period_start === r.period_start);
-    if (summary) summary.quantity_used = Number(summary.quantity_used) + consumed;
-    else db.tables.usage_monthly_summaries.push({ studio_id: r.studio_id, organizer_id: r.organizer_id, workspace_type: r.workspace_type, feature_key: r.feature_key, period_start: r.period_start, quantity_used: consumed });
+    if (summary) summary.quantity_used = Number(summary.quantity_used) + sent;
+    else db.tables.usage_monthly_summaries.push({ studio_id: r.studio_id, organizer_id: r.organizer_id, workspace_type: r.workspace_type, feature_key: r.feature_key, period_start: r.period_start, quantity_used: sent });
   }
-  r.status = "finalized";
+  const consumed = Number(r.quantity_consumed) + sent;
+  let status = "reserved";
+  let reserved = Number(r.quantity_reserved);
+  if (pending !== null) {
+    if (pending === 0) status = consumed > 0 ? "finalized" : "released";
+    else if (consumed === 0) status = "released";
+    else reserved = Math.max(consumed, Math.min(reserved, consumed + pending));
+  }
   r.quantity_consumed = consumed;
-  return { ok: true, idempotent: false, quantity_consumed: consumed, quantity_released: Number(r.quantity_reserved) - consumed };
-}
-
-function release(db: FakeDb, args: Record<string, unknown>) {
-  const r = db.tables.usage_reservations.find((x) => x.id === args.p_reservation_id);
-  if (!r) return { ok: false, reason: "not_found" };
-  if (r.status === "finalized") return { ok: false, reason: "already_finalized" };
-  if (r.status === "reserved") r.status = "released";
-  return { ok: true };
+  r.quantity_reserved = reserved;
+  r.status = status;
+  r.batch_started_at = null;
+  r.batch_recipient_ids = [];
+  return { ok: true, idempotent: false, status, quantity_consumed: consumed, quantity_still_committed: status === "reserved" ? reserved - consumed : 0 };
 }
 
 export function usedThisMonth(db: FakeDb, column: "studio_id" | "organizer_id", id: string) {
