@@ -1,5 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import {
+  SITE_DESCRIPTION,
+  SITE_KEYWORDS,
+  SITE_OG_DESCRIPTION,
+  SITE_TITLE,
+  SITE_TWITTER_DESCRIPTION,
+} from "@/lib/public/homeCopy";
 
 const siteUrl = "https://www.idanceflow.com";
 
@@ -13,22 +20,12 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "DanceFlow | Dance Studio CRM, Scheduler, and Event Management",
+    default: SITE_TITLE,
     template: "%s | DanceFlow",
   },
-  description:
-    "DanceFlow helps dance studios, independent instructors, organizers, and dancers manage scheduling, clients, events, registrations, portals, payments, and public discovery.",
+  description: SITE_DESCRIPTION,
   applicationName: "DanceFlow",
-  keywords: [
-    "dance studio CRM",
-    "dance studio scheduler",
-    "dance studio management software",
-    "dance event registration",
-    "dance event ticketing",
-    "ballroom dance studio software",
-    "country dance studio software",
-    "dance instructor scheduling",
-  ],
+  keywords: SITE_KEYWORDS,
   authors: [{ name: "DanceFlow" }],
   creator: "DanceFlow",
   publisher: "DanceFlow",
@@ -36,9 +33,8 @@ export const metadata: Metadata = {
     type: "website",
     url: siteUrl,
     siteName: "DanceFlow",
-    title: "DanceFlow | Dance Studio CRM, Scheduler, and Event Management",
-    description:
-      "Manage your dance studio, grow your community, publish events, collect registrations, and help dancers discover studios and events in one connected platform.",
+    title: SITE_TITLE,
+    description: SITE_OG_DESCRIPTION,
     images: [
       {
         url: ogImage,
@@ -50,9 +46,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "DanceFlow | Dance Studio CRM, Scheduler, and Event Management",
-    description:
-      "DanceFlow helps studios, instructors, organizers, and dancers connect through scheduling, CRM, events, portals, payments, and public discovery.",
+    title: SITE_TITLE,
+    description: SITE_TWITTER_DESCRIPTION,
     images: [ogImage],
   },
   robots: {
