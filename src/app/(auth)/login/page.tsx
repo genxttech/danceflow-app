@@ -55,7 +55,7 @@ function normalizeErrorMessage(value: string | undefined) {
   }
 
   if (value === "portal-studio-not-found") {
-    return "That studio portal link could not be found. Ask the studio to resend the portal invite.";
+    return "That student portal link could not be found. Ask the studio to resend the portal invite.";
   }
 
   if (value === "missing-code") {
@@ -97,7 +97,7 @@ function intentDescription(intent: LoginIntent) {
   }
 
   if (intent === "public") {
-    return "For dancers, students, and clients using public discovery, favorites, event registrations, or studio portal access.";
+    return "For dancers, students, and clients using public discovery, favorites, event registrations, or student portal access.";
   }
 
   return "For studio owners, admins, front desk staff, and instructors managing the studio workspace.";
@@ -137,7 +137,7 @@ export default async function LoginPage({
   const isRecapAccess = isPublic && nextPath.startsWith("/recaps/");
   const effectiveNext = nextPath || (isPublic ? "/account" : "/app");
   const selectedLabel = isPortalAccess
-    ? "Studio Portal"
+    ? "Student Portal"
     : isRecapAccess
       ? "Group Class Recap"
       : intentLabel(loginIntent);
@@ -155,7 +155,7 @@ export default async function LoginPage({
                 </p>
                 <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
                   {isPortalAccess
-                    ? "Access your studio portal."
+                    ? "Access your student portal."
                     : isRecapAccess
                       ? "Save your group class recap."
                     : "One sign-in page. DanceFlow routes you where you belong."}
@@ -372,7 +372,7 @@ export default async function LoginPage({
 
                     <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-slate-700">
                       {isPortalAccess
-                        ? "This portal invite is tied to the email on your studio client record. If you use another email, DanceFlow will not be able to connect you to the studio portal."
+                        ? "This portal invite is tied to the email on your studio client record. If you use another email, DanceFlow will not be able to connect you to the student portal."
                         : isRecapAccess
                           ? "The recap claim works best with the email address that received the recap link."
                         : "Student/client portal access usually starts from a studio invite or event confirmation email. Use the same email address your studio has on file."}

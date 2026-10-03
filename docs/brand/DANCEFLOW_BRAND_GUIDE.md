@@ -242,7 +242,9 @@ Navy / violet / orange may be used deliberately in richer branded moments (hero,
 | Student/dancer-facing language | `student` or `dancer`, according to context (student for lessons/portal/LUMI; dancer for discovery and community) |
 | Assistants | `ARIA`, `LUMI` |
 | `Workspace` | May describe a context ("your workspace"); not a product brand ("DanceFlow Workspace" is retired) |
-| Organizer | A DanceFlow persona/capability context, not a separate brand ("Organizer Suite/Platform/Workspace" to converge on one descriptor in BR-4) |
+| Organizer | A DanceFlow persona/capability context, not a separate brand. Converged in BR-4 on **Organizer Suite** for the product experience ("Organizer Workspace" is retired as a product name) |
+| Public discovery | **Discover** is the visible destination label ("DanceFlow Discovery" is retired); ordinary use of the word "discovery" is fine |
+| Client/dancer portal | **Student Portal**, only where the surface is the client/dancer-facing portal a studio provides; staff and admin areas are not portals (use context such as "studio workspace") |
 | Competition | A capability/domain, not a separate brand |
 | Auth CTAs | `Log In` (not "Sign in"), `Create Free Account` |
 

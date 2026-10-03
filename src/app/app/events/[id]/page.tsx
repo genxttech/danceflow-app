@@ -1106,7 +1106,7 @@ export default async function EventTicketsPage({
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">Basic event listing</p>
           <h2 className="mt-1 text-xl font-semibold text-slate-950">This event is currently a public listing.</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Your studio plan can publish this event to DanceFlow Discovery and send dancers to the public page. Add Organizer Suite to unlock DanceFlow ticket checkout, QR tickets, check-in, settlement, event profitability, event labor, organizer campaigns, and event ARIA.
+            Your studio plan can publish this event to Discover and send dancers to the public page. Add Organizer Suite to unlock DanceFlow ticket checkout, QR tickets, check-in, settlement, event profitability, event labor, organizer campaigns, and event ARIA.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link

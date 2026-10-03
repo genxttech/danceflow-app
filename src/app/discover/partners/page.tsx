@@ -147,7 +147,7 @@ export default async function PartnerSearchDiscoveryPage({
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
-                  DanceFlow Discovery
+                  Discover
                 </p>
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
                   Find a dance partner

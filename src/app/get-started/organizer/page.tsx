@@ -28,7 +28,7 @@ export default async function OrganizerPricingPage() {
 
   return (
     <>
-      <PublicSiteHeader currentPath="pricing" isAuthenticated={!!user} />
+      <PublicSiteHeader currentPath="business" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#eff6ff_0%,#ffffff_24%,#f8fafc_100%)]">
         <section className="border-b border-slate-200/70">
@@ -54,7 +54,7 @@ export default async function OrganizerPricingPage() {
                 </p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
                   {founderActive
-                    ? "Founder organizer pricing is available during launch and lasts for 12 months after your 14-day free trial. When you click Start Trial, DanceFlow will move you into signup if you are not already signed in."
+                    ? `Founder organizer pricing is available during launch and lasts for 12 months after your ${organizerPlan.trialDays}-day free trial. When you click Start Trial, DanceFlow will move you into signup if you are not already signed in.`
                     : "When you click Start Trial, DanceFlow will move you into signup if you are not already signed in."}
                 </p>
               </div>

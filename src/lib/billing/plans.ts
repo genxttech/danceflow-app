@@ -56,7 +56,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Core CRM, scheduling, client portals, and simple studio operations for independent instructors and smaller studios.",
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
-      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
+      "Founder pricing is available during launch and lasts for 12 months after your free trial.",
     features: [
       "crm_basic",
       "schedule_basic",
@@ -68,7 +68,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Lesson scheduling and studio calendar",
       "Client portal access",
       "Basic packages, payments, and reports",
-      "Basic public event listings for DanceFlow Discovery",
+      "Basic public event listings in Discover",
       "Basic email campaign tools",
       "Syllabus tracking basics",
     ],
@@ -83,7 +83,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Growth tools for studios that want stronger retention, packages, memberships, reporting, marketing, and AI assistance.",
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
-      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
+      "Founder pricing is available during launch and lasts for 12 months after your free trial.",
     features: [
       "crm_basic",
       "schedule_basic",
@@ -117,7 +117,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Advanced studio growth with stronger reporting, automations, documents, marketing, ARIA insights, and larger AI usage without forcing full event-commerce tools.",
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
-      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
+      "Founder pricing is available during launch and lasts for 12 months after your free trial.",
     features: [
       "crm_basic",
       "schedule_basic",
@@ -139,7 +139,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Read-only Wave accounting connection and posting previews",
       "Advanced automations, documents, and team controls",
       "Studio ARIA insights and larger AI allowance",
-      "Basic public event listings for DanceFlow Discovery",
+      "Basic public event listings in Discover",
       "Add Organizer Suite for ticketing, QR check-in, settlements, event campaigns, and event ARIA",
     ],
   },

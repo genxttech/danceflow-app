@@ -313,7 +313,7 @@ export default async function NotificationsPage({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace ? "DanceFlow Organizer Workspace" : "DanceFlow Studio Workspace"}
+                {organizerWorkspace ? "Organizer Suite" : "Studio workspace"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                 {organizerWorkspace ? "Organizer Notifications" : "Notifications"}

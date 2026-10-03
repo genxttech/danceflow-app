@@ -71,10 +71,13 @@ describe("retired old logo", () => {
     expect(existsSync(p("public", "brand", "danceflow-logo.png"))).toBe(false);
   });
 
-  it("home page uses the approved symbol and primary logo paths", () => {
+  it("home page references only approved logo assets", () => {
+    // BR-4A removed the large hero symbol; the shared header and footer carry the brand mark
+    // (their asset paths are pinned in publicShell.br2b.test.ts). The page keeps the approved
+    // primary logo for its structured data and never references a retired logo file.
     const home = readFileSync(p("src", "app", "page.tsx"), "utf8");
-    expect(home).toContain("/brand/logo/danceflow-symbol-256.png");
     expect(home).toContain("/brand/logo/danceflow-logo-primary-640.png");
+    expect(home).not.toMatch(/\/brand\/danceflow-logo\.png|monogram|df-mark|rev3|revision-?3/i);
   });
 });
 

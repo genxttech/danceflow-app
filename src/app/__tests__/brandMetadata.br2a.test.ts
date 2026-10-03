@@ -7,7 +7,9 @@ import { metadata, viewport } from "../layout";
 /**
  * Branding Relaunch BR-2A: universal icons and metadata mechanics.
  * Canonical icons come from the BR-1 family in public/brand/icons (couple symbol, never the legacy DF mark);
- * metadata fixes are mechanical (no marketing copy).
+ * BR-2A's metadata fixes were mechanical (no marketing copy). BR-4A then changed the site-wide
+ * positioning copy on purpose (see src/lib/public/homeCopy.ts); the "BR-4A positioning" block below
+ * pins that change, while the mechanics tests above it stay as they were.
  */
 const ROOT = process.cwd();
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p));
@@ -88,6 +90,23 @@ describe("root metadata mechanics", () => {
     expect(og).toMatchObject({ url: "/brand/danceflow-og-1200x630.png", width: 1200, height: 630 });
     expect(pngSize(read("public", "brand", "danceflow-og-1200x630.png"))).toEqual({ w: 1200, h: 630 });
     expect((metadata.twitter as { images: string[] }).images).toEqual(["/brand/danceflow-og-1200x630.png"]);
+  });
+});
+
+describe("BR-4A positioning (intentional copy change)", () => {
+  it("presents DanceFlow as the broader dance platform, not generic studio CRM software", () => {
+    const title = (metadata.title as { default: string }).default;
+    expect(title).toBe("DanceFlow | The dance platform that helps do the work");
+    expect(title).not.toMatch(/CRM, Scheduler, and Event Management/i);
+    expect(String(metadata.description)).toMatch(/studios, instructors and organizers/);
+    expect(String(metadata.description)).toMatch(/dancers/);
+  });
+
+  it("uses the same title and distinct, accurate descriptions for social cards", () => {
+    expect((metadata.openGraph as { title: string }).title).toBe((metadata.title as { default: string }).default);
+    expect((metadata.twitter as { title: string }).title).toBe((metadata.title as { default: string }).default);
+    expect((metadata.openGraph as { description: string }).description).not.toMatch(/CRM/);
+    expect((metadata.twitter as { description: string }).description).not.toMatch(/CRM/);
   });
 });
 

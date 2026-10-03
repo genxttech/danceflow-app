@@ -402,7 +402,7 @@ export default async function PublicStudioPage({
   if (!studio || !hasActivePublicAccess(studio)) {
     return (
       <>
-        <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
+        <PublicSiteHeader currentPath="discover" isAuthenticated={!!user} />
         <main className="min-h-screen pb-24 lg:pb-0 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.12),transparent_28%),linear-gradient(180deg,#fff7ed_0%,#f8fafc_34%,#ffffff_100%)]">
           <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6 lg:px-8">
             <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-5 text-rose-800">
@@ -692,7 +692,7 @@ export default async function PublicStudioPage({
     <>
       <JsonLd data={[studioJsonLd, breadcrumbJsonLd]} />
 
-      <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
+      <PublicSiteHeader currentPath="discover" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.16),transparent_34%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.12),transparent_30%),linear-gradient(180deg,#fff7ed_0%,#f8fafc_38%,#ffffff_100%)]">
         <section className="border-b border-orange-200/70 bg-[linear-gradient(135deg,#111827_0%,#4c1d95_52%,#f97316_145%)] text-white">

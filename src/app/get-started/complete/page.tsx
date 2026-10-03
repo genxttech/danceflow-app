@@ -120,7 +120,7 @@ export default async function GetStartedCompletePage({
 
   return (
     <>
-      <PublicSiteHeader currentPath="pricing" isAuthenticated />
+      <PublicSiteHeader currentPath="business" isAuthenticated />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#f5f3ff_0%,#ffffff_24%,#f8fafc_100%)]">
         <section className="border-b border-slate-200/70">

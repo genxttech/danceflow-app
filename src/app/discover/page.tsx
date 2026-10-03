@@ -62,11 +62,11 @@ const discoveryPaths = [
     glow: "bg-orange-200/30",
   },
   {
-    title: "Meet Dance Partners",
+    title: "Find Dance Partners",
     description:
-      "Connect with dancers looking for practice, social dancing, showcases, or competition partnerships.",
+      "Browse listings from dancers looking for practice, social dancing, showcases, or competition partners.",
     href: "/discover/partners",
-    cta: "Search partners",
+    cta: "Browse partner listings",
     icon: UsersRound,
     shell: "from-pink-600 to-fuchsia-800",
     glow: "bg-pink-200/30",
@@ -177,7 +177,7 @@ export default async function DiscoverLandingPage() {
         <div className="relative mx-auto max-w-7xl px-6 py-14 lg:py-20">
           <div className="max-w-4xl">
             <div className="inline-flex items-center rounded-full border border-[var(--brand-border)] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-accent-dark)] shadow-sm">
-              DanceFlow Discovery
+              Discover
             </div>
 
             <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
@@ -187,8 +187,9 @@ export default async function DiscoverLandingPage() {
             </h1>
 
             <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
-              Start with one discovery path. DanceFlow keeps studios, events,
-              partner listings, jobs, and learning in one connected dance directory.
+              Start with one path. Discover brings studios, events, dance partner
+              listings, jobs, and learning together in one place, with a free account
+              to save favorites and keep your registrations together.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-3">
@@ -209,6 +210,16 @@ export default async function DiscoverLandingPage() {
                 </Link>
               ) : null}
             </div>
+
+            <p className="mt-5 text-sm text-slate-600">
+              Run a studio, teach, or organize events?{" "}
+              <Link
+                href="/for-studios"
+                className="inline-block py-1.5 font-semibold text-[var(--brand-primary)] underline-offset-4 hover:underline"
+              >
+                See DanceFlow for business
+              </Link>
+            </p>
           </div>
 
           <div className="mt-10 overflow-x-auto pb-1">
@@ -313,10 +324,25 @@ export default async function DiscoverLandingPage() {
 
         {typedFeaturedStudios.length === 0 ? (
           <div className="mt-8 rounded-[32px] border border-[var(--brand-border)] bg-white px-6 py-16 text-center shadow-sm">
-            <h3 className="text-xl font-semibold text-slate-950">Studios coming soon</h3>
-            <p className="mt-2 text-slate-600">
-              Public studio listings will appear here as studios publish their profiles.
+            <h3 className="text-xl font-semibold text-slate-950">No studio profiles to show right now</h3>
+            <p className="mx-auto mt-2 max-w-xl text-slate-600">
+              Studios appear here when they publish a public profile. Browse the full
+              studio directory, or explore events, dance partner listings and jobs.
             </p>
+            <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Link
+                href="/discover/studios"
+                className="inline-flex items-center justify-center rounded-2xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[var(--brand-primary-dark)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]"
+              >
+                Browse all studios
+              </Link>
+              <Link
+                href="/discover/events"
+                className="inline-block py-1.5 text-sm font-semibold text-[var(--brand-primary)] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]"
+              >
+                Explore events
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">

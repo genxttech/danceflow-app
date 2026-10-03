@@ -1629,7 +1629,7 @@ export default async function EventsPage() {
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
                 {organizerWorkspace
-                  ? "DanceFlow Organizer Workspace"
+                  ? "Organizer Suite"
                   : "DanceFlow Events"}
               </p>
 

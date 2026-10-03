@@ -1104,7 +1104,7 @@ If the client already has a DanceFlow account, use the existing account linking 
   },
   {
     slug: "getting-started-with-organizer-workspace",
-    title: "Getting Started with Your Organizer Workspace",
+    title: "Getting Started with Organizer Suite",
     category: "Getting Started",
     audience: "public",
     description:

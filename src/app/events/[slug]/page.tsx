@@ -1635,7 +1635,7 @@ export default async function PublicEventDetailPage({
     <>
       <JsonLd data={[eventJsonLd, breadcrumbJsonLd]} />
 
-      <PublicSiteHeader currentPath="events" isAuthenticated={!!user} />
+      <PublicSiteHeader currentPath="discover" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-slate-50">
         <section className="border-b bg-[linear-gradient(180deg,#f5f3ff_0%,#ffffff_22%,#f8fafc_100%)]">

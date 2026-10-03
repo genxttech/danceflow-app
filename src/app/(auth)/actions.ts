@@ -20,6 +20,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getMyVerifiedEmail } from "@/lib/auth/verifiedIdentity";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmailVerificationLink } from "@/lib/auth/verifiedEmail";
+import { readSignupAttributionMetadata } from "@/lib/public/attributionServer";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -233,6 +234,10 @@ export async function signupAction(formData: FormData) {
 
   const supabase = await createClient();
 
+  // BR-4C: validated first-touch campaign attribution (namespaced "attribution_*" keys, or none).
+  // Spread first so it can never override the fixed keys below.
+  const attributionMetadata = await readSignupAttributionMetadata();
+
   const redirectPath = buildSignupRedirectPath({
     signupIntent,
     selectedPlan,
@@ -250,6 +255,7 @@ export async function signupAction(formData: FormData) {
           redirectPath
         )}`,
         data: {
+          ...attributionMetadata,
           full_name: fullName,
           signup_intent: signupIntent,
         },
@@ -287,6 +293,7 @@ export async function signupAction(formData: FormData) {
     nextPath: redirectPath,
     purpose: "signup",
     userMetadata: {
+      ...attributionMetadata,
       full_name: fullName,
       signup_intent: signupIntent,
       selected_plan: selectedPlan || null,

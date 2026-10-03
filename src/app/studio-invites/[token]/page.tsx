@@ -138,7 +138,7 @@ export default async function StudioInvitePage({
                   href={invitation.studioSlug ? `/portal/${invitation.studioSlug}` : "/account"}
                   className="mt-3 inline-flex rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
                 >
-                  Open Studio Portal
+                  Open Student Portal
                 </Link>
               </div>
             ) : ["invited", "claim_pending"].includes(invitation.status) ? (
@@ -164,7 +164,7 @@ export default async function StudioInvitePage({
             )}
 
             <p className="text-xs leading-5 text-slate-500">
-              Accepting gives this studio portal access to the client record they already maintain.
+              Accepting gives this student portal access to the client record they already maintain.
               It does not merge or transfer ownership of records from other studios.
             </p>
           </div>
