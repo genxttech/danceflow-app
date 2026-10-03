@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v1.4 |
-| **Last reconciled against main** | `782fd680fdb0ab8928faccb4ac859bbe4e6109f6` (ENT-1 merged as PR #138 and LIVE as `dpl_HcYmcSqF4hLApbwASov1xacA4mbu`; BR-5 merged as PR #137; BR-4 `f189d15` LIVE earlier) |
+| **Roadmap version** | v1.5 |
+| **Last reconciled against main** | `56dc18d33e44e95b17d816368877a30dc8e155c5` (ENT-1 docs closeout, PR #139, on top of ENT-1 `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`, PR #138, LIVE as `dpl_HcYmcSqF4hLApbwASov1xacA4mbu`); this Phase 4 reconciliation is docs-only |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
 | **Current external dependency** | Twilio / per-studio A2P campaign review and ConfiDance setup |
 | **Current recommended next roadmap phase** | Phase 3 — Branding Relaunch: BR-4 is LIVE; BR-5 is MERGED (PR #137); BR-6 — Promotional Media is active but parked awaiting the professional ARIA voice recording. Product work continues in parallel with Phase 4: ENT-1 (email-campaign recipient allowance) is RELEASED (PR #138, live) |
@@ -325,10 +325,10 @@ These were enforced for BR-4 and remain in force for all later public materials 
 - Owner billing authority hardened (LAUNCH-SEC-2A).
 
 **REMAINING DELIVERABLES**
-- SMS has no plan gate or usage consumption (SMS allowance is hard-coded to 0; no `BillingFeature` entry). Per-studio A2P approval exists but is not a plan entitlement.
-- ~~Email-campaign recipient allowance is defined but not enforced~~ — DONE for studio and organizer campaigns by ENT-1 (released; see above). Not done: an email add-on / credit product (none is approved), and enforcement for any other email path (for example ARIA-originated sends).
-- No `BillingFeature` keys for payroll, marketplace, or ARIA beyond `ai_assistant`.
-- No reusable upgrade-prompt component (only a billing-page query-param landing).
+- **SMS plan gating: BLOCKED on open decision #8 (plan placement and allowance).** SMS has no plan gate or usage consumption (SMS allowance is hard-coded to 0; no `BillingFeature` entry). The send paths already enforce role, per-contact consent, the studio's own approved A2P registration and the global kill switch (SMS-A2P-2); plan/usage gating is the only missing layer and is independent of the Twilio / Sachin external dependency, which gates A2P approval and the global status, not plan placement.
+- ~~Email-campaign recipient allowance is defined but not enforced~~ — DONE for studio and organizer campaigns by ENT-1 (released; see above). **Scope clarified (owner-approved):** the campaign-recipient allowance applies to user-created marketing campaigns only. Operational and transactional email (auth and verification, portal invites, documents and signing, reminders, receipts and payments, accountant delivery, support, platform digest) and current ARIA operational outreach (the 1:1 `aria_execution_*` client messages queued through `outbound_deliveries`) are NOT campaign-recipient-metered under the current product model, and are not an open ENT-1 gap. ARIA has no marketing-campaign send path: its marketing rules (`aria_marketing_opportunity`, `aria_event_promotion_gap`) are suggestion-only drafts, and any send goes through the enforced studio/organizer campaign actions. **No email add-on or credit product is approved, and none is required to close Phase 4:** the approved state is a capped allowance with an upgrade path (pricing belongs to Phase 22). The unreferenced duplicate campaign action module `src/app/app/marketing/campaigns/[id]/actions.ts` is not an enforcement gap (it is not bundled or callable); its removal stays with the planned Phase 13 action-module dedupe.
+- **Plan placement and `BillingFeature` keys for payroll, marketplace and ARIA: BLOCKED on open decision #8.** Today payroll, ARIA Operations/automations and the marketplace/catalog pages have no plan gate (role authorization only); only `ai_assistant` gates AI generation. No speculative keys are to be created before placement is decided.
+- ~~No reusable upgrade-prompt component~~ — **reassigned to Phase 17** (owner-approved). Phase 4 is satisfied by the existing functional entitlement-denial behavior: `requireStudioFeature` / organizer helpers redirect to `/app/settings/billing?reason=feature_required&feature=…&requiredPlan=…`, which the billing page renders, plus feature-specific inline limit messages (reports, AI insights, events, organizer contacts, ENT-1 campaign allowance). The shared upgrade-prompt component and usage display are web-UX completion work (see Phase 17).
 - Usage ledger writes outside `addons.ts` (and lumi portal): ENT-1 adds reservation-based writes for campaign recipients; no other new metering.
 - Future entitlement needs: Featured Events promotion (see module), Partner Match is intentionally free.
 
@@ -336,21 +336,25 @@ These were enforced for BR-4 and remain in force for all later public materials 
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Plan placement for SMS, payroll, marketplace and ARIA features.
+**UNRESOLVED PRODUCT DECISIONS:** Open decision #8 — plan placement for SMS (including whether it has a monthly allowance and its quantity), payroll, marketplace and ARIA features (including whether ARIA Operations is plan-gated or only AI-credit metered), and how that ties to Phase 22 pricing. All remaining Phase 4 implementation waits on it. **Phase 4 stays PARTIAL; it is not complete.**
 
 **DEPENDENCIES:** Phase 2 (SMS), Phase 22 (pricing), Phase 13 (campaign allowances), Phase 19/20 (mobile gating).
 
-**WEB IMPLICATIONS:** Upgrade prompts and usage display in the web app.
+**WEB IMPLICATIONS:** The shared upgrade-prompt component and usage display in the web app are Phase 17 work (not a Phase 4 build); existing feature-specific denial behavior stays until then.
 
 **MOBILE IMPLICATIONS:** Business app navigation must respect entitlements.
 
 **SECURITY / PERMISSIONS CONSIDERATIONS:** Entitlement authority is service-side hardened (migration `20260918070000`); keep enforcement server-side.
 
-**BRANDING / POLISH CONSIDERATIONS:** Consistent upgrade and limit messaging.
+**BRANDING / POLISH CONSIDERATIONS:** Consistent upgrade and limit messaging is delivered with the Phase 17 shared upgrade-prompt work.
 
 **DEFERRED / POST-LAUNCH ITEMS:** None currently identified.
 
 **EVIDENCE / RELEASE REFERENCES:** `src/lib/billing/{plans,access}.ts`, `src/lib/usage/addons.ts`. ENT-1: `src/lib/usage/campaignAllowance.ts`, migration `src/lib/supabase/migrations/20261013090000_ent1_usage_allowance_reservations.sql` (rollback and SQL test alongside; race harness `sql-tests/concurrency/ent1_race_harness.mjs`), campaign send actions under `src/app/app/marketing/campaigns/` and `src/app/app/organizer-campaigns/`.
+
+**PHASE 4 RECONCILIATION (2026-10-03, owner-approved):** no dependency-safe Phase 4 implementation work remains. What is left is blocked by open decision #8 (SMS, payroll, marketplace and ARIA plan placement) and, for pricing, Phase 22. SMS stays blocked on plan placement independently of the separate Twilio / Sachin external dependency. Existing functional entitlement denial is sufficient until Phase 17. Phase 4 is PARTIAL by decision, not by missing engineering; the unresolved items stay visible in this section and in the consolidated decisions list.
+
+**PHASE 5 HANDOFF (explicit, not a silent reorder):** roadmap execution may proceed to Phase 5 while Phase 4 remains PARTIAL because (1) the remaining Phase 4 work is explicitly blocked by product decisions, (2) those items remain visible and unresolved, and (3) they do not affect the existing entitlement foundation (the plan features, seat limits, credit/benefit engine inputs and ENT-1 allowance) that Group Class work relies on. No Phase 5 work is complete as a result of this handoff.
 
 ---
 
@@ -381,7 +385,7 @@ These were enforced for BR-4 and remain in force for all later public materials 
 
 **UNRESOLVED PRODUCT DECISIONS:** **Depleted-credit behavior** for group-class enrollment (open product decision #10); whether series stay appointment recurrence or get a dedicated model.
 
-**DEPENDENCIES:** Phase 4 (entitlements); precedes Phase 6 and 7.
+**DEPENDENCIES:** Phase 4 (entitlements); precedes Phase 6 and 7. Phase 4 remains PARTIAL by open decision #8; that remainder (SMS, payroll, marketplace, ARIA placement) does not touch group classes, so Phase 5 proceeds under the explicit Phase 4 handoff recorded in Phase 4.
 
 **WEB IMPLICATIONS:** Class scheduling/roster UX falls under Phase 17.
 
@@ -849,7 +853,7 @@ These were enforced for BR-4 and remain in force for all later public materials 
 
 **COMPLETED CAPABILITIES:** None as a formal pass. Authenticated shell branding and accessibility QA (BR-2C/2D) are done.
 
-**REMAINING DELIVERABLES:** The pass across Studio, Organizer, Competition, Payroll, Documents, Marketing and related operational workspaces, **plus Discovery / Partner Match where applicable** (web request flow, listing management, moderation-state UX). Absorb PORTAL-UX-1/2 backlog.
+**REMAINING DELIVERABLES:** The pass across Studio, Organizer, Competition, Payroll, Documents, Marketing and related operational workspaces, **plus Discovery / Partner Match where applicable** (web request flow, listing management, moderation-state UX). Absorb PORTAL-UX-1/2 backlog. **Also owns (reassigned from Phase 4): the shared, reusable upgrade-prompt component and plan/usage display** (consistent upgrade and limit messaging across features, replacing the per-feature messages and the billing-page query-param landing).
 
 **LOCKED DECISIONS:** The finalized web workflows become the canonical UX model for mobile. Do not start before material upstream workflow phases are done.
 
@@ -1335,7 +1339,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 5. Floor-rental authoritative pricing/approval model.
 6. Final mobile app boundary (Phase 18).
 7. Landmark 1A canonical closeout scope (invitation flow, seat UI, audit viewer).
-8. Phase 4 plan placement for SMS, payroll, marketplace, ARIA.
+8. Phase 4 plan placement for SMS, payroll, marketplace, ARIA. **Open; blocks all remaining Phase 4 implementation** (SMS allowance and quantity, payroll/marketplace/ARIA tiers, ARIA gated by plan vs AI credits only, tie to Phase 22 pricing). No speculative `BillingFeature` keys until decided.
 9. Documents scope: waivers and receipts.
 10. Payroll "exported/finalized" state.
 11. Competition scoring system(s) and where judging runs.
@@ -1357,6 +1361,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | v1.5 | Phase 4 reconciliation and explicit Phase 5 handoff (docs only). Phase 4 stays PARTIAL; ENT-1 stays RELEASED/CLOSED. Remaining Phase 4 implementation is blocked on open decision #8 (SMS, payroll, marketplace, ARIA plan placement); no speculative billing keys; SMS blocked on plan placement independently of the Twilio/Sachin dependency. Shared upgrade-prompt / usage-display UX reassigned to Phase 17 (existing entitlement-denial behavior sufficient meanwhile). Campaign-recipient allowance clarified as applying to user-created marketing campaigns only; operational/transactional email and current ARIA operational outreach are not campaign-metered; ARIA has no marketing send path that bypasses ENT-1; no email add-on is approved or required; the dead duplicate campaign action stays with the Phase 13 dedupe. Phase 22 stays the pricing cutover. Execution may proceed to Phase 5 under the recorded dependency-safe handoff. |
 | 2026-10-03 | v1.4 | ENT-1 RELEASED and closed: PR #138 squash merged to main `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`; PROD migration `20261013090000_ent1_usage_allowance_reservations.sql` applied and verified; deployment `dpl_HcYmcSqF4hLApbwASov1xacA4mbu` promoted to production; authenticated PROD smoke intentionally omitted under the permanent release rule. Phase 4 stays PARTIAL (SMS gating, payroll/marketplace/ARIA billing keys, upgrade-prompt component, any email add-on product and other email paths such as ARIA-originated sends remain). BR-5 stays merged (#137); BR-6 stays active/parked awaiting the professional ARIA voice recording; Twilio stays an external wait. Docs only. |
 | 2026-10-03 | v1.3 | Corrected the stale BR-5 state: BR-5 is MERGED (PR #137, main `1310e3a`). BR-6 recorded as active but parked (first-person ARIA master locked; waiting for the professional ARIA recording; branch `br-6-promotional-media` head `1f19305`, not merged). ENT-1 (monthly email-campaign recipient allowance, studio and organizer, atomic reserve/finalize/release) marked COMPLETE on its candidate branch `ent-1-email-campaign-allowance`: DEV migration `20261013090000` applied and verified, PROD migration required. Phase 4 stays PARTIAL (SMS gating, payroll/marketplace/ARIA keys and the upgrade-prompt component remain). |
 | 2026-10-03 | v1.2 | BR-4 recorded as merged (PR #136, main `f189d15`) and LIVE (`dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K`). BR-5 Event / Print Collateral marked COMPLETE on its candidate branch (awaiting merge): banner master (vendor fit pending), three business sheets, dancer card, social templates, QR/attribution convention, collateral guide, builder and focused test. Phase 3 stays PARTIAL: BR-6 and BR-7 remain; next slice after the BR-5 merge is BR-6. No migration or runtime change. |

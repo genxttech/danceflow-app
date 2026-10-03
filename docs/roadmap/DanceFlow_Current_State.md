@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-03 (roadmap v1.4: ENT-1 released and closed; BR-5 merged; BR-6 parked)
+**Last updated:** 2026-10-03 (roadmap v1.5: Phase 4 reconciliation and Phase 5 handoff; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,7 +10,7 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `782fd680fdb0ab8928faccb4ac859bbe4e6109f6` (ENT-1 squash merge, PR #138). The docs-only closeout commit that records this lands one commit after it, so this SHA lags the true head by that one docs commit |
+| **CURRENT MAIN** | `56dc18d33e44e95b17d816368877a30dc8e155c5` (ENT-1 docs closeout, PR #139, on top of the ENT-1 release `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`, PR #138). The docs-only commits that record this lag it by one commit each time |
 | **CURRENT PROD DEPLOYMENT** | `dpl_HcYmcSqF4hLApbwASov1xacA4mbu` (source `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`; ENT-1 live on `www.idanceflow.com` and `idanceflow.com`; promoted 2026-10-03). Previous production deployment and rollback target: `dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K` (BR-4, source `f189d15cbef301a24e3410b79f20d3bcef7135d9`). The later docs-only commits (BR-5 collateral, this closeout) change no runtime and were not deployed |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
@@ -59,7 +59,9 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 
 **BR-6 (Promotional Media):** ACTIVE / PARKED awaiting the professional ARIA voice recording. BR-7 (final branding / public-launch QA) follows BR-6 and has not started. Phase 3 is not complete until both are done.
 
-**PRODUCT WORK IN PARALLEL (Phase 4):** ENT-1 (email-campaign recipient allowance) is RELEASED and closed (PR #138); the next Phase 4 items need product decisions (plan placement for SMS, payroll, marketplace and ARIA).
+**PHASE 4:** PARTIAL by decision. ENT-1 (email-campaign recipient allowance) is RELEASED and closed (PR #138). No dependency-safe Phase 4 implementation remains: the rest (SMS, payroll, marketplace and ARIA plan placement) is blocked on open decision #8, with pricing in Phase 22. SMS plan placement is blocked independently of the Twilio / Sachin dependency. No speculative billing keys; no email add-on is approved or required. Shared upgrade-prompt / usage-display UX moved to Phase 17; existing entitlement-denial behavior is sufficient until then.
+
+**NEXT ROADMAP PHASE:** Phase 5 — Group Class canonical foundation (explicit dependency-safe handoff recorded in the roadmap; Phase 4 remains PARTIAL and visible). No Phase 5 work is complete yet.
 
 ### Public-claim restrictions (still in force for BR-6 onward)
 - No meaningful Featured Events promotion claim; avoid "Featured" language beyond implemented behavior.
@@ -92,4 +94,4 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 
 ## NEXT GATE
 
-None for ENT-1 (closed). BR-6 resumes when the professional ARIA voice recording arrives. Further Phase 4 slices need the plan-placement product decision first.
+None for ENT-1 (closed). BR-6 resumes when the professional ARIA voice recording arrives. Roadmap execution proceeds to Phase 5 (read-only reconciliation first). Remaining Phase 4 work waits on open decision #8.
