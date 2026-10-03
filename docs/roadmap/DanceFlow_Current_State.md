@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-03 (roadmap v1.3: BR-5 merged, BR-6 parked, ENT-1 candidate)
+**Last updated:** 2026-10-03 (roadmap v1.4: ENT-1 released and closed; BR-5 merged; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,13 +10,13 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `1310e3a107404c7c81fd031696dcf9cf120c76d6` (BR-5 squash merge, PR #137; static collateral only) |
-| **CURRENT PROD DEPLOYMENT** | `dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K` (source `f189d15cbef301a24e3410b79f20d3bcef7135d9`; BR-4 live on `www.idanceflow.com` and `idanceflow.com`). Main is one static-collateral commit ahead (BR-5, no runtime change); no deployment was needed |
+| **CURRENT MAIN** | `782fd680fdb0ab8928faccb4ac859bbe4e6109f6` (ENT-1 squash merge, PR #138). The docs-only closeout commit that records this lands one commit after it, so this SHA lags the true head by that one docs commit |
+| **CURRENT PROD DEPLOYMENT** | `dpl_HcYmcSqF4hLApbwASov1xacA4mbu` (source `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`; ENT-1 live on `www.idanceflow.com` and `idanceflow.com`; promoted 2026-10-03). Previous production deployment and rollback target: `dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K` (BR-4, source `f189d15cbef301a24e3410b79f20d3bcef7135d9`). The later docs-only commits (BR-5 collateral, this closeout) change no runtime and were not deployed |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
 | **PRIMARY REPO LINK** | DEV |
 | **NON-TWILIO LAUNCH STATUS** | READY / CLOSED; no new launch blocker from BR-4, BR-5 or ENT-1 |
-| **PENDING PROD MIGRATIONS** | None on main. **ENT-1 candidate adds `20261013090000_ent1_usage_allowance_reservations.sql` (applied and verified in DEV only); PROD must apply it, behind an explicit owner gate, before the ENT-1 application deployment (the new send path fails closed: without the migration every campaign send is blocked)** |
+| **PENDING PROD MIGRATIONS** | None. ENT-1 migration `20261013090000_ent1_usage_allowance_reservations.sql` was applied to PROD 2026-10-03 23:01:22–23:01:24Z (isolated scratch workdir, exit 0) and verified before the application deployment |
 | **PACKAGE REFUND HOLD** | Released / `false` |
 | **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified outside the Twilio operational dependency |
 | **KNOWN HYGIENE DEBT** | pre-existing lint errors in some public pages (not introduced by BR-4, BR-5 or ENT-1); they keep the changed-file lint step in CI red when those files are touched |
@@ -32,19 +32,18 @@ BR-4 (Public Website & Launch Messaging) is merged and live. Public smoke of the
 | **Status** | ACTIVE / PARKED. The Rough Cut 3 visual system and motion engine are built; the owner locked a first-person master narrated by ARIA herself (`docs/brand/media/VOICEOVER_V4.md`). The next full master render waits for the professional ARIA voice recording (`media/_work/voice/aria-pro/`) |
 | **Not done** | No music sourced or licensed; no voice talent engaged by engineering; no short cuts; BR-7 not started; BR-6 is not complete |
 
-## ENT-1 candidate (not yet merged)
+## ENT-1 (released and closed)
 
 | | |
 |---|---|
-| **Candidate branch** | `ent-1-email-campaign-allowance` |
-| **Branch base** | `1310e3a107404c7c81fd031696dcf9cf120c76d6` (current main) |
-| **Exact candidate head** | The head commit of the ENT-1 branch or pull request (a commit cannot contain its own SHA) |
-| **Status** | ENT-1: COMPLETE ON CANDIDATE BRANCH / AWAITING FINAL FOCUSED REVIEW. Monthly email-campaign recipient allowance enforced for studio and organizer sends: whole-campaign atomic admission, delivery in the existing batches under that one commitment, success-only durable settlement, stale-batch reconciliation. Also fixes the organizer send pipeline recording provider-rejected sends as sent |
-| **Migration** | `20261013090000_ent1_usage_allowance_reservations.sql` (a single file; an earlier per-batch candidate of it was DEV-only and was dropped from DEV before this version was applied): applied and verified in DEV; **PROD migration required** (not applied) |
-| **Deployment** | Required after the PROD migration (application change) |
-| **Phase 4** | Remains PARTIAL: SMS gating, payroll/marketplace/ARIA billing keys and the upgrade-prompt component are not done |
+| **Status** | ENT-1: RELEASED / COMPLETE. Monthly email-campaign recipient allowance enforced for studio and organizer sends: whole-campaign atomic admission, delivery in the existing batches under that one commitment, success-only durable settlement, stale-batch reconciliation. Also fixes the organizer send pipeline recording provider-rejected sends as sent |
+| **Pull request** | #138, squash merged to main as `782fd680fdb0ab8928faccb4ac859bbe4e6109f6` (parent `1310e3a107404c7c81fd031696dcf9cf120c76d6`; tree identical to the reviewed branch head `6ce0d27`) |
+| **Migration** | `20261013090000_ent1_usage_allowance_reservations.sql`: applied and verified in PROD (table, RLS with no tenant policies or privileges, `reserve_usage_allowance` and `settle_usage_reservation` SECURITY DEFINER with service_role-only EXECUTE, function bodies identical to the reviewed file and DEV, superseded DEV-only functions absent). Rollback file reviewed against the final schema, not run |
+| **Deployment** | `dpl_HcYmcSqF4hLApbwASov1xacA4mbu` (source `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`), promoted to `www.idanceflow.com` and `idanceflow.com` |
+| **Release verification** | Safe checks only: deployment source SHA, public route health (200), PROD ENT-1 database fingerprint unchanged after deploy. Authenticated production smoke was intentionally omitted because prior production read-only verification attempts resulted in secret/key exposure. Authenticated behavior was instead validated in DEV/local before release. |
+| **Phase 4** | Remains PARTIAL: SMS gating, payroll/marketplace/ARIA billing keys, a reusable upgrade-prompt component, an approved email add-on product (none exists) and enforcement for other email paths such as ARIA-originated sends are not done |
 
-The feature branches are not main. Do not treat BR-6 or ENT-1 as merged until their pull requests are merged.
+The BR-6 branch is not main. Do not treat BR-6 as merged until its pull request is merged.
 
 ## Twilio status
 
@@ -60,7 +59,7 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 
 **BR-6 (Promotional Media):** ACTIVE / PARKED awaiting the professional ARIA voice recording. BR-7 (final branding / public-launch QA) follows BR-6 and has not started. Phase 3 is not complete until both are done.
 
-**PRODUCT WORK IN PARALLEL (Phase 4):** ENT-1 (email-campaign recipient allowance) is complete on its candidate branch; the next Phase 4 items need product decisions (plan placement for SMS, payroll, marketplace and ARIA).
+**PRODUCT WORK IN PARALLEL (Phase 4):** ENT-1 (email-campaign recipient allowance) is RELEASED and closed (PR #138); the next Phase 4 items need product decisions (plan placement for SMS, payroll, marketplace and ARIA).
 
 ### Public-claim restrictions (still in force for BR-6 onward)
 - No meaningful Featured Events promotion claim; avoid "Featured" language beyond implemented behavior.
@@ -93,4 +92,4 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 
 ## NEXT GATE
 
-Focused review of ENT-1, then (owner gate) the PROD migration `20261013090000` and the ENT-1 deployment. BR-6 resumes when the professional ARIA recording arrives.
+None for ENT-1 (closed). BR-6 resumes when the professional ARIA voice recording arrives. Further Phase 4 slices need the plan-placement product decision first.
