@@ -45,7 +45,7 @@ export default async function StudioPricingPage() {
 
   return (
     <>
-      <PublicSiteHeader currentPath="pricing" isAuthenticated={!!user} />
+      <PublicSiteHeader currentPath="business" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#f5f3ff_0%,#ffffff_24%,#f8fafc_100%)]">
         <section className="border-b border-slate-200/70">
@@ -73,8 +73,8 @@ export default async function StudioPricingPage() {
                       Founder pricing
                     </p>
                     <p className="mt-2 text-sm leading-7 text-violet-950">
-                      Available for the first 25 studios. Founder pricing lasts
-                      for 12 months after your 30-day free trial.
+                      Available during launch. Founder pricing lasts for 12
+                      months after your {studioPlans[0].trialDays}-day free trial.
                     </p>
                   </div>
                 ) : null}
@@ -215,7 +215,7 @@ export default async function StudioPricingPage() {
 
                     <div className="mt-4 rounded-2xl bg-violet-50 px-4 py-3 text-sm leading-6 text-violet-900">
                       {founderActive
-                        ? `Includes a ${plan.trialDays}-day free trial. Founder pricing applies for 12 months after the trial for eligible early studios.`
+                        ? `Includes a ${plan.trialDays}-day free trial. Founder pricing applies for 12 months after the trial during launch.`
                         : `Includes a ${plan.trialDays}-day free trial.`}
                     </div>
 

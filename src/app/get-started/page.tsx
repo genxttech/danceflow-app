@@ -9,6 +9,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import { createClient } from "@/lib/supabase/server";
 import type { Metadata } from "next";
+import { getPlansByAudience } from "@/lib/billing/plans";
 
 export const metadata: Metadata = {
   title: "Get Started",
@@ -21,9 +22,13 @@ export default async function GetStartedPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Trial lengths come from the canonical plan definitions (checkout uses the same values).
+  const studioTrialDays = getPlansByAudience("studio")[0].trialDays;
+  const organizerTrialDays = getPlansByAudience("organizer")[0].trialDays;
+
   return (
     <>
-      <PublicSiteHeader currentPath="pricing" isAuthenticated={!!user} />
+      <PublicSiteHeader currentPath="business" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
         <section className="border-b border-slate-200/70">
@@ -64,8 +69,9 @@ export default async function GetStartedPage() {
                     </p>
                     <p className="mt-2 text-sm leading-7 text-slate-600">
                       Dancers can use DanceFlow with a free discovery account.
-                      Studios get a 30-day trial during the Founder launch offer.
-                      Organizers get a 14-day trial with transparent event pricing.
+                      Studios get a {studioTrialDays}-day free trial. Organizers
+                      get a {organizerTrialDays}-day free trial with transparent
+                      event pricing.
                     </p>
                   </div>
                 </div>

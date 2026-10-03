@@ -1,12 +1,13 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserPlatformRole } from "@/lib/auth/platform";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import type { Metadata } from "next";
 import { JsonLd } from "@/components/seo/JsonLd";
+import { ExpandableRows } from "@/components/public/audience/AudienceParts";
 import { getPlansByAudience } from "@/lib/billing/plans";
 import { isFounderPricingActive } from "@/lib/billing/founderPricing";
 import {
@@ -241,34 +242,8 @@ export default async function HomePage() {
             </h2>
             <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">{HOME_WORK_INTRO}</p>
 
-            <div className="mt-12 divide-y divide-slate-200 border-y border-slate-200">
-              {HOME_CONCEPTS.map((concept) => (
-                <details key={concept.title} className="group py-6">
-                  <summary
-                    className={`flex cursor-pointer list-none items-start justify-between gap-6 rounded-lg ${focusRing}`}
-                  >
-                    <span className="grid gap-2 sm:grid-cols-[minmax(0,15rem)_1fr] sm:gap-10">
-                      <span className="text-xl font-semibold text-slate-950">{concept.title}</span>
-                      <span className="text-base leading-7 text-slate-600">{concept.summary}</span>
-                    </span>
-                    <ChevronDown
-                      className="mt-1 h-5 w-5 shrink-0 text-slate-400 transition group-open:rotate-180"
-                      aria-hidden="true"
-                    />
-                  </summary>
-                  <ul className="mt-5 space-y-2 text-sm leading-6 text-slate-700 sm:ml-[16.5rem]">
-                    {concept.proof.map((item) => (
-                      <li key={item} className="flex gap-3">
-                        <span
-                          aria-hidden="true"
-                          className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--brand-accent)]"
-                        />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ))}
+            <div className="mt-12">
+              <ExpandableRows rows={HOME_CONCEPTS} />
             </div>
           </div>
         </section>

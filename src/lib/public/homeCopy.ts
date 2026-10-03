@@ -105,28 +105,25 @@ export const HOME_AUDIENCE_HEADING = "Who DanceFlow is for";
 
 export type HomeAudience = { name: string; line: string; cta: string; href: string };
 
-/**
- * Links point at the strongest existing destinations. BR-4B replaces the business ones with
- * dedicated audience pages; do not link to routes that do not exist yet.
- */
+/** Business audiences link to their dedicated pages (BR-4B); dancers stay on Discover. */
 export const HOME_AUDIENCES: HomeAudience[] = [
   {
     name: "Studio owners",
     line: "Run the studio, from the first inquiry to the renewal.",
-    cta: "See studio plans",
-    href: "/get-started/studio",
+    cta: "For studios",
+    href: "/for-studios",
   },
   {
     name: "Independent instructors",
-    line: "Run your teaching business on the same plans studios use.",
-    cta: "See plans",
-    href: "/get-started/studio",
+    line: "Run your teaching business with the same tools studios use.",
+    cta: "For instructors",
+    href: "/for-instructors",
   },
   {
     name: "Organizers",
     line: "Publish events, sell tickets and check people in.",
-    cta: "See organizer pricing",
-    href: "/get-started/organizer",
+    cta: "For organizers",
+    href: "/for-organizers",
   },
   {
     name: "Dancers",
@@ -194,7 +191,17 @@ export const HOME_JSON_LD = {
  * from the pricing logic (`getPlansByAudience("studio")[0].trialDays`, `isFounderPricingActive()`).
  * No remaining-studio count is ever shown.
  */
-export function buildTrialLine(input: { trialDays: number; founderPricingActive: boolean }) {
-  const base = `${input.trialDays}-day free trial for studios`;
+export function buildTrialLine(input: {
+  trialDays: number;
+  founderPricingActive: boolean;
+  /** Who the trial is for; defaults to studios. Independent instructors use the studio plans. */
+  audience?: "studios" | "instructors" | "organizers";
+}) {
+  const audienceLabel = {
+    studios: "studios",
+    instructors: "independent instructors",
+    organizers: "organizers",
+  }[input.audience ?? "studios"];
+  const base = `${input.trialDays}-day free trial for ${audienceLabel}`;
   return input.founderPricingActive ? `${base}. Founder pricing is available during launch.` : `${base}.`;
 }

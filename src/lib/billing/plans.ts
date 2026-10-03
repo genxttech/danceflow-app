@@ -56,7 +56,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Core CRM, scheduling, client portals, and simple studio operations for independent instructors and smaller studios.",
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
-      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
+      "Founder pricing is available during launch and lasts for 12 months after your free trial.",
     features: [
       "crm_basic",
       "schedule_basic",
@@ -83,7 +83,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Growth tools for studios that want stronger retention, packages, memberships, reporting, marketing, and AI assistance.",
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
-      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
+      "Founder pricing is available during launch and lasts for 12 months after your free trial.",
     features: [
       "crm_basic",
       "schedule_basic",
@@ -117,7 +117,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Advanced studio growth with stronger reporting, automations, documents, marketing, ARIA insights, and larger AI usage without forcing full event-commerce tools.",
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
-      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
+      "Founder pricing is available during launch and lasts for 12 months after your free trial.",
     features: [
       "crm_basic",
       "schedule_basic",

@@ -34,6 +34,12 @@ const MARKETING_SOURCES = [
   ["src", "lib", "public", "homeCopy.ts"],
   ["src", "app", "page.tsx"],
   ["src", "app", "layout.tsx"],
+  // BR-4B additions
+  ["src", "lib", "public", "audienceCopy.ts"],
+  ["src", "app", "for-studios", "page.tsx"],
+  ["src", "app", "for-instructors", "page.tsx"],
+  ["src", "app", "for-organizers", "page.tsx"],
+  ["src", "app", "discover", "page.tsx"],
 ] as const;
 
 /** Comments document the restrictions themselves, so the guard reads code and copy only. */
@@ -162,8 +168,13 @@ describe("homepage hierarchy", () => {
     }
   });
 
-  it("does not link to audience routes that do not exist yet (BR-4B)", () => {
-    expect(marketingText).not.toMatch(/\/for-(studios|instructors|organizers)/);
+  it("links each audience to its dedicated page; dancers stay on Discover (BR-4B)", () => {
+    expect(HOME_AUDIENCES.map((audience) => [audience.name, audience.href])).toEqual([
+      ["Studio owners", "/for-studios"],
+      ["Independent instructors", "/for-instructors"],
+      ["Organizers", "/for-organizers"],
+      ["Dancers", "/discover"],
+    ]);
   });
 
   it("every internal link points at a real route", () => {

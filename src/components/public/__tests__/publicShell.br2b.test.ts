@@ -67,6 +67,14 @@ describe("footer", () => {
     expect(footer).not.toContain("so owners can focus");
   });
 
+  it("BR-4B: business links replace the misleading Pricing label", () => {
+    expect(footer).not.toContain(">Pricing</Link>");
+    for (const href of ["/for-studios", "/for-instructors", "/for-organizers", "/get-started"]) {
+      expect(footer).toContain(`href="${href}"`);
+    }
+    expect(footer).toContain(">Get Started</Link>");
+  });
+
   it("normalizes labels and keeps legal destinations", () => {
     expect(footer).not.toContain("Discovery Home");
     expect(footer).toContain(">Discover</Link>");
@@ -152,15 +160,17 @@ describe("routes use the shared shell", () => {
 });
 
 describe("nav mechanics", () => {
-  it("preserves destinations and only shows account items when signed in", () => {
+  it("BR-4B: a small grouped model, no misleading Pricing label, account items only when signed in", () => {
     const pub = PUBLIC_NAV_ITEMS.filter((i) => !i.authOnly).map((i) => [i.label, i.href]);
     expect(pub).toEqual([
-      ["Home", "/"],
       ["Discover", "/discover"],
-      ["Studios", "/discover/studios"],
-      ["Events", "/discover/events"],
-      ["Marketplace", "/marketplace"],
-      ["Pricing", "/get-started"],
+      ["For Business", "/for-studios"],
+    ]);
+    expect(PUBLIC_NAV_ITEMS.map((i) => i.label)).not.toContain("Pricing");
+    expect(PUBLIC_NAV_ITEMS.find((i) => i.key === "business")?.children?.map((c) => [c.label, c.href])).toEqual([
+      ["Studios", "/for-studios"],
+      ["Independent instructors", "/for-instructors"],
+      ["Organizers", "/for-organizers"],
     ]);
     expect(PUBLIC_NAV_ITEMS.filter((i) => i.authOnly).map((i) => i.label)).toEqual([
       "Favorites",
@@ -171,13 +181,16 @@ describe("nav mechanics", () => {
   it("derives the active item from the pathname", () => {
     expect(activePublicNavKey("/")).toBe("home");
     expect(activePublicNavKey("/discover")).toBe("discover");
-    expect(activePublicNavKey("/discover/studios")).toBe("studios");
-    expect(activePublicNavKey("/studios/some-studio")).toBe("studios");
-    expect(activePublicNavKey("/discover/events")).toBe("events");
-    expect(activePublicNavKey("/events/x")).toBe("events");
-    expect(activePublicNavKey("/marketplace/abc")).toBe("marketplace");
-    expect(activePublicNavKey("/get-started/studio")).toBe("pricing");
+    expect(activePublicNavKey("/discover/studios")).toBe("discover");
+    expect(activePublicNavKey("/studios/some-studio")).toBe("discover");
+    expect(activePublicNavKey("/discover/events")).toBe("discover");
+    expect(activePublicNavKey("/events/x")).toBe("discover");
+    expect(activePublicNavKey("/discover/jobs")).toBe("discover");
+    expect(activePublicNavKey("/marketplace/abc")).toBe("discover");
+    expect(activePublicNavKey("/for-studios")).toBe("business");
+    expect(activePublicNavKey("/for-instructors")).toBe("business");
+    expect(activePublicNavKey("/for-organizers")).toBe("business");
+    expect(activePublicNavKey("/get-started/studio")).toBe("business");
     expect(activePublicNavKey("/terms")).toBeNull();
-    expect(activePublicNavKey("/discover/jobs")).toBeNull();
   });
 });

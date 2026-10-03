@@ -4,7 +4,7 @@ import Link from "next/link";
 export default function PublicSiteFooter() {
   return (
     <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.3fr_1fr_1fr_1.2fr] lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1.2fr] lg:px-8">
         <div>
           <Link
             href="/"
@@ -33,7 +33,16 @@ export default function PublicSiteFooter() {
             <Link href="/discover/partners" className="hover:text-slate-900">Dance Partners</Link>
             <Link href="/discover/jobs" className="hover:text-slate-900">Dance Jobs</Link>
             <Link href="/marketplace" className="hover:text-slate-900">Marketplace</Link>
-            <Link href="/get-started" className="hover:text-slate-900">Pricing</Link>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-slate-900">For Business</p>
+          <div className="mt-3 grid gap-2 text-sm text-slate-600">
+            <Link href="/for-studios" className="hover:text-slate-900">Studios</Link>
+            <Link href="/for-instructors" className="hover:text-slate-900">Independent Instructors</Link>
+            <Link href="/for-organizers" className="hover:text-slate-900">Organizers</Link>
+            <Link href="/get-started" className="hover:text-slate-900">Get Started</Link>
           </div>
         </div>
 

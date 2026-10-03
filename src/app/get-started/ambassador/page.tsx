@@ -189,7 +189,7 @@ export default async function AmbassadorInvitePage({
 
   return (
     <>
-      <PublicSiteHeader currentPath="pricing" isAuthenticated={!!user} />
+      <PublicSiteHeader currentPath="business" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#f5f3ff_0%,#ffffff_30%,#f8fafc_100%)]">
         <section className="mx-auto max-w-4xl px-6 py-14 lg:px-8 lg:py-20">

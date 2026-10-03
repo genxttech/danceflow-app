@@ -62,11 +62,11 @@ const discoveryPaths = [
     glow: "bg-orange-200/30",
   },
   {
-    title: "Meet Dance Partners",
+    title: "Find Dance Partners",
     description:
-      "Connect with dancers looking for practice, social dancing, showcases, or competition partnerships.",
+      "Browse listings from dancers looking for practice, social dancing, showcases, or competition partners.",
     href: "/discover/partners",
-    cta: "Search partners",
+    cta: "Browse partner listings",
     icon: UsersRound,
     shell: "from-pink-600 to-fuchsia-800",
     glow: "bg-pink-200/30",
@@ -177,7 +177,7 @@ export default async function DiscoverLandingPage() {
         <div className="relative mx-auto max-w-7xl px-6 py-14 lg:py-20">
           <div className="max-w-4xl">
             <div className="inline-flex items-center rounded-full border border-[var(--brand-border)] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-accent-dark)] shadow-sm">
-              DanceFlow Discovery
+              Discover
             </div>
 
             <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
@@ -187,8 +187,9 @@ export default async function DiscoverLandingPage() {
             </h1>
 
             <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
-              Start with one discovery path. DanceFlow keeps studios, events,
-              partner listings, jobs, and learning in one connected dance directory.
+              Start with one path. Discover brings studios, events, dance partner
+              listings, jobs, and learning together in one place, with a free account
+              to save favorites and keep your registrations together.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-3">
@@ -209,6 +210,16 @@ export default async function DiscoverLandingPage() {
                 </Link>
               ) : null}
             </div>
+
+            <p className="mt-5 text-sm text-slate-600">
+              Run a studio, teach, or organize events?{" "}
+              <Link
+                href="/for-studios"
+                className="inline-block py-1.5 font-semibold text-[var(--brand-primary)] underline-offset-4 hover:underline"
+              >
+                See DanceFlow for business
+              </Link>
+            </p>
           </div>
 
           <div className="mt-10 overflow-x-auto pb-1">
