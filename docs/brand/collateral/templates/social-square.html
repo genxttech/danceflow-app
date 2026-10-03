@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DanceFlow social square</title>
+<style>
+{{{baseCss}}}
+{{{socialCss}}}
+html, body { width: 1080px; height: 1080px; }
+/* Safe margin 72px on all sides. */
+.frame { left: 72px; top: 72px; width: 936px; height: 936px; }
+.logo { width: 360px; }
+.awareness .eyebrow-rule { margin-top: 150px; }
+.awareness .headline { font-size: 88px; text-wrap: balance; line-height: 1.04; margin-top: 36px; }
+.awareness .support { font-size: 34px; line-height: 1.4; margin-top: 40px; max-width: 800px; }
+.event .lead { font-size: 52px; margin-top: 150px; line-height: 1.1; }
+.event .field { font-size: 118px; line-height: 1.02; margin-top: 18px; overflow-wrap: anywhere; }
+.event .detail { font-size: 40px; margin-top: 28px; }
+.event .support { font-size: 33px; line-height: 1.4; margin-top: 44px; max-width: 800px; }
+.cue { font-size: 30px; }
+.url { font-size: 34px; }
+.foot { margin-top: auto; display: flex; flex-direction: column; gap: 14px; }
+</style>
+</head>
+<body class="{{variant}}">
+<div class="frame" data-safe>
+  <img class="logo" src="{{logoSrc}}" alt="DanceFlow">
+  {{#if isAwareness}}
+  <div class="eyebrow-rule rule"></div>
+  <h1 class="headline" data-fontprobe>{{s.headline}}</h1>
+  <p class="support">{{s.support}}</p>
+  {{/if}}
+  {{#if isEvent}}
+  <p class="lead">{{s.lead}}</p>
+  <p class="field" data-fontprobe>{{eventText}}</p>
+  {{#if detailText}}<p class="detail">{{detailText}}</p>{{/if}}
+  <p class="support">{{s.support}}</p>
+  {{/if}}
+  <div class="foot"><p class="cue">{{#each audiencesView}}{{label}}{{#if sep}}<span>•</span>{{/if}}{{/each}}</p><p class="url">{{host}}</p></div>
+</div>
+</body>
+</html>

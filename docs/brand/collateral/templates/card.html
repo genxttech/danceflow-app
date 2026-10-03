@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DanceFlow dancer card</title>
+<style>
+{{{baseCss}}}
+@page { size: 4.25in 6.25in; margin: 0; }
+/* Page = 4in x 6in trim + 0.125in bleed. Safe area = 0.25in inside trim, i.e. 0.375in inside the page. */
+.page { position: relative; width: 4.25in; height: 6.25in; overflow: hidden; background: var(--brand-surface); page-break-after: always; break-after: page; }
+.page:last-child { page-break-after: auto; break-after: auto; }
+.safe { position: absolute; inset: .375in; }
+.photo { position: absolute; left: 0; top: 0; width: 4.25in; height: {{photoHeight}}in; }
+.photo img { width: 100%; height: 100%; display: block; }
+.front .copy { position: absolute; left: 0; right: 0; top: {{photoHeight}}in; bottom: 0; padding: .2in .375in 0 .375in; }
+.front .logo { width: 1.15in; }
+.front h1 { font-size: 22pt; text-wrap: balance; line-height: 1.1; font-weight: 700; letter-spacing: -.015em; margin-top: .2in; }
+.front .support { font-size: 10.5pt; line-height: 1.4; color: var(--brand-muted); margin-top: .1in; }
+.back .logo { width: 1.05in; }
+.rows { margin-top: .3in; display: flex; flex-direction: column; gap: .2in; }
+.row { padding-left: .16in; border-left: 3px solid var(--brand-accent); }
+.row h2 { font-size: 12.5pt; font-weight: 700; line-height: 1.15; }
+.row p { font-size: 10pt; line-height: 1.35; color: var(--brand-muted); margin-top: .02in; }
+.back .cta-panel { position: absolute; left: 0; right: 0; bottom: 0; height: 2in; padding: .2in .375in .45in .375in; display: flex; align-items: center; justify-content: space-between; }
+.cta { font-size: 15pt; font-weight: 700; line-height: 1.12; letter-spacing: -.01em; }
+.hint { font-size: 9.5pt; color: var(--brand-accent-soft); margin-top: .07in; }
+.cta-url { font-size: 9.5pt; font-weight: 600; margin-top: .03in; color: #fff; }
+.qr-tile { width: 1.3in; height: 1.3in; border-radius: .08in; flex: none; }
+</style>
+</head>
+<body>
+<section class="page front" data-page="front">
+  <div class="photo"><img data-photo src="{{photoSrc}}" alt=""></div>
+  <div class="copy" data-safe-inner>
+    <img class="logo" src="{{logoSrc}}" alt="DanceFlow">
+    <h1 data-fontprobe>{{a.headline}}</h1>
+    <p class="support">{{a.support}}</p>
+  </div>
+</section>
+<section class="page back" data-page="back">
+  <div class="safe" data-safe>
+    <img class="logo" src="{{logoSrc}}" alt="DanceFlow">
+    <div class="rows">
+      {{#each a.rows}}
+      <div class="row"><h2>{{title}}</h2><p>{{body}}</p></div>
+      {{/each}}
+    </div>
+  </div>
+  <div class="cta-panel panel-brand" data-keep>
+    <div>
+      <p class="cta">{{a.cta}}</p>
+      <p class="hint">{{a.scanHint}}</p>
+      <p class="cta-url">{{url}}</p>
+    </div>
+    <div class="qr-tile" data-qr>{{{qrSvg}}}</div>
+  </div>
+</section>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DanceFlow business sheet</title>
+<style>
+{{{baseCss}}}
+@page { size: 8.75in 11.25in; margin: 0; }
+/* Page = 8.5in x 11in trim + 0.125in bleed. Safe area = 0.375in inside trim, i.e. 0.5in inside the page. */
+.page { position: relative; width: 8.75in; height: 11.25in; overflow: hidden; background: var(--brand-surface); page-break-after: always; break-after: page; }
+.page:last-child { page-break-after: auto; break-after: auto; }
+.safe { position: absolute; inset: .5in; display: flex; flex-direction: column; }
+.top { display: flex; justify-content: space-between; align-items: center; }
+.logo { width: 2.25in; }
+.eyebrow { font-size: 9.5pt; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--eyebrow); }
+
+/* Front */
+.front .rule { width: .8in; height: 5px; margin-top: 1.6in; }
+.front h1 { font-size: 46pt; line-height: 1.06; text-wrap: balance; font-weight: 700; letter-spacing: -.02em; margin-top: .3in; max-width: 6.6in; }
+.front .support { font-size: 16pt; line-height: 1.45; color: var(--brand-muted); margin-top: .3in; max-width: 5.9in; }
+.front .cta-panel { position: absolute; left: -.5in; right: -.5in; bottom: -.5in; height: 3.55in; padding: .55in .5in .6in .5in; padding-left: .5in; display: flex; align-items: center; justify-content: space-between; }
+.cta-copy { max-width: 4.9in; padding-left: 0; }
+.cta { font-size: 25pt; line-height: 1.12; font-weight: 700; letter-spacing: -.01em; text-wrap: balance; }
+.hint { font-size: 10.5pt; color: var(--brand-accent-soft); margin-top: .16in; }
+.cta-url { font-size: 11pt; font-weight: 600; margin-top: .06in; color: #fff; }
+.front .qr-tile { width: 2.05in; height: 2.05in; border-radius: .14in; flex: none; margin-right: .0in; }
+
+/* Back */
+.back .blocks { display: flex; flex-direction: column; gap: .5in; margin-top: .95in; }
+.block { display: grid; grid-template-columns: .62in 1fr; column-gap: .12in; }
+.num { font-size: 24pt; font-weight: 700; color: var(--brand-accent); line-height: 1.1; }
+.block h2 { font-size: 21pt; line-height: 1.15; font-weight: 700; letter-spacing: -.01em; }
+.block p { font-size: 13pt; line-height: 1.5; color: var(--brand-muted); margin-top: .09in; max-width: 6.4in; }
+.block ul { list-style: none; margin-top: .09in; }
+.block li { font-size: 12.5pt; line-height: 1.45; padding-left: .2in; position: relative; margin-top: .04in; max-width: 6.2in; }
+.block li::before { content: ""; position: absolute; left: 0; top: .6em; width: .1in; height: 2px; background: var(--brand-accent); }
+.note { margin-top: .5in; padding: .25in .3in; border-radius: .12in; background: var(--brand-primary-soft); font-size: 12.5pt; line-height: 1.5; color: var(--brand-text); }
+.foot { margin-top: auto; border-top: 1px solid var(--brand-border); padding-top: .18in; display: flex; justify-content: space-between; font-size: 10.5pt; color: var(--brand-muted); }
+.foot b { color: var(--brand-primary); font-weight: 600; }
+.compact .blocks { gap: .36in; margin-top: .8in; }
+.compact .block h2 { font-size: 20pt; }
+.compact .block p { font-size: 12.5pt; }
+</style>
+</head>
+<body>
+<section class="page front" data-page="front">
+  <div class="safe" data-safe>
+    <div class="top">
+      <img class="logo" src="{{logoSrc}}" alt="DanceFlow">
+      <p class="eyebrow">{{a.eyebrow}}</p>
+    </div>
+    <div class="rule"></div>
+    <h1 data-fontprobe>{{a.headline}}</h1>
+    <p class="support">{{a.support}}</p>
+    <div class="cta-panel panel-brand" data-keep>
+      <div class="cta-copy">
+        <p class="cta">{{a.cta}}</p>
+        <p class="hint">{{a.scanHint}}</p>
+        <p class="cta-url">{{url}}</p>
+      </div>
+      <div class="qr-tile" data-qr>{{{qrSvg}}}</div>
+    </div>
+  </div>
+</section>
+<section class="page back {{backClass}}" data-page="back">
+  <div class="safe" data-safe>
+    <div class="top">
+      <img class="logo" src="{{logoSrc}}" alt="DanceFlow">
+      <p class="eyebrow">{{a.eyebrow}}</p>
+    </div>
+    <div class="blocks">
+      {{#each a.blocks}}
+      <div class="block">
+        <div class="num">{{pad}}</div>
+        <div>
+          <h2>{{title}}</h2>
+          <p>{{body}}</p>
+          {{#if bullets}}<ul>{{#each bullets}}<li>{{this}}</li>{{/each}}</ul>{{/if}}
+        </div>
+      </div>
+      {{/each}}
+    </div>
+    {{#if a.note}}<p class="note">{{a.note}}</p>{{/if}}
+    <div class="foot"><span><b>{{url}}</b></span><span>{{supportEmail}}</span></div>
+  </div>
+</section>
+</body>
+</html>

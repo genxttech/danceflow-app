@@ -1,0 +1,235 @@
+{
+  "fonts": {
+    "df-banner-booth-33x81-v1": [
+      "Segoe UI"
+    ],
+    "df-sheet-studios-letter-v1": [
+      "Segoe UI"
+    ],
+    "df-sheet-instructors-letter-v1": [
+      "Segoe UI"
+    ],
+    "df-sheet-organizers-letter-v1": [
+      "Segoe UI"
+    ],
+    "df-card-dancers-4x6-v1": [
+      "Segoe UI"
+    ],
+    "df-social-awareness-square-v1": [
+      "Segoe UI"
+    ],
+    "df-social-awareness-story-v1": [
+      "Segoe UI"
+    ],
+    "df-social-event-square-v1": [
+      "Segoe UI"
+    ],
+    "df-social-event-story-v1": [
+      "Segoe UI"
+    ]
+  },
+  "pdfs": {
+    "df-banner-booth-33x81-v1-vendor-neutral-master.pdf": {
+      "pages": 1,
+      "sizeIn": [
+        34,
+        82
+      ],
+      "trimIn": [
+        33,
+        81
+      ],
+      "bleedIn": 0.5,
+      "fonts": [
+        "SegoeUI",
+        "SegoeUI-Bold",
+        "SegoeUI-Semibold"
+      ],
+      "embedded": true
+    },
+    "df-sheet-studios-letter-v1.pdf": {
+      "pages": 2,
+      "sizeIn": [
+        8.75,
+        11.25
+      ],
+      "trimIn": [
+        8.5,
+        11
+      ],
+      "bleedIn": 0.125,
+      "fonts": [
+        "SegoeUI",
+        "SegoeUI-Bold",
+        "SegoeUI-Semibold"
+      ],
+      "embedded": true
+    },
+    "df-sheet-instructors-letter-v1.pdf": {
+      "pages": 2,
+      "sizeIn": [
+        8.75,
+        11.25
+      ],
+      "trimIn": [
+        8.5,
+        11
+      ],
+      "bleedIn": 0.125,
+      "fonts": [
+        "SegoeUI",
+        "SegoeUI-Bold",
+        "SegoeUI-Semibold"
+      ],
+      "embedded": true
+    },
+    "df-sheet-organizers-letter-v1.pdf": {
+      "pages": 2,
+      "sizeIn": [
+        8.75,
+        11.25
+      ],
+      "trimIn": [
+        8.5,
+        11
+      ],
+      "bleedIn": 0.125,
+      "fonts": [
+        "SegoeUI",
+        "SegoeUI-Bold",
+        "SegoeUI-Semibold"
+      ],
+      "embedded": true
+    },
+    "df-card-dancers-4x6-v1.pdf": {
+      "pages": 2,
+      "sizeIn": [
+        4.25,
+        6.25
+      ],
+      "trimIn": [
+        4,
+        6
+      ],
+      "bleedIn": 0.125,
+      "fonts": [
+        "SegoeUI",
+        "SegoeUI-Bold",
+        "SegoeUI-Semibold"
+      ],
+      "embedded": true
+    }
+  },
+  "qr": {
+    "df-banner-booth-33x81-v1": {
+      "url": "https://www.idanceflow.com/?utm_source=banner&utm_medium=qr&utm_campaign=br5-launch&utm_content=booth-v1",
+      "tileIn": 14,
+      "symbolIn": 11.714,
+      "moduleMm": 7.257,
+      "modules": 41,
+      "centreFromTrimBottomIn": 36.28
+    },
+    "df-sheet-studios-letter-v1": {
+      "url": "https://www.idanceflow.com/for-studios?utm_source=sheet&utm_medium=qr&utm_campaign=br5-launch&utm_content=studios-v1",
+      "tileIn": 2.05,
+      "symbolIn": 1.741,
+      "moduleMm": 0.982,
+      "modules": 45
+    },
+    "df-sheet-instructors-letter-v1": {
+      "url": "https://www.idanceflow.com/for-instructors?utm_source=sheet&utm_medium=qr&utm_campaign=br5-launch&utm_content=instructors-v1",
+      "tileIn": 2.05,
+      "symbolIn": 1.762,
+      "moduleMm": 0.913,
+      "modules": 49
+    },
+    "df-sheet-organizers-letter-v1": {
+      "url": "https://www.idanceflow.com/for-organizers?utm_source=sheet&utm_medium=qr&utm_campaign=br5-launch&utm_content=organizers-v1",
+      "tileIn": 2.05,
+      "symbolIn": 1.741,
+      "moduleMm": 0.982,
+      "modules": 45
+    },
+    "df-card-dancers-4x6-v1": {
+      "url": "https://www.idanceflow.com/discover?utm_source=card&utm_medium=qr&utm_campaign=br5-launch&utm_content=dancers-v1",
+      "tileIn": 1.3,
+      "symbolIn": 1.104,
+      "moduleMm": 0.623,
+      "modules": 45
+    }
+  },
+  "images": {
+    "df-card-dancers-4x6-v1": {
+      "sourcePx": [
+        1319,
+        1024
+      ],
+      "placedIn": [
+        4.25,
+        3.3
+      ],
+      "effectiveDpi": 310,
+      "minDpi": 300,
+      "source": "public/brand/danceflow-path-hero.png"
+    },
+    "df-social-awareness-square-v1": {
+      "px": [
+        1080,
+        1080
+      ],
+      "safeFrame": {
+        "left": 72,
+        "top": 72,
+        "right": 1008,
+        "bottom": 1008
+      }
+    },
+    "df-social-awareness-story-v1": {
+      "px": [
+        1080,
+        1920
+      ],
+      "safeFrame": {
+        "left": 72,
+        "top": 250,
+        "right": 1008,
+        "bottom": 1580
+      }
+    },
+    "df-social-event-square-v1": {
+      "px": [
+        1080,
+        1080
+      ],
+      "safeFrame": {
+        "left": 72,
+        "top": 72,
+        "right": 1008,
+        "bottom": 1008
+      }
+    },
+    "df-social-event-story-v1": {
+      "px": [
+        1080,
+        1920
+      ],
+      "safeFrame": {
+        "left": 72,
+        "top": 250,
+        "right": 1008,
+        "bottom": 1580
+      }
+    }
+  },
+  "qa": {
+    "df-banner-booth-33x81-v1": [],
+    "df-sheet-studios-letter-v1": [],
+    "df-sheet-instructors-letter-v1": [],
+    "df-sheet-organizers-letter-v1": [],
+    "df-card-dancers-4x6-v1": [],
+    "df-social-awareness-square-v1": [],
+    "df-social-awareness-story-v1": [],
+    "df-social-event-square-v1": [],
+    "df-social-event-story-v1": []
+  }
+}

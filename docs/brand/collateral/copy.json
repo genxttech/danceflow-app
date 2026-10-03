@@ -1,0 +1,137 @@
+{
+  "meta": {
+    "version": 1,
+    "baseUrl": "https://www.idanceflow.com",
+    "displayHost": "idanceflow.com",
+    "campaign": "br5-launch",
+    "supportEmail": "support@idanceflow.com",
+    "note": "Single source of collateral copy. Text only: no markup. Reused BR-4 wording is checked against src/lib/public by collateral.br5.test.ts."
+  },
+  "banner": {
+    "link": { "path": "/", "source": "banner", "medium": "qr", "content": "booth-v1" },
+    "headline": "The dance platform that helps do the work—not just track it.",
+    "support": "DanceFlow connects the business side of dance with the dancers and experiences that make the community grow.",
+    "audiences": ["Studios", "Instructors", "Organizers", "Dancers"],
+    "cta": "Scan to explore DanceFlow"
+  },
+  "studios": {
+    "link": { "path": "/for-studios", "source": "sheet", "medium": "qr", "content": "studios-v1" },
+    "eyebrow": "For dance studio owners",
+    "headline": "Run the studio without chasing the details.",
+    "support": "DanceFlow keeps scheduling, clients, packages, payments and paperwork connected, and points out what needs your attention next.",
+    "cta": "See plans and start your trial",
+    "scanHint": "Scan with your phone camera",
+    "blocks": [
+      {
+        "title": "Run the day-to-day",
+        "body": "The work that fills a studio week, in one connected place.",
+        "bullets": [
+          "Private lessons, group classes and intro lessons on one schedule",
+          "Client records, packages and memberships you set up once",
+          "Card payments through Stripe and e-signature waivers tracked from sent to signed"
+        ]
+      },
+      {
+        "title": "See what needs attention",
+        "body": "ARIA, DanceFlow's operations assistant, looks across your studio for things like packages nearing renewal, pending booking requests and unsigned documents, then suggests the next step.",
+        "bullets": ["You choose how much it does on its own. Billing, access and refund decisions always stay with you."]
+      },
+      {
+        "title": "Be found by the dancers looking for you",
+        "body": "Your public studio profile can appear in Discover, where dancers search by place and style, and its inquiry form turns interest into intro lesson requests you can follow up on.",
+        "bullets": []
+      }
+    ],
+    "note": ""
+  },
+  "instructors": {
+    "link": { "path": "/for-instructors", "source": "sheet", "medium": "qr", "content": "instructors-v1" },
+    "eyebrow": "For independent instructors",
+    "headline": "Run your teaching business, not a pile of spreadsheets.",
+    "support": "If you teach on your own, DanceFlow gives you the same tools studios use for scheduling, clients, packages, payments and documents, so more of your week goes to teaching.",
+    "cta": "Try it on your own schedule",
+    "scanHint": "Scan with your phone camera",
+    "blocks": [
+      {
+        "title": "Get found",
+        "body": "Publish a public profile that can appear in Discover and take intro lesson requests from dancers looking for a teacher.",
+        "bullets": []
+      },
+      {
+        "title": "Teach",
+        "body": "Keep private lessons and classes on one schedule, with confirmations and changes sent for you.",
+        "bullets": []
+      },
+      {
+        "title": "Keep students coming back",
+        "body": "Track packages, take payment, collect signed waivers and send follow-up, with ARIA pointing out renewals and pending requests.",
+        "bullets": []
+      }
+    ],
+    "note": "DanceFlow's plans are called studio plans. As an independent instructor you use the same plans and tools, and your workspace can carry your own teaching name."
+  },
+  "organizers": {
+    "link": { "path": "/for-organizers", "source": "sheet", "medium": "qr", "content": "organizers-v1" },
+    "eyebrow": "For event organizers",
+    "headline": "From event page to check-in, in one place.",
+    "support": "Publish your event, sell tickets, welcome people with QR check-in and settle up afterward, for workshops, socials, showcases and festivals.",
+    "cta": "See organizer pricing and start your trial",
+    "scanHint": "Scan with your phone camera",
+    "blocks": [
+      {
+        "title": "Publish",
+        "body": "A public event page that can appear in Discover, with early bird pricing and optional guest coach private lesson slots.",
+        "bullets": []
+      },
+      {
+        "title": "Sell",
+        "body": "Tickets with checkout, payment collection through Stripe, and a confirmation with a QR code for every buyer.",
+        "bullets": []
+      },
+      {
+        "title": "Check in",
+        "body": "Scan ticket codes at the door and see who has arrived, then review attendance afterward.",
+        "bullets": []
+      },
+      {
+        "title": "Settle up",
+        "body": "Closeout and settlement reports with financial summaries you can export.",
+        "bullets": []
+      }
+    ],
+    "note": "Event pricing is shown in full before you create an account, including platform and payment processing fees."
+  },
+  "dancers": {
+    "link": { "path": "/discover", "source": "card", "medium": "qr", "content": "dancers-v1" },
+    "headline": "A public home for the dance community.",
+    "support": "Find studios, events, dance partner listings and jobs in one place.",
+    "rows": [
+      { "title": "Find a studio", "body": "Studio profiles, specialties and instructors near you." },
+      { "title": "Discover events", "body": "Socials, workshops, classes and special dance experiences." },
+      { "title": "Dance partner listings", "body": "Dancers looking for practice, social dancing or showcase partners." },
+      { "title": "Dance work", "body": "Instructor, coach, front-desk and event opportunities." }
+    ],
+    "cta": "Explore Discover",
+    "scanHint": "Scan with your phone camera"
+  },
+  "social": {
+    "product": {
+      "headline": "The dance platform that helps do the work—not just track it.",
+      "support": "DanceFlow connects the business side of dance with the dancers and experiences that make the community grow.",
+      "audiences": ["Studios", "Instructors", "Organizers", "Dancers"]
+    },
+    "event": {
+      "lead": "Find DanceFlow at",
+      "eventField": "{event}",
+      "detailField": "{detail}",
+      "support": "Come see how DanceFlow helps studios, instructors and organizers run the business, and helps dancers find studios, events and dance partner listings.",
+      "audiences": ["Studios", "Instructors", "Organizers", "Dancers"]
+    },
+    "links": [
+      { "name": "awareness-feed", "path": "/", "source": "facebook", "medium": "social", "content": "awareness-square" },
+      { "name": "awareness-story", "path": "/", "source": "instagram", "medium": "social", "content": "awareness-story" },
+      { "name": "event-feed", "path": "/", "source": "facebook", "medium": "social", "content": "event-square" },
+      { "name": "event-story", "path": "/", "source": "instagram", "medium": "social", "content": "event-story" }
+    ]
+  }
+}
