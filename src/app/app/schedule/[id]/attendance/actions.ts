@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireAppointmentRelationshipAccess } from "@/lib/auth/appointmentAccess";
+import { isCancelledClassAttendanceError } from "@/lib/schedule/groupClassCancel";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -200,8 +201,16 @@ export async function markClassAttendedAction(formData: FormData) {
       checkedInAt: now,
       markedAttendedAt: now,
     });
-  } catch {
-    redirect(appendQueryParam(returnTo, "error", "attended_failed"));
+  } catch (error) {
+    // GC-S1C-2: terminal attendance is refused against a cancelled class by a
+    // database guard; show fixed copy, never the database text.
+    redirect(
+      appendQueryParam(
+        returnTo,
+        "error",
+        isCancelledClassAttendanceError(error) ? "attendance_class_cancelled" : "attended_failed",
+      ),
+    );
   }
 
   redirect(appendQueryParam(returnTo, "success", "attended"));
@@ -229,8 +238,14 @@ export async function markClassNoShowAction(formData: FormData) {
       checkedInAt: null,
       markedAttendedAt: null,
     });
-  } catch {
-    redirect(appendQueryParam(returnTo, "error", "no_show_failed"));
+  } catch (error) {
+    redirect(
+      appendQueryParam(
+        returnTo,
+        "error",
+        isCancelledClassAttendanceError(error) ? "attendance_class_cancelled" : "no_show_failed",
+      ),
+    );
   }
 
   redirect(appendQueryParam(returnTo, "success", "no_show"));

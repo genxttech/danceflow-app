@@ -21,6 +21,7 @@ import {
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
   canCreateAppointments,
+  canCancelGroupClass,
   canEditAppointments,
   canMarkAttendance,
   isIndependentInstructor,
@@ -28,6 +29,8 @@ import {
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
+import GroupClassCancellationForm from "@/components/schedule/GroupClassCancellationForm";
+import { groupClassCancelBanner } from "@/lib/schedule/groupClassCancel";
 import ScheduleDetailPanelTrigger from "./ScheduleDetailPanelTrigger";
 import {
   getItemWarningLevel,
@@ -87,6 +90,7 @@ type AppointmentRow = {
   billing_note: string | null;
   is_recurring: boolean;
   recurrence_series_id: string | null;
+  group_class_series_id?: string | null;
   clients:
     | { first_name: string; last_name: string; referral_source?: string | null }
     | {
@@ -652,6 +656,10 @@ function getBanner(search: {
   bulkPaymentRequired?: string;
   bulkFailed?: string;
 }) {
+  // GC-S1C-2: class cancellation outcomes (fixed copy; no raw error text).
+  const classCancelBanner = groupClassCancelBanner(search);
+  if (classCancelBanner) return classCancelBanner;
+
   if (search.success === "appointment_created") {
     return {
       kind: "success" as const,
@@ -1204,6 +1212,7 @@ export default async function SchedulePage({
       billing_note,
       is_recurring,
       recurrence_series_id,
+      group_class_series_id,
       instructors ( id, first_name, last_name ),
       rooms ( id, name ),
       client_packages (
@@ -1235,6 +1244,7 @@ export default async function SchedulePage({
       billing_note,
       is_recurring,
       recurrence_series_id,
+      group_class_series_id,
       clients:clients!appointments_client_id_fkey ( first_name, last_name, referral_source ),
       instructors ( id, first_name, last_name ),
       rooms ( id, name ),
@@ -2712,6 +2722,19 @@ export default async function SchedulePage({
                         appointmentId={appointment.id}
                         returnTo={currentScheduleHref}
                         isRecurring={appointment.is_recurring}
+                        compact
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {isGroupClass && !isFinalStatus && canCancelGroupClass(role) ? (
+                  <div className="mt-4 border-t px-3 pb-3 pt-4">
+                    <div className="w-full sm:w-auto sm:min-w-[320px]">
+                      <GroupClassCancellationForm
+                        appointmentId={appointment.id}
+                        returnTo={currentScheduleHref}
+                        isSeriesOccurrence={!!appointment.group_class_series_id}
                         compact
                       />
                     </div>

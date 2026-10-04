@@ -331,7 +331,24 @@ export default function ScheduleEventDrawer({
             </section>
           ) : null}
 
-          {canShowCancelAction ? (
+          {canShowCancelAction && isGroupClass ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <h4 className="text-sm font-semibold text-slate-900">Class Action</h4>
+              <p className="mt-2 text-xs leading-5 text-slate-600">
+                Cancelling a class affects only this class and its booked students.
+              </p>
+              <div className="mt-3">
+                <Link
+                  href={`/app/schedule/${appointment.id}`}
+                  className="inline-block w-full rounded-xl border border-red-200 px-4 py-2.5 text-center text-sm font-medium text-red-700 hover:bg-red-50"
+                >
+                  Cancel this class…
+                </Link>
+              </div>
+            </section>
+          ) : null}
+
+          {canShowCancelAction && !isGroupClass ? (
             <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <h4 className="text-sm font-semibold text-slate-900">Appointment Action</h4>
               <div className="mt-4">

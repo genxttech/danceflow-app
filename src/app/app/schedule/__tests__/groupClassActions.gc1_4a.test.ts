@@ -412,7 +412,7 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
       rpcResponses: { enroll_class_attendee: { data: "attendee-1", error: null } },
     });
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
 
     const formData = formDataFor({
       appointmentId: APPOINTMENT_ID,
@@ -436,7 +436,7 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
       },
     });
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
 
     const formData = formDataFor({ appointmentId: APPOINTMENT_ID, clientId: CLIENT_ID });
 
@@ -450,7 +450,7 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
       rpcResponses: { enroll_class_attendee: { data: "attendee-1", error: null } },
     });
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
 
     const formData = formDataFor({
       appointmentId: APPOINTMENT_ID,
@@ -471,7 +471,7 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
   it("rejects billingType='membership' with no clientMembershipId before calling the RPC", async () => {
     const { supabase, rpcCalls } = makeFakeSupabase({});
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
 
     const formData = formDataFor({
       appointmentId: APPOINTMENT_ID,
@@ -493,7 +493,7 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
       rpcResponses: { enroll_class_attendee: { data: "attendee-1", error: null } },
     });
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
 
     const formData = formDataFor({
       appointmentId: APPOINTMENT_ID,
@@ -530,7 +530,7 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
       },
     });
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
 
     const formData = formDataFor({ appointmentId: APPOINTMENT_ID, clientId: CLIENT_ID });
 
@@ -545,7 +545,7 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
       rpcResponses: { cancel_class_attendee: { data: null, error: null } },
     });
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
 
     const formData = formDataFor({ appointmentId: APPOINTMENT_ID, attendeeId: "attendee-1" });
 
@@ -559,15 +559,21 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
   });
 });
 
+// GC-S1C-2: the class action now loads the class (server-authoritative) and
+// enforces broad-staff authority before calling the RPC.
+const classRow = { select: { data: { id: APPOINTMENT_ID, appointment_type: "group_class", status: "scheduled" }, error: null } };
+const broadStaffCtx = (supabase: unknown) => ({ supabase, studioId: STUDIO_ID, studioRole: "studio_owner", isPlatformAdmin: false });
+
 describe("cancelGroupClassAppointmentAction -- notification ordering", () => {
   it("sends notifications using exactly the RPC's returned pre-cancellation client ids, after redirect-worthy success", async () => {
     const { supabase, rpcCalls } = makeFakeSupabase({
+      tableResponses: { appointments: classRow },
       rpcResponses: {
         cancel_group_class_appointment: { data: ["client-a", "client-b"], error: null },
       },
     });
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
 
     const formData = formDataFor({ appointmentId: APPOINTMENT_ID });
 
@@ -591,12 +597,13 @@ describe("cancelGroupClassAppointmentAction -- notification ordering", () => {
 
   it("a notification failure does not roll back the cancellation or block the success redirect", async () => {
     const { supabase } = makeFakeSupabase({
+      tableResponses: { appointments: classRow },
       rpcResponses: {
         cancel_group_class_appointment: { data: ["client-a"], error: null },
       },
     });
 
-    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
     sendGroupClassCancellationPushMock.mockRejectedValueOnce(new Error("push provider down"));
 
     const formData = formDataFor({ appointmentId: APPOINTMENT_ID });

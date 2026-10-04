@@ -199,6 +199,12 @@ function getBanner(search: { success?: string; error?: string }) {
         "Payment is needed before this attendee can be marked attended. Take payment, apply a package or membership credit, or mark the lesson as comped before completing attendance.",
     };
   }
+  if (search.error === "attendance_class_cancelled") {
+    return {
+      kind: "error" as const,
+      message: "This class has been cancelled and attendance can no longer be recorded.",
+    };
+  }
   if (search.error === "attended_failed") {
     return { kind: "error" as const, message: "Could not mark attendee attended." };
   }

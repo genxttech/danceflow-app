@@ -509,3 +509,9 @@ export function canAssignTargetRole(args: {
 
   return false;
 }
+// GC-S1C-2: cancelling a canonical group class is broad-staff authority only
+// (the same set as the cancel_group_class_appointment RPC's own check).
+// Instructors, including the assigned instructor, do not cancel classes.
+export function canCancelGroupClass(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+}

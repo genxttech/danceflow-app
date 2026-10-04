@@ -1,0 +1,257 @@
+-- ============================================================================
+-- GC-S1C-2 -- authoritative group-class cancellation safety.
+--
+-- Hardens the EXISTING public.cancel_group_class_appointment(uuid) (GC-1.4A).
+-- Same signature (uuid -> uuid[]), same SECURITY DEFINER posture, same fixed
+-- search_path, same broad-staff authority helper, same grants. No new RPC,
+-- no schema change.
+--
+-- Behavior added, in this order (cancellation is THIS OCCURRENCE ONLY):
+--   1. Class not found / not authorized: unchanged messages.
+--   2. The class row is locked (FOR UPDATE) and its status re-read, so two
+--      concurrent cancellations serialize and the second sees 'cancelled'.
+--   3. Already cancelled: idempotent no-op -- returns an empty recipient list,
+--      does not restamp cancelled_at, does not touch attendees. The caller
+--      therefore sends no second notification.
+--   4. Any attendance_records row for this class with status 'attended' or
+--      'no_show' (the consumption / historical-attendance states): refused
+--      with GCSC2_ATTENDANCE_RECORDED. Recorded attendance is never rewritten
+--      by an accidental cancellation; correct the attendance first. The rule
+--      is based on recorded attendance only -- not on the class date, the
+--      class status, or the mere existence of roster rows.
+--   5. Otherwise: status -> cancelled, cancelled_at set, currently 'booked'
+--      attendees -> 'cancelled', and ONLY those attendees' client ids are
+--      returned for the existing cancellation notification.
+--
+-- Never touched here: attendance_records, client_membership_usage, package
+-- items/usage, any credit, the appointment row's series identity
+-- (group_class_series_id, series_occurrence_index, occurrence_original_start,
+-- series_overridden_fields), neighboring occurrences, the series row, or any
+-- legacy Events table. Booked-attendee cancellation is not a credit
+-- restoration event.
+--
+-- Attendance side of the same invariant (added after the focused review found a
+-- real attendance/cancel race, reproduced with two DEV sessions): a NEW
+-- BEFORE INSERT OR UPDATE trigger on attendance_records
+-- (attendance_records_00_guard_cancelled_class) refuses a terminal
+-- attendance write (attended / no_show) against a CANCELLED group class, with
+-- the stable code GCSC2_CLASS_CANCELLED. It takes FOR SHARE on the class's
+-- appointment row, which conflicts with this RPC's FOR UPDATE, so the two
+-- operations serialize and exactly one wins:
+--   * attendance first: its share lock makes the cancellation wait; once it
+--     commits the RPC's terminal-attendance check (a fresh statement snapshot)
+--     sees it and refuses;
+--   * cancellation first: the attendance write waits, then sees 'cancelled'
+--     and refuses.
+-- Both paths take the appointment row first, so no lock-order cycle exists.
+-- The same guard closes the sequential past-class gap (cancel a past class
+-- with no attendance, then try to mark attended: refused). registered and
+-- checked_in, other appointment types and Events are untouched.
+-- Invariant: appointment cancelled and attended/no_show attendance never coexist.
+--
+-- Appointment side of the same invariant (added after the narrow re-review found
+-- that a DIRECT authenticated UPDATE of appointments.status could still produce
+-- cancelled + attended/no_show): a NEW BEFORE UPDATE OF status trigger on
+-- appointments (appointments_02_guard_cancel_terminal_attendance) refuses the
+-- transition to 'cancelled' of a group class that has terminal attendance, with the
+-- same stable code GCSC2_ATTENDANCE_RECORDED the RPC uses. No self-lock is taken:
+-- before a BEFORE UPDATE row trigger fires, PostgreSQL has already locked the row
+-- (FOR NO KEY UPDATE, or FOR UPDATE if key columns change) and waited out any
+-- conflicting locker; that lock conflicts with the attendance guard's FOR SHARE.
+--   * attendance first: its FOR SHARE makes the UPDATE wait for the attendance
+--     commit; the trigger then runs with a fresh statement snapshot, sees the
+--     committed terminal record and refuses;
+--   * direct cancel first: the UPDATE's row lock makes the attendance guard wait;
+--     after commit it sees 'cancelled' and refuses;
+--   * RPC: already holds FOR UPDATE on the row in the same transaction, so the
+--     trigger takes no new lock (no deadlock) and re-confirms the check the RPC
+--     just made.
+-- The trigger mutates nothing (no attendance, attendee, credit or usage writes).
+--
+-- A refusal raises an exception carrying a stable code; the application maps
+-- it to fixed owner-facing copy and never shows database text.
+--
+-- Rollback: rollback/20261016090000_gcsc2_group_class_cancel_safety_rollback.sql
+-- (restores the exact pre-S1C-2 body).
+-- ============================================================================
+
+begin;
+
+create or replace function public.cancel_group_class_appointment(
+  p_appointment_id uuid
+)
+returns uuid[]
+language plpgsql
+security definer
+set search_path = 'public'
+as $$
+declare
+  v_studio_id uuid;
+  v_status public.appointment_status;
+  v_affected_client_ids uuid[];
+begin
+  select a.studio_id into v_studio_id
+    from public.appointments a
+    where a.id = p_appointment_id
+      and a.appointment_type = 'group_class'::public.appointment_type;
+
+  if v_studio_id is null then
+    raise exception 'Group class not found.';
+  end if;
+
+  if not public._gc1_4_has_broad_studio_authority(v_studio_id) then
+    raise exception 'Not authorized to cancel this class.';
+  end if;
+
+  -- Serialize concurrent cancellations of the same class and re-read the
+  -- authoritative status under the lock.
+  select a.status into v_status
+    from public.appointments a
+    where a.id = p_appointment_id
+    for update;
+
+  if v_status = 'cancelled'::public.appointment_status then
+    return array[]::uuid[];
+  end if;
+
+  if exists (
+    select 1
+    from public.attendance_records ar
+    where ar.appointment_id = p_appointment_id
+      and ar.status in ('attended', 'no_show')
+  ) then
+    raise exception 'GCSC2_ATTENDANCE_RECORDED: This class already has attendance recorded. Correct the attendance record before cancelling the class.';
+  end if;
+
+  select coalesce(array_agg(aa.client_id), array[]::uuid[]) into v_affected_client_ids
+    from public.appointment_attendees aa
+    where aa.appointment_id = p_appointment_id
+      and aa.status = 'booked';
+
+  update public.appointments
+  set status = 'cancelled'::public.appointment_status, cancelled_at = now()
+  where id = p_appointment_id;
+
+  update public.appointment_attendees
+  set status = 'cancelled', cancelled_at = now(), cancelled_by = auth.uid()
+  where appointment_id = p_appointment_id
+    and status = 'booked';
+
+  return v_affected_client_ids;
+end;
+$$;
+
+revoke all on function public.cancel_group_class_appointment(uuid) from public;
+revoke all on function public.cancel_group_class_appointment(uuid) from anon;
+grant execute on function public.cancel_group_class_appointment(uuid) to authenticated;
+revoke all on function public.cancel_group_class_appointment(uuid) from service_role;
+
+-- ============================================================================
+-- Attendance guard: terminal attendance may not be recorded against a cancelled class.
+-- Trigger-only function: SECURITY DEFINER (reads/locks appointments regardless of
+-- the caller's RLS, like the existing attendance triggers), fixed search_path,
+-- schema-qualified, no dynamic SQL, no EXECUTE for any tenant role.
+-- ============================================================================
+create function public.enforce_group_class_attendance_not_cancelled()
+returns trigger
+language plpgsql
+security definer
+set search_path = 'public'
+as $$
+declare
+  v_type public.appointment_type;
+  v_status public.appointment_status;
+begin
+  -- Only terminal outcomes on an appointment-scoped record are guarded.
+  if new.appointment_id is null or new.status not in ('attended', 'no_show') then
+    return new;
+  end if;
+
+  -- An update that leaves a terminal record's status and appointment unchanged
+  -- (notes, timestamps) is not a new terminal outcome; do not lock or refuse.
+  if tg_op = 'UPDATE'
+     and old.status is not distinct from new.status
+     and old.appointment_id is not distinct from new.appointment_id then
+    return new;
+  end if;
+
+  -- Cheap unlocked type check first so lessons and every other appointment type
+  -- never take a lock. A group class's type is immutable (canonical-shape trigger).
+  select a.appointment_type into v_type
+    from public.appointments a
+    where a.id = new.appointment_id;
+
+  if v_type is distinct from 'group_class'::public.appointment_type then
+    return new;
+  end if;
+
+  -- FOR SHARE conflicts with cancel_group_class_appointment's FOR UPDATE: if a
+  -- cancellation holds the row this waits for it and then reads the committed
+  -- status; if this write goes first the cancellation waits and re-checks.
+  select a.status into v_status
+    from public.appointments a
+    where a.id = new.appointment_id
+    for share;
+
+  if v_status = 'cancelled'::public.appointment_status then
+    raise exception 'GCSC2_CLASS_CANCELLED: This class has been cancelled and attendance can no longer be recorded.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_group_class_attendance_not_cancelled() from public, anon, authenticated, service_role;
+-- No grant: reachable only as a trigger body. Named "_00_" so it fires first
+-- among the BEFORE triggers on attendance_records (alphabetical order).
+
+create trigger attendance_records_00_guard_cancelled_class
+  before insert or update on public.attendance_records
+  for each row
+  execute function public.enforce_group_class_attendance_not_cancelled();
+
+-- ============================================================================
+-- Appointment guard: a group class with terminal attendance may not become cancelled.
+-- Trigger-only, SECURITY DEFINER (reads attendance_records regardless of the caller's
+-- RLS), fixed search_path, schema-qualified, no dynamic SQL, no EXECUTE for any role.
+-- Volatile (default) so each statement sees a fresh READ COMMITTED snapshot after the
+-- row-lock wait. Relies on the row lock the UPDATE already holds; takes none itself.
+-- ============================================================================
+create function public.enforce_group_class_cancel_no_terminal_attendance()
+returns trigger
+language plpgsql
+volatile
+security definer
+set search_path = 'public'
+as $$
+begin
+  if new.appointment_type is distinct from 'group_class'::public.appointment_type
+     or old.status is not distinct from 'cancelled'::public.appointment_status
+     or new.status is distinct from 'cancelled'::public.appointment_status then
+    return new;
+  end if;
+
+  if exists (
+    select 1
+    from public.attendance_records ar
+    where ar.appointment_id = new.id
+      and ar.status in ('attended', 'no_show')
+  ) then
+    raise exception 'GCSC2_ATTENDANCE_RECORDED: This class already has attendance recorded. Correct the attendance record before cancelling the class.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_group_class_cancel_no_terminal_attendance() from public, anon, authenticated, service_role;
+
+create trigger appointments_02_guard_cancel_terminal_attendance
+  before update of status on public.appointments
+  for each row
+  when (new.appointment_type = 'group_class'::public.appointment_type
+        and old.status is distinct from 'cancelled'::public.appointment_status
+        and new.status = 'cancelled'::public.appointment_status)
+  execute function public.enforce_group_class_cancel_no_terminal_attendance();
+
+commit;
