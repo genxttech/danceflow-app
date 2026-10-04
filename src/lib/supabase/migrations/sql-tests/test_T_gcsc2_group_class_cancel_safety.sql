@@ -370,6 +370,64 @@ begin
 end $$;
 
 -- ============================================================================
+-- 6b. Attendance guard: terminal attendance may not be recorded against a cancelled class
+--     (sequential past-class case; PAST = e40002 and NONT = e40005 are cancelled above)
+-- ============================================================================
+select public.t_gcsc2_assert('T-gcsc2-guard-trigger-installed-before-insert-update',
+  (select (t.tgenabled = 'O' and (t.tgtype & 2) = 2 and (t.tgtype & 4) = 4 and (t.tgtype & 16) = 16 and (t.tgtype & 1) = 1)::text
+   from pg_trigger t where t.tgrelid = 'public.attendance_records'::regclass and t.tgname = 'attendance_records_00_guard_cancelled_class'), 'true');
+select public.t_gcsc2_assert('T-gcsc2-guard-trigger-fires-first-among-before-triggers',
+  (select (min(t.tgname order by t.tgname) = 'attendance_records_00_guard_cancelled_class')::text
+   from pg_trigger t where t.tgrelid = 'public.attendance_records'::regclass and not t.tgisinternal and (t.tgtype & 2) = 2), 'true');
+select public.t_gcsc2_assert('T-gcsc2-guard-function-posture',
+  (select (p.prosecdef and p.proconfig = array['search_path=public']
+     and not has_function_privilege('authenticated', p.oid, 'execute')
+     and not has_function_privilege('anon', p.oid, 'execute')
+     and not has_function_privilege('service_role', p.oid, 'execute')
+     and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) e where e.grantee = 0))::text
+   from pg_proc p where p.oid = 'public.enforce_group_class_attendance_not_cancelled()'::regprocedure), 'true');
+
+do $$
+declare v_before text;
+begin
+  v_before := public.t_gcsc2_attendance('00000000-0000-0000-0000-000000e40005');
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000e10001')::text, true);
+  set local role authenticated;
+  -- PAST was cancelled after it started and its attendee cancelled_at > starts_at, so the
+  -- pre-existing eligibility rule alone would ALLOW these writes; only the guard refuses them.
+  perform public.t_gcsc2_expect($q$insert into public.attendance_records (studio_id, appointment_id, client_id, status) values ('00000000-0000-0000-0000-000000e00001', '00000000-0000-0000-0000-000000e40002', '00000000-0000-0000-0000-000000e30002', 'attended')$q$, 'GCSC2_CLASS_CANCELLED', 'T-gcsc2-cancelled-past-class-attended-insert-refused');
+  perform public.t_gcsc2_expect($q$insert into public.attendance_records (studio_id, appointment_id, client_id, status) values ('00000000-0000-0000-0000-000000e00001', '00000000-0000-0000-0000-000000e40002', '00000000-0000-0000-0000-000000e30002', 'no_show')$q$, 'GCSC2_CLASS_CANCELLED', 'T-gcsc2-cancelled-past-class-no-show-insert-refused');
+  -- UPDATE path on an existing non-terminal record
+  perform public.t_gcsc2_expect($q$update public.attendance_records set status = 'attended' where id = '00000000-0000-0000-0000-000000e42004'$q$, 'GCSC2_CLASS_CANCELLED', 'T-gcsc2-cancelled-class-registered-to-attended-refused');
+  perform public.t_gcsc2_expect($q$update public.attendance_records set status = 'no_show' where id = '00000000-0000-0000-0000-000000e42005'$q$, 'GCSC2_CLASS_CANCELLED', 'T-gcsc2-cancelled-class-checked-in-to-no-show-refused');
+  -- non-terminal statuses stay governed by the existing rules (not by this guard)
+  update public.attendance_records set status = 'checked_in' where id = '00000000-0000-0000-0000-000000e42004';
+  update public.attendance_records set status = 'registered' where id = '00000000-0000-0000-0000-000000e42005';
+  reset role;
+  perform public.t_gcsc2_assert('T-gcsc2-cancelled-class-registered-and-checked-in-unaffected',
+    (select string_agg(ar.status, ',' order by ar.client_id) from public.attendance_records ar where ar.appointment_id = '00000000-0000-0000-0000-000000e40005'), 'checked_in,registered');
+  perform public.t_gcsc2_assert('T-gcsc2-refused-terminal-writes-left-no-terminal-record',
+    (select count(*)::text from public.attendance_records ar where ar.appointment_id in ('00000000-0000-0000-0000-000000e40002', '00000000-0000-0000-0000-000000e40005') and ar.status in ('attended', 'no_show')), '0');
+  perform public.t_gcsc2_assert('T-gcsc2-refused-writes-left-class-cancelled',
+    (select count(*)::text from public.appointments a where a.id in ('00000000-0000-0000-0000-000000e40002', '00000000-0000-0000-0000-000000e40005') and a.status = 'cancelled'), '2');
+end $$;
+
+-- unrelated appointment type: terminal attendance on a cancelled private lesson is untouched by the guard
+update public.appointments set status = 'cancelled' where id = '00000000-0000-0000-0000-000000e40007';
+do $$
+declare v_n int;
+begin
+  insert into public.attendance_records (studio_id, appointment_id, client_id, status)
+  values ('00000000-0000-0000-0000-000000e00001', '00000000-0000-0000-0000-000000e40007', '00000000-0000-0000-0000-000000e30002', 'attended');
+  perform public.t_gcsc2_assert('T-gcsc2-guard-ignores-non-group-class-appointments',
+    (select count(*)::text from public.attendance_records where appointment_id = '00000000-0000-0000-0000-000000e40007' and status = 'attended'), '1');
+  -- an unchanged-status update of a recorded terminal row (e.g. notes) is not a new outcome and is not blocked
+  update public.attendance_records set notes = 'note' where appointment_id = '00000000-0000-0000-0000-000000e40007';
+  get diagnostics v_n = row_count;
+  perform public.t_gcsc2_assert('T-gcsc2-guard-skips-unchanged-terminal-update', v_n::text, '1');
+end $$;
+
+-- ============================================================================
 -- 7. Series occurrence: THIS occurrence only, identity preserved
 -- ============================================================================
 create temp table t_gcsc2_series_before as

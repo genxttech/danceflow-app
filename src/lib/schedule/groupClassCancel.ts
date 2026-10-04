@@ -25,6 +25,12 @@ export function classifyGroupClassCancelError(
   return "unknown";
 }
 
+/** True when the attendance guard refused a terminal write against a cancelled class. */
+export function isCancelledClassAttendanceError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? "");
+  return /GCSC2_CLASS_CANCELLED/.test(message);
+}
+
 export const GROUP_CLASS_CANCEL_REDIRECT_CODE: Record<GroupClassCancelFailure, string> = {
   attendance_recorded: "class_cancel_attendance_recorded",
   not_authorized: "class_cancel_not_authorized",
