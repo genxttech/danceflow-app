@@ -66,6 +66,20 @@ export function capacityBelowBookedMessage(booked: number): string {
   return `This class already has ${students} booked. Capacity cannot be set below ${booked}.`;
 }
 
+/**
+ * GC-S1C-3: the database's capacity floor (GCSC3_CAPACITY_BELOW_BOOKED, "... lower than the N students already booked")
+ * mapped to the same owner-facing copy as the app-level check. Returns null for any other database error so the caller
+ * keeps its generic message; raw database text is never shown.
+ */
+export function mapOccurrenceUpdateDbError(message: string | null | undefined): string | null {
+  if (!message || !message.includes("GCSC3_CAPACITY_BELOW_BOOKED")) return null;
+  const match = /(\d+) students already booked/.exec(message);
+  const booked = match ? Number(match[1]) : NaN;
+  return Number.isFinite(booked) && booked > 0
+    ? capacityBelowBookedMessage(booked)
+    : "Capacity cannot be set below the number of students already booked.";
+}
+
 /** True when the new capacity would leave fewer seats than booked students. */
 export function capacityBelowBooked(newCapacity: number | null, booked: number): boolean {
   return newCapacity !== null && newCapacity < booked;

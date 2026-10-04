@@ -80,6 +80,8 @@ function enrollmentErrorMessage(code: string): string {
       return "That membership is not active for this client, or has expired. Choose a different funding source or bill manually.";
     case "ambiguous_funding_source":
       return "This student has more than one eligible funding source and none was selected -- choose one to complete the enrollment.";
+    case "class_cancelled":
+      return "This class has been cancelled and can't take new students.";
     case "missing_enrollment_target":
       return "Select a class and a client before enrolling.";
     default:
