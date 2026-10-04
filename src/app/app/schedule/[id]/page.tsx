@@ -16,6 +16,7 @@ import {
 } from "../actions";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
+  canCancelGroupClass,
   canDeleteAppointments,
   canEditAppointments,
   canMarkAttendance,
@@ -23,6 +24,8 @@ import {
 } from "@/lib/auth/permissions";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
+import GroupClassCancellationForm from "@/components/schedule/GroupClassCancellationForm";
+import { groupClassCancelBanner } from "@/lib/schedule/groupClassCancel";
 import {
   getItemWarningLevel,
   getUnsuppressedWarningUsageTypes,
@@ -31,6 +34,11 @@ import {
 
 type Params = Promise<{
   id: string;
+}>;
+
+type SearchParams = Promise<{
+  error?: string;
+  success?: string;
 }>;
 
 type ClientPackageItem = {
@@ -64,6 +72,7 @@ type AppointmentRow = {
   location_name: string | null;
   is_recurring: boolean;
   recurrence_series_id: string | null;
+  group_class_series_id?: string | null;
   created_at: string | null;
   clients:
     | {
@@ -398,10 +407,13 @@ function packageHealthClass(health: PackageHealth) {
 
 export default async function AppointmentDetailPage({
   params,
+  searchParams,
 }: {
   params: Params;
+  searchParams?: SearchParams;
 }) {
   const { id } = await params;
+  const cancelBanner = groupClassCancelBanner((await searchParams) ?? {});
   const supabase = await createClient();
 
   const {
@@ -474,6 +486,7 @@ export default async function AppointmentDetailPage({
         location_name,
         is_recurring,
         recurrence_series_id,
+        group_class_series_id,
         created_at,
         instructors ( id, first_name, last_name ),
         rooms ( id, name ),
@@ -506,6 +519,7 @@ export default async function AppointmentDetailPage({
         location_name,
         is_recurring,
         recurrence_series_id,
+        group_class_series_id,
         created_at,
         clients:clients!appointments_client_id_fkey ( id, first_name, last_name, referral_source ),
         partner_client:clients!appointments_partner_client_id_fkey ( id, first_name, last_name ),
@@ -740,8 +754,36 @@ export default async function AppointmentDetailPage({
   // administrative-only (canDeleteAppointments), a narrower set than
   // canEditAppointments -- the Danger Zone affordance must not be shown to
   // an ordinary instructor, who the server now always denies.
+  // GC-S1C-2: a series occurrence is never hard-deleted (the server refuses);
+  // do not invite the owner into a known refusal -- cancel is the path.
+  const isSeriesOccurrence = isGroupClass && !!typedAppointment.group_class_series_id;
   const canDeleteAppointmentMistake =
-    canDeleteAppointments(role) && !isFinalStatus;
+    canDeleteAppointments(role) && !isFinalStatus && !isSeriesOccurrence;
+
+  // GC-S1C-2: class cancellation is broad-staff only. The booked count and
+  // the recorded-attendance state are read for display only; the RPC is the
+  // authority and re-checks both.
+  const canCancelClass = isGroupClass && !isFinalStatus && canCancelGroupClass(role);
+  let classBookedCount: number | null = null;
+  let classHasRecordedAttendance = false;
+  if (canCancelClass) {
+    const [{ count: bookedCount }, { count: terminalCount }] = await Promise.all([
+      supabase
+        .from("appointment_attendees")
+        .select("id", { count: "exact", head: true })
+        .eq("studio_id", studioId)
+        .eq("appointment_id", typedAppointment.id)
+        .eq("status", "booked"),
+      supabase
+        .from("attendance_records")
+        .select("id", { count: "exact", head: true })
+        .eq("studio_id", studioId)
+        .eq("appointment_id", typedAppointment.id)
+        .in("status", ["attended", "no_show"]),
+    ]);
+    classBookedCount = typeof bookedCount === "number" ? bookedCount : null;
+    classHasRecordedAttendance = (terminalCount ?? 0) > 0;
+  }
 
   const canShowLessonRecapCard = isPrivateLesson;
   const canEditLessonRecap = canEdit && typedAppointment.status === "attended";
@@ -759,6 +801,17 @@ export default async function AppointmentDetailPage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      {cancelBanner ? (
+        <div
+          className={
+            cancelBanner.kind === "success"
+              ? "rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
+              : "rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          }
+        >
+          {cancelBanner.message}
+        </div>
+      ) : null}
       <section className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-5 py-5 text-white md:px-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -1671,13 +1724,29 @@ export default async function AppointmentDetailPage({
                 </Link>
               ) : null}
 
-              {!isFinalStatus && canEdit ? (
+              {!isFinalStatus && canEdit && !isGroupClass ? (
                 <AppointmentCancellationForm
                   appointmentId={typedAppointment.id}
                   returnTo={returnTo}
                   isRecurring={typedAppointment.is_recurring}
                   isFloorRental={isFloorRental}
                 />
+              ) : null}
+
+              {canCancelClass && !classHasRecordedAttendance ? (
+                <GroupClassCancellationForm
+                  appointmentId={typedAppointment.id}
+                  returnTo={returnTo}
+                  isSeriesOccurrence={isSeriesOccurrence}
+                  bookedCount={classBookedCount}
+                />
+              ) : null}
+
+              {canCancelClass && classHasRecordedAttendance ? (
+                <p className="max-w-md rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  This class already has attendance recorded, so it can&apos;t be cancelled.
+                  Correct the attendance record first if it was entered by mistake.
+                </p>
               ) : null}
             </div>
 

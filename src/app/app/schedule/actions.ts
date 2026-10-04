@@ -30,7 +30,11 @@ import {
   requireAttendanceAccess,
   requireFloorRentalAppointmentAccess,
 } from "@/lib/auth/serverRoleGuard";
-import { isIndependentInstructor } from "@/lib/auth/permissions";
+import { canCancelGroupClass, isIndependentInstructor } from "@/lib/auth/permissions";
+import {
+  GROUP_CLASS_CANCEL_REDIRECT_CODE,
+  classifyGroupClassCancelError,
+} from "@/lib/schedule/groupClassCancel";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import {
   INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE,
@@ -3068,49 +3072,113 @@ export async function updateGroupClassEnrollmentPolicyAction(formData: FormData)
   }
 }
 
-export async function cancelGroupClassAppointmentAction(formData: FormData) {
+// GC-S1C-2: the ONE behavioral path for cancelling a canonical group class.
+// Both cancelGroupClassAppointmentAction and cancelAppointmentAction (the
+// generic entry point every Cancel button historically used) end up here, so a
+// group class can never run the generic cancellation mutation (which flips
+// status without cancelling attendees and clears membership usage by
+// appointment id -- a silent entitlement restoration). Cancellation is THIS
+// OCCURRENCE ONLY and broad-staff only; the already-cancelled no-op and the
+// recorded-attendance refusal are authoritative in the cancel_group_class_
+// appointment RPC, so a direct RPC call gets the same protection. This helper
+// never touches membership usage, package usage, attendance, series state or
+// the appointment's series identity, and always ends in a redirect.
+async function cancelCanonicalGroupClass(
+  formData: FormData,
+  ctx: {
+    supabase: Awaited<ReturnType<typeof requireAppointmentEditAccess>>["supabase"];
+    studioId: string;
+    studioRole: string | null | undefined;
+    isPlatformAdmin: boolean;
+  },
+): Promise<never> {
   const fallback = "/app/schedule";
+  const { supabase, studioId } = ctx;
 
-  try {
-    const { supabase, studioId } = await requireAppointmentEditAccess();
+  const appointmentId = getString(formData, "appointmentId");
 
-    const appointmentId = getString(formData, "appointmentId");
+  if (!appointmentId) {
+    redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
+  }
 
-    if (!appointmentId) {
-      redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
-    }
+  const detailPath = `/app/schedule/${appointmentId}`;
 
-    const { data: affectedClientIds, error } = await supabase.rpc(
-      "cancel_group_class_appointment",
-      { p_appointment_id: appointmentId },
+  if (!ctx.isPlatformAdmin && !canCancelGroupClass(ctx.studioRole)) {
+    redirect(getErrorRedirect(formData, detailPath, "class_cancel_not_authorized"));
+  }
+
+  // Server-authoritative load, scoped to the authenticated studio.
+  const { data: groupClass, error: loadError } = await supabase
+    .from("appointments")
+    .select("id, appointment_type, status")
+    .eq("id", appointmentId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (loadError || !groupClass || groupClass.appointment_type !== "group_class") {
+    redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+  }
+
+  // Already cancelled: nothing to do, and no second notification.
+  if (groupClass.status === "cancelled") {
+    redirect(getSuccessRedirect(formData, fallback, "class_already_cancelled"));
+  }
+
+  const { data: affectedClientIds, error } = await supabase.rpc(
+    "cancel_group_class_appointment",
+    { p_appointment_id: appointmentId },
+  );
+
+  if (error) {
+    console.error("Could not cancel class:", error.message);
+    redirect(
+      getErrorRedirect(
+        formData,
+        detailPath,
+        GROUP_CLASS_CANCEL_REDIRECT_CODE[classifyGroupClassCancelError(error)],
+      ),
     );
+  }
 
-    if (error) {
-      console.error("Could not cancel class:", error.message);
-      redirect(
-        getErrorRedirect(formData, `/app/schedule/${appointmentId}`, "class_cancel_failed"),
-      );
-    }
+  // GC-1.4A: notification uses exactly the client ids the RPC captured
+  // BEFORE cancelling anything -- never re-queried after commit, which would
+  // find nobody (every attendee is cancelled by then). The RPC returns an
+  // empty list for a replay or a class with no booked attendees, so nothing
+  // is sent twice. Sent only after the cancellation has committed; a push
+  // failure must not undo it, only be logged.
+  const recipients = (affectedClientIds ?? []) as string[];
 
-    // GC-1.4A: notification uses exactly the client ids the RPC captured
-    // BEFORE cancelling anything -- never re-queried after commit, which
-    // would find nobody (every attendee is cancelled by then). Sent only
-    // after the cancellation has already committed successfully; a push
-    // failure here must not undo the cancellation, only be logged.
+  if (recipients.length > 0) {
     try {
       await sendGroupClassCancellationPush({
         supabase,
         studioId,
         appointmentId,
-        affectedClientIds: (affectedClientIds ?? []) as string[],
+        affectedClientIds: recipients,
       });
     } catch (pushError) {
       console.error("Class was cancelled, but notifying attendees failed:", pushError);
     }
+  }
 
-    revalidatePath("/app/schedule");
-    revalidatePath(`/app/schedule/${appointmentId}`);
-    redirect(getSuccessRedirect(formData, "/app/schedule", "class_cancelled"));
+  revalidatePath("/app/schedule");
+  revalidatePath(detailPath);
+  redirect(getSuccessRedirect(formData, fallback, "class_cancelled"));
+}
+
+export async function cancelGroupClassAppointmentAction(formData: FormData) {
+  const fallback = "/app/schedule";
+
+  try {
+    const { supabase, studioId, studioRole, isPlatformAdmin } =
+      await requireAppointmentEditAccess();
+
+    return await cancelCanonicalGroupClass(formData, {
+      supabase,
+      studioId,
+      studioRole,
+      isPlatformAdmin,
+    });
   } catch (error) {
     rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
@@ -3319,22 +3387,6 @@ export async function cancelAppointmentAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
     }
 
-    if (!allowedRequesters.has(cancellationRequestedBy)) {
-      redirect(
-        getErrorRedirect(
-          formData,
-          fallback,
-          "cancellation_requester_required",
-        ),
-      );
-    }
-
-    if (!cancellationReason) {
-      redirect(
-        getErrorRedirect(formData, fallback, "cancellation_reason_required"),
-      );
-    }
-
     // FC-1B5D2 D2A: an instructor may only cancel an appointment currently
     // assigned to them; an independent_instructor may only cancel their
     // own floor-rental booking -- both verified against the appointment's
@@ -3368,6 +3420,36 @@ export async function cancelAppointmentAction(formData: FormData) {
     }
 
     const appointment = relationshipResult.appointment;
+
+    // GC-S1C-2: a canonical group class NEVER proceeds through the generic
+    // cancellation below (status flip without attendee handling, membership
+    // usage clear, missed-appointment charge, recurrence scope). Delegate to
+    // the single group-class path before any mutation or requester/reason
+    // validation -- those fields do not apply to a class.
+    if (appointment.appointment_type === "group_class") {
+      return await cancelCanonicalGroupClass(formData, {
+        supabase,
+        studioId,
+        studioRole,
+        isPlatformAdmin,
+      });
+    }
+
+    if (!allowedRequesters.has(cancellationRequestedBy)) {
+      redirect(
+        getErrorRedirect(
+          formData,
+          fallback,
+          "cancellation_requester_required",
+        ),
+      );
+    }
+
+    if (!cancellationReason) {
+      redirect(
+        getErrorRedirect(formData, fallback, "cancellation_reason_required"),
+      );
+    }
 
     // Product decision (Membership Usage-Period Alignment, terminal
     // attendance lifecycle): for private_lesson/intro_lesson/coaching,
