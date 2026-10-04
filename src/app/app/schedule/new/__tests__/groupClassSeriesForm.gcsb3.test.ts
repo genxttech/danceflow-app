@@ -300,3 +300,45 @@ describe("boundaries (source guards)", () => {
     expect(page).not.toMatch(/group_class_series|preview_group_class_series/);
   });
 });
+
+describe("B4 polish: unconfirmed create and long series", () => {
+  function bar(props: Record<string, unknown>) {
+    return renderToStaticMarkup(
+      createElement(SeriesActionBar, {
+        previewCurrent: true, canPreview: true, canCreate: true, previewPending: false, createPending: false,
+        createCount: 6, unresolvedConflicts: 0, hint: "hint", onPreview: () => undefined, onCreate: () => undefined,
+        ...props,
+      }),
+    );
+  }
+
+  it("after an unconfirmed create, 'Check again' is withheld and the owner is steered to retry Create", () => {
+    const m = bar({ unconfirmedCreate: true });
+    expect(m).not.toContain("Check again");
+    expect(m).toContain("Create series (6 classes)");
+    expect(m).not.toMatch(/<button type="submit"[^>]*disabled=""/);
+    expect(visibleText(m)).toContain("Select Create series to try again. It's safe — nothing will be duplicated.");
+  });
+
+  it("a normal clean preview still offers 'Check again'", () => {
+    expect(bar({})).toContain("Check again");
+  });
+
+  it("a pending create still shows the pending status (not the retry hint)", () => {
+    const m = bar({ unconfirmedCreate: true, createPending: true, canCreate: false, canPreview: false });
+    expect(visibleText(m)).toContain("Creating your series — please wait.");
+    expect(visibleText(m)).not.toContain("Select Create series to try again");
+  });
+
+  it("the form derives the flag only from an unconfirmed result for the CURRENT definition and keeps the approved copy", () => {
+    const source = read("src/app/app/schedule/new/GroupClassSeriesForm.tsx");
+    expect(source).toContain('createResult.key === key && createResult.state.status === "error" && createResult.state.code === "action_failed"');
+    const runner = read("src/lib/schedule/groupClassSeriesActionRunner.ts");
+    expect(runner).toContain("We couldn't confirm whether the series was created. Check your schedule, then try again — retrying is safe.");
+  });
+
+  it("the action area stays reachable over a long preview list (sticky only while a preview is showing)", () => {
+    const source = read("src/app/app/schedule/new/GroupClassSeriesForm.tsx");
+    expect(source).toContain('view.previewCurrent ? "sticky bottom-2 z-10 shadow-lg md:bottom-4" : ""');
+  });
+});

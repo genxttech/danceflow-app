@@ -138,6 +138,7 @@ export function SeriesActionBar({
   createPending,
   createCount,
   unresolvedConflicts,
+  unconfirmedCreate = false,
   hint,
   onPreview,
   onCreate,
@@ -149,6 +150,13 @@ export function SeriesActionBar({
   createPending: boolean;
   createCount: number;
   unresolvedConflicts: number;
+  /**
+   * The last create ended without a confirmed outcome (it may have committed).
+   * Re-previewing would show the possibly-created series' own classes as
+   * conflicts, so "Check again" is withheld and the owner is steered to simply
+   * retry Create (same request id), which is safe.
+   */
+  unconfirmedCreate?: boolean;
   hint: string | null;
   onPreview: () => void;
   onCreate: () => void;
@@ -180,7 +188,7 @@ export function SeriesActionBar({
         {primary.label}
       </button>
 
-      {previewCurrent ? (
+      {previewCurrent && !unconfirmedCreate ? (
         <button
           type="button"
           disabled={!canPreview}
@@ -196,7 +204,9 @@ export function SeriesActionBar({
           ? "Checking every date for conflicts…"
           : createPending
             ? "Creating your series — please wait."
-            : previewCurrent && unresolvedConflicts > 0
+            : unconfirmedCreate
+              ? "Select Create series to try again. It's safe — nothing will be duplicated."
+              : previewCurrent && unresolvedConflicts > 0
               ? `Skip or resolve ${unresolvedConflicts} conflicting ${unresolvedConflicts === 1 ? "date" : "dates"} to create the series.`
               : hint}
       </p>
@@ -325,6 +335,9 @@ export default function GroupClassSeriesForm({
     createResult.key === key && (createResult.state.status === "error" || createResult.state.status === "conflict")
       ? (createResult.state.error ?? null)
       : null;
+  // Withhold "Check again" after a create whose outcome was never confirmed (see SeriesActionBar).
+  const unconfirmedCreate =
+    createResult.key === key && createResult.state.status === "error" && createResult.state.code === "action_failed";
   const previewStale = previewResult.state.status === "preview" && !view.previewCurrent;
 
   const fundingMissing =
@@ -735,7 +748,8 @@ export default function GroupClassSeriesForm({
           />
         ) : null}
 
-        <div className={CARD}>
+        {/* With a preview showing, the action stays reachable while scrolling a long list. */}
+        <div className={`${CARD} ${view.previewCurrent ? "sticky bottom-2 z-10 shadow-lg md:bottom-4" : ""}`}>
           <SeriesActionBar
             previewCurrent={view.previewCurrent}
             canPreview={view.canPreview}
@@ -744,6 +758,7 @@ export default function GroupClassSeriesForm({
             createPending={createPending}
             createCount={view.createCount}
             unresolvedConflicts={view.unresolvedConflicts}
+            unconfirmedCreate={unconfirmedCreate}
             hint={fundingMissing ? "Choose a credit option in Enrollment options, or turn those settings off." : hint}
             onPreview={runPreview}
             onCreate={runCreate}
