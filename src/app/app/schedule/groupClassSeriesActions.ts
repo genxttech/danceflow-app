@@ -210,37 +210,57 @@ export async function createGroupClassSeriesAction(
   if (!parsed.ok) return fail(parsed.code);
   const def = parsed.value;
 
-  // Never trust a previously shown preview: regenerate from the submitted
-  // definition and re-run the full conflict check right before committing.
-  const generated = await generateOccurrences(ctx, def);
-  if (!generated.ok) return fail(generated.code);
+  // Retry of a request that may already have committed (same studio + same
+  // request id): the series' own occurrences now exist and would show up as
+  // conflicts with themselves, so the conflict recheck must not run. The create
+  // RPC owns the idempotency decision: an identical definition replays, a
+  // different one raises the idempotency conflict, and neither branch inserts.
+  // A lookup failure fails CLOSED (never skips the recheck on uncertainty).
+  const existing = await ctx.supabase
+    .from("group_class_series")
+    .select("id")
+    .eq("studio_id", ctx.studioId)
+    .eq("client_request_id", def.clientRequestId)
+    .maybeSingle();
 
-  const generatedIndices = new Set(generated.rows.map((row) => row.occurrence_index));
-  if (def.skipIndices.some((index) => !generatedIndices.has(index))) return fail("invalid_skip");
+  if (existing.error) {
+    console.error("GC-S1B series request lookup failed:", existing.error.message);
+    return fail("unknown");
+  }
 
-  const skipped = new Set(def.skipIndices);
-  const remaining = generated.rows.filter((row) => !skipped.has(row.occurrence_index));
-  if (remaining.length === 0) return fail("no_occurrences");
+  if (!existing.data) {
+    // Never trust a previously shown preview: regenerate from the submitted
+    // definition and re-run the full conflict check right before committing.
+    const generated = await generateOccurrences(ctx, def);
+    if (!generated.ok) return fail(generated.code);
 
-  // Only explicitly skipped occurrences are exempt; nothing is auto-skipped.
-  const conflicts = await checkConflicts(ctx, def, remaining);
-  if (!conflicts.ok) return fail("conflict_check_failed");
+    const generatedIndices = new Set(generated.rows.map((row) => row.occurrence_index));
+    if (def.skipIndices.some((index) => !generatedIndices.has(index))) return fail("invalid_skip");
 
-  if (conflicts.byIndex.size > 0) {
-    return {
-      status: "conflict",
-      code: "conflict",
-      error: seriesError("conflict").error,
-      conflicts: remaining
-        .filter((row) => conflicts.byIndex.has(row.occurrence_index))
-        .map((row) => ({
-          index: row.occurrence_index,
-          localDate: row.local_date,
-          startsAt: row.starts_at,
-          endsAt: row.ends_at,
-          conflict: conflicts.byIndex.get(row.occurrence_index) as SeriesConflict,
-        })),
-    };
+    const skipped = new Set(def.skipIndices);
+    const remaining = generated.rows.filter((row) => !skipped.has(row.occurrence_index));
+    if (remaining.length === 0) return fail("no_occurrences");
+
+    // Only explicitly skipped occurrences are exempt; nothing is auto-skipped.
+    const conflicts = await checkConflicts(ctx, def, remaining);
+    if (!conflicts.ok) return fail("conflict_check_failed");
+
+    if (conflicts.byIndex.size > 0) {
+      return {
+        status: "conflict",
+        code: "conflict",
+        error: seriesError("conflict").error,
+        conflicts: remaining
+          .filter((row) => conflicts.byIndex.has(row.occurrence_index))
+          .map((row) => ({
+            index: row.occurrence_index,
+            localDate: row.local_date,
+            startsAt: row.starts_at,
+            endsAt: row.ends_at,
+            conflict: conflicts.byIndex.get(row.occurrence_index) as SeriesConflict,
+          })),
+      };
+    }
   }
 
   const { data, error } = await ctx.supabase.rpc("create_group_class_series", buildCreateRpcArgs(ctx.studioId, def));

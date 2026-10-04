@@ -47,9 +47,14 @@ function chainFor(table: string) {
 }
 
 const rpcRows = vi.fn();
+const rpcCalls: string[] = [];
+let createRpcResult: { data: unknown; error: { message: string } | null } = { data: { series_id: "s1", materialized_count: 4, replay: false }, error: null };
 const fakeClient = {
   from: (table: string) => ({ select: () => chainFor(table) }),
-  rpc: async (name: string) => (name === "preview_group_class_series" ? { data: rpcRows(), error: null } : { data: { series_id: "s1", materialized_count: 4, replay: false }, error: null }),
+  rpc: async (name: string) => {
+    rpcCalls.push(name);
+    return name === "preview_group_class_series" ? { data: rpcRows(), error: null } : createRpcResult;
+  },
 };
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => fakeClient }));
@@ -120,9 +125,11 @@ const base = { studio_id: STUDIO, status: "scheduled", client_id: null };
 
 beforeEach(() => {
   queriedFilters.length = 0;
+  rpcCalls.length = 0;
+  createRpcResult = { data: { series_id: "s1", materialized_count: 4, replay: false }, error: null };
   rpcRows.mockReturnValue([1, 2, 3, 4, 5, 6].map(occurrence));
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  tables = { appointments: [], instructor_schedule_blocks: [], rooms: [{ id: ROOM_ID, max_simultaneous_bookings: 1 }] };
+  tables = { appointments: [], instructor_schedule_blocks: [], group_class_series: [], rooms: [{ id: ROOM_ID, max_simultaneous_bookings: 1 }] };
 });
 
 describe("series preview with the real conflict engine", () => {
@@ -195,5 +202,57 @@ describe("series create with the real conflict engine", () => {
     await expect(createGroupClassSeriesAction({ status: "idle" }, form({ skipIndices: ["2"] }))).rejects.toMatchObject({
       digest: expect.stringContaining("NEXT_REDIRECT"),
     });
+  });
+});
+
+describe("idempotent retry against the real conflict engine", () => {
+  const REQUEST_ID = "0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f9";
+
+  // The series has ALREADY been created: its own six occurrences exist (client_id NULL, same instructor/room/times).
+  function seedCommittedSeries(studio = STUDIO) {
+    tables.appointments = [1, 2, 3, 4, 5, 6].map((n) => {
+      const o = occurrence(n);
+      return { ...base, id: "own" + n, instructor_id: INSTRUCTOR_ID, room_id: ROOM_ID, appointment_type: "group_class", starts_at: o.starts_at, ends_at: o.ends_at };
+    });
+    tables.group_class_series = [{ id: "series-existing", studio_id: studio, client_request_id: REQUEST_ID }];
+  }
+
+  it("control: WITHOUT a recorded request id the series' own occurrences are (correctly) reported as conflicts", async () => {
+    seedCommittedSeries();
+    tables.group_class_series = [];
+    const state = await createGroupClassSeriesAction({ status: "idle" }, form());
+    expect(state).toMatchObject({ status: "conflict" });
+    if (state.status === "conflict") expect(state.conflicts).toHaveLength(6);
+    expect(rpcCalls).not.toContain("create_group_class_series");
+  });
+
+  it("retrying the same request id after the series committed succeeds as a replay, with no false conflicts", async () => {
+    seedCommittedSeries();
+    createRpcResult = { data: { series_id: "series-existing", materialized_count: 6, replay: true }, error: null };
+    await expect(createGroupClassSeriesAction({ status: "idle" }, form())).rejects.toMatchObject({
+      digest: expect.stringContaining("NEXT_REDIRECT"),
+    });
+    expect(rpcCalls).toEqual(["create_group_class_series"]);
+    // the engine was never consulted: no appointment/room/block lookups at all, only the series lookup
+    expect(queriedFilters.map((q) => q.table)).toEqual(["group_class_series"]);
+  });
+
+  it("a changed definition with the same request id gets the safe idempotency-conflict message and creates nothing", async () => {
+    seedCommittedSeries();
+    createRpcResult = { data: null, error: { message: "GCSB1_IDEMPOTENCY_CONFLICT: This request was already used for a different class series." } };
+    const state = await createGroupClassSeriesAction({ status: "idle" }, form({ title: "Renamed" }));
+    expect(state).toEqual({
+      status: "error",
+      code: "idempotency_conflict",
+      error: "This series was already created or changed. Refresh before trying again.",
+    });
+    expect(rpcCalls).toEqual(["create_group_class_series"]);
+  });
+
+  it("the same request id recorded in another studio does not bypass the recheck", async () => {
+    seedCommittedSeries("other-studio");
+    const state = await createGroupClassSeriesAction({ status: "idle" }, form());
+    expect(state).toMatchObject({ status: "conflict" });
+    expect(rpcCalls).toEqual(["preview_group_class_series"]);
   });
 });

@@ -37,6 +37,9 @@ type GuardState = {
   studioRole: string | null;
   isPlatformAdmin: boolean;
   throwMessage: string | null;
+  seriesRows: { id: string; studio_id: string; client_request_id: string }[];
+  lookupError: string | null;
+  lookups: { table: string; columns: string; filters: [string, unknown][] }[];
   rpc: Mock<(name: string, args: Record<string, unknown>) => Promise<unknown>>;
 };
 const guard: GuardState = {
@@ -44,13 +47,36 @@ const guard: GuardState = {
   studioRole: "studio_owner",
   isPlatformAdmin: false,
   throwMessage: null,
+  seriesRows: [],
+  lookupError: null,
+  lookups: [],
   rpc: vi.fn<(name: string, args: Record<string, unknown>) => Promise<unknown>>(),
 };
 vi.mock("@/lib/auth/serverRoleGuard", () => ({
   requireFloorRentalAppointmentAccess: async () => {
     if (guard.throwMessage) throw new Error(guard.throwMessage);
     return {
-      supabase: { rpc: (name: string, args: Record<string, unknown>) => guard.rpc(name, args) },
+      supabase: {
+        rpc: (name: string, args: Record<string, unknown>) => guard.rpc(name, args),
+        from: (table: string) => ({
+          select: (columns: string) => {
+            const filters: [string, unknown][] = [];
+            const chain = {
+              eq(column: string, value: unknown) {
+                filters.push([column, value]);
+                return chain;
+              },
+              async maybeSingle() {
+                guard.lookups.push({ table, columns, filters: [...filters] });
+                if (guard.lookupError) return { data: null, error: { message: guard.lookupError } };
+                const row = guard.seriesRows.find((r) => filters.every(([c, v]) => (r as Record<string, unknown>)[c] === v));
+                return { data: row ? { id: row.id } : null, error: null };
+              },
+            };
+            return chain;
+          },
+        }),
+      },
       studioId: guard.studioId,
       user: { id: "user-1" },
       studioRole: guard.studioRole,
@@ -137,6 +163,7 @@ async function runCreate(fd: FormData) {
 }
 
 const createCalls = () => guard.rpc.mock.calls.filter((c) => c[0] === "create_group_class_series");
+const order = () => guard.rpc.mock.calls.map((c) => c[0]);
 const previewCalls = () => guard.rpc.mock.calls.filter((c) => c[0] === "preview_group_class_series");
 
 beforeEach(() => {
@@ -145,6 +172,9 @@ beforeEach(() => {
   guard.studioRole = "studio_owner";
   guard.isPlatformAdmin = false;
   guard.throwMessage = null;
+  guard.seriesRows = [];
+  guard.lookupError = null;
+  guard.lookups = [];
   detectAppointmentConflicts.mockResolvedValue({ hasConflict: false });
   rpcBehavior({});
   vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -449,6 +479,107 @@ describe("createGroupClassSeriesAction", () => {
     const { state } = await runCreate(form({ clientRequestId: undefined }));
     expect(state).toMatchObject({ status: "error", code: "invalid_input" });
     expect(guard.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("idempotent retry of an already-created series", () => {
+  const ownRow = (studio = "studio-ctx") => ({ id: "series-1", studio_id: studio, client_request_id: REQUEST_ID });
+
+  it("skips the conflict recheck, calls the create RPC and treats replay=true as success (no false conflicts)", async () => {
+    guard.seriesRows = [ownRow()];
+    // Every date would conflict with the series' own occurrences if the engine were consulted.
+    detectAppointmentConflicts.mockResolvedValue({ hasConflict: true, message: "That instructor is already booked during this time." });
+    rpcBehavior({ create: { series_id: "series-1", materialized_count: 6, replay: true } });
+
+    const { state, redirectedTo } = await runCreate(form({ skipIndices: ["2"] }));
+    expect(state).toBeNull();
+    expect(redirectedTo).toBe("/app/schedule");
+    expect(revalidatePath).toHaveBeenCalledWith("/app/schedule");
+    expect(detectAppointmentConflicts).not.toHaveBeenCalled();
+    expect(previewCalls()).toHaveLength(0);
+    expect(createCalls()).toHaveLength(1);
+    expect(createCalls()[0][1]).toMatchObject({ p_studio_id: "studio-ctx", p_client_request_id: REQUEST_ID, p_skip_indices: [2] });
+  });
+
+  it("looks the request up with the authenticated studio, the exact request id and the minimal column", async () => {
+    guard.seriesRows = [ownRow()];
+    await runCreate(form());
+    expect(guard.lookups).toEqual([
+      {
+        table: "group_class_series",
+        columns: "id",
+        filters: [
+          ["studio_id", "studio-ctx"],
+          ["client_request_id", REQUEST_ID],
+        ],
+      },
+    ]);
+  });
+
+  it("a changed definition with the same request id still goes to the RPC, which returns the idempotency conflict (mapped safely)", async () => {
+    guard.seriesRows = [ownRow()];
+    rpcBehavior({ create: { message: "GCSB1_IDEMPOTENCY_CONFLICT: This request was already used for a different class series." } });
+    const { state, redirectedTo } = await runCreate(form({ title: "A different title" }));
+    expect(redirectedTo).toBeNull();
+    expect(state).toEqual({
+      status: "error",
+      code: "idempotency_conflict",
+      error: "This series was already created or changed. Refresh before trying again.",
+    });
+    expect(detectAppointmentConflicts).not.toHaveBeenCalled();
+    expect(previewCalls()).toHaveLength(0);
+    expect(createCalls()).toHaveLength(1);
+  });
+
+  it("first-time creation (no existing request row) still gets the full recheck and a new conflict still blocks", async () => {
+    detectAppointmentConflicts.mockImplementation(async ({ startsAt }: { startsAt: string }) =>
+      startsAt.startsWith("2027-01-16") ? { hasConflict: true, message: "That room is already booked during this time." } : { hasConflict: false },
+    );
+    const { state } = await runCreate(form());
+    expect(state).toMatchObject({ status: "conflict" });
+    expect(guard.lookups).toHaveLength(1);
+    expect(previewCalls()).toHaveLength(1);
+    expect(detectAppointmentConflicts).toHaveBeenCalledTimes(6);
+    expect(createCalls()).toHaveLength(0);
+  });
+
+  it("a lookup failure fails closed: no recheck skip, no create, generic error with no raw text", async () => {
+    guard.lookupError = 'permission denied for table group_class_series (secret detail)';
+    const { state, redirectedTo } = await runCreate(form());
+    expect(redirectedTo).toBeNull();
+    expect(state).toMatchObject({ status: "error", code: "unknown" });
+    expect(JSON.stringify(state)).not.toMatch(/permission denied|group_class_series|secret/);
+    expect(createCalls()).toHaveLength(0);
+    expect(previewCalls()).toHaveLength(0);
+    expect(detectAppointmentConflicts).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it("the same request id in ANOTHER studio does not trigger the replay bypass", async () => {
+    guard.seriesRows = [ownRow("other-studio")];
+    detectAppointmentConflicts.mockImplementation(async ({ startsAt }: { startsAt: string }) =>
+      startsAt.startsWith("2027-01-16") ? { hasConflict: true, message: "That instructor is already booked during this time." } : { hasConflict: false },
+    );
+    const { state } = await runCreate(form());
+    expect(state).toMatchObject({ status: "conflict" });
+    expect(previewCalls()).toHaveLength(1);
+    expect(detectAppointmentConflicts).toHaveBeenCalledTimes(6);
+    expect(createCalls()).toHaveLength(0);
+    expect(guard.lookups[0].filters[0]).toEqual(["studio_id", "studio-ctx"]);
+  });
+
+  it("with no conflicts, the other-studio row also proceeds through the normal first-create path", async () => {
+    guard.seriesRows = [ownRow("other-studio")];
+    const { redirectedTo } = await runCreate(form());
+    expect(redirectedTo).toBe("/app/schedule");
+    expect(order()).toEqual(["preview_group_class_series", "create_group_class_series"]);
+  });
+
+  it("calls the create RPC at most once per submission", async () => {
+    guard.seriesRows = [ownRow()];
+    rpcBehavior({ create: { series_id: "series-1", materialized_count: 6, replay: true } });
+    await runCreate(form());
+    expect(createCalls()).toHaveLength(1);
   });
 });
 
