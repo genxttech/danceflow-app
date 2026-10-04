@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCronAuthFailure } from "@/lib/security/cron";
 import { createAppointmentConfirmationToken } from "@/lib/schedule/appointmentConfirmation";
+import {
+  buildGroupClassReminderDelivery,
+  isCanonicalGroupClass,
+  selectGroupClassRecipients,
+  type ClassReminderAttendeeRow,
+  type ClassReminderDelivery,
+} from "@/lib/notifications/groupClassReminders";
 
 function formatDateKey(date: Date, timeZone = "UTC") {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -51,6 +58,8 @@ type AppointmentRow = {
   status: string | null;
   client_id: string | null;
   instructor_id: string | null;
+  location_name: string | null;
+  rooms: { name: string | null } | null | Array<{ name: string | null }>;
   clients:
     | {
         id: string;
@@ -109,6 +118,37 @@ function getStudioTimezone(studioMap: Map<string, string>, studioId: string) {
   return studioMap.get(studioId) || "UTC";
 }
 
+// Ids per .in() lookup: the ids travel in the request URL, which overflows the request limit well before 400 uuids.
+const GROUP_CLASS_LOOKUP_CHUNK = 100;
+
+async function insertGroupClassDeliveries(
+  supabase: ReturnType<typeof createAdminClient>,
+  rows: ClassReminderDelivery[],
+): Promise<{ inserted: number; error?: string }> {
+  if (!rows.length) return { inserted: 0 };
+
+  const existing = new Set<string>();
+  for (let i = 0; i < rows.length; i += GROUP_CLASS_LOOKUP_CHUNK) {
+    const keys = rows.slice(i, i + GROUP_CLASS_LOOKUP_CHUNK).map((row) => row.dedupe_key);
+    const { data, error } = await supabase.from("notification_deliveries").select("dedupe_key").in("dedupe_key", keys);
+    if (error) return { inserted: 0, error: error.message };
+    for (const row of data ?? []) existing.add(String((row as { dedupe_key: string }).dedupe_key));
+  }
+
+  let inserted = 0;
+  for (const row of rows) {
+    if (existing.has(row.dedupe_key)) continue;
+    const { error } = await supabase.from("notification_deliveries").insert(row);
+    if (error) {
+      if (error.code === "23505") continue; // already queued by a concurrent run
+      return { inserted, error: error.message };
+    }
+    inserted += 1;
+  }
+
+  return { inserted };
+}
+
 export async function POST(request: NextRequest) {
   const authFailure = getCronAuthFailure(request);
   if (authFailure) {
@@ -159,6 +199,8 @@ export async function POST(request: NextRequest) {
         status,
         client_id,
         instructor_id,
+        location_name,
+        rooms ( name ),
         clients:clients!appointments_client_id_fkey (
   id,
   first_name,
@@ -201,15 +243,73 @@ instructors:instructors!appointments_instructor_id_fkey (
     studioMap.set(studio.id, studio.timezone || "UTC");
   }
 
-  const reminder24 = allAppointments.filter((appt) => {
+  // GC-R1: canonical group classes have no client_id; their enrolled attendees are reminded through appointment_attendees.
+  // A class that has attendee rows is reminded ONLY that way (the roster's own rule), so the client_id path below never
+  // double-reminds it; a class with no attendee rows keeps the legacy behavior untouched.
+  const inWindow24 = (appt: AppointmentRow) => {
     const startsAt = new Date(appt.starts_at);
-    return startsAt >= reminder24Start && startsAt <= reminder24End && !!appt.client_id;
-  });
+    return startsAt >= reminder24Start && startsAt <= reminder24End;
+  };
+  const inWindow2 = (appt: AppointmentRow) => {
+    const startsAt = new Date(appt.starts_at);
+    return startsAt >= reminder2Start && startsAt <= reminder2End;
+  };
 
-  const reminder2 = allAppointments.filter((appt) => {
-    const startsAt = new Date(appt.starts_at);
-    return startsAt >= reminder2Start && startsAt <= reminder2End && !!appt.client_id;
-  });
+  const classCandidates = allAppointments.filter((appt) => isCanonicalGroupClass(appt) && (inWindow24(appt) || inWindow2(appt)));
+  const attendeeRows: ClassReminderAttendeeRow[] = [];
+
+  for (let i = 0; i < classCandidates.length; i += GROUP_CLASS_LOOKUP_CHUNK) {
+    const ids = classCandidates.slice(i, i + GROUP_CLASS_LOOKUP_CHUNK).map((appt) => appt.id);
+    const { data, error } = await supabase
+      .from("appointment_attendees")
+      .select(
+        "appointment_id, studio_id, client_id, status, clients:clients!client_id ( id, studio_id, first_name, last_name, email )",
+      )
+      .in("appointment_id", ids);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    attendeeRows.push(...((data ?? []) as unknown as ClassReminderAttendeeRow[]));
+  }
+
+  const classRecipients = selectGroupClassRecipients(classCandidates, attendeeRows);
+  const reminderViaAttendees = (appt: AppointmentRow) =>
+    isCanonicalGroupClass(appt) && classRecipients.classesWithAttendeeRows.has(appt.id);
+
+  const reminder24 = allAppointments.filter((appt) => inWindow24(appt) && !!appt.client_id && !reminderViaAttendees(appt));
+
+  const reminder2 = allAppointments.filter((appt) => inWindow2(appt) && !!appt.client_id && !reminderViaAttendees(appt));
+
+  const classDeliveries: ClassReminderDelivery[] = [];
+  const classFormat = {
+    dateKey: formatDateKey,
+    dateLong: (date: string, timeZone: string) => formatDateLong(date, timeZone),
+    time: (date: string, timeZone: string) => formatTime(date, timeZone),
+  };
+
+  for (const recipient of classRecipients.recipients) {
+    const timeZone = getStudioTimezone(studioMap, recipient.appointment.studio_id);
+    for (const [kind, due] of [
+      ["24h", inWindow24(recipient.appointment as AppointmentRow)],
+      ["2h", inWindow2(recipient.appointment as AppointmentRow)],
+    ] as const) {
+      if (!due) continue;
+      classDeliveries.push(
+        buildGroupClassReminderDelivery({
+          kind,
+          appointment: recipient.appointment,
+          clientId: recipient.clientId,
+          email: recipient.email,
+          name: recipient.name,
+          timeZone,
+          now,
+          format: classFormat,
+        }),
+      );
+    }
+  }
 
   const todayByStudio = new Map<string, AppointmentRow[]>();
   const tomorrowByStudioAndInstructor = new Map<string, AppointmentRow[]>();
@@ -417,11 +517,19 @@ instructors:instructors!appointments_instructor_id_fkey (
     });
   }
 
+  // GC-R1: class reminders are idempotent through dedupe_key (see groupClassReminderDedupeKey), inserted one by one so a
+  // concurrent run that already queued a row cannot fail the others.
+  const classInsert = await insertGroupClassDeliveries(supabase, classDeliveries);
+
+  if (classInsert.error) {
+    return NextResponse.json({ error: classInsert.error }, { status: 500 });
+  }
+
   if (!deliveries.length) {
     return NextResponse.json({
       ok: true,
-      generated: 0,
-      message: "No notification deliveries were due.",
+      generated: classInsert.inserted,
+      message: classInsert.inserted ? undefined : "No notification deliveries were due.",
     });
   }
 
@@ -440,7 +548,7 @@ instructors:instructors!appointments_instructor_id_fkey (
 
   return NextResponse.json({
     ok: true,
-    generated: deliveries.length,
+    generated: deliveries.length + classInsert.inserted,
   });
 }
 

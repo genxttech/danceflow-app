@@ -80,6 +80,10 @@ export function renderNotificationHtml(params: {
   const clientName = metadataString(metadata, "clientName");
   const startsAt = metadataString(metadata, "startsAt");
   const timeZone = metadataString(metadata, "studioTimezone") || "America/New_York";
+  // GC-R1: canonical group-class attendee reminders reuse the lesson reminder delivery types; the class variant below
+  // changes only the copy (and drops the single-appointment confirmation link, which does not apply to a shared class).
+  const isGroupClass = metadataString(metadata, "appointmentType") === "group_class";
+  const noun = isGroupClass ? "class" : "lesson";
   const appointmentTitle =
     metadataString(metadata, "appointmentTitle") ||
     metadataString(metadata, "appointmentType")
@@ -91,40 +95,48 @@ export function renderNotificationHtml(params: {
     delivery.delivery_type === "student_lesson_reminder_24h" ||
     delivery.delivery_type === "student_lesson_reminder_2h"
   ) {
-    const startsLabel = startsAt ? formatLessonDateTime(startsAt, timeZone) : "your scheduled lesson time";
+    const startsLabel = startsAt ? formatLessonDateTime(startsAt, timeZone) : `your scheduled ${noun} time`;
     const isSoon = delivery.delivery_type === "student_lesson_reminder_2h";
     const greeting = clientName ? `Hi ${clientName},` : "Hello,";
     const intro = isSoon
       ? `${params.studioName} is looking forward to seeing you soon.`
-      : `${params.studioName} is sending a reminder about your upcoming lesson.`;
+      : `${params.studioName} is sending a reminder about your upcoming ${noun}.`;
 
     // 24h only: prefer the one-click confirmation link as the primary CTA; the portal link stays
     // available as body text so existing functionality is not discarded. The 2h reminder is unchanged.
-    const confirmationUrl = !isSoon
+    const confirmationUrl = !isSoon && !isGroupClass
       ? sanitizeActionUrl(metadataString(metadata, "confirmationUrl") || null)
       : null;
 
     const bodyText = confirmationUrl
       ? [
-          delivery.body || `You have an upcoming lesson scheduled for ${startsLabel}.`,
+          delivery.body || `You have an upcoming ${noun} scheduled for ${startsLabel}.`,
           params.portalUrl ? `You can also view this in your Student Portal: ${params.portalUrl}` : null,
         ]
           .filter((line): line is string => Boolean(line))
           .join("\n\n")
-      : delivery.body || `You have an upcoming lesson scheduled for ${startsLabel}.`;
+      : delivery.body || `You have an upcoming ${noun} scheduled for ${startsLabel}.`;
 
     return renderStudioBrandedEmail(
       { name: params.studioName, logoUrl: params.studioLogoUrl },
       {
         previewText: delivery.subject || `${appointmentTitle} reminder from ${params.studioName}`,
-        eyebrow: "Lesson Reminder",
-        heading: isSoon ? "Your lesson starts soon" : "Your lesson is coming up",
+        eyebrow: isGroupClass ? "Class Reminder" : "Lesson Reminder",
+        heading: isGroupClass
+          ? isSoon ? "Your class starts soon" : "Your class is coming up"
+          : isSoon ? "Your lesson starts soon" : "Your lesson is coming up",
         greeting,
         intro,
         bodyText,
         detailRows: [
-          { label: "Lesson", value: appointmentTitle },
+          { label: isGroupClass ? "Class" : "Lesson", value: appointmentTitle },
           { label: "Date and time", value: startsLabel },
+          ...(isGroupClass && metadataString(metadata, "instructorName")
+            ? [{ label: "Instructor", value: metadataString(metadata, "instructorName") }]
+            : []),
+          ...(isGroupClass && metadataString(metadata, "locationName")
+            ? [{ label: "Location", value: metadataString(metadata, "locationName") }]
+            : []),
         ],
         actionLabel: confirmationUrl ? "Confirm Appointment" : params.portalUrl ? "Open Student Portal" : null,
         actionUrl: confirmationUrl || params.portalUrl,

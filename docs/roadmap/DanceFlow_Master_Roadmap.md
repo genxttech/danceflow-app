@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v1.5 |
+| **Roadmap version** | v1.6 |
 | **Last reconciled against main** | `56dc18d33e44e95b17d816368877a30dc8e155c5` (ENT-1 docs closeout, PR #139, on top of ENT-1 `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`, PR #138, LIVE as `dpl_HcYmcSqF4hLApbwASov1xacA4mbu`); this Phase 4 reconciliation is docs-only |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
 | **Current external dependency** | Twilio / per-studio A2P campaign review and ConfiDance setup |
@@ -375,15 +375,17 @@ These were enforced for BR-4 and remain in force for all later public materials 
 - Retire Events-based group-class creation (events actions, form and public event page still accept `group_class`).
 - Close out the series/occurrence model: recurrence exists (`series_id`/`recurrence` on appointments) but no dedicated series table or documented decision; multi-week occurrence materialization **(unverified)**.
 - Multiple locations/rooms for group classes (not found).
-- Group-class reminders (not found).
+- ~~Group-class reminders (not found).~~ — **GC-R1 DONE (implemented on branch `gc-r1-group-class-attendee-reminders`; not yet reviewed, merged or released).** Canonical group-class attendees (`appointment_attendees.status = 'booked'`) now get the existing 24h/2h reminder cadence by email through the existing generator (`/api/notifications/generate`), `notification_deliveries`, send route and branded HTML (class variant: class title, date, time, instructor and location where present; no confirmation link, no payment or credit language). Idempotent per class + attendee + window through `dedupe_key` (no migration). Operational email: no ENT-1 allowance, no SMS, legacy Events reminders untouched. A class with attendee rows is reminded only through them; a class with none keeps the legacy `client_id` behavior.
 - Group-class revenue reporting (not found).
 - Public/shareable class URLs (belongs to Phase 6).
 
 **LOCKED DECISIONS:** Group classes are canonical appointments; credits are consumed through the gc2 engine; new Events-based creation is to be retired (not yet done).
 
+**PHASE 5 STATUS NOTE (GC-R1):** only GC-R1 (canonical attendee reminders) is complete. **Phase 5 remains PARTIAL.** Still open: legacy Events group-class retirement (**requires a production-data inventory of existing Event-based classes, sessions and registrations before any retirement or migration**), series/occurrence model, multiple rooms/locations, class revenue reporting, and the depleted-credit decision (#10). Pre-existing, not caused by GC-R1 and not fixed here: the private-lesson reminder dedupe relies on a unique constraint that does not dedupe when `user_id` is NULL, so overlapping hourly runs can theoretically queue duplicate private-lesson reminders; a follow-up should adopt `dedupe_key` for that path.
+
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** **Depleted-credit behavior** for group-class enrollment (open product decision #10); whether series stay appointment recurrence or get a dedicated model.
+**UNRESOLVED PRODUCT DECISIONS:** **Depleted-credit behavior** for group-class enrollment (open product decision #10); whether series stay appointment recurrence or get a dedicated model. **Still unresolved after GC-R1** (GC-R1 changes no enrollment or credit behavior).
 
 **DEPENDENCIES:** Phase 4 (entitlements); precedes Phase 6 and 7. Phase 4 remains PARTIAL by open decision #8; that remainder (SMS, payroll, marketplace, ARIA placement) does not touch group classes, so Phase 5 proceeds under the explicit Phase 4 handoff recorded in Phase 4.
 
@@ -1361,6 +1363,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | v1.6 | GC-R1 implemented (feature branch, local commit; not merged or released): canonical group-class attendee reminders (24h/2h, email only, existing generator and branded HTML, `dedupe_key` idempotency, no migration, no ENT-1 allowance, no SMS, Events path untouched). Only GC-R1 is marked complete; Phase 5 stays PARTIAL. Legacy Events group-class retirement still open and needs a production-data inventory; depleted-credit decision (#10) unresolved. |
 | 2026-10-03 | v1.5 | Phase 4 reconciliation and explicit Phase 5 handoff (docs only). Phase 4 stays PARTIAL; ENT-1 stays RELEASED/CLOSED. Remaining Phase 4 implementation is blocked on open decision #8 (SMS, payroll, marketplace, ARIA plan placement); no speculative billing keys; SMS blocked on plan placement independently of the Twilio/Sachin dependency. Shared upgrade-prompt / usage-display UX reassigned to Phase 17 (existing entitlement-denial behavior sufficient meanwhile). Campaign-recipient allowance clarified as applying to user-created marketing campaigns only; operational/transactional email and current ARIA operational outreach are not campaign-metered; ARIA has no marketing send path that bypasses ENT-1; no email add-on is approved or required; the dead duplicate campaign action stays with the Phase 13 dedupe. Phase 22 stays the pricing cutover. Execution may proceed to Phase 5 under the recorded dependency-safe handoff. |
 | 2026-10-03 | v1.4 | ENT-1 RELEASED and closed: PR #138 squash merged to main `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`; PROD migration `20261013090000_ent1_usage_allowance_reservations.sql` applied and verified; deployment `dpl_HcYmcSqF4hLApbwASov1xacA4mbu` promoted to production; authenticated PROD smoke intentionally omitted under the permanent release rule. Phase 4 stays PARTIAL (SMS gating, payroll/marketplace/ARIA billing keys, upgrade-prompt component, any email add-on product and other email paths such as ARIA-originated sends remain). BR-5 stays merged (#137); BR-6 stays active/parked awaiting the professional ARIA voice recording; Twilio stays an external wait. Docs only. |
 | 2026-10-03 | v1.3 | Corrected the stale BR-5 state: BR-5 is MERGED (PR #137, main `1310e3a`). BR-6 recorded as active but parked (first-person ARIA master locked; waiting for the professional ARIA recording; branch `br-6-promotional-media` head `1f19305`, not merged). ENT-1 (monthly email-campaign recipient allowance, studio and organizer, atomic reserve/finalize/release) marked COMPLETE on its candidate branch `ent-1-email-campaign-allowance`: DEV migration `20261013090000` applied and verified, PROD migration required. Phase 4 stays PARTIAL (SMS gating, payroll/marketplace/ARIA keys and the upgrade-prompt component remain). |
