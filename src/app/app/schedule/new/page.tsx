@@ -498,6 +498,14 @@ if (hostStudioIds.length > 0) {
 
   const canBookHostStudioFloorSpace = linkedHostStudios.length > 0;
 
+  // GC-S1B B3: display time zone for series previews (read-only; the database stays authoritative).
+  const { data: studioTimeZoneRow } = await supabase
+    .from("studios")
+    .select("timezone")
+    .eq("id", studioId)
+    .maybeSingle();
+  const studioTimeZone = studioTimeZoneRow?.timezone || "America/New_York";
+
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
@@ -561,6 +569,7 @@ if (hostStudioIds.length > 0) {
       </section>
 
       <AppointmentCreateForm
+        studioTimeZone={studioTimeZone}
         clients={availableClients as any}
         instructors={availableInstructors as any}
         rooms={availableRooms as any}
