@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { cancelClassAttendeeAction } from "@/app/app/schedule/actions";
 import type { RosterEntry, RosterPanelData } from "@/lib/schedule/groupClassRosterPanel";
 import AddDancerPanel from "./AddDancerPanel";
-import RosterSubmitButton from "./RosterSubmitButton";
+import RemoveDancerControl from "./RemoveDancerControl";
 
 type ClosedReason = "cancelled" | "ended" | null;
 
@@ -19,37 +18,11 @@ function chipLabel(entry: RosterEntry) {
   return entry.attendanceLabel && entry.attendanceStatus !== "registered" ? entry.attendanceLabel : "Enrolled";
 }
 
-function RemoveControl({ entry, appointmentId, returnTo }: { entry: RosterEntry; appointmentId: string; returnTo: string }) {
-  return (
-    <details className="relative text-right">
-      <summary className="cursor-pointer list-none text-xs font-semibold text-red-700 underline [&::-webkit-details-marker]:hidden">
-        Remove
-      </summary>
-      <form
-        action={cancelClassAttendeeAction}
-        className="mt-2 w-64 max-w-full space-y-2 rounded-xl border border-red-200 bg-red-50 p-3 text-left text-xs text-red-900 sm:absolute sm:right-0 sm:z-10"
-      >
-        <input type="hidden" name="appointmentId" value={appointmentId} />
-        <input type="hidden" name="attendeeId" value={entry.attendeeId} />
-        <input type="hidden" name="returnTo" value={returnTo} />
-        <p>
-          Remove <span className="font-semibold">{entry.name}</span> from this class? They will no longer be enrolled. No
-          credit is used or returned, and this frees a seat.
-        </p>
-        <RosterSubmitButton
-          label="Remove from class"
-          pendingLabel="Removing…"
-          className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-        />
-      </form>
-    </details>
-  );
-}
-
 /**
  * GC-S1D-1: the roster section of a single group-class occurrence. Enrollment lives here (add / remove); attendance is
  * shown read-only with a link to the attendance workflow; funding is a concise label (broad staff only) and never a
  * payment action. Authority is the database's (broad staff, or the assigned instructor for their own class).
+ * GC-S1D-2: when `seriesScope` (broad staff on a series occurrence) Add dancer and Remove also offer "This and following classes".
  */
 export default function GroupClassRosterPanel({
   appointmentId,
@@ -58,6 +31,8 @@ export default function GroupClassRosterPanel({
   canManage,
   isBroadStaff,
   closedReason,
+  seriesScope = false,
+  timeZone = "America/New_York",
   reopenAdd = false,
 }: {
   appointmentId: string;
@@ -66,6 +41,9 @@ export default function GroupClassRosterPanel({
   canManage: boolean;
   isBroadStaff: boolean;
   closedReason: ClosedReason;
+  /** GC-S1D-2: broad staff on a series occurrence get "This and following classes" for Add dancer and Remove. */
+  seriesScope?: boolean;
+  timeZone?: string;
   /** Reopen the Add dancer control (after an add-dancer refusal). */
   reopenAdd?: boolean;
 }) {
@@ -119,7 +97,15 @@ export default function GroupClassRosterPanel({
               <div className="flex items-center gap-3">
                 <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${chipClass(entry)}`}>{chipLabel(entry)}</span>
                 {canManage && entry.canRemove ? (
-                  <RemoveControl entry={entry} appointmentId={appointmentId} returnTo={returnTo} />
+                  <RemoveDancerControl
+                    appointmentId={appointmentId}
+                    attendeeId={entry.attendeeId}
+                    clientId={entry.clientId}
+                    name={entry.name}
+                    returnTo={returnTo}
+                    seriesScope={seriesScope}
+                    timeZone={timeZone}
+                  />
                 ) : canManage && entry.hasTerminalAttendance ? (
                   <span className="max-w-[10rem] text-right text-xs text-slate-500">Attendance recorded</span>
                 ) : null}
@@ -151,7 +137,15 @@ export default function GroupClassRosterPanel({
               This class has ended, so enrollment is closed. Attendance can still be recorded.
             </p>
           ) : (
-            <AddDancerPanel appointmentId={appointmentId} returnTo={returnTo} isBroadStaff={isBroadStaff} full={full} defaultOpen={reopenAdd} />
+            <AddDancerPanel
+              appointmentId={appointmentId}
+              returnTo={returnTo}
+              isBroadStaff={isBroadStaff}
+              full={full}
+              seriesScope={seriesScope}
+              timeZone={timeZone}
+              defaultOpen={reopenAdd}
+            />
           )}
         </div>
       ) : null}

@@ -52,6 +52,7 @@ type SearchParams = Promise<{
   error?: string;
   success?: string;
   count?: string;
+  left?: string;
 }>;
 
 type ClientPackageItem = {
@@ -982,6 +983,8 @@ export default async function AppointmentDetailPage({
               canManage
               isBroadStaff={isBroadRosterStaff}
               closedReason={rosterClosed}
+              seriesScope={isBroadRosterStaff && isSeriesOccurrence}
+              timeZone={studioTimeZone}
               reopenAdd={isRosterEnrollmentError(resolvedSearch.error)}
             />
           ) : null}
