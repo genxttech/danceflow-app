@@ -63,10 +63,8 @@ function view(
 ) {
   return deriveSeriesView({
     state,
-    previewState: extra.preview ?? { status: "idle" },
-    previewedKey: extra.previewedKey ?? null,
-    createState: extra.create ?? { status: "idle" },
-    createKey: extra.createKey ?? null,
+    previewResult: { key: extra.previewedKey ?? null, state: extra.preview ?? { status: "idle" } },
+    createResult: { key: extra.createKey ?? null, state: extra.create ?? { status: "idle" } },
     pending: extra.pending ?? { preview: false, create: false },
     timeZone: "America/New_York",
   });

@@ -235,7 +235,7 @@ export type PreviewStateInput =
 export type CreateStateInput =
   | { status: "idle" }
   | { status: "error"; code: string; error: string }
-  | { status: "conflict"; conflicts: { index: number; conflict: SeriesConflict }[] };
+  | { status: "conflict"; error?: string; conflicts: { index: number; conflict: SeriesConflict }[] };
 
 export type SeriesRow = {
   index: number;
@@ -257,23 +257,24 @@ export type SeriesView = {
 
 export function deriveSeriesView(params: {
   state: SeriesFormState;
-  previewState: PreviewStateInput;
-  /** definitionKey at the moment the displayed preview was requested. */
-  previewedKey: string | null;
-  createState: CreateStateInput;
-  /** definitionKey at the moment the displayed create result was requested. */
-  createKey: string | null;
+  /** The latest preview result, tagged with the definition key it was SUBMITTED for. */
+  previewResult: { key: string | null; state: PreviewStateInput };
+  /** The latest create result, tagged with the definition key it was SUBMITTED for. */
+  createResult: { key: string | null; state: CreateStateInput };
   pending: { preview: boolean; create: boolean };
   timeZone: string;
 }): SeriesView {
-  const { state, previewState, previewedKey, createState, createKey, pending, timeZone } = params;
+  const { state, previewResult, createResult, pending, timeZone } = params;
+  const previewState = previewResult.state;
+  const createState = createResult.state;
   const key = definitionKey(state.values);
-  const previewCurrent = previewState.status === "preview" && previewedKey === key;
+  // A result applies only to the exact definition it was submitted for (never inferred from current form state).
+  const previewCurrent = previewState.status === "preview" && previewResult.key === key;
   const skipped = new Set(effectiveSkipped(state));
 
   // Conflicts reported by a create attempt for THIS definition take precedence: they are newer than the preview.
   const createConflicts = new Map<number, SeriesConflict>();
-  if (createState.status === "conflict" && createKey === key) {
+  if (createState.status === "conflict" && createResult.key === key) {
     for (const c of createState.conflicts) createConflicts.set(c.index, c.conflict);
   }
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { startTransition, useActionState, useReducer, useState } from "react";
+import { startTransition, useActionState, useReducer, useRef } from "react";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { ChevronDown } from "lucide-react";
 
 import {
@@ -10,6 +11,17 @@ import {
   type GroupClassSeriesPreviewState,
 } from "@/app/app/schedule/groupClassSeriesActions";
 import GroupClassModeToggle, { type GroupClassMode } from "@/app/app/schedule/new/GroupClassModeToggle";
+import {
+  CREATE_OUTCOME_UNCONFIRMED,
+  PREVIEW_ACTION_FAILED,
+  createInFlightGuard,
+  dispatchGuarded,
+  runKeyedAction,
+  type ClientFailureState,
+  type InFlightGuard,
+  type KeyedResult,
+  type SeriesSubmission,
+} from "@/lib/schedule/groupClassSeriesActionRunner";
 import {
   CONFLICT_LABELS,
   WEEKDAY_OPTIONS,
@@ -226,25 +238,53 @@ export default function GroupClassSeriesForm({
     });
   });
 
-  const [previewState, previewAction, previewPending] = useActionState<GroupClassSeriesPreviewState, FormData>(
-    previewGroupClassSeriesAction,
-    { status: "idle" },
+  // Synchronous same-tick lock shared by preview and create. React's pending flag
+  // is not guaranteed to flip before the next event, so this is the real guard;
+  // the rendered disabled/pending states remain what the user sees.
+  const guardRef = useRef<InFlightGuard | null>(null);
+  if (guardRef.current === null) guardRef.current = createInFlightGuard();
+  const guard = guardRef.current;
+
+  // Every result is tagged with the definition key it was SUBMITTED for, and a
+  // failed/rejected action becomes a safe state: the form (and its request id)
+  // is never unmounted by an action failure.
+  const [previewResult, previewDispatch, previewPending] = useActionState<
+    KeyedResult<GroupClassSeriesPreviewState | ClientFailureState>,
+    SeriesSubmission
+  >(
+    (_previous, submission) =>
+      runKeyedAction({
+        submission,
+        call: (formData) => previewGroupClassSeriesAction({ status: "idle" }, formData),
+        failure: PREVIEW_ACTION_FAILED,
+        guard,
+        isRedirect: isRedirectError,
+        label: "preview",
+      }),
+    { key: null, state: { status: "idle" } },
   );
-  const [createState, createAction, createPending] = useActionState<GroupClassSeriesCreateState, FormData>(
-    createGroupClassSeriesAction,
-    { status: "idle" },
+  const [createResult, createDispatch, createPending] = useActionState<
+    KeyedResult<GroupClassSeriesCreateState | ClientFailureState>,
+    SeriesSubmission
+  >(
+    (_previous, submission) =>
+      runKeyedAction({
+        submission,
+        call: (formData) => createGroupClassSeriesAction({ status: "idle" }, formData),
+        failure: CREATE_OUTCOME_UNCONFIRMED,
+        guard,
+        isRedirect: isRedirectError,
+        label: "create",
+      }),
+    { key: null, state: { status: "idle" } },
   );
-  const [previewedKey, setPreviewedKey] = useState<string | null>(null);
-  const [createKey, setCreateKey] = useState<string | null>(null);
 
   const { values } = state;
   const key = definitionKey(values);
   const view = deriveSeriesView({
     state,
-    previewState,
-    previewedKey,
-    createState,
-    createKey,
+    previewResult,
+    createResult,
     pending: { preview: previewPending, create: createPending },
     timeZone: studioTimeZone,
   });
@@ -254,16 +294,21 @@ export default function GroupClassSeriesForm({
     dispatch({ type: "edit", patch });
   }
 
+  function submit(dispatch: (submission: SeriesSubmission) => void, allowed: boolean) {
+    dispatchGuarded({
+      guard,
+      allowed,
+      buildSubmission: () => ({ formData: buildSeriesFormData(state), key }),
+      dispatch: (submission) => startTransition(() => dispatch(submission)),
+    });
+  }
+
   function runPreview() {
-    if (!view.canPreview) return;
-    setPreviewedKey(key);
-    startTransition(() => previewAction(buildSeriesFormData(state)));
+    submit(previewDispatch, view.canPreview);
   }
 
   function runCreate() {
-    if (!view.canCreate) return;
-    setCreateKey(key);
-    startTransition(() => createAction(buildSeriesFormData(state)));
+    submit(createDispatch, view.canCreate);
   }
 
   const instructorName = (() => {
@@ -274,10 +319,13 @@ export default function GroupClassSeriesForm({
 
   // Results only apply to the definition they were requested for; once the
   // definition changes they are hidden and a fresh preview is required.
-  const previewError = previewState.status === "error" && previewedKey === key ? previewState.error : null;
+  const previewError =
+    previewResult.key === key && previewResult.state.status === "error" ? previewResult.state.error : null;
   const createError =
-    (createState.status === "error" || createState.status === "conflict") && createKey === key ? createState.error : null;
-  const previewStale = previewState.status === "preview" && !view.previewCurrent;
+    createResult.key === key && (createResult.state.status === "error" || createResult.state.status === "conflict")
+      ? (createResult.state.error ?? null)
+      : null;
+  const previewStale = previewResult.state.status === "preview" && !view.previewCurrent;
 
   const fundingMissing =
     (values.allowSelfEnrollment || values.showToLinkedStudents) && !values.packageEnabled && !values.membershipEnabled;
