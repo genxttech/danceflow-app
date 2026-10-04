@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-03 (roadmap v1.5: Phase 4 reconciliation and Phase 5 handoff; ENT-1 released and closed; BR-6 parked)
+**Last updated:** 2026-10-03 (roadmap v1.6: GC-R1 implemented on feature branch; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -61,7 +61,7 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 
 **PHASE 4:** PARTIAL by decision. ENT-1 (email-campaign recipient allowance) is RELEASED and closed (PR #138). No dependency-safe Phase 4 implementation remains: the rest (SMS, payroll, marketplace and ARIA plan placement) is blocked on open decision #8, with pricing in Phase 22. SMS plan placement is blocked independently of the Twilio / Sachin dependency. No speculative billing keys; no email add-on is approved or required. Shared upgrade-prompt / usage-display UX moved to Phase 17; existing entitlement-denial behavior is sufficient until then.
 
-**NEXT ROADMAP PHASE:** Phase 5 — Group Class canonical foundation (explicit dependency-safe handoff recorded in the roadmap; Phase 4 remains PARTIAL and visible). No Phase 5 work is complete yet.
+**PHASE 5 (in progress, PARTIAL):** GC-R1 — canonical group-class attendee reminders — is IMPLEMENTED on branch `gc-r1-group-class-attendee-reminders` (local commit; not reviewed, merged or released). Enrolled (`booked`) attendees of appointment-based classes get the existing 24h/2h email reminders via the existing generator and branded HTML; idempotent via `dedupe_key`; no migration; no ENT-1 allowance; no SMS; legacy Events reminders untouched. Only GC-R1 is complete. Remaining Phase 5 gaps: legacy Events group-class retirement (needs a production-data inventory first), series/occurrences, multiple rooms, class revenue reporting, and the unresolved depleted-credit decision (#10).
 
 ### Public-claim restrictions (still in force for BR-6 onward)
 - No meaningful Featured Events promotion claim; avoid "Featured" language beyond implemented behavior.
