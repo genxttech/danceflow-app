@@ -113,6 +113,11 @@ type Appointment = {
   billing_type: string | null;
   billing_note: string | null;
   location_name: string | null;
+  // GC-S1C-1: read-only context for the group-class edit UI.
+  roster_capacity: number | null;
+  group_class_series_id: string | null;
+  series_occurrence_index: number | null;
+  series_overridden_fields: string[] | null;
 };
 
 type ClientRelationshipRow = {
@@ -214,7 +219,11 @@ export default async function EditAppointmentPage({
       payment_status,
       billing_type,
       billing_note,
-      location_name
+      location_name,
+      roster_capacity,
+      group_class_series_id,
+      series_occurrence_index,
+      series_overridden_fields
     `)
     .eq("id", id)
     .eq("studio_id", studioId);

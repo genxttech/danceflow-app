@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { updateAppointmentAction, updateGroupClassEnrollmentPolicyAction } from "../../actions";
 import InstructorClientSearchField from "../../InstructorClientSearchField";
+import GroupClassSeriesContext from "./GroupClassSeriesContext";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
   getItemWarningLevel,
@@ -100,6 +101,11 @@ type Appointment = {
   billing_type?: string | null;
   billing_note?: string | null;
   location_name?: string | null;
+  // GC-S1C-1: capacity is editable; the series fields are display-only.
+  roster_capacity?: number | null;
+  group_class_series_id?: string | null;
+  series_occurrence_index?: number | null;
+  series_overridden_fields?: string[] | null;
 };
 
 type PackageHealth =
@@ -578,6 +584,13 @@ export default function AppointmentEditForm({
             </p>
           </div>
 
+          {appointment.appointment_type === "group_class" && appointment.group_class_series_id ? (
+            <GroupClassSeriesContext
+              occurrenceIndex={appointment.series_occurrence_index ?? null}
+              overriddenFields={appointment.series_overridden_fields ?? []}
+            />
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label
@@ -758,6 +771,31 @@ export default function AppointmentEditForm({
                 Optional. Useful for instructors who teach at multiple locations.
               </p>
             </div>
+
+            {appointmentType === "group_class" ? (
+              <div>
+                <label
+                  htmlFor="rosterCapacity"
+                  className="mb-1 block text-sm font-medium"
+                >
+                  Maximum students
+                </label>
+                <input
+                  id="rosterCapacity"
+                  name="rosterCapacity"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  step={1}
+                  defaultValue={appointment.roster_capacity ?? ""}
+                  className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  placeholder="No limit"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Leave blank for no limit. It can&apos;t be lower than the number of students already booked.
+                </p>
+              </div>
+            ) : null}
 
             <div>
               <label

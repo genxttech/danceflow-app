@@ -633,9 +633,12 @@ describe("compatibility guards", () => {
     expect(source).not.toMatch(/stripe|twilio|campaignAllowance|usage\/|createAdminClient|\bevent_sessions\b|\bevents\b/i);
   });
 
-  it("the existing one-time class action file does not reference the series layer", () => {
+  it("the existing one-time class action file does not call the series RPCs or server actions", () => {
     const actions = readFileSync(join(process.cwd(), "src/app/app/schedule/actions.ts"), "utf8");
-    expect(actions).not.toMatch(/group_class_series|groupClassSeries|create_group_class_series|preview_group_class_series/);
+    // GC-S1C-1 legitimately reads series state on the edit/delete paths (the
+    // series column, the pure conflict-copy mapper); it must still never call
+    // the series create/preview RPCs or the series server actions.
+    expect(actions).not.toMatch(/create_group_class_series|preview_group_class_series|groupClassSeriesActions/);
     expect(actions).toContain('"create_group_class_appointment"');
   });
 });
