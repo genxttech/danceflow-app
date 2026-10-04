@@ -67,6 +67,7 @@ export default function EnrollStudentForm({
   eligibleFundingSourcesByClientId,
   instructorSearchMode,
   isBroadStaff,
+  initialAppointmentId = "",
 }: {
   classes: ClassOption[];
   clients: ClientOption[];
@@ -75,8 +76,12 @@ export default function EnrollStudentForm({
   eligibleFundingSourcesByClientId: Record<string, EligibleFundingSource[]>;
   instructorSearchMode: boolean;
   isBroadStaff: boolean;
+  /** GC-S1D-1: preselect this class when it is one of the options (opened from a class's roster). */
+  initialAppointmentId?: string;
 }) {
-  const [appointmentId, setAppointmentId] = useState(classes[0]?.id ?? "");
+  const [appointmentId, setAppointmentId] = useState(
+    classes.some((item) => item.id === initialAppointmentId) ? initialAppointmentId : classes[0]?.id ?? "",
+  );
   const [clientId, setClientId] = useState("");
   const [selectedClientLabel, setSelectedClientLabel] = useState("");
   const [billingType, setBillingType] = useState("package_credit");

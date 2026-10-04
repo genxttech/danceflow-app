@@ -432,7 +432,7 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
   it("a failed enrollment redirects with an error code, not a thrown raw error", async () => {
     const { supabase } = makeFakeSupabase({
       rpcResponses: {
-        enroll_class_attendee: { data: null, error: { message: "This client is already enrolled in this class." } },
+        enroll_class_attendee: { data: null, error: { message: "relation \"appointment_attendees\" does not exist" } },
       },
     });
 
@@ -443,6 +443,21 @@ describe("enrollClassAttendeeAction / cancelClassAttendeeAction", () => {
     const error = await run(enrollClassAttendeeAction(formData));
 
     expect(redirectUrl(error)).toContain("error=enrollment_failed");
+  });
+
+  // GC-S1D-1: a duplicate enrollment now has its own code (the roster panel and the Enroll Student page both explain it).
+  it("a duplicate enrollment redirects with the already_enrolled code", async () => {
+    const { supabase } = makeFakeSupabase({
+      rpcResponses: {
+        enroll_class_attendee: { data: null, error: { message: "This client is already enrolled in this class." } },
+      },
+    });
+
+    requireAppointmentEditAccessMock.mockResolvedValue(broadStaffCtx(supabase));
+
+    const error = await run(enrollClassAttendeeAction(formDataFor({ appointmentId: APPOINTMENT_ID, clientId: CLIENT_ID })));
+
+    expect(redirectUrl(error)).toContain("error=already_enrolled");
   });
 
   it("membership-funded enrollment redirects with a distinct success code", async () => {

@@ -57,6 +57,7 @@ import {
   seriesCancelSuccessCode,
 } from "@/lib/schedule/groupClassSeriesCancel";
 import { notifySeriesCancellation } from "@/lib/notifications/groupClassSeriesCancellation";
+import { classifyRosterEnrollError, isTerminalAttendance, safeRosterErrorReturn } from "@/lib/schedule/groupClassRosterPanel";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import {
   INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE,
@@ -2872,26 +2873,8 @@ export async function deleteAppointmentAction(formData: FormData) {
 // dedicated code, so this stays a targeted fix rather than a redesign of
 // every possible RPC failure.
 function classifyEnrollClassAttendeeError(message: string): string {
-  if (message.includes("requires a specific membership to be selected")) {
-    return "membership_requires_selection";
-  }
-  if (message.includes("has no applicable group-class benefit")) {
-    return "no_eligible_entitlement";
-  }
-  if (message.includes("No allowance remaining")) {
-    return "entitlement_exhausted";
-  }
-  if (message.includes("does not belong to this client, or is not active")) {
-    return "membership_not_active";
-  }
-  if (message.includes("needs a billing decision")) {
-    return "ambiguous_funding_source";
-  }
-  // GC-S1C-3: the database refuses a booked enrollment into a cancelled class.
-  if (message.includes("GCSC3_CLASS_CANCELLED")) {
-    return "class_cancelled";
-  }
-  return "enrollment_failed";
+  // GC-S1D-1: one shared mapping (src/lib/schedule/groupClassRosterPanel.ts) for the roster panel and this page.
+  return classifyRosterEnrollError(message);
 }
 
 export async function enrollClassAttendeeAction(formData: FormData) {
@@ -2910,6 +2893,10 @@ export async function enrollClassAttendeeAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_enrollment_target"));
     }
 
+    // GC-S1D-1: the class-detail roster panel stays in context on a refusal. Only this exact class's detail page is an
+    // accepted in-context return; anything else keeps the existing Enroll Student behavior.
+    const inContextErrorReturn = safeRosterErrorReturn(getString(formData, "errorReturnTo"), appointmentId);
+
     // PR #70 review correction: billingType='membership' with no
     // clientMembershipId is an invalid, unfunded state -- reject it here,
     // before ever calling the RPC, rather than letting an incomplete
@@ -2917,11 +2904,13 @@ export async function enrollClassAttendeeAction(formData: FormData) {
     // unaffected (they have no equivalent required-id requirement here).
     if (billingType === "membership" && !clientMembershipId) {
       redirect(
-        appendQueryParam(
-          appendQueryParam("/app/schedule/enroll-student", "error", "membership_requires_selection"),
-          "appointmentId",
-          appointmentId,
-        ),
+        inContextErrorReturn
+          ? appendQueryParam(inContextErrorReturn, "error", "membership_requires_selection")
+          : appendQueryParam(
+              appendQueryParam("/app/schedule/enroll-student", "error", "membership_requires_selection"),
+              "appointmentId",
+              appointmentId,
+            ),
       );
     }
 
@@ -2943,11 +2932,13 @@ export async function enrollClassAttendeeAction(formData: FormData) {
       // form itself -- where they can see the specific reason and retry or
       // choose different funding -- is the actionable surface.
       redirect(
-        appendQueryParam(
-          appendQueryParam("/app/schedule/enroll-student", "error", errorCode),
-          "appointmentId",
-          appointmentId,
-        ),
+        inContextErrorReturn
+          ? appendQueryParam(inContextErrorReturn, "error", errorCode)
+          : appendQueryParam(
+              appendQueryParam("/app/schedule/enroll-student", "error", errorCode),
+              "appointmentId",
+              appointmentId,
+            ),
       );
     }
 
@@ -2978,13 +2969,41 @@ export async function cancelClassAttendeeAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_attendee"));
     }
 
+    // GC-S1D-1: do not offer or perform a removal that would sever an enrollment from recorded attendance. The database
+    // allows the status change (a post-start cancellation stays historically eligible), but removing a dancer whose
+    // attendance is recorded must go through the attendance workflow, so the roster panel hides the control and this is
+    // the matching server-side refusal. Only checked when the enrollment row is readable; the RPC stays authoritative.
+    const { data: attendeeRow } = await supabase
+      .from("appointment_attendees")
+      .select("id, appointment_id, client_id")
+      .eq("id", attendeeId)
+      .maybeSingle();
+
+    if (attendeeRow?.appointment_id && attendeeRow?.client_id) {
+      const { data: attendanceRows } = await supabase
+        .from("attendance_records")
+        .select("status")
+        .eq("appointment_id", attendeeRow.appointment_id)
+        .eq("client_id", attendeeRow.client_id);
+
+      if ((attendanceRows ?? []).some((row: { status: string }) => isTerminalAttendance(row.status))) {
+        redirect(getErrorRedirect(formData, returnTo, "attendee_attendance_recorded"));
+      }
+    }
+
     const { error } = await supabase.rpc("cancel_class_attendee", {
       p_attendee_id: attendeeId,
     });
 
     if (error) {
       console.error("Could not cancel class attendee:", error.message);
-      redirect(getErrorRedirect(formData, returnTo, "attendee_cancel_failed"));
+      redirect(
+        getErrorRedirect(
+          formData,
+          returnTo,
+          String(error.message ?? "").includes("Not authorized") ? "attendee_not_authorized" : "attendee_cancel_failed",
+        ),
+      );
     }
 
     revalidatePath("/app/schedule");
