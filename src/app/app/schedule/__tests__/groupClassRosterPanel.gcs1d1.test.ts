@@ -11,6 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
  */
 
 vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
   redirect: (url: string) => {
     const error = new Error("NEXT_REDIRECT");
     (error as unknown as { digest: string }).digest = `NEXT_REDIRECT;replace;${url};307;`;
@@ -299,7 +300,7 @@ describe("S1D-1 roster panel rendering", () => {
     expect(panel.isRosterEnrollmentError(undefined)).toBe(false);
   });
 
-  it("offers no series scope anywhere (S1D-1 is this class only)", () => {
+  it("offers no series scope unless the viewer is broad staff on a series class (S1D-2 turns it on explicitly; default off)", () => {
     const html = render();
     expect(html).not.toMatch(/this and following|entire series|following classes|series/i);
   });

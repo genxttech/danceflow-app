@@ -9,6 +9,8 @@
  * ENROLLMENT, shows attendance state read-only, and links out to the attendance workflow.
  */
 
+import { seriesRosterBannerMessage } from "@/lib/schedule/groupClassSeriesRoster";
+
 type SupabaseLike = {
   from: (table: string) => any; // eslint-disable-line @typescript-eslint/no-explicit-any
 };
@@ -250,8 +252,17 @@ const ROSTER_BANNERS: Record<string, { kind: "success" | "error"; message: strin
 export function rosterBanner(search: {
   success?: string | null;
   error?: string | null;
+  count?: string | null;
+  left?: string | null;
 }): { kind: "success" | "error"; message: string } | null {
   const code = search.success ?? search.error ?? "";
+  // GC-S1D-2: series roster outcomes (counts come from numeric params only).
+  if (search.success) {
+    const count = Number.parseInt(String(search.count ?? ""), 10);
+    const left = Number.parseInt(String(search.left ?? ""), 10);
+    const seriesMessage = seriesRosterBannerMessage(search.success, Number.isFinite(count) ? count : null, Number.isFinite(left) ? left : null);
+    if (seriesMessage) return { kind: "success", message: seriesMessage };
+  }
   const banner = ROSTER_BANNERS[code];
   if (!banner) return null;
   if (search.success && banner.kind !== "success") return null;
