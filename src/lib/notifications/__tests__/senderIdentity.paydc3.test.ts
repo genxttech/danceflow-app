@@ -100,6 +100,7 @@ describe("client-facing template allowlist", () => {
         "appointment_cancelled",
         "appointment_confirmed",
         "appointment_rescheduled",
+        "group_class_series_cancelled",
         "booking_request_approved_client",
         "booking_request_declined_client",
         "booking_request_received_client",

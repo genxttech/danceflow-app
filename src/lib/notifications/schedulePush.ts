@@ -424,3 +424,60 @@ export async function sendGroupClassCancellationPush(params: {
     recipientRole: "class_attendee",
   });
 }
+
+// GC-S1C-4: "This and following classes" sends ONE push per portal account, not one per class.
+// `recipients` is exactly what cancel_group_class_series_from returned (each client's own cancelled
+// class starts, captured before cancelling). Accounts linked to several affected clients are merged
+// so a guardian receives a single consolidated push.
+export async function sendGroupClassSeriesCancellationPush(params: {
+  supabase: SupabaseClient;
+  studioId: string;
+  anchorAppointmentId: string;
+  recipients: Array<{ clientId: string; classStarts: string[] }>;
+}) {
+  const { supabase, studioId, anchorAppointmentId, recipients } = params;
+  if (!recipients.length) return;
+
+  const { data } = await supabase
+    .from("appointments")
+    .select("title, studios (name, public_name)")
+    .eq("id", anchorAppointmentId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+  const row = data as unknown as {
+    title: string | null;
+    studios: { name: string | null; public_name: string | null } | { name: string | null; public_name: string | null }[] | null;
+  } | null;
+  const studio = firstJoin(row?.studios);
+  const studioName = studio?.public_name || studio?.name || "your studio";
+  const label = row?.title?.trim() || "Group class";
+  const timeZone = await getStudioTimeZone(supabase, studioId);
+
+  const startsByUser = new Map<string, Set<string>>();
+  for (const recipient of recipients) {
+    const userIds = await linkedScheduleUserIds({ supabase, studioId, clientId: recipient.clientId });
+    for (const userId of userIds) {
+      const set = startsByUser.get(userId) ?? new Set<string>();
+      recipient.classStarts.forEach((start) => set.add(start));
+      startsByUser.set(userId, set);
+    }
+  }
+
+  for (const [userId, starts] of startsByUser) {
+    const ordered = Array.from(starts).sort();
+    const first = formatAppointmentTime(ordered[0], timeZone);
+    const body =
+      ordered.length === 1
+        ? `${label} at ${studioName} on ${first} was cancelled.`
+        : `${ordered.length} upcoming sessions of ${label} at ${studioName} were cancelled, starting ${first}.`;
+    await sendToPortalUsers({
+      userIds: [userId],
+      title: ordered.length === 1 ? "Class cancelled" : "Classes cancelled",
+      body,
+      appointmentId: anchorAppointmentId,
+      studioId,
+      reason: "cancelled",
+      recipientRole: "class_attendee",
+    });
+  }
+}
