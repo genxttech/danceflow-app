@@ -25,6 +25,10 @@ import {
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 import GroupClassCancellationForm from "@/components/schedule/GroupClassCancellationForm";
+import {
+  parseGroupClassSeriesPreview,
+  type GroupClassSeriesPreview,
+} from "@/lib/schedule/groupClassSeriesCancel";
 import { groupClassCancelBanner } from "@/lib/schedule/groupClassCancel";
 import {
   getItemWarningLevel,
@@ -39,6 +43,7 @@ type Params = Promise<{
 type SearchParams = Promise<{
   error?: string;
   success?: string;
+  count?: string;
 }>;
 
 type ClientPackageItem = {
@@ -783,6 +788,17 @@ export default async function AppointmentDetailPage({
     ]);
     classBookedCount = typeof bookedCount === "number" ? bookedCount : null;
     classHasRecordedAttendance = (terminalCount ?? 0) > 0;
+  }
+
+  // GC-S1C-4: impact of "This and following classes", computed by the database (display only; the
+  // cancel RPC re-derives everything). A failed preview simply hides the series option.
+  let seriesCancelPreview: GroupClassSeriesPreview | null = null;
+  if (canCancelClass && !classHasRecordedAttendance && isSeriesOccurrence) {
+    const { data: previewData, error: previewError } = await supabase.rpc(
+      "preview_group_class_series_cancellation",
+      { p_appointment_id: typedAppointment.id },
+    );
+    if (!previewError) seriesCancelPreview = parseGroupClassSeriesPreview(previewData);
   }
 
   const canShowLessonRecapCard = isPrivateLesson;
@@ -1739,6 +1755,7 @@ export default async function AppointmentDetailPage({
                   returnTo={returnTo}
                   isSeriesOccurrence={isSeriesOccurrence}
                   bookedCount={classBookedCount}
+                  seriesPreview={seriesCancelPreview}
                 />
               ) : null}
 

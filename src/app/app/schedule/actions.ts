@@ -36,6 +36,14 @@ import {
   GROUP_CLASS_CANCEL_REDIRECT_CODE,
   classifyGroupClassCancelError,
 } from "@/lib/schedule/groupClassCancel";
+import {
+  GROUP_CLASS_SERIES_CANCEL_REDIRECT_CODE,
+  classifyGroupClassSeriesCancelError,
+  parseGroupClassCancelScope,
+  parseGroupClassSeriesCancelResult,
+  seriesCancelSuccessCode,
+} from "@/lib/schedule/groupClassSeriesCancel";
+import { notifySeriesCancellation } from "@/lib/notifications/groupClassSeriesCancellation";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import {
   INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE,
@@ -3125,6 +3133,25 @@ async function cancelCanonicalGroupClass(
     redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
   }
 
+  // GC-S1C-4: scope. Absent = this occurrence only; "this_and_following" cancels this class and every
+  // later non-terminal class of its series through ONE database transaction. The server derives the
+  // series and occurrences from the appointment id -- no client list or count is trusted.
+  const scope = parseGroupClassCancelScope(getString(formData, "classCancelScope"));
+
+  if (!scope) {
+    redirect(getErrorRedirect(formData, detailPath, "series_cancel_invalid_scope"));
+  }
+
+  if (scope === "this_and_following") {
+    return await cancelGroupClassSeriesFrom(formData, {
+      supabase,
+      studioId,
+      appointmentId,
+      detailPath,
+      fallback,
+    });
+  }
+
   // Already cancelled: nothing to do, and no second notification.
   if (groupClass.status === "cancelled") {
     redirect(getSuccessRedirect(formData, fallback, "class_already_cancelled"));
@@ -3170,6 +3197,62 @@ async function cancelCanonicalGroupClass(
   revalidatePath("/app/schedule");
   revalidatePath(detailPath);
   redirect(getSuccessRedirect(formData, fallback, "class_cancelled"));
+}
+
+// GC-S1C-4: "This and following classes". Authority (broad staff only), eligibility, past/terminal
+// attendance preservation, idempotent replay and the stored series status are all decided inside
+// cancel_group_class_series_from. Notifications go out only after it commits; a failure there is
+// logged and never undoes the cancellation. Always ends in a redirect.
+async function cancelGroupClassSeriesFrom(
+  formData: FormData,
+  ctx: {
+    supabase: Awaited<ReturnType<typeof requireAppointmentEditAccess>>["supabase"];
+    studioId: string;
+    appointmentId: string;
+    detailPath: string;
+    fallback: string;
+  },
+): Promise<never> {
+  const { supabase, appointmentId, detailPath, fallback } = ctx;
+
+  const { data, error } = await supabase.rpc("cancel_group_class_series_from", {
+    p_appointment_id: appointmentId,
+  });
+
+  if (error) {
+    console.error("Could not cancel series classes:", error.message);
+    redirect(
+      getErrorRedirect(
+        formData,
+        detailPath,
+        GROUP_CLASS_SERIES_CANCEL_REDIRECT_CODE[classifyGroupClassSeriesCancelError(error)],
+      ),
+    );
+  }
+
+  const result = parseGroupClassSeriesCancelResult(data);
+
+  if (!result) {
+    console.error("Series cancellation returned an unexpected result shape.");
+    redirect(getErrorRedirect(formData, detailPath, "series_cancel_failed"));
+  }
+
+  try {
+    await notifySeriesCancellation({ supabase, anchorAppointmentId: appointmentId, result });
+  } catch (notifyError) {
+    console.error("Classes were cancelled, but notifying attendees failed:", notifyError);
+  }
+
+  revalidatePath("/app/schedule");
+  revalidatePath(detailPath);
+
+  const returnTo = getString(formData, "returnTo");
+  const base = appendQueryParam(returnTo || fallback, "success", seriesCancelSuccessCode(result));
+  redirect(
+    result.cancelledClassCount > 0
+      ? appendQueryParam(base, "count", String(result.cancelledClassCount))
+      : base,
+  );
 }
 
 export async function cancelGroupClassAppointmentAction(formData: FormData) {

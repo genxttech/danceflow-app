@@ -314,3 +314,59 @@ export function buildInstructorAssignmentEmail(params: {
 
   return { subject, bodyText, bodyHtml };
 }
+
+/**
+ * GC-S1C-4: ONE consolidated email per attendee when "This and following classes" cancels several
+ * of their booked classes. `classTimes` are already formatted in the studio time zone, in order.
+ */
+export function buildGroupClassSeriesCancellationEmail(params: {
+  studio: StudioEmailSource;
+  firstName: string | null;
+  classTitle: string;
+  classTimes: string[];
+}): BuiltEmail {
+  const identity = identityOf(params.studio);
+  const studioName = identity.name;
+  const greeting = `Hi ${params.firstName?.trim() || "there"},`;
+  const count = params.classTimes.length;
+  const title = params.classTitle.trim() || "your class";
+  const intro =
+    count === 1
+      ? `${studioName} cancelled ${title} on ${params.classTimes[0]}.`
+      : `${studioName} cancelled ${count} upcoming sessions of ${title} that you were booked into.`;
+  const list = count > 1 ? params.classTimes.map((time) => `- ${time}`).join("\n") : null;
+  const detail = "You do not need to do anything. Contact the studio if you have any questions.";
+  const subject = sanitizeEmailSubject(`${studioName}: ${title} cancelled`);
+  const portalUrl = params.studio.slug
+    ? buildAppUrl(`/portal/${encodeURIComponent(params.studio.slug)}`)
+    : null;
+
+  const bodyText = letter([
+    greeting,
+    "",
+    intro,
+    list ? "" : null,
+    list,
+    "",
+    detail,
+    portalUrl ? "" : null,
+    portalUrl ? `Open Client Portal: ${portalUrl}` : null,
+    "",
+    "Thanks,",
+    studioName,
+  ]);
+
+  const bodyHtml = renderStudioBrandedEmail(identity, {
+    previewText: subject,
+    eyebrow: "Class Cancelled",
+    heading: count === 1 ? "Your class was cancelled" : "Your classes were cancelled",
+    greeting,
+    intro,
+    bodyText: paragraphs([list, detail, `Thanks,\n${studioName}`]),
+    detailRows: [{ label: "Class", value: title }],
+    actionLabel: portalUrl ? "Open Client Portal" : undefined,
+    actionUrl: portalUrl ?? undefined,
+  });
+
+  return { subject, bodyText, bodyHtml };
+}

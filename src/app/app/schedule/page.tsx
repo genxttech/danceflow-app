@@ -55,6 +55,7 @@ type SearchParams = Promise<{
   date?: string;
   success?: string;
   error?: string;
+  count?: string;
   bulkMarked?: string;
   bulkSkipped?: string;
   bulkPaymentRequired?: string;
@@ -651,6 +652,7 @@ function getPaymentAmountDefault(appointment: AppointmentRow) {
 function getBanner(search: {
   success?: string;
   error?: string;
+  count?: string;
   bulkMarked?: string;
   bulkSkipped?: string;
   bulkPaymentRequired?: string;

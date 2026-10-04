@@ -21,6 +21,7 @@ export const CLIENT_FACING_TEMPLATE_KEYS: ReadonlySet<string> = new Set([
   "appointment_confirmed",
   "appointment_rescheduled",
   "appointment_cancelled",
+  "group_class_series_cancelled",
   "booking_request_received_client",
   "booking_request_approved_client",
   "booking_request_declined_client",

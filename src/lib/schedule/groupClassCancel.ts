@@ -8,6 +8,11 @@
  * the UI, and builds the cancellation form's consequence wording.
  */
 
+import {
+  GROUP_CLASS_SERIES_ERROR_BANNERS,
+  groupClassSeriesCancelBannerMessage,
+} from "@/lib/schedule/groupClassSeriesCancel";
+
 export type GroupClassCancelFailure =
   | "attendance_recorded"
   | "not_authorized"
@@ -60,8 +65,20 @@ const BANNERS: Record<string, { kind: "success" | "error"; message: string }> = 
 export function groupClassCancelBanner(search: {
   success?: string | null;
   error?: string | null;
+  count?: string | null;
 }): { kind: "success" | "error"; message: string } | null {
   const code = search.success ?? search.error ?? "";
+  // GC-S1C-4: series outcomes (counts come from a numeric param only).
+  if (search.success) {
+    const parsed = Number.parseInt(String(search.count ?? ""), 10);
+    const message = groupClassSeriesCancelBannerMessage(
+      search.success,
+      Number.isFinite(parsed) ? parsed : null,
+    );
+    if (message) return { kind: "success", message };
+  } else if (search.error && GROUP_CLASS_SERIES_ERROR_BANNERS[search.error]) {
+    return { kind: "error", message: GROUP_CLASS_SERIES_ERROR_BANNERS[search.error] };
+  }
   const banner = BANNERS[code];
   if (!banner) return null;
   if (search.success && banner.kind !== "success") return null;

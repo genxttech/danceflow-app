@@ -345,10 +345,24 @@ describe("S1C-2 generic cancel routing", () => {
     const helper = src
       .slice(
         src.indexOf("async function cancelCanonicalGroupClass("),
-        src.indexOf("export async function cancelGroupClassAppointmentAction"),
+        src.indexOf("// GC-S1C-4: \"This and following classes\"."),
       )
       .replace(/^\s*\/\/.*$/gm, "");
     for (const forbidden of ["clearMembershipUsageForAppointment", "client_membership_usage", "attendance_records", "applyMissedAppointmentCharge", "group_class_series", ".delete(", ".update("]) {
+      expect(helper).not.toContain(forbidden);
+    }
+  });
+
+  it("GC-S1C-4: the series helper only calls the one RPC (no direct table mutation, usage or attendance)", () => {
+    const src = readFileSync("src/app/app/schedule/actions.ts", "utf8");
+    const helper = src
+      .slice(
+        src.indexOf("async function cancelGroupClassSeriesFrom("),
+        src.indexOf("export async function cancelGroupClassAppointmentAction"),
+      )
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(helper).toContain('"cancel_group_class_series_from"');
+    for (const forbidden of ["clearMembershipUsageForAppointment", "client_membership_usage", "attendance_records", "applyMissedAppointmentCharge", ".from(", ".delete(", ".update(", ".insert("]) {
       expect(helper).not.toContain(forbidden);
     }
   });
