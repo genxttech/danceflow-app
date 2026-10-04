@@ -482,6 +482,129 @@ begin
 end $$;
 
 -- ============================================================================
+-- 7b. Appointment-side guard: DIRECT authenticated UPDATE of appointments.status
+--     (bypassing the RPC) may not create cancelled + attended/no_show.
+-- ============================================================================
+create temp table t_gcsc2_direct_before as
+select public.t_gcsc2_snap('00000000-0000-0000-0000-000000e40003') as snap_att,
+       public.t_gcsc2_snap('00000000-0000-0000-0000-000000e40004') as snap_ns,
+       public.t_gcsc2_attendance('00000000-0000-0000-0000-000000e40003') as att_att,
+       public.t_gcsc2_attendance('00000000-0000-0000-0000-000000e40004') as att_ns,
+       public.t_gcsc2_usage() as usage0;
+
+-- fresh fixtures: a future group class with no attendance, a private lesson with no attendance
+insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at, title) values
+  ('00000000-0000-0000-0000-000000e40008', '00000000-0000-0000-0000-000000e00001', null, '00000000-0000-0000-0000-000000e20001', 'group_class', 'scheduled', now() + interval '14 days', now() + interval '14 days 1 hour', 'DIRECT-OK'),
+  ('00000000-0000-0000-0000-000000e40009', '00000000-0000-0000-0000-000000e00001', '00000000-0000-0000-0000-000000e30002', '00000000-0000-0000-0000-000000e20001', 'private_lesson', 'scheduled', now() + interval '15 days', now() + interval '15 days 1 hour', 'DIRECT-PRIVATE');
+
+do $$
+declare v_n int;
+begin
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000e10001')::text, true);
+  set local role authenticated;
+  -- 1/2: terminal attendance blocks the direct transition (attended, no_show)
+  perform public.t_gcsc2_expect($q$update public.appointments set status = 'cancelled' where id = '00000000-0000-0000-0000-000000e40003'$q$, 'GCSC2_ATTENDANCE_RECORDED', 'T-gcsc2-direct-update-attended-class-refused');
+  perform public.t_gcsc2_expect($q$update public.appointments set status = 'cancelled' where id = '00000000-0000-0000-0000-000000e40004'$q$, 'GCSC2_ATTENDANCE_RECORDED', 'T-gcsc2-direct-update-no-show-class-refused');
+  -- same refusal with cancelled_at in the same statement
+  perform public.t_gcsc2_expect($q$update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-000000e40003'$q$, 'GCSC2_ATTENDANCE_RECORDED', 'T-gcsc2-direct-update-with-cancelled-at-refused');
+  -- 5: non-cancel status transitions are unchanged by the guard
+  update public.appointments set status = 'confirmed' where id = '00000000-0000-0000-0000-000000e40003';
+  get diagnostics v_n = row_count;
+  perform public.t_gcsc2_assert('T-gcsc2-direct-non-cancel-transition-on-attended-class-unchanged', v_n::text, '1');
+  update public.appointments set status = 'scheduled' where id = '00000000-0000-0000-0000-000000e40003';
+  -- 3: no terminal attendance -> direct cancellation succeeds
+  update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-000000e40008';
+  get diagnostics v_n = row_count;
+  perform public.t_gcsc2_assert('T-gcsc2-direct-update-no-terminal-attendance-succeeds', v_n::text, '1');
+  -- re-cancelling an already cancelled class (cancelled -> cancelled) is not a transition and is untouched
+  update public.appointments set status = 'cancelled' where id = '00000000-0000-0000-0000-000000e40008';
+  get diagnostics v_n = row_count;
+  perform public.t_gcsc2_assert('T-gcsc2-direct-cancelled-to-cancelled-not-a-transition', v_n::text, '1');
+  -- 4: unrelated appointment type
+  update public.appointments set status = 'cancelled' where id = '00000000-0000-0000-0000-000000e40009';
+  get diagnostics v_n = row_count;
+  perform public.t_gcsc2_assert('T-gcsc2-direct-update-private-lesson-unchanged', v_n::text, '1');
+  reset role;
+end $$;
+
+select public.t_gcsc2_assert('T-gcsc2-direct-refusals-left-no-forbidden-state',
+  (select (count(*) = 0)::text from public.appointments a
+    where a.appointment_type = 'group_class' and a.status = 'cancelled'
+      and exists (select 1 from public.attendance_records ar where ar.appointment_id = a.id and ar.status in ('attended', 'no_show'))), 'true');
+select public.t_gcsc2_assert('T-gcsc2-direct-refusals-left-attendance-and-usage-untouched',
+  (select (public.t_gcsc2_attendance('00000000-0000-0000-0000-000000e40003') = b.att_att
+     and public.t_gcsc2_attendance('00000000-0000-0000-0000-000000e40004') = b.att_ns
+     and public.t_gcsc2_snap('00000000-0000-0000-0000-000000e40004') = b.snap_ns
+     and public.t_gcsc2_usage() = b.usage0)::text from t_gcsc2_direct_before b), 'true');
+select public.t_gcsc2_assert('T-gcsc2-direct-update-class-remained-not-cancelled',
+  (select string_agg(a.status::text, ',' order by a.id) from public.appointments a where a.id in ('00000000-0000-0000-0000-000000e40003', '00000000-0000-0000-0000-000000e40004')), 'scheduled,scheduled');
+
+-- RPC path preserved with the appointment trigger in place: refuses when terminal attendance exists,
+-- cancels cleanly when it does not, replay is a no-op
+do $$
+declare v_ids uuid[]; v_snap text;
+begin
+  insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at, title) values
+    ('00000000-0000-0000-0000-000000e4000a', '00000000-0000-0000-0000-000000e00001', null, '00000000-0000-0000-0000-000000e20001', 'group_class', 'scheduled', now() + interval '16 days', now() + interval '16 days 1 hour', 'RPC-AFTER-TRIGGER');
+  insert into public.appointment_attendees (studio_id, appointment_id, client_id, status, source, billing_type)
+  values ('00000000-0000-0000-0000-000000e00001', '00000000-0000-0000-0000-000000e4000a', '00000000-0000-0000-0000-000000e30002', 'booked', 'staff', 'free_comped');
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000e10001')::text, true);
+  set local role authenticated;
+  perform public.t_gcsc2_expect($q$select public.cancel_group_class_appointment('00000000-0000-0000-0000-000000e40003')$q$, 'GCSC2_ATTENDANCE_RECORDED', 'T-gcsc2-rpc-still-refuses-with-appointment-trigger');
+  v_ids := public.cancel_group_class_appointment('00000000-0000-0000-0000-000000e4000a');
+  perform public.t_gcsc2_assert('T-gcsc2-rpc-still-cancels-with-appointment-trigger',
+    cardinality(v_ids)::text || '|' || (select a.status::text from public.appointments a where a.id = '00000000-0000-0000-0000-000000e4000a'), '1|cancelled');
+  reset role;
+  v_snap := public.t_gcsc2_snap('00000000-0000-0000-0000-000000e4000a');
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000e10001')::text, true);
+  set local role authenticated;
+  v_ids := public.cancel_group_class_appointment('00000000-0000-0000-0000-000000e4000a');
+  reset role;
+  perform public.t_gcsc2_assert('T-gcsc2-rpc-replay-noop-with-appointment-trigger',
+    cardinality(v_ids)::text || '|' || (public.t_gcsc2_snap('00000000-0000-0000-0000-000000e4000a') = v_snap)::text, '0|true');
+end $$;
+
+-- appointment trigger posture
+select public.t_gcsc2_assert('T-gcsc2-appointment-guard-function-posture',
+  (select (p.prosecdef and p.provolatile = 'v' and p.proconfig = array['search_path=public']
+     and not has_function_privilege('authenticated', p.oid, 'execute')
+     and not has_function_privilege('anon', p.oid, 'execute')
+     and not has_function_privilege('service_role', p.oid, 'execute')
+     and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) e where e.grantee = 0))::text
+   from pg_proc p where p.oid = 'public.enforce_group_class_cancel_no_terminal_attendance()'::regprocedure), 'true');
+select public.t_gcsc2_assert('T-gcsc2-appointment-guard-trigger-shape',
+  (select (t.tgenabled = 'O' and (t.tgtype & 1) = 1 and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16 and (t.tgtype & 4) = 0)::text
+   from pg_trigger t where t.tgrelid = 'public.appointments'::regclass and t.tgname = 'appointments_02_guard_cancel_terminal_attendance'), 'true');
+
+-- series: DIRECT cancelled transition of occurrence 3 preserves identity and leaves neighbors alone
+create temp table t_gcsc2_series_direct_before as
+select a.id, a.group_class_series_id, a.series_occurrence_index, a.occurrence_original_start, a.series_overridden_fields::text as overrides,
+       a.starts_at, a.ends_at, a.status::text as status, a.cancelled_at, a.title
+from public.appointments a where a.group_class_series_id = current_setting('t.series')::uuid;
+do $$
+declare v_occ3 uuid;
+begin
+  select id into v_occ3 from t_gcsc2_series_direct_before where series_occurrence_index = 3;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000e10001')::text, true);
+  set local role authenticated;
+  update public.appointments set status = 'cancelled', cancelled_at = now() where id = v_occ3;
+  reset role;
+end $$;
+select public.t_gcsc2_assert('T-gcsc2-direct-cancel-preserves-series-identity',
+  (select (count(*) = 1)::text from public.appointments a join t_gcsc2_series_direct_before b on b.id = a.id
+    where b.series_occurrence_index = 3 and a.status = 'cancelled'
+      and a.group_class_series_id is not distinct from b.group_class_series_id
+      and a.series_occurrence_index is not distinct from b.series_occurrence_index
+      and a.occurrence_original_start is not distinct from b.occurrence_original_start
+      and a.series_overridden_fields::text = b.overrides
+      and a.starts_at = b.starts_at and a.ends_at = b.ends_at), 'true');
+select public.t_gcsc2_assert('T-gcsc2-direct-cancel-neighbors-untouched',
+  (select (count(*) = 3 and bool_and(a.status::text = b.status and a.cancelled_at is not distinct from b.cancelled_at
+      and a.series_occurrence_index = b.series_occurrence_index and a.starts_at = b.starts_at
+      and a.series_overridden_fields::text = b.overrides))::text
+   from public.appointments a join t_gcsc2_series_direct_before b on b.id = a.id where b.series_occurrence_index <> 3), 'true');
+
+-- ============================================================================
 -- 8. Attendance, usage and legacy Events never touched across the whole suite
 -- ============================================================================
 select public.t_gcsc2_assert('T-gcsc2-attended-and-no-show-attendance-never-changed',

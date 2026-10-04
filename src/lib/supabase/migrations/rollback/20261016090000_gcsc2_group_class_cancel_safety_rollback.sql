@@ -6,12 +6,16 @@
 -- function holds no data. After rollback the terminal-attendance refusal and
 -- the already-cancelled no-op are gone, so the application must not be
 -- running the S1C-2 release. Also removes the S1C-2 attendance guard trigger and
--- its function; no other attendance trigger is changed.
+-- its function and the S1C-2 appointment-side guard trigger and its function; no
+-- other attendance or appointment trigger is changed.
 
 begin;
 
--- Remove the attendance guard first (idempotent: also safe on a DEV copy that
--- predates it). Pre-existing attendance_records triggers are not touched.
+-- Remove the appointment-side guard, then the attendance guard (idempotent: also
+-- safe on a DEV copy that predates either). Pre-existing appointments and
+-- attendance_records triggers are not touched.
+drop trigger if exists appointments_02_guard_cancel_terminal_attendance on public.appointments;
+drop function if exists public.enforce_group_class_cancel_no_terminal_attendance();
 drop trigger if exists attendance_records_00_guard_cancelled_class on public.attendance_records;
 drop function if exists public.enforce_group_class_attendance_not_cancelled();
 
