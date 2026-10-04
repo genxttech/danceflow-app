@@ -9,6 +9,7 @@ import {
   applyAnchorCustomizedValues,
   describeSeriesEditFields,
   isSeriesEditReviewStale,
+  SERIES_EDIT_GROUP_FIELDS,
   seriesEditReviewKey,
   type SeriesEditFormInput,
 } from "@/lib/schedule/groupClassSeriesEdit";
@@ -32,6 +33,10 @@ type Props = {
 
 const INITIAL: GroupClassSeriesEditState = { status: "idle" };
 
+const FIELD_GROUP: Record<string, string> = Object.fromEntries(
+  Object.entries(SERIES_EDIT_GROUP_FIELDS).flatMap(([group, fields]) => fields.map((field) => [field as string, group])),
+);
+
 const inputClass =
   "w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100";
 
@@ -54,14 +59,33 @@ export default function SeriesEditFollowingForm({
 }: Props) {
   const [state, formAction, pending] = useActionState(submitGroupClassSeriesEditAction, INITIAL);
   const [values, setValues] = useState(defaults);
-  const [overwrite, setOverwrite] = useState(false);
-  // The values + preserve/overwrite choice the current review was run for (set when Review is clicked).
+  const [overwriteChoice, setOverwriteChoice] = useState(false);
+  // Customized groups the owner chose to reset to the series values. A reset is an explicit overwrite of that group's
+  // customization, so while any reset is selected the overwrite switch is on (and locked).
+  const [resetGroups, setResetGroups] = useState<string[]>([]);
+  const overwrite = overwriteChoice || resetGroups.length > 0;
+  // The values + preserve/overwrite choice + reset selections the current review was run for (set when Review is clicked).
   const [reviewedKey, setReviewedKey] = useState<string | null>(null);
-  const currentKey = seriesEditReviewKey(values, overwrite);
+  const currentKey = seriesEditReviewKey(values, overwrite, resetGroups);
   const customizedLabels = describeSeriesEditFields(Object.fromEntries(customizedGroups.map((g) => [g, 1])));
 
-  const set = (key: keyof typeof defaults) => (event: { target: { value: string } }) =>
+  // Typing into a field of a group withdraws that group's reset (the owner is now choosing a value, not resetting).
+  const set = (key: keyof typeof defaults) => (event: { target: { value: string } }) => {
     setValues((current) => ({ ...current, [key]: event.target.value }));
+    const group = FIELD_GROUP[key];
+    if (group) setResetGroups((current) => current.filter((g) => g !== group));
+  };
+
+  const toggleReset = (group: string, on: boolean) => {
+    setResetGroups((current) => (on ? [...current.filter((g) => g !== group), group] : current.filter((g) => g !== group)));
+    if (on) {
+      setValues((current) => {
+        const next = { ...current };
+        for (const field of SERIES_EDIT_GROUP_FIELDS[group] ?? []) next[field] = defaults[field];
+        return next;
+      });
+    }
+  };
 
   const preview = state.status === "preview" ? state.preview : undefined;
   const blocked = !!preview && (preview.conflictCount > 0 || preview.capacityBlockedCount > 0);
@@ -72,6 +96,7 @@ export default function SeriesEditFollowingForm({
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="appointmentId" value={appointmentId} />
       <input type="hidden" name="requestId" value={requestId} />
+      {overwrite ? <input type="hidden" name="overwriteCustomized" value="on" /> : null}
       {preview && state.fingerprint && !stale ? (
         <input type="hidden" name="reviewedFingerprint" value={state.fingerprint} />
       ) : null}
@@ -96,11 +121,35 @@ export default function SeriesEditFollowingForm({
           </p>
           <button
             type="button"
-            onClick={() => setValues((current) => applyAnchorCustomizedValues(current, anchorValues, customizedGroups))}
+            onClick={() => {
+              setValues((current) => applyAnchorCustomizedValues(current, anchorValues, customizedGroups));
+              setResetGroups((current) => current.filter((g) => !customizedGroups.includes(g)));
+            }}
             className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100"
           >
             Use this class&apos;s values
           </button>
+          <details className="mt-3 text-xs" open={resetGroups.length > 0}>
+            <summary className="cursor-pointer font-semibold">Reset customizations to series values</summary>
+            <p className="mt-1">
+              Restores the series value for the fields you tick, for this and the following classes. Customized following
+              classes in those fields return to the series value too.
+            </p>
+            <div className="mt-1 space-y-1">
+              {customizedGroups.map((group) => (
+                <label key={group} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="resetGroups"
+                    value={group}
+                    checked={resetGroups.includes(group)}
+                    onChange={(event) => toggleReset(group, event.target.checked)}
+                  />
+                  <span>{describeSeriesEditFields({ [group]: 1 })[0] ?? group}</span>
+                </label>
+              ))}
+            </div>
+          </details>
         </div>
       ) : null}
 
@@ -193,16 +242,19 @@ export default function SeriesEditFollowingForm({
               <label className="flex items-start gap-2">
                 <input
                   type="checkbox"
-                  name="overwriteCustomized"
                   checked={overwrite}
-                  onChange={(event) => setOverwrite(event.target.checked)}
+                  disabled={resetGroups.length > 0}
+                  onChange={(event) => setOverwriteChoice(event.target.checked)}
                   className="mt-1"
                 />
                 <span>
                   <span className="font-semibold">Replace customized values too</span>
                   <span className="block text-xs">
                     {preview.customizedCount} {preview.customizedCount === 1 ? "class has" : "classes have"} its own{" "}
-                    {previewCustomizedLabels.join(", ").toLowerCase() || "values"}. Leave this off to keep them. Review again after changing it.
+                    {previewCustomizedLabels.join(", ").toLowerCase() || "values"}.{" "}
+                    {resetGroups.length > 0
+                      ? "Included because you are resetting customized fields."
+                      : "Leave this off to keep them. Review again after changing it."}
                   </span>
                 </span>
               </label>

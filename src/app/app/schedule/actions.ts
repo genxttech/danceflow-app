@@ -37,6 +37,7 @@ import {
   classifySeriesEditError,
   isUuid,
   parseSeriesEditPreview,
+  parseSeriesEditResetGroups,
   parseSeriesEditResult,
   seriesEditFailureMessage,
   seriesEditFingerprint,
@@ -3324,7 +3325,7 @@ export async function submitGroupClassSeriesEditAction(
 
     const { data: anchor, error: anchorError } = await supabase
       .from("appointments")
-      .select("id, appointment_type, group_class_series_id")
+      .select("id, appointment_type, group_class_series_id, series_overridden_fields")
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .maybeSingle();
@@ -3347,6 +3348,15 @@ export async function submitGroupClassSeriesEditAction(
     const baselineStartTime = String(series.local_start_time ?? "").slice(0, 5);
     if (!baselineStartTime || !series.duration_minutes) return fail(seriesEditFailureMessage("unknown"));
 
+    // GC-S1C-5: an explicit "reset to series values" selection (only for groups the selected class has customized).
+    // The request then carries the series-baseline value of that group even though it equals the baseline, and the
+    // reset is an overwrite of that group's customization within "this and following classes" (the database's one
+    // overwrite switch: preserve keeps every customized class, the selected one included).
+    const resetGroups = parseSeriesEditResetGroups(
+      formData.getAll("resetGroups").map(String),
+      anchor.series_overridden_fields ?? [],
+    );
+
     const built = buildSeriesEditChanges(
       {
         title: getString(formData, "title"),
@@ -3366,12 +3376,13 @@ export async function submitGroupClassSeriesEditAction(
         startTime: baselineStartTime,
         durationMinutes: Number(series.duration_minutes),
       },
+      resetGroups,
     );
 
     if (!built.ok) return fail(seriesEditInputErrorMessage(built.reason));
     if (Object.keys(built.changes).length === 0) return fail(seriesEditFailureMessage("no_changes"));
 
-    const overwrite = getString(formData, "overwriteCustomized") === "on";
+    const overwrite = getString(formData, "overwriteCustomized") === "on" || resetGroups.length > 0;
 
     const { data: previewData, error: previewError } = await supabase.rpc("preview_group_class_series_edit", {
       p_appointment_id: appointmentId,

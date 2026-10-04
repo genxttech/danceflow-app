@@ -58,6 +58,25 @@ export type SeriesEditFormInput = {
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Change-set keys that make up each tracked override group (the group "time" is start time and length together). */
+export const SERIES_EDIT_GROUP_CHANGE_KEYS: Record<string, Array<keyof SeriesEditChanges>> = {
+  title: ["title"],
+  instructor: ["instructor_id"],
+  room: ["room_id"],
+  location: ["location_name"],
+  capacity: ["roster_capacity"],
+  time: ["local_start_time", "duration_minutes"],
+};
+
+/**
+ * The reset selections the server will honor: known groups the selected class has actually customized (a reset can
+ * only be requested for a customization that exists), de-duplicated in a stable order.
+ */
+export function parseSeriesEditResetGroups(requested: readonly string[], anchorOverridden: readonly string[]): string[] {
+  const customized = new Set(anchorOverridden);
+  return Object.keys(SERIES_EDIT_GROUP_CHANGE_KEYS).filter((group) => requested.includes(group) && customized.has(group));
+}
+
 export type BuildChangesResult =
   | { ok: true; changes: SeriesEditChanges }
   | { ok: false; reason: "invalid_title" | "invalid_capacity" | "invalid_time" | "invalid_duration" | "invalid_reference" };
@@ -67,7 +86,11 @@ export type BuildChangesResult =
  * untouched form sends nothing for them. A blank capacity means "no limit"; blank instructor / room / location
  * mean "none".
  */
-export function buildSeriesEditChanges(input: SeriesEditFormInput, current: SeriesEditCurrent): BuildChangesResult {
+export function buildSeriesEditChanges(
+  input: SeriesEditFormInput,
+  current: SeriesEditCurrent,
+  resetGroups: readonly string[] = [],
+): BuildChangesResult {
   const changes: SeriesEditChanges = {};
 
   const title = input.title.trim();
@@ -103,6 +126,20 @@ export function buildSeriesEditChanges(input: SeriesEditFormInput, current: Seri
   const duration = Number(durationText);
   if (duration < 5 || duration > 720) return { ok: false, reason: "invalid_duration" };
   if (duration !== current.durationMinutes) changes.duration_minutes = duration;
+
+  // Explicit reset: the series-baseline value of every field of a selected group is INCLUDED even though it equals the
+  // baseline (an untouched field is omitted; a deliberately reset one is sent). The reset wins over a typed value.
+  for (const group of resetGroups) {
+    for (const key of SERIES_EDIT_GROUP_CHANGE_KEYS[group] ?? []) {
+      if (key === "title") changes.title = current.title.trim();
+      else if (key === "instructor_id") changes.instructor_id = current.instructorId ?? null;
+      else if (key === "room_id") changes.room_id = current.roomId ?? null;
+      else if (key === "location_name") changes.location_name = (current.locationName ?? "").trim() || null;
+      else if (key === "roster_capacity") changes.roster_capacity = current.rosterCapacity ?? null;
+      else if (key === "local_start_time") changes.local_start_time = current.startTime;
+      else if (key === "duration_minutes") changes.duration_minutes = current.durationMinutes;
+    }
+  }
 
   return { ok: true, changes };
 }
@@ -399,8 +436,11 @@ export function applyAnchorCustomizedValues(
  * Everything the owner reviewed: the field values and the preserve/overwrite choice. Any change to either invalidates
  * the review on the client (the server independently re-derives and compares its own fingerprint at apply time).
  */
-export function seriesEditReviewKey(values: SeriesEditFormInput, overwrite: boolean): string {
-  return JSON.stringify([values.title, values.instructorId, values.roomId, values.locationName, values.rosterCapacity, values.startTime, values.durationMinutes, overwrite]);
+export function seriesEditReviewKey(values: SeriesEditFormInput, overwrite: boolean, resetGroups: readonly string[] = []): string {
+  return JSON.stringify([
+    values.title, values.instructorId, values.roomId, values.locationName, values.rosterCapacity, values.startTime, values.durationMinutes,
+    overwrite, [...resetGroups].sort(),
+  ]);
 }
 
 export function isSeriesEditReviewStale(reviewedKey: string | null, currentKey: string): boolean {

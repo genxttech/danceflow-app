@@ -479,6 +479,160 @@ describe("S1C-5 remediation: the bulk edit is expressed against the series basel
   });
 });
 
+describe("S1C-5 reset customizations to series values (explicit reset intent)", () => {
+  const OTHER = "55555555-5555-4555-8555-555555555555";
+  const BASELINE_KEYS: Record<string, Record<string, unknown>> = {
+    title: { title: "Salsa" },
+    instructor: { instructor_id: INSTRUCTOR },
+    room: { room_id: null },
+    location: { location_name: null },
+    capacity: { roster_capacity: 10 },
+    time: { local_start_time: "18:30", duration_minutes: 60 },
+  };
+
+  function resetForm(groups: string[], extra: Record<string, string> = {}) {
+    const fd = form(extra);
+    for (const g of groups) fd.append("resetGroups", g);
+    return fd;
+  }
+
+  it("resetting a customized instructor sends the series-baseline value although it equals the baseline, as an overwrite", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, instructor_id: OTHER, series_overridden_fields: ["instructor"] } });
+    asRole(supabase, "studio_owner");
+    const state = await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor"]));
+    expect(state.status).toBe("preview");
+    expect(rpcCalls).toEqual([
+      { name: "preview_group_class_series_edit", args: { p_appointment_id: APPT, p_changes: { instructor_id: INSTRUCTOR }, p_overwrite: true } },
+    ]);
+  });
+
+  it("the same request with the overwrite box also ticked is identical (the reset already implies the overwrite)", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, instructor_id: OTHER, series_overridden_fields: ["instructor"] } });
+    asRole(supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor"], { overwriteCustomized: "on" }));
+    expect(rpcCalls[0].args).toEqual({ p_appointment_id: APPT, p_changes: { instructor_id: INSTRUCTOR }, p_overwrite: true });
+  });
+
+  it("apply carries the reset and the overwrite to the one edit RPC", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, instructor_id: OTHER, series_overridden_fields: ["instructor"] } });
+    asRole(supabase, "studio_owner");
+    const reviewed = await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor"]));
+    const err = await run(
+      submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor"], { intent: "apply", requestId: REQ, reviewedFingerprint: reviewed.fingerprint ?? "" })),
+    );
+    const edit = rpcCalls.find((c) => c.name === "edit_group_class_series_from");
+    expect(edit?.args).toEqual({ p_appointment_id: APPT, p_client_request_id: REQ, p_changes: { instructor_id: INSTRUCTOR }, p_overwrite: true });
+    expect(redirectUrl(err)).toContain("success=series_edited");
+  });
+
+  it("with several customized groups the owner can reset one without touching the others", async () => {
+    const { supabase, rpcCalls } = makeSupabase({
+      anchor: { ...ANCHOR, instructor_id: OTHER, title: "Customized", series_overridden_fields: ["instructor", "title"] },
+    });
+    asRole(supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor"]));
+    expect(rpcCalls[0].args.p_changes).toEqual({ instructor_id: INSTRUCTOR });
+    await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor", "title"]));
+    expect(rpcCalls[1].args.p_changes).toEqual({ instructor_id: INSTRUCTOR, title: "Salsa" });
+  });
+
+  for (const [group, expected] of Object.entries(BASELINE_KEYS)) {
+    it(`the reset mechanism is generic: resetting ${group} sends exactly that group's baseline keys`, async () => {
+      const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, series_overridden_fields: [group] } });
+      asRole(supabase, "studio_owner");
+      const state = await submitGroupClassSeriesEditAction(IDLE, resetForm([group]));
+      expect(state.status).toBe("preview");
+      expect(rpcCalls[0].args.p_changes).toEqual(expected);
+      expect(rpcCalls[0].args.p_overwrite).toBe(true);
+    });
+  }
+
+  it("a reset wins over a value typed into the same group, and leaves other typed changes alone", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, instructor_id: OTHER, series_overridden_fields: ["instructor"] } });
+    asRole(supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor"], { instructorId: OTHER, title: "New title" }));
+    expect(rpcCalls[0].args.p_changes).toEqual({ instructor_id: INSTRUCTOR, title: "New title" });
+  });
+
+  it("a reset can only be requested for a group the selected class has customized; anything else is ignored", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, series_overridden_fields: [] } });
+    asRole(supabase, "studio_owner");
+    const state = await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor", "bogus"]));
+    expect(state.error).toBe("Nothing would change. Edit at least one field first.");
+    expect(rpcCalls).toHaveLength(0);
+    const partial = makeSupabase({ anchor: { ...ANCHOR, series_overridden_fields: ["title"] } });
+    asRole(partial.supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor", "title", "bogus"]));
+    expect(partial.rpcCalls[0].args.p_changes).toEqual({ title: "Salsa" });
+  });
+
+  it("without any reset selection the earlier behavior is unchanged (propagation, preserve default)", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, instructor_id: OTHER, series_overridden_fields: ["instructor"] } });
+    asRole(supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, form({ instructorId: OTHER }));
+    expect(rpcCalls[0].args).toEqual({ p_appointment_id: APPT, p_changes: { instructor_id: OTHER }, p_overwrite: false });
+  });
+
+  it("an instructor still cannot reach the reset path", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, series_overridden_fields: ["instructor"] } });
+    asRole(supabase, "instructor");
+    const state = await submitGroupClassSeriesEditAction(IDLE, resetForm(["instructor"]));
+    expect(state.error).toBe("Only studio owners, admins and front desk can edit a series of classes.");
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it("parseSeriesEditResetGroups keeps known customized groups only, in a stable order", () => {
+    expect(lib.parseSeriesEditResetGroups(["time", "title", "title", "x"], ["title", "time", "room"])).toEqual(["title", "time"]);
+    expect(lib.parseSeriesEditResetGroups(["instructor"], [])).toEqual([]);
+    expect(lib.parseSeriesEditResetGroups([], ["title"])).toEqual([]);
+  });
+
+  it("buildSeriesEditChanges includes only the selected groups' baseline and nothing for untouched fields", () => {
+    const current = { title: "Salsa", instructorId: INSTRUCTOR, roomId: null, locationName: null, rosterCapacity: 10, startTime: "18:30", durationMinutes: 60 };
+    const same = { title: "Salsa", instructorId: INSTRUCTOR, roomId: "", locationName: "", rosterCapacity: "10", startTime: "18:30", durationMinutes: "60" };
+    expect(lib.buildSeriesEditChanges(same, current)).toEqual({ ok: true, changes: {} });
+    expect(lib.buildSeriesEditChanges(same, current, ["room", "capacity"])).toEqual({ ok: true, changes: { room_id: null, roster_capacity: 10 } });
+    expect(lib.buildSeriesEditChanges(same, current, ["time"])).toEqual({ ok: true, changes: { local_start_time: "18:30", duration_minutes: 60 } });
+  });
+
+  it("review invalidation: changing the reset selection (or its order-insensitive set) makes the review stale", () => {
+    const base = { title: "T", instructorId: "", roomId: "", locationName: "", rosterCapacity: "", startTime: "18:30", durationMinutes: "60" };
+    const reviewed = lib.seriesEditReviewKey(base, true, ["instructor", "title"]);
+    expect(lib.isSeriesEditReviewStale(reviewed, lib.seriesEditReviewKey(base, true, ["title", "instructor"]))).toBe(false);
+    expect(lib.isSeriesEditReviewStale(reviewed, lib.seriesEditReviewKey(base, true, ["instructor"]))).toBe(true);
+    expect(lib.isSeriesEditReviewStale(reviewed, lib.seriesEditReviewKey(base, true, []))).toBe(true);
+    expect(lib.isSeriesEditReviewStale(lib.seriesEditReviewKey(base, false, []), lib.seriesEditReviewKey(base, false, ["room"]))).toBe(true);
+  });
+
+  const uiProps = {
+    appointmentId: APPT,
+    requestId: REQ,
+    occurrenceLabel: "Class 3",
+    defaults: { title: "Salsa", instructorId: INSTRUCTOR, roomId: "", locationName: "", rosterCapacity: "10", startTime: "18:30", durationMinutes: "60" },
+    anchorValues: { title: "Customized", instructorId: OTHER, roomId: "", locationName: "", rosterCapacity: "10", startTime: "18:30", durationMinutes: "60" },
+    instructors: [{ id: INSTRUCTOR, label: "Pat Smith" }],
+    rooms: [{ id: ROOM, label: "Studio A" }],
+    cancelHref: `/app/schedule/${APPT}/edit`,
+  };
+
+  it("a customized class offers one reset checkbox per customized group beside the use-values shortcut; none are pre-ticked", () => {
+    const html = renderToStaticMarkup(createElement(SeriesEditFollowingForm, { ...uiProps, customizedGroups: ["instructor", "title"] }));
+    expect(html).toContain("Reset customizations to series values");
+    expect(html).toContain("Use this class&#x27;s values");
+    expect(html).toMatch(/name="resetGroups"[^>]*value="instructor"/);
+    expect(html).toMatch(/name="resetGroups"[^>]*value="title"/);
+    expect(html).not.toMatch(/name="resetGroups"[^>]*value="room"/);
+    expect(html).not.toMatch(/name="resetGroups"[^>]*checked/);
+    expect(html).not.toContain('name="overwriteCustomized"');
+  });
+
+  it("a class that follows the series shows no reset controls", () => {
+    const html = renderToStaticMarkup(createElement(SeriesEditFollowingForm, { ...uiProps, customizedGroups: [] }));
+    expect(html).not.toContain("Reset customizations");
+    expect(html).not.toContain("resetGroups");
+  });
+});
+
 describe("S1C-5 pure helpers", () => {
   const CURRENT = { title: "Salsa", instructorId: INSTRUCTOR, roomId: null, locationName: null, rosterCapacity: 10, startTime: "18:30", durationMinutes: 60 };
   const SAME = { title: "Salsa", instructorId: INSTRUCTOR, roomId: "", locationName: "", rosterCapacity: "10", startTime: "18:30", durationMinutes: "60" };
