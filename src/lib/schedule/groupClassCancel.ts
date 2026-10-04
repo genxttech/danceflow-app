@@ -8,6 +8,7 @@
  * the UI, and builds the cancellation form's consequence wording.
  */
 
+import { groupClassSeriesEditBannerMessage } from "@/lib/schedule/groupClassSeriesEdit";
 import {
   GROUP_CLASS_SERIES_ERROR_BANNERS,
   groupClassSeriesCancelBannerMessage,
@@ -76,6 +77,8 @@ export function groupClassCancelBanner(search: {
       Number.isFinite(parsed) ? parsed : null,
     );
     if (message) return { kind: "success", message };
+    const editMessage = groupClassSeriesEditBannerMessage(search.success, Number.isFinite(parsed) ? parsed : null);
+    if (editMessage) return { kind: "success", message: editMessage };
   } else if (search.error && GROUP_CLASS_SERIES_ERROR_BANNERS[search.error]) {
     return { kind: "error", message: GROUP_CLASS_SERIES_ERROR_BANNERS[search.error] };
   }

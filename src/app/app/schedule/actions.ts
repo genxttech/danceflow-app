@@ -31,7 +31,21 @@ import {
   requireAttendanceAccess,
   requireFloorRentalAppointmentAccess,
 } from "@/lib/auth/serverRoleGuard";
-import { canCancelGroupClass, isIndependentInstructor } from "@/lib/auth/permissions";
+import { canCancelGroupClass, canEditGroupClassSeries, isIndependentInstructor } from "@/lib/auth/permissions";
+import {
+  buildSeriesEditChanges,
+  classifySeriesEditError,
+  isUuid,
+  localTimeOfDay,
+  minutesBetween,
+  parseSeriesEditPreview,
+  parseSeriesEditResult,
+  seriesEditFailureMessage,
+  seriesEditFingerprint,
+  seriesEditInputErrorMessage,
+  seriesEditPreviewLines,
+  type SeriesEditPreview,
+} from "@/lib/schedule/groupClassSeriesEdit";
 import {
   GROUP_CLASS_CANCEL_REDIRECT_CODE,
   classifyGroupClassCancelError,
@@ -3272,6 +3286,150 @@ export async function cancelGroupClassAppointmentAction(formData: FormData) {
     rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "class_cancel_failed"));
+  }
+}
+
+// GC-S1C-5: "This and following classes" series editing. One action serves both steps (hidden `intent`):
+// "preview" returns the database-computed impact summary; "apply" re-derives the same preview, refuses if it no
+// longer matches what the owner reviewed, then calls the ONE atomic RPC (successor split, customized-value
+// handling, conflict / capacity revalidation and idempotency all live in edit_group_class_series_from). The
+// client supplies only the occurrence id, a request id and the field values; studio, series, targets and
+// override state are derived by the database. Broad staff only. No notification of any kind is sent (edit
+// notifications belong to S1E). Errors are fixed copy, never database text.
+export type GroupClassSeriesEditState = {
+  status: "idle" | "preview" | "error";
+  error?: string;
+  preview?: SeriesEditPreview;
+  lines?: string[];
+  fingerprint?: string;
+};
+
+export async function submitGroupClassSeriesEditAction(
+  _previous: GroupClassSeriesEditState,
+  formData: FormData,
+): Promise<GroupClassSeriesEditState> {
+  const fail = (message: string): GroupClassSeriesEditState => ({ status: "error", error: message });
+
+  try {
+    const { supabase, studioId, studioRole, isPlatformAdmin } = await requireAppointmentEditAccess();
+
+    if (!isPlatformAdmin && !canEditGroupClassSeries(studioRole)) {
+      return fail(seriesEditFailureMessage("not_authorized"));
+    }
+
+    const appointmentId = getString(formData, "appointmentId");
+    if (!isUuid(appointmentId)) return fail(seriesEditFailureMessage("not_found"));
+
+    const intent = getString(formData, "intent") === "apply" ? "apply" : "preview";
+
+    const { data: anchor, error: anchorError } = await supabase
+      .from("appointments")
+      .select("id, appointment_type, group_class_series_id, title, instructor_id, room_id, location_name, roster_capacity, starts_at, ends_at")
+      .eq("id", appointmentId)
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+    if (anchorError || !anchor || anchor.appointment_type !== "group_class") {
+      return fail(seriesEditFailureMessage("not_found"));
+    }
+    if (!anchor.group_class_series_id) return fail(seriesEditFailureMessage("not_a_series"));
+
+    const { data: series } = await supabase
+      .from("group_class_series")
+      .select("timezone")
+      .eq("id", anchor.group_class_series_id)
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+    const startTime = localTimeOfDay(anchor.starts_at, series?.timezone);
+    const durationMinutes = minutesBetween(anchor.starts_at, anchor.ends_at);
+    if (!startTime || !durationMinutes) return fail(seriesEditFailureMessage("unknown"));
+
+    const built = buildSeriesEditChanges(
+      {
+        title: getString(formData, "title"),
+        instructorId: getString(formData, "instructorId"),
+        roomId: getString(formData, "roomId"),
+        locationName: getString(formData, "locationName"),
+        rosterCapacity: getString(formData, "rosterCapacity"),
+        startTime: getString(formData, "startTime"),
+        durationMinutes: getString(formData, "durationMinutes"),
+      },
+      {
+        title: anchor.title ?? "",
+        instructorId: anchor.instructor_id ?? null,
+        roomId: anchor.room_id ?? null,
+        locationName: anchor.location_name ?? null,
+        rosterCapacity: anchor.roster_capacity ?? null,
+        startTime,
+        durationMinutes,
+      },
+    );
+
+    if (!built.ok) return fail(seriesEditInputErrorMessage(built.reason));
+    if (Object.keys(built.changes).length === 0) return fail(seriesEditFailureMessage("no_changes"));
+
+    const overwrite = getString(formData, "overwriteCustomized") === "on";
+
+    const { data: previewData, error: previewError } = await supabase.rpc("preview_group_class_series_edit", {
+      p_appointment_id: appointmentId,
+      p_changes: built.changes,
+      p_overwrite: overwrite,
+    });
+
+    if (previewError) {
+      console.error("Could not preview the series edit:", previewError.message);
+      const classified = classifySeriesEditError(previewError);
+      return fail(seriesEditFailureMessage(classified.failure, classified));
+    }
+
+    const preview = parseSeriesEditPreview(previewData);
+    if (!preview) return fail(seriesEditFailureMessage("unknown"));
+
+    const fingerprint = seriesEditFingerprint(built.changes, overwrite, preview);
+
+    if (intent === "preview") {
+      return { status: "preview", preview, lines: seriesEditPreviewLines(preview), fingerprint };
+    }
+
+    const requestId = getString(formData, "requestId");
+    if (!isUuid(requestId)) return fail(seriesEditFailureMessage("invalid_changes"));
+    if (getString(formData, "reviewedFingerprint") !== fingerprint) {
+      return fail("The classes changed since you reviewed them. Review the changes again.");
+    }
+
+    const { data: applied, error: applyError } = await supabase.rpc("edit_group_class_series_from", {
+      p_appointment_id: appointmentId,
+      p_client_request_id: requestId,
+      p_changes: built.changes,
+      p_overwrite: overwrite,
+    });
+
+    if (applyError) {
+      console.error("Could not apply the series edit:", applyError.message);
+      const classified = classifySeriesEditError(applyError);
+      return fail(seriesEditFailureMessage(classified.failure, classified));
+    }
+
+    const result = parseSeriesEditResult(applied);
+    if (!result) return fail(seriesEditFailureMessage("unknown"));
+
+    revalidatePath("/app/schedule");
+    revalidatePath(`/app/schedule/${appointmentId}`);
+    revalidatePath(`/app/schedule/${appointmentId}/edit`);
+
+    redirect(
+      appendQueryParam(
+        appendQueryParam(`/app/schedule/${appointmentId}`, "success", "series_edited"),
+        "count",
+        String(result.editedClassCount),
+      ),
+    );
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    console.error("Series edit failed:", error);
+    return fail(seriesEditFailureMessage("unknown"));
   }
 }
 

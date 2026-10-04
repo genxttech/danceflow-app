@@ -515,3 +515,9 @@ export function canAssignTargetRole(args: {
 export function canCancelGroupClass(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
 }
+
+// GC-S1C-5: "this and following classes" series editing is broad-staff only (the same set as series cancellation and
+// as the edit_group_class_series_from RPC's own check). Assigned instructors keep single-occurrence edit authority only.
+export function canEditGroupClassSeries(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+}
