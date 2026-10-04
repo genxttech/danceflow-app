@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canEditGroupClassSeries } from "@/lib/auth/permissions";
 import { seriesOccurrenceLabel } from "@/lib/schedule/groupClassOccurrenceEdit";
-import { localTimeOfDay, minutesBetween } from "@/lib/schedule/groupClassSeriesEdit";
+import { localTimeOfDay, minutesBetween, SERIES_EDIT_GROUP_FIELDS } from "@/lib/schedule/groupClassSeriesEdit";
 import SeriesEditFollowingForm from "./SeriesEditFollowingForm";
 
 type Params = Promise<{ id: string }>;
@@ -16,8 +16,9 @@ function hasEnded(endsAtIso: string) {
 
 /**
  * GC-S1C-5: "This and following classes" editor for a series occurrence. Broad staff only (the assigned instructor
- * keeps the single-class editor). This page only prefills the form from the class being edited; the server action and
- * the database RPC beneath it derive and authorize everything again.
+ * keeps the single-class editor). The form starts from the SERIES definition (the bulk-edit baseline); when the selected
+ * class is customized, its own values are offered as a one-click shortcut so they can be propagated to the following
+ * classes. The server action and the database RPC beneath it derive and authorize everything again.
  */
 export default async function EditFollowingClassesPage({ params }: { params: Params }) {
   const { id } = await params;
@@ -32,7 +33,7 @@ export default async function EditFollowingClassesPage({ params }: { params: Par
   const { data: appointment } = await supabase
     .from("appointments")
     .select(
-      "id, appointment_type, status, title, instructor_id, room_id, location_name, roster_capacity, starts_at, ends_at, group_class_series_id, series_occurrence_index",
+      "id, appointment_type, status, title, instructor_id, room_id, location_name, roster_capacity, starts_at, ends_at, group_class_series_id, series_occurrence_index, series_overridden_fields",
     )
     .eq("id", id)
     .eq("studio_id", studioId)
@@ -46,7 +47,7 @@ export default async function EditFollowingClassesPage({ params }: { params: Par
   const [{ data: series }, { count: terminalCount }, { data: instructors }, { data: rooms }] = await Promise.all([
     supabase
       .from("group_class_series")
-      .select("timezone, status")
+      .select("timezone, status, title, default_instructor_id, default_room_id, default_location_name, default_roster_capacity, local_start_time, duration_minutes")
       .eq("id", appointment.group_class_series_id)
       .eq("studio_id", studioId)
       .maybeSingle(),
@@ -73,6 +74,8 @@ export default async function EditFollowingClassesPage({ params }: { params: Par
   const startTime = localTimeOfDay(appointment.starts_at, series?.timezone);
   const durationMinutes = minutesBetween(appointment.starts_at, appointment.ends_at);
   const ended = hasEnded(appointment.ends_at);
+  const baselineStartTime = String(series?.local_start_time ?? "").slice(0, 5);
+  const customizedGroups = (appointment.series_overridden_fields ?? []).filter((g: string) => g in SERIES_EDIT_GROUP_FIELDS);
   const editable =
     !!series &&
     series.status === "active" &&
@@ -97,6 +100,15 @@ export default async function EditFollowingClassesPage({ params }: { params: Par
           requestId={randomUUID()}
           occurrenceLabel={seriesOccurrenceLabel(appointment.series_occurrence_index)}
           defaults={{
+            title: series?.title ?? "",
+            instructorId: series?.default_instructor_id ?? "",
+            roomId: series?.default_room_id ?? "",
+            locationName: series?.default_location_name ?? "",
+            rosterCapacity: series?.default_roster_capacity == null ? "" : String(series.default_roster_capacity),
+            startTime: baselineStartTime || startTime,
+            durationMinutes: String(series?.duration_minutes ?? durationMinutes),
+          }}
+          anchorValues={{
             title: appointment.title ?? "",
             instructorId: appointment.instructor_id ?? "",
             roomId: appointment.room_id ?? "",
@@ -105,6 +117,7 @@ export default async function EditFollowingClassesPage({ params }: { params: Par
             startTime,
             durationMinutes: String(durationMinutes),
           }}
+          customizedGroups={customizedGroups}
           instructors={(instructors ?? []).map((i) => ({ id: i.id, label: `${i.first_name} ${i.last_name}`.trim() }))}
           rooms={(rooms ?? []).map((r) => ({ id: r.id, label: r.name }))}
           cancelHref={backHref}

@@ -5,7 +5,13 @@ import {
   submitGroupClassSeriesEditAction,
   type GroupClassSeriesEditState,
 } from "@/app/app/schedule/actions";
-import { describeSeriesEditFields } from "@/lib/schedule/groupClassSeriesEdit";
+import {
+  applyAnchorCustomizedValues,
+  describeSeriesEditFields,
+  isSeriesEditReviewStale,
+  seriesEditReviewKey,
+  type SeriesEditFormInput,
+} from "@/lib/schedule/groupClassSeriesEdit";
 
 type Option = { id: string; label: string };
 
@@ -14,15 +20,11 @@ type Props = {
   /** Generated once per page load; a double submit or retry of the same review replays instead of splitting twice. */
   requestId: string;
   occurrenceLabel: string | null;
-  defaults: {
-    title: string;
-    instructorId: string;
-    roomId: string;
-    locationName: string;
-    rosterCapacity: string;
-    startTime: string;
-    durationMinutes: string;
-  };
+  /** The series definition: the baseline the bulk edit is expressed against. */
+  defaults: SeriesEditFormInput;
+  /** The selected class's own values, and which tracked fields it has customized (empty when it follows the series). */
+  anchorValues: SeriesEditFormInput;
+  customizedGroups: string[];
   instructors: Option[];
   rooms: Option[];
   cancelHref: string;
@@ -44,6 +46,8 @@ export default function SeriesEditFollowingForm({
   requestId,
   occurrenceLabel,
   defaults,
+  anchorValues,
+  customizedGroups,
   instructors,
   rooms,
   cancelHref,
@@ -51,19 +55,24 @@ export default function SeriesEditFollowingForm({
   const [state, formAction, pending] = useActionState(submitGroupClassSeriesEditAction, INITIAL);
   const [values, setValues] = useState(defaults);
   const [overwrite, setOverwrite] = useState(false);
+  // The values + preserve/overwrite choice the current review was run for (set when Review is clicked).
+  const [reviewedKey, setReviewedKey] = useState<string | null>(null);
+  const currentKey = seriesEditReviewKey(values, overwrite);
+  const customizedLabels = describeSeriesEditFields(Object.fromEntries(customizedGroups.map((g) => [g, 1])));
 
   const set = (key: keyof typeof defaults) => (event: { target: { value: string } }) =>
     setValues((current) => ({ ...current, [key]: event.target.value }));
 
   const preview = state.status === "preview" ? state.preview : undefined;
   const blocked = !!preview && (preview.conflictCount > 0 || preview.capacityBlockedCount > 0);
-  const customizedLabels = preview ? describeSeriesEditFields(preview.customizedFields) : [];
+  const stale = !!preview && isSeriesEditReviewStale(reviewedKey, currentKey);
+  const previewCustomizedLabels = preview ? describeSeriesEditFields(preview.customizedFields) : [];
 
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="appointmentId" value={appointmentId} />
       <input type="hidden" name="requestId" value={requestId} />
-      {preview && state.fingerprint ? (
+      {preview && state.fingerprint && !stale ? (
         <input type="hidden" name="reviewedFingerprint" value={state.fingerprint} />
       ) : null}
 
@@ -77,6 +86,23 @@ export default function SeriesEditFollowingForm({
           weekdays, repeat pattern or number of classes, cancel the remaining classes and create a new series.
         </p>
       </div>
+
+      {customizedLabels.length > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">This class is customized</p>
+          <p className="mt-1 text-xs">
+            It differs from the series in: {customizedLabels.join(", ").toLowerCase()}. The fields below start from the series values. To
+            apply this class&apos;s own values to the following classes, use them here.
+          </p>
+          <button
+            type="button"
+            onClick={() => setValues((current) => applyAnchorCustomizedValues(current, anchorValues, customizedGroups))}
+            className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+          >
+            Use this class&apos;s values
+          </button>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="md:col-span-2">
@@ -176,14 +202,20 @@ export default function SeriesEditFollowingForm({
                   <span className="font-semibold">Replace customized values too</span>
                   <span className="block text-xs">
                     {preview.customizedCount} {preview.customizedCount === 1 ? "class has" : "classes have"} its own{" "}
-                    {customizedLabels.join(", ").toLowerCase() || "values"}. Leave this off to keep them. Review again after changing it.
+                    {previewCustomizedLabels.join(", ").toLowerCase() || "values"}. Leave this off to keep them. Review again after changing it.
                   </span>
                 </span>
               </label>
             </div>
           ) : null}
 
-          {blocked ? (
+          {stale ? (
+            <p role="status" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+              You changed something after this review. Review changes again before applying.
+            </p>
+          ) : null}
+
+          {blocked && !stale ? (
             <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               {preview.conflictCount > 0
                 ? `${preview.conflictCount} ${preview.conflictCount === 1 ? "class conflicts" : "classes conflict"} with the schedule. Adjust the instructor, room or time.`
@@ -198,6 +230,7 @@ export default function SeriesEditFollowingForm({
           type="submit"
           name="intent"
           value="preview"
+          onClick={() => setReviewedKey(currentKey)}
           disabled={pending}
           className="rounded-xl border border-indigo-300 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
         >
@@ -208,7 +241,7 @@ export default function SeriesEditFollowingForm({
             type="submit"
             name="intent"
             value="apply"
-            disabled={pending || blocked}
+            disabled={pending || blocked || stale}
             className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             Apply to {preview.changedCount > 0 ? preview.changedCount : "following"}{" "}

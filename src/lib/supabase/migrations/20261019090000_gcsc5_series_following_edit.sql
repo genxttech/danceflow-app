@@ -3,7 +3,9 @@
 --
 -- 1. group_class_series.split_from_series_id (+ composite same-studio FK, no self
 --    reference, at most ONE direct successor per series): explicit successor lineage.
---    The split lineage of a series is therefore a LINEAR CHAIN predecessor -> successor.
+--    The split lineage of a series is therefore a LINEAR CHAIN predecessor -> successor, and
+--    split_from_series_id means the POSITIONAL predecessor segment, not immutable creation
+--    history: splitting an earlier segment re-parents a later successor beneath the new one.
 -- 2. group_class_series_edit_requests: idempotency ledger for series edits (studio +
 --    client request id, request fingerprint, stored result). RPC-only (no tenant grants).
 -- 3. edit_group_class_series_from(p_appointment_id, p_client_request_id, p_changes,
@@ -30,10 +32,21 @@
 --        recreated or renumbered). The predecessor's recurrence extent is trimmed to what
 --        it still holds. A later successor of the selected series is re-parented under
 --        the new one and edited in place, keeping the chain linear. When nothing earlier
---        exists the series row is edited in place (no empty predecessor is created).
+--        exists the series row is edited in place (no empty predecessor is created): this is
+--        an explicit S1C-5 rule, and the occurrence rows keep their identity either way.
+--      * Override flags stay truthful (GC-S1C-5 remediation): for every EDITED field group, a
+--        flagged occurrence is either preserved (it keeps a value that differs from the new
+--        series default and keeps the flag), or ends up equal to the new series default and has
+--        that flag cleared (explicit overwrite, or a customized value that already equals the new
+--        default, e.g. propagating the selected class's own customization). Flags for fields not
+--        in the edit are never touched.
 --      * The whole operation is atomic: a capacity floor (GCSC3), conflict, assignability
---        or any other refusal rolls everything back. Conflicts are re-validated
---        authoritatively here (same rules as the app's schedule-conflict engine).
+--        or any other refusal rolls everything back. Apply revalidates conflicts
+--        transactionally against the database state visible to the operation, using the
+--        same rules as the app's schedule-conflict engine. This does NOT serialize against
+--        outside writers (for example a private-lesson booking committed at the same moment):
+--        the database has no scheduling constraint, and normal appointment editing has the
+--        same limitation.
 --      * Locking is series-first (selected series, then its successors in chain order),
 --        then the target occurrence rows in index order -- the S1C-4 discipline.
 --      * Idempotent: a repeated request id returns the stored result; the same id with a
@@ -77,7 +90,7 @@ create unique index uq_group_class_series_split_from
   where split_from_series_id is not null;
 
 comment on column public.group_class_series.split_from_series_id is
-  'GC-S1C-5: the predecessor series this successor was split from by a "this and following" edit (NULL = original series). At most one successor per series, so lineage is a linear chain.';
+  'GC-S1C-5: the POSITIONAL predecessor segment this series was split from by a "this and following" edit (NULL = first segment). At most one successor per series, so lineage is a linear chain; re-splitting an earlier segment re-parents a later successor, so this is not immutable creation-history provenance.';
 
 -- ============================================================================
 -- 2. Idempotency ledger (RPC-only)
@@ -273,7 +286,9 @@ returns table (
   new_roster_capacity integer,
   new_starts_at timestamptz,
   new_ends_at timestamptz,
-  changed boolean
+  changed boolean,
+  cleared_groups text[],
+  values_changed boolean
 )
 language plpgsql
 stable
@@ -308,6 +323,9 @@ begin
       a.location_name as b_location, a.roster_capacity as b_capacity,
       a.starts_at as b_starts, a.ends_at as b_ends, a.series_overridden_fields as b_overrides,
       s.timezone as b_tz,
+      s.local_start_time as b_def_time,
+      s.duration_minutes as b_def_dur,
+      a.occurrence_original_start as b_orig,
       case
         when a.status = 'cancelled'::public.appointment_status then 'cancelled'
         when a.status in ('attended'::public.appointment_status, 'no_show'::public.appointment_status)
@@ -327,7 +345,23 @@ begin
       and a.series_occurrence_index >= v_index
   ),
   grp as (
+    -- g_eq: edited groups where the occurrence ALREADY holds the value the edit makes the new series default
+    -- (so a customized flag on it would be stale, and nothing needs to be preserved or overwritten).
     select b.*,
+      array_remove(array[
+        case when p_changes ? 'title' and btrim(p_changes ->> 'title') = btrim(b.b_title) then 'title' end,
+        case when p_changes ? 'instructor_id' and b.b_instructor is not distinct from (p_changes ->> 'instructor_id')::uuid then 'instructor' end,
+        case when p_changes ? 'room_id' and b.b_room is not distinct from (p_changes ->> 'room_id')::uuid then 'room' end,
+        case when p_changes ? 'location_name'
+              and nullif(btrim(coalesce(b.b_location, '')), '') is not distinct from nullif(btrim(coalesce(p_changes ->> 'location_name', '')), '')
+             then 'location' end,
+        case when p_changes ? 'roster_capacity' and b.b_capacity is not distinct from (p_changes ->> 'roster_capacity')::integer then 'capacity' end,
+        case when (p_changes ? 'local_start_time' or p_changes ? 'duration_minutes')
+              and (b.b_starts at time zone b.b_tz)::date = (b.b_orig at time zone b.b_tz)::date
+              and (b.b_starts at time zone b.b_tz)::time = coalesce((p_changes ->> 'local_start_time')::time, b.b_def_time)
+              and (extract(epoch from (b.b_ends - b.b_starts)) / 60)::integer = coalesce((p_changes ->> 'duration_minutes')::integer, b.b_def_dur)
+             then 'time' end
+      ], null::text) as g_eq,
       case when b.b_cls = 'eligible'
         then array(select x from unnest(v_groups) x where x = any (b.b_overrides))
         else array[]::text[]
@@ -335,14 +369,31 @@ begin
     from base b
   ),
   app as (
+    -- a_pres: flagged groups kept as they are (preserve mode, value differs from the new default)
+    -- a_ovw : flagged groups whose differing value is replaced (overwrite mode)
+    -- a_clr : flagged groups that end up equal to the new default, whose flag is cleared
     select g.*,
-      case when g.b_cls = 'eligible' and not v_overwrite then g.g_ov else array[]::text[] end as a_pres,
-      case when g.b_cls = 'eligible' and v_overwrite then g.g_ov else array[]::text[] end as a_ovw,
-      case when g.b_cls = 'eligible'
-        then array(select x from unnest(v_groups) x where v_overwrite or x <> all (g.g_ov))
+      case when g.b_cls = 'eligible' and not v_overwrite
+        then array(select x from unnest(g.g_ov) x where x <> all (g.g_eq))
         else array[]::text[]
-      end as a_app
+      end as a_pres,
+      case when g.b_cls = 'eligible' and v_overwrite
+        then array(select x from unnest(g.g_ov) x where x <> all (g.g_eq))
+        else array[]::text[]
+      end as a_ovw
     from grp g
+  ),
+  app2 as (
+    select a.*,
+      case when a.b_cls = 'eligible'
+        then array(select x from unnest(v_groups) x where x <> all (a.a_pres))
+        else array[]::text[]
+      end as a_app,
+      case when a.b_cls = 'eligible'
+        then array(select x from unnest(a.g_ov) x where x <> all (a.a_pres))
+        else array[]::text[]
+      end as a_clr
+    from app a
   ),
   nv as (
     select a.*,
@@ -355,7 +406,7 @@ begin
         then ((((a.b_starts at time zone a.b_tz)::date + (p_changes ->> 'local_start_time')::time)::timestamp) at time zone a.b_tz)
         else a.b_starts
       end as n_starts
-    from app a
+    from app2 a
   ),
   fin as (
     select n.*,
@@ -371,7 +422,7 @@ begin
   select
     f.b_id, f.b_series, f.b_idx, f.b_cls, f.b_booked,
     (f.b_cls = 'eligible'),
-    (f.b_cls = 'eligible' and cardinality(f.g_ov) > 0),
+    (f.b_cls = 'eligible' and cardinality(f.a_pres) + cardinality(f.a_ovw) > 0),
     f.a_app, f.a_pres, f.a_ovw,
     f.n_title, f.n_instructor, f.n_room, f.n_location, f.n_capacity, f.n_starts, f.n_ends,
     (f.b_cls = 'eligible' and (
@@ -382,7 +433,17 @@ begin
       or f.n_capacity is distinct from f.b_capacity
       or f.n_starts is distinct from f.b_starts
       or f.n_ends is distinct from f.b_ends
-      or cardinality(f.a_ovw) > 0
+      or cardinality(f.a_clr) > 0
+    )),
+    f.a_clr,
+    (f.b_cls = 'eligible' and (
+      f.n_title is distinct from f.b_title
+      or f.n_instructor is distinct from f.b_instructor
+      or f.n_room is distinct from f.b_room
+      or f.n_location is distinct from f.b_location
+      or f.n_capacity is distinct from f.b_capacity
+      or f.n_starts is distinct from f.b_starts
+      or f.n_ends is distinct from f.b_ends
     ))
   from fin f
   order by f.b_idx;
@@ -392,8 +453,10 @@ $$;
 revoke all on function public._gcsc5_edit_plan(uuid, jsonb, boolean) from public, anon, authenticated, service_role;
 
 -- Schedule-conflict rules (instructor overlap and blocks, room unavailable / exclusive /
--- simultaneous capacity), mirroring the app's canonical conflict engine so the database
--- transaction can re-validate authoritatively. Returns a reason code or NULL.
+-- simultaneous capacity), mirroring the app's canonical conflict engine so the operation can
+-- revalidate transactionally against the database state it can see (no lock or constraint
+-- stops an outside writer from committing a conflicting row concurrently). Returns a reason
+-- code or NULL.
 create function public._gcsc5_edit_conflict(
   p_studio_id uuid,
   p_self_id uuid,
@@ -587,7 +650,7 @@ begin
     'will_split', v_has_earlier,
     'class_count', count(*),
     'editable_count', count(*) filter (where p.will_edit),
-    'changed_count', count(*) filter (where p.changed),
+    'changed_count', count(*) filter (where p.values_changed),
     'cancelled_count', count(*) filter (where p.classification = 'cancelled'),
     'historical_count', count(*) filter (where p.classification = 'historical'),
     'terminal_attendance_count', count(*) filter (where p.classification = 'terminal_attendance'),
@@ -749,7 +812,7 @@ begin
 
   select
     count(*) filter (where p.will_edit),
-    count(*) filter (where p.changed),
+    count(*) filter (where p.values_changed),
     count(*) filter (where p.customized and not v_overwrite),
     count(*) filter (where p.customized and v_overwrite),
     count(*) filter (where p.classification = 'cancelled'),
@@ -794,7 +857,7 @@ begin
          starts_at = p.new_starts_at,
          ends_at = p.new_ends_at,
          series_overridden_fields = array(
-           select f from unnest(a.series_overridden_fields) f where f <> all (p.overwritten_groups)
+           select f from unnest(a.series_overridden_fields) f where f <> all (p.cleared_groups)
          ),
          updated_at = now()
     from public._gcsc5_edit_plan(p_appointment_id, p_changes, v_overwrite) p

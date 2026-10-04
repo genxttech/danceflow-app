@@ -36,8 +36,6 @@ import {
   buildSeriesEditChanges,
   classifySeriesEditError,
   isUuid,
-  localTimeOfDay,
-  minutesBetween,
   parseSeriesEditPreview,
   parseSeriesEditResult,
   seriesEditFailureMessage,
@@ -3294,7 +3292,9 @@ export async function cancelGroupClassAppointmentAction(formData: FormData) {
 // longer matches what the owner reviewed, then calls the ONE atomic RPC (successor split, customized-value
 // handling, conflict / capacity revalidation and idempotency all live in edit_group_class_series_from). The
 // client supplies only the occurrence id, a request id and the field values; studio, series, targets and
-// override state are derived by the database. Broad staff only. No notification of any kind is sent (edit
+// override state are derived by the database. The form's change set is diffed against the SERIES DEFINITION
+// (not against the selected class), so propagating the selected class's own customized value is expressible.
+// Broad staff only. No notification of any kind is sent (edit
 // notifications belong to S1E). Errors are fixed copy, never database text.
 export type GroupClassSeriesEditState = {
   status: "idle" | "preview" | "error";
@@ -3324,7 +3324,7 @@ export async function submitGroupClassSeriesEditAction(
 
     const { data: anchor, error: anchorError } = await supabase
       .from("appointments")
-      .select("id, appointment_type, group_class_series_id, title, instructor_id, room_id, location_name, roster_capacity, starts_at, ends_at")
+      .select("id, appointment_type, group_class_series_id")
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .maybeSingle();
@@ -3334,16 +3334,18 @@ export async function submitGroupClassSeriesEditAction(
     }
     if (!anchor.group_class_series_id) return fail(seriesEditFailureMessage("not_a_series"));
 
+    // The bulk-edit baseline is the applicable series definition. A customized selected class must not hide a field
+    // from the change set: choosing its value for "this and following" is a change relative to the series.
     const { data: series } = await supabase
       .from("group_class_series")
-      .select("timezone")
+      .select("title, default_instructor_id, default_room_id, default_location_name, default_roster_capacity, local_start_time, duration_minutes")
       .eq("id", anchor.group_class_series_id)
       .eq("studio_id", studioId)
       .maybeSingle();
 
-    const startTime = localTimeOfDay(anchor.starts_at, series?.timezone);
-    const durationMinutes = minutesBetween(anchor.starts_at, anchor.ends_at);
-    if (!startTime || !durationMinutes) return fail(seriesEditFailureMessage("unknown"));
+    if (!series) return fail(seriesEditFailureMessage("not_found"));
+    const baselineStartTime = String(series.local_start_time ?? "").slice(0, 5);
+    if (!baselineStartTime || !series.duration_minutes) return fail(seriesEditFailureMessage("unknown"));
 
     const built = buildSeriesEditChanges(
       {
@@ -3356,13 +3358,13 @@ export async function submitGroupClassSeriesEditAction(
         durationMinutes: getString(formData, "durationMinutes"),
       },
       {
-        title: anchor.title ?? "",
-        instructorId: anchor.instructor_id ?? null,
-        roomId: anchor.room_id ?? null,
-        locationName: anchor.location_name ?? null,
-        rosterCapacity: anchor.roster_capacity ?? null,
-        startTime,
-        durationMinutes,
+        title: series.title ?? "",
+        instructorId: series.default_instructor_id ?? null,
+        roomId: series.default_room_id ?? null,
+        locationName: series.default_location_name ?? null,
+        rosterCapacity: series.default_roster_capacity ?? null,
+        startTime: baselineStartTime,
+        durationMinutes: Number(series.duration_minutes),
       },
     );
 

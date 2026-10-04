@@ -372,6 +372,41 @@ export function groupClassSeriesEditBannerMessage(code: string, count: number | 
   return n ? `${n} ${plural(n, "class", "classes")} updated.` : "Classes updated.";
 }
 
+/** Form fields that make up each tracked override group (the group "time" is start time and length together). */
+export const SERIES_EDIT_GROUP_FIELDS: Record<string, Array<keyof SeriesEditFormInput>> = {
+  title: ["title"],
+  instructor: ["instructorId"],
+  room: ["roomId"],
+  location: ["locationName"],
+  capacity: ["rosterCapacity"],
+  time: ["startTime", "durationMinutes"],
+};
+
+/** Copies the selected class's own values into the form for the customized groups only. */
+export function applyAnchorCustomizedValues(
+  values: SeriesEditFormInput,
+  anchorValues: SeriesEditFormInput,
+  customizedGroups: readonly string[],
+): SeriesEditFormInput {
+  const next = { ...values };
+  for (const group of customizedGroups) {
+    for (const field of SERIES_EDIT_GROUP_FIELDS[group] ?? []) next[field] = anchorValues[field];
+  }
+  return next;
+}
+
+/**
+ * Everything the owner reviewed: the field values and the preserve/overwrite choice. Any change to either invalidates
+ * the review on the client (the server independently re-derives and compares its own fingerprint at apply time).
+ */
+export function seriesEditReviewKey(values: SeriesEditFormInput, overwrite: boolean): string {
+  return JSON.stringify([values.title, values.instructorId, values.roomId, values.locationName, values.rosterCapacity, values.startTime, values.durationMinutes, overwrite]);
+}
+
+export function isSeriesEditReviewStale(reviewedKey: string | null, currentKey: string): boolean {
+  return reviewedKey === null || reviewedKey !== currentKey;
+}
+
 /** "HH:MM" wall-clock time of an instant in an IANA time zone (null when the inputs are not usable). */
 export function localTimeOfDay(iso: string | null | undefined, timeZone: string | null | undefined): string | null {
   if (!iso || !timeZone) return null;

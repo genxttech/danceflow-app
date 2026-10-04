@@ -3,7 +3,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 /**
- * GC-S1C-5: "This and following classes" series editing (application layer). The authoritative rules live in
+ * GC-S1C-5: "This and following classes" series editing (application layer). The bulk-edit change set is diffed against the
+ * SERIES DEFINITION, never against the selected class, so a customized class's own value can be propagated. The authoritative rules live in
  * edit_group_class_series_from (test_T_gcsc5 SQL suite + two-session harness); here we prove the action sends only
  * the diffed change set and the occurrence id, refuses an instructor before any RPC, requires the reviewed
  * fingerprint to still match, maps every outcome to fixed copy, never writes tables itself and never notifies.
@@ -119,7 +120,17 @@ const RESULT_RAW = {
 
 type Rpc = { data?: unknown; error?: { message: string } | null };
 
-function makeSupabase(opts: { anchor?: unknown; previewRpc?: Rpc; editRpc?: Rpc } = {}) {
+const SERIES_BASELINE = {
+  title: "Salsa",
+  default_instructor_id: INSTRUCTOR,
+  default_room_id: null as string | null,
+  default_location_name: null as string | null,
+  default_roster_capacity: 10 as number | null,
+  local_start_time: "18:30:00",
+  duration_minutes: 60,
+};
+
+function makeSupabase(opts: { anchor?: unknown; series?: Partial<typeof SERIES_BASELINE> | null; previewRpc?: Rpc; editRpc?: Rpc } = {}) {
   const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const writes: string[] = [];
   const supabase = {
@@ -131,7 +142,7 @@ function makeSupabase(opts: { anchor?: unknown; previewRpc?: Rpc; editRpc?: Rpc 
         Promise.resolve(
           table === "appointments"
             ? { data: opts.anchor === undefined ? ANCHOR : opts.anchor, error: null }
-            : { data: { timezone: "America/New_York" }, error: null },
+            : { data: opts.series === null ? null : { ...SERIES_BASELINE, ...(opts.series ?? {}) }, error: null },
         );
       chain.update = () => (writes.push(`update:${table}`), chain);
       chain.insert = () => (writes.push(`insert:${table}`), Promise.resolve({ error: null }));
@@ -215,7 +226,7 @@ describe("S1C-5 action: authority and inputs", () => {
       [{ startTime: "25:00" }, "Choose a valid start time."],
       [{ durationMinutes: "3" }, "Class length must be between 5 and 720 minutes."],
       [{ instructorId: "x; drop table" }, "One of the values is not valid. Check the fields and try again."],
-      [{}, "Nothing would change. Edit at least one field first."],
+      [{}, "Nothing would change. Edit at least one field first."], // untouched relative to the series baseline
     ];
     for (const [fields, copy] of cases) {
       const { supabase, rpcCalls } = makeSupabase();
@@ -361,6 +372,113 @@ describe("S1C-5 action: errors are fixed copy", () => {
   });
 });
 
+describe("S1C-5 remediation: the bulk edit is expressed against the series baseline (customized anchor)", () => {
+  const OTHER = "55555555-5555-4555-8555-555555555555";
+
+  // The selected class is customized (its own values live on the appointment row); the series definition is the baseline.
+  // Every editable field, generically: the form carries the anchor's customized value; the change set must include it.
+  const FIELDS: Array<{ name: string; series: Partial<typeof SERIES_BASELINE>; form: Record<string, string>; expected: Record<string, unknown> }> = [
+    { name: "title", series: {}, form: { title: "Substitute title" }, expected: { title: "Substitute title" } },
+    { name: "instructor", series: {}, form: { instructorId: OTHER }, expected: { instructor_id: OTHER } },
+    { name: "room", series: {}, form: { roomId: ROOM }, expected: { room_id: ROOM } },
+    { name: "location", series: {}, form: { locationName: "Annex" }, expected: { location_name: "Annex" } },
+    { name: "capacity", series: {}, form: { rosterCapacity: "6" }, expected: { roster_capacity: 6 } },
+    { name: "start time", series: {}, form: { startTime: "19:15" }, expected: { local_start_time: "19:15" } },
+    { name: "duration", series: {}, form: { durationMinutes: "75" }, expected: { duration_minutes: 75 } },
+    // clearing a field the series has set is also a change against the baseline
+    { name: "clear capacity", series: {}, form: { rosterCapacity: "" }, expected: { roster_capacity: null } },
+    { name: "clear instructor", series: {}, form: { instructorId: "" }, expected: { instructor_id: null } },
+    // a series with a room: choosing no room is a change; choosing the series room is not
+    { name: "clear room", series: { default_room_id: ROOM }, form: { roomId: "" }, expected: { room_id: null } },
+  ];
+
+  for (const field of FIELDS) {
+    it(`propagating the selected class's customized ${field.name} is sent as a change even though that class already has it`, async () => {
+      // the anchor already holds the customized value; the series baseline holds something else
+      const { supabase, rpcCalls } = makeSupabase({
+        series: field.series,
+        anchor: {
+          ...ANCHOR,
+          title: field.form.title ?? ANCHOR.title,
+          instructor_id: "instructorId" in field.form ? field.form.instructorId || null : ANCHOR.instructor_id,
+          room_id: "roomId" in field.form ? field.form.roomId || null : ANCHOR.room_id,
+          location_name: "locationName" in field.form ? field.form.locationName || null : ANCHOR.location_name,
+        },
+      });
+      asRole(supabase, "studio_owner");
+      const state = await submitGroupClassSeriesEditAction(IDLE, form(field.form));
+      expect(state.status).toBe("preview");
+      expect(rpcCalls).toEqual([
+        { name: "preview_group_class_series_edit", args: { p_appointment_id: APPT, p_changes: field.expected, p_overwrite: false } },
+      ]);
+    });
+  }
+
+  it("the critical case: series instructor A, anchor customized to B, owner submits B -> the change set carries B", async () => {
+    const A = INSTRUCTOR;
+    const B = OTHER;
+    const { supabase, rpcCalls } = makeSupabase({ series: { default_instructor_id: A }, anchor: { ...ANCHOR, instructor_id: B } });
+    asRole(supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, form({ instructorId: B }));
+    expect(rpcCalls[0].args.p_changes).toEqual({ instructor_id: B });
+  });
+
+  it("a mixed edit sends both the propagated customized value and the new bulk field", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, instructor_id: OTHER } });
+    asRole(supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, form({ instructorId: OTHER, title: "Mixed" }));
+    expect(rpcCalls[0].args.p_changes).toEqual({ instructor_id: OTHER, title: "Mixed" });
+  });
+
+  it("an untouched form (every field equal to the series baseline) is still refused, even when the selected class is customized", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, instructor_id: OTHER, title: "Customized", roster_capacity: 3 } });
+    asRole(supabase, "studio_owner");
+    // the form carries the BASELINE values (what the page prefills), so nothing differs from the series
+    const state = await submitGroupClassSeriesEditAction(IDLE, form());
+    expect(state.error).toBe("Nothing would change. Edit at least one field first.");
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it("the baseline time is read from the series definition (HH:MM:SS -> HH:MM) and a missing series is refused", async () => {
+    const same = makeSupabase({ series: { local_start_time: "07:05:00" } });
+    asRole(same.supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, form({ startTime: "07:05" }));
+    expect(same.rpcCalls).toHaveLength(0); // equal to the baseline: not a change
+    const missing = makeSupabase({ series: null });
+    asRole(missing.supabase, "studio_owner");
+    const state = await submitGroupClassSeriesEditAction(IDLE, form({ title: "x" }));
+    expect(state.error).toBe("We couldn't find this class.");
+  });
+
+  it("the preserve/overwrite choice stays an explicit, separate input (the customized-anchor fix does not imply overwrite)", async () => {
+    const { supabase, rpcCalls } = makeSupabase({ anchor: { ...ANCHOR, instructor_id: OTHER } });
+    asRole(supabase, "studio_owner");
+    await submitGroupClassSeriesEditAction(IDLE, form({ instructorId: OTHER }));
+    await submitGroupClassSeriesEditAction(IDLE, form({ instructorId: OTHER, overwriteCustomized: "on" }));
+    expect(rpcCalls.map((c) => c.args.p_overwrite)).toEqual([false, true]);
+  });
+
+  it("review staleness covers every reviewed value and the preserve/overwrite choice", () => {
+    const base = { title: "T", instructorId: "", roomId: "", locationName: "", rosterCapacity: "", startTime: "18:30", durationMinutes: "60" };
+    const key = lib.seriesEditReviewKey(base, false);
+    expect(lib.isSeriesEditReviewStale(null, key)).toBe(true);
+    expect(lib.isSeriesEditReviewStale(key, key)).toBe(false);
+    expect(lib.isSeriesEditReviewStale(key, lib.seriesEditReviewKey(base, true))).toBe(true);
+    for (const field of Object.keys(base) as Array<keyof typeof base>) {
+      expect(lib.isSeriesEditReviewStale(key, lib.seriesEditReviewKey({ ...base, [field]: "changed" }, false))).toBe(true);
+    }
+  });
+
+  it("the customized-anchor shortcut copies only the customized groups' fields", () => {
+    const baseline = { title: "A", instructorId: "i1", roomId: "", locationName: "", rosterCapacity: "10", startTime: "18:30", durationMinutes: "60" };
+    const anchor = { title: "B", instructorId: "i2", roomId: "r1", locationName: "L", rosterCapacity: "5", startTime: "19:00", durationMinutes: "90" };
+    expect(lib.applyAnchorCustomizedValues(baseline, anchor, ["instructor"])).toEqual({ ...baseline, instructorId: "i2" });
+    expect(lib.applyAnchorCustomizedValues(baseline, anchor, ["time", "title"])).toEqual({ ...baseline, title: "B", startTime: "19:00", durationMinutes: "90" });
+    expect(lib.applyAnchorCustomizedValues(baseline, anchor, [])).toEqual(baseline);
+    expect(lib.applyAnchorCustomizedValues(baseline, anchor, ["bogus"])).toEqual(baseline);
+  });
+});
+
 describe("S1C-5 pure helpers", () => {
   const CURRENT = { title: "Salsa", instructorId: INSTRUCTOR, roomId: null, locationName: null, rosterCapacity: 10, startTime: "18:30", durationMinutes: 60 };
   const SAME = { title: "Salsa", instructorId: INSTRUCTOR, roomId: "", locationName: "", rosterCapacity: "10", startTime: "18:30", durationMinutes: "60" };
@@ -452,6 +570,8 @@ describe("S1C-5 UI", () => {
     requestId: REQ,
     occurrenceLabel: "Class 3",
     defaults: { title: "Salsa", instructorId: INSTRUCTOR, roomId: "", locationName: "", rosterCapacity: "10", startTime: "18:30", durationMinutes: "60" },
+    anchorValues: { title: "Salsa", instructorId: INSTRUCTOR, roomId: "", locationName: "", rosterCapacity: "10", startTime: "18:30", durationMinutes: "60" },
+    customizedGroups: [] as string[],
     instructors: [{ id: INSTRUCTOR, label: "Pat Smith" }],
     rooms: [{ id: ROOM, label: "Studio A" }],
     cancelHref: `/app/schedule/${APPT}/edit`,
@@ -470,6 +590,18 @@ describe("S1C-5 UI", () => {
     expect(html).not.toContain("Apply to");
     expect(html).toContain("starting with Class 3");
     expect(html).toContain('name="requestId"');
+  });
+
+  it("a customized selected class shows a note and the use-my-values shortcut; a class that follows the series does not", () => {
+    const customized = renderToStaticMarkup(
+      createElement(SeriesEditFollowingForm, { ...props, customizedGroups: ["instructor", "time"], anchorValues: { ...props.anchorValues, instructorId: "other" } }),
+    );
+    expect(customized).toContain("This class is customized");
+    expect(customized).toContain("instructor, start time or length");
+    expect(customized).toContain("Use this class&#x27;s values");
+    // the fields start from the series values, not from the customized class
+    expect(customized).toContain(`value="${INSTRUCTOR}" selected`);
+    expect(renderToStaticMarkup(createElement(SeriesEditFollowingForm, props))).not.toContain("This class is customized");
   });
 
   it("the series context links to the following-classes editor only when the link is provided", () => {

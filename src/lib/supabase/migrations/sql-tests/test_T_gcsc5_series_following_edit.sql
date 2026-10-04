@@ -15,6 +15,9 @@
 --   * conflicts (instructor, room), the capacity floor and a conflict appearing between preview and apply roll
 --     the whole operation back; validation errors; idempotent replay; no duplicate successor;
 --   * S1C-4 "this and following" cancellation spans the split lineage; the preview is read-only;
+--   * (remediation) the customized-anchor case: the bulk edit is expressed against the series baseline, so propagating the
+--     selected class's own customized value works for every editable field, preserve keeps a different customized later value,
+--     overwrite replaces it, and override flags stay truthful (cleared when the value equals the new default, kept otherwise);
 --   * credits, usage and attendance never move.
 -- One transaction, rolled back. Run via `supabase db query --linked --file <this file>` against DEV AFTER
 -- 20261019090000 (and the earlier S1C migrations) are applied. UUID block ...0000000ee....
@@ -218,6 +221,16 @@ insert into public.rooms (id, studio_id, name, active, max_simultaneous_bookings
   ('00000000-0000-0000-0000-000000ee9001', '00000000-0000-0000-0000-000000ee0001', 'S1C5 room', true, 1),
   ('00000000-0000-0000-0000-000000ee9002', '00000000-0000-0000-0000-000000ee0002', 'Other studio room', true, null);
 
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000ee1008', 't-gcsc5-instructor3@example.test');
+insert into public.profiles (id, email, platform_role) values ('00000000-0000-0000-0000-000000ee1008', 't-gcsc5-instructor3@example.test', null);
+insert into public.user_studio_roles (user_id, studio_id, role, active) values ('00000000-0000-0000-0000-000000ee1008', '00000000-0000-0000-0000-000000ee0001', 'instructor', true);
+alter table public.instructors disable trigger user;
+insert into public.instructors (id, studio_id, user_id, first_name, last_name, active, can_instruct) values
+  ('00000000-0000-0000-0000-000000ee2004', '00000000-0000-0000-0000-000000ee0001', '00000000-0000-0000-0000-000000ee1008', 'Third', 'Instructor', true, true);
+alter table public.instructors enable trigger user;
+insert into public.rooms (id, studio_id, name, active, max_simultaneous_bookings) values
+  ('00000000-0000-0000-0000-000000ee9003', '00000000-0000-0000-0000-000000ee0001', 'S1C5 room 3', true, null);
+
 -- fixture series (through the released B1 RPC, as the owner); records the occurrence ids
 create function public.t_gcsc5_series(p_label text, p_req text, p_count integer, p_weekday integer, p_hour integer, p_capacity integer) returns void language plpgsql as $$
 declare v_res jsonb;
@@ -245,6 +258,15 @@ select public.t_gcsc5_series('E', '00000000-0000-0000-0000-000000ee7005', 3, 6, 
 select public.t_gcsc5_series('F', '00000000-0000-0000-0000-000000ee7006', 6, 7, 15, 5);
 select public.t_gcsc5_series('G', '00000000-0000-0000-0000-000000ee7007', 4, 1, 16, 5);
 select public.t_gcsc5_series('H', '00000000-0000-0000-0000-000000ee7008', 5, 2, 17, 5);
+select public.t_gcsc5_series('FT', '00000000-0000-0000-0000-000000ee7101', 5, 1, 18, 5);
+select public.t_gcsc5_series('FI', '00000000-0000-0000-0000-000000ee7102', 5, 2, 19, 5);
+select public.t_gcsc5_series('FR', '00000000-0000-0000-0000-000000ee7103', 5, 3, 20, 5);
+select public.t_gcsc5_series('FL', '00000000-0000-0000-0000-000000ee7104', 5, 4, 21, 5);
+select public.t_gcsc5_series('FC', '00000000-0000-0000-0000-000000ee7105', 5, 5, 22, 5);
+select public.t_gcsc5_series('FM', '00000000-0000-0000-0000-000000ee7106', 5, 6, 18, 5);
+select public.t_gcsc5_series('FD', '00000000-0000-0000-0000-000000ee7107', 5, 7, 19, 5);
+select public.t_gcsc5_series('FX', '00000000-0000-0000-0000-000000ee7108', 5, 1, 23, 5);
+select public.t_gcsc5_series('FU', '00000000-0000-0000-0000-000000ee7109', 5, 5, 23, 5);
 
 -- a standalone class and a private lesson (non-series)
 insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at, title) values
@@ -689,6 +711,121 @@ select public.t_gcsc5_assert('T-gcsc5-instructor-edit-tracked-as-override',
 select public.t_gcsc5_assert('T-gcsc5-no-cancelled-class-reactivated-anywhere',
   (select count(*)::text from public.appointments a where a.id in (select id from public.t_gcsc5_occ where label in ('D', 'E', 'F'))
      and a.status <> 'cancelled' and a.id in (public.t_gcsc5_o('D', 3), public.t_gcsc5_o('E', 1), public.t_gcsc5_o('E', 2), public.t_gcsc5_o('E', 3), public.t_gcsc5_o('F', 3), public.t_gcsc5_o('F', 6))), '0');
+
+-- ============================================================================
+-- 9b. REMEDIATION: customized-anchor bulk edit (B1) and override-flag reconciliation (M1), generic over every field
+--     Per field: series baseline X0; occurrence 2 (the anchor) customized to X; occurrence 4 customized to Y plus an
+--     unrelated customization; the owner propagates X (a value that differs from the series baseline but equals the
+--     anchor's own value). Preserve: 2 keeps X with its flag CLEARED, 3 and 5 become X, 4 keeps Y and keeps both flags,
+--     1 is untouched. Overwrite: 4 becomes X and only the edited field's flag clears.
+-- ============================================================================
+create function public.t_gcsc5_val(p_getter text, p_id uuid) returns text language plpgsql stable security definer set search_path = 'public' as $f$
+declare v text;
+begin
+  execute format('select %s from public.appointments a where a.id = %L', p_getter, p_id) into v;
+  return v;
+end $f$;
+grant execute on function public.t_gcsc5_val(text, uuid) to public;
+create function public.t_gcsc5_flags(p_id uuid) returns text language sql stable security definer set search_path = 'public' as $f$
+  select coalesce((select string_agg(x, '+' order by x) from public.appointments a, unnest(a.series_overridden_fields) x where a.id = p_id), '')
+$f$;
+grant execute on function public.t_gcsc5_flags(uuid) to public;
+
+create function public.t_gcsc5_b1(
+  p_label text, p_group text, p_unrel_group text,
+  p_set_x text, p_set_y text, p_set_u text,
+  p_changes jsonb, p_getter text, p_req_a text, p_req_b text
+) returns void language plpgsql as $f$
+declare
+  v_base text; v_x text; v_y text; v jsonb;
+  o1 uuid := public.t_gcsc5_o(p_label, 1); o2 uuid := public.t_gcsc5_o(p_label, 2); o3 uuid := public.t_gcsc5_o(p_label, 3);
+  o4 uuid := public.t_gcsc5_o(p_label, 4); o5 uuid := public.t_gcsc5_o(p_label, 5);
+  v_both text := (select string_agg(x, '+' order by x) from unnest(array[p_group, p_unrel_group]) x);
+begin
+  perform set_config('request.jwt.claims', json_build_object('sub', public.t_gcsc5_uid('OWN'))::text, true);
+  set local role authenticated;
+  execute format('update public.appointments set %s where id = %L', p_set_x, o2);
+  execute format('update public.appointments set %s where id = %L', p_set_y, o4);
+  execute format('update public.appointments set %s where id = %L', p_set_u, o4);
+  reset role;
+
+  v_base := public.t_gcsc5_val(p_getter, o3); v_x := public.t_gcsc5_val(p_getter, o2); v_y := public.t_gcsc5_val(p_getter, o4);
+  perform public.t_gcsc5_assert('T-gcsc5-b1-' || p_label || '-precondition-anchor-customized-later-customized-differently',
+    (v_x is distinct from v_base)::text || '/' || (v_y is distinct from v_x)::text || '/' || public.t_gcsc5_flags(o2) || '/' || public.t_gcsc5_flags(o4), 'true/true/' || p_group || '/' || v_both);
+
+  v := public.t_gcsc5_apply('OWN', p_label, 2, p_req_a::text, p_changes, false);
+  perform public.t_gcsc5_assert('T-gcsc5-b1-' || p_label || '-preserve-propagates-the-anchor-value-keeps-the-later-customization',
+    public.t_gcsc5_val(p_getter, o1) || '|' || public.t_gcsc5_val(p_getter, o2) || '|' || public.t_gcsc5_val(p_getter, o3) || '|' || public.t_gcsc5_val(p_getter, o4) || '|' || public.t_gcsc5_val(p_getter, o5),
+    v_base || '|' || v_x || '|' || v_x || '|' || v_y || '|' || v_x);
+  perform public.t_gcsc5_assert('T-gcsc5-b1-' || p_label || '-preserve-flags-truthful-anchor-cleared-later-kept-unrelated-kept',
+    '[' || public.t_gcsc5_flags(o1) || ']/[' || public.t_gcsc5_flags(o2) || ']/[' || public.t_gcsc5_flags(o3) || ']/[' || public.t_gcsc5_flags(o4) || ']/[' || public.t_gcsc5_flags(o5) || ']',
+    '[]/[]/[]/[' || v_both || ']/[]');
+  perform public.t_gcsc5_assert('T-gcsc5-b1-' || p_label || '-preserve-counts-value-changes-only-and-reports-the-kept-customization',
+    (v ->> 'edited_class_count') || '/' || (v ->> 'preserved_customized_count') || '/' || (v ->> 'overwritten_customized_count') || '/' || (v ->> 'split_created'), '2/1/0/true');
+
+  v := public.t_gcsc5_apply('OWN', p_label, 2, p_req_b::text, p_changes, true);
+  perform public.t_gcsc5_assert('T-gcsc5-b1-' || p_label || '-overwrite-replaces-the-later-customization',
+    public.t_gcsc5_val(p_getter, o2) || '|' || public.t_gcsc5_val(p_getter, o3) || '|' || public.t_gcsc5_val(p_getter, o4) || '|' || public.t_gcsc5_val(p_getter, o5), v_x || '|' || v_x || '|' || v_x || '|' || v_x);
+  perform public.t_gcsc5_assert('T-gcsc5-b1-' || p_label || '-overwrite-clears-only-the-edited-field-flag',
+    '[' || public.t_gcsc5_flags(o4) || ']/[' || public.t_gcsc5_flags(o2) || ']', '[' || p_unrel_group || ']/[]');
+  perform public.t_gcsc5_assert('T-gcsc5-b1-' || p_label || '-overwrite-counts', (v ->> 'edited_class_count') || '/' || (v ->> 'overwritten_customized_count') || '/' || (v ->> 'preserved_customized_count'), '1/1/0');
+end $f$;
+grant execute on function public.t_gcsc5_b1(text, text, text, text, text, text, jsonb, text, text, text) to public;
+
+select public.t_gcsc5_b1('FT', 'title', 'capacity', $$title = 'T-X'$$, $$title = 'T-Y'$$, $$roster_capacity = 9$$,
+  '{"title":"T-X"}'::jsonb, 'a.title', '00000000-0000-0000-0000-000000ee8501', '00000000-0000-0000-0000-000000ee8502');
+select public.t_gcsc5_b1('FI', 'instructor', 'title', $$instructor_id = '00000000-0000-0000-0000-000000ee2002'$$, $$instructor_id = '00000000-0000-0000-0000-000000ee2004'$$, $$title = 'unrelated'$$,
+  '{"instructor_id":"00000000-0000-0000-0000-000000ee2002"}'::jsonb, 'a.instructor_id::text', '00000000-0000-0000-0000-000000ee8503', '00000000-0000-0000-0000-000000ee8504');
+select public.t_gcsc5_b1('FR', 'room', 'title', $$room_id = '00000000-0000-0000-0000-000000ee9001'$$, $$room_id = '00000000-0000-0000-0000-000000ee9003'$$, $$title = 'unrelated'$$,
+  '{"room_id":"00000000-0000-0000-0000-000000ee9001"}'::jsonb, $$coalesce(a.room_id::text, '-')$$, '00000000-0000-0000-0000-000000ee8505', '00000000-0000-0000-0000-000000ee8506');
+select public.t_gcsc5_b1('FL', 'location', 'capacity', $$location_name = 'Loc X'$$, $$location_name = 'Loc Y'$$, $$roster_capacity = 9$$,
+  '{"location_name":"Loc X"}'::jsonb, $$coalesce(a.location_name, '-')$$, '00000000-0000-0000-0000-000000ee8507', '00000000-0000-0000-0000-000000ee8508');
+select public.t_gcsc5_b1('FC', 'capacity', 'title', $$roster_capacity = 7$$, $$roster_capacity = 9$$, $$title = 'unrelated'$$,
+  '{"roster_capacity":7}'::jsonb, $$coalesce(a.roster_capacity::text, '-')$$, '00000000-0000-0000-0000-000000ee8509', '00000000-0000-0000-0000-000000ee8510');
+select public.t_gcsc5_b1('FM', 'time', 'title', $$starts_at = starts_at + interval '30 minutes', ends_at = ends_at + interval '30 minutes'$$, $$starts_at = starts_at + interval '60 minutes', ends_at = ends_at + interval '60 minutes'$$, $$title = 'unrelated'$$,
+  '{"local_start_time":"18:30"}'::jsonb, $$to_char(a.starts_at at time zone 'America/New_York', 'HH24:MI')$$, '00000000-0000-0000-0000-000000ee8511', '00000000-0000-0000-0000-000000ee8512');
+select public.t_gcsc5_b1('FD', 'time', 'title', $$ends_at = ends_at + interval '15 minutes'$$, $$ends_at = ends_at - interval '15 minutes'$$, $$title = 'unrelated'$$,
+  '{"duration_minutes":75}'::jsonb, $$(extract(epoch from a.ends_at - a.starts_at) / 60)::integer::text$$, '00000000-0000-0000-0000-000000ee8513', '00000000-0000-0000-0000-000000ee8514');
+
+-- mixed edit: the anchor's customized instructor propagates AND a new title is applied in the same operation
+do $$
+declare v jsonb;
+begin
+  perform set_config('request.jwt.claims', json_build_object('sub', public.t_gcsc5_uid('OWN'))::text, true);
+  set local role authenticated;
+  update public.appointments set instructor_id = '00000000-0000-0000-0000-000000ee2002' where id = public.t_gcsc5_o('FX', 2);
+  reset role;
+  v := public.t_gcsc5_apply('OWN', 'FX', 2, '00000000-0000-0000-0000-000000ee8515', '{"instructor_id":"00000000-0000-0000-0000-000000ee2002","title":"Mixed"}'::jsonb);
+  perform public.t_gcsc5_assert('T-gcsc5-b1-mixed-edit-propagates-customized-instructor-and-applies-the-title',
+    (select string_agg(o.idx || ':' || a.title || ':' || (a.instructor_id = '00000000-0000-0000-0000-000000ee2002')::text || ':[' || public.t_gcsc5_flags(a.id) || ']', ' ' order by o.idx)
+     from public.t_gcsc5_occ o join public.appointments a on a.id = o.id where o.label = 'FX'),
+    '1:SER-FX:false:[] 2:Mixed:true:[] 3:Mixed:true:[] 4:Mixed:true:[] 5:Mixed:true:[]');
+end $$;
+
+-- untouched relative to the series baseline: the anchor's customization alone is not a change
+select public.t_gcsc5_assert('T-gcsc5-b1-untouched-bulk-form-fixture-anchor-customized',
+  (select (select string_agg(o.idx || ':' || (a.instructor_id = '00000000-0000-0000-0000-000000ee2002')::text, ' ' order by o.idx) from public.t_gcsc5_occ o join public.appointments a on a.id = o.id where o.label = 'FU')), '1:false 2:false 3:false 4:false 5:false');
+do $$
+begin
+  perform set_config('request.jwt.claims', json_build_object('sub', public.t_gcsc5_uid('OWN'))::text, true);
+  set local role authenticated;
+  update public.appointments set instructor_id = '00000000-0000-0000-0000-000000ee2002' where id = public.t_gcsc5_o('FU', 2);
+  reset role;
+  perform public.t_gcsc5_refuse('T-gcsc5-b1-sending-the-series-baseline-value-is-no-change-and-keeps-the-customized-anchor', 'OWN', 'FU', 2, '00000000-0000-0000-0000-000000ee8516',
+    '{"instructor_id":"00000000-0000-0000-0000-000000ee2001"}'::jsonb, 'GCSC5_NO_CHANGES');
+  perform public.t_gcsc5_assert('T-gcsc5-b1-nothing-moved-by-the-refused-baseline-edit',
+    (select string_agg(o.idx || ':' || (a.instructor_id = '00000000-0000-0000-0000-000000ee2002')::text || ':[' || public.t_gcsc5_flags(a.id) || ']', ' ' order by o.idx) from public.t_gcsc5_occ o join public.appointments a on a.id = o.id where o.label = 'FU'),
+    '1:false:[] 2:true:[instructor] 3:false:[] 4:false:[] 5:false:[]');
+end $$;
+
+-- the preview agrees with the apply about what is customized (customized only when a DIFFERENT value would be kept or replaced)
+do $$
+declare v jsonb;
+begin
+  v := public.t_gcsc5_preview('OWN', 'FU', 2, '{"instructor_id":"00000000-0000-0000-0000-000000ee2002"}'::jsonb);
+  perform public.t_gcsc5_assert('T-gcsc5-b1-preview-propagating-the-anchor-value-reports-no-kept-customization',
+    (v ->> 'customized_count') || '/' || (v ->> 'changed_count') || '/' || (v ->> 'editable_count'), '0/3/4');
+end $$;
 
 -- ============================================================================
 -- 10. Everything that must never move
