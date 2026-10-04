@@ -57,7 +57,7 @@ import {
   seriesCancelSuccessCode,
 } from "@/lib/schedule/groupClassSeriesCancel";
 import { notifySeriesCancellation } from "@/lib/notifications/groupClassSeriesCancellation";
-import { classifyRosterEnrollError, isTerminalAttendance, safeRosterErrorReturn } from "@/lib/schedule/groupClassRosterPanel";
+import { classifyRosterEnrollError, safeRosterErrorReturn } from "@/lib/schedule/groupClassRosterPanel";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import {
   INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE,
@@ -2969,39 +2969,24 @@ export async function cancelClassAttendeeAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_attendee"));
     }
 
-    // GC-S1D-1: do not offer or perform a removal that would sever an enrollment from recorded attendance. The database
-    // allows the status change (a post-start cancellation stays historically eligible), but removing a dancer whose
-    // attendance is recorded must go through the attendance workflow, so the roster panel hides the control and this is
-    // the matching server-side refusal. Only checked when the enrollment row is readable; the RPC stays authoritative.
-    const { data: attendeeRow } = await supabase
-      .from("appointment_attendees")
-      .select("id, appointment_id, client_id")
-      .eq("id", attendeeId)
-      .maybeSingle();
-
-    if (attendeeRow?.appointment_id && attendeeRow?.client_id) {
-      const { data: attendanceRows } = await supabase
-        .from("attendance_records")
-        .select("status")
-        .eq("appointment_id", attendeeRow.appointment_id)
-        .eq("client_id", attendeeRow.client_id);
-
-      if ((attendanceRows ?? []).some((row: { status: string }) => isTerminalAttendance(row.status))) {
-        redirect(getErrorRedirect(formData, returnTo, "attendee_attendance_recorded"));
-      }
-    }
-
     const { error } = await supabase.rpc("cancel_class_attendee", {
       p_attendee_id: attendeeId,
     });
 
     if (error) {
       console.error("Could not cancel class attendee:", error.message);
+      // GC-S1D-1: removal of a dancer with recorded terminal attendance is refused by the database
+      // (GCSD1_ATTENDEE_ATTENDANCE_RECORDED, attendee guard trigger); the roster panel also hides the control.
+      const removeMessage = String(error.message ?? "");
       redirect(
         getErrorRedirect(
           formData,
           returnTo,
-          String(error.message ?? "").includes("Not authorized") ? "attendee_not_authorized" : "attendee_cancel_failed",
+          removeMessage.includes("GCSD1_ATTENDEE_ATTENDANCE_RECORDED")
+            ? "attendee_attendance_recorded"
+            : removeMessage.includes("Not authorized")
+              ? "attendee_not_authorized"
+              : "attendee_cancel_failed",
         ),
       );
     }

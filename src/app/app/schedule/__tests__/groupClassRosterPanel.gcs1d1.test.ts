@@ -444,22 +444,25 @@ describe("S1D-1 remove dancer action (this class)", () => {
     expect(url).toBe(`/app/schedule/${APPT}?success=attendee_cancelled`);
   });
 
-  it("a dancer with recorded attendance is not removed and the reason is explained", async () => {
-    for (const status of ["attended", "no_show"]) {
-      const { supabase, rpcCalls } = fakeSupabase({ tables: { appointment_attendees: { data: [attendeeRow] }, attendance_records: { data: [{ status }] } } });
-      requireEditAccessMock.mockResolvedValue(ctx(supabase));
-      const url = urlOf(await run(cancelClassAttendeeAction(formOf(fields))));
-      expect(url).toBe(`/app/schedule/${APPT}?error=attendee_attendance_recorded`);
-      expect(rpcCalls).toHaveLength(0);
-    }
-  });
-
-  it("a checked-in (non-terminal) dancer can still be removed", async () => {
-    const { supabase, rpcCalls } = fakeSupabase({ rpc: { cancel_class_attendee: { data: null, error: null } }, tables: { appointment_attendees: { data: [attendeeRow] }, attendance_records: { data: [{ status: "checked_in" }] } } });
+  it("the database refusal for recorded terminal attendance maps to the existing explanation (the rule lives in the database)", async () => {
+    const message =
+      "GCSD1_ATTENDEE_ATTENDANCE_RECORDED: This dancer already has attendance recorded for this class. Correct the attendance record before removing them from the class.";
+    const { supabase, rpcCalls } = fakeSupabase({ rpc: { cancel_class_attendee: { error: { message } } } });
     requireEditAccessMock.mockResolvedValue(ctx(supabase));
     const url = urlOf(await run(cancelClassAttendeeAction(formOf(fields))));
-    expect(rpcCalls).toHaveLength(1);
-    expect(url).toContain("success=attendee_cancelled");
+    expect(rpcCalls).toEqual([{ name: "cancel_class_attendee", args: { p_attendee_id: "att-7" } }]);
+    expect(url).toBe(`/app/schedule/${APPT}?error=attendee_attendance_recorded`);
+    expect(url).not.toContain("GCSD1");
+    expect(panel.rosterBanner({ error: "attendee_attendance_recorded" })?.message).toContain("Attendance is already recorded");
+  });
+
+  it("the action performs no attendance rule of its own: it calls only the removal RPC", async () => {
+    const reads: string[] = [];
+    const { supabase } = fakeSupabase({ rpc: { cancel_class_attendee: { data: null, error: null } } });
+    const spied = { ...supabase, from: (table: string) => (reads.push(table), supabase.from(table)) };
+    requireEditAccessMock.mockResolvedValue(ctx(spied));
+    await run(cancelClassAttendeeAction(formOf(fields)));
+    expect(reads).toEqual([]);
   });
 
   it("authority and unexpected refusals map to fixed codes with no raw text", async () => {
