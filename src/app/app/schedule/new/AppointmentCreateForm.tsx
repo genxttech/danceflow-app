@@ -5,6 +5,8 @@ import { useActionState, useEffect, useMemo, useState } from "react";
 import { createAppointmentAction, type BookableClientSearchResult } from "../actions";
 import { hasReplacementCoverage, type PackageWithItems } from "@/lib/packages/entitlement";
 import InstructorClientSearchField from "../InstructorClientSearchField";
+import GroupClassModeToggle, { type GroupClassMode } from "./GroupClassModeToggle";
+import GroupClassSeriesForm from "./GroupClassSeriesForm";
 
 type InstructorOption = {
   id: string;
@@ -98,6 +100,8 @@ type AppointmentCreateFormProps = {
   initialEndTime?: string;
   canBookHostStudioFloorSpace?: boolean;
   linkedHostStudios?: LinkedHostStudioOption[];
+  // GC-S1B B3: the studio's own time zone, used only to display series preview times.
+  studioTimeZone?: string;
 };
 
 type FormState = {
@@ -453,6 +457,7 @@ export default function AppointmentCreateForm({
   initialEndTime = "",
   canBookHostStudioFloorSpace = false,
   linkedHostStudios = [],
+  studioTimeZone = "America/New_York",
 }: AppointmentCreateFormProps) {
   const [state, formAction, pending] = useActionState(
     createAppointmentAction,
@@ -460,6 +465,8 @@ export default function AppointmentCreateForm({
   );
 
   const [appointmentType, setAppointmentType] = useState("private_lesson");
+  // GC-S1B B3: a Group Class is either a single class (the existing flow, unchanged) or a series.
+  const [classMode, setClassMode] = useState<GroupClassMode>("one_time");
   const [clientId, setClientId] = useState(initialClientId);
   const [selectedClientLabel, setSelectedClientLabel] = useState(initialClientLabel);
   const [partnerClientId, setPartnerClientId] = useState("");
@@ -636,6 +643,18 @@ export default function AppointmentCreateForm({
     setFloorRentalSlots((current) => current.filter((_, i) => i !== index));
   }
 
+  if (isGroupClass && classMode === "series" && !instructorSearchMode) {
+    return (
+      <GroupClassSeriesForm
+        instructors={instructors}
+        rooms={rooms}
+        studioTimeZone={studioTimeZone}
+        initialDate={initialDate}
+        onChooseMode={setClassMode}
+      />
+    );
+  }
+
   return (
     <form action={formAction} className="space-y-5 md:space-y-6">
       <input
@@ -758,6 +777,12 @@ export default function AppointmentCreateForm({
                   </option>
                 </select>
               </div>
+
+              {isGroupClass && !instructorSearchMode ? (
+                <div className="md:col-span-2">
+                  <GroupClassModeToggle mode={classMode} onChange={setClassMode} />
+                </div>
+              ) : null}
 
               <div className="md:col-span-2">
                 <label
