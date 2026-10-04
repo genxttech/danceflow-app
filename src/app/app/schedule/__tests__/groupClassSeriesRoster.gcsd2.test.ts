@@ -458,7 +458,7 @@ describe("S1D-2 rendering", () => {
         timeZone: TZ,
       }),
     );
-    expect(blocked).toContain("Ann Lee can&#x27;t be enrolled in the following classes yet.");
+    expect(blocked).toContain("Ann Lee can&#x27;t be enrolled from this class onward yet.");
     expect(blocked).toContain("Needs attention");
     expect(blocked).toContain("Class is full");
     expect(blocked).toContain("No membership allowance left");
@@ -486,5 +486,122 @@ describe("S1D-2 rendering", () => {
   it("offers no portal series self-enrollment and no enrollment-settings (S1D-3) editing", () => {
     const html = renderPanel({ seriesScope: true, timeZone: TZ });
     expect(html).not.toMatch(/self-enroll|portal|enrollment polic|enrollment settings|accepted funding|apply settings/i);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Full anchor: the series workflow starts from a full occurrence (D1: the full anchor blocks, it is never skipped or shifted)
+//
+// There is no DOM testing library, so the click sequence (open Add dancer, choose a dancer, pick a scope, review) cannot be
+// simulated. The decisions that control it live in pure helpers (seriesAddPanelState, seriesRosterSummary,
+// seriesRosterClassStateLabel, interpretSeriesApply) which are tested directly, and the initial render of every control is
+// asserted from the server-rendered markup.
+// ---------------------------------------------------------------------------------------------------------------------
+const FULL_ROSTER = () =>
+  rosterPanelLib.buildRosterPanel({ attendees: ATTENDEES, attendance: [{ client_id: "c2", status: "attended" }], capacity: 2, includeFunding: true, canManage: true });
+const addPanel = (props: Record<string, unknown>) =>
+  renderToStaticMarkup(createElement(AddDancerPanel, { appointmentId: APPT, returnTo: `/app/schedule/${APPT}`, isBroadStaff: true, full: false, ...props } as never));
+
+describe("S1D-2 full selected occurrence", () => {
+  it("the decision helper: a full series class keeps Add dancer, disables This class and explains why", () => {
+    const state = lib.seriesAddPanelState({ full: true, seriesScope: true, isBroadStaff: true });
+    expect(state.showAddControl).toBe(true);
+    expect(state.singleDisabled).toBe(true);
+    expect(state.fullNotice).toContain("This class is full");
+    expect(state.fullNotice).toContain("This and following classes");
+    expect(state.fullNotice).toMatch(/nothing is enrolled unless every class can take the dancer/);
+    expect(state.singleNote).toContain("can't take another dancer");
+  });
+
+  it("not full: nothing changes (no notice, This class enabled)", () => {
+    expect(lib.seriesAddPanelState({ full: false, seriesScope: true, isBroadStaff: true })).toEqual({
+      showAddControl: true,
+      fullNotice: null,
+      singleDisabled: false,
+      singleNote: null,
+    });
+  });
+
+  it("a full non-series class (or any class for an instructor) keeps the plain full message and no Add control", () => {
+    const broad = lib.seriesAddPanelState({ full: true, seriesScope: false, isBroadStaff: true });
+    expect(broad.showAddControl).toBe(false);
+    expect(broad.fullNotice).toBe("This class is full. Raise Maximum students in Edit class to add more dancers.");
+    const instructor = lib.seriesAddPanelState({ full: true, seriesScope: false, isBroadStaff: false });
+    expect(instructor.showAddControl).toBe(false);
+    expect(instructor.fullNotice).toBe("This class is full. Ask front desk to raise Maximum students to add more dancers.");
+  });
+
+  it("renders: broad staff on a full series occurrence get the notice AND the Add dancer control, the add form still disabled", () => {
+    const html = addPanel({ full: true, seriesScope: true, timeZone: TZ });
+    expect(html).toContain("+ Add dancer");
+    expect(html).toContain('role="note"');
+    expect(html).toContain("This class is full, so no dancer can be added to it.");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Add to class/); // nothing chosen, and This class cannot succeed
+    expect(html).not.toContain("Raise Maximum students in Edit class to add more dancers.");
+  });
+
+  it("renders: a full non-series class and an instructor see only the full message, no Add control, no series wording", () => {
+    for (const props of [{ full: true }, { full: true, isBroadStaff: false }, { full: true, seriesScope: false, isBroadStaff: true }]) {
+      const html = addPanel(props);
+      expect(html).not.toContain("+ Add dancer");
+      expect(html).toContain("This class is full.");
+      expect(html).not.toMatch(/following|series|Which classes/i);
+    }
+  });
+
+  it("the whole roster panel: the capacity stays visibly full and Add dancer is reachable for broad staff on a series class", () => {
+    const html = renderPanel({ roster: FULL_ROSTER(), seriesScope: true, timeZone: TZ });
+    expect(html).toContain("Class is full");
+    expect(html).toContain("+ Add dancer");
+    expect(html).toContain("This class is full, so no dancer can be added to it.");
+    const nonSeries = renderPanel({ roster: FULL_ROSTER(), seriesScope: false });
+    expect(nonSeries).toContain("Class is full");
+    expect(nonSeries).not.toContain("+ Add dancer");
+    const instructor = renderPanel({ roster: FULL_ROSTER(), seriesScope: false, isBroadStaff: false });
+    expect(instructor).not.toMatch(/following|series|Which classes|\+ Add dancer/i);
+  });
+
+  it("the series preview from a full anchor names the anchor as blocking and says nothing will be enrolled", () => {
+    const r = parse("enroll", "blocked", states("blocked_capacity", "will_enroll", "will_enroll"));
+    const summary = lib.seriesRosterSummary(r, "enroll", "Ann Lee");
+    expect(summary.tone).toBe("blocked");
+    expect(summary.canApply).toBe(false);
+    const text = [summary.headline, ...summary.details].join(" ");
+    expect(text).toContain("This class is full, and the enrollment starts here, so nothing can be enrolled from this class onward.");
+    expect(text).toMatch(/nothing will be enrolled/i);
+    expect(text).not.toContain("enroll in This class only"); // This class cannot succeed either
+    expect(lib.seriesRosterBlockers(r)).toHaveLength(1);
+    expect(lib.seriesRosterBlockers(r)[0].occurrenceIndex).toBe(1); // the anchor itself, never skipped or shifted
+    expect(r.classes[0].state).toBe("blocked_capacity");
+
+    const html = renderToStaticMarkup(createElement(SeriesRosterPreview, { result: r, kind: "enroll", name: "Ann Lee", timeZone: TZ }));
+    expect(html).toContain("Needs attention");
+    expect(html).toContain("Class is full");
+    expect(html).toContain("Raise Maximum students in Edit class");
+    // the classes that passed are not labelled as pending enrollments while the operation is refused
+    expect(html).not.toContain("Will be enrolled");
+    expect(html).toContain("Can take the dancer (not enrolled while another class is blocked)");
+  });
+
+  it("a later class being full is a blocker too, but the raise-capacity hint is only for a full anchor", () => {
+    const later = parse("enroll", "blocked", [
+      { idx: 1, state: "will_enroll" },
+      { idx: 2, state: "blocked_capacity" },
+    ]);
+    const text = lib.seriesRosterSummary(later, "enroll", "Ann Lee").details.join(" ");
+    expect(text).not.toContain("starts here");
+    expect(text).toContain("Fix the issue below");
+  });
+
+  it("incompatible existing funding gets its own plain hint", () => {
+    const r = parse("enroll", "blocked", states("will_enroll", "blocked_incompatible"));
+    expect(lib.seriesRosterSummary(r, "enroll", "Ann Lee").details.join(" ")).toContain("already have this dancer enrolled with different funding");
+  });
+
+  it("per-class labels: skipped is never described as blocked, and a normal preview keeps the plain labels", () => {
+    expect(lib.seriesRosterClassStateLabel("skipped_cancelled", "blocked")).toBe("Cancelled class (skipped)");
+    expect(lib.seriesRosterClassStateLabel("will_enroll", "ready")).toBe("Will be enrolled");
+    expect(lib.seriesRosterClassStateLabel("will_remove", "ready")).toBe("Will be removed");
+    expect(lib.seriesRosterClassStateLabel("will_remove", "changed")).toBe("Can be removed (nothing changed)");
   });
 });

@@ -1,5 +1,6 @@
 import {
   SERIES_ROSTER_STATE_LABELS,
+  seriesRosterClassStateLabel,
   isBlockedState,
   isSkippedState,
   seriesRosterBlockers,
@@ -75,7 +76,7 @@ export default function SeriesRosterPreview({
                         : "font-medium"
                   }
                 >
-                  {SERIES_ROSTER_STATE_LABELS[item.state]}
+                  {seriesRosterClassStateLabel(item.state, result.outcome)}
                 </span>
               </li>
             ))}

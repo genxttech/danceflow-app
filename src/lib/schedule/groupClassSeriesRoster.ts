@@ -157,6 +157,17 @@ export const SERIES_ROSTER_STATE_LABELS: Record<SeriesRosterClassState, string> 
   blocked_other: "Could not be checked",
 };
 
+/**
+ * The label for one class in the full list. When the operation as a whole is refused (blocked / stale), a class that passed its
+ * own check is NOT "will be enrolled": nothing is changed, so it reads as able to take the dancer, not as pending.
+ */
+export function seriesRosterClassStateLabel(state: SeriesRosterClassState, outcome: SeriesRosterOutcome): string {
+  const refused = outcome === "blocked" || outcome === "changed";
+  if (refused && state === "will_enroll") return "Can take the dancer (not enrolled while another class is blocked)";
+  if (refused && state === "will_remove") return "Can be removed (nothing changed)";
+  return SERIES_ROSTER_STATE_LABELS[state];
+}
+
 export function isBlockedState(state: SeriesRosterClassState): boolean {
   return state.startsWith("blocked_");
 }
@@ -220,14 +231,25 @@ export function seriesRosterSummary(result: SeriesRosterResult, kind: SeriesRost
     const already = result.counts.already_enrolled ?? 0;
 
     if (result.outcome === "blocked") {
-      const blockers = seriesRosterBlockers(result).length;
+      const blockersList = seriesRosterBlockers(result);
+      const blockers = blockersList.length;
+      const anchorFull = blockersList.some((c) => c.occurrenceIndex === result.anchorIndex && c.state === "blocked_capacity");
+      const incompatible = (result.counts.blocked_incompatible ?? 0) > 0;
+      const blockedDetails = [
+        `${plural(blockers, "class needs", "classes need")} attention. Enrollment never goes through for only some of the classes, so nothing will be enrolled until this is fixed.`,
+      ];
+      if (anchorFull) {
+        blockedDetails.unshift("This class is full, and the enrollment starts here, so nothing can be enrolled from this class onward.");
+        blockedDetails.push("Raise Maximum students in Edit class, or open a later class to start from there.");
+      } else if (incompatible) {
+        blockedDetails.push("Some classes already have this dancer enrolled with different funding. Correct or remove those enrollments, or choose the same funding.");
+      } else {
+        blockedDetails.push("Fix the issue below, choose different funding, or enroll in This class only.");
+      }
       return {
         tone: "blocked",
-        headline: `${name} can't be enrolled in the following classes yet.`,
-        details: [
-          `${plural(blockers, "class needs", "classes need")} attention. Enrollment never goes through for only some of the classes, so nothing will be enrolled until this is fixed.`,
-          "Fix the issue below, choose different funding, or enroll in This class only.",
-        ],
+        headline: `${name} can't be enrolled from this class onward yet.`,
+        details: blockedDetails,
         canApply: false,
       };
     }
@@ -370,4 +392,39 @@ export function seriesRosterExpectedCount(result: SeriesRosterResult, kind: Seri
 export function seriesRosterApplyLabel(kind: SeriesRosterKind, count: number): string {
   const noun = count === 1 ? "class" : "classes";
   return kind === "enroll" ? `Enroll in ${count} ${noun}` : `Remove from ${count} ${noun}`;
+}
+
+export type SeriesAddPanelState = {
+  /** Render the Add dancer control (otherwise only the full-class message). */
+  showAddControl: boolean;
+  /** Fixed notice above the control when THIS class is full. */
+  fullNotice: string | null;
+  /** "This class" cannot succeed (class full): its submit is disabled and explained. */
+  singleDisabled: boolean;
+  singleNote: string | null;
+};
+
+/**
+ * What the Add dancer control shows for a class that may be full. A full class never offers a path that looks capable of
+ * overbooking: "This class" is disabled and explained. Broad staff on a series occurrence still reach "This and following
+ * classes" from the full anchor; its preview then names the full anchor as blocking (nothing is enrolled, the anchor is never
+ * skipped or shifted).
+ */
+export function seriesAddPanelState(input: { full: boolean; seriesScope: boolean; isBroadStaff: boolean }): SeriesAddPanelState {
+  if (!input.full) return { showAddControl: true, fullNotice: null, singleDisabled: false, singleNote: null };
+  if (!input.seriesScope) {
+    return {
+      showAddControl: false,
+      fullNotice: `This class is full. ${input.isBroadStaff ? "Raise Maximum students in Edit class to add more dancers." : "Ask front desk to raise Maximum students to add more dancers."}`,
+      singleDisabled: true,
+      singleNote: null,
+    };
+  }
+  return {
+    showAddControl: true,
+    fullNotice:
+      "This class is full, so no dancer can be added to it. To enroll from this class onward, choose This and following classes: the review shows this full class as blocking, and nothing is enrolled unless every class can take the dancer.",
+    singleDisabled: true,
+    singleNote: "This class is full and can't take another dancer. Raise Maximum students in Edit class, or choose This and following classes to review the series.",
+  };
 }

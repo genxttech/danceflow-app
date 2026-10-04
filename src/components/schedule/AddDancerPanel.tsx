@@ -10,6 +10,7 @@ import {
 } from "@/app/app/schedule/groupClassSeriesRosterActions";
 import {
   interpretSeriesApply,
+  seriesAddPanelState,
   seriesRosterApplyLabel,
   seriesRosterExpectedCount,
   type SeriesRosterResult,
@@ -248,11 +249,10 @@ export default function AddDancerPanel({
     setLocalError("");
   }
 
-  if (full) {
+  const addState = seriesAddPanelState({ full, seriesScope, isBroadStaff });
+  if (!addState.showAddControl) {
     return (
-      <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        This class is full. {isBroadStaff ? "Raise Maximum students in Edit class to add more dancers." : "Ask front desk to raise Maximum students to add more dancers."}
-      </p>
+      <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{addState.fullNotice}</p>
     );
   }
 
@@ -261,6 +261,10 @@ export default function AddDancerPanel({
   const showFundingBlock = isBroadStaff && selected && !loadingOptions && chooseOptions;
 
   return (
+    <div className="space-y-3">
+      {addState.fullNotice ? (
+        <p role="note" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{addState.fullNotice}</p>
+      ) : null}
     <details open={defaultOpen} className="group rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
       <summary className="cursor-pointer list-none text-sm font-semibold text-indigo-800 [&::-webkit-details-marker]:hidden">
         + Add dancer
@@ -423,6 +427,9 @@ export default function AddDancerPanel({
               <input type="radio" name="rosterScope" value="series" checked={scope === "series"} onChange={() => setScope("series")} />
               <span className="text-slate-800">This and following classes</span>
             </label>
+            {scope === "single" && addState.singleNote ? (
+              <p role="alert" className="pt-1 text-xs font-medium text-amber-800">{addState.singleNote}</p>
+            ) : null}
             {scope === "series" ? (
               <p className="pt-1 text-xs text-slate-600">
                 {selected.alreadyEnrolled ? `${selected.name} is already in this class. ` : ""}
@@ -473,7 +480,7 @@ export default function AddDancerPanel({
             <RosterSubmitButton
               label="Add to class"
               pendingLabel="Adding…"
-              disabled={!selected || loadingOptions}
+              disabled={!selected || loadingOptions || addState.singleDisabled}
               className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
             />
           )}
@@ -483,5 +490,6 @@ export default function AddDancerPanel({
         </div>
       </form>
     </details>
+    </div>
   );
 }
