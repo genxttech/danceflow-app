@@ -40,8 +40,11 @@ describe("GC-S1C-3 error mapping (no raw database text reaches the owner)", () =
   });
 
   it("maps a cancelled-class enrollment refusal for staff and for portal self-enrollment, never exposing the code", () => {
+    // GC-S1D-1: the staff mapping now lives in the shared roster classifier, which the action delegates to.
     const actions = read("src", "app", "app", "schedule", "actions.ts");
-    expect(actions).toMatch(/message\.includes\("GCSC3_CLASS_CANCELLED"\)\) \{\s*return "class_cancelled";/);
+    expect(actions).toMatch(/return classifyRosterEnrollError\(message\);/);
+    const classifier = read("src", "lib", "schedule", "groupClassRosterPanel.ts");
+    expect(classifier).toMatch(/message\.includes\("GCSC3_CLASS_CANCELLED"\)\) return "class_cancelled";/);
     const page = read("src", "app", "app", "schedule", "enroll-student", "page.tsx");
     expect(page).toMatch(/case "class_cancelled":\s*return "This class has been cancelled and can't take new students\.";/);
     const portal = read("src", "app", "portal", "[studioSlug]", "schedule", "actions.ts");

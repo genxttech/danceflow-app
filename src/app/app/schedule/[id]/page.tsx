@@ -25,6 +25,8 @@ import {
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 import GroupClassCancellationForm from "@/components/schedule/GroupClassCancellationForm";
+import GroupClassRosterPanel from "@/components/schedule/GroupClassRosterPanel";
+import { isRosterEnrollmentError, loadRosterPanel, rosterAcceptsNewDancers, rosterBanner } from "@/lib/schedule/groupClassRosterPanel";
 import {
   parseGroupClassSeriesPreview,
   type GroupClassSeriesPreview,
@@ -39,6 +41,12 @@ import {
 type Params = Promise<{
   id: string;
 }>;
+
+// GC-S1D-1: why a class's roster is closed to new dancers (module-level so the clock read is not part of render).
+function rosterClosedReason(status: string, endsAtIso: string): "cancelled" | "ended" | null {
+  if (status === "cancelled") return "cancelled";
+  return rosterAcceptsNewDancers({ status, endsAtIso, nowMs: Date.now() }) ? null : "ended";
+}
 
 type SearchParams = Promise<{
   error?: string;
@@ -78,6 +86,7 @@ type AppointmentRow = {
   is_recurring: boolean;
   recurrence_series_id: string | null;
   group_class_series_id?: string | null;
+  roster_capacity?: number | null;
   created_at: string | null;
   clients:
     | {
@@ -418,7 +427,9 @@ export default async function AppointmentDetailPage({
   searchParams?: SearchParams;
 }) {
   const { id } = await params;
-  const cancelBanner = groupClassCancelBanner((await searchParams) ?? {});
+  const resolvedSearch = (await searchParams) ?? {};
+  // Class cancellation outcomes first, then roster outcomes (enroll / remove); each ignores codes it does not own.
+  const cancelBanner = groupClassCancelBanner(resolvedSearch) ?? rosterBanner(resolvedSearch);
   const supabase = await createClient();
 
   const {
@@ -492,6 +503,7 @@ export default async function AppointmentDetailPage({
         is_recurring,
         recurrence_series_id,
         group_class_series_id,
+        roster_capacity,
         created_at,
         instructors ( id, first_name, last_name ),
         rooms ( id, name ),
@@ -801,6 +813,22 @@ export default async function AppointmentDetailPage({
     if (!previewError) seriesCancelPreview = parseGroupClassSeriesPreview(previewData);
   }
 
+  // GC-S1D-1: roster management for this ONE class. Visible to broad staff and to the assigned instructor (the page already
+  // scopes an instructor to their own appointments); the enrollment RPCs are the real authority for who may add / remove.
+  const isBroadRosterStaff = canCancelGroupClass(role);
+  const canViewRoster = isGroupClass && canEdit && (isBroadRosterStaff || isInstructorRole);
+  const rosterClosed = isGroupClass ? rosterClosedReason(typedAppointment.status, typedAppointment.ends_at) : null;
+  const rosterPanelData = canViewRoster
+    ? await loadRosterPanel({
+        supabase,
+        studioId,
+        appointmentId: typedAppointment.id,
+        capacity: typedAppointment.roster_capacity ?? null,
+        includeFunding: isBroadRosterStaff,
+        canManage: !rosterClosed,
+      })
+    : null;
+
   const canShowLessonRecapCard = isPrivateLesson;
   const canEditLessonRecap = canEdit && typedAppointment.status === "attended";
   const hasLessonRecap = !!typedLessonRecap;
@@ -946,6 +974,18 @@ export default async function AppointmentDetailPage({
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <div className="space-y-6">
+          {rosterPanelData ? (
+            <GroupClassRosterPanel
+              appointmentId={typedAppointment.id}
+              returnTo={`/app/schedule/${typedAppointment.id}`}
+              roster={rosterPanelData}
+              canManage
+              isBroadStaff={isBroadRosterStaff}
+              closedReason={rosterClosed}
+              reopenAdd={isRosterEnrollmentError(resolvedSearch.error)}
+            />
+          ) : null}
+
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-xl font-semibold text-slate-900">Overview</h3>
 

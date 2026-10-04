@@ -82,6 +82,12 @@ function enrollmentErrorMessage(code: string): string {
       return "This student has more than one eligible funding source and none was selected -- choose one to complete the enrollment.";
     case "class_cancelled":
       return "This class has been cancelled and can't take new students.";
+    case "already_enrolled":
+      return "That student is already enrolled in this class.";
+    case "class_full":
+      return "This class is full. Raise Maximum students in Edit class to add more students.";
+    case "enrollment_not_authorized":
+      return "You do not have permission to enroll students in this class.";
     case "missing_enrollment_target":
       return "Select a class and a client before enrolling.";
     default:
@@ -89,7 +95,7 @@ function enrollmentErrorMessage(code: string): string {
   }
 }
 
-type SearchParams = Promise<{ error?: string }>;
+type SearchParams = Promise<{ error?: string; appointmentId?: string }>;
 
 // GC-1.4A: "Enroll Student" -- the minimum functional UX for adding a
 // client to an already-existing class instance. Deliberately not roster
@@ -157,7 +163,7 @@ export default async function EnrollStudentPage({
     throw new Error(`Failed to load upcoming classes: ${classesError.message}`);
   }
 
-  const classes = ((classesData ?? []) as ClassOption[]).map((row) => {
+  const toClassOption = (row: ClassOption) => {
     const instructor = firstJoin(row.instructors);
     return {
       id: row.id,
@@ -168,7 +174,33 @@ export default async function EnrollStudentPage({
         ? `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim()
         : null,
     };
-  });
+  };
+
+  const classes = ((classesData ?? []) as ClassOption[]).map(toClassOption);
+
+  // GC-S1D-1: opened from a class's roster panel (or returned to after a refusal) with that class requested. Preselect
+  // it; if it is not among the next upcoming classes (or has already started) fetch just that class, with the same
+  // studio / instructor scoping as the list above, so the requested class is always the selected option when it is
+  // still enrollable.
+  const requestedAppointmentId = /^[0-9a-f-]{36}$/i.test(query.appointmentId ?? "") ? (query.appointmentId as string) : "";
+
+  if (requestedAppointmentId && !classes.some((item) => item.id === requestedAppointmentId)) {
+    let requestedQuery = supabase
+      .from("appointments")
+      .select("id, title, starts_at, ends_at, instructor_id, instructors(first_name, last_name)")
+      .eq("id", requestedAppointmentId)
+      .eq("studio_id", studioId)
+      .eq("appointment_type", "group_class")
+      .neq("status", "cancelled")
+      .gt("ends_at", nowIso);
+
+    if (!isBroadStaff && viewerInstructorId) {
+      requestedQuery = requestedQuery.eq("instructor_id", viewerInstructorId);
+    }
+
+    const { data: requestedClass } = await requestedQuery.maybeSingle();
+    if (requestedClass) classes.unshift(toClassOption(requestedClass as unknown as ClassOption));
+  }
 
   // GC-1.4A financial minimization: package/membership data is only ever
   // fetched for a broad-staff caller, who alone may exercise billing
@@ -298,6 +330,7 @@ export default async function EnrollStudentPage({
         eligibleFundingSourcesByClientId={eligibleFundingSourcesByClientId}
         instructorSearchMode={!isBroadStaff}
         isBroadStaff={isBroadStaff}
+        initialAppointmentId={requestedAppointmentId}
       />
     </div>
   );
