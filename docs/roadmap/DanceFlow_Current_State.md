@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-03 (roadmap v1.6: GC-R1 implemented on feature branch; ENT-1 released and closed; BR-6 parked)
+**Last updated:** 2026-10-03 (roadmap v1.7: GC-R1 released and closed; Phase 5 PARTIAL; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,7 +10,7 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `56dc18d33e44e95b17d816368877a30dc8e155c5` (ENT-1 docs closeout, PR #139, on top of the ENT-1 release `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`, PR #138). The docs-only commits that record this lag it by one commit each time |
+| **CURRENT MAIN** | `087c2c7a7a3d832fa9699682c926eff290151ff8` (GC-R1 release, PR #141, live as `dpl_HcdC6KRD9ZRWFN4FtyvEGbpsNVcE`; rollback `dpl_HcYmcSqF4hLApbwASov1xacA4mbu`). The docs-only commits that record this lag it by one commit each time |
 | **CURRENT PROD DEPLOYMENT** | `dpl_HcYmcSqF4hLApbwASov1xacA4mbu` (source `782fd680fdb0ab8928faccb4ac859bbe4e6109f6`; ENT-1 live on `www.idanceflow.com` and `idanceflow.com`; promoted 2026-10-03). Previous production deployment and rollback target: `dpl_HnWJ1Qn2g3onGb9wEWULyKZkfd5K` (BR-4, source `f189d15cbef301a24e3410b79f20d3bcef7135d9`). The later docs-only commits (BR-5 collateral, this closeout) change no runtime and were not deployed |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
@@ -61,7 +61,7 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 
 **PHASE 4:** PARTIAL by decision. ENT-1 (email-campaign recipient allowance) is RELEASED and closed (PR #138). No dependency-safe Phase 4 implementation remains: the rest (SMS, payroll, marketplace and ARIA plan placement) is blocked on open decision #8, with pricing in Phase 22. SMS plan placement is blocked independently of the Twilio / Sachin dependency. No speculative billing keys; no email add-on is approved or required. Shared upgrade-prompt / usage-display UX moved to Phase 17; existing entitlement-denial behavior is sufficient until then.
 
-**PHASE 5 (in progress, PARTIAL):** GC-R1 — canonical group-class attendee reminders — is IMPLEMENTED on branch `gc-r1-group-class-attendee-reminders` (local commit; not reviewed, merged or released). Enrolled (`booked`) attendees of appointment-based classes get the existing 24h/2h email reminders via the existing generator and branded HTML; idempotent via `dedupe_key`; no migration; no ENT-1 allowance; no SMS; legacy Events reminders untouched. Only GC-R1 is complete. Remaining Phase 5 gaps: legacy Events group-class retirement (needs a production-data inventory first), series/occurrences, multiple rooms, class revenue reporting, and the unresolved depleted-credit decision (#10).
+**PHASE 5 (in progress, PARTIAL):** GC-R1 — canonical group-class attendee reminders — is RELEASED AND CLOSED. **RELEASED 2026-10-03:** PR #141 (reviewed head `1c7c415c1d7146cf5c82b99207d3c98065f55a33`) squash-merged to main `087c2c7a7a3d832fa9699682c926eff290151ff8` (parent `56b3a9c0b005990da5c8aff13008421bf32b4f3e`), promoted to PROD as `dpl_HcdC6KRD9ZRWFN4FtyvEGbpsNVcE` (www and apex); rollback target `dpl_HcYmcSqF4hLApbwASov1xacA4mbu`. No migration was required: the PROD `notification_deliveries.dedupe_key` column and its unique partial index were verified read-only before and after deployment. Authenticated production smoke was intentionally omitted under the permanent release rule (prior production read-only verification attempts resulted in secret/key exposure; authenticated behavior was validated in DEV/local before release). Enrolled (`booked`) attendees of appointment-based classes get the existing 24h/2h email reminders via the existing generator and branded HTML (no confirmation link); idempotent via `dedupe_key`; no ENT-1 allowance; no SMS; legacy Events reminders untouched. Only GC-R1 is complete. Remaining Phase 5 gaps: legacy Events group-class retirement (needs a production-data inventory before any retirement or migration), series/occurrences, multiple rooms/locations, class revenue reporting, and the unresolved depleted-credit decision (#10). Public class discovery stays Phase 6. Phase 4 remains PARTIAL on open decision #8; BR-6 remains parked awaiting the professional ARIA recording; Twilio/Sachin remains an external wait.
 
 ### Public-claim restrictions (still in force for BR-6 onward)
 - No meaningful Featured Events promotion claim; avoid "Featured" language beyond implemented behavior.
