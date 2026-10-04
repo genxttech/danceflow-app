@@ -300,6 +300,8 @@ describe("updateAppointmentAction -- type-transition guard + class-level-field-o
     const { supabase, updateCalls } = makeFakeSupabase({
       tableResponses: {
         appointments: { select: { data: { appointment_type: "group_class" }, error: null }, update: { error: null } },
+        // GC-S1C-1: a newly chosen room is verified as an active room of this studio.
+        rooms: { select: { data: { id: "room-1" }, error: null } },
       },
     });
 

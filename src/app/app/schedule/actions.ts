@@ -7,6 +7,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
+import {
+  OCCURRENCE_EDIT_ERROR_COPY,
+  capacityBelowBooked,
+  capacityBelowBookedMessage,
+  conflictSensitiveFieldsChanged,
+  parseRosterCapacityInput,
+} from "@/lib/schedule/groupClassOccurrenceEdit";
+import { toSafeConflict } from "@/lib/schedule/groupClassSeries";
 import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
 import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
 import { validateMembershipEntitlement } from "@/lib/memberships/entitlements";
@@ -2021,6 +2029,10 @@ export async function updateAppointmentAction(
       client_id: string | null;
       instructor_id: string | null;
       appointment_type: string;
+      room_id?: string | null;
+      starts_at?: string;
+      ends_at?: string;
+      roster_capacity?: number | null;
     }>({
       supabase,
       studioId,
@@ -2028,7 +2040,11 @@ export async function updateAppointmentAction(
       isPlatformAdmin,
       userId: user.id,
       appointmentId,
-      select: "id, studio_id, client_id, instructor_id, appointment_type",
+      // GC-S1C-1: the class branch compares the submitted edit against this
+      // authoritative row (never against client claims) to decide whether a
+      // conflict recheck or capacity check is needed.
+      select:
+        "id, studio_id, client_id, instructor_id, appointment_type, room_id, starts_at, ends_at, roster_capacity",
     });
 
     if (!earlyRelationshipResult.ok) {
@@ -2071,13 +2087,15 @@ export async function updateAppointmentAction(
           studioTimeZone,
         );
 
-      if (!classStartsAt || !classEndsAt) {
-        return { error: "Date, start time, and end time are required." };
+      if (
+        !classStartsAt ||
+        !classEndsAt ||
+        new Date(classEndsAt) <= new Date(classStartsAt)
+      ) {
+        return { error: OCCURRENCE_EDIT_ERROR_COPY.invalid_time };
       }
 
-      if (new Date(classEndsAt) <= new Date(classStartsAt)) {
-        return { error: "The class must end after it starts." };
-      }
+      const currentClass = earlyRelationshipResult.appointment;
 
       if (
         assignmentRelationshipChanged({
@@ -2099,6 +2117,94 @@ export async function updateAppointmentAction(
         }
       }
 
+      // GC-S1C-1: a newly chosen room must be an active room of THIS studio.
+      if (classRoomId && classRoomId !== (currentClass.room_id ?? null)) {
+        const { data: roomRow, error: roomError } = await supabase
+          .from("rooms")
+          .select("id")
+          .eq("id", classRoomId)
+          .eq("studio_id", studioId)
+          .eq("active", true)
+          .maybeSingle();
+
+        if (roomError || !roomRow) {
+          return { error: OCCURRENCE_EDIT_ERROR_COPY.invalid_room };
+        }
+      }
+
+      // GC-S1C-1: capacity floor. A blank field means no limit; a missing
+      // field means the caller is not editing capacity at all. The count is
+      // the canonical reserved-seat definition (status = 'booked'), scoped to
+      // this studio and this class. App-level only: the database backstop is
+      // a recorded follow-up for the next schema-bearing slice.
+      const capacityInput = parseRosterCapacityInput(formData.get("rosterCapacity"));
+      if (!capacityInput.ok) {
+        return { error: OCCURRENCE_EDIT_ERROR_COPY.capacity_invalid };
+      }
+
+      const capacityChanged =
+        capacityInput.present &&
+        capacityInput.value !== (currentClass.roster_capacity ?? null);
+
+      if (capacityChanged && capacityInput.present && capacityInput.value !== null) {
+        const { count: bookedCount, error: bookedError } = await supabase
+          .from("appointment_attendees")
+          .select("id", { count: "exact", head: true })
+          .eq("studio_id", studioId)
+          .eq("appointment_id", appointmentId)
+          .eq("status", "booked");
+
+        if (bookedError || typeof bookedCount !== "number") {
+          return { error: OCCURRENCE_EDIT_ERROR_COPY.capacity_check_failed };
+        }
+
+        if (capacityBelowBooked(capacityInput.value, bookedCount)) {
+          return { error: capacityBelowBookedMessage(bookedCount) };
+        }
+      }
+
+      // GC-S1C-1: conflict recheck through the one canonical engine, decided
+      // server-side against the row just loaded and run immediately before
+      // the write. The class excludes itself; any engine failure fails closed.
+      if (
+        conflictSensitiveFieldsChanged(
+          {
+            instructor_id: currentClass.instructor_id,
+            room_id: currentClass.room_id ?? null,
+            starts_at: currentClass.starts_at ?? "",
+            ends_at: currentClass.ends_at ?? "",
+          },
+          {
+            instructorId: classInstructorId,
+            roomId: classRoomId,
+            startsAt: classStartsAt,
+            endsAt: classEndsAt,
+          },
+        )
+      ) {
+        let conflictResult: { hasConflict?: boolean; message?: string } | null;
+        try {
+          conflictResult = await detectAppointmentConflicts({
+            studioId,
+            startsAt: classStartsAt,
+            endsAt: classEndsAt,
+            instructorId: classInstructorId,
+            roomId: classRoomId,
+            excludeAppointmentId: appointmentId,
+          });
+        } catch (conflictError) {
+          console.error("Class edit conflict check failed:", conflictError);
+          return { error: OCCURRENCE_EDIT_ERROR_COPY.conflict_check_failed };
+        }
+
+        if (!conflictResult || conflictResult.hasConflict) {
+          return { error: toSafeConflict(conflictResult?.message).message };
+        }
+      }
+
+      // Series identity (series id, occurrence index, original start) and
+      // series_overridden_fields are never part of this payload: identity is
+      // immutable and the S1A trigger records real overrides on its own.
       const { error: classUpdateError } = await supabase
         .from("appointments")
         .update({
@@ -2109,13 +2215,15 @@ export async function updateAppointmentAction(
           room_id: classRoomId,
           starts_at: classStartsAt,
           ends_at: classEndsAt,
+          ...(capacityInput.present ? { roster_capacity: capacityInput.value } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq("id", appointmentId)
         .eq("studio_id", studioId);
 
       if (classUpdateError) {
-        return { error: `Could not update the class: ${classUpdateError.message}` };
+        console.error("Could not update the class:", classUpdateError.message);
+        return { error: OCCURRENCE_EDIT_ERROR_COPY.generic };
       }
 
       revalidatePath("/app/schedule");
@@ -2571,13 +2679,21 @@ export async function deleteAppointmentAction(formData: FormData) {
 
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
-      .select("id, client_id, appointment_type, status")
+      .select("id, client_id, appointment_type, status, group_class_series_id")
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .single();
 
     if (appointmentError || !appointment) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+    }
+
+    // GC-S1C-1: a canonical series occurrence is never hard-deleted. Deleting
+    // would leave a permanent hole in series_occurrence_index and lose the
+    // occurrence's original-start history; cancelling keeps both. Standalone
+    // appointments keep their existing delete semantics below.
+    if (appointment.group_class_series_id) {
+      redirect(getErrorRedirect(formData, fallback, "series_occurrence_delete_blocked"));
     }
 
     const appointmentStatus = String(appointment.status ?? "");

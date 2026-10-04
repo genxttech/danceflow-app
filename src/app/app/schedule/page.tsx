@@ -733,6 +733,14 @@ function getBanner(search: {
     };
   }
 
+  if (search.error === "series_occurrence_delete_blocked") {
+    return {
+      kind: "error" as const,
+      message:
+        "A class that belongs to a series can't be deleted. Cancel the class instead so the series history stays intact.",
+    };
+  }
+
   if (search.error === "appointment_cancel_failed") {
     return {
       kind: "error" as const,
