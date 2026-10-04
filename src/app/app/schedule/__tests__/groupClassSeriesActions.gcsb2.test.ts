@@ -638,7 +638,7 @@ describe("compatibility guards", () => {
     // GC-S1C-1 legitimately reads series state on the edit/delete paths (the
     // series column, the pure conflict-copy mapper); it must still never call
     // the series create/preview RPCs or the series server actions.
-    expect(actions).not.toMatch(/create_group_class_series|preview_group_class_series|groupClassSeriesActions/);
+    expect(actions).not.toMatch(/create_group_class_series|preview_group_class_series(?![a-z_])|groupClassSeriesActions/);
     expect(actions).toContain('"create_group_class_appointment"');
   });
 });

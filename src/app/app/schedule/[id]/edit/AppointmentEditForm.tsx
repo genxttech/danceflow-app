@@ -400,6 +400,7 @@ export default function AppointmentEditForm({
   initialClientLabel = "",
   enrollmentPolicy = null,
   policyBanner = null,
+  seriesFollowingHref = null,
 }: {
   appointment: Appointment;
   clients: ClientOption[];
@@ -416,6 +417,8 @@ export default function AppointmentEditForm({
   initialClientLabel?: string;
   enrollmentPolicy?: EnrollmentPolicy | null;
   policyBanner?: { kind: "success" | "error"; message: string } | null;
+  // GC-S1C-5: link to the "this and following classes" editor (broad staff, eligible series occurrence only).
+  seriesFollowingHref?: string | null;
 }) {
   const [state, formAction, pending] = useActionState(
     updateAppointmentAction,
@@ -588,6 +591,7 @@ export default function AppointmentEditForm({
             <GroupClassSeriesContext
               occurrenceIndex={appointment.series_occurrence_index ?? null}
               overriddenFields={appointment.series_overridden_fields ?? []}
+              followingHref={seriesFollowingHref}
             />
           ) : null}
 

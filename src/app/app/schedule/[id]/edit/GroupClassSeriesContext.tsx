@@ -12,9 +12,12 @@ import {
 export default function GroupClassSeriesContext({
   occurrenceIndex,
   overriddenFields,
+  followingHref = null,
 }: {
   occurrenceIndex: number | null;
   overriddenFields: readonly string[];
+  /** GC-S1C-5: set (broad staff only) to offer "This and following classes" as the second scope. */
+  followingHref?: string | null;
 }) {
   const occurrence = seriesOccurrenceLabel(occurrenceIndex);
   const customized = describeOverriddenFields(overriddenFields);
@@ -28,6 +31,13 @@ export default function GroupClassSeriesContext({
       <p className="mt-1 text-xs text-slate-600">
         Changes here apply to this class only. The rest of the series stays as it is.
       </p>
+      {followingHref ? (
+        <p className="mt-2 text-xs">
+          <a href={followingHref} className="font-semibold text-indigo-700 hover:text-indigo-900">
+            Edit this and following classes instead &rarr;
+          </a>
+        </p>
+      ) : null}
       {customized.length > 0 ? (
         <details className="mt-2 text-xs text-slate-600">
           <summary className="cursor-pointer font-medium text-slate-700">

@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { canEditAppointments } from "@/lib/auth/permissions";
+import { canEditAppointments, canEditGroupClassSeries } from "@/lib/auth/permissions";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentEditForm from "./AppointmentEditForm";
 
@@ -480,6 +480,14 @@ export default async function EditAppointmentPage({
       initialClientLabel={initialClientLabel}
       enrollmentPolicy={(enrollmentPolicyRow ?? null) as EnrollmentPolicy | null}
       policyBanner={policyBanner}
+      seriesFollowingHref={
+        canEditGroupClassSeries(studioRole ?? "") &&
+        appointment.appointment_type === "group_class" &&
+        appointment.group_class_series_id &&
+        ["scheduled", "confirmed", "rescheduled"].includes(appointment.status)
+          ? `/app/schedule/${appointment.id}/edit-following`
+          : null
+      }
     />
   );
 }
