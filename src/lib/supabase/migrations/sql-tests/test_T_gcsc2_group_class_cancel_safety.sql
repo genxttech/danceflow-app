@@ -483,7 +483,10 @@ end $$;
 
 -- ============================================================================
 -- 7b. Appointment-side guard: DIRECT authenticated UPDATE of appointments.status
---     (bypassing the RPC) may not create cancelled + attended/no_show.
+--     (bypassing the RPC) may not create cancelled + attended/no_show. (GC-S1C-3
+--     later closed direct tenant cancellation altogether: a class with recorded
+--     attendance still gets GCSC2_ATTENDANCE_RECORDED first; a clean class now gets
+--     GCSC3_CANCEL_VIA_RPC_ONLY, and cancellation goes through the RPC.)
 -- ============================================================================
 create temp table t_gcsc2_direct_before as
 select public.t_gcsc2_snap('00000000-0000-0000-0000-000000e40003') as snap_att,
@@ -512,10 +515,11 @@ begin
   get diagnostics v_n = row_count;
   perform public.t_gcsc2_assert('T-gcsc2-direct-non-cancel-transition-on-attended-class-unchanged', v_n::text, '1');
   update public.appointments set status = 'scheduled' where id = '00000000-0000-0000-0000-000000e40003';
-  -- 3: no terminal attendance -> direct cancellation succeeds
-  update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-000000e40008';
-  get diagnostics v_n = row_count;
-  perform public.t_gcsc2_assert('T-gcsc2-direct-update-no-terminal-attendance-succeeds', v_n::text, '1');
+  -- 3: no terminal attendance -> direct tenant cancellation is refused (GC-S1C-3); the RPC cancels
+  perform public.t_gcsc2_expect($q$update public.appointments set status = 'cancelled', cancelled_at = now() where id = '00000000-0000-0000-0000-000000e40008'$q$, 'GCSC3_CANCEL_VIA_RPC_ONLY', 'T-gcsc2-direct-update-no-terminal-attendance-refused-rpc-only');
+  perform public.cancel_group_class_appointment('00000000-0000-0000-0000-000000e40008');
+  perform public.t_gcsc2_assert('T-gcsc2-rpc-cancels-clean-class-where-direct-update-is-refused',
+    (select a.status::text from public.appointments a where a.id = '00000000-0000-0000-0000-000000e40008'), 'cancelled');
   -- re-cancelling an already cancelled class (cancelled -> cancelled) is not a transition and is untouched
   update public.appointments set status = 'cancelled' where id = '00000000-0000-0000-0000-000000e40008';
   get diagnostics v_n = row_count;
@@ -587,10 +591,11 @@ begin
   select id into v_occ3 from t_gcsc2_series_direct_before where series_occurrence_index = 3;
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000e10001')::text, true);
   set local role authenticated;
-  update public.appointments set status = 'cancelled', cancelled_at = now() where id = v_occ3;
+  perform public.t_gcsc2_expect(format($q$update public.appointments set status = 'cancelled', cancelled_at = now() where id = %L$q$, v_occ3), 'GCSC3_CANCEL_VIA_RPC_ONLY', 'T-gcsc2-direct-update-of-series-occurrence-refused');
+  perform public.cancel_group_class_appointment(v_occ3);
   reset role;
 end $$;
-select public.t_gcsc2_assert('T-gcsc2-direct-cancel-preserves-series-identity',
+select public.t_gcsc2_assert('T-gcsc2-rpc-cancel-of-third-occurrence-preserves-series-identity',
   (select (count(*) = 1)::text from public.appointments a join t_gcsc2_series_direct_before b on b.id = a.id
     where b.series_occurrence_index = 3 and a.status = 'cancelled'
       and a.group_class_series_id is not distinct from b.group_class_series_id
@@ -598,7 +603,7 @@ select public.t_gcsc2_assert('T-gcsc2-direct-cancel-preserves-series-identity',
       and a.occurrence_original_start is not distinct from b.occurrence_original_start
       and a.series_overridden_fields::text = b.overrides
       and a.starts_at = b.starts_at and a.ends_at = b.ends_at), 'true');
-select public.t_gcsc2_assert('T-gcsc2-direct-cancel-neighbors-untouched',
+select public.t_gcsc2_assert('T-gcsc2-rpc-cancel-of-third-occurrence-leaves-neighbors-untouched',
   (select (count(*) = 3 and bool_and(a.status::text = b.status and a.cancelled_at is not distinct from b.cancelled_at
       and a.series_occurrence_index = b.series_occurrence_index and a.starts_at = b.starts_at
       and a.series_overridden_fields::text = b.overrides))::text

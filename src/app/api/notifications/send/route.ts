@@ -13,7 +13,7 @@ import {
   type NotificationStudioBrandingRow,
 } from "@/lib/notifications/notification-html";
 
-type DeliveryRow = NotificationDeliveryRow;
+type DeliveryRow = NotificationDeliveryRow & { related_appointment_id?: string | null };
 
 async function getStudioBranding(
   supabase: ReturnType<typeof createAdminClient>,
@@ -35,6 +35,30 @@ const CLIENT_REMINDER_TYPES = new Set([
   "student_lesson_reminder_24h",
   "student_lesson_reminder_2h",
 ]);
+
+/**
+ * GC-S1C-3 (D11): send-time revalidation. A client reminder queued for a canonical group class must not be delivered after
+ * that class has been cancelled, however it got cancelled and whether or not the queued row was invalidated at cancel time.
+ * Returns "cancelled" (suppress), "ok" (send), or "unknown" (the class could not be read: leave the row pending and try
+ * again on the next run rather than risk reminding someone about a cancelled class). Only client reminders for an
+ * appointment are checked; every other delivery type is untouched.
+ */
+async function classReminderState(
+  supabase: ReturnType<typeof createAdminClient>,
+  delivery: DeliveryRow,
+): Promise<"ok" | "cancelled" | "unknown"> {
+  if (!CLIENT_REMINDER_TYPES.has(delivery.delivery_type) || !delivery.related_appointment_id) return "ok";
+
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("appointment_type, status")
+    .eq("id", delivery.related_appointment_id)
+    .maybeSingle<{ appointment_type: string; status: string }>();
+
+  if (error) return "unknown";
+  if (data?.appointment_type === "group_class" && data.status === "cancelled") return "cancelled";
+  return "ok";
+}
 
 async function resolveRecipientEmail(
   supabase: ReturnType<typeof createAdminClient>,
@@ -139,6 +163,7 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
       subject,
       body,
       metadata,
+      related_appointment_id,
       scheduled_for
     `
     )
@@ -155,6 +180,8 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
 
   let notificationSent = 0;
   let notificationFailed = 0;
+  let notificationSuppressed = 0;
+  let notificationDeferred = 0;
 
   // Origin of this request, used only to build the SMS status-callback URL (no hostname is hard-coded).
   const origin = resolveRequestOrigin(request);
@@ -215,6 +242,25 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
         delivery.studio_id,
       );
 
+      // GC-S1C-3: revalidate the class immediately before sending (after the slower lookups, to keep the window small).
+      const classState = await classReminderState(supabase, delivery);
+
+      if (classState === "cancelled") {
+        await supabase
+          .from("notification_deliveries")
+          .update({ status: "cancelled", failure_reason: "class_cancelled" })
+          .eq("id", delivery.id)
+          .eq("status", "pending");
+
+        notificationSuppressed += 1;
+        continue;
+      }
+
+      if (classState === "unknown") {
+        notificationDeferred += 1;
+        continue;
+      }
+
       // Reply-To is set only for client reminders, and only when the studio's own email is valid.
       // Internal staff notifications (owner digest, instructor agenda) keep no Reply-To, as before.
       const isClientReminder = CLIENT_REMINDER_TYPES.has(delivery.delivery_type);
@@ -271,6 +317,8 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
       processed: pending.length,
       sent: notificationSent,
       failed: notificationFailed,
+      suppressed: notificationSuppressed,
+      deferred: notificationDeferred,
     },
     outbound,
   });

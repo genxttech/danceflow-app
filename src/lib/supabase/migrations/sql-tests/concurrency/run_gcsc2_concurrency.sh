@@ -87,7 +87,7 @@ check "cancel-first/insert: attendance blocked (>=3s)" "$([ "$(cat $T/cf_insert.
 check "cancel-first/insert: final state" "$(state 14)" '"appt":"cancelled","att":"-"'
 
 
-# 11/12 DIRECT appointment UPDATE (no RPC) vs terminal attendance, both orders, UPDATE + INSERT attendance paths
+# 11/12 DIRECT appointment UPDATE (no RPC) vs terminal attendance. Attendance first: the direct update still waits on the row lock, then is refused by the S1C-2 guard (GCSC2). Direct cancel first: refused at once since GC-S1C-3.
 scenario daf_update "$(upd_sql 15 12)" "$(dcancel_sql 15 0)"
 check "direct-attendance-first/update: direct cancel refused after waiting" "$(has daf_update.second.out GCSC2_ATTENDANCE_RECORDED)" yes
 check "direct-attendance-first/update: direct cancel blocked (>=3s)" "$([ "$(cat $T/daf_update.second.elapsed)" -ge 3 ] && echo yes || echo no)" yes
@@ -96,14 +96,16 @@ scenario daf_insert "$(ins_sql 16 12)" "$(dcancel_sql 16 0)"
 check "direct-attendance-first/insert: direct cancel refused after waiting" "$(has daf_insert.second.out GCSC2_ATTENDANCE_RECORDED)" yes
 check "direct-attendance-first/insert: direct cancel blocked (>=3s)" "$([ "$(cat $T/daf_insert.second.elapsed)" -ge 3 ] && echo yes || echo no)" yes
 check "direct-attendance-first/insert: final state" "$(state 16)" '"appt":"scheduled","att":"attended"'
+# GC-S1C-3 closed direct tenant cancellation: a direct cancel started FIRST is refused at once (GCSC3_CANCEL_VIA_RPC_ONLY), so it
+# holds nothing and the attendance write is not blocked; the class stays uncancelled and the attendance is recorded (never both).
 scenario dcf_update "$(dcancel_sql 17 12)" "$(upd_sql 17 0)"
-check "direct-cancel-first/update: attendance refused after waiting" "$(has dcf_update.second.out GCSC2_CLASS_CANCELLED)" yes
-check "direct-cancel-first/update: attendance blocked (>=3s)" "$([ "$(cat $T/dcf_update.second.elapsed)" -ge 3 ] && echo yes || echo no)" yes
-check "direct-cancel-first/update: final state" "$(state 17)" '"appt":"cancelled","att":"registered"'
+check "direct-cancel-first/update: direct cancel refused at once (RPC only)" "$(has dcf_update.first.out GCSC3_CANCEL_VIA_RPC_ONLY)" yes
+check "direct-cancel-first/update: attendance not refused" "$(has dcf_update.second.out GCSC2_CLASS_CANCELLED)" no
+check "direct-cancel-first/update: final state" "$(state 17)" '"appt":"scheduled","att":"attended"'
 scenario dcf_insert "$(dcancel_sql 18 12)" "$(ins_sql 18 0)"
-check "direct-cancel-first/insert: attendance refused after waiting" "$(has dcf_insert.second.out GCSC2_CLASS_CANCELLED)" yes
-check "direct-cancel-first/insert: attendance blocked (>=3s)" "$([ "$(cat $T/dcf_insert.second.elapsed)" -ge 3 ] && echo yes || echo no)" yes
-check "direct-cancel-first/insert: final state" "$(state 18)" '"appt":"cancelled","att":"-"'
+check "direct-cancel-first/insert: direct cancel refused at once (RPC only)" "$(has dcf_insert.first.out GCSC3_CANCEL_VIA_RPC_ONLY)" yes
+check "direct-cancel-first/insert: attendance not refused" "$(has dcf_insert.second.out GCSC2_CLASS_CANCELLED)" no
+check "direct-cancel-first/insert: final state" "$(state 18)" '"appt":"scheduled","att":"attended"'
 # 10 no deadlocks / lock timeouts in any session
 check "no deadlock or lock timeout in any session" "$(cat "$T"/*.out | grep -ciE 'deadlock|lock timeout|could not obtain lock')" 0
 exit $fail

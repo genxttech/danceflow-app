@@ -729,6 +729,10 @@ function classifySelfEnrollError(message: string): string {
   if (message.includes("no available seats remaining")) {
     return "This class is full.";
   }
+  // GC-S1C-3: the database refuses a booked enrollment into a cancelled class.
+  if (message.includes("GCSC3_CLASS_CANCELLED")) {
+    return "This class has been cancelled.";
+  }
   if (message.includes("Not authorized")) {
     return "You're not authorized to enroll this client in this class.";
   }

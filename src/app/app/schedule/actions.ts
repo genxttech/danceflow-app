@@ -12,6 +12,7 @@ import {
   capacityBelowBooked,
   capacityBelowBookedMessage,
   conflictSensitiveFieldsChanged,
+  mapOccurrenceUpdateDbError,
   parseRosterCapacityInput,
 } from "@/lib/schedule/groupClassOccurrenceEdit";
 import { toSafeConflict } from "@/lib/schedule/groupClassSeries";
@@ -2227,7 +2228,8 @@ export async function updateAppointmentAction(
 
       if (classUpdateError) {
         console.error("Could not update the class:", classUpdateError.message);
-        return { error: OCCURRENCE_EDIT_ERROR_COPY.generic };
+        // GC-S1C-3: the database now also enforces the capacity floor; show the same safe copy as the app-level check.
+        return { error: mapOccurrenceUpdateDbError(classUpdateError.message) ?? OCCURRENCE_EDIT_ERROR_COPY.generic };
       }
 
       revalidatePath("/app/schedule");
@@ -2863,6 +2865,10 @@ function classifyEnrollClassAttendeeError(message: string): string {
   }
   if (message.includes("needs a billing decision")) {
     return "ambiguous_funding_source";
+  }
+  // GC-S1C-3: the database refuses a booked enrollment into a cancelled class.
+  if (message.includes("GCSC3_CLASS_CANCELLED")) {
+    return "class_cancelled";
   }
   return "enrollment_failed";
 }
