@@ -1528,6 +1528,9 @@ export async function createAppointmentAction(
       if (classConflict) {
         return { error: classConflict.message };
       }
+      if (rpcError?.message?.includes("GCSE3_ROOM_INVALID")) {
+        return { error: OCCURRENCE_EDIT_ERROR_COPY.invalid_room };
+      }
 
       if (rpcError || !newAppointmentId) {
         return {

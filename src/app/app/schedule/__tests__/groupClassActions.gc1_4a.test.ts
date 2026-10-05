@@ -237,6 +237,35 @@ describe("createAppointmentAction -- group_class branch", () => {
     expect(result).toEqual({ error: "The room is unavailable at this time." });
   });
 
+  it("GC-S1E-3 review: another studio's room is refused by the database with the safe room copy", async () => {
+    const { supabase } = makeFakeSupabase({
+      rpcResponses: {
+        create_group_class_appointment: { data: null, error: { message: "GCSE3_ROOM_INVALID: That room does not belong to this studio." } },
+      },
+    });
+
+    requireFloorRentalAppointmentAccessMock.mockResolvedValue({
+      supabase,
+      studioId: STUDIO_ID,
+      user: { id: USER_ID },
+      studioRole: "studio_owner",
+      isPlatformAdmin: false,
+    });
+
+    const result = await createAppointmentAction(
+      {},
+      formDataFor({
+        appointmentType: "group_class",
+        title: "Beginner Salsa",
+        roomId: "other-studio-room",
+        startsAt: "2026-09-20T18:00",
+        endsAt: "2026-09-20T19:00",
+      }),
+    );
+
+    expect(result).toEqual({ error: "Choose an active room from this studio." });
+  });
+
   it("a pure instructor is denied before the RPC is ever called", async () => {
     const { supabase, rpcCalls } = makeFakeSupabase({});
 

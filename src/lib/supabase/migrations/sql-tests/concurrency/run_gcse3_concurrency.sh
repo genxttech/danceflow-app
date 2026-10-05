@@ -14,7 +14,12 @@
 #   SC5b create vs single edit moving a class into the room-> edit waits, then is refused (room_busy)
 #   SC6  unrelated instructor and room, same time          -> second does NOT wait and succeeds
 #   SC7  edit A: I1 -> I2 vs edit B: I2 -> I1 (no conflict) -> second waits (same lock set, same order), both succeed, no deadlock
+#   SC6b unrelated instructors, no rooms, same time          -> second does NOT wait and succeeds
 #   SC8  P4 membership lock helper vs class create          -> create waits on the shared instructor row lock, then succeeds
+#   SC8b class create vs P4 lock-and-check, same slot       -> P4 waits, then sees the committed class and refuses
+#   SC9  P4 lock order (instructor FOR UPDATE ... room FOR UPDATE) vs a direct class edit moving into that room
+#        -> the edit waits on the instructor WITHOUT already holding the room (review fix); no deadlock, both commit
+#   SC10 one-time create vs S1C-5 (S1C-5 is the waiting side) -> series edit waits, then is refused; series unchanged
 set -u
 T="${TMPDIR:-/tmp}/gcse3-conc"; mkdir -p "$T"
 S=00000000-0000-0000-0000-0000e5e40001; OWN=00000000-0000-0000-0000-0000e5e41001
@@ -65,8 +70,10 @@ echo "select $(mk "'$I3'" null Z3 0 06:00 07:00);"
 echo "select $(mk null "'$R2'" W5 0 20:00 21:00);"
 echo "select $(mk "'$I1'" null P7 1 08:00 09:00);"
 echo "select $(mk "'$I2'" null Q7 1 10:00 11:00);"
+echo "select $(mk "'$I3'" "'$R2'" G9 2 08:00 09:00);"
 echo "select $(series 00000000-0000-0000-0000-0000e5e47001 SER4 "'$I2'" 3 3);"
 echo "select $(series 00000000-0000-0000-0000-0000e5e47002 SER5 "'$I2'" 4 3);"
+echo "select $(series 00000000-0000-0000-0000-0000e5e47004 SER7 "'$I2'" 5 3);"
 echo "reset role;"
 echo "commit;"
 } > "$T/fixture.sql"
@@ -78,7 +85,10 @@ X2=$(cid X2); Y3=$(cid Y3); Z3=$(cid Z3); W5=$(cid W5); P7=$(cid P7); Q7=$(cid Q
 SER4_1=$(val "select a.id::text as v from public.appointments a join public.group_class_series s on s.id=a.group_class_series_id where s.studio_id='$S' and s.title='SER4' and a.series_occurrence_index=1")
 SER4_2_AT=$(val "select a.starts_at::text as v from public.appointments a join public.group_class_series s on s.id=a.group_class_series_id where s.studio_id='$S' and s.title='SER4' and a.series_occurrence_index=2")
 SER5_1=$(val "select a.id::text as v from public.appointments a join public.group_class_series s on s.id=a.group_class_series_id where s.studio_id='$S' and s.title='SER5' and a.series_occurrence_index=1")
-[ -z "$X2" ] || [ -z "$Q7" ] || [ -z "$SER4_1" ] || [ -z "$SER4_2_AT" ] || [ -z "$SER5_1" ] && { echo "could not resolve fixture ids"; exit 1; }
+G9=$(cid G9)
+SER7_1=$(val "select a.id::text as v from public.appointments a join public.group_class_series s on s.id=a.group_class_series_id where s.studio_id='$S' and s.title='SER7' and a.series_occurrence_index=1")
+SER7_1_AT=$(val "select a.starts_at::text as v from public.appointments a join public.group_class_series s on s.id=a.group_class_series_id where s.studio_id='$S' and s.title='SER7' and a.series_occurrence_index=1")
+[ -z "$X2" ] || [ -z "$Q7" ] || [ -z "$G9" ] || [ -z "$SER4_1" ] || [ -z "$SER4_2_AT" ] || [ -z "$SER5_1" ] || [ -z "$SER7_1" ] || [ -z "$SER7_1_AT" ] && { echo "could not resolve fixture ids"; exit 1; }
 
 hold() { echo "reset role; select pg_sleep($1);"; }
 create_sql() { echo "begin; $(as_owner) select $(mk "$1" "$2" "$3" "$4" "$5" "$6") as created; $(hold "$7") commit;"; }
@@ -113,6 +123,7 @@ check "SC1 create vs create: exactly one class in the slot" "$(count "instructor
 scenario sc2 "$(create_sql "'$I1'" null SC2 0 12:00 13:00 12)" "$(edit_sql "$X2" "'$I1'" null 0 12:30 13:30 0)"
 check "SC2 create vs edit: edit waited (>=4s)" "$(blocked sc2)" yes
 check "SC2 create vs edit: edit refused (instructor)" "$(has sc2.second.out 'GCSE3_CONFLICT: reason=instructor')" yes
+check "SC2 create vs edit: the create committed" "$(count "title='SC2'")" 1
 check "SC2 create vs edit: edited class unchanged" "$(val "select (instructor_id='$I2' and starts_at=$(at 0 08:00))::text as v from public.appointments where id='$X2'")" true
 
 # SC3: edit Y3 onto I1 14:00-15:00 vs edit Z3 onto I1 14:30-15:30
@@ -147,12 +158,18 @@ check "SC5a room create vs create: one class in the room" "$(count "room_id='$R3
 scenario sc5b "$(create_sql null "'$R3'" SC5b 0 18:00 19:00 12)" "$(edit_sql "$W5" null "'$R3'" 0 18:00 19:00 0)"
 check "SC5b room create vs edit: edit waited (>=4s)" "$(blocked sc5b)" yes
 check "SC5b room create vs edit: edit refused (room_busy)" "$(has sc5b.second.out 'GCSE3_CONFLICT: reason=room_busy')" yes
+check "SC5b room create vs edit: the create committed" "$(count "title='SC5b'")" 1
 check "SC5b room create vs edit: moved class unchanged" "$(val "select (room_id='$R2')::text as v from public.appointments where id='$W5'")" true
 
 # SC6: unrelated instructor and room at the same time do not wait on each other
 scenario sc6 "$(create_sql "'$I1'" null SC6a 0 20:00 21:00 12)" "$(create_sql "'$I2'" "'$R3'" SC6b 0 20:00 21:00 0)"
 check "SC6 unrelated: second did not wait (<4s)" "$(blocked sc6)" no
 check "SC6 unrelated: both committed" "$(count "title in ('SC6a','SC6b')")" 2
+
+# SC6b: unrelated instructors with no room at the same time do not wait on each other
+scenario sc6b "$(create_sql "'$I1'" null SC6c 4 10:00 11:00 12)" "$(create_sql "'$I2'" null SC6d 4 10:00 11:00 0)"
+check "SC6b unrelated, no rooms: second did not wait (<4s)" "$(blocked sc6b)" no
+check "SC6b unrelated, no rooms: both committed" "$(count "title in ('SC6c','SC6d')")" 2
 
 # SC7: opposite moves between I1 and I2 (no conflict) lock {I1, I2} in the same order
 scenario sc7 "$(edit_sql "$P7" "'$I2'" null 1 12:00 13:00 12)" "$(edit_sql "$Q7" "'$I1'" null 1 14:00 15:00 0)"
@@ -167,6 +184,22 @@ check "SC8 P4 lock vs create: create then committed" "$(count "title='SC8'")" 1
 scenario sc8b "$(create_sql "'$I3'" null SC8b 3 06:00 07:00 12)" "$(p4_sql "$I3" 0)"
 check "SC8b create vs P4 lock-and-check: P4 waited (>=4s)" "$(blocked sc8b)" yes
 check "SC8b create vs P4 lock-and-check: P4 refused after the class committed" "$(has sc8b.second.out 'not available at the requested time')" yes
+check "SC8b create vs P4 lock-and-check: the class committed" "$(count "title='SC8b'")" 1
+
+# SC9: P4's lock order (instructor FOR UPDATE, then room FOR UPDATE; a pause widens the window between them) against a
+# direct class edit moving G9 (instructor I3) into room R3. Before the review fix the edit took KEY SHARE on R3 (foreign-key
+# check) and then waited for I3 at statement end, while P4 held I3 and waited for R3: a deadlock.
+scenario sc9 "begin; select 1 from public.instructors where id='$I3' for update; select pg_sleep(12); select 1 from public.rooms where id='$R3' for update; commit;"   "$(edit_sql "$G9" "'$I3'" "'$R3'" 2 08:00 09:00 0)"
+check "SC9 P4 order vs edit into its room: edit waited (>=4s)" "$(blocked sc9)" yes
+check "SC9 P4 order vs edit into its room: no deadlock in either session" "$(cat "$T"/sc9.*.out | grep -ci 'deadlock')" 0
+check "SC9 P4 order vs edit into its room: the edit committed" "$(val "select (room_id='$R3')::text as v from public.appointments where id='$G9'")" true
+
+# SC10: a one-time I1 class at SER7 occurrence 1 holds first; S1C-5 moving SER7 to I1 waits, then is refused
+scenario sc10 "begin; $(as_owner) select public.create_group_class_appointment('$S', '$I1', null, 'SC10', '$SER7_1_AT'::timestamptz, '$SER7_1_AT'::timestamptz + interval '1 hour') as created; $(hold 12) commit;"   "$(s1c5_sql "$SER7_1" 00000000-0000-0000-0000-0000e5e48003 "{\"instructor_id\":\"$I1\"}" 0)"
+check "SC10 create vs S1C-5: the create committed" "$(count "title='SC10'")" 1
+check "SC10 create vs S1C-5: series edit waited (>=4s)" "$(blocked sc10)" yes
+check "SC10 create vs S1C-5: series edit refused (instructor, occurrence 1)" "$(has sc10.second.out 'GCSC5_CONFLICT: reason=instructor index=1')" yes
+check "SC10 create vs S1C-5: series unchanged" "$(val "select count(*)::text as v from public.appointments a join public.group_class_series s on s.id=a.group_class_series_id where s.studio_id='$S' and s.title='SER7' and a.instructor_id='$I2'")" 3
 
 check "no deadlock or lock timeout in any session" "$(cat "$T"/*.out | grep -ciE 'deadlock|lock timeout|could not obtain lock')" 0
 exit $fail

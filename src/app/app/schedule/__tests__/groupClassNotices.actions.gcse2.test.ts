@@ -249,7 +249,7 @@ describe("S1E-2 trigger: single class edit", () => {
     location_name: "Front studio",
   };
 
-  function arrange(updateError = false) {
+  function arrange(updateError: boolean | string = false) {
     const writes: Array<Record<string, unknown>> = [];
     const supabase = {
       from(table: string) {
@@ -267,7 +267,7 @@ describe("S1E-2 trigger: single class edit", () => {
         chain.maybeSingle = () => Promise.resolve(result);
         chain.update = (payload: Record<string, unknown>) => {
           if (table === "appointments") writes.push(payload);
-          result = { error: updateError ? { message: "boom" } : null };
+          result = { error: updateError ? { message: typeof updateError === "string" ? updateError : "boom" } : null };
           return chain;
         };
         chain.then = (resolve: (v: unknown) => void) => resolve(result);
@@ -319,6 +319,13 @@ describe("S1E-2 trigger: single class edit", () => {
     arrange(true);
     const out = await run(actions.updateAppointmentAction({}, editForm({ startsAt: "2030-11-03T18:00", endsAt: "2030-11-03T19:00" })));
     expect((out as { error?: string }).error).toBeTruthy();
+    expect(m.changed).not.toHaveBeenCalled();
+  });
+
+  it("GC-S1E-3: an edit the database refuses for a conflict notifies nobody and shows safe copy", async () => {
+    arrange("GCSE3_CONFLICT: reason=instructor");
+    const out = await run(actions.updateAppointmentAction({}, editForm({ startsAt: "2030-11-03T18:00", endsAt: "2030-11-03T19:00" })));
+    expect((out as { error?: string }).error).toBe("The instructor is already booked at this time.");
     expect(m.changed).not.toHaveBeenCalled();
   });
 });

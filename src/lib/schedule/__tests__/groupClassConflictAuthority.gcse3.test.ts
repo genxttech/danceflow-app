@@ -87,8 +87,16 @@ describe("GC-S1E-3 refusal mapping", () => {
     expect(mapGroupClassConflictDbError("raw failure")).toBeNull();
   });
 
-  it("an unknown reason degrades to the generic conflict copy", () => {
+  it("an unknown or malformed reason degrades to the generic conflict copy", () => {
     expect(mapGroupClassConflictDbError("GCSE3_CONFLICT: reason=weird")?.category).toBe("other");
+    expect(mapGroupClassConflictDbError("GCSE3_CONFLICT")?.message).toBe(SERIES_CONFLICT_COPY.other);
+    expect(mapGroupClassConflictDbError("GCSE3_CONFLICT: reason=")?.message).toBe(SERIES_CONFLICT_COPY.other);
+  });
+
+  it("a room from another studio maps to the existing room copy, never raw text", () => {
+    expect(mapOccurrenceUpdateDbError("GCSE3_ROOM_INVALID: That room does not belong to this studio.")).toBe(
+      "Choose an active room from this studio.",
+    );
   });
 
   it("the series create maps it to the conflict code, the occurrence edit to category copy", () => {

@@ -6,10 +6,15 @@
 -- triggers, then drops the new helpers. No table, column or data is touched; classes written under
 -- S1E-3 remain ordinary rows. Roll the APPLICATION back first if the deployed app maps GCSE3_CONFLICT
 -- (the older app simply shows its generic error for those refusals).
+-- Also removes the objects of the review remediation 20261023090100 if present (its BEFORE ROW lock
+-- triggers would otherwise call a helper this file drops), so this file alone fully rolls back GC-S1E-3.
 -- ============================================================================
 
 begin;
 
+drop trigger if exists appointments_gcse3_lock_direct_class_insert on public.appointments;
+drop trigger if exists appointments_gcse3_lock_direct_class_update on public.appointments;
+drop function if exists public._gcse3_lock_direct_class_row();
 drop trigger if exists appointments_gcse3_direct_class_schedule_insert on public.appointments;
 drop trigger if exists appointments_gcse3_direct_class_schedule_update on public.appointments;
 

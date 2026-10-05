@@ -290,7 +290,7 @@ select public.t_gcse3_assert('T-gcse3-s1c5-uses-shared-rule-and-locks',
   'true');
 select public.t_gcse3_assert('T-gcse3-direct-write-triggers-statement-level-role-gated',
   (select string_agg(t.tgname || ':' || (pg_get_triggerdef(t.oid) like '%FOR EACH STATEMENT WHEN ((CURRENT_USER = ANY (ARRAY[''anon''::name, ''authenticated''::name])))%')::text, ',' order by t.tgname)
-   from pg_trigger t where t.tgrelid = 'public.appointments'::regclass and t.tgname like 'appointments_gcse3_%'),
+   from pg_trigger t where t.tgrelid = 'public.appointments'::regclass and t.tgname like 'appointments_gcse3_direct_%'),
   'appointments_gcse3_direct_class_schedule_insert:true,appointments_gcse3_direct_class_schedule_update:true');
 select public.t_gcse3_expect(
   $s$select public.t_gcse3_as('OWN'); select public._gcse3_schedule_conflict('00000000-0000-0000-0000-0000e5e30001', null, null, null, now(), now() + interval '1 hour', false)$s$,
@@ -543,6 +543,85 @@ select public.t_gcse3_assert('T-gcse3-s1c5-preview-uses-shared-rule',
   (select (p ->> 'conflict_count') || '|' || (p -> 'first_conflict' ->> 'reason') from (select public.preview_group_class_series_edit(
      (select a.id from public.appointments a where a.group_class_series_id = current_setting('t.SX')::uuid and a.series_occurrence_index = 1),
      jsonb_build_object('room_id', public.t_gcse3_id('R3')), false) p) x), '1|room_busy');
+
+-- ============================================================================
+-- REVIEW REMEDIATION (20261023090100): lock order, studio scope, trigger gating
+-- ============================================================================
+select public.t_gcse3_assert('T-gcse3-before-row-lock-triggers-role-gated',
+  (select string_agg(t.tgname || ':' || (pg_get_triggerdef(t.oid) like '%BEFORE%FOR EACH ROW WHEN (((CURRENT_USER = ANY (ARRAY[''anon''::name, ''authenticated''::name])) AND (new.appointment_type = ''group_class''::appointment_type)%')::text, ',' order by t.tgname)
+   from pg_trigger t where t.tgrelid = 'public.appointments'::regclass and t.tgname like 'appointments_gcse3_lock_%'),
+  'appointments_gcse3_lock_direct_class_insert:true,appointments_gcse3_lock_direct_class_update:true');
+select public.t_gcse3_assert('T-gcse3-row-lock-helper-internal',
+  (select (has_function_privilege('authenticated', 'public._gcse3_lock_direct_class_row()', 'execute')
+        or has_function_privilege('anon', 'public._gcse3_lock_direct_class_row()', 'execute')
+        or has_function_privilege('service_role', 'public._gcse3_lock_direct_class_row()', 'execute'))::text), 'false');
+
+-- studio scope: another studio's room or instructor is refused before anything is locked or written
+select public.t_gcse3_assert('T-gcse3-onetime-other-studio-room-refused',
+  public.t_gcse3_err($s$select public.t_gcse3_mk('XR', 'OWN', 'I1', 'RB', 20, '10:00', '11:00')$s$), 'GCSE3_ROOM_INVALID: That room does not belong to this studio.');
+select public.t_gcse3_expect($s$select public.t_gcse3_mk('XI', 'OWN', 'IB', null, 20, '10:00', '11:00')$s$,
+  'no longer available for assignment', 'T-gcse3-onetime-other-studio-instructor-refused');
+select public.t_gcse3_assert('T-gcse3-onetime-studio-refusals-wrote-nothing',
+  (select count(*)::text from public.appointments where title in ('XR', 'XI')), '0');
+select public.t_gcse3_assert('T-gcse3-direct-edit-other-studio-room-refused',
+  public.t_gcse3_err(public.t_gcse3_upd_sql('OWN', 'E5', format('room_id = %L', public.t_gcse3_id('RB')))), 'GCSE3_ROOM_INVALID: That room does not belong to this studio.');
+
+-- gating: other appointment types, unrelated updates of an already-conflicting class, privileged contexts
+insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at, title) values
+  ('00000000-0000-0000-0000-0000e5e34003', public.t_gcse3_id('S'), public.t_gcse3_id('C1'), public.t_gcse3_id('I1'), 'private_lesson', 'scheduled', public.t_gcse3_t(13, '10:00'), public.t_gcse3_t(13, '11:00'), 'LESSON');
+select public.t_gcse3_mk('K13', 'OWN', 'I1', null, 13, '12:00', '13:00');
+select public.t_gcse3_assert('T-gcse3-gating-private-lesson-direct-move-not-governed',
+  public.t_gcse3_upd('OWN', '00000000-0000-0000-0000-0000e5e34003', format('starts_at = %L, ends_at = %L', public.t_gcse3_t(13, '12:00'), public.t_gcse3_t(13, '13:00')))::text, '1');
+select public.t_gcse3_assert('T-gcse3-gating-capacity-only-update-of-conflicting-class-allowed',
+  public.t_gcse3_upd('OWN', '00000000-0000-0000-0000-0000e5e34001', 'roster_capacity = 5')::text, '1');
+select public.t_gcse3_assert('T-gcse3-gating-status-only-update-of-conflicting-class-allowed',
+  public.t_gcse3_upd('OWN', '00000000-0000-0000-0000-0000e5e34001', $q$status = 'confirmed'$q$)::text, '1');
+select public.t_gcse3_ok(format($f$set local role service_role; update public.appointments set starts_at = %L, ends_at = %L where id = %L$f$,
+    public.t_gcse3_t(13, '12:30'), public.t_gcse3_t(13, '13:30'), public.t_gcse3_cid('E5')),
+  'T-gcse3-gating-service-role-write-not-governed');
+create function public.t_gcse3_definer_move(p_id uuid, p_s timestamptz, p_e timestamptz) returns integer
+language plpgsql security definer set search_path = 'public' as $$
+declare v integer;
+begin
+  update public.appointments set starts_at = p_s, ends_at = p_e where id = p_id;
+  get diagnostics v = row_count;
+  return v;
+end $$;
+grant execute on function public.t_gcse3_definer_move(uuid, timestamptz, timestamptz) to authenticated;
+select public.t_gcse3_assert('T-gcse3-gating-definer-rpc-context-not-governed',
+  public.t_gcse3_err(format($f$select public.t_gcse3_as('OWN'); select public.t_gcse3_definer_move(%L, %L, %L)$f$,
+    public.t_gcse3_cid('K13'), public.t_gcse3_t(13, '12:30'), public.t_gcse3_t(13, '13:30'))), 'NO ERROR');
+
+-- a multi-row statement is checked against its own final state
+select public.t_gcse3_mk('M1', 'OWN', 'I2', null, 14, '10:00', '11:00');
+select public.t_gcse3_mk('M2', 'OWN', 'I2', null, 14, '12:00', '13:00');
+select public.t_gcse3_assert('T-gcse3-multi-row-statement-intra-conflict-refused',
+  public.t_gcse3_err(format($f$select public.t_gcse3_as('OWN'); update public.appointments set starts_at = %L, ends_at = %L where id in (%L, %L)$f$,
+    public.t_gcse3_t(14, '15:00'), public.t_gcse3_t(14, '16:00'), public.t_gcse3_cid('M1'), public.t_gcse3_cid('M2'))), 'GCSE3_CONFLICT: reason=instructor');
+select public.t_gcse3_assert('T-gcse3-multi-row-statement-refusal-atomic', public.t_gcse3_state('M1') || ' ' || public.t_gcse3_state('M2'), 'M1|I2|-|10:00-11:00 M2|I2|-|12:00-13:00');
+select public.t_gcse3_ok(format($f$select public.t_gcse3_as('OWN'); update public.appointments set starts_at = starts_at + interval '1 day', ends_at = ends_at + interval '1 day' where id in (%L, %L)$f$,
+    public.t_gcse3_cid('M1'), public.t_gcse3_cid('M2')), 'T-gcse3-multi-row-statement-non-conflicting-allowed');
+
+-- S1A: a refused edit leaves no override behind; the assigned instructor's own edit is tracked as before
+select public.t_gcse3_assert('T-gcse3-refused-series-edit-leaves-no-override',
+  public.t_gcse3_err((select format('select public.t_gcse3_upd(%L, %L, %L)', 'OWN', a.id, format('starts_at = %L, ends_at = %L', b.starts_at, b.ends_at))
+     from public.appointments a join public.group_class_series s on s.id = a.group_class_series_id
+     join public.appointments b on b.group_class_series_id = s.id and b.series_occurrence_index = 1
+     where s.title = 'SOK' and a.series_occurrence_index = 3)), 'GCSE3_CONFLICT: reason=instructor');
+select public.t_gcse3_assert('T-gcse3-refused-series-edit-left-no-override-or-time-change',
+  (select array_to_string(a.series_overridden_fields, '+') || '|' || (a.starts_at = a.occurrence_original_start)::text
+   from public.appointments a join public.group_class_series s on s.id = a.group_class_series_id
+   where s.title = 'SOK' and a.series_occurrence_index = 3), '|true');
+select public.t_gcse3_assert('T-gcse3-instructor-own-series-occurrence-edit-allowed',
+  (select public.t_gcse3_upd('INS3', a.id, format('starts_at = %L, ends_at = %L', a.starts_at + interval '3 hours', a.ends_at + interval '3 hours'))::text
+   from public.appointments a join public.group_class_series s on s.id = a.group_class_series_id where s.title = 'SOK' and a.series_occurrence_index = 3), '1');
+select public.t_gcse3_assert('T-gcse3-instructor-own-series-occurrence-edit-tracked',
+  (select array_to_string(a.series_overridden_fields, '+') from public.appointments a join public.group_class_series s on s.id = a.group_class_series_id
+     where s.title = 'SOK' and a.series_occurrence_index = 3), 'time');
+
+-- the rule with nothing to conflict on
+select public.t_gcse3_assert('T-gcse3-rule-no-instructor-no-room-is-no-conflict',
+  coalesce(public._gcse3_schedule_conflict(public.t_gcse3_id('S'), null, null, null, public.t_gcse3_t(0, '10:00'), public.t_gcse3_t(0, '11:00'), false), 'none'), 'none');
 
 select count(*) as passes, string_agg(msg, E'\n' order by n) as detail from public.t_gcse3_log;
 
