@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveClassAttendeesForNotification } from "@/lib/schedule/groupClassRoster";
 
 type SchedulePushReason = "confirmed" | "rescheduled" | "cancelled";
@@ -163,6 +164,7 @@ async function sendToPortalUsers(params: {
   studioId: string;
   reason: SchedulePushReason;
   recipientRole: "primary" | "partner" | "class_attendee";
+  extraData?: Record<string, unknown>;
 }) {
   const userIds = Array.from(
     new Set(params.userIds.map((userId) => userId.trim()).filter(Boolean)),
@@ -183,6 +185,7 @@ async function sendToPortalUsers(params: {
             studioId: params.studioId,
             reason: params.reason,
             recipientRole: params.recipientRole,
+            ...(params.extraData ?? {}),
           },
         });
       } catch (error) {
@@ -480,4 +483,64 @@ export async function sendGroupClassSeriesCancellationPush(params: {
       recipientRole: "class_attendee",
     });
   }
+}
+
+// GC-S1E-2: ONE short push per portal account for a class change, enrollment or removal notice. The recipients are the dancer
+// client ids the server derived from authoritative rows; accounts linked to several of those clients are merged so a guardian
+// receives a single push. The stored reason reuses the existing schedule reasons (confirmed / rescheduled / cancelled) so the
+// mobile client needs no change; the title and body say what happened. Never throws; push only, no SMS.
+export async function sendGroupClassNoticePush(params: {
+  supabase: SupabaseClient;
+  studioId: string;
+  appointmentId: string;
+  clientIds: string[];
+  kind: "changed" | "enrolled" | "removed";
+  title: string;
+  body: string;
+  /** Identity of this notice event (kind + studio + event). A portal account that already has a SENT push for it is skipped. */
+  noticeKey: string;
+}): Promise<number> {
+  const { supabase, studioId, appointmentId, clientIds, kind, noticeKey } = params;
+  const distinctClients = Array.from(new Set(clientIds.filter(Boolean)));
+  if (!distinctClients.length) return 0;
+
+  const userIds = new Set<string>();
+  for (const clientId of distinctClients) {
+    const linked = await linkedScheduleUserIds({ supabase, studioId, clientId });
+    linked.forEach((userId) => userIds.add(userId));
+  }
+  if (userIds.size === 0) return 0;
+
+  // Push idempotency uses the existing per-account push log (no email dependency, no new state): an account whose log already
+  // holds a SENT push for this notice key is not pushed again. Skipped/failed attempts do not count, so a push that never
+  // reached a device can still be sent later. If the lookup itself fails the push is sent (delivery over suppression).
+  let remaining = Array.from(userIds);
+  try {
+    const { data, error } = await createAdminClient()
+      .from("mobile_notification_log")
+      .select("user_id")
+      .in("user_id", remaining)
+      .eq("status", "sent")
+      .eq("data->>noticeKey", noticeKey);
+    if (!error) {
+      const already = new Set(((data ?? []) as Array<{ user_id: string }>).map((row) => row.user_id));
+      remaining = remaining.filter((userId) => !already.has(userId));
+    }
+  } catch (error) {
+    console.error("Could not check earlier class notice pushes:", error);
+  }
+  if (!remaining.length) return 0;
+
+  await sendToPortalUsers({
+    userIds: remaining,
+    title: params.title,
+    body: params.body,
+    appointmentId,
+    studioId,
+    reason: kind === "changed" ? "rescheduled" : kind === "enrolled" ? "confirmed" : "cancelled",
+    recipientRole: "class_attendee",
+    extraData: { noticeKey },
+  });
+
+  return remaining.length;
 }

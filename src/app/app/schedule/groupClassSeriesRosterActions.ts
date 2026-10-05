@@ -1,7 +1,9 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { canEditGroupClassSeries } from "@/lib/auth/permissions";
+import { notifyGroupClassEnrolled, notifyGroupClassRemoved } from "@/lib/notifications/groupClassNotices";
 import { requireAppointmentEditAccess } from "@/lib/auth/serverRoleGuard";
 import {
   classifySeriesRosterError,
@@ -47,7 +49,7 @@ function cleanId(value: string | null | undefined): string | null {
 
 async function run(request: SeriesRosterRequest, apply: boolean, expectedCount: number | null): Promise<SeriesRosterActionState> {
   try {
-    const { supabase, studioRole, isPlatformAdmin } = await requireAppointmentEditAccess();
+    const { supabase, studioId, studioRole, isPlatformAdmin } = await requireAppointmentEditAccess();
 
     // UX-level gate only; the RPCs enforce broad-staff authority in the database.
     if (!isPlatformAdmin && !canEditGroupClassSeries(studioRole)) return fail("not_authorized");
@@ -96,6 +98,29 @@ async function run(request: SeriesRosterRequest, apply: boolean, expectedCount: 
     if (!result) return fail("unknown");
 
     if (apply && (result.outcome === "enrolled" || result.outcome === "removed")) {
+      // GC-S1E-2: ONE consolidated notice for the dancer, only after the whole operation committed. The classes named are exactly
+      // the ones the operation changed (will_enroll / will_remove); skipped and blocked classes are never claimed. A refused,
+      // stale or no-op result never reaches here. One id per apply is the event identity.
+      const eventId = randomUUID();
+      if (result.outcome === "enrolled") {
+        await notifyGroupClassEnrolled({
+          studioId,
+          clientId,
+          appointmentIds: result.classes.filter((c) => c.state === "will_enroll").map((c) => c.appointmentId),
+          eventId,
+          series: true,
+        });
+      } else {
+        await notifyGroupClassRemoved({
+          studioId,
+          clientId,
+          appointmentIds: result.classes.filter((c) => c.state === "will_remove").map((c) => c.appointmentId),
+          keptCount: result.classes.filter((c) => c.state === "skipped_terminal").length,
+          eventId,
+          series: true,
+        });
+      }
+
       revalidatePath("/app/schedule");
       revalidatePath(`/app/schedule/${appointmentId}`);
     }

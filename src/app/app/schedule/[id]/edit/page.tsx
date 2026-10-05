@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canEditAppointments, canEditGroupClassSeries } from "@/lib/auth/permissions";
 import { seriesSettingsBannerMessage } from "@/lib/schedule/groupClassSeriesSettings";
+import { countEnrolledDancers } from "@/lib/notifications/groupClassNotices";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentEditForm from "./AppointmentEditForm";
 
@@ -385,6 +386,12 @@ export default async function EditAppointmentPage({
     console.error("Could not load group class enrollment policy:", enrollmentPolicyError.message);
   }
 
+  // GC-S1E-2: unique enrolled dancers of this class, for the "will be notified" message (never fails the page).
+  const enrolledDancerCount =
+    appointment.appointment_type === "group_class"
+      ? ((await countEnrolledDancers(supabase, studioId, [appointment.id])) ?? 0)
+      : 0;
+
   const benefitsByPlan = new Map<string, MembershipBenefit[]>();
 
   for (const row of membershipBenefitsRaw ?? []) {
@@ -490,6 +497,7 @@ export default async function EditAppointmentPage({
       initialClientLabel={initialClientLabel}
       enrollmentPolicy={(enrollmentPolicyRow ?? null) as EnrollmentPolicy | null}
       policyBanner={policyBanner}
+      enrolledDancerCount={enrolledDancerCount}
       seriesSettingsEnabled={
         canEditGroupClassSeries(studioRole ?? "") &&
         appointment.appointment_type === "group_class" &&
