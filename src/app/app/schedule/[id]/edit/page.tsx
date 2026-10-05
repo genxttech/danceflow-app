@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canEditAppointments, canEditGroupClassSeries } from "@/lib/auth/permissions";
+import { seriesSettingsBannerMessage } from "@/lib/schedule/groupClassSeriesSettings";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentEditForm from "./AppointmentEditForm";
 
@@ -12,13 +13,22 @@ type Params = Promise<{
 type SearchParams = Promise<{
   error?: string;
   success?: string;
+  count?: string;
+  left?: string;
 }>;
 
 // GC-3.3: maps updateGroupClassEnrollmentPolicyAction's redirect codes to
 // the banner text shown above the staff self-enrollment toggle block.
-function policyBannerFromSearchParams(query: { error?: string; success?: string }) {
+function policyBannerFromSearchParams(query: { error?: string; success?: string; count?: string; left?: string }) {
   if (query.success === "policy_saved") {
     return { kind: "success" as const, message: "Enrollment settings saved." };
+  }
+  // GC-S1D-3: series settings outcome (counts come from numeric params only).
+  if (query.success) {
+    const count = Number.parseInt(String(query.count ?? ""), 10);
+    const left = Number.parseInt(String(query.left ?? ""), 10);
+    const message = seriesSettingsBannerMessage(query.success, Number.isFinite(count) ? count : null, Number.isFinite(left) ? left : null);
+    if (message) return { kind: "success" as const, message };
   }
   if (query.error === "policy_requires_funding_type") {
     return {
@@ -480,6 +490,12 @@ export default async function EditAppointmentPage({
       initialClientLabel={initialClientLabel}
       enrollmentPolicy={(enrollmentPolicyRow ?? null) as EnrollmentPolicy | null}
       policyBanner={policyBanner}
+      seriesSettingsEnabled={
+        canEditGroupClassSeries(studioRole ?? "") &&
+        appointment.appointment_type === "group_class" &&
+        !!appointment.group_class_series_id &&
+        ["scheduled", "confirmed", "rescheduled"].includes(appointment.status)
+      }
       seriesFollowingHref={
         canEditGroupClassSeries(studioRole ?? "") &&
         appointment.appointment_type === "group_class" &&
