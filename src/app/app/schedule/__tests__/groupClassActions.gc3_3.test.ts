@@ -93,8 +93,13 @@ function makeFakeSupabase(params: {
 }) {
   const insertCalls: Array<{ table: string; payload: unknown }> = [];
   const updateCalls: Array<{ table: string; payload: unknown }> = [];
+  const rpcCalls: string[] = [];
 
   const supabase = {
+    rpc(name: string) {
+      rpcCalls.push(name);
+      return Promise.resolve({ data: null, error: null });
+    },
     from(table: string) {
       const chain: Record<string, unknown> = {};
       chain.select = () => chain;
@@ -113,7 +118,7 @@ function makeFakeSupabase(params: {
     },
   };
 
-  return { supabase, insertCalls, updateCalls };
+  return { supabase, insertCalls, updateCalls, rpcCalls };
 }
 
 beforeEach(() => {
@@ -121,6 +126,35 @@ beforeEach(() => {
 });
 
 describe("updateGroupClassEnrollmentPolicyAction", () => {
+  it("GC-S1D-3: the single-class save never invokes a series RPC and ignores the series scope control", async () => {
+    const { supabase, updateCalls, rpcCalls } = makeFakeSupabase({
+      existingRow: { accepted_funding_types: ["direct_payment", "manual_other", "package"] },
+    });
+    requireAppointmentEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID, user: { id: USER_ID } });
+
+    const error = await run(
+      updateGroupClassEnrollmentPolicyAction(
+        formDataFor({
+          appointmentId: APPOINTMENT_ID,
+          publiclyDiscoverable: "on",
+          selfEnrollmentAllowed: "on",
+          packageEnabled: "on",
+          membershipEnabled: "on",
+          settingsScope: "series",
+        }),
+      ),
+    );
+
+    expect(rpcCalls).toEqual([]);
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0].payload).toMatchObject({
+      publicly_discoverable: true,
+      self_enrollment_allowed: true,
+      accepted_funding_types: ["direct_payment", "manual_other", "package", "membership"],
+    });
+    expect(redirectUrl(error)).toContain("success=policy_saved");
+  });
+
   it("first-row creation: builds accepted_funding_types fresh from only the checked boxes, sets created_by", async () => {
     const { supabase, insertCalls } = makeFakeSupabase({ existingRow: null });
 

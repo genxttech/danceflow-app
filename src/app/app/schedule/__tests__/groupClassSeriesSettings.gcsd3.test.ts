@@ -102,11 +102,24 @@ describe("S1D-3 preview summaries", () => {
     expect(s.canApply).toBe(true);
     expect(s.headline).toBe("Update 3 classes");
     const text = s.details.join(" ");
-    expect(text).toContain("3 classes will be updated, starting with this one.");
+    expect(text).toContain("3 classes will be updated from this class onward.");
     expect(text).toContain("A later class with different settings will be changed to match.");
     expect(text).toContain("2 classes already match and are left as they are.");
     expect(text).toContain("1 cancelled class and 1 class that has ended will be skipped.");
     expect(text).toContain("Earlier classes are not changed.");
+  });
+
+  it("a skipped selected class is reported as skipped (never silently absent) and the following classes still update", () => {
+    const r = parse("ready", states("skipped_cancelled", "will_change", "will_change"));
+    const s = lib.seriesSettingsSummary(r);
+    expect(s.canApply).toBe(true);
+    expect(s.details[0]).toBe("This class is cancelled, so it is skipped; the following classes are updated.");
+    expect(s.headline).toBe("Update 2 classes");
+    expect(r.classes[0].state).toBe("skipped_cancelled");
+    const ended = lib.seriesSettingsSummary(parse("ready", states("skipped_ended", "will_change")));
+    expect(ended.details[0]).toBe("This class is over, so it is skipped; the following classes are updated.");
+    const normal = lib.seriesSettingsSummary(parse("ready", states("will_change", "will_change")));
+    expect(normal.details.join(" ")).not.toContain("so it is skipped");
   });
 
   it("singular wording, no preserve-customization option and no override language", () => {

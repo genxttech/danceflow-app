@@ -1322,7 +1322,7 @@ export default function AppointmentEditForm({
 
     {appointmentType === "group_class" && !instructorSearchMode ? (
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <details open={publiclyDiscoverable || selfEnrollmentAllowed}>
+        <details open={publiclyDiscoverable || selfEnrollmentAllowed || policyBanner !== null}>
           <summary className="cursor-pointer text-sm font-semibold text-slate-900">
             Student self-enrollment
           </summary>

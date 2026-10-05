@@ -184,7 +184,12 @@ export function seriesSettingsSummary(result: SeriesSettingsResult): SeriesSetti
     };
   }
 
-  const details = [`${plural(change, "class", "classes")} will be updated, starting with this one. A later class with different settings will be changed to match.`];
+  const anchorState = result.classes.find((item) => item.occurrenceIndex === result.anchorIndex)?.state;
+  const details: string[] = [];
+  if (anchorState === "skipped_cancelled" || anchorState === "skipped_ended") {
+    details.push(`This class is ${anchorState === "skipped_cancelled" ? "cancelled" : "over"}, so it is skipped; the following classes are updated.`);
+  }
+  details.push(`${plural(change, "class", "classes")} will be updated from this class onward. A later class with different settings will be changed to match.`);
   if (same > 0) details.push(`${plural(same, "class already matches", "classes already match")} and ${same === 1 ? "is" : "are"} left as ${same === 1 ? "it is" : "they are"}.`);
   if (skipped) details.push(skipped);
   details.push("Earlier classes are not changed.");

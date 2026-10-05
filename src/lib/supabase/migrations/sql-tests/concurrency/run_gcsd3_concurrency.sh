@@ -2,13 +2,15 @@
 # GC-S1D-3 -- real two-session concurrency harness for series enrollment settings
 # (apply_group_class_series_enrollment_settings). Run against DEV only, from the repo root:
 #   bash src/lib/supabase/migrations/sql-tests/concurrency/run_gcsd3_concurrency.sh
-# Creates committed synthetic fixtures (studio ...f6001, five 4-class series), runs each scenario with two overlapping
+# Creates committed synthetic fixtures (studio ...f6001, seven 4-class series), runs each scenario with two overlapping
 # sessions, asserts the outcome (including that the second session really blocked), and always cleans up.
 #   SC1 series edit (split) first               -> the settings apply waits on the series lock, then covers the successor classes too
 #   SC2 settings apply first                    -> a direct single-class settings update waits, then wins that one class; no deadlock
 #   SC3 series cancellation first               -> the settings apply waits, then skips the cancelled classes
 #   SC4 two settings applies, different values  -> serialized; the later one wins every class (uniform result)
 #   SC5 settings apply first                    -> a series enrollment (GC-S1D-2) waits on the series lock, then succeeds under the new settings; no deadlock
+#   SC6 settings apply first                    -> a series cancellation (GC-S1C-4) waits, then cancels the later classes; the settings stay as applied
+#   SC7 settings apply first                    -> a series split edit (GC-S1C-5) waits, then splits; every class keeps the applied settings
 set -u
 T="${TMPDIR:-/tmp}/gcsd3-conc"; mkdir -p "$T"
 S=00000000-0000-0000-0000-0000000f6001; OWN=00000000-0000-0000-0000-0000000f6101; INS=00000000-0000-0000-0000-0000000f6102; IID=00000000-0000-0000-0000-0000000f6201
@@ -47,7 +49,7 @@ echo "insert into public.instructors (id,studio_id,user_id,first_name,last_name,
 echo "alter table public.instructors enable trigger user;"
 echo "insert into public.clients (id,studio_id,first_name,last_name,status,is_independent_instructor) values ('$CLI','$S','Conc','C1','active',false);"
 echo "select set_config('request.jwt.claims', json_build_object('sub','$OWN')::text, true); set local role authenticated;"
-for n in 1 2 3 4 5; do
+for n in 1 2 3 4 5 6 7; do
   echo "select public.create_group_class_series(p_studio_id=>'$S', p_client_request_id=>'00000000-0000-0000-0000-0000000f670$n', p_title=>'ES-$n', p_description=>null, p_instructor_id=>'$IID', p_room_id=>null, p_location_name=>null, p_roster_capacity=>null, p_weekdays=>array[$n]::smallint[], p_interval_weeks=>1, p_starts_on=>(current_date+20), p_ends_on=>null, p_occurrence_count=>4, p_local_start_time=>make_time($((7 + n * 2)),0,0), p_duration_minutes=>60);"
 done
 echo "reset role;"
@@ -57,8 +59,8 @@ run "$T/fixture.sql" | grep -E "ERROR" && { echo "fixture failed"; exit 1; }
 
 val() { echo "$1" > "$T/v.sql"; run "$T/v.sql" | grep -E '"v"' | head -1 | sed -E 's/.*"v": *"([^"]*)".*/\1/; t; s/.*"v": *([^,}]*).*/\1/'; }
 occ() { val "select a.id::text as v from public.appointments a join public.group_class_series s on s.id=a.group_class_series_id where s.studio_id='$S' and s.title='ES-$1' and a.series_occurrence_index=$2"; }
-for n in 1 2 3 4 5; do for i in 1 2 3 4; do eval "O${n}${i}=\$(occ $n $i)"; done; done
-[ -z "$O11" ] || [ -z "$O54" ] && { echo "could not resolve occurrence ids"; exit 1; }
+for n in 1 2 3 4 5 6 7; do for i in 1 2 3 4; do eval "O${n}${i}=\$(occ $n $i)"; done; done
+[ -z "$O11" ] || [ -z "$O74" ] && { echo "could not resolve occurrence ids"; exit 1; }
 
 as_owner() { echo "select set_config('request.jwt.claims', json_build_object('sub','$OWN')::text, true); set local role authenticated;"; }
 # apply_sql <anchor> <discoverable> <self> <package> <membership> <sleep-after>
@@ -112,6 +114,18 @@ scenario sc5 "$(apply_sql "$O51" true true true false 12)" "$(enroll_series_sql 
 check "settings first / series enrollment: enrollment blocked (>=3s)" "$(blocked sc5)" yes
 check "settings first / series enrollment: enrolled all four after the wait" "$(has sc5.second.out '"enrolled_count": 4')" yes
 check "settings first / series enrollment: settings unchanged by the enrollment" "$(pol 5)" "DS/package,DS/package,DS/package,DS/package"
+
+# SC6: the settings apply on ES-6 holds first; a series cancellation from occurrence 2 waits, then cancels the later classes
+scenario sc6 "$(apply_sql "$O61" true true true false 12)" "$(series_cancel_sql "$O62" 0)"
+check "settings first / series cancel: cancellation blocked (>=3s)" "$(blocked sc6)" yes
+check "settings first / series cancel: later classes cancelled after the wait" "$(val "select string_agg(a.status::text, ',' order by a.series_occurrence_index) as v from public.appointments a where a.id in ('$O61','$O62','$O63','$O64')")" "scheduled,cancelled,cancelled,cancelled"
+check "settings first / series cancel: the applied settings are intact on every class" "$(pol 6)" "DS/package,DS/package,DS/package,DS/package"
+
+# SC7: the settings apply on ES-7 holds first; a split edit from occurrence 3 waits, then splits; every class keeps the applied settings
+scenario sc7 "$(apply_sql "$O71" true true true false 12)" "$(edit_sql "$O73" 02 '{"title":"ES-7 successor"}' 0)"
+check "settings first / split edit: split blocked (>=3s)" "$(blocked sc7)" yes
+check "settings first / split edit: the series was split into two segments" "$(val "select count(distinct a.group_class_series_id)::text as v from public.appointments a where a.id in ('$O71','$O72','$O73','$O74')")" 2
+check "settings first / split edit: the applied settings are intact on every class" "$(pol 7)" "DS/package,DS/package,DS/package,DS/package"
 
 check "no deadlock or lock timeout in any session" "$(cat "$T"/*.out | grep -ciE 'deadlock|lock timeout|could not obtain lock')" 0
 exit $fail
