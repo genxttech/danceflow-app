@@ -26,6 +26,7 @@ type AppointmentRow = {
   starts_at: string;
   ends_at: string;
   notes: string | null;
+  location_name: string | null;
   client_id: string | null;
   room_id: string | null;
 };
@@ -62,34 +63,12 @@ function escapeIcsText(value: string) {
     .replace(/\r?\n/g, "\\n");
 }
 
+// Appointments are stored as true UTC instants (the schedule actions and the group-class
+// RPCs convert the studio's local entry time using the studio timezone), so emit them as
+// UTC and let calendar apps convert to the viewer's local time. The earlier "floating"
+// rendering read the UTC wall clock, which showed classes hours early.
 function formatIcsUtcDate(value: string) {
   return new Date(value).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-}
-
-function formatIcsFloatingDate(value: string) {
-  // Appointments are stored as timestamp-with-time-zone values, but the app displays
-  // them as the studio's entered wall-clock time. For subscribed calendars, emitting
-  // DTSTART/DTEND with a trailing Z makes calendar apps convert the time from UTC,
-  // which can show the appointment several hours early. Floating ICS times preserve
-  // the same wall-clock time shown in DanceFlow.
-  const match = value.match(
-    /^(\d{4})[-](\d{2})[-](\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/
-  );
-
-  if (match) {
-    const [, year, month, day, hour, minute, second = "00"] = match;
-    return `${year}${month}${day}T${hour}${minute}${second}`;
-  }
-
-  const date = new Date(value);
-  const year = String(date.getFullYear()).padStart(4, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  const second = String(date.getSeconds()).padStart(2, "0");
-
-  return `${year}${month}${day}T${hour}${minute}${second}`;
 }
 
 function foldIcsLine(line: string) {
@@ -214,6 +193,7 @@ export async function GET(
       starts_at,
       ends_at,
       notes,
+      location_name,
       client_id,
       room_id
     `
@@ -292,14 +272,16 @@ export async function GET(
       "BEGIN:VEVENT",
       `UID:${appointment.id}@danceflow`,
       `DTSTAMP:${now}`,
-      `DTSTART:${formatIcsFloatingDate(appointment.starts_at)}`,
-      `DTEND:${formatIcsFloatingDate(appointment.ends_at)}`,
+      `DTSTART:${formatIcsUtcDate(appointment.starts_at)}`,
+      `DTEND:${formatIcsUtcDate(appointment.ends_at)}`,
       `SUMMARY:${escapeIcsText(summary)}`,
       `DESCRIPTION:${escapeIcsText(description)}`
     );
 
-    if (room?.name) {
-      lines.push(`LOCATION:${escapeIcsText(room.name)}`);
+    // Same precedence as the Google sync: an explicit location (rented venue etc.) wins over the room.
+    const location = appointment.location_name?.trim() || room?.name;
+    if (location) {
+      lines.push(`LOCATION:${escapeIcsText(location)}`);
     }
 
     lines.push("END:VEVENT");
