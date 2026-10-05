@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { updateAppointmentAction, updateGroupClassEnrollmentPolicyAction } from "../../actions";
 import InstructorClientSearchField from "../../InstructorClientSearchField";
 import GroupClassSeriesContext from "./GroupClassSeriesContext";
+import SeriesSettingsFooter from "@/components/schedule/SeriesSettingsFooter";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
   getItemWarningLevel,
@@ -401,6 +402,7 @@ export default function AppointmentEditForm({
   enrollmentPolicy = null,
   policyBanner = null,
   seriesFollowingHref = null,
+  seriesSettingsEnabled = false,
 }: {
   appointment: Appointment;
   clients: ClientOption[];
@@ -419,7 +421,10 @@ export default function AppointmentEditForm({
   policyBanner?: { kind: "success" | "error"; message: string } | null;
   // GC-S1C-5: link to the "this and following classes" editor (broad staff, eligible series occurrence only).
   seriesFollowingHref?: string | null;
+  // GC-S1D-3: offer "This and following classes" for the enrollment settings (broad staff, eligible series occurrence only).
+  seriesSettingsEnabled?: boolean;
 }) {
+  const [policyScope, setPolicyScope] = useState<"single" | "series">("single");
   const [state, formAction, pending] = useActionState(
     updateAppointmentAction,
     initialState,
@@ -1341,7 +1346,14 @@ export default function AppointmentEditForm({
               </div>
             ) : null}
 
-            <form action={updateGroupClassEnrollmentPolicyAction} className="space-y-4">
+            <form
+              action={updateGroupClassEnrollmentPolicyAction}
+              onSubmit={(event) => {
+                // GC-S1D-3: the series scope never posts the single-class save (Enter or a stray submit is ignored).
+                if (seriesSettingsEnabled && policyScope === "series") event.preventDefault();
+              }}
+              className="space-y-4"
+            >
               <input type="hidden" name="appointmentId" value={appointment.id} />
               <input
                 type="hidden"
@@ -1446,13 +1458,16 @@ export default function AppointmentEditForm({
                 </>
               )}
 
-              <button
-                type="submit"
-                disabled={policyRequiresFundingType}
-                className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Save enrollment settings
-              </button>
+              <SeriesSettingsFooter
+                appointmentId={appointment.id}
+                seriesEnabled={seriesSettingsEnabled}
+                scope={policyScope}
+                onScopeChange={setPolicyScope}
+                settings={{ publiclyDiscoverable, selfEnrollmentAllowed, packageEnabled, membershipEnabled }}
+                singleDisabled={policyRequiresFundingType}
+                timeZone={studioTimeZone}
+                returnPath={`/app/schedule/${appointment.id}/edit`}
+              />
             </form>
           </div>
         </details>
