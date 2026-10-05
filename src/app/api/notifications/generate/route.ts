@@ -4,7 +4,9 @@ import { getCronAuthFailure } from "@/lib/security/cron";
 import { createAppointmentConfirmationToken } from "@/lib/schedule/appointmentConfirmation";
 import {
   buildGroupClassReminderDelivery,
+  groupClassReminderLegacyDedupeKey,
   isCanonicalGroupClass,
+  legacyReminderCoversOccurrence,
   selectGroupClassRecipients,
   type ClassReminderAttendeeRow,
   type ClassReminderDelivery,
@@ -127,17 +129,44 @@ async function insertGroupClassDeliveries(
 ): Promise<{ inserted: number; error?: string }> {
   if (!rows.length) return { inserted: 0 };
 
+  // GC-S1E-1: the identity now includes the occurrence's start time. Rows written before that change used the key without it;
+  // they still count for the same occurrence (no duplicate merely because the key format changed) but never block a class
+  // that has since moved to a different time.
+  const legacyKeyFor = (row: ClassReminderDelivery) =>
+    groupClassReminderLegacyDedupeKey(
+      row.delivery_type === "student_lesson_reminder_24h" ? "24h" : "2h",
+      row.related_appointment_id,
+      row.client_id,
+    );
+
   const existing = new Set<string>();
+  const legacyMetadata = new Map<string, unknown>();
   for (let i = 0; i < rows.length; i += GROUP_CLASS_LOOKUP_CHUNK) {
-    const keys = rows.slice(i, i + GROUP_CLASS_LOOKUP_CHUNK).map((row) => row.dedupe_key);
+    const chunk = rows.slice(i, i + GROUP_CLASS_LOOKUP_CHUNK);
+    const keys = chunk.map((row) => row.dedupe_key);
     const { data, error } = await supabase.from("notification_deliveries").select("dedupe_key").in("dedupe_key", keys);
     if (error) return { inserted: 0, error: error.message };
     for (const row of data ?? []) existing.add(String((row as { dedupe_key: string }).dedupe_key));
+
+    const legacyKeys = chunk.map(legacyKeyFor);
+    const { data: legacy, error: legacyError } = await supabase
+      .from("notification_deliveries")
+      .select("dedupe_key, metadata")
+      .in("dedupe_key", legacyKeys);
+    if (legacyError) return { inserted: 0, error: legacyError.message };
+    for (const row of legacy ?? []) {
+      const record = row as { dedupe_key: string; metadata: unknown };
+      legacyMetadata.set(String(record.dedupe_key), record.metadata);
+    }
   }
 
   let inserted = 0;
   for (const row of rows) {
     if (existing.has(row.dedupe_key)) continue;
+    const legacyKey = legacyKeyFor(row);
+    if (legacyMetadata.has(legacyKey) && legacyReminderCoversOccurrence(legacyMetadata.get(legacyKey), String(row.metadata.startsAt))) {
+      continue;
+    }
     const { error } = await supabase.from("notification_deliveries").insert(row);
     if (error) {
       if (error.code === "23505") continue; // already queued by a concurrent run

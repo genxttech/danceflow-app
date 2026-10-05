@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   buildGroupClassReminderDelivery,
   groupClassReminderDedupeKey,
+  groupClassReminderLegacyDedupeKey,
   isCanonicalGroupClass,
+  isGroupClassAttendeeReminderKey,
+  legacyReminderCoversOccurrence,
+  normalizedStartKey,
+  revalidateQueuedClassReminder,
   selectGroupClassRecipients,
   type ClassReminderAppointment,
   type ClassReminderAttendeeRow,
@@ -19,10 +24,12 @@ const row = (over: Partial<ClassReminderAttendeeRow> = {}): ClassReminderAttende
 const format = { dateKey: () => "2026-03-11", dateLong: () => "Wednesday, March 11", time: () => "11:00 AM" };
 
 describe("GC-R1 pure logic", () => {
-  it("dedupe key is per kind, class and attendee", () => {
-    expect(groupClassReminderDedupeKey("24h", "a1", "c1")).toBe("gcr1:24h:a1:c1");
-    expect(groupClassReminderDedupeKey("2h", "a1", "c1")).not.toBe(groupClassReminderDedupeKey("24h", "a1", "c1"));
-    expect(groupClassReminderDedupeKey("24h", "a1", "c2")).not.toBe(groupClassReminderDedupeKey("24h", "a1", "c1"));
+  it("dedupe key is per kind, class, attendee and start time", () => {
+    const at = "2026-03-11T15:00:00.000Z";
+    const ms = String(new Date(at).getTime());
+    expect(groupClassReminderDedupeKey("24h", "a1", "c1", at)).toBe(`gcr1:24h:a1:c1:${ms}`);
+    expect(groupClassReminderDedupeKey("2h", "a1", "c1", at)).not.toBe(groupClassReminderDedupeKey("24h", "a1", "c1", at));
+    expect(groupClassReminderDedupeKey("24h", "a1", "c2", at)).not.toBe(groupClassReminderDedupeKey("24h", "a1", "c1", at));
   });
 
   it("only group_class appointments are canonical classes", () => {
@@ -98,5 +105,66 @@ describe("GC-R1 branded HTML class variant", () => {
     expect(html).toContain("Lesson Reminder");
     expect(html).toContain("Your lesson is coming up");
     expect(html).not.toContain("Class Reminder");
+  });
+});
+
+describe("GC-S1E-1 reminder identity and revalidation (pure)", () => {
+  it("the start key is the canonical instant: offset spellings are equal, display strings and garbage are not accepted", () => {
+    expect(normalizedStartKey("2026-03-11T15:00:00.000Z")).toBe(normalizedStartKey("2026-03-11T15:00:00+00:00"));
+    expect(normalizedStartKey("2026-03-11T10:00:00-05:00")).toBe(normalizedStartKey("2026-03-11T15:00:00Z"));
+    expect(normalizedStartKey("2026-03-11T15:00:00Z")).not.toBe(normalizedStartKey("2026-03-11T15:01:00Z"));
+    expect(normalizedStartKey("Wednesday at 3 PM")).toBeNull();
+    expect(normalizedStartKey("")).toBeNull();
+    expect(normalizedStartKey(null)).toBeNull();
+  });
+
+  it("the legacy key is the old format and never equals a new key", () => {
+    const at = "2026-03-11T15:00:00.000Z";
+    expect(groupClassReminderLegacyDedupeKey("24h", "a1", "c1")).toBe("gcr1:24h:a1:c1");
+    expect(groupClassReminderDedupeKey("24h", "a1", "c1", at)).not.toBe(groupClassReminderLegacyDedupeKey("24h", "a1", "c1"));
+    expect(groupClassReminderDedupeKey("24h", "a1", "c1", at).startsWith(groupClassReminderLegacyDedupeKey("24h", "a1", "c1") + ":")).toBe(true);
+  });
+
+  it("a legacy row covers its own occurrence time and nothing else; an undatable row keeps the old rule", () => {
+    const now = "2026-03-11T15:00:00.000Z";
+    expect(legacyReminderCoversOccurrence({ startsAt: now }, now)).toBe(true);
+    expect(legacyReminderCoversOccurrence({ startsAt: "2026-03-11T15:00:00+00:00" }, now)).toBe(true);
+    expect(legacyReminderCoversOccurrence({ startsAt: "2026-03-11T16:00:00.000Z" }, now)).toBe(false);
+    expect(legacyReminderCoversOccurrence({}, now)).toBe(true);
+    expect(legacyReminderCoversOccurrence(null, now)).toBe(true);
+    expect(legacyReminderCoversOccurrence({ startsAt: "garbage" }, now)).toBe(true);
+  });
+
+  it("only attendee-path keys are subject to the revalidation", () => {
+    expect(isGroupClassAttendeeReminderKey("gcr1:24h:a1:c1:123")).toBe(true);
+    expect(isGroupClassAttendeeReminderKey("gcr1:24h:a1:c1")).toBe(true);
+    expect(isGroupClassAttendeeReminderKey(null)).toBe(false);
+    expect(isGroupClassAttendeeReminderKey("something-else")).toBe(false);
+  });
+
+  const classRow = { studio_id: "s1", appointment_type: "group_class", status: "scheduled", starts_at: "2026-03-11T15:00:00.000Z" };
+  const decide = (over: Partial<Parameters<typeof revalidateQueuedClassReminder>[0]> = {}) =>
+    revalidateQueuedClassReminder({
+      deliveryStudioId: "s1",
+      queuedStartsAt: "2026-03-11T15:00:00.000Z",
+      appointment: classRow,
+      attendeeBooked: true,
+      ...over,
+    });
+
+  it("revalidation: sends only for the current time of a live class and a still-booked dancer", () => {
+    expect(decide()).toBe("ok");
+    expect(decide({ queuedStartsAt: "2026-03-11T10:00:00-05:00" })).toBe("ok");
+    expect(decide({ appointment: { ...classRow, starts_at: "2026-03-11T17:00:00.000Z" } })).toBe("rescheduled");
+    expect(decide({ attendeeBooked: false })).toBe("removed");
+    expect(decide({ appointment: { ...classRow, status: "cancelled" } })).toBe("cancelled");
+    expect(decide({ appointment: { ...classRow, studio_id: "s2" } })).toBe("invalid");
+  });
+
+  it("revalidation: cancellation wins over everything, a missing recorded time falls through to the attendee check, other appointment types are untouched", () => {
+    expect(decide({ appointment: { ...classRow, status: "cancelled" }, attendeeBooked: false, queuedStartsAt: "2000-01-01T00:00:00Z" })).toBe("cancelled");
+    expect(decide({ queuedStartsAt: undefined })).toBe("ok");
+    expect(decide({ queuedStartsAt: undefined, attendeeBooked: false })).toBe("removed");
+    expect(decide({ appointment: { ...classRow, appointment_type: "private_lesson", starts_at: "2030-01-01T00:00:00Z" }, attendeeBooked: false })).toBe("ok");
   });
 });
