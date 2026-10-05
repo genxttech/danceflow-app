@@ -412,6 +412,19 @@ describe("GC-S1E-1 time-aware reminder identity", () => {
     expect((await run()).generated).toBe(1);
   });
 
+  it("a released key never blocks: a class moved away and back, or a dancer removed and re-enrolled, is reminded again", async () => {
+    seed({
+      appointments: [appointment()],
+      appointment_attendees: [attendee("class-1", client("ann", S1))],
+      notification_deliveries: [
+        { id: "supp", dedupe_key: `gcr1:24h:class-1:ann:${MS24}:released:supp`, client_id: "ann", delivery_type: "student_lesson_reminder_24h", related_appointment_id: "class-1", status: "cancelled", failure_reason: "class_rescheduled", metadata: { startsAt: startsIn(24) } },
+      ],
+    });
+    expect((await run()).generated).toBe(1);
+    expect(deliveries()[1].dedupe_key).toBe(`gcr1:24h:class-1:ann:${MS24}`);
+    expect((await run()).generated).toBe(0); // and the fresh row is idempotent
+  });
+
   it("A: a second run after the new identity exists is still idempotent", async () => {
     seed({ appointments: [appointment()], appointment_attendees: [attendee("class-1", client("ann", S1))] });
     expect((await run()).generated).toBe(1);

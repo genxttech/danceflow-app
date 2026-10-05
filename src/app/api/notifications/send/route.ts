@@ -288,8 +288,10 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
       }
 
       if (classState !== "ok") {
-        // A removed dancer's key is released so a later re-enrollment can still be reminded; every other suppression keeps it.
-        const releaseKey = classState === "removed" && delivery.dedupe_key;
+        // The key of a suppressed-but-never-sent reminder is released when the situation can legitimately reverse: a removed
+        // dancer who is re-enrolled, or a class that moves away from this time and later back to it, must still be reminded.
+        // A cancelled class cannot be reactivated and a studio mismatch is an anomaly, so those keep their key.
+        const releaseKey = (classState === "removed" || classState === "rescheduled") && delivery.dedupe_key;
         await supabase
           .from("notification_deliveries")
           .update({

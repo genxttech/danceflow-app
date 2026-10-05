@@ -202,8 +202,8 @@ describe("GC-S1E-1 reminder send-time revalidation (start time and attendee)", (
     expect(h.fetchMock).not.toHaveBeenCalled();
     expect(out.notifications).toMatchObject({ sent: 0, suppressed: 1, failed: 0 });
     expect(h.db.tables.notification_deliveries[0]).toMatchObject({ status: "cancelled", failure_reason: "class_rescheduled" });
-    // the new time has its own identity, so nothing needs releasing here
-    expect(h.db.tables.notification_deliveries[0].dedupe_key).toBe("gcr1:24h:cls1:c1:1");
+    // released so that a class moving back to this time is still reminded (the new time has its own identity regardless)
+    expect(String(h.db.tables.notification_deliveries[0].dedupe_key)).toBe("gcr1:24h:cls1:c1:1:released:g1");
   });
 
   it("C: the same instant written with a different offset is not a reschedule", async () => {
@@ -239,6 +239,15 @@ describe("GC-S1E-1 reminder send-time revalidation (start time and attendee)", (
     expect(out.notifications).toMatchObject({ sent: 1, suppressed: 1 });
     expect(h.db.tables.notification_deliveries.find((d) => d.id === "g1")).toMatchObject({ status: "cancelled", failure_reason: "attendee_removed" });
     expect(h.db.tables.notification_deliveries.find((d) => d.id === "g2")).toMatchObject({ status: "sent" });
+  });
+
+  it("cancellation, a studio mismatch and a deferral never release a key (only reversible situations do)", async () => {
+    seed([gcr()], [cls({ status: "cancelled" })], [booked({ status: "cancelled" })]);
+    await call();
+    expect(h.db.tables.notification_deliveries[0]).toMatchObject({ failure_reason: "class_cancelled", dedupe_key: "gcr1:24h:cls1:c1:1" });
+    seed([gcr()], [cls({ studio_id: "studio-b" })], [booked()]);
+    await call();
+    expect(h.db.tables.notification_deliveries[0]).toMatchObject({ failure_reason: "class_mismatch", dedupe_key: "gcr1:24h:cls1:c1:1" });
   });
 
   it("G: a cancelled class is still suppressed as class_cancelled (S1C-3 behavior preserved)", async () => {
@@ -284,7 +293,7 @@ describe("GC-S1E-1 reminder send-time revalidation (start time and attendee)", (
     await call();
     const update = h.updates.find((u) => u.table === "notification_deliveries");
     expect(update?.eqCols).toEqual(expect.arrayContaining(["id", "status"]));
-    expect(update?.patch).toEqual({ status: "cancelled", failure_reason: "class_rescheduled" });
+    expect(update?.patch).toEqual({ status: "cancelled", failure_reason: "class_rescheduled", dedupe_key: "gcr1:24h:cls1:c1:1:released:g1" });
   });
 
   it("a moved class has a different reminder identity, so the old suppressed row never blocks the new time", async () => {
