@@ -103,10 +103,15 @@ beforeEach(() => {
 
 // ---------------------------------------------------------------------------------------------------------------------
 describe("S1E-2 trigger: single enrollment and removal", () => {
-  function supabaseFor(rpc: Record<string, { data?: unknown; error?: { message: string } | null }>) {
+  function supabaseFor(rpc: Record<string, { data?: unknown; error?: { message: string } | null }>, priorStatus: string | null = "booked") {
+    const row = priorStatus ? { data: { status: priorStatus }, error: null } : { data: null, error: null };
+    const chain: Record<string, unknown> = {};
+    chain.select = () => chain;
+    chain.eq = () => chain;
+    chain.maybeSingle = () => Promise.resolve(row);
     return {
       rpc: (name: string) => Promise.resolve(rpc[name] ?? { data: null, error: null }),
-      from: () => ({ select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }),
+      from: () => chain,
     };
   }
   const asOwner = (supabase: unknown) => requireEditAccessMock.mockResolvedValue({ supabase, studioId: STUDIO, user: { id: "u1" }, studioRole: "studio_owner", isPlatformAdmin: false });
@@ -138,6 +143,15 @@ describe("S1E-2 trigger: single enrollment and removal", () => {
     await run(actions.cancelClassAttendeeAction(formOf({ appointmentId: APPT, attendeeId: "att-9", clientId: "evil-client", returnTo: `/app/schedule/${APPT}` })));
     expect(m.removedByAttendee).toHaveBeenCalledTimes(1);
     expect(m.removedByAttendee).toHaveBeenCalledWith({ studioId: STUDIO, attendeeId: "att-9" });
+  });
+
+  it("repeating a removal on an already cancelled (or unreadable) dancer succeeds as a no-op but notifies nobody", async () => {
+    for (const prior of ["cancelled", null]) {
+      asOwner(supabaseFor({ cancel_class_attendee: { data: null, error: null } }, prior));
+      const err = await run(actions.cancelClassAttendeeAction(formOf({ appointmentId: APPT, attendeeId: "att-9", returnTo: `/app/schedule/${APPT}` })));
+      expect(redirectUrl(err)).toContain("success=attendee_cancelled");
+    }
+    expect(m.removedByAttendee).not.toHaveBeenCalled();
   });
 
   it("a refused removal (recorded attendance, not authorized, anything) notifies nobody", async () => {

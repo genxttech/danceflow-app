@@ -66,6 +66,11 @@ export function groupClassNoticeDedupeKey(kind: string, eventId: string, email: 
   return `${kind}:${eventId}:${email.trim().toLowerCase()}`;
 }
 
+/** Identity of one push notice event; the studio is part of it so identical event ids can never collide across studios. */
+export function groupClassPushNoticeKey(kind: string, studioId: string, subjectId: string, eventId: string) {
+  return `${kind}:${studioId}:${subjectId}:${eventId}`;
+}
+
 export function formatClassStart(value: string | null | undefined, timeZone: string) {
   if (!value) return "";
   const date = new Date(value);
@@ -296,7 +301,7 @@ export async function notifyGroupClassChanged(params: {
     let pushedAccounts = 0;
     try {
       // only dancers whose client row belongs to this studio are pushed (the roster row alone is not trusted)
-      pushedAccounts = await sendGroupClassNoticePush({ supabase: admin, studioId, appointmentId, clientIds: clientIds.filter((id) => clients.has(id)), kind: "changed", ...copy });
+      pushedAccounts = await sendGroupClassNoticePush({ supabase: admin, studioId, appointmentId, clientIds: clientIds.filter((id) => clients.has(id)), kind: "changed", noticeKey: groupClassPushNoticeKey("group_class_changed", studioId, appointmentId, params.eventId), ...copy });
     } catch (error) {
       console.error("Class changed, but the change push failed:", error);
     }
@@ -405,7 +410,7 @@ export async function notifyGroupClassSeriesChanged(params: {
     const copy = changePushCopy({ title, multiple: true, classCount: changed.length, startsLabel: formatClassStart(changed[0].after.startsAt, ctx.timeZone) });
     let pushedAccounts = 0;
     try {
-      pushedAccounts = await sendGroupClassNoticePush({ supabase: admin, studioId, appointmentId: changed[0].id, clientIds: Array.from(classesByClient.keys()).filter((id) => clients.has(id)), kind: "changed", ...copy });
+      pushedAccounts = await sendGroupClassNoticePush({ supabase: admin, studioId, appointmentId: changed[0].id, clientIds: Array.from(classesByClient.keys()).filter((id) => clients.has(id)), kind: "changed", noticeKey: groupClassPushNoticeKey("group_class_series_changed", studioId, params.seriesId, params.eventId), ...copy });
     } catch (error) {
       console.error("Series changed, but the change push failed:", error);
     }
@@ -481,14 +486,18 @@ export async function notifyGroupClassEnrolled(params: {
       : { queued: 0, duplicates: 0 };
     const emailsQueued = emailResult.queued;
 
-    // an already-delivered notice for this same event (a retried notification) is not pushed a second time
-    const repeat = emailResult.queued === 0 && emailResult.duplicates > 0;
     const copy = enrollmentPushCopy({ title, classCount: classes.length, startsLabel });
     let pushedAccounts = 0;
     try {
-      if (!repeat) {
-        pushedAccounts = await sendGroupClassNoticePush({ supabase: admin, studioId, appointmentId: first.id, clientIds: [params.clientId], kind: "enrolled", ...copy });
-      }
+      pushedAccounts = await sendGroupClassNoticePush({
+        supabase: admin,
+        studioId,
+        appointmentId: first.id,
+        clientIds: [params.clientId],
+        kind: "enrolled",
+        noticeKey: groupClassPushNoticeKey(params.series ? "group_class_series_enrolled" : "group_class_enrolled", studioId, params.clientId, params.eventId),
+        ...copy,
+      });
     } catch (error) {
       console.error("Enrolled, but the enrollment push failed:", error);
     }
@@ -549,13 +558,18 @@ export async function notifyGroupClassRemoved(params: {
       : { queued: 0, duplicates: 0 };
     const emailsQueued = emailResult.queued;
 
-    const repeat = emailResult.queued === 0 && emailResult.duplicates > 0;
     const copy = removalPushCopy({ title, classCount: classes.length, startsLabel });
     let pushedAccounts = 0;
     try {
-      if (!repeat) {
-        pushedAccounts = await sendGroupClassNoticePush({ supabase: admin, studioId, appointmentId: first.id, clientIds: [params.clientId], kind: "removed", ...copy });
-      }
+      pushedAccounts = await sendGroupClassNoticePush({
+        supabase: admin,
+        studioId,
+        appointmentId: first.id,
+        clientIds: [params.clientId],
+        kind: "removed",
+        noticeKey: groupClassPushNoticeKey(params.series ? "group_class_series_removed" : "group_class_removed", studioId, params.clientId, params.eventId),
+        ...copy,
+      });
     } catch (error) {
       console.error("Removed, but the removal push failed:", error);
     }

@@ -3015,6 +3015,17 @@ export async function cancelClassAttendeeAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_attendee"));
     }
 
+    // GC-S1E-2: only a removal that actually changes a booked dancer notifies. cancel_class_attendee treats an already
+    // cancelled row as a successful no-op, so a stale or repeated click (or a dancer already removed by a series removal or a
+    // class cancellation) must not produce a "removed" notice. The status is read before the RPC, studio-scoped; unreadable = no notice.
+    const { data: priorRow } = await supabase
+      .from("appointment_attendees")
+      .select("status")
+      .eq("id", attendeeId)
+      .eq("studio_id", studioId)
+      .maybeSingle<{ status: string | null }>();
+    const wasBooked = priorRow?.status === "booked";
+
     const { error } = await supabase.rpc("cancel_class_attendee", {
       p_attendee_id: attendeeId,
     });
@@ -3038,8 +3049,8 @@ export async function cancelClassAttendeeAction(formData: FormData) {
     }
 
     // GC-S1E-2: after the removal has committed, tell the dancer (email + push, no SMS). The attendee row id is the event identity
-    // and the notice reads the cancelled row itself, so a repeat click on an already removed dancer sends nothing new.
-    await notifyGroupClassRemovedByAttendee({ studioId, attendeeId });
+    // and the notice reads the cancelled row itself.
+    if (wasBooked) await notifyGroupClassRemovedByAttendee({ studioId, attendeeId });
 
     revalidatePath("/app/schedule");
     if (appointmentId) revalidatePath(`/app/schedule/${appointmentId}`);

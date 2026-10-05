@@ -415,13 +415,23 @@ describe("S1E-2 enrollment and removal", () => {
     expect(h.push).not.toHaveBeenCalled();
   });
 
-  it("a repeated orchestration for the same event is deduped and does not push twice", async () => {
+  it("a repeated orchestration dedupes the email; push idempotency rides the same stable per-event notice key (the push helper enforces it)", async () => {
     seed({ appointments: [cls("c1", START_A)], clients: [client("ann")] });
     await n.notifyGroupClassEnrolled({ studioId: S1, clientId: "ann", appointmentIds: ["c1"], eventId: "att-1", series: false });
     h.queue.mockResolvedValue({ queued: false, skipped: true, reason: "duplicate" });
     const second = await n.notifyGroupClassEnrolled({ studioId: S1, clientId: "ann", appointmentIds: ["c1"], eventId: "att-1", series: false });
-    expect(second).toEqual({ emailsQueued: 0, pushedAccounts: 0 });
-    expect(h.push).toHaveBeenCalledTimes(1);
+    expect(second.emailsQueued).toBe(0);
+    expect(h.push).toHaveBeenCalledTimes(2);
+    expect(h.push.mock.calls[1][0].noticeKey).toBe(h.push.mock.calls[0][0].noticeKey);
+    expect(h.push.mock.calls[0][0].noticeKey).toContain(S1);
+  });
+
+  it("push notice keys are stable per event, differ per event and kind, and carry the studio", () => {
+    const k = n.groupClassPushNoticeKey;
+    expect(k("group_class_changed", "s1", "a1", "t1")).toBe(k("group_class_changed", "s1", "a1", "t1"));
+    expect(k("group_class_changed", "s1", "a1", "t1")).not.toBe(k("group_class_changed", "s1", "a1", "t2"));
+    expect(k("group_class_changed", "s1", "a1", "t1")).not.toBe(k("group_class_changed", "s2", "a1", "t1"));
+    expect(k("group_class_enrolled", "s1", "a1", "t1")).not.toBe(k("group_class_removed", "s1", "a1", "t1"));
   });
 
   it("tenancy: a client of another studio, or classes of another studio, are never notified", async () => {

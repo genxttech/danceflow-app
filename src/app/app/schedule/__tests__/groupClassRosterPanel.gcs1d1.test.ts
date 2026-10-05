@@ -463,7 +463,8 @@ describe("S1D-1 remove dancer action (this class)", () => {
     const spied = { ...supabase, from: (table: string) => (reads.push(table), supabase.from(table)) };
     requireEditAccessMock.mockResolvedValue(ctx(spied));
     await run(cancelClassAttendeeAction(formOf(fields)));
-    expect(reads).toEqual([]);
+    // GC-S1E-2: the only read is the studio-scoped status check that gates the removal notice; no attendance rule lives here
+    expect(reads).toEqual(["appointment_attendees"]);
   });
 
   it("authority and unexpected refusals map to fixed codes with no raw text", async () => {
