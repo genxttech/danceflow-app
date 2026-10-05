@@ -5,6 +5,7 @@ import { updateAppointmentAction, updateGroupClassEnrollmentPolicyAction } from 
 import InstructorClientSearchField from "../../InstructorClientSearchField";
 import GroupClassSeriesContext from "./GroupClassSeriesContext";
 import SeriesSettingsFooter from "@/components/schedule/SeriesSettingsFooter";
+import { classFormMaterialChanged, singleEditNoticeText } from "@/lib/schedule/groupClassEditNotice";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
   getItemWarningLevel,
@@ -403,6 +404,7 @@ export default function AppointmentEditForm({
   policyBanner = null,
   seriesFollowingHref = null,
   seriesSettingsEnabled = false,
+  enrolledDancerCount = 0,
 }: {
   appointment: Appointment;
   clients: ClientOption[];
@@ -423,7 +425,10 @@ export default function AppointmentEditForm({
   seriesFollowingHref?: string | null;
   // GC-S1D-3: offer "This and following classes" for the enrollment settings (broad staff, eligible series occurrence only).
   seriesSettingsEnabled?: boolean;
+  // GC-S1E-2: unique enrolled (booked) dancers of this class, for the "will be notified" message. Group classes only.
+  enrolledDancerCount?: number;
 }) {
+  const [materialChanged, setMaterialChanged] = useState(false);
   const [policyScope, setPolicyScope] = useState<"single" | "series">("single");
   const [state, formAction, pending] = useActionState(
     updateAppointmentAction,
@@ -561,6 +566,24 @@ export default function AppointmentEditForm({
     <>
     <form
       action={formAction}
+      onChange={(event) => {
+        // GC-S1E-2: does the form now change the date/time, instructor, room or location of an enrolled group class?
+        if (enrolledDancerCount <= 0 || appointment.appointment_type !== "group_class") return;
+        const data = new FormData(event.currentTarget);
+        const read = (key: string) => String(data.get(key) ?? "");
+        setMaterialChanged(
+          classFormMaterialChanged(
+            {
+              startsAt: toStudioDateTimeInputValue(appointment.starts_at, studioTimeZone),
+              endsAt: toStudioDateTimeInputValue(appointment.ends_at, studioTimeZone),
+              instructorId: appointment.instructor_id ?? "",
+              roomId: appointment.room_id ?? "",
+              locationName: appointment.location_name ?? "",
+            },
+            { startsAt: read("startsAt"), endsAt: read("endsAt"), instructorId: read("instructorId"), roomId: read("roomId"), locationName: read("locationName") },
+          ),
+        );
+      }}
       className="space-y-6 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.09),transparent_26%),linear-gradient(180deg,#fff7ed_0%,#ffffff_30%)] p-1 text-slate-900"
     >
       <input type="hidden" name="appointmentId" value={appointment.id} />
@@ -1128,6 +1151,15 @@ export default function AppointmentEditForm({
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {state.error}
             </div>
+          ) : null}
+
+          {appointment.appointment_type === "group_class" && singleEditNoticeText(enrolledDancerCount, materialChanged) ? (
+            <p
+              role="status"
+              className={`rounded-xl border px-4 py-3 text-sm ${materialChanged ? "border-indigo-200 bg-indigo-50 text-indigo-900" : "border-slate-200 bg-slate-50 text-slate-600"}`}
+            >
+              {singleEditNoticeText(enrolledDancerCount, materialChanged)}
+            </p>
           ) : null}
 
           <div className="flex flex-wrap gap-3">

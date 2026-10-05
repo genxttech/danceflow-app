@@ -57,6 +57,16 @@ import {
   seriesCancelSuccessCode,
 } from "@/lib/schedule/groupClassSeriesCancel";
 import { notifySeriesCancellation } from "@/lib/notifications/groupClassSeriesCancellation";
+import {
+  notifyGroupClassChanged,
+  notifyGroupClassEnrolled,
+  notifyGroupClassRemovedByAttendee,
+  notifyGroupClassSeriesChanged,
+  seriesChangesAreMaterial,
+  seriesEditNoticeLine,
+  snapshotClassesByIds,
+  snapshotSeriesFollowing,
+} from "@/lib/notifications/groupClassNotices";
 import { classifyRosterEnrollError, safeRosterErrorReturn } from "@/lib/schedule/groupClassRosterPanel";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import {
@@ -2060,6 +2070,7 @@ export async function updateAppointmentAction(
       starts_at?: string;
       ends_at?: string;
       roster_capacity?: number | null;
+      location_name?: string | null;
     }>({
       supabase,
       studioId,
@@ -2071,7 +2082,7 @@ export async function updateAppointmentAction(
       // authoritative row (never against client claims) to decide whether a
       // conflict recheck or capacity check is needed.
       select:
-        "id, studio_id, client_id, instructor_id, appointment_type, room_id, starts_at, ends_at, roster_capacity",
+        "id, studio_id, client_id, instructor_id, appointment_type, room_id, starts_at, ends_at, roster_capacity, location_name",
     });
 
     if (!earlyRelationshipResult.ok) {
@@ -2232,6 +2243,7 @@ export async function updateAppointmentAction(
       // Series identity (series id, occurrence index, original start) and
       // series_overridden_fields are never part of this payload: identity is
       // immutable and the S1A trigger records real overrides on its own.
+      const classSavedAt = new Date().toISOString();
       const { error: classUpdateError } = await supabase
         .from("appointments")
         .update({
@@ -2243,7 +2255,7 @@ export async function updateAppointmentAction(
           starts_at: classStartsAt,
           ends_at: classEndsAt,
           ...(capacityInput.present ? { roster_capacity: capacityInput.value } : {}),
-          updated_at: new Date().toISOString(),
+          updated_at: classSavedAt,
         })
         .eq("id", appointmentId)
         .eq("studio_id", studioId);
@@ -2253,6 +2265,28 @@ export async function updateAppointmentAction(
         // GC-S1C-3: the database now also enforces the capacity floor; show the same safe copy as the app-level check.
         return { error: mapOccurrenceUpdateDbError(classUpdateError.message) ?? OCCURRENCE_EDIT_ERROR_COPY.generic };
       }
+
+      // GC-S1E-2: after the edit has committed, tell the booked dancers about a material change (date/time, instructor,
+      // room/location). Notes, capacity and every other field never notify. Never throws; the saved edit stands regardless.
+      await notifyGroupClassChanged({
+        studioId,
+        appointmentId,
+        before: {
+          startsAt: currentClass.starts_at ?? null,
+          endsAt: currentClass.ends_at ?? null,
+          instructorId: currentClass.instructor_id ?? null,
+          roomId: currentClass.room_id ?? null,
+          locationName: currentClass.location_name ?? null,
+        },
+        after: {
+          startsAt: classStartsAt,
+          endsAt: classEndsAt,
+          instructorId: classInstructorId,
+          roomId: classRoomId,
+          locationName: classLocationName,
+        },
+        eventId: classSavedAt,
+      });
 
       revalidatePath("/app/schedule");
       revalidatePath(`/app/schedule/${appointmentId}`);
@@ -2881,7 +2915,7 @@ export async function enrollClassAttendeeAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase } = await requireAppointmentEditAccess();
+    const { supabase, studioId } = await requireAppointmentEditAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     const clientId = getString(formData, "clientId");
@@ -2914,7 +2948,7 @@ export async function enrollClassAttendeeAction(formData: FormData) {
       );
     }
 
-    const { error } = await supabase.rpc("enroll_class_attendee", {
+    const { data: enrolledAttendeeId, error } = await supabase.rpc("enroll_class_attendee", {
       p_appointment_id: appointmentId,
       p_client_id: clientId,
       p_billing_type: billingType,
@@ -2942,6 +2976,18 @@ export async function enrollClassAttendeeAction(formData: FormData) {
       );
     }
 
+    // GC-S1E-2: after the enrollment has committed, confirm it to the dancer (email + push, no SMS). The new attendee row id is
+    // the event identity, so a retried notification cannot send twice. Never throws; the enrollment stands regardless.
+    if (typeof enrolledAttendeeId === "string" && enrolledAttendeeId) {
+      await notifyGroupClassEnrolled({
+        studioId,
+        clientId,
+        appointmentIds: [appointmentId],
+        eventId: enrolledAttendeeId,
+        series: false,
+      });
+    }
+
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     const successCode = billingType === "membership" ? "student_enrolled_membership" : "student_enrolled";
@@ -2959,7 +3005,7 @@ export async function cancelClassAttendeeAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase } = await requireAppointmentEditAccess();
+    const { supabase, studioId } = await requireAppointmentEditAccess();
 
     const appointmentId = getString(formData, "appointmentId");
     const attendeeId = getString(formData, "attendeeId");
@@ -2990,6 +3036,10 @@ export async function cancelClassAttendeeAction(formData: FormData) {
         ),
       );
     }
+
+    // GC-S1E-2: after the removal has committed, tell the dancer (email + push, no SMS). The attendee row id is the event identity
+    // and the notice reads the cancelled row itself, so a repeat click on an already removed dancer sends nothing new.
+    await notifyGroupClassRemovedByAttendee({ studioId, attendeeId });
 
     revalidatePath("/app/schedule");
     if (appointmentId) revalidatePath(`/app/schedule/${appointmentId}`);
@@ -3406,7 +3456,9 @@ export async function submitGroupClassSeriesEditAction(
     const fingerprint = seriesEditFingerprint(built.changes, overwrite, preview);
 
     if (intent === "preview") {
-      return { status: "preview", preview, lines: seriesEditPreviewLines(preview), fingerprint };
+      // GC-S1E-2: say plainly that enrolled dancers will be told, counting unique dancers in the classes this edit covers.
+      const noticeLine = await seriesEditNoticeLine(supabase, studioId, appointmentId, built.changes as Record<string, unknown>);
+      return { status: "preview", preview, lines: [...seriesEditPreviewLines(preview), ...(noticeLine ? [noticeLine] : [])], fingerprint };
     }
 
     const requestId = getString(formData, "requestId");
@@ -3414,6 +3466,12 @@ export async function submitGroupClassSeriesEditAction(
     if (getString(formData, "reviewedFingerprint") !== fingerprint) {
       return fail("The classes changed since you reviewed them. Review the changes again.");
     }
+
+    // GC-S1E-2: what the affected classes looked like before the edit, read server-side, so the notice can say what changed.
+    // Skipped (never guessed) when the edit changes nothing material or the snapshot cannot be read.
+    const beforeSnapshot = seriesChangesAreMaterial(built.changes as Record<string, unknown>)
+      ? await snapshotSeriesFollowing(supabase, studioId, appointmentId)
+      : null;
 
     const { data: applied, error: applyError } = await supabase.rpc("edit_group_class_series_from", {
       p_appointment_id: appointmentId,
@@ -3430,6 +3488,21 @@ export async function submitGroupClassSeriesEditAction(
 
     const result = parseSeriesEditResult(applied);
     if (!result) return fail(seriesEditFailureMessage("unknown"));
+
+    // GC-S1E-2: after the edit committed (and only for a first apply, never a replay), ONE consolidated notice per affected dancer.
+    // The request id is the event identity, so a retried notification cannot send twice. Never throws.
+    if (beforeSnapshot && !result.replay) {
+      const afterSnapshot = await snapshotClassesByIds(supabase, studioId, Array.from(beforeSnapshot.classes.keys()));
+      if (afterSnapshot) {
+        await notifyGroupClassSeriesChanged({
+          studioId,
+          eventId: requestId,
+          seriesId: result.seriesId,
+          before: beforeSnapshot.classes,
+          after: afterSnapshot,
+        });
+      }
+    }
 
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);

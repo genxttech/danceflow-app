@@ -481,3 +481,40 @@ export async function sendGroupClassSeriesCancellationPush(params: {
     });
   }
 }
+
+// GC-S1E-2: ONE short push per portal account for a class change, enrollment or removal notice. The recipients are the dancer
+// client ids the server derived from authoritative rows; accounts linked to several of those clients are merged so a guardian
+// receives a single push. The stored reason reuses the existing schedule reasons (confirmed / rescheduled / cancelled) so the
+// mobile client needs no change; the title and body say what happened. Never throws; push only, no SMS.
+export async function sendGroupClassNoticePush(params: {
+  supabase: SupabaseClient;
+  studioId: string;
+  appointmentId: string;
+  clientIds: string[];
+  kind: "changed" | "enrolled" | "removed";
+  title: string;
+  body: string;
+}): Promise<number> {
+  const { supabase, studioId, appointmentId, clientIds, kind } = params;
+  const distinctClients = Array.from(new Set(clientIds.filter(Boolean)));
+  if (!distinctClients.length) return 0;
+
+  const userIds = new Set<string>();
+  for (const clientId of distinctClients) {
+    const linked = await linkedScheduleUserIds({ supabase, studioId, clientId });
+    linked.forEach((userId) => userIds.add(userId));
+  }
+  if (userIds.size === 0) return 0;
+
+  await sendToPortalUsers({
+    userIds: Array.from(userIds),
+    title: params.title,
+    body: params.body,
+    appointmentId,
+    studioId,
+    reason: kind === "changed" ? "rescheduled" : kind === "enrolled" ? "confirmed" : "cancelled",
+    recipientRole: "class_attendee",
+  });
+
+  return userIds.size;
+}
