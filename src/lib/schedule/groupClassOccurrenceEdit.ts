@@ -9,6 +9,8 @@
  * claims changed.
  */
 
+import { mapGroupClassConflictDbError } from "@/lib/schedule/groupClassSeries";
+
 export type OccurrenceEditErrorCode =
   | "not_found"
   | "unauthorized"
@@ -72,6 +74,10 @@ export function capacityBelowBookedMessage(booked: number): string {
  * keeps its generic message; raw database text is never shown.
  */
 export function mapOccurrenceUpdateDbError(message: string | null | undefined): string | null {
+  // GC-S1E-3: the database's own conflict refusal for the edited class.
+  const conflict = mapGroupClassConflictDbError(message);
+  if (conflict) return conflict.message;
+  if (message?.includes("GCSE3_ROOM_INVALID")) return OCCURRENCE_EDIT_ERROR_COPY.invalid_room;
   if (!message || !message.includes("GCSC3_CAPACITY_BELOW_BOOKED")) return null;
   const match = /(\d+) students already booked/.exec(message);
   const booked = match ? Number(match[1]) : NaN;

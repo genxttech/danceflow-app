@@ -15,7 +15,7 @@ import {
   mapOccurrenceUpdateDbError,
   parseRosterCapacityInput,
 } from "@/lib/schedule/groupClassOccurrenceEdit";
-import { toSafeConflict } from "@/lib/schedule/groupClassSeries";
+import { mapGroupClassConflictDbError, toSafeConflict } from "@/lib/schedule/groupClassSeries";
 import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
 import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
 import { validateMembershipEntitlement } from "@/lib/memberships/entitlements";
@@ -1522,6 +1522,15 @@ export async function createAppointmentAction(
           p_ends_at: endsAt,
         },
       );
+
+      // GC-S1E-3: the database refuses a class that conflicts with the instructor's or the room's schedule.
+      const classConflict = mapGroupClassConflictDbError(rpcError?.message);
+      if (classConflict) {
+        return { error: classConflict.message };
+      }
+      if (rpcError?.message?.includes("GCSE3_ROOM_INVALID")) {
+        return { error: OCCURRENCE_EDIT_ERROR_COPY.invalid_room };
+      }
 
       if (rpcError || !newAppointmentId) {
         return {

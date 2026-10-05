@@ -97,6 +97,7 @@ type Setup = {
   bookedError?: boolean;
   roomExists?: boolean;
   updateError?: boolean;
+  updateErrorMessage?: string;
   deleteRow?: Record<string, unknown>;
 };
 
@@ -148,7 +149,13 @@ function makeSupabase(setup: Setup = {}) {
       };
       chain.update = (payload: unknown) => {
         writes.push({ table, payload });
-        result = { error: setup.updateError ? { message: "raw db update failure" } : null };
+        result = {
+          error: setup.updateErrorMessage
+            ? { message: setup.updateErrorMessage }
+            : setup.updateError
+              ? { message: "raw db update failure" }
+              : null,
+        };
         return chain;
       };
       chain.delete = () => {
@@ -554,6 +561,33 @@ describe("S1C-1 update action: capacity", () => {
     arrange({ updateError: true });
     const res = (await updateAppointmentAction({}, form({}))) as { error: string };
     expect(res.error).toBe("Could not update the class. Please try again.");
+  });
+
+  it("GC-S1E-3: a conflict the database refuses after the app check maps to the same safe copy, never raw text", async () => {
+    arrange({ updateErrorMessage: "GCSE3_CONFLICT: reason=instructor" });
+    const res = (await updateAppointmentAction(
+      {},
+      form({ startsAt: "2026-11-03T18:00", endsAt: "2026-11-03T19:00" }),
+    )) as { error: string };
+    expect(res.error).toBe("The instructor is already booked at this time.");
+    expect(res.error).not.toContain("GCSE3");
+  });
+
+  it("GC-S1E-3: each database conflict reason maps to its category copy", async () => {
+    const cases: Array<[string, string]> = [
+      ["instructor_block", "The instructor has a schedule block at this time."],
+      ["room_unavailable", "The room is unavailable at this time."],
+      ["room_busy", "The room is already booked at this time."],
+      ["something_new", "This time conflicts with an existing booking."],
+    ];
+    for (const [reason, copy] of cases) {
+      arrange({ updateErrorMessage: `GCSE3_CONFLICT: reason=${reason}` });
+      const res = (await updateAppointmentAction(
+        {},
+        form({ startsAt: "2026-11-03T18:00", endsAt: "2026-11-03T19:00" }),
+      )) as { error: string };
+      expect(res.error).toBe(copy);
+    }
   });
 });
 
