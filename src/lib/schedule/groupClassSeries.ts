@@ -147,6 +147,8 @@ const RPC_CODE_MAP: Record<string, SeriesErrorCode> = {
  * user: anything without a recognized prefix is "unknown".
  */
 export function mapSeriesRpcError(error: { message?: string | null } | null | undefined): SeriesErrorCode {
+  // GC-S1E-3: the database's own conflict refusal (a conflict committed after the app's check).
+  if (String(error?.message ?? "").includes("GCSE3_CONFLICT")) return "conflict";
   const match = /GCSB1_[A-Z_]+/.exec(String(error?.message ?? ""));
   return (match && RPC_CODE_MAP[match[0]]) || "unknown";
 }
@@ -175,6 +177,26 @@ export const SERIES_CONFLICT_COPY: Record<SeriesConflictCategory, string> = {
 
 export function toSafeConflict(engineMessage: string | null | undefined): SeriesConflict {
   const category = ENGINE_MESSAGE_CATEGORY[String(engineMessage ?? "")] ?? "other";
+  return { category, message: SERIES_CONFLICT_COPY[category] };
+}
+
+// GC-S1E-3: reason codes of the database conflict rule (_gcse3_schedule_conflict) -> the same categories.
+const DB_CONFLICT_REASON_CATEGORY: Record<string, SeriesConflictCategory> = {
+  instructor: "instructor_overlap",
+  instructor_block: "instructor_block",
+  room_unavailable: "room_unavailable",
+  room_busy: "room_booked",
+};
+
+/**
+ * Maps the database's authoritative conflict refusal ("GCSE3_CONFLICT: reason=<code> ...") to safe
+ * copy, or null for any other error. Only the reason code is read; no database text is shown.
+ */
+export function mapGroupClassConflictDbError(message: string | null | undefined): SeriesConflict | null {
+  const text = String(message ?? "");
+  if (!text.includes("GCSE3_CONFLICT")) return null;
+  const reason = /GCSE3_CONFLICT: reason=(\w+)/.exec(text)?.[1] ?? "";
+  const category = DB_CONFLICT_REASON_CATEGORY[reason] ?? "other";
   return { category, message: SERIES_CONFLICT_COPY[category] };
 }
 

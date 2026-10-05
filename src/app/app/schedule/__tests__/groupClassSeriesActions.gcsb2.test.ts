@@ -436,6 +436,17 @@ describe("createGroupClassSeriesAction", () => {
     expect((await runCreate(form())).state).toMatchObject({ status: "error", code });
   });
 
+  it("GC-S1E-3: a conflict the database refuses after the app check maps to the safe conflict message", async () => {
+    rpcBehavior({ create: { message: "GCSE3_CONFLICT: reason=instructor index=2 count=1" } });
+    const { state, redirectedTo } = await runCreate(form());
+    expect(redirectedTo).toBeNull();
+    expect(state).toEqual({
+      status: "error",
+      code: "conflict",
+      error: "Some classes conflict with existing bookings. Resolve or skip them to continue.",
+    });
+  });
+
   it("never exposes a raw RPC or database error", async () => {
     const raw = 'duplicate key value violates unique constraint "uq_group_class_series_client_request" (secret: tenant 42)';
     rpcBehavior({ create: { message: raw } });

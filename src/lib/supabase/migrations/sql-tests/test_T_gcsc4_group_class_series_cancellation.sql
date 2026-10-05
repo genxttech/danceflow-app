@@ -126,9 +126,12 @@ insert into public.appointment_attendees (studio_id, appointment_id, client_id, 
   ('00000000-0000-0000-0000-000000ec0001', '00000000-0000-0000-0000-000000ec4001', '00000000-0000-0000-0000-000000ec3003', 'booked', 'staff', 'free_comped');
 
 -- series builder (as the owner through the released B1 RPC); returns the series id
+-- (GC-S1E-3: each series gets its own time slot, since the database now refuses a series whose classes conflict with
+-- the same instructor's existing classes)
 create function public.t_gcsc4_series(p_req text, p_title text, p_count integer, p_capacity integer) returns uuid language plpgsql as $$
-declare v_res jsonb;
+declare v_res jsonb; v_slot integer := coalesce(nullif(current_setting('t.gcsc4_slot', true), ''), '0')::integer;
 begin
+  perform set_config('t.gcsc4_slot', (v_slot + 1)::text, true);
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000ec1001')::text, true);
   set local role authenticated;
   v_res := public.create_group_class_series(
@@ -136,7 +139,7 @@ begin
     p_title => p_title, p_description => null,
     p_instructor_id => '00000000-0000-0000-0000-000000ec2001', p_room_id => null, p_location_name => null, p_roster_capacity => p_capacity,
     p_weekdays => array[2]::smallint[], p_interval_weeks => 1, p_starts_on => (current_date + 20), p_ends_on => null, p_occurrence_count => p_count,
-    p_local_start_time => time '18:30', p_duration_minutes => 60);
+    p_local_start_time => time '08:00' + v_slot * interval '90 minutes', p_duration_minutes => 60);
   reset role;
   return (v_res ->> 'series_id')::uuid;
 end $$;
