@@ -77,8 +77,70 @@ function isDeliverableEmail(value: string | null | undefined) {
  * client_id, related_appointment_id, related_date) unique constraint cannot dedupe these rows because user_id is NULL
  * (NULLs are distinct in a unique index), so the table's partial unique index on dedupe_key is used instead.
  */
-export function groupClassReminderDedupeKey(kind: ClassReminderKind, appointmentId: string, clientId: string) {
+export function groupClassReminderDedupeKey(kind: ClassReminderKind, appointmentId: string, clientId: string, startsAt: string) {
+  // GC-S1E-1: the key carries the occurrence's canonical start instant (epoch milliseconds, UTC), never a display string, so a
+  // class that moves to a different time is a different reminder identity and is reminded for its new time.
+  const startKey = normalizedStartKey(startsAt);
+  return `gcr1:${kind}:${appointmentId}:${clientId}:${startKey ?? "unknown"}`;
+}
+
+/** The identity used before GC-S1E-1 (no start time). Still read, never written, so a deployment cannot duplicate a reminder. */
+export function groupClassReminderLegacyDedupeKey(kind: ClassReminderKind, appointmentId: string, clientId: string) {
   return `gcr1:${kind}:${appointmentId}:${clientId}`;
+}
+
+/** Canonical start instant as epoch milliseconds, or null when the value is not a valid instant. Offset spellings normalize equal. */
+export function normalizedStartKey(startsAt: string | null | undefined): string | null {
+  if (typeof startsAt !== "string" || startsAt.trim() === "") return null;
+  const ms = new Date(startsAt).getTime();
+  return Number.isFinite(ms) ? String(ms) : null;
+}
+
+/**
+ * Legacy-transition rule. A reminder row written under the pre-S1E-1 key covers the SAME occurrence when its recorded start
+ * time equals the current one; then no second reminder is created merely because the key format changed. If the class has
+ * moved since (recorded time differs) the legacy row does not block: the new time gets its own reminder. A legacy row whose
+ * start time was never recorded or cannot be read is treated as covering the occurrence (the pre-existing behavior), because
+ * a possible duplicate is worse than keeping the old rule for a row we cannot date.
+ */
+export function legacyReminderCoversOccurrence(legacyMetadata: unknown, currentStartsAt: string): boolean {
+  const recorded =
+    legacyMetadata && typeof legacyMetadata === "object"
+      ? normalizedStartKey((legacyMetadata as Record<string, unknown>).startsAt as string | undefined)
+      : null;
+  if (recorded === null) return true;
+  return recorded === normalizedStartKey(currentStartsAt);
+}
+
+/** True for rows created by the attendee-based group-class reminder path (the only rows these revalidations apply to). */
+export function isGroupClassAttendeeReminderKey(dedupeKey: string | null | undefined) {
+  return typeof dedupeKey === "string" && dedupeKey.startsWith("gcr1:");
+}
+
+export type ClassReminderRevalidation = "ok" | "cancelled" | "rescheduled" | "removed" | "invalid";
+
+/**
+ * Send-time decision for one queued attendee reminder, from authoritative state read server-side. Nothing in the queued row is
+ * trusted as proof the class is valid, current or that the dancer is still enrolled; the row's recorded start time is only
+ * what the reminder was written for and is compared against the live class.
+ */
+export function revalidateQueuedClassReminder(params: {
+  deliveryStudioId: string;
+  queuedStartsAt: unknown;
+  appointment: { studio_id: string; appointment_type: string | null; status: string | null; starts_at: string | null };
+  attendeeBooked: boolean;
+}): ClassReminderRevalidation {
+  const { appointment } = params;
+  if (appointment.appointment_type !== "group_class") return "ok";
+  if (appointment.status === "cancelled") return "cancelled";
+  if (appointment.studio_id !== params.deliveryStudioId) return "invalid";
+
+  const queued = typeof params.queuedStartsAt === "string" ? normalizedStartKey(params.queuedStartsAt) : null;
+  const live = normalizedStartKey(appointment.starts_at);
+  if (queued !== null && live !== null && queued !== live) return "rescheduled";
+
+  if (!params.attendeeBooked) return "removed";
+  return "ok";
 }
 
 export function isCanonicalGroupClass(appointment: { appointment_type: string | null }) {
@@ -181,6 +243,6 @@ export function buildGroupClassReminderDelivery(params: {
       ...(locationName ? { locationName } : {}),
     },
     scheduled_for: params.now.toISOString(),
-    dedupe_key: groupClassReminderDedupeKey(kind, appointment.id, clientId),
+    dedupe_key: groupClassReminderDedupeKey(kind, appointment.id, clientId, appointment.starts_at),
   };
 }

@@ -76,6 +76,8 @@ const S2 = "studio-2";
 const client = (id: string, studio: string, over: Row = {}) => ({ id, studio_id: studio, first_name: id.toUpperCase(), last_name: "Dancer", email: `${id}@example.test`, ...over });
 const attendee = (appt: string, c: Row, studio = S1, status = "booked") => ({ appointment_id: appt, studio_id: studio, client_id: c.id, status, clients: c });
 const startsIn = (hours: number) => new Date(NOW.getTime() + hours * 3_600_000).toISOString();
+const MS24 = String(NOW.getTime() + 24 * 3_600_000); // the fixture class starts 24h out (epoch ms, the reminder identity's time component)
+const MS2 = String(NOW.getTime() + 2 * 3_600_000);
 
 function appointment(over: Row = {}): Row {
   return {
@@ -154,13 +156,13 @@ describe("GC-R1 canonical group-class attendee reminders", () => {
       const b = realFrom(t) as Builder;
       if (t === "notification_deliveries" && !raced) {
         const realIn = b.in.bind(b);
-        b.in = (c: string, v: unknown[]) => { raced = true; const out = realIn(c, v); h.db.tables.notification_deliveries.push({ id: "other", dedupe_key: "gcr1:24h:class-1:ann", client_id: "ann", delivery_type: "student_lesson_reminder_24h" }); return out; };
+        b.in = (c: string, v: unknown[]) => { raced = true; const out = realIn(c, v); h.db.tables.notification_deliveries.push({ id: "other", dedupe_key: `gcr1:24h:class-1:ann:${MS24}`, client_id: "ann", delivery_type: "student_lesson_reminder_24h" }); return out; };
       }
       return b;
     };
     const result = await run();
     expect(result.ok).toBe(true);
-    expect(deliveries().filter((d) => d.dedupe_key === "gcr1:24h:class-1:ann")).toHaveLength(1);
+    expect(deliveries().filter((d) => d.dedupe_key === `gcr1:24h:class-1:ann:${MS24}`)).toHaveLength(1);
     expect(deliveries().some((d) => d.client_id === "bob")).toBe(true);
   });
 
@@ -168,7 +170,7 @@ describe("GC-R1 canonical group-class attendee reminders", () => {
     seed({ appointments: [appointment({ starts_at: startsIn(2) })], appointment_attendees: [attendee("class-1", client("ann", S1))] });
     await run();
     expect(deliveries().map((d) => d.delivery_type)).toEqual(["student_lesson_reminder_2h"]);
-    expect(deliveries()[0].dedupe_key).toBe("gcr1:2h:class-1:ann");
+    expect(deliveries()[0].dedupe_key).toBe(`gcr1:2h:class-1:ann:${MS2}`);
   });
 
   it("does not remind classes outside both windows", async () => {
@@ -263,7 +265,7 @@ describe("GC-R1 canonical group-class attendee reminders", () => {
     seed({ appointments: [{ ...appointment({ client_id: "ann" }), clients: ann }], appointment_attendees: [attendee("class-1", ann)] });
     await run();
     expect(deliveries()).toHaveLength(1);
-    expect(deliveries()[0].dedupe_key).toBe("gcr1:24h:class-1:ann");
+    expect(deliveries()[0].dedupe_key).toBe(`gcr1:24h:class-1:ann:${MS24}`);
   });
 
   it("is an operational path: it never touches the campaign allowance and creates no SMS or non-email delivery", async () => {
@@ -306,5 +308,114 @@ describe("GC-R1 canonical group-class attendee reminders", () => {
     };
     await run();
     expect(sizes).toEqual([100, 100, 30]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// GC-S1E-1: time-aware reminder identity and the legacy-key transition
+// ---------------------------------------------------------------------------------------------------------------------
+describe("GC-S1E-1 time-aware reminder identity", () => {
+  const msOf = (iso: string) => String(new Date(iso).getTime());
+  const legacy = (kind: "24h" | "2h", startsAt: string | null, over: Row = {}) => ({
+    id: `legacy-${kind}`,
+    dedupe_key: `gcr1:${kind}:class-1:ann`,
+    client_id: "ann",
+    delivery_type: kind === "24h" ? "student_lesson_reminder_24h" : "student_lesson_reminder_2h",
+    related_appointment_id: "class-1",
+    status: "sent",
+    metadata: startsAt === null ? {} : { startsAt },
+    ...over,
+  });
+
+  it("B: a class moved before any reminder exists is reminded under its live start time", async () => {
+    const moved = startsIn(24.5);
+    seed({ appointments: [appointment({ starts_at: moved })], appointment_attendees: [attendee("class-1", client("ann", S1))] });
+    expect((await run()).generated).toBe(1);
+    expect(deliveries()[0].dedupe_key).toBe(`gcr1:24h:class-1:ann:${msOf(moved)}`);
+    expect((deliveries()[0].metadata as Row).startsAt).toBe(moved);
+  });
+
+  it("A/J: a legacy reminder for the SAME occurrence time is not duplicated by the key-format change", async () => {
+    seed({
+      appointments: [appointment()],
+      appointment_attendees: [attendee("class-1", client("ann", S1))],
+      notification_deliveries: [legacy("24h", startsIn(24))],
+    });
+    expect((await run()).generated).toBe(0);
+    expect(deliveries()).toHaveLength(1);
+  });
+
+  it("J: the same instant spelled with a different offset still counts as the same occurrence", async () => {
+    const spelled = startsIn(24).replace("Z", "+00:00");
+    seed({
+      appointments: [appointment()],
+      appointment_attendees: [attendee("class-1", client("ann", S1))],
+      notification_deliveries: [legacy("24h", spelled)],
+    });
+    expect((await run()).generated).toBe(0);
+  });
+
+  it("J/D: a legacy reminder written for a DIFFERENT time (the class has moved) does not block the new time", async () => {
+    seed({
+      appointments: [appointment()],
+      appointment_attendees: [attendee("class-1", client("ann", S1))],
+      notification_deliveries: [legacy("24h", startsIn(48))],
+    });
+    expect((await run()).generated).toBe(1);
+    expect(deliveries()).toHaveLength(2);
+    expect(deliveries()[0]).toMatchObject({ status: "sent" }); // the delivered reminder is untouched, never recalled
+    expect(deliveries()[1].dedupe_key).toBe(`gcr1:24h:class-1:ann:${MS24}`);
+  });
+
+  it("J: a legacy row with no recorded start time keeps the old rule (treated as covering the occurrence)", async () => {
+    seed({
+      appointments: [appointment()],
+      appointment_attendees: [attendee("class-1", client("ann", S1))],
+      notification_deliveries: [legacy("24h", null)],
+    });
+    expect((await run()).generated).toBe(0);
+  });
+
+  it("D: a reminder already delivered under the new identity for time A does not block time B", async () => {
+    const timeA = startsIn(30);
+    seed({
+      appointments: [appointment()],
+      appointment_attendees: [attendee("class-1", client("ann", S1))],
+      notification_deliveries: [
+        { id: "sentA", dedupe_key: `gcr1:24h:class-1:ann:${msOf(timeA)}`, client_id: "ann", delivery_type: "student_lesson_reminder_24h", related_appointment_id: "class-1", status: "sent", metadata: { startsAt: timeA } },
+      ],
+    });
+    expect((await run()).generated).toBe(1);
+    expect(deliveries().map((d) => d.dedupe_key)).toEqual([`gcr1:24h:class-1:ann:${msOf(timeA)}`, `gcr1:24h:class-1:ann:${MS24}`]);
+    expect(deliveries()[0]).toMatchObject({ status: "sent" });
+  });
+
+  it("H: the 24h and 2h reminders keep distinct identities, and a legacy row of one window never blocks the other", async () => {
+    seed({
+      appointments: [appointment({ starts_at: startsIn(2) })],
+      appointment_attendees: [attendee("class-1", client("ann", S1))],
+      notification_deliveries: [legacy("24h", startsIn(2))],
+    });
+    expect((await run()).generated).toBe(1);
+    expect(deliveries().map((d) => d.dedupe_key)).toEqual(["gcr1:24h:class-1:ann", `gcr1:2h:class-1:ann:${MS2}`]);
+  });
+
+  it("I: another dancer or another class legacy row never blocks (identity includes class and client)", async () => {
+    seed({
+      appointments: [appointment()],
+      appointment_attendees: [attendee("class-1", client("ann", S1))],
+      notification_deliveries: [
+        legacy("24h", startsIn(24), { id: "other-client", dedupe_key: "gcr1:24h:class-1:bob", client_id: "bob" }),
+        legacy("24h", startsIn(24), { id: "other-class", dedupe_key: "gcr1:24h:class-2:ann", related_appointment_id: "class-2" }),
+      ],
+    });
+    expect((await run()).generated).toBe(1);
+  });
+
+  it("A: a second run after the new identity exists is still idempotent", async () => {
+    seed({ appointments: [appointment()], appointment_attendees: [attendee("class-1", client("ann", S1))] });
+    expect((await run()).generated).toBe(1);
+    expect((await run()).generated).toBe(0);
+    expect(deliveries()).toHaveLength(1);
   });
 });

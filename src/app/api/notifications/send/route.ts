@@ -13,7 +13,9 @@ import {
   type NotificationStudioBrandingRow,
 } from "@/lib/notifications/notification-html";
 
-type DeliveryRow = NotificationDeliveryRow & { related_appointment_id?: string | null };
+import { isGroupClassAttendeeReminderKey, revalidateQueuedClassReminder } from "@/lib/notifications/groupClassReminders";
+
+type DeliveryRow = NotificationDeliveryRow & { related_appointment_id?: string | null; dedupe_key?: string | null };
 
 async function getStudioBranding(
   supabase: ReturnType<typeof createAdminClient>,
@@ -36,29 +38,63 @@ const CLIENT_REMINDER_TYPES = new Set([
   "student_lesson_reminder_2h",
 ]);
 
+type ClassReminderState = "ok" | "cancelled" | "rescheduled" | "removed" | "invalid" | "unknown";
+
 /**
- * GC-S1C-3 (D11): send-time revalidation. A client reminder queued for a canonical group class must not be delivered after
- * that class has been cancelled, however it got cancelled and whether or not the queued row was invalidated at cancel time.
- * Returns "cancelled" (suppress), "ok" (send), or "unknown" (the class could not be read: leave the row pending and try
- * again on the next run rather than risk reminding someone about a cancelled class). Only client reminders for an
- * appointment are checked; every other delivery type is untouched.
+ * GC-S1C-3 (D11) + GC-S1E-1: send-time revalidation from authoritative state read here, never from the queued row.
+ * A client reminder queued for a canonical group class must not be delivered after that class has been cancelled. For the
+ * attendee-based class reminders (dedupe key gcr1:...) it must also not be delivered when the class has since moved to a
+ * different start time than the one the reminder was written for (the stale time must never be emailed; the generator
+ * creates the reminder for the new time under its own identity) or when the dancer is no longer a booked attendee.
+ * Returns "ok" (send), a suppress reason, or "unknown" (state could not be read: leave the row pending and try again on the
+ * next run rather than risk a wrong reminder). Only client reminders for an appointment are checked; every other delivery
+ * type, and class reminders written by the older client_id path, are untouched except for cancellation.
  */
 async function classReminderState(
   supabase: ReturnType<typeof createAdminClient>,
   delivery: DeliveryRow,
-): Promise<"ok" | "cancelled" | "unknown"> {
+): Promise<ClassReminderState> {
   if (!CLIENT_REMINDER_TYPES.has(delivery.delivery_type) || !delivery.related_appointment_id) return "ok";
 
   const { data, error } = await supabase
     .from("appointments")
-    .select("appointment_type, status")
+    .select("studio_id, appointment_type, status, starts_at")
     .eq("id", delivery.related_appointment_id)
-    .maybeSingle<{ appointment_type: string; status: string }>();
+    .maybeSingle<{ studio_id: string; appointment_type: string; status: string; starts_at: string | null }>();
 
   if (error) return "unknown";
-  if (data?.appointment_type === "group_class" && data.status === "cancelled") return "cancelled";
-  return "ok";
+  if (!data || data.appointment_type !== "group_class") return "ok";
+  if (data.status === "cancelled") return "cancelled";
+  if (!isGroupClassAttendeeReminderKey(delivery.dedupe_key)) return "ok";
+
+  let attendeeBooked = false;
+  if (delivery.client_id) {
+    const { data: attendee, error: attendeeError } = await supabase
+      .from("appointment_attendees")
+      .select("id")
+      .eq("studio_id", delivery.studio_id)
+      .eq("appointment_id", delivery.related_appointment_id)
+      .eq("client_id", delivery.client_id)
+      .eq("status", "booked")
+      .maybeSingle<{ id: string }>();
+    if (attendeeError) return "unknown";
+    attendeeBooked = Boolean(attendee);
+  }
+
+  return revalidateQueuedClassReminder({
+    deliveryStudioId: delivery.studio_id,
+    queuedStartsAt: (delivery.metadata ?? {}).startsAt,
+    appointment: data,
+    attendeeBooked,
+  });
 }
+
+const SUPPRESS_REASON: Record<Exclude<ClassReminderState, "ok" | "unknown">, string> = {
+  cancelled: "class_cancelled",
+  rescheduled: "class_rescheduled",
+  removed: "attendee_removed",
+  invalid: "class_mismatch",
+};
 
 async function resolveRecipientEmail(
   supabase: ReturnType<typeof createAdminClient>,
@@ -164,6 +200,7 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
       body,
       metadata,
       related_appointment_id,
+      dedupe_key,
       scheduled_for
     `
     )
@@ -245,19 +282,25 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
       // GC-S1C-3: revalidate the class immediately before sending (after the slower lookups, to keep the window small).
       const classState = await classReminderState(supabase, delivery);
 
-      if (classState === "cancelled") {
+      if (classState === "unknown") {
+        notificationDeferred += 1;
+        continue;
+      }
+
+      if (classState !== "ok") {
+        // A removed dancer's key is released so a later re-enrollment can still be reminded; every other suppression keeps it.
+        const releaseKey = classState === "removed" && delivery.dedupe_key;
         await supabase
           .from("notification_deliveries")
-          .update({ status: "cancelled", failure_reason: "class_cancelled" })
+          .update({
+            status: "cancelled",
+            failure_reason: SUPPRESS_REASON[classState],
+            ...(releaseKey ? { dedupe_key: `${delivery.dedupe_key}:released:${delivery.id}` } : {}),
+          })
           .eq("id", delivery.id)
           .eq("status", "pending");
 
         notificationSuppressed += 1;
-        continue;
-      }
-
-      if (classState === "unknown") {
-        notificationDeferred += 1;
         continue;
       }
 
