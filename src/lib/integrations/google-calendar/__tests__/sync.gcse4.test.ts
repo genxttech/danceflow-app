@@ -10,6 +10,7 @@ type GEvent = { id: string; payload: any };
 const calendar = new Map<string, GEvent>();
 let nextGoogleId = 1;
 let failDelete = false;
+let failLookup = false;
 const googleCalls = { create: 0, patch: 0, delete: 0 };
 
 vi.mock("@/lib/integrations/google-calendar/client", () => ({
@@ -42,6 +43,7 @@ function table(name: string) {
   const filters: Array<(r: Row) => boolean> = [];
   let mode: "select" | "update" | "insert" = "select";
   let patch: Row = {};
+  let isIdLookup = false;
   const builder: any = {
     select: () => builder,
     update: (p: Row) => { mode = "update"; patch = p; return builder; },
@@ -49,11 +51,12 @@ function table(name: string) {
     eq: (c: string, v: any) => { filters.push((r) => r[c] === v); return builder; },
     gte: (c: string, v: any) => { filters.push((r) => r[c] >= v); return builder; },
     lte: (c: string, v: any) => { filters.push((r) => r[c] <= v); return builder; },
-    in: (c: string, v: any[]) => { filters.push((r) => v.includes(r[c])); return builder; },
+    in: (c: string, v: any[]) => { isIdLookup = true; filters.push((r) => v.includes(r[c])); return builder; },
     not: () => builder,
     order: () => builder,
     then: (resolve: any) => {
       const rows = (db[name] ?? []).filter((r) => filters.every((f) => f(r)));
+      if (failLookup && isIdLookup && name === "appointments") return resolve({ data: null, error: { message: "lookup down" } });
       if (mode === "update") rows.forEach((r) => Object.assign(r, patch));
       resolve({ data: mode === "select" ? rows.map((r) => ({ ...r })) : null, error: null });
     },
@@ -62,6 +65,7 @@ function table(name: string) {
 }
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: (n: string) => table(n) }) }));
 
+import { zonedDateTimeToUtcDate } from "@/lib/booking/selfServiceAvailability";
 import { syncGoogleCalendarConnection, type GoogleCalendarConnectionRow } from "../sync";
 
 const studioConn: GoogleCalendarConnectionRow = { id: "c1", studio_id: "s1", connection_scope: "studio", instructor_id: null, calendar_id: "cal", sync_lessons: false, sync_classes: true, sync_events: false };
@@ -83,7 +87,7 @@ const eventFor = (id: string) => liveEvents().filter((e) => e.payload.extendedPr
 beforeEach(() => {
   for (const k of Object.keys(db)) delete db[k];
   db.appointments = []; db.events = []; db.studio_google_calendar_sync_items = []; db.studio_google_calendar_connections = [{ id: "c1" }, { id: "c2" }];
-  calendar.clear(); nextGoogleId = 1; failDelete = false; googleCalls.create = googleCalls.patch = googleCalls.delete = 0;
+  calendar.clear(); nextGoogleId = 1; failDelete = false; failLookup = false; googleCalls.create = googleCalls.patch = googleCalls.delete = 0;
 });
 
 describe("S1E-4 Google reconciliation: group classes", () => {
@@ -237,10 +241,14 @@ describe("S1E-4 Google reconciliation: group classes", () => {
   });
 
   it("event instants are true RFC3339 instants (DST-safe): 18:00 local across the Nov DST end stays 18:00 local", async () => {
-    // 2030-11-02 18:00 EDT = 22:00Z ; 2030-11-09 18:00 EST = 23:00Z
+    // Instants come from the canonical studio-local -> UTC conversion (what the schedule writers store).
+    const ny = (date: string) => zonedDateTimeToUtcDate(date, "18:00", "America/New_York").toISOString();
+    expect(ny("2030-11-02")).toBe("2030-11-02T22:00:00.000Z"); // EDT
+    expect(ny("2030-11-09")).toBe("2030-11-09T23:00:00.000Z"); // EST
+    expect(ny("2030-07-10")).toBe("2030-07-10T22:00:00.000Z"); // ordinary non-DST-boundary date
     db.appointments = [
-      appt("pre", { starts_at: "2030-11-02T22:00:00+00:00", ends_at: "2030-11-02T23:00:00+00:00" }),
-      appt("post", { starts_at: "2030-11-09T23:00:00+00:00", ends_at: "2030-11-10T00:00:00+00:00" }),
+      appt("pre", { starts_at: ny("2030-11-02"), ends_at: ny("2030-11-02") }),
+      appt("post", { starts_at: ny("2030-11-09"), ends_at: ny("2030-11-09") }),
     ];
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2030-10-25T00:00:00Z"));
@@ -248,5 +256,98 @@ describe("S1E-4 Google reconciliation: group classes", () => {
     const fmt = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
     expect(fmt(calendar.get(find("pre")!.google_event_id)!.payload.start.dateTime)).toBe("18:00");
     expect(fmt(calendar.get(find("post")!.google_event_id)!.payload.start.dateTime)).toBe("18:00");
+  });
+});
+
+describe("S1E-4 moving fetch window never deletes by itself", () => {
+  const past = (days: number) => ({ starts_at: at(-days), ends_at: at(-days, 19) });
+  const mapped = (id: string) => ({ ...find(id)! });
+
+  it("a synced class that has become historical keeps its Google event and mapping (aged out of the window)", async () => {
+    db.appointments = [appt("h1", past(0))]; // starts in the window...
+    db.appointments[0].starts_at = at(2); db.appointments[0].ends_at = at(2, 19);
+    await syncGoogleCalendarConnection(studioConn);
+    const before = mapped("h1");
+    Object.assign(db.appointments[0], past(5), { status: "completed" });
+    for (let n = 0; n < 3; n += 1) expect(await syncGoogleCalendarConnection(studioConn)).toMatchObject({ deleted: 0, failed: 0 });
+    expect(find("h1")).toMatchObject({ google_event_id: before.google_event_id, last_sync_status: "success" });
+    expect(calendar.has(before.google_event_id)).toBe(true);
+    expect(googleCalls.delete).toBe(0);
+    expect(db.studio_google_calendar_sync_items).toHaveLength(1);
+  });
+
+  it("a mapped class now beyond the +90-day boundary keeps its event and mapping", async () => {
+    db.appointments = [appt("far")];
+    await syncGoogleCalendarConnection(studioConn);
+    const gid = find("far")!.google_event_id;
+    Object.assign(db.appointments[0], { starts_at: at(200), ends_at: at(200, 19) });
+    expect(await syncGoogleCalendarConnection(studioConn)).toMatchObject({ deleted: 0, failed: 0 });
+    expect(find("far")!.google_event_id).toBe(gid);
+    expect(calendar.has(gid)).toBe(true);
+  });
+
+  it("an explicitly cancelled PAST mapping IS deleted (explicit ineligibility, not aging)", async () => {
+    db.appointments = [appt("p1")];
+    await syncGoogleCalendarConnection(studioConn);
+    Object.assign(db.appointments[0], past(3), { status: "cancelled" });
+    expect(await syncGoogleCalendarConnection(studioConn)).toMatchObject({ deleted: 1 });
+    expect(find("p1")).toMatchObject({ google_event_id: null, last_sync_status: "deleted" });
+    expect(liveEvents()).toHaveLength(0);
+  });
+
+  it("no_show outside the window is explicit ineligibility too", async () => {
+    db.appointments = [appt("n1")];
+    await syncGoogleCalendarConnection(studioConn);
+    Object.assign(db.appointments[0], past(3), { status: "no_show" });
+    await syncGoogleCalendarConnection(studioConn);
+    expect(liveEvents()).toHaveLength(0);
+  });
+
+  it("sync_classes=false deletes class mappings even when they are outside the window, but leaves them alone while on", async () => {
+    db.appointments = [appt("o1")];
+    await syncGoogleCalendarConnection(studioConn);
+    Object.assign(db.appointments[0], past(10), { status: "completed" });
+    await syncGoogleCalendarConnection(studioConn);
+    expect(liveEvents()).toHaveLength(1); // aged out: kept
+    await syncGoogleCalendarConnection({ ...studioConn, sync_classes: false });
+    expect(liveEvents()).toHaveLength(0); // setting off: removed
+    expect(find("o1")).toMatchObject({ google_event_id: null, last_sync_status: "deleted" });
+  });
+
+  it("an appointment that no longer exists loses its event; instructor reassignment of a historical class removes it from the old instructor feed only", async () => {
+    db.appointments = [appt("x1"), appt("x2")];
+    await syncGoogleCalendarConnection(instrConn);
+    db.appointments = db.appointments.filter((a) => a.id !== "x1");
+    Object.assign(db.appointments[0], past(4), { instructor_id: "i2" });
+    await syncGoogleCalendarConnection(instrConn);
+    expect(liveEvents()).toHaveLength(0);
+  });
+
+  it("series cancellation with history: cancelled future occurrences deleted; completed past occurrence event + mapping untouched", async () => {
+    db.appointments = [appt("hist", { starts_at: at(2), ends_at: at(2, 19) }), appt("f1", { starts_at: at(7), ends_at: at(7, 19) }), appt("f2", { starts_at: at(14), ends_at: at(14, 19) })];
+    await syncGoogleCalendarConnection(studioConn);
+    const histBefore = mapped("hist");
+    Object.assign(db.appointments[0], past(1), { status: "completed" }); // class has now happened
+    db.appointments[1].status = "cancelled"; db.appointments[2].status = "cancelled"; // series cancelled (released S1C semantics: future only)
+    const r = await syncGoogleCalendarConnection(studioConn);
+    expect(r).toMatchObject({ deleted: 2, failed: 0 });
+    expect(find("hist")).toMatchObject({ google_event_id: histBefore.google_event_id, last_sync_status: "success" });
+    expect(liveEvents().map((e) => e.id)).toEqual([histBefore.google_event_id]);
+    expect(find("f1")!.google_event_id).toBeNull();
+    expect(find("f2")!.google_event_id).toBeNull();
+  });
+
+  it("if the appointment lookup fails the mapping is retained (never deleted blind) and the run reports failure", async () => {
+    db.appointments = [appt("l1")];
+    await syncGoogleCalendarConnection(studioConn);
+    Object.assign(db.appointments[0], past(5));
+    failLookup = true;
+    const r = await syncGoogleCalendarConnection(studioConn);
+    expect(r.failed).toBeGreaterThan(0);
+    expect(r.deleted).toBe(0);
+    expect(calendar.size).toBe(1);
+    failLookup = false;
+    expect(await syncGoogleCalendarConnection(studioConn)).toMatchObject({ deleted: 0, failed: 0 });
+    expect(calendar.size).toBe(1);
   });
 });

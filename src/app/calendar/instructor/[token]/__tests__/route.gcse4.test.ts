@@ -22,6 +22,7 @@ function table(name: string) {
 }
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: (n: string) => table(n) }) }));
 
+import { zonedDateTimeToUtcDate } from "@/lib/booking/selfServiceAvailability";
 import { GET } from "../route";
 
 const day = 86_400_000;
@@ -58,9 +59,11 @@ describe("S1E-4 instructor ICS: group classes", () => {
   });
 
   it("times are true instants: 18:00 New York local is emitted as 22:00Z (EDT) / 23:00Z (EST), never floating UTC wall-clock", async () => {
+    // PostgREST returns timestamptz as UTC strings; derive them from studio-local 18:00 via the canonical conversion.
+    const ny = (date: string) => zonedDateTimeToUtcDate(date, "18:00", "America/New_York").toISOString().replace(".000Z", "+00:00");
     db.appointments = [
-      appt("pre", { starts_at: "2030-11-02T22:00:00+00:00", ends_at: "2030-11-02T23:00:00+00:00" }),
-      appt("post", { starts_at: "2030-11-09T23:00:00+00:00", ends_at: "2030-11-10T00:00:00+00:00" }),
+      appt("pre", { starts_at: ny("2030-11-02"), ends_at: ny("2030-11-02") }),
+      appt("post", { starts_at: ny("2030-11-09"), ends_at: ny("2030-11-09") }),
     ];
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2030-10-25T00:00:00Z"));
@@ -80,6 +83,27 @@ describe("S1E-4 instructor ICS: group classes", () => {
     expect(second).toContain("SUMMARY:Salsa Advanced");
     expect(second).toContain("LOCATION:Studio B");
     expect(second).not.toContain("LOCATION:Studio A");
+  });
+
+  it("non-DST ordinary date: 18:00 New York in July is 22:00Z", async () => {
+    const t = zonedDateTimeToUtcDate("2030-07-10", "18:00", "America/New_York").toISOString();
+    db.appointments = [appt("jul", { starts_at: t, ends_at: t })];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2030-07-01T00:00:00Z"));
+    let ics: string;
+    try { ics = await feed(); } finally { vi.useRealTimers(); }
+    expect(ics).toContain("DTSTART:20300710T220000Z");
+    expect(ics).not.toMatch(/TZID/);
+  });
+
+  it("instructor reassignment moves the UID out of this feed; location_name wins over room, room is the fallback, blank is omitted", async () => {
+    db.appointments = [appt("a1", { location_name: " Rented Ballroom " }), appt("a2", { location_name: null }), appt("a3", { location_name: "  ", room_id: null })];
+    const ics = await feed();
+    expect(ics).toContain("LOCATION:Rented Ballroom");
+    expect(ics).toContain("LOCATION:Studio A");
+    expect(ics.match(/^LOCATION:/gm)).toHaveLength(2);
+    db.appointments[0].instructor_id = "i2";
+    expect(uids(await feed())).toEqual(["a2@danceflow", "a3@danceflow"]);
   });
 
   it("S1C-5 split keeps every appointment UID (series_id changes are invisible to the feed)", async () => {

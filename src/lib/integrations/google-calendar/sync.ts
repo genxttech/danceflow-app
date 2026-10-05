@@ -80,7 +80,7 @@ function appointmentKind(value: string | null | undefined) {
   if (["group_class", "class", "workshop"].includes(normalized)) return "class";
   return "lesson";
 }
-function shouldSyncAppointment(row: AppointmentSyncRow, connection: GoogleCalendarConnectionRow) {
+function shouldSyncAppointment(row: Pick<AppointmentSyncRow, "status" | "appointment_type" | "instructor_id">, connection: GoogleCalendarConnectionRow) {
   if (["cancelled", "canceled", "no_show"].includes(normalize(row.status))) return false;
   if (connection.connection_scope === "instructor" && row.instructor_id !== connection.instructor_id) return false;
   return appointmentKind(row.appointment_type) === "class"
@@ -235,9 +235,36 @@ export async function syncGoogleCalendarConnection(connection: GoogleCalendarCon
       for (const event of (events ?? []) as EventSyncRow[]) await syncOne("event", event.id, eventPayload(event));
     }
 
+    // Appointment mappings that are not in this run's desired set are only deleted when the appointment
+    // is explicitly ineligible (cancelled/no_show, class/lesson sync off, other instructor) or no longer
+    // exists. An appointment that merely aged out of (or has not yet entered) the moving fetch window
+    // keeps its Google event.
+    const unmatchedAppointmentIds = ((existingItems ?? []) as SyncItemRow[])
+      .filter((item) => item.source_type === "appointment" && item.google_event_id && !eligible.has(`appointment:${item.source_id}`))
+      .map((item) => item.source_id);
+    const retainOutsideWindow = new Set<string>();
+    const lookupFailed = new Set<string>();
+    for (let i = 0; i < unmatchedAppointmentIds.length; i += 100) {
+      const ids = unmatchedAppointmentIds.slice(i, i + 100);
+      const { data: known, error: knownError } = await admin.from("appointments").select("id, status, appointment_type, instructor_id")
+        .eq("studio_id", connection.studio_id).in("id", ids);
+      if (knownError) {
+        for (const id of ids) lookupFailed.add(id);
+        failures.push(`Failed to verify synced appointments: ${knownError.message}`);
+        continue;
+      }
+      for (const row of (known ?? []) as Pick<AppointmentSyncRow, "id" | "status" | "appointment_type" | "instructor_id">[]) {
+        if (shouldSyncAppointment(row, connection)) retainOutsideWindow.add(row.id);
+      }
+    }
+
     for (const item of (existingItems ?? []) as SyncItemRow[]) {
       const key = `${item.source_type}:${item.source_id}`;
       if (eligible.has(key) || !item.google_event_id) continue;
+      if (item.source_type === "appointment" && (retainOutsideWindow.has(item.source_id) || lookupFailed.has(item.source_id))) {
+        if (lookupFailed.has(item.source_id)) failed += 1;
+        continue;
+      }
       try {
         await deleteGoogleCalendarEvent({ accessToken, calendarId: item.google_calendar_id || connection.calendar_id, eventId: item.google_event_id });
         await admin.from("studio_google_calendar_sync_items").update({

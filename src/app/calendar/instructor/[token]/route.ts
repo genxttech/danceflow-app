@@ -26,6 +26,7 @@ type AppointmentRow = {
   starts_at: string;
   ends_at: string;
   notes: string | null;
+  location_name: string | null;
   client_id: string | null;
   room_id: string | null;
 };
@@ -192,6 +193,7 @@ export async function GET(
       starts_at,
       ends_at,
       notes,
+      location_name,
       client_id,
       room_id
     `
@@ -276,8 +278,10 @@ export async function GET(
       `DESCRIPTION:${escapeIcsText(description)}`
     );
 
-    if (room?.name) {
-      lines.push(`LOCATION:${escapeIcsText(room.name)}`);
+    // Same precedence as the Google sync: an explicit location (rented venue etc.) wins over the room.
+    const location = appointment.location_name?.trim() || room?.name;
+    if (location) {
+      lines.push(`LOCATION:${escapeIcsText(location)}`);
     }
 
     lines.push("END:VEVENT");
