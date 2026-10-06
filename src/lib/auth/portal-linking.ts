@@ -179,7 +179,7 @@ export async function ensurePortalProfileAndClientLinks({
   const normalizedEmail = email?.trim().toLowerCase() ?? "";
 
   if (!userId || !normalizedEmail) {
-    return { linkedClientIds: [] as string[] };
+    return { linkedClientIds: [] as string[], claimFailed: false };
   }
 
   const admin = createAdminClient();
@@ -231,6 +231,7 @@ export async function ensurePortalProfileAndClientLinks({
   // verified, bound current email on a live session (the database also
   // re-checks the bound proof). Existing linked relationships are unaffected.
   let claimedClientIds: string[] = [];
+  let claimFailed = false;
 
   if (verifiedEmailMatches(verifiedEmail, normalizedEmail)) {
     const { data: claimed, error: claimError } = await admin.rpc(
@@ -243,12 +244,20 @@ export async function ensurePortalProfileAndClientLinks({
     );
 
     if (claimError) {
-      throw new Error(`Portal invitation claim failed: ${claimError.message}`);
+      // GC-3.4B-0 (S4): a claim failure (e.g. the RPC failing closed on two
+      // open 'self' invitations for one email in one studio) must not block
+      // authentication. The RPC is a single statement, so nothing was
+      // claimed; only a bounded code is logged (never the message, email or
+      // ids), and callers see claimFailed with only pre-existing links.
+      claimFailed = true;
+      console.error("portal_invitation_claim_failed", {
+        code: typeof claimError.code === "string" ? claimError.code.slice(0, 16) : null,
+      });
+    } else {
+      claimedClientIds = (claimed ?? []).map((item: { client_id: string }) =>
+        String(item.client_id),
+      );
     }
-
-    claimedClientIds = (claimed ?? []).map((item: { client_id: string }) =>
-      String(item.client_id),
-    );
   }
 
   const { data: existingLinks, error: existingError } = await admin
@@ -269,6 +278,7 @@ export async function ensurePortalProfileAndClientLinks({
         ...(existingLinks ?? []).map((item) => String(item.client_id)),
       ]),
     ),
+    claimFailed,
   };
 }
 

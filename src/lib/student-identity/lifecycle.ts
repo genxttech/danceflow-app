@@ -507,19 +507,54 @@ export async function getClientInvitationByToken(
   };
 }
 
+/*
+ * GC-3.4B-0: who may act on a client invitation. Proof is the strong invite
+ * token PLUS the caller session's canonical verified email
+ * (getMyVerifiedEmail -> public.my_verified_email()) equal to the invited
+ * email. user.email alone is never identity evidence. Anything else is a
+ * refusal that writes nothing and reveals no invitation detail.
+ */
+export type ClientInvitationIdentity = "verified_match" | "verification_required" | "mismatch";
+
+export function clientInvitationIdentity(
+  invitedEmail: string | null | undefined,
+  verifiedEmail: string | null | undefined,
+): ClientInvitationIdentity {
+  const invited = invitedEmail?.trim().toLowerCase() ?? "";
+  const verified = verifiedEmail?.trim().toLowerCase() ?? "";
+  if (!verified) return "verification_required";
+  if (!invited || invited !== verified) return "mismatch";
+  return "verified_match";
+}
+
+function assertClientInvitationIdentity(
+  invitation: ClientInvitationView,
+  verifiedEmail: string | null,
+) {
+  const identity = clientInvitationIdentity(invitation.invitedEmail, verifiedEmail);
+  if (identity === "verification_required") throw new Error("invite_verification_required");
+  if (identity === "mismatch") throw new Error("invite_email_mismatch");
+}
+
 export async function acceptClientInvitation(params: {
   token: string;
   userId: string;
-  userEmail: string;
+  /** The caller session's verified email (getMyVerifiedEmail); never user.email. */
+  verifiedEmail: string | null;
 }) {
   const admin = createAdminClient();
   const invitation = await getClientInvitationByToken(params.token);
-  const email = normalizedEmail(params.userEmail);
   const now = new Date().toISOString();
 
   if (!invitation) {
     throw new Error("invite_not_found");
   }
+
+  // GC-3.4B-0 (S2/S3): identity is decided before any status branch or write.
+  // A mismatched or unverified caller changes nothing: no user_id, no
+  // conflict transition, no token change.
+  assertClientInvitationIdentity(invitation, params.verifiedEmail);
+  const email = normalizedEmail(params.verifiedEmail ?? "");
 
   if (!["invited", "claim_pending"].includes(invitation.status)) {
     if (invitation.status === "linked") return invitation;
@@ -543,24 +578,6 @@ export async function acceptClientInvitation(params: {
     throw new Error("invite_expired");
   }
 
-  if (
-    !invitation.invitedEmail ||
-    normalizedEmail(invitation.invitedEmail) !== email
-  ) {
-    await admin
-      .from("client_account_links")
-      .update({
-        status: "conflict",
-        user_id: params.userId,
-        conflict_details:
-          "The signed-in DanceFlow account email does not match the invited email.",
-        updated_at: now,
-      })
-      .eq("id", invitation.id);
-
-    throw new Error("invite_email_mismatch");
-  }
-
   try {
     await linkExistingClientAccount({
       studioId: invitation.studioId,
@@ -573,6 +590,8 @@ export async function acceptClientInvitation(params: {
     const details =
       error instanceof Error ? error.message : "Account relationship conflict.";
 
+    // The caller is the verified invitee here. The conflict row is only a
+    // staff review signal: resolveClientAccountConflict never promotes it.
     await admin
       .from("client_account_links")
       .update({
@@ -601,21 +620,17 @@ export async function acceptClientInvitation(params: {
 export async function rejectClientInvitation(params: {
   token: string;
   userId: string;
-  userEmail: string;
+  /** The caller session's verified email (getMyVerifiedEmail); never user.email. */
+  verifiedEmail: string | null;
 }) {
   const admin = createAdminClient();
   const invitation = await getClientInvitationByToken(params.token);
-  const email = normalizedEmail(params.userEmail);
   const now = new Date().toISOString();
 
   if (!invitation) throw new Error("invite_not_found");
 
-  if (
-    invitation.invitedEmail &&
-    normalizedEmail(invitation.invitedEmail) !== email
-  ) {
-    throw new Error("invite_email_mismatch");
-  }
+  // GC-3.4B-0: rejecting is a write too; same verified-identity requirement.
+  assertClientInvitationIdentity(invitation, params.verifiedEmail);
 
   const { error } = await admin
     .from("client_account_links")
@@ -649,7 +664,7 @@ export async function resolveClientAccountConflict(params: {
 
   const { data: conflict, error: conflictError } = await admin
     .from("client_account_links")
-    .select("id")
+    .select("id, relationship_type")
     .eq("studio_id", params.studioId)
     .eq("client_id", params.clientId)
     .eq("status", "conflict")
@@ -681,21 +696,39 @@ export async function resolveClientAccountConflict(params: {
     throw new Error("No matching DanceFlow account is available to link.");
   }
 
+  // GC-3.4B-0 (S1): only the verified matching account is linked, with the
+  // relationship type staff originally issued. A conflict row is never
+  // promoted to 'linked': it may carry a different (mismatched) account's
+  // user_id, and promoting it would grant that account access.
   await linkExistingClientAccount({
     studioId: params.studioId,
     clientId: params.clientId,
     userId: params.matchingUserId,
     invitedEmail: params.invitedEmail,
+    relationshipType:
+      (conflict.relationship_type as ClientRelationshipType | null) ?? "self",
   });
 
-  await admin
+  // Every conflict row still left for this exact studio/client is superseded:
+  // not linked, and its invite token can no longer be used. (When the conflict
+  // row already belonged to the matching account, linkExistingClientAccount
+  // relinked that row itself, so it is no longer 'conflict' here.)
+  const { error: supersedeError } = await admin
     .from("client_account_links")
     .update({
-      status: "linked",
+      status: "disconnected",
+      disconnected_at: now,
+      disconnect_reason: "Conflict superseded by studio staff resolution.",
       conflict_details: null,
-      linked_at: now,
-      accepted_at: now,
+      invite_token_hash: null,
+      invite_expires_at: null,
       updated_at: now,
     })
-    .eq("id", conflict.id);
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .eq("status", "conflict");
+
+  if (supersedeError) {
+    throw new Error(`Conflict supersession failed: ${supersedeError.message}`);
+  }
 }
