@@ -19,7 +19,7 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 | **PENDING PROD MIGRATIONS** | None. ENT-1 migration `20261013090000_ent1_usage_allowance_reservations.sql` was applied to PROD 2026-10-03 23:01:22–23:01:24Z (isolated scratch workdir, exit 0) and verified before the application deployment |
 | **PACKAGE REFUND HOLD** | Released / `false` |
 | **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified outside the Twilio operational dependency |
-| **KNOWN HYGIENE DEBT** | pre-existing lint errors in some public pages (not introduced by BR-4, BR-5 or ENT-1); they keep the changed-file lint step in CI red when those files are touched |
+| **KNOWN HYGIENE DEBT** | pre-existing lint errors in some public pages (not introduced by BR-4, BR-5 or ENT-1); they keep the changed-file lint step in CI red when those files are touched. Bounded UI polish bug: New Client page shows a literal newline marker (`/n`, from literal `\n` text in the JSX around the "Personal details" and "Client photo" sections of `src/app/app/clients/new/page.tsx`) where a line break / layout break was intended. Fix: replace the visible marker with the intended newline, spacing or layout and verify the New Client page renders cleanly. Small UI/polish bug, not a redesign; not a launch blocker. |
 
 BR-4 (Public Website & Launch Messaging) is merged and live. Public smoke of the live domains and the live attribution cookie passed; authenticated production smoke was intentionally omitted. BR-5 (Event / Print Collateral) is merged as PR #137.
 
