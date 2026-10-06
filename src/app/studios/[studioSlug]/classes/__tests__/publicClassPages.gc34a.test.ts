@@ -91,17 +91,30 @@ describe("occurrence detail page", () => {
     expect(out).toContain("See all dates");
     expect(out).toContain(`/studios/salsa-house/classes/series/${ROOT}`);
   });
-  it("offers no mutating control and no payment language; the registration placeholder is honest", async () => {
+  it("offers no mutating control and no payment language; one Continue link into the identity step (GC-3.4B-1)", async () => {
     const out = html(await detail({ params: Promise.resolve({ studioSlug: "salsa-house", appointmentId: ID }) }));
-    expect(out).toContain("Registration options coming next");
-    expect(out).not.toMatch(/<form|<button|type="submit"|checkout|pay now|buy|price|\$\d/i);
+    expect(out).toContain("Want to join this class?");
+    expect(out).toContain(`href="/studios/salsa-house/classes/${ID}/register"`);
+    expect(out.match(/\/register"/g)).toHaveLength(1);
+    expect(out).not.toMatch(/<form|<button|type="submit"|checkout|pay now|buy|price|\$\d|enroll|sign in|log in/i);
+    expect(h.getUser).not.toHaveBeenCalled();
   });
-  it("a cancelled class says so and drops the registration placeholder", async () => {
+  it("a cancelled class says so and offers no registration step", async () => {
     h.rows = [row({ public_state: "cancelled", enrollment_state: "closed" })];
     const out = html(await detail({ params: Promise.resolve({ studioSlug: "salsa-house", appointmentId: ID }) }));
     expect(out).toContain("This class has been cancelled.");
     expect(out).toContain("Cancelled");
-    expect(out).not.toContain("Registration options coming next");
+    expect(out).not.toContain("/register");
+  });
+  it.each([
+    ["full", { availability: "full", spots_remaining: 0, enrollment_state: "full" }, "This class is full."],
+    ["staff-only", { enrollment_state: "unavailable" }, "Online registration isn't available for this class."],
+  ])("a %s upcoming class offers no registration step, only the studio", async (_label, over, message) => {
+    h.rows = [row(over)];
+    const out = html(await detail({ params: Promise.resolve({ studioSlug: "salsa-house", appointmentId: ID }) }));
+    expect(out).not.toContain("/register");
+    expect(out).toContain(message.replace("'", "&#x27;"));
+    expect(out).toContain('href="/studios/salsa-house"');
   });
   it("a past class says so", async () => {
     h.rows = [row({ public_state: "past", enrollment_state: "closed" })];
