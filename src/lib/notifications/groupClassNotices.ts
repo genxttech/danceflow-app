@@ -19,10 +19,12 @@ import { sendGroupClassNoticePush } from "@/lib/notifications/schedulePush";
 import {
   buildGroupClassChangedEmail,
   buildGroupClassEnrollmentEmail,
+  buildGroupClassExternalEnrollmentStaffEmail,
   buildGroupClassRemovalEmail,
   type GroupClassChangeLine,
   type StudioEmailSource,
 } from "@/lib/notifications/scheduling-emails";
+import { getStudioStaffNotificationEmails } from "@/lib/notifications/studioStaffRecipients";
 import { normalizedStartKey } from "@/lib/notifications/groupClassReminders";
 import { dancersNotifiedLine } from "@/lib/schedule/groupClassEditNotice";
 
@@ -729,4 +731,73 @@ export async function seriesEditNoticeLine(
   if (!snapshot) return null;
   const count = await countEnrolledDancers(supabase, studioId, Array.from(snapshot.classes.keys()));
   return count === null ? null : dancersNotifiedLine(count);
+}
+
+/** The funding line of the studio notice; only package credit and membership exist for self-enrollment, never a payment claim. */
+export function externalEnrollmentFundingLabel(billingType: string | null | undefined) {
+  if (billingType === "package_credit") return "Package credit";
+  if (billingType === "membership") return "Membership";
+  return "Recorded funding source";
+}
+
+/**
+ * GC-S1F: a dancer enrolled themselves through the client portal (no staff involved), so tell the studio. Runs only AFTER the
+ * enrollment RPC committed and returned the new attendee id; that id is the event identity, so a retry or replay (which the RPC
+ * refuses as "already enrolled" and never reaches here) cannot send twice. Recipients are the studio's existing owner/admin
+ * operational recipients (getStudioStaffNotificationEmails), looked up for this studio only. Branded HTML + text, no SMS. Never
+ * throws: the enrollment stands even if nobody can be reached.
+ */
+export async function notifyStudioOfExternalGroupClassEnrollment(params: { studioId: string; attendeeId: string }): Promise<NoticeOutcome> {
+  try {
+    const admin = createAdminClient();
+    const { studioId, attendeeId } = params;
+    const { data: attendee } = await admin
+      .from("appointment_attendees")
+      .select("id, appointment_id, client_id, status, billing_type")
+      .eq("id", attendeeId)
+      .eq("studio_id", studioId)
+      .maybeSingle();
+    const row = attendee as { id: string; appointment_id: string; client_id: string; status: string; billing_type: string | null } | null;
+    // only a committed, booked enrollment is announced
+    if (!row || row.status !== "booked") return NOTHING;
+
+    const [{ data: appointment }, { data: client }, ctx, recipients] = await Promise.all([
+      admin.from("appointments").select("id, title, starts_at, instructor_id, room_id, location_name, appointment_type").eq("id", row.appointment_id).eq("studio_id", studioId).maybeSingle(),
+      admin.from("clients").select("id, first_name, last_name").eq("id", row.client_id).eq("studio_id", studioId).maybeSingle(),
+      loadStudioContext(admin, studioId),
+      getStudioStaffNotificationEmails(admin, studioId),
+    ]);
+    const cls = appointment as { id: string; title: string | null; starts_at: string | null; instructor_id: string | null; room_id: string | null; location_name: string | null; appointment_type: string } | null;
+    if (!cls || cls.appointment_type !== "group_class" || !recipients.length) return NOTHING;
+
+    const names = await loadNames(admin, studioId, [cls.instructor_id ?? ""], [cls.room_id ?? ""]);
+    const c = client as { first_name: string | null; last_name: string | null } | null;
+    const dancerName = [cleanText(c?.first_name), cleanText(c?.last_name)].filter(Boolean).join(" ");
+    const locationName = cleanText(cls.location_name) || names.room(cls.room_id);
+
+    const result = await queueOneEmailPerAddress({
+      studioId,
+      templateKey: "group_class_external_enrollment_staff",
+      relatedTable: "appointment_attendees",
+      relatedId: attendeeId,
+      dedupeKind: "group_class_external_enrollment_staff",
+      eventId: attendeeId,
+      recipients: recipients.map((email) => ({ email })),
+      build: () =>
+        buildGroupClassExternalEnrollmentStaffEmail({
+          studio: ctx.studio,
+          dancerName,
+          classTitle: cleanText(cls.title) || "Group class",
+          classWhen: formatClassStart(cls.starts_at, ctx.timeZone),
+          instructorName: names.instructor(cls.instructor_id),
+          locationName: locationName || null,
+          fundingLabel: externalEnrollmentFundingLabel(row.billing_type),
+          classPath: `/app/schedule/${cls.id}`,
+        }),
+    });
+    return { emailsQueued: result.queued, pushedAccounts: 0 };
+  } catch (error) {
+    console.error("Enrolled, but the studio enrollment notice failed:", error);
+    return NOTHING;
+  }
 }

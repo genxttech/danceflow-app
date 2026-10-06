@@ -11,6 +11,7 @@ import {
   buildPortalBookingStaffEmail,
 } from "@/lib/notifications/scheduling-emails";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
+import { notifyGroupClassEnrolled, notifyStudioOfExternalGroupClassEnrollment } from "@/lib/notifications/groupClassNotices";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
@@ -810,7 +811,7 @@ export async function selfEnrollGroupClassAction(formData: FormData) {
   // this, exactly as every other staff/portal RPC caller in this codebase
   // (enrollClassAttendeeAction, the P6 self-service RPC family) already
   // relies on. Never the admin client for this specific call.
-  const { error } = await authClient.rpc("self_enroll_class_attendee", {
+  const { data: enrolledAttendeeId, error } = await authClient.rpc("self_enroll_class_attendee", {
     p_appointment_id: appointmentId,
     p_client_id: relationship.clientId,
     p_client_package_id: clientPackageId,
@@ -820,6 +821,20 @@ export async function selfEnrollGroupClassAction(formData: FormData) {
   if (error) {
     console.error("Could not self-enroll in class:", error.message);
     redirect(appendQueryParam(returnTo, "error", classifySelfEnrollError(error.message ?? "")));
+  }
+
+  // GC-S1F: the enrollment has committed (the RPC returned the new attendee id; a replay is refused as "already enrolled" and
+  // never reaches here). Complete the external-enrollment notification pair: confirm to the dancer and tell the studio, since no
+  // staff member was involved. Each is idempotent on the attendee id, never throws, and cannot undo the enrollment.
+  if (typeof enrolledAttendeeId === "string" && enrolledAttendeeId) {
+    await notifyGroupClassEnrolled({
+      studioId: studio.id,
+      clientId: relationship.clientId,
+      appointmentIds: [appointmentId],
+      eventId: enrolledAttendeeId,
+      series: false,
+    });
+    await notifyStudioOfExternalGroupClassEnrollment({ studioId: studio.id, attendeeId: enrolledAttendeeId });
   }
 
   revalidatePath(returnTo);

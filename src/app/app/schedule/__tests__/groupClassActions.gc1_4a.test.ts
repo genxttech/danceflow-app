@@ -206,7 +206,7 @@ describe("createAppointmentAction -- group_class branch", () => {
       p_room_id: "room-1",
       p_title: "Beginner Salsa",
     });
-    expect(redirectUrl(error)).toBe("/app/schedule/new-class-id");
+    expect(redirectUrl(error)).toBe("/app/schedule/new-class-id?success=class_created");
   });
 
   it("GC-S1E-3: a class the database refuses for a conflict shows safe category copy, never raw text", async () => {
@@ -394,7 +394,7 @@ describe("updateAppointmentAction -- type-transition guard + class-level-field-o
     // Never touches client/package/membership/billing fields for a class.
     expect(updateCalls[0].payload).not.toHaveProperty("client_id");
     expect(updateCalls[0].payload).not.toHaveProperty("billing_type");
-    expect(redirectUrl(error)).toBe(`/app/schedule/${APPOINTMENT_ID}`);
+    expect(redirectUrl(error)).toBe(`/app/schedule/${APPOINTMENT_ID}?success=class_updated`);
   });
 
   it("own-floor-rental scope is denied for a class edit", async () => {

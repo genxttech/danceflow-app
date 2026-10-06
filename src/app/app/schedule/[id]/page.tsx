@@ -1823,9 +1823,9 @@ export default async function AppointmentDetailPage({
                   </button>
                 </form>
 
-                <details className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                  <summary className="cursor-pointer list-none text-sm font-semibold text-amber-900">
-                    Mark No Show
+                <details className="group rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <summary className="cursor-pointer list-none text-sm font-semibold text-amber-900 [&::-webkit-details-marker]:hidden">
+                    <span aria-hidden="true" className="mr-1.5 inline-block transition-transform group-open:rotate-90">&#9656;</span>Mark No Show
                   </summary>
 
                   <form action={markAppointmentNoShowAction} className="mt-4 space-y-4">

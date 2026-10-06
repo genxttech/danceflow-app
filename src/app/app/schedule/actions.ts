@@ -1533,13 +1533,14 @@ export async function createAppointmentAction(
       }
 
       if (rpcError || !newAppointmentId) {
+        console.error("Could not create the class:", rpcError?.message);
         return {
-          error: `Could not create the class: ${rpcError?.message ?? "Unknown error."}`,
+          error: "Could not create the class. Nothing was saved. Check the date, time, instructor and room, then try again.",
         };
       }
 
       revalidatePath("/app/schedule");
-      redirect(`/app/schedule/${newAppointmentId}`);
+      redirect(`/app/schedule/${newAppointmentId}?success=class_created`);
     }
 
     const clientId = getString(formData, "clientId");
@@ -2299,7 +2300,7 @@ export async function updateAppointmentAction(
 
       revalidatePath("/app/schedule");
       revalidatePath(`/app/schedule/${appointmentId}`);
-      redirect(`/app/schedule/${appointmentId}`);
+      redirect(`/app/schedule/${appointmentId}?success=class_updated`);
     }
 
     const clientId = getString(formData, "clientId");

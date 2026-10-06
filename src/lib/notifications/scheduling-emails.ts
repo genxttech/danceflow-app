@@ -567,3 +567,59 @@ export function buildGroupClassRemovalEmail(params: {
 
   return { subject, bodyText, bodyHtml };
 }
+
+/**
+ * GC-S1F: internal operational notice to studio staff that a dancer enrolled themselves in a class through the client portal
+ * (no staff involved). The funding line describes the real funding source (package credit or membership) and this email never
+ * claims a payment: self-enrollment is funded by an existing package or membership only.
+ */
+export function buildGroupClassExternalEnrollmentStaffEmail(params: {
+  studio: StudioEmailSource;
+  dancerName: string;
+  classTitle: string;
+  classWhen: string;
+  instructorName: string | null;
+  locationName: string | null;
+  fundingLabel: string;
+  classPath: string;
+}): BuiltEmail {
+  const identity = identityOf(params.studio);
+  const studioName = identity.name;
+  const title = params.classTitle.trim() || "Group class";
+  const dancer = params.dancerName.trim() || "A dancer";
+  const classUrl = buildAppUrl(params.classPath);
+  const subject = sanitizeEmailSubject(`New class enrollment: ${dancer} joined ${title}`);
+  const intro = `${dancer} enrolled in ${title} from the client portal.`;
+  const rows: Array<{ label: string; value: string }> = [
+    { label: "Dancer", value: dancer },
+    { label: "Class", value: title },
+    { label: "When", value: params.classWhen },
+    { label: "Status", value: "Enrolled" },
+    { label: "Funding", value: params.fundingLabel },
+    ...(params.instructorName ? [{ label: "Instructor", value: params.instructorName }] : []),
+    ...(params.locationName ? [{ label: "Location", value: params.locationName }] : []),
+  ];
+
+  const bodyText = letter([
+    intro,
+    "",
+    ...rows.map((row) => `${row.label}: ${row.value}`),
+    "",
+    "View the class roster in DanceFlow:",
+    classUrl,
+  ]);
+
+  const bodyHtml = renderStudioBrandedEmail(identity, {
+    previewText: subject,
+    eyebrow: "Class Enrollment",
+    heading: "New Class Enrollment",
+    intro,
+    bodyText: "",
+    detailRows: rows,
+    actionLabel: "View class roster",
+    actionUrl: classUrl,
+    footerNote: `Internal notification for ${studioName} staff.`,
+  });
+
+  return { subject, bodyText, bodyHtml };
+}

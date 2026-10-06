@@ -296,7 +296,7 @@ describe("S1E-2 trigger: single class edit", () => {
   it("after a successful save the orchestrator gets the before and after material values and this edit as the event", async () => {
     const writes = arrange();
     const err = await run(actions.updateAppointmentAction({}, editForm({ startsAt: "2030-11-03T18:00", endsAt: "2030-11-03T19:00", roomId: "room-2", locationName: "Back lot" })));
-    expect(redirectUrl(err)).toBe(`/app/schedule/${APPT}`);
+    expect(redirectUrl(err)).toBe(`/app/schedule/${APPT}?success=class_updated`);
     expect(m.changed).toHaveBeenCalledTimes(1);
     const arg = m.changed.mock.calls[0][0];
     expect(arg.studioId).toBe(STUDIO);

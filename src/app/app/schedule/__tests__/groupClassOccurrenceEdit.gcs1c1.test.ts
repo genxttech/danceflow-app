@@ -290,7 +290,7 @@ describe("S1C-1 update action: series identity and override tracking", () => {
       studio_id: "studio-2",
     });
     const err = await run(updateAppointmentAction({}, evil));
-    expect(redirectUrl(err)).toBe(`/app/schedule/${APPT}`);
+    expect(redirectUrl(err)).toBe(`/app/schedule/${APPT}?success=class_updated`);
     expect(writes).toHaveLength(1);
     const payload = writes[0].payload as Record<string, unknown>;
     for (const key of [
@@ -421,7 +421,7 @@ describe("S1C-1 update action: conflicts", () => {
     );
     expect(detectConflictsMock).toHaveBeenCalledTimes(1);
     expect(writes).toHaveLength(1);
-    expect(redirectUrl(err)).toBe(`/app/schedule/${APPT}`);
+    expect(redirectUrl(err)).toBe(`/app/schedule/${APPT}?success=class_updated`);
   });
 
   it("conflict-engine failure fails closed and saves nothing", async () => {
@@ -446,7 +446,7 @@ describe("S1C-1 update action: conflicts", () => {
     );
     expect(detectConflictsMock).not.toHaveBeenCalled();
     expect(writes).toHaveLength(1);
-    expect(redirectUrl(err)).toBe(`/app/schedule/${APPT}`);
+    expect(redirectUrl(err)).toBe(`/app/schedule/${APPT}?success=class_updated`);
   });
 
   it("decides from the server-loaded row, not from any client 'changed' hint", async () => {
