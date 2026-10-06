@@ -36,12 +36,18 @@ export default function GroupClassCancellationForm({
 }: GroupClassCancellationFormProps) {
   void compact;
   const offerSeries = isSeriesOccurrence && !!seriesPreview && seriesPreview.eligibleClassCount > 0;
-  const lines = groupClassCancelConsequences({ bookedCount, isSeriesOccurrence });
+  const consequenceLines = groupClassCancelConsequences({ bookedCount, isSeriesOccurrence });
+  // When both scopes are offered the radio labels already say what each choice covers, so the single-class sentence is
+  // phrased conditionally instead of reading as a statement about the whole operation.
+  const lines = offerSeries
+    ? consequenceLines.map((line) => (line.startsWith("This cancels only this class.") ? "If you cancel only this class, other classes in the series stay scheduled." : line))
+    : consequenceLines;
   const seriesLines = offerSeries ? groupClassSeriesCancelImpactLines(seriesPreview) : [];
 
   return (
-    <details className="w-full rounded-2xl border border-red-200 bg-red-50 p-4">
-      <summary className="cursor-pointer list-none text-sm font-semibold text-red-800">
+    <details className="group w-full rounded-2xl border border-red-200 bg-red-50 p-4">
+      <summary className="cursor-pointer list-none text-sm font-semibold text-red-800 [&::-webkit-details-marker]:hidden">
+        <span aria-hidden="true" className="mr-1.5 inline-block transition-transform group-open:rotate-90">&#9656;</span>
         {offerSeries ? "Cancel class or series" : "Cancel this class"}
       </summary>
 
@@ -96,7 +102,7 @@ export default function GroupClassCancellationForm({
           type="submit"
           className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
         >
-          Cancel classes
+          {offerSeries ? "Confirm cancellation" : "Cancel class"}
         </button>
       </form>
     </details>

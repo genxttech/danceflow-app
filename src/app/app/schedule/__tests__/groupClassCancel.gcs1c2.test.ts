@@ -467,3 +467,52 @@ describe("S1C-2 boundaries", () => {
     expect(helper + comp).not.toMatch(/createAdminClient|service_role/);
   });
 });
+
+describe("GC-S1F polish: group-class collapsibles, cancel copy, not-found banners", () => {
+  it("every group-class collapsible summary carries a chevron that rotates when open", () => {
+    for (const file of [
+      "src/components/schedule/AddDancerPanel.tsx",
+      "src/components/schedule/GroupClassCancellationForm.tsx",
+      "src/components/schedule/RemoveDancerControl.tsx",
+    ]) {
+      const src = readFileSync(file, "utf8");
+      expect(src, file).toContain("group-open:rotate-90");
+      expect(src, file).toMatch(/<details[^>]*className="[^"]*\bgroup\b/);
+    }
+    const page = readFileSync("src/app/app/schedule/[id]/page.tsx", "utf8");
+    expect(page).toMatch(/group-open:rotate-90[^]*Mark No Show/);
+  });
+
+  it("the cancel form: single class says Cancel class; with both scopes it asks to confirm and words the single-class line conditionally", () => {
+    const single = renderToStaticMarkup(createElement(GroupClassCancellationForm, { appointmentId: APPT, returnTo: "/app/schedule", isSeriesOccurrence: false, bookedCount: 1 }));
+    expect(single).toContain("Cancel class</button>");
+    expect(single).toContain("group-open:rotate-90");
+    const preview = { eligibleClassCount: 3, enrollmentsAffected: 4, dancersAffected: 2, alreadyCancelledCount: 0, historicalCount: 0, terminalAttendanceCount: 0, seriesWouldBeCancelled: false };
+    const both = renderToStaticMarkup(createElement(GroupClassCancellationForm, { appointmentId: APPT, returnTo: "/app/schedule", isSeriesOccurrence: true, bookedCount: 2, seriesPreview: preview }));
+    expect(both).toContain("Confirm cancellation</button>");
+    expect(both).toContain("If you cancel only this class, other classes in the series stay scheduled.");
+    expect(both).not.toContain("This cancels only this class.");
+    expect(both).toContain("This and following classes");
+    expect(both).not.toMatch(/Entire series/i);
+  });
+
+  it("a class that cannot be found shows a banner instead of nothing", () => {
+    for (const error of ["appointment_not_found", "missing_appointment"]) {
+      expect(cancel.groupClassCancelBanner({ error })).toMatchObject({ kind: "error" });
+    }
+  });
+
+  it("the not-found banners are rendered by both landing pages and read as class-or-appointment copy", () => {
+    for (const file of ["src/app/app/schedule/page.tsx", "src/app/app/schedule/[id]/page.tsx"]) {
+      expect(readFileSync(file, "utf8"), file).toContain("groupClassCancelBanner(");
+    }
+    expect(cancel.groupClassCancelBanner({ error: "appointment_not_found" })?.message).toMatch(/class or appointment could not be found/);
+    expect(cancel.groupClassCancelBanner({ error: "missing_appointment" })?.message).toMatch(/class or appointment could not be found/);
+  });
+
+  it("class creation no longer shows a raw database message", () => {
+    const src = readFileSync("src/app/app/schedule/actions.ts", "utf8");
+    expect(src).not.toContain("Could not create the class: ${");
+    expect(src).toContain("Could not create the class. Nothing was saved.");
+  });
+});

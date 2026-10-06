@@ -45,6 +45,8 @@ export const GROUP_CLASS_CANCEL_REDIRECT_CODE: Record<GroupClassCancelFailure, s
 };
 
 const BANNERS: Record<string, { kind: "success" | "error"; message: string }> = {
+  class_updated: { kind: "success", message: "Class updated." },
+  class_created: { kind: "success", message: "Class created." },
   class_cancelled: { kind: "success", message: "Class cancelled." },
   class_already_cancelled: { kind: "success", message: "This class was already cancelled." },
   class_cancel_attendance_recorded: {
@@ -55,6 +57,14 @@ const BANNERS: Record<string, { kind: "success" | "error"; message: string }> = 
   class_cancel_not_authorized: {
     kind: "error",
     message: "Only studio owners, admins and front desk can cancel a class.",
+  },
+  appointment_not_found: {
+    kind: "error",
+    message: "That class or appointment could not be found. It may have been removed. Go back to the schedule and try again.",
+  },
+  missing_appointment: {
+    kind: "error",
+    message: "That class or appointment could not be found. Go back to the schedule and try again.",
   },
   class_cancel_failed: {
     kind: "error",

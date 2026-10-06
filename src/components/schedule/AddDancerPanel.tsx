@@ -267,7 +267,7 @@ export default function AddDancerPanel({
       ) : null}
     <details open={defaultOpen} className="group rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
       <summary className="cursor-pointer list-none text-sm font-semibold text-indigo-800 [&::-webkit-details-marker]:hidden">
-        + Add dancer
+        + Add dancer<span aria-hidden="true" className="ml-2 inline-block transition-transform group-open:rotate-90">&#9656;</span>
       </summary>
 
       <form action={enrollClassAttendeeAction} onSubmit={validateBeforeSubmit} className="mt-4 space-y-4">

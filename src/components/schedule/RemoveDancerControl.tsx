@@ -89,9 +89,9 @@ export default function RemoveDancerControl({
   }
 
   return (
-    <details className="relative text-right">
+    <details className="group relative text-right">
       <summary className="cursor-pointer list-none text-xs font-semibold text-red-700 underline [&::-webkit-details-marker]:hidden">
-        Remove
+        <span aria-hidden="true" className="mr-1.5 inline-block transition-transform group-open:rotate-90">&#9656;</span>Remove
       </summary>
       <div
         className={`mt-2 space-y-2 rounded-xl border border-red-200 bg-red-50 p-3 text-left text-xs text-red-900 sm:absolute sm:right-0 sm:z-10 ${
