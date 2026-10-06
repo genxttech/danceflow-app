@@ -1,3 +1,4 @@
+import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ManageableDancer } from "@/lib/public/classRegistration";
 

@@ -28,6 +28,9 @@ const h = vi.hoisted(() => ({
   adminRpcCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
   claimError: null as null | { code: string; message: string },
   rateAllowed: true,
+  bindingStatus: "unproven" as string,
+  signOutCalls: [] as unknown[],
+  clientsReads: 0,
 }));
 
 let linksTable: FakeTable;
@@ -54,7 +57,13 @@ vi.mock("@/lib/security/rate-limit", () => ({
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: h.user } }) },
+    auth: {
+      getUser: async () => ({ data: { user: h.user } }),
+      signOut: async (options: unknown) => {
+        h.signOutCalls.push(options);
+        return { error: null };
+      },
+    },
     rpc: async (name: string, args: Record<string, unknown>) => {
       h.sessionRpcCalls.push(name);
       if (name === "public_group_class_occurrences") {
@@ -62,6 +71,7 @@ vi.mock("@/lib/supabase/server", () => ({
         return { data: h.rows.filter((r) => r.appointment_id === id), error: null };
       }
       if (name === "my_verified_email") return { data: h.verifiedEmail, error: null };
+      if (name === "email_binding_status") return { data: h.bindingStatus, error: null };
       throw new Error(`Unexpected session RPC: ${name}`);
     },
   }),
@@ -107,6 +117,7 @@ vi.mock("@/lib/supabase/admin", () => ({
           return studiosTable;
         },
         get clients() {
+          h.clientsReads += 1;
           return clientsTable;
         },
         get profiles() {
@@ -136,7 +147,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 
 const RegisterPage = (await import("../page")).default;
-const { checkClassRegistrationLinkAction } = await import("../actions");
+const { checkClassRegistrationLinkAction, signInAgainForClassAction } = await import("../actions");
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const STUDIO_A = "studio-a";
@@ -205,6 +216,9 @@ beforeEach(() => {
   h.adminRpcCalls.length = 0;
   h.claimError = null;
   h.rateAllowed = true;
+  h.bindingStatus = "unproven";
+  h.signOutCalls.length = 0;
+  h.clientsReads = 0;
   linksTable = new FakeTable();
   studiosTable = new FakeTable();
   clientsTable = new FakeTable();
@@ -243,15 +257,49 @@ describe("unverified", () => {
     expect(html).not.toContain("Open Student Portal");
     expect(html).not.toContain("Pat Dancer");
   });
+
+  it("an already-bound email on a session that predates binding gets Sign in again, not a verify-email bounce", async () => {
+    h.verifiedEmail = null;
+    h.bindingStatus = "bound";
+    linksTable.rows = [link({ client_id: SELF_CLIENT })];
+    const { html } = await outcome(() => page());
+    expect(html).toContain("Sign in again to continue");
+    expect(html).toContain("Sign in again");
+    expect(html).not.toContain("/account/verify-email");
+    expect(html).not.toContain("Pat Dancer");
+    expect(html).not.toContain("Open Student Portal");
+  });
+
+  it("Sign in again signs out only this session and returns through login to the canonical register path", async () => {
+    expect(await outcome(() => signInAgainForClassAction(checkAgainForm()))).toEqual({
+      thrown: `NEXT_REDIRECT:/login?intent=public&next=${encodeURIComponent(REGISTER)}`,
+    });
+    expect(h.signOutCalls).toEqual([{ scope: "local" }]);
+
+    // Garbage input never signs anyone out or builds a return path from browser data.
+    h.signOutCalls.length = 0;
+    expect((await outcome(() => signInAgainForClassAction(checkAgainForm("https://evil.example")))).thrown).toBe(
+      "NEXT_REDIRECT:/discover/classes",
+    );
+    expect(h.signOutCalls).toHaveLength(0);
+  });
 });
 
 describe("linking via the existing invitation claim only", () => {
+  it("neither /register nor Check again ever reads the clients table (no clients.email matching path)", async () => {
+    clientsTable.rows = [{ id: STRANGER_CLIENT, studio_id: STUDIO_A, email: EMAIL, first_name: "Kid", last_name: "X" }];
+    await outcome(() => page());
+    await outcome(() => checkClassRegistrationLinkAction(checkAgainForm()));
+    await outcome(() => page({ check: "done" }));
+    expect(h.clientsReads).toBe(0);
+  });
+
   it("5. a verified account with a staff-issued invitation is linked by Check again and reaches the ready state", async () => {
     linksTable.rows = [
       link({ client_id: SELF_CLIENT, user_id: null, status: "invited", invited_email: EMAIL, invite_expires_at: "2099-01-01T00:00:00Z" }),
     ];
 
-    expect((await outcome(() => page())).html).toContain("isn&#x27;t connected to Salsa House yet");
+    expect((await outcome(() => page())).html).toContain("You&#x27;re not set up with Salsa House yet");
     expect(await outcome(() => checkClassRegistrationLinkAction(checkAgainForm()))).toEqual({
       thrown: `NEXT_REDIRECT:${REGISTER}?check=done`,
     });
@@ -268,7 +316,7 @@ describe("linking via the existing invitation claim only", () => {
     const { html } = await outcome(() => page({ check: "done" }));
 
     expect(linksTable.rows).toHaveLength(0);
-    expect(html).toContain("isn&#x27;t connected to Salsa House yet");
+    expect(html).toContain("You&#x27;re not set up with Salsa House yet");
     expect(html).not.toContain("Same-Email");
   });
 
@@ -353,7 +401,7 @@ describe("one generic unlinked state (no existence oracle)", () => {
 
     for (const html of outputs) {
       expect(html).toBe(outputs[0]);
-      expect(html).toContain("We found your DanceFlow account, but it isn&#x27;t connected to a student record at this studio yet.");
+      expect(html).toContain("Your DanceFlow account isn&#x27;t connected to a student you can book for at this studio yet.");
       expect(html).toContain('href="/studios/salsa-house"');
       expect(html).toContain("Check again");
       expect(html).not.toMatch(SENSITIVE);
@@ -409,7 +457,7 @@ describe("dancer resolution", () => {
   it("a link row whose client belongs to another studio is omitted (studio isolation on both sides)", async () => {
     linksTable.rows = [link({ client_id: OTHER_STUDIO_CLIENT, clients: { id: OTHER_STUDIO_CLIENT, studio_id: STUDIO_B, first_name: "Cross", last_name: "Tenant" } })];
     const { html } = await outcome(() => page());
-    expect(html).toContain("isn&#x27;t connected");
+    expect(html).toContain("You&#x27;re not set up with Salsa House yet");
     expect(html).not.toContain("Cross Tenant");
   });
 

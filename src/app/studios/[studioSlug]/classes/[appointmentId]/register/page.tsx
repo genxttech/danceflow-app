@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import PublicShell from "@/components/public/PublicShell";
 import { createClient } from "@/lib/supabase/server";
-import { buildEmailVerificationPath } from "@/lib/auth/verifiedEmail";
+import { buildEmailVerificationPath, getEmailBindingStatus } from "@/lib/auth/verifiedEmail";
 import { getMyVerifiedEmail } from "@/lib/auth/verifiedIdentity";
 import { portalClientPath } from "@/lib/student-identity/portal-context";
 import {
@@ -24,7 +24,7 @@ import {
   type ManageableDancer,
 } from "@/lib/public/classRegistration";
 import { getStudioIdForPublicSlug, listManageableDancers } from "@/lib/public/classRegistrationData";
-import { checkClassRegistrationLinkAction } from "./actions";
+import { checkClassRegistrationLinkAction, signInAgainForClassAction } from "./actions";
 
 type PageProps = {
   params: Promise<{ studioSlug: string; appointmentId: string }>;
@@ -122,6 +122,26 @@ export default async function ClassRegisterPage({ params, searchParams }: PagePr
 
   // 3. Canonical verified identity only (never user.email or the JWT claim).
   const verifiedEmail = await getMyVerifiedEmail(supabase);
+  if (!verifiedEmail && (await getEmailBindingStatus(supabase)) === "bound") {
+    // The email is already confirmed, but this session started before that;
+    // a fresh sign-in creates a session the verified-email check accepts.
+    return (
+      <RegisterShell item={item}>
+        <StepTitle>Sign in again to continue</StepTitle>
+        <StepText>
+          Your email is confirmed. For your security, please sign in again and we&apos;ll bring you right back
+          to this class.
+        </StepText>
+        <form action={signInAgainForClassAction} className="mt-6">
+          <input type="hidden" name="appointmentId" value={item.appointmentId} />
+          <button type="submit" className={primaryButton}>
+            Sign in again
+          </button>
+        </form>
+      </RegisterShell>
+    );
+  }
+
   if (!verifiedEmail) {
     return (
       <RegisterShell item={item}>
@@ -170,15 +190,14 @@ export default async function ClassRegisterPage({ params, searchParams }: PagePr
     const check = single(search.check);
     return (
       <RegisterShell item={item}>
-        <StepTitle>Your account isn&apos;t connected to {item.studioName} yet</StepTitle>
+        <StepTitle>You&apos;re not set up with {item.studioName} yet</StepTitle>
         <StepText>
-          We found your DanceFlow account, but it isn&apos;t connected to a student record at this studio yet.
-          Contact {item.studioName} and ask them to send you a student portal invitation. Once you&apos;ve
-          accepted it, come back to this class.
+          Your DanceFlow account isn&apos;t connected to a student you can book for at this studio yet. Ask{" "}
+          {item.studioName} to send you a student portal invitation, accept it, then come back to this class.
         </StepText>
         {check === "done" ? (
           <p role="status" className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
-            We checked again. Your account still isn&apos;t connected to this studio.
+            We checked again. Nothing has changed yet.
           </p>
         ) : check === "wait" ? (
           <p role="status" className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-700">

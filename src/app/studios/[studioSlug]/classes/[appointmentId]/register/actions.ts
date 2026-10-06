@@ -68,3 +68,23 @@ export async function checkClassRegistrationLinkAction(formData: FormData) {
 
   redirect(`${registerPath}?check=done`);
 }
+
+/*
+  GC-3.4B-1: recovery for an account whose email is already bound but whose
+  current session predates the binding (so my_verified_email() is still null
+  for this session). Signing out this session and signing in again creates a
+  session after the binding; nothing about the verified-email rule changes.
+  The browser supplies only the appointment id; the return path is canonical.
+*/
+export async function signInAgainForClassAction(formData: FormData) {
+  const appointmentId = String(formData.get("appointmentId") ?? "").trim();
+  if (!isUuid(appointmentId)) redirect("/discover/classes");
+
+  const supabase = await createClient();
+  const item = await fetchPublicGroupClass(supabase, appointmentId);
+  if (!item) redirect("/discover/classes");
+
+  await supabase.auth.signOut({ scope: "local" });
+
+  redirect(`/login?intent=public&next=${encodeURIComponent(classRegisterPath(item.studioSlug, item.appointmentId))}`);
+}
