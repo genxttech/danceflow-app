@@ -276,7 +276,7 @@ export async function linkExistingClientAccount(params: {
 
   const { data: relationshipRows, error: existingLinkError } = await admin
     .from("client_account_links")
-    .select("id, user_id, status, relationship_type, created_at")
+    .select("id, user_id, status, relationship_type, invited_email, created_at")
     .eq("studio_id", params.studioId)
     .eq("client_id", params.clientId)
     .eq("relationship_type", relationshipType)
@@ -286,12 +286,19 @@ export async function linkExistingClientAccount(params: {
     throw new Error(`Account relationship lookup failed: ${existingLinkError.message}`);
   }
 
+  // GC-3.4B-0: a row issued to a DIFFERENT email is a distinct staff intent
+  // (e.g. another parent's guardian invitation) and is never taken over.
+  const linkEmail = normalizedEmail(params.invitedEmail);
+  const sameIntentEmail = (row: { invited_email?: string | null }) =>
+    !row.invited_email || normalizedEmail(row.invited_email) === linkEmail;
+
   const exactUserLink =
     (relationshipRows ?? []).find((row) => row.user_id === params.userId) ?? null;
   const reusableInvitation =
     (relationshipRows ?? []).find(
       (row) =>
         !row.user_id &&
+        sameIntentEmail(row) &&
         ["unclaimed", "invited", "claim_pending", "conflict", "rejected", "disconnected"].includes(
           String(row.status),
         ),
@@ -318,6 +325,9 @@ export async function linkExistingClientAccount(params: {
     disconnected_by: null,
     disconnect_reason: null,
     conflict_details: null,
+    // A reused invitation row's token is spent once the row is linked.
+    invite_token_hash: null,
+    invite_expires_at: null,
     updated_at: now,
   };
 
@@ -334,23 +344,34 @@ export async function linkExistingClientAccount(params: {
     throw new Error(`Account relationship save failed: ${linkError.message}`);
   }
 
+  // GC-3.4B-0: retire only open invitations for this same intent (same
+  // relationship type, and for non-self the same invited email; a client has
+  // at most one self account, so any open self invitation is moot). A distinct
+  // staff-issued invitation -- e.g. the client's own self invitation while a
+  // guardian is linked -- keeps its token.
   const canonicalLinkId = existingLink?.id ?? null;
-  let staleQuery = admin
-    .from("client_account_links")
-    .update({
-      invite_token_hash: null,
-      invite_expires_at: null,
-      updated_at: now,
-    })
-    .eq("studio_id", params.studioId)
-    .eq("client_id", params.clientId)
-    .in("status", ["invited", "claim_pending"]);
+  const staleInvitationIds = (relationshipRows ?? [])
+    .filter(
+      (row) =>
+        row.id !== canonicalLinkId &&
+        ["invited", "claim_pending"].includes(String(row.status)) &&
+        (relationshipType === "self" || sameIntentEmail(row)),
+    )
+    .map((row) => String(row.id));
 
-  if (canonicalLinkId) {
-    staleQuery = staleQuery.neq("id", canonicalLinkId);
-  }
-
-  const { error: staleInviteError } = await staleQuery;
+  const { error: staleInviteError } = staleInvitationIds.length
+    ? await admin
+        .from("client_account_links")
+        .update({
+          invite_token_hash: null,
+          invite_expires_at: null,
+          updated_at: now,
+        })
+        .eq("studio_id", params.studioId)
+        .eq("client_id", params.clientId)
+        .in("status", ["invited", "claim_pending"])
+        .in("id", staleInvitationIds)
+    : { error: null };
   if (staleInviteError) {
     console.error(
       "Linked client account, but stale invitation cleanup failed:",
@@ -662,21 +683,26 @@ export async function resolveClientAccountConflict(params: {
   const admin = createAdminClient();
   const now = new Date().toISOString();
 
-  const { data: conflict, error: conflictError } = await admin
+  const { data: conflictRows, error: conflictError } = await admin
     .from("client_account_links")
-    .select("id, relationship_type")
+    .select("id, relationship_type, invited_email")
     .eq("studio_id", params.studioId)
     .eq("client_id", params.clientId)
     .eq("status", "conflict")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("updated_at", { ascending: false });
 
-  if (conflictError || !conflict) {
+  const conflicts = (conflictRows ?? []) as Array<{
+    id: string;
+    relationship_type: string | null;
+    invited_email: string | null;
+  }>;
+
+  if (conflictError || !conflicts.length) {
     throw new Error("No unresolved account conflict was found.");
   }
 
   if (params.resolution === "dismiss_conflict") {
+    const conflict = conflicts[0];
     const { error } = await admin
       .from("client_account_links")
       .update({
@@ -696,23 +722,48 @@ export async function resolveClientAccountConflict(params: {
     throw new Error("No matching DanceFlow account is available to link.");
   }
 
-  // GC-3.4B-0 (S1): only the verified matching account is linked, with the
-  // relationship type staff originally issued. A conflict row is never
-  // promoted to 'linked': it may carry a different (mismatched) account's
-  // user_id, and promoting it would grant that account access.
+  // GC-3.4B-0 (S1): the matching account is the verified owner of
+  // params.invitedEmail (the caller checks verified_email_for_user), so only a
+  // conflict issued to that same email can be resolved by linking it. A
+  // conflict for a different email (e.g. another parent's invitation) is a
+  // separate staff intent and is left untouched.
+  const matchingEmail = normalizedEmail(params.invitedEmail);
+  const conflict = conflicts.find(
+    (row) => normalizedEmail(row.invited_email ?? "") === matchingEmail,
+  );
+
+  if (!matchingEmail || !conflict) {
+    throw new Error("No unresolved account conflict was found for this client's email.");
+  }
+
+  const relationshipType =
+    (conflict.relationship_type as ClientRelationshipType | null) ?? "self";
+
+  // Only the verified matching account is linked, with the relationship type
+  // staff originally issued. A conflict row is never promoted to 'linked': it
+  // may carry a different (mismatched) account's user_id, and promoting it
+  // would grant that account access.
   await linkExistingClientAccount({
     studioId: params.studioId,
     clientId: params.clientId,
     userId: params.matchingUserId,
     invitedEmail: params.invitedEmail,
-    relationshipType:
-      (conflict.relationship_type as ClientRelationshipType | null) ?? "self",
+    relationshipType,
   });
 
-  // Every conflict row still left for this exact studio/client is superseded:
-  // not linked, and its invite token can no longer be used. (When the conflict
-  // row already belonged to the matching account, linkExistingClientAccount
-  // relinked that row itself, so it is no longer 'conflict' here.)
+  // Supersede only the conflict rows for this same intent (same invited email
+  // and relationship type): they are now satisfied, and their invite tokens
+  // must stop working. Conflicts for other emails or relationship types stay
+  // for separate staff review. (A row that already belonged to the matching
+  // account was relinked in place and is no longer 'conflict'.)
+  const sameIntentIds = conflicts
+    .filter(
+      (row) =>
+        normalizedEmail(row.invited_email ?? "") === matchingEmail &&
+        ((row.relationship_type as ClientRelationshipType | null) ?? "self") === relationshipType,
+    )
+    .map((row) => row.id);
+
   const { error: supersedeError } = await admin
     .from("client_account_links")
     .update({
@@ -726,7 +777,8 @@ export async function resolveClientAccountConflict(params: {
     })
     .eq("studio_id", params.studioId)
     .eq("client_id", params.clientId)
-    .eq("status", "conflict");
+    .eq("status", "conflict")
+    .in("id", sameIntentIds);
 
   if (supersedeError) {
     throw new Error(`Conflict supersession failed: ${supersedeError.message}`);

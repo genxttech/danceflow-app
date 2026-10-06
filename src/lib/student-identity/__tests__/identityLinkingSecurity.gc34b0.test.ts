@@ -51,6 +51,7 @@ const {
   rejectClientInvitation,
   resolveClientAccountConflict,
   clientInvitationIdentity,
+  linkExistingClientAccount,
 } = await import("../lifecycle");
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -466,5 +467,242 @@ describe("cross-studio scoping is unchanged", () => {
     expect(linkedRowsFor(OWNER)).toEqual([
       expect.objectContaining({ studio_id: STUDIO_B, client_id: CLIENT_B }),
     ]);
+  });
+});
+
+/*
+  GC-3.4B-0 focused review: the supersede step must be narrow. Only conflict
+  rows for the same intent (same invited email and relationship type) are
+  superseded; distinct staff-issued relationships, open invitations, linked
+  relationships and other studios survive.
+*/
+describe("resolveClientAccountConflict cleanup scope (focused review)", () => {
+  const OTHER_PARENT_EMAIL = "other-parent@example.com";
+  const resolve = () =>
+    resolveClientAccountConflict({
+      studioId: STUDIO_A,
+      clientId: CLIENT_A,
+      resolution: "link_matching_account",
+      matchingUserId: OWNER,
+      invitedEmail: OWNER_EMAIL,
+    });
+
+  it("A: a mismatched guardian conflict is resolved while a legitimate open self invitation is untouched", async () => {
+    const openSelf = invitationRow({
+      id: "invite-self",
+      relationship_type: "self",
+      is_primary: true,
+      invited_email: "kid@example.com",
+      invite_token_hash: hash("self-token"),
+    });
+    linksTable.rows = [legacyMismatchConflict("guardian", { invite_token_hash: hash("old") }), openSelf];
+    const openBefore = { ...openSelf };
+
+    await resolve();
+
+    expect(linksTable.rows.find((row) => row.id === "invite-self")).toEqual(openBefore);
+    expect(linkedRowsFor(INTRUDER)).toHaveLength(0);
+    expect(linkedRowsFor(OWNER)).toEqual([expect.objectContaining({ relationship_type: "guardian" })]);
+    expectLinkInvariants();
+  });
+
+  it("B/G: a conflict issued to a different email (another parent) is left for separate review", async () => {
+    linksTable.rows = [
+      legacyMismatchConflict("guardian"),
+      legacyMismatchConflict("guardian", {
+        id: "other-parent-conflict",
+        user_id: null,
+        invited_email: OTHER_PARENT_EMAIL,
+        invite_token_hash: hash("other"),
+        updated_at: "2026-10-02T00:00:00Z",
+      }),
+    ];
+    const otherBefore = { ...linksTable.rows[1] };
+
+    await resolve();
+
+    expect(linksTable.rows.find((row) => row.id === "other-parent-conflict")).toEqual(otherBefore);
+    expect(linksTable.rows.find((row) => row.id === "invite-1")!.status).toBe("disconnected");
+  });
+
+  it("refuses with no write when the only conflict was issued to a different email", async () => {
+    // Previously the client-email account would have been linked with the
+    // other email's relationship type.
+    linksTable.rows = [legacyMismatchConflict("guardian", { invited_email: OTHER_PARENT_EMAIL })];
+    const before = snapshot();
+
+    await expect(resolve()).rejects.toThrow("No unresolved account conflict was found for this client's email.");
+    expect(snapshot()).toEqual(before);
+  });
+
+  it("refuses with no write when the conflict has no invited email", async () => {
+    linksTable.rows = [legacyMismatchConflict("guardian", { invited_email: null })];
+    const before = snapshot();
+
+    await expect(resolve()).rejects.toThrow();
+    expect(snapshot()).toEqual(before);
+  });
+
+  it("a same-email conflict of a different relationship type is not superseded", async () => {
+    linksTable.rows = [
+      legacyMismatchConflict("guardian"),
+      legacyMismatchConflict("billing_contact", {
+        id: "billing-conflict",
+        user_id: "user-intruder-2",
+        updated_at: "2026-09-01T00:00:00Z",
+      }),
+    ];
+
+    await resolve();
+
+    expect(linksTable.rows.find((row) => row.id === "billing-conflict")!.status).toBe("conflict");
+    expect(linkedRowsFor("user-intruder-2")).toHaveLength(0);
+  });
+
+  it("D: two conflicts for different accounts, one the matching account: relinked in place, the other superseded", async () => {
+    linksTable.rows = [
+      legacyMismatchConflict("guardian", { id: "owner-conflict", user_id: OWNER, invite_token_hash: null }),
+      legacyMismatchConflict("guardian", { updated_at: "2026-10-03T00:00:00Z" }),
+    ];
+
+    await resolve();
+
+    expect(linksTable.rows.find((row) => row.id === "owner-conflict")).toMatchObject({ status: "linked", user_id: OWNER });
+    expect(linksTable.rows.find((row) => row.id === "invite-1")).toMatchObject({ status: "disconnected", user_id: INTRUDER });
+    expect(linkedRowsFor(INTRUDER)).toHaveLength(0);
+    expectLinkInvariants();
+  });
+
+  it("E: existing legitimate linked relationships survive (another guardian and the owner's own link)", async () => {
+    const secondParent = invitationRow({
+      id: "second-parent",
+      status: "linked",
+      user_id: "user-second-parent",
+      invited_email: OTHER_PARENT_EMAIL,
+      invite_token_hash: null,
+    });
+    linksTable.rows = [legacyMismatchConflict("guardian"), secondParent];
+    const secondBefore = { ...secondParent };
+
+    await resolve();
+
+    expect(linksTable.rows.find((row) => row.id === "second-parent")).toEqual(secondBefore);
+    expect(linkedRowsFor(OWNER)).toHaveLength(1);
+    expect(linkedRowsFor(INTRUDER)).toHaveLength(0);
+  });
+
+  it("F: a repeated staff click writes nothing more", async () => {
+    linksTable.rows = [legacyMismatchConflict("guardian")];
+    await resolve();
+    const after = snapshot();
+
+    await expect(resolve()).rejects.toThrow("No unresolved account conflict was found");
+    expect(snapshot()).toEqual(after);
+  });
+
+  it("H: same-email conflict rows in another studio are untouched", async () => {
+    const foreign = legacyMismatchConflict("guardian", {
+      id: "studio-b-conflict",
+      studio_id: STUDIO_B,
+      client_id: CLIENT_B,
+      invite_token_hash: hash("b"),
+    });
+    linksTable.rows = [legacyMismatchConflict("guardian"), foreign];
+    const foreignBefore = { ...foreign };
+
+    await resolve();
+
+    expect(linksTable.rows.find((row) => row.id === "studio-b-conflict")).toEqual(foreignBefore);
+  });
+});
+
+describe("linkExistingClientAccount never takes over another email's invitation (focused review)", () => {
+  it("staff direct link of parent A as guardian leaves parent B's open guardian invitation intact", async () => {
+    const parentB = invitationRow({ id: "parent-b-invite", invited_email: "parent-b@example.com" });
+    linksTable.rows = [parentB];
+    const before = { ...parentB };
+
+    await linkExistingClientAccount({
+      studioId: STUDIO_A,
+      clientId: CLIENT_A,
+      userId: OWNER,
+      invitedEmail: OWNER_EMAIL,
+      relationshipType: "guardian",
+    });
+
+    expect(linksTable.rows.find((row) => row.id === "parent-b-invite")).toEqual(before);
+    expect(linkedRowsFor(OWNER)).toEqual([
+      expect.objectContaining({ relationship_type: "guardian", invited_email: OWNER_EMAIL }),
+    ]);
+    expectLinkInvariants();
+  });
+
+  it("a same-email open invitation of the same type is reused and its token spent", async () => {
+    linksTable.rows = [invitationRow()];
+
+    await linkExistingClientAccount({
+      studioId: STUDIO_A,
+      clientId: CLIENT_A,
+      userId: OWNER,
+      invitedEmail: OWNER_EMAIL,
+      relationshipType: "guardian",
+    });
+
+    expect(linksTable.rows).toHaveLength(1);
+    expect(linksTable.rows[0]).toMatchObject({ id: "invite-1", status: "linked", user_id: OWNER, invite_token_hash: null });
+  });
+
+  it("linking as self retires any open self invitation (one self account per client)", async () => {
+    linksTable.rows = [
+      invitationRow({ id: "old-self", relationship_type: "self", is_primary: true, invited_email: "old@example.com" }),
+    ];
+
+    await linkExistingClientAccount({
+      studioId: STUDIO_A,
+      clientId: CLIENT_A,
+      userId: OWNER,
+      invitedEmail: OWNER_EMAIL,
+      relationshipType: "self",
+    });
+
+    expect(linksTable.rows.find((row) => row.id === "old-self")).toMatchObject({
+      status: "invited",
+      invite_token_hash: null,
+      user_id: null,
+    });
+    expectLinkInvariants();
+  });
+});
+
+describe("mismatch no-write across every relationship type and invitation state (focused review)", () => {
+  const TYPES = ["self", "guardian", "parent", "billing_contact", "dependent_manager", "dependent"];
+  const STATES: Array<Partial<Row>> = [
+    {},
+    { invite_expires_at: "2020-01-01T00:00:00Z" },
+    { status: "claim_pending" },
+    { status: "linked", user_id: OWNER },
+    { status: "conflict", user_id: "user-x" },
+    { status: "rejected", user_id: "user-x" },
+    { status: "disconnected", user_id: "user-x" },
+  ];
+
+  it.each(TYPES)("%s: every state gives the same refusal and no field changes", async (relationshipType) => {
+    for (const overrides of STATES) {
+      linksTable.rows = [invitationRow({ relationship_type: relationshipType, ...overrides })];
+      const before = snapshot();
+
+      // Same error for every state: no status oracle for a mismatched account.
+      await expect(
+        acceptClientInvitation({ token: TOKEN, userId: INTRUDER, verifiedEmail: INTRUDER_EMAIL }),
+      ).rejects.toThrow("invite_email_mismatch");
+      await expect(
+        rejectClientInvitation({ token: TOKEN, userId: INTRUDER, verifiedEmail: INTRUDER_EMAIL }),
+      ).rejects.toThrow("invite_email_mismatch");
+      await expect(
+        acceptClientInvitation({ token: TOKEN, userId: OWNER, verifiedEmail: null }),
+      ).rejects.toThrow("invite_verification_required");
+
+      expect(snapshot()).toEqual(before);
+    }
   });
 });

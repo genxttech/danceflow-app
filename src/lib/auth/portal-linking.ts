@@ -161,6 +161,12 @@ export async function claimGroupLessonRecapsForUser(params: {
   return { claimedCount };
 }
 
+// GC-3.4B-0: log only a code of a known fixed shape -- a 5-character SQLSTATE
+// (e.g. 23505, P0001) or a PostgREST code (PGRST116) -- never free text.
+function boundedErrorCode(code: unknown) {
+  return typeof code === "string" && /^(?:[0-9A-Z]{5}|PGRST\d{3})$/.test(code) ? code : "unknown";
+}
+
 function splitFullName(value: string | null | undefined) {
   const parts = value?.trim().split(/\s+/).filter(Boolean) ?? [];
   return {
@@ -251,7 +257,7 @@ export async function ensurePortalProfileAndClientLinks({
       // ids), and callers see claimFailed with only pre-existing links.
       claimFailed = true;
       console.error("portal_invitation_claim_failed", {
-        code: typeof claimError.code === "string" ? claimError.code.slice(0, 16) : null,
+        code: boundedErrorCode(claimError.code),
       });
     } else {
       claimedClientIds = (claimed ?? []).map((item: { client_id: string }) =>

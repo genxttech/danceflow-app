@@ -243,3 +243,21 @@ describe("auth callback survives a claim failure", () => {
     expect(h.rpcCalls.filter((call) => call.fn === "claim_client_account_invitation")).toHaveLength(2);
   });
 });
+
+describe("claim failure log code is bounded (focused review)", () => {
+  it.each([
+    ["23505", "23505"],
+    ["P0001", "P0001"],
+    ["PGRST116", "PGRST116"],
+    ['duplicate key "x" parent@example.com', "unknown"],
+    ["", "unknown"],
+  ])("code %j is logged as %j", async (code, logged) => {
+    h.claimError = { code, message: RAW_DB_ERROR };
+    await ensurePortalProfileAndClientLinks({
+      userId: "user-1",
+      email: "dancer@example.com",
+      verifiedEmail: "dancer@example.com",
+    });
+    expect(consoleError).toHaveBeenCalledWith("portal_invitation_claim_failed", { code: logged });
+  });
+});
