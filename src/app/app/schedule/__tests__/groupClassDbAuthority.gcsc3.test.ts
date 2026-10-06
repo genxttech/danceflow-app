@@ -47,8 +47,12 @@ describe("GC-S1C-3 error mapping (no raw database text reaches the owner)", () =
     expect(classifier).toMatch(/message\.includes\("GCSC3_CLASS_CANCELLED"\)\) return "class_cancelled";/);
     const page = read("src", "app", "app", "schedule", "enroll-student", "page.tsx");
     expect(page).toMatch(/case "class_cancelled":\s*return "This class has been cancelled and can't take new students\.";/);
+    // GC-3.4C: the portal mapping now lives in the shared self-enrollment classifier (also used by the public class flow).
     const portal = read("src", "app", "portal", "[studioSlug]", "schedule", "actions.ts");
-    expect(portal).toMatch(/message\.includes\("GCSC3_CLASS_CANCELLED"\)\) \{\s*return "This class has been cancelled\.";/);
+    expect(portal).toMatch(/return selfEnrollmentErrorMessage\(classifySelfEnrollmentError\(message\)\);/);
+    const shared = read("src", "lib", "schedule", "selfEnrollmentErrors.ts");
+    expect(shared).toMatch(/text\.includes\("GCSC3_CLASS_CANCELLED"\)\) return "cancelled";/);
+    expect(shared).toMatch(/cancelled: "This class has been cancelled\.",/);
   });
 });
 

@@ -29,6 +29,8 @@ const h = vi.hoisted(() => ({
   claimError: null as null | { code: string; message: string },
   rateAllowed: true,
   bindingStatus: "unproven" as string,
+  // GC-3.4C: canonical funding preview rows for the resolved dancer (one package by default).
+  previewRows: [{ funding_type: "package", source_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", label: "10-Lesson Package" }] as Array<Record<string, unknown>>,
   signOutCalls: [] as unknown[],
   clientsReads: 0,
 }));
@@ -38,6 +40,7 @@ let studiosTable: FakeTable;
 let clientsTable: FakeTable;
 let profilesTable: FakeTable;
 let dancerProfilesTable: FakeTable;
+let attendeesTable: FakeTable;
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({
@@ -72,6 +75,7 @@ vi.mock("@/lib/supabase/server", () => ({
       }
       if (name === "my_verified_email") return { data: h.verifiedEmail, error: null };
       if (name === "email_binding_status") return { data: h.bindingStatus, error: null };
+      if (name === "preview_self_enrollment_funding_candidates") return { data: h.previewRows, error: null };
       throw new Error(`Unexpected session RPC: ${name}`);
     },
   }),
@@ -122,6 +126,9 @@ vi.mock("@/lib/supabase/admin", () => ({
         },
         get profiles() {
           return profilesTable;
+        },
+        get appointment_attendees() {
+          return attendeesTable;
         },
         get dancer_profiles() {
           return dancerProfilesTable;
@@ -217,6 +224,7 @@ beforeEach(() => {
   h.claimError = null;
   h.rateAllowed = true;
   h.bindingStatus = "unproven";
+  h.previewRows = [{ funding_type: "package", source_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", label: "10-Lesson Package" }];
   h.signOutCalls.length = 0;
   h.clientsReads = 0;
   linksTable = new FakeTable();
@@ -224,6 +232,7 @@ beforeEach(() => {
   clientsTable = new FakeTable();
   profilesTable = new FakeTable();
   dancerProfilesTable = new FakeTable();
+  attendeesTable = new FakeTable();
   studiosTable.rows = [
     { id: STUDIO_A, slug: "salsa-house" },
     { id: STUDIO_B, slug: "other-studio" },
@@ -294,7 +303,7 @@ describe("linking via the existing invitation claim only", () => {
     expect(h.clientsReads).toBe(0);
   });
 
-  it("5. a verified account with a staff-issued invitation is linked by Check again and reaches the ready state", async () => {
+  it("5. a verified account with a staff-issued invitation is linked by Check again and reaches the join step", async () => {
     linksTable.rows = [
       link({ client_id: SELF_CLIENT, user_id: null, status: "invited", invited_email: EMAIL, invite_expires_at: "2099-01-01T00:00:00Z" }),
     ];
@@ -305,8 +314,9 @@ describe("linking via the existing invitation claim only", () => {
     });
 
     const { html } = await outcome(() => page({ check: "done" }));
-    expect(html).toContain("Open Student Portal");
-    expect(html).toContain(`/portal/salsa-house?client=${SELF_CLIENT}`);
+    // GC-3.4C: the identity step now ends at the join step for the linked dancer.
+    expect(html).toContain("Join this class");
+    expect(html).toContain(`name="dancer" value="${SELF_CLIENT}"`);
   });
 
   it("6. a client record with the same email but no invitation is NOT linked", async () => {
@@ -424,7 +434,8 @@ describe("dancer resolution", () => {
   it("12. one manageable dancer is selected automatically (no chooser)", async () => {
     linksTable.rows = [link({ client_id: SELF_CLIENT, is_primary: true })];
     const { html } = await outcome(() => page());
-    expect(html).toContain("You&#x27;re all set");
+    expect(html).toContain("Join this class");
+    expect(html).toContain(`name="dancer" value="${SELF_CLIENT}"`);
     expect(html).not.toContain("Who is this class for?");
     expect(html).not.toContain("Choose a different dancer");
   });
@@ -450,7 +461,7 @@ describe("dancer resolution", () => {
       link({ client_id: OTHER_STUDIO_CLIENT, studio_id: STUDIO_B, clients: { id: OTHER_STUDIO_CLIENT, studio_id: STUDIO_B, first_name: "Other", last_name: "Studio" } }),
     ];
     const { html } = await outcome(() => page());
-    expect(html).toContain("You&#x27;re all set");
+    expect(html).toContain("Join this class");
     for (const name of ["View Only", "Former Link", "Other Studio"]) expect(html).not.toContain(name);
   });
 
@@ -467,8 +478,8 @@ describe("dancer resolution", () => {
       link({ client_id: KID_CLIENT, relationship_type: "guardian", clients: { id: KID_CLIENT, studio_id: STUDIO_A, first_name: "Sam", last_name: "Kid" } }),
     ];
     const first = await outcome(() => page({ dancer: KID_CLIENT }));
-    expect(first.html).toContain("Sam Kid is all set");
-    expect(first.html).toContain(`/portal/salsa-house?client=${KID_CLIENT}`);
+    expect(first.html).toContain("For Sam Kid");
+    expect(first.html).toContain(`name="dancer" value="${KID_CLIENT}"`);
     expect(first.html).toContain("Choose a different dancer");
 
     // The relationship is revoked: the same URL no longer selects anyone.
@@ -524,18 +535,21 @@ describe("class truth", () => {
 });
 
 describe("ready state and scope", () => {
-  it("22-24. ready says Open Student Portal, offers no enrollment or payment, and writes nothing", async () => {
+  it("22-24 (updated for GC-3.4C). the resolved dancer gets the join step, no payment language, and rendering writes nothing", async () => {
     linksTable.rows = [link({ client_id: SELF_CLIENT, is_primary: true })];
     const before = JSON.stringify(linksTable.rows);
 
     const { html } = await outcome(() => page());
 
-    expect(html).toContain("Open Student Portal");
-    expect(html).toContain(`href="/portal/salsa-house?client=${SELF_CLIENT}"`);
-    expect(html).not.toMatch(/enroll|register now|buy|pay|checkout|package|membership|credit|price|\$\d/i);
-    expect(html).not.toMatch(/<form|type="submit"/);
+    expect(html).toContain("Join this class");
+    expect(html).not.toMatch(/register now|buy|pay\b|payment|checkout|purchase|price|\$\d/i);
     expect(JSON.stringify(linksTable.rows)).toBe(before);
+    expect(attendeesTable.rows).toHaveLength(0);
     expect(h.adminRpcCalls).toHaveLength(0);
-    expect(h.sessionRpcCalls).toEqual(["public_group_class_occurrences", "my_verified_email"]);
+    expect(h.sessionRpcCalls).toEqual([
+      "public_group_class_occurrences",
+      "my_verified_email",
+      "preview_self_enrollment_funding_candidates",
+    ]);
   });
 });

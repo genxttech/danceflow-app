@@ -31,6 +31,51 @@ export function registerUnavailableMessage(item: Pick<PublicGroupClass, "publicS
   return "Online registration isn't available for this class. Contact the studio to join.";
 }
 
+/*
+  GC-3.4C funding display and choice. The candidates always come from the
+  canonical preview_self_enrollment_funding_candidates RPC; nothing here
+  decides eligibility, and the enrollment RPC re-validates any choice.
+*/
+export type RegistrationFundingCandidate = {
+  fundingType: "package" | "membership";
+  sourceId: string;
+  label: string;
+};
+
+export function toRegistrationFundingCandidates(
+  rows: Array<{ funding_type: string; source_id: string; label: string | null }> | null | undefined,
+): RegistrationFundingCandidate[] {
+  return (rows ?? []).flatMap((row) =>
+    (row.funding_type === "package" || row.funding_type === "membership") && isUuid(row.source_id)
+      ? [{ fundingType: row.funding_type, sourceId: row.source_id, label: row.label?.trim() || "" }]
+      : [],
+  );
+}
+
+/** "Using your 10-Lesson Package" / "Covered by your Monthly Membership". */
+export function fundingSummary(candidate: RegistrationFundingCandidate) {
+  if (candidate.fundingType === "membership") {
+    return candidate.label ? `Covered by your ${candidate.label}` : "Covered by your membership";
+  }
+  return candidate.label ? `Using your ${candidate.label}` : "Using your class package";
+}
+
+export const fundingChoiceValue = (candidate: RegistrationFundingCandidate) =>
+  `${candidate.fundingType}:${candidate.sourceId}`;
+
+/** Parses a submitted "package:<uuid>" / "membership:<uuid>" choice; anything else is no choice. */
+export function parseRegistrationFundingChoice(raw: string | null | undefined): {
+  clientPackageId: string | null;
+  clientMembershipId: string | null;
+} {
+  const [type, id, ...rest] = String(raw ?? "").trim().split(":");
+  if (rest.length === 0 && isUuid(id)) {
+    if (type === "package") return { clientPackageId: id, clientMembershipId: null };
+    if (type === "membership") return { clientPackageId: null, clientMembershipId: id };
+  }
+  return { clientPackageId: null, clientMembershipId: null };
+}
+
 export type ManageableDancer = {
   clientId: string;
   displayName: string;
