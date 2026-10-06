@@ -395,13 +395,12 @@ export async function loginAction(formData: FormData) {
           : null,
       nextPath: next,
     });
-  } catch (syncError) {
-    return {
-      error:
-        syncError instanceof Error
-          ? syncError.message
-          : "Account sync failed after login.",
-    };
+  } catch {
+    // GC-3.4B-0: never surface raw database/sync error text to the user.
+    // (Invitation claim failures no longer reach here at all: they are
+    // contained inside ensurePortalProfileAndClientLinks.)
+    console.error("password_login_account_sync_failed");
+    return { error: "We could not finish signing you in. Please try again." };
   }
 
   if (next && next !== "/account") {

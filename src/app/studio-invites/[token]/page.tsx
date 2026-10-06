@@ -1,6 +1,12 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getClientInvitationByToken } from "@/lib/student-identity/lifecycle";
+import { buildEmailVerificationPath } from "@/lib/auth/verifiedEmail";
+import { getMyVerifiedEmail } from "@/lib/auth/verifiedIdentity";
+import {
+  clientInvitationIdentity,
+  getClientInvitationByToken,
+} from "@/lib/student-identity/lifecycle";
 import {
   acceptStudioInviteAction,
   rejectStudioInviteAction,
@@ -15,7 +21,10 @@ function errorMessage(code: string | undefined) {
     return "This invitation has expired. Ask the studio to send a new invitation.";
   }
   if (code === "invite_email_mismatch") {
-    return "The signed-in email does not match the email invited by the studio.";
+    return "This invitation was sent to a different email address than the one on this account.";
+  }
+  if (code === "invite_verification_required") {
+    return "Confirm your email address before accepting this invitation.";
   }
   if (code === "invite_conflict") {
     return "DanceFlow found a conflicting client or account relationship. The studio must review it before access can be granted.";
@@ -29,6 +38,46 @@ function errorMessage(code: string | undefined) {
   return code ? "This invitation could not be completed." : null;
 }
 
+function isInvitationExpired(inviteExpiresAt: string | null) {
+  return Boolean(inviteExpiresAt && new Date(inviteExpiresAt).getTime() <= Date.now());
+}
+
+function GenericInviteState({
+  title,
+  message,
+  children,
+}: {
+  title: string;
+  message: string;
+  children?: ReactNode;
+}) {
+  return (
+    <main className="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-12">
+      <div className="w-full rounded-[32px] border border-slate-200 bg-white p-8 text-center shadow-sm">
+        <h1 className="text-2xl font-semibold text-slate-950">{title}</h1>
+        <p className="mt-3 text-sm leading-7 text-slate-600">{message}</p>
+        {children}
+      </div>
+    </main>
+  );
+}
+
+function OpenAccountLink() {
+  return (
+    <Link href="/account" className="mt-6 inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
+      Open My Account
+    </Link>
+  );
+}
+
+/*
+  GC-3.4B-0 render order. Invitation detail (studio, client name, invited
+  email) is shown only to a signed-out holder of the mailbox-delivered token
+  (the existing invitation design) or to a signed-in account whose VERIFIED
+  email matches the invitation. A handled invitation, a mismatched account
+  and an unverified account see generic states with no client, email or
+  relationship detail.
+*/
 export default async function StudioInvitePage({
   params,
   searchParams,
@@ -43,32 +92,73 @@ export default async function StudioInvitePage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const message = errorMessage(search.error);
+  const invitePath = `/studio-invites/${encodeURIComponent(token)}`;
 
   if (!invitation) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-12">
-        <div className="w-full rounded-[32px] border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <h1 className="text-2xl font-semibold text-slate-950">
-            Invitation not found
-          </h1>
-          <p className="mt-3 text-sm leading-7 text-slate-600">
-            This link is invalid or has already been replaced by a newer invitation.
-          </p>
-          <Link href="/account" className="mt-6 inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
-            Open My Account
-          </Link>
-        </div>
-      </main>
+      <GenericInviteState
+        title="Invitation not found"
+        message="This link is invalid or has already been replaced by a newer invitation."
+      >
+        <OpenAccountLink />
+      </GenericInviteState>
     );
   }
 
-  const expired =
-    invitation.inviteExpiresAt &&
-    new Date(invitation.inviteExpiresAt).getTime() <= Date.now();
-  const signedInEmail = user?.email?.trim().toLowerCase() ?? "";
-  const invitedEmail = invitation.invitedEmail?.trim().toLowerCase() ?? "";
-  const emailMismatch = Boolean(user && invitedEmail && signedInEmail !== invitedEmail);
-  const message = errorMessage(search.error);
+  if (!["invited", "claim_pending"].includes(invitation.status)) {
+    return (
+      <GenericInviteState
+        title="Invitation already handled"
+        message={message ?? "This invitation has already been used or closed. If you need access, contact the studio."}
+      >
+        {/* Generic on purpose: /account lists the viewer's own Student Portals, so no studio is named here. */}
+        <Link href="/account" className="mt-6 inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
+          Open Student Portal
+        </Link>
+      </GenericInviteState>
+    );
+  }
+
+  if (user) {
+    const identity = clientInvitationIdentity(
+      invitation.invitedEmail,
+      await getMyVerifiedEmail(supabase),
+    );
+
+    if (identity === "verification_required") {
+      return (
+        <GenericInviteState
+          title="Confirm your email to continue"
+          message="Before accepting a studio invitation, confirm the email address on your DanceFlow account."
+        >
+          <Link
+            href={buildEmailVerificationPath(invitePath)}
+            className="mt-6 inline-flex rounded-xl bg-purple-800 px-5 py-3 text-sm font-semibold text-white"
+          >
+            Confirm My Email
+          </Link>
+        </GenericInviteState>
+      );
+    }
+
+    if (identity === "mismatch") {
+      return (
+        <GenericInviteState
+          title="This invitation is for a different account"
+          message="Sign out, then open the invitation link from the email the studio sent and sign in with that email address."
+        >
+          <form action="/auth/logout" method="post" className="mt-6">
+            <button className="rounded-xl bg-amber-800 px-5 py-3 text-sm font-semibold text-white">
+              Sign Out
+            </button>
+          </form>
+        </GenericInviteState>
+      );
+    }
+  }
+
+  const expired = isInvitationExpired(invitation.inviteExpiresAt);
 
   return (
     <main className="min-h-screen bg-[#fff8f1] px-4 py-12">
@@ -109,39 +199,17 @@ export default async function StudioInvitePage({
                   Sign in with the invited email before accepting this studio connection.
                 </p>
                 <Link
-                  href={`/login?intent=public&next=${encodeURIComponent(`/studio-invites/${token}`)}`}
+                  href={`/login?intent=public&next=${encodeURIComponent(invitePath)}`}
                   className="mt-4 inline-flex rounded-xl bg-purple-800 px-5 py-3 text-sm font-semibold text-white"
                 >
                   Sign In to Continue
                 </Link>
               </div>
-            ) : emailMismatch ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <p className="font-semibold text-amber-900">Wrong account signed in</p>
-                <p className="mt-2 text-sm leading-6 text-amber-800">
-                  You are signed in as {user.email}. Sign out and use {invitation.invitedEmail}.
-                </p>
-                <form action="/auth/logout" method="post" className="mt-4">
-                  <button className="rounded-xl bg-amber-800 px-4 py-2 text-sm font-semibold text-white">
-                    Sign Out
-                  </button>
-                </form>
-              </div>
             ) : expired ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                 This invitation has expired. Ask {invitation.studioName} to send a new one.
               </div>
-            ) : invitation.status === "linked" ? (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <p className="font-semibold text-emerald-900">Already connected</p>
-                <Link
-                  href={invitation.studioSlug ? `/portal/${invitation.studioSlug}` : "/account"}
-                  className="mt-3 inline-flex rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
-                >
-                  Open Student Portal
-                </Link>
-              </div>
-            ) : ["invited", "claim_pending"].includes(invitation.status) ? (
+            ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 <form action={acceptStudioInviteAction}>
                   <input type="hidden" name="token" value={token} />
@@ -155,11 +223,6 @@ export default async function StudioInvitePage({
                     Reject Invitation
                   </button>
                 </form>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-                This invitation is currently marked {invitation.status.replaceAll("_", " ")}.
-                {invitation.conflictDetails ? ` ${invitation.conflictDetails}` : ""}
               </div>
             )}
 
