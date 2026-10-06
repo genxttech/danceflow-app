@@ -24,7 +24,7 @@ import {
   type GroupClassChangeLine,
   type StudioEmailSource,
 } from "@/lib/notifications/scheduling-emails";
-import { getStudioStaffNotificationEmails } from "@/lib/notifications/studioStaffRecipients";
+import { getStudioRegistrationNotificationEmails } from "@/lib/notifications/studioStaffRecipients";
 import { normalizedStartKey } from "@/lib/notifications/groupClassReminders";
 import { dancersNotifiedLine } from "@/lib/schedule/groupClassEditNotice";
 
@@ -746,8 +746,8 @@ export function externalEnrollmentFundingLabel(billingType: string | null | unde
 /**
  * GC-S1F: a dancer enrolled themselves through the client portal (no staff involved), so tell the studio. Runs only AFTER the
  * enrollment RPC committed and returned the new attendee id; that id is the event identity, so a retry or replay (which the RPC
- * refuses as "already enrolled" and never reaches here) cannot send twice. Recipients are the studio's existing owner/admin
- * operational recipients (getStudioStaffNotificationEmails), looked up for this studio only. Branded HTML + text, no SMS. Never
+ * refuses as "already enrolled" and never reaches here) cannot send twice. Recipients are the studio's active owners, admins and front-desk users
+ * (getStudioRegistrationNotificationEmails), looked up for this studio only. Branded HTML + text, no SMS. Never
  * throws: the enrollment stands even if nobody can be reached.
  */
 export async function notifyStudioOfExternalGroupClassEnrollment(params: { studioId: string; attendeeId: string }): Promise<NoticeOutcome> {
@@ -768,7 +768,7 @@ export async function notifyStudioOfExternalGroupClassEnrollment(params: { studi
       admin.from("appointments").select("id, title, starts_at, instructor_id, room_id, location_name, appointment_type").eq("id", row.appointment_id).eq("studio_id", studioId).maybeSingle(),
       admin.from("clients").select("id, first_name, last_name").eq("id", row.client_id).eq("studio_id", studioId).maybeSingle(),
       loadStudioContext(admin, studioId),
-      getStudioStaffNotificationEmails(admin, studioId),
+      getStudioRegistrationNotificationEmails(admin, studioId),
     ]);
     const cls = appointment as { id: string; title: string | null; starts_at: string | null; instructor_id: string | null; room_id: string | null; location_name: string | null; appointment_type: string } | null;
     if (!cls || cls.appointment_type !== "group_class" || !recipients.length) return NOTHING;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createOwnershipFakeSupabase, type Row } from "@/lib/payments/__tests__/ownershipFakes";
-import { getStudioStaffNotificationEmails } from "@/lib/notifications/studioStaffRecipients";
+import { getStudioRegistrationNotificationEmails, getStudioStaffNotificationEmails } from "@/lib/notifications/studioStaffRecipients";
 
 /** PAY-DC-2C: dispute notice recipients (D6): active owners/admins of one studio, capped, with fallback. */
 
@@ -86,5 +86,56 @@ describe("getStudioStaffNotificationEmails", () => {
   it("returns no recipients when neither staff nor studio email exists", async () => {
     const { supabase } = client({ user_studio_roles: [], studios: [{ id: "studio-1", email: null }] }, {});
     await expect(getStudioStaffNotificationEmails(supabase, "studio-1")).resolves.toEqual([]);
+  });
+});
+
+/** GC-S1F: registration notice recipients = owners + admins + front desk of one studio; the shared helper is unchanged. */
+describe("getStudioRegistrationNotificationEmails", () => {
+  const roles = [
+    { studio_id: "studio-1", user_id: "owner", role: "studio_owner", active: true },
+    { studio_id: "studio-1", user_id: "admin", role: "studio_admin", active: true },
+    { studio_id: "studio-1", user_id: "front", role: "front_desk", active: true },
+    { studio_id: "studio-1", user_id: "front-old", role: "front_desk", active: false },
+    { studio_id: "studio-1", user_id: "instructor", role: "instructor", active: true },
+    { studio_id: "studio-2", user_id: "front-2", role: "front_desk", active: true },
+    { studio_id: "studio-2", user_id: "owner-2", role: "studio_owner", active: true },
+  ];
+  const users = {
+    owner: "owner@one.test",
+    admin: "admin@one.test",
+    front: " Front@One.test ",
+    "front-old": "old-front@one.test",
+    instructor: "teacher@one.test",
+    "front-2": "front@two.test",
+    "owner-2": "owner@two.test",
+  };
+
+  it("includes the owner, admin and active front desk of this studio only", async () => {
+    const { supabase, lookups } = client({ user_studio_roles: roles, studios: [{ id: "studio-1", email: "studio@one.test" }] }, users);
+    const emails = await getStudioRegistrationNotificationEmails(supabase, "studio-1");
+    expect([...emails].sort()).toEqual(["admin@one.test", "front@one.test", "owner@one.test"]);
+    for (const excluded of ["front-old", "instructor", "front-2", "owner-2"]) expect(lookups).not.toContain(excluded);
+  });
+
+  it("emails a person once even when several records resolve to the same address", async () => {
+    const { supabase } = client(
+      { user_studio_roles: roles, studios: [] },
+      { ...users, front: "OWNER@one.test" },
+    );
+    const emails = await getStudioRegistrationNotificationEmails(supabase, "studio-1");
+    expect(emails.filter((e) => e === "owner@one.test")).toHaveLength(1);
+    expect([...emails].sort()).toEqual(["admin@one.test", "owner@one.test"]);
+  });
+
+  it("front desk alone is enough; falls back to the studio contact email only when nobody applicable has an address", async () => {
+    const onlyFront = client({ user_studio_roles: roles.filter((r) => r.user_id === "front"), studios: [{ id: "studio-1", email: "studio@one.test" }] }, users);
+    await expect(getStudioRegistrationNotificationEmails(onlyFront.supabase, "studio-1")).resolves.toEqual(["front@one.test"]);
+    const none = client({ user_studio_roles: roles.filter((r) => r.studio_id === "studio-2"), studios: [{ id: "studio-1", email: "Studio@One.test" }] }, users);
+    await expect(getStudioRegistrationNotificationEmails(none.supabase, "studio-1")).resolves.toEqual(["studio@one.test"]);
+  });
+
+  it("leaves getStudioStaffNotificationEmails (other call sites) owner/admin only", async () => {
+    const { supabase } = client({ user_studio_roles: roles, studios: [] }, users);
+    await expect(getStudioStaffNotificationEmails(supabase, "studio-1")).resolves.toEqual(["owner@one.test", "admin@one.test"]);
   });
 });

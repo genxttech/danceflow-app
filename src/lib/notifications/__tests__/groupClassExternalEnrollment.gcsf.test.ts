@@ -19,7 +19,7 @@ const h = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: (t: string) => new Builder(t) }) }));
 vi.mock("@/lib/notifications/outbound", () => ({ queueOutboundDelivery: (...a: unknown[]) => h.queue(...a) }));
 vi.mock("@/lib/notifications/schedulePush", () => ({ sendGroupClassNoticePush: vi.fn() }));
-vi.mock("@/lib/notifications/studioStaffRecipients", () => ({ getStudioStaffNotificationEmails: (...a: unknown[]) => h.recipients(...a) }));
+vi.mock("@/lib/notifications/studioStaffRecipients", () => ({ getStudioRegistrationNotificationEmails: (...a: unknown[]) => h.recipients(...a) }));
 
 class Builder implements PromiseLike<{ data: unknown; error: unknown }> {
   private filters: Array<(r: Row) => boolean> = [];
@@ -84,6 +84,16 @@ describe("S1F studio notice for a portal self-enrollment", () => {
       expect(c.bodyText).toContain("/app/schedule/c1");
       expect(c.subject).toContain("Dana Reyes");
     }
+  });
+
+  it("one email per distinct address and per-address dedupe keys stay on the attendee id", async () => {
+    h.recipients.mockResolvedValue(["front@example.test", "Front@Example.test", "owner@example.test"]);
+    const out = await n.notifyStudioOfExternalGroupClassEnrollment({ studioId: S1, attendeeId: "att1" });
+    expect(out.emailsQueued).toBe(2);
+    expect(h.queue.mock.calls.map((c) => c[0].dedupeKey).sort()).toEqual([
+      "group_class_external_enrollment_staff:att1:front@example.test",
+      "group_class_external_enrollment_staff:att1:owner@example.test",
+    ]);
   });
 
   it("package-funded: says package credit and never claims a purchase or payment", async () => {
