@@ -7,11 +7,13 @@ import {
   CalendarDays,
   GraduationCap,
   MapPinned,
+  Music2,
   UsersRound,
 } from "lucide-react";
 
 const discoverLinks = [
   { href: "/discover/studios", label: "Studios", icon: MapPinned },
+  { href: "/discover/classes", label: "Classes", icon: Music2 },
   { href: "/discover/events", label: "Events", icon: CalendarDays },
   { href: "/discover/partners", label: "Partners", icon: UsersRound },
   { href: "/discover/jobs", label: "Jobs", icon: BriefcaseBusiness },

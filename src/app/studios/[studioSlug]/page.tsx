@@ -10,6 +10,7 @@ import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
 import PublicStudioTabs from "./PublicStudioTabs";
+import { fetchPublicGroupClasses } from "@/lib/public/groupClasses";
 
 type StudioPageParams = Promise<{
   studioSlug: string;
@@ -415,6 +416,9 @@ export default async function PublicStudioPage({
       </>
     );
   }
+
+  // GC-3.4A: only offer the Classes link when this studio has upcoming public classes (read through the public read model).
+  const hasPublicClasses = (await fetchPublicGroupClasses(supabase, { studioSlug: studio.slug, limit: 1 }).catch(() => [])).length > 0;
 
   const [
     { data: styles, error: stylesError },
@@ -836,6 +840,14 @@ export default async function PublicStudioPage({
                       className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
                     >
                       {leadCtaText}
+                    </Link>
+                  ) : null}
+                  {hasPublicClasses ? (
+                    <Link
+                      href={`/studios/${studioUrlSlug}/classes`}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      View Classes
                     </Link>
                   ) : null}
                   <Link

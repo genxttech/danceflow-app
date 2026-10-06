@@ -5,6 +5,7 @@ import {
   CalendarDays,
   GraduationCap,
   MapPinned,
+  Music2,
   UsersRound,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -60,6 +61,16 @@ const discoveryPaths = [
     icon: CalendarDays,
     shell: "from-orange-500 to-rose-600",
     glow: "bg-orange-200/30",
+  },
+  {
+    title: "Find a Class",
+    description:
+      "Browse upcoming group classes at studios near you, with dates, instructors, and open spots.",
+    href: "/discover/classes",
+    cta: "Browse classes",
+    icon: Music2,
+    shell: "from-sky-600 to-cyan-800",
+    glow: "bg-sky-200/30",
   },
   {
     title: "Find Dance Partners",
@@ -260,7 +271,7 @@ export default async function DiscoverLandingPage() {
           </p>
         </div>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {discoveryPaths.map((path, index) => {
             const Icon = path.icon;
             return (
