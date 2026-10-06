@@ -122,6 +122,18 @@ describe("occurrence detail page", () => {
   });
 });
 
+describe("no explicit class location", () => {
+  it("card and detail page render cleanly without a location, and never print empty or placeholder text", async () => {
+    h.rows = [row({ location_label: null })];
+    const card = html(createElement(PublicClassCard, { item: parsePublicGroupClass(row({ location_label: null }))! }));
+    expect(card).toContain("Salsa House · with Pat Public");
+    const out = html(await detail({ params: Promise.resolve({ studioSlug: "salsa-house", appointmentId: ID }) }));
+    expect(out).not.toContain("Location");
+    expect(out).not.toMatch(/null|undefined|Main Floor/);
+    expect(out).toContain("Salsa House");
+  });
+});
+
 describe("series page", () => {
   it("lists upcoming dates, each linking to its own occurrence id", async () => {
     h.rows = [row(), row({ appointment_id: ID2, starts_at: "2030-11-09T23:00:00+00:00", ends_at: "2030-11-10T00:00:00+00:00", series_id: SUCC })];

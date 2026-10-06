@@ -146,8 +146,11 @@ select public.t_gc34a_assert('T-gc34a-public-functions-anon-and-authenticated-on
       has_function_privilege('anon', p.oid, 'execute') and has_function_privilege('authenticated', p.oid, 'execute')
       and not has_function_privilege('service_role', p.oid, 'execute')
       and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) e where e.grantee = 0)
-      and p.prosecdef and p.provolatile = 's' and p.proconfig = array['search_path=public']))::text
+      and p.prosecdef and p.provolatile = 's' and p.proconfig = array['search_path=pg_catalog, public']))::text
    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('public_group_class_occurrences', 'public_group_class_series')), 'true');
+select public.t_gc34a_assert('T-gc34a-all-four-definer-functions-pin-pg_catalog-then-public',
+  (select (count(*) = 4 and bool_and(p.prosecdef and p.proconfig = array['search_path=pg_catalog, public'] and pg_get_userbyid(p.proowner) = 'postgres'))::text
+   from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('public_group_class_occurrences', 'public_group_class_series', '_gc34a_series_root', '_gc34a_series_family')), 'true');
 select public.t_gc34a_assert('T-gc34a-lineage-helpers-have-no-grants',
   (select (count(*) = 2 and bool_and(not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute')
       and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) e where e.grantee = 0)))::text
@@ -238,9 +241,15 @@ select public.t_gc34a_assert('T-gc34a-studio-slug-and-id-must-agree',
 select public.t_gc34a_assert('T-gc34a-instructor-name-only-with-public-profile',
   public.t_gc34a_as('anon', 'select coalesce(max(instructor_name) filter (where title = ''P1 Salsa''), ''null'') || ''/'' || coalesce(max(instructor_name) filter (where title = ''P2 Bachata''), ''null'') from public.public_group_class_occurrences()'),
   'Pat Public/null');
-select public.t_gc34a_assert('T-gc34a-location-label-precedence',
-  public.t_gc34a_as('anon', 'select coalesce(max(location_label) filter (where title = ''P1 Salsa''), ''null'') || ''/'' || coalesce(max(location_label) filter (where title = ''P2 Bachata''), ''null'') || ''/'' || coalesce(max(location_label) filter (where title = ''P6 Full''), ''null'') from public.public_group_class_occurrences()'),
-  'Main Floor/Community Hall/null');
+update public.appointments set location_name = '   ' where id = '00000000-0000-0000-0000-000000fa4009';
+select public.t_gc34a_assert('T-gc34a-location-is-location-name-only-trimmed-never-room',
+  public.t_gc34a_as('anon', 'select coalesce(max(location_label) filter (where title = ''P1 Salsa''), ''null'') || ''/'' || coalesce(max(location_label) filter (where title = ''P2 Bachata''), ''null'') || ''/'' || coalesce(max(location_label) filter (where title = ''P6 Full''), ''null'') || ''/'' || coalesce(max(location_label) filter (where title = ''P9 Enrollment off''), ''null'') from public.public_group_class_occurrences()'),
+  'null/Community Hall/null/null');
+-- P1 has a room named 'Main Floor' and no location_name: the room name must not appear anywhere in public output
+select public.t_gc34a_assert('T-gc34a-room-name-never-leaks-through-either-public-function',
+  public.t_gc34a_as('anon', 'select ((select string_agg(r::text, '' '') from public.public_group_class_occurrences() r) || (select string_agg(r::text, '' '') from public.public_group_class_occurrences(null, null, ''00000000-0000-0000-0000-000000fa4001'') r) || (select coalesce(string_agg(r::text, '' ''), '''') from public.public_group_class_series(gen_random_uuid()) r)) ~* ''main floor''::text'), 'false');
+select public.t_gc34a_assert('T-gc34a-public-function-source-never-reads-rooms',
+  (select (pg_get_functiondef(p.oid) !~* 'mroomsM')::text from pg_proc p where p.proname = 'public_group_class_occurrences' and p.pronamespace = 'public'::regnamespace), 'true');
 select public.t_gc34a_assert('T-gc34a-studio-identity-and-time-zone',
   public.t_gc34a_as('anon', 'select studio_slug || '':'' || studio_name || '':'' || studio_city || '':'' || time_zone from public.public_group_class_occurrences(null, null, ''00000000-0000-0000-0000-000000fa4001'')'),
   't-gc34a-public:GC34A Public Studio:Austin:America/New_York');

@@ -23,11 +23,11 @@
 --     occurrence of a publicly listed studio -- nothing hidden is exposed to keep an old link alive.
 --
 -- Safe columns only: ids, studio public identity, title, times, instructor display name (ONLY when the instructor chose a
--- public profile), a location label, capacity and a derived spots_remaining, and derived availability / enrollment / public
+-- public profile), the class's explicit location_name (never the internal room name), capacity and a derived spots_remaining, and derived availability / enrollment / public
 -- states. Never returned: attendees, attendance, notes, client ids, funding or pricing, accepted funding types, policy
 -- internals, series definitions, contact data, or any other appointments column.
 --
--- Posture: SECURITY DEFINER with a pinned search_path (the functions read tables anonymous roles cannot), STABLE, EXECUTE
+-- Posture: SECURITY DEFINER with search_path = pg_catalog, public (the functions read tables anonymous roles cannot), STABLE, EXECUTE
 -- revoked from PUBLIC and granted to anon and authenticated only. No data is written. Helpers get no grants.
 
 begin;
@@ -42,7 +42,7 @@ returns uuid
 language sql
 stable
 security definer
-set search_path = 'public'
+set search_path = pg_catalog, public
 as $$
   with recursive up(id, parent_id, depth) as (
     select s.id, s.split_from_series_id, 0 from public.group_class_series s where s.id = p_series_id
@@ -63,7 +63,7 @@ returns table (series_id uuid, depth integer)
 language sql
 stable
 security definer
-set search_path = 'public'
+set search_path = pg_catalog, public
 as $$
   with recursive fam(series_id, depth) as (
     select s.id, 0 from public.group_class_series s where s.id = public._gc34a_series_root(p_series_id)
@@ -112,7 +112,7 @@ returns table (
 language sql
 stable
 security definer
-set search_path = 'public'
+set search_path = pg_catalog, public
 as $$
   with base as (
     select
@@ -133,14 +133,14 @@ as $$
       case when i.public_profile_enabled = true and i.active = true
         then nullif(btrim(coalesce(i.first_name, '') || ' ' || coalesce(i.last_name, '')), '')
       end as instructor_name,
-      coalesce(nullif(btrim(a.location_name), ''), nullif(btrim(r.name), '')) as location_label,
+      -- only the explicitly public class-location copy; the internal room name is never a public fallback
+      nullif(btrim(a.location_name), '') as location_label,
       gcep.self_enrollment_allowed
     from public.appointments a
     join public.group_class_enrollment_policies gcep on gcep.appointment_id = a.id
     join public.studios st on st.id = a.studio_id
     left join lateral (select s2.timezone from public.studio_settings s2 where s2.studio_id = a.studio_id limit 1) ss on true
     left join public.instructors i on i.id = a.instructor_id and i.studio_id = a.studio_id
-    left join public.rooms r on r.id = a.room_id and r.studio_id = a.studio_id
     where a.appointment_type = 'group_class'::public.appointment_type
       and gcep.publicly_discoverable = true
       and st.public_directory_enabled = true
@@ -221,7 +221,7 @@ returns table (
 language sql
 stable
 security definer
-set search_path = 'public'
+set search_path = pg_catalog, public
 as $$
   with fam as (
     select f.series_id, f.depth from public._gc34a_series_family(p_series_id) f
