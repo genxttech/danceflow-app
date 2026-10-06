@@ -456,15 +456,21 @@ export function buildGroupClassEnrollmentEmail(params: {
   classCount: number;
   instructorName: string | null;
   locationName: string | null;
+  /** The dancer enrolled themselves (client portal): the confirmation speaks to their own action, not the studio's. */
+  selfEnrolled?: boolean;
 }): BuiltEmail {
   const identity = identityOf(params.studio);
   const studioName = identity.name;
   const greeting = `Hi ${params.firstName?.trim() || "there"},`;
   const title = params.classTitle.trim() || "your class";
   const multiple = params.classCount > 1;
-  const intro = multiple
-    ? `${studioName} enrolled you in ${params.classCount} sessions of ${title}, starting ${params.firstClass}.`
-    : `${studioName} enrolled you in ${title} on ${params.firstClass}.`;
+  const intro = params.selfEnrolled
+    ? multiple
+      ? `You're enrolled in ${params.classCount} sessions of ${title}, starting ${params.firstClass}.`
+      : `You're enrolled in ${title} on ${params.firstClass}.`
+    : multiple
+      ? `${studioName} enrolled you in ${params.classCount} sessions of ${title}, starting ${params.firstClass}.`
+      : `${studioName} enrolled you in ${title} on ${params.firstClass}.`;
   const rows: Array<{ label: string; value: string }> = [
     { label: "Class", value: title },
     { label: multiple ? "Starting" : "When", value: params.firstClass },

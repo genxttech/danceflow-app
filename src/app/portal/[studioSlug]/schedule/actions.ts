@@ -833,6 +833,7 @@ export async function selfEnrollGroupClassAction(formData: FormData) {
       appointmentIds: [appointmentId],
       eventId: enrolledAttendeeId,
       series: false,
+      selfEnrolled: true,
     });
     await notifyStudioOfExternalGroupClassEnrollment({ studioId: studio.id, attendeeId: enrolledAttendeeId });
   }

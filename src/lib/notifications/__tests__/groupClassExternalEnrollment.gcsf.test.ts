@@ -151,6 +151,39 @@ describe("S1F studio notice for a portal self-enrollment", () => {
   });
 });
 
+describe("S1F dancer confirmation wording and isolation", () => {
+  it("self-enrollment speaks to the dancer; staff-driven enrollment keeps the studio wording", async () => {
+    await n.notifyGroupClassEnrolled({ studioId: S1, clientId: "cl1", appointmentIds: ["c1"], eventId: "att1", series: false, selfEnrolled: true });
+    const self = h.queue.mock.calls[0][0];
+    expect(self.templateKey).toBe("group_class_enrolled");
+    expect(self.bodyText).toMatch(/You.re enrolled in Salsa Level 1 on /);
+    expect(self.bodyText).not.toMatch(/enrolled you in/);
+    h.queue.mockClear();
+    await n.notifyGroupClassEnrolled({ studioId: S1, clientId: "cl1", appointmentIds: ["c1"], eventId: "att1", series: false });
+    const staff = h.queue.mock.calls[0][0];
+    expect(staff.bodyText).toContain("Studio One Dance enrolled you in Salsa Level 1 on ");
+    expect(staff.dedupeKey).toBe(self.dedupeKey); // same event identity either way, so never two confirmations
+  });
+
+  it("a failing dancer notice neither throws nor blocks the studio notice", async () => {
+    h.queue.mockImplementation(async (p: { templateKey: string }) => {
+      if (p.templateKey === "group_class_enrolled") throw new Error("smtp down");
+      return { queued: true, skipped: false };
+    });
+    await expect(n.notifyGroupClassEnrolled({ studioId: S1, clientId: "cl1", appointmentIds: ["c1"], eventId: "att1", series: false, selfEnrolled: true })).resolves.toBeDefined();
+    const studio = await n.notifyStudioOfExternalGroupClassEnrollment({ studioId: S1, attendeeId: "att1" });
+    expect(studio.emailsQueued).toBe(2);
+  });
+
+  it("dancer-supplied text is HTML-escaped in the studio email", async () => {
+    (h.db.clients[0] as Row).first_name = "<img src=x onerror=alert(1)>";
+    await n.notifyStudioOfExternalGroupClassEnrollment({ studioId: S1, attendeeId: "att1" });
+    const html = h.queue.mock.calls[0][0].bodyHtml as string;
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img src=x");
+  });
+});
+
 describe("S1F portal self-enrollment wiring", () => {
   const src = readFileSync(path.resolve(import.meta.dirname, "../../../app/portal/[studioSlug]/schedule/actions.ts"), "utf8");
   const body = src.slice(src.indexOf("export async function selfEnrollGroupClassAction"));
@@ -166,6 +199,7 @@ describe("S1F portal self-enrollment wiring", () => {
     expect(studio).toBeGreaterThan(dancer);
     expect(body).toMatch(/data: enrolledAttendeeId, error } = await authClient\.rpc\("self_enroll_class_attendee"/);
     expect(body).toMatch(/eventId: enrolledAttendeeId/);
+    expect(body).toMatch(/selfEnrolled: true/);
     expect(body).toMatch(/attendeeId: enrolledAttendeeId/);
   });
 });

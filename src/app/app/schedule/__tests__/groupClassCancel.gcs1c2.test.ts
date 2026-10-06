@@ -502,6 +502,14 @@ describe("GC-S1F polish: group-class collapsibles, cancel copy, not-found banner
     }
   });
 
+  it("the not-found banners are rendered by both landing pages and read as class-or-appointment copy", () => {
+    for (const file of ["src/app/app/schedule/page.tsx", "src/app/app/schedule/[id]/page.tsx"]) {
+      expect(readFileSync(file, "utf8"), file).toContain("groupClassCancelBanner(");
+    }
+    expect(cancel.groupClassCancelBanner({ error: "appointment_not_found" })?.message).toMatch(/class or appointment could not be found/);
+    expect(cancel.groupClassCancelBanner({ error: "missing_appointment" })?.message).toMatch(/class or appointment could not be found/);
+  });
+
   it("class creation no longer shows a raw database message", () => {
     const src = readFileSync("src/app/app/schedule/actions.ts", "utf8");
     expect(src).not.toContain("Could not create the class: ${");

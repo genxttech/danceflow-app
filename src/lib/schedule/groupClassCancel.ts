@@ -60,11 +60,11 @@ const BANNERS: Record<string, { kind: "success" | "error"; message: string }> = 
   },
   appointment_not_found: {
     kind: "error",
-    message: "That class could not be found. It may have been removed. Go back to the schedule and try again.",
+    message: "That class or appointment could not be found. It may have been removed. Go back to the schedule and try again.",
   },
   missing_appointment: {
     kind: "error",
-    message: "That class could not be found. Go back to the schedule and try again.",
+    message: "That class or appointment could not be found. Go back to the schedule and try again.",
   },
   class_cancel_failed: {
     kind: "error",

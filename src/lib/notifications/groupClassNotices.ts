@@ -446,6 +446,8 @@ export async function notifyGroupClassEnrolled(params: {
   appointmentIds: string[];
   eventId: string;
   series: boolean;
+  /** GC-S1F: the dancer enrolled themselves through the client portal (changes only the wording of the email). */
+  selfEnrolled?: boolean;
 }): Promise<NoticeOutcome> {
   if (!params.appointmentIds.length) return NOTHING;
   try {
@@ -483,6 +485,7 @@ export async function notifyGroupClassEnrolled(params: {
               classCount: classes.length,
               instructorName: names.instructor(first.instructor_id),
               locationName: locationName || null,
+              selfEnrolled: params.selfEnrolled === true,
             }),
         })
       : { queued: 0, duplicates: 0 };
