@@ -16,6 +16,7 @@ import {
   studioLocationLabel,
   unavailableMessage,
 } from "@/lib/public/groupClasses";
+import { canProceedToRegister, classRegisterPath, registerUnavailableMessage } from "@/lib/public/classRegistration";
 
 type PageProps = { params: Promise<{ studioSlug: string; appointmentId: string }> };
 
@@ -105,10 +106,22 @@ export default async function PublicClassDetailPage({ params }: PageProps) {
               </p>
             ) : null}
 
-            {!unavailable ? (
+            {canProceedToRegister(item) ? (
+              // GC-3.4B-1: one primary action into the authenticated identity step. This page itself stays auth-free.
+              <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
+                <p className="font-semibold text-slate-900">Want to join this class?</p>
+                <p className="mt-1">Continue with your DanceFlow account to get connected with {item.studioName}.</p>
+                <Link
+                  href={classRegisterPath(item.studioSlug, item.appointmentId)}
+                  className="mt-3 inline-flex rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Continue
+                </Link>
+              </div>
+            ) : !unavailable ? (
               <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-700">
-                <p className="font-semibold text-slate-900">Registration options coming next</p>
-                <p className="mt-1">Online registration is not available from this page yet. Visit the studio page to get in touch.</p>
+                <p className="font-semibold text-slate-900">{registerUnavailableMessage(item)}</p>
+                <p className="mt-1">Visit the studio page to get in touch.</p>
                 <Link
                   href={`/studios/${encodeURIComponent(item.studioSlug)}`}
                   className="mt-3 inline-flex rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
