@@ -12,6 +12,7 @@ import {
   publicClassPath,
   publicSeriesPath,
   publicStudioClassesPath,
+  sameStudioSlug,
   studioLocationLabel,
 } from "@/lib/public/groupClasses";
 
@@ -32,7 +33,7 @@ export default async function PublicClassSeriesPage({ params }: PageProps) {
   const supabase = await createClient();
   const series = await fetchPublicGroupClassSeries(supabase, seriesId);
   if (!series) notFound();
-  if (series.studioSlug !== studioSlug || series.seriesRootId !== seriesId) {
+  if (!sameStudioSlug(studioSlug, series.studioSlug) || series.seriesRootId !== seriesId) {
     redirect(publicSeriesPath(series.studioSlug, series.seriesRootId));
   }
 

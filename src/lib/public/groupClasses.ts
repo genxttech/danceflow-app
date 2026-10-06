@@ -145,6 +145,16 @@ export async function fetchPublicGroupClassSeries(supabase: SupabaseClient, seri
   return row ? parsePublicGroupClassSeries(row) : null;
 }
 
+/** Compares a route slug param with the authoritative slug even when the framework hands the param over percent-encoded. */
+export function sameStudioSlug(param: string, authoritative: string) {
+  if (param === authoritative) return true;
+  try {
+    return decodeURIComponent(param) === authoritative;
+  } catch {
+    return false;
+  }
+}
+
 // --- URLs (id is identity; slug is routing context) ----------------------------------------------------------------------------
 
 export const publicClassesPath = () => "/discover/classes";

@@ -17,6 +17,8 @@
 --   * the studio is publicly listed: studios.public_directory_enabled AND subscription_status in (active, trialing)
 --     (the same rule every other public studio page applies);
 --   * listings contain only future, not-cancelled (scheduled / confirmed) occurrences;
+--   * the instructor display name is returned only for an ACTIVE instructor who enabled a public profile (the existing public
+--     instructor rule);
 --   * a single-occurrence lookup returns a public_state ('upcoming' | 'cancelled' | 'past') but only for a discoverable
 --     occurrence of a publicly listed studio -- nothing hidden is exposed to keep an old link alive.
 --
@@ -128,7 +130,7 @@ as $$
       st.city as studio_city,
       st.state as studio_state,
       coalesce(nullif(btrim(ss.timezone), ''), nullif(btrim(st.timezone), ''), 'America/New_York') as time_zone,
-      case when i.public_profile_enabled = true
+      case when i.public_profile_enabled = true and i.active = true
         then nullif(btrim(coalesce(i.first_name, '') || ' ' || coalesce(i.last_name, '')), '')
       end as instructor_name,
       coalesce(nullif(btrim(a.location_name), ''), nullif(btrim(r.name), '')) as location_label,
@@ -153,6 +155,10 @@ as $$
         p_appointment_id is not null
         or (a.starts_at > now() and a.status::text in ('scheduled', 'confirmed'))
       )
+    -- order and limit BEFORE the seat count so an anonymous caller can never make the database count seats for more than
+    -- the (clamped) number of rows it asked for
+    order by a.starts_at, a.id
+    limit least(greatest(coalesce(p_limit, 60), 1), 100)
   ),
   counted as (
     select

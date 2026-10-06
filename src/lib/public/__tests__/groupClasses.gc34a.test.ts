@@ -11,6 +11,7 @@ import {
   isUuid,
   parsePublicGroupClass,
   parsePublicGroupClassSeries,
+  sameStudioSlug,
   publicClassPath,
   publicSeriesPath,
   publicStudioClassesPath,
@@ -97,6 +98,16 @@ describe("GC-3.4A URLs: appointment id is identity, slug is routing context", ()
     expect(isUuid(ID)).toBe(true);
     expect(isUuid("../etc/passwd")).toBe(false);
     expect(isUuid(undefined)).toBe(false);
+  });
+});
+
+describe("GC-3.4A slug comparison never loops on an encoded param", () => {
+  it("matches raw, percent-encoded and unicode slugs; rejects different or malformed ones", () => {
+    expect(sameStudioSlug("salsa-house", "salsa-house")).toBe(true);
+    expect(sameStudioSlug("salsa%20house", "salsa house")).toBe(true);
+    expect(sameStudioSlug("caf%C3%A9", "café")).toBe(true);
+    expect(sameStudioSlug("other", "salsa-house")).toBe(false);
+    expect(sameStudioSlug("%E0%A4%A", "x")).toBe(false);
   });
 });
 

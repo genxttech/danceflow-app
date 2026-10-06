@@ -2,7 +2,7 @@
 -- 20261024090000_gc34a_public_group_class_read_model.sql.
 --
 -- Proves, as the real `anon` role (and authenticated), that:
---   * the three public functions are executable by anon/authenticated only, are SECURITY DEFINER with a pinned search_path,
+--   * the two public functions are executable by anon/authenticated only, are SECURITY DEFINER with a pinned search_path,
 --     the lineage helpers are not executable by anyone, and anon still cannot read appointments directly;
 --   * only publicly discoverable group classes of publicly listed studios appear (non-discoverable, no-policy, cancelled,
 --     past, other-type and private-studio rows never do), studio scoping and the listing/studio gates hold;
@@ -245,6 +245,9 @@ select public.t_gc34a_assert('T-gc34a-studio-identity-and-time-zone',
   public.t_gc34a_as('anon', 'select studio_slug || '':'' || studio_name || '':'' || studio_city || '':'' || time_zone from public.public_group_class_occurrences(null, null, ''00000000-0000-0000-0000-000000fa4001'')'),
   't-gc34a-public:GC34A Public Studio:Austin:America/New_York');
 
+select public.t_gc34a_assert('T-gc34a-limit-picks-the-earliest-rows',
+  public.t_gc34a_as('anon', 'select string_agg(title, '','' order by starts_at) from public.public_group_class_occurrences(null, null, null, 2)'), 'P1 Salsa,P2 Bachata');
+
 -- ============================================================================
 -- 7. Studio gate and occurrence identity across edits
 -- ============================================================================
@@ -358,6 +361,11 @@ update public.appointments set status = 'cancelled'
 select public.t_gc34a_assert('T-gc34a-cancelled-series-occurrence-leaves-listing-and-count',
   public.t_gc34a_as('anon', format('select (select count(*) from public.public_group_class_occurrences(null, %L::uuid))::text || '':'' || (select upcoming_count from public.public_group_class_series(%L::uuid))::text', current_setting('t.series'), current_setting('t.series'))),
   '3:3');
+
+-- (last, because deactivating the instructor would block later assignments in this fixture; the transaction is rolled back)
+update public.instructors set active = false where id = '00000000-0000-0000-0000-000000fa2001';
+select public.t_gc34a_assert('T-gc34a-deactivated-instructor-name-not-public',
+  public.t_gc34a_as('anon', 'select coalesce(instructor_name, ''null'') from public.public_group_class_occurrences(null, null, ''00000000-0000-0000-0000-000000fa4001'')'), 'null');
 
 select count(*) as passes, string_agg(msg, E'\n' order by n) as detail from public.t_gc34a_log;
 

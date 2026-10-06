@@ -11,6 +11,7 @@ import {
   publicClassPath,
   publicSeriesPath,
   publicStudioClassesPath,
+  sameStudioSlug,
   seriesPartLabel,
   studioLocationLabel,
   unavailableMessage,
@@ -32,7 +33,7 @@ export default async function PublicClassDetailPage({ params }: PageProps) {
   const supabase = await createClient();
   const item = await fetchPublicGroupClass(supabase, appointmentId);
   if (!item) notFound();
-  if (item.studioSlug !== studioSlug) redirect(publicClassPath(item.studioSlug, item.appointmentId));
+  if (!sameStudioSlug(studioSlug, item.studioSlug)) redirect(publicClassPath(item.studioSlug, item.appointmentId));
 
   const unavailable = unavailableMessage(item.publicState);
   const place = studioLocationLabel(item.studioCity, item.studioState);
