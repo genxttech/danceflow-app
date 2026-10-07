@@ -109,6 +109,12 @@ describe("occurrence detail page", () => {
   it.each([
     ["full", { availability: "full", spots_remaining: 0, enrollment_state: "full" }, "This class is full."],
     ["staff-only", { enrollment_state: "unavailable" }, "Online registration isn't available for this class."],
+    // GC-3.4C: started but not ended -- the read model still says upcoming/open.
+    [
+      "started",
+      { starts_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), ends_at: new Date(Date.now() + 50 * 60 * 1000).toISOString() },
+      "This class has already started and can no longer be joined online.",
+    ],
   ])("a %s upcoming class offers no registration step, only the studio", async (_label, over, message) => {
     h.rows = [row(over)];
     const out = html(await detail({ params: Promise.resolve({ studioSlug: "salsa-house", appointmentId: ID }) }));

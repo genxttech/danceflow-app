@@ -284,7 +284,7 @@ describe("funding", () => {
     h.candidates = [];
     const { html } = await page();
     expect(html).toContain("No class credit available");
-    expect(html).toContain("No eligible class credit is available for this registration");
+    expect(html).toContain("No eligible class credit is available for online registration");
     expect(html).toContain('href="/studios/salsa-house"');
     expect(html).toContain(`href="/portal/salsa-house?client=${SELF}"`);
     expect(html).not.toContain("Join this class");
@@ -354,6 +354,23 @@ describe("funding", () => {
 });
 
 describe("class state", () => {
+  it("a class that has started (still 'upcoming' in the public model) shows the started state, never Join", async () => {
+    // Started ten minutes ago, ends in fifty: the read model still says upcoming/open.
+    const startedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const endsAt = new Date(Date.now() + 50 * 60 * 1000).toISOString();
+    h.classRow = classRow({ starts_at: startedAt, ends_at: endsAt });
+
+    const { html } = await page({ dancer: SELF });
+    expect(html).toContain("Registration isn&#x27;t available");
+    expect(html).toContain("This class has already started and can no longer be joined online.");
+    expect(html).not.toContain("Join this class");
+    expect(html).toContain(`href="/studios/salsa-house/classes/${ID}"`);
+
+    // A stale submit is sent back to that state without calling the RPC.
+    expect(await enroll({ dancer: SELF })).toEqual({ thrown: `NEXT_REDIRECT:${REGISTER}` });
+    expect(h.enrollCalls).toHaveLength(0);
+  });
+
   it("15/21/33/34. a future open class enrolls: one attendee, registered state, Open Student Portal", async () => {
     expect(await enroll({ dancer: SELF })).toEqual({ thrown: `NEXT_REDIRECT:${DANCER_PATH(SELF)}` });
     expect(attendeesTable.rows).toHaveLength(1);

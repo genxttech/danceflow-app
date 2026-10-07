@@ -18,15 +18,28 @@ export const classRegisterPath = (studioSlug: string, appointmentId: string, dan
     dancerId ? `?dancer=${encodeURIComponent(dancerId)}` : ""
   }`;
 
-/** Only an upcoming class whose public enrollment state is open may proceed to the identity step. */
-export function canProceedToRegister(item: Pick<PublicGroupClass, "publicState" | "enrollmentState">) {
-  return item.publicState === "upcoming" && item.enrollmentState === "open";
+type ClassGateFields = Pick<PublicGroupClass, "publicState" | "enrollmentState" | "startsAt">;
+
+/**
+ * GC-3.4C (UX only -- the enrollment RPC's started-class guard is
+ * authoritative): a class whose start time has been reached, on the server
+ * clock, has started even while the public model still calls it upcoming.
+ */
+export function hasClassStarted(item: Pick<PublicGroupClass, "startsAt">, now: number = Date.now()) {
+  const startsAt = Date.parse(item.startsAt);
+  return !Number.isFinite(startsAt) || startsAt <= now;
+}
+
+/** Only an upcoming, not-yet-started class whose public enrollment state is open may proceed. */
+export function canProceedToRegister(item: ClassGateFields, now: number = Date.now()) {
+  return item.publicState === "upcoming" && item.enrollmentState === "open" && !hasClassStarted(item, now);
 }
 
 /** Public status copy for a class that cannot proceed (same public truth as the class page). */
-export function registerUnavailableMessage(item: Pick<PublicGroupClass, "publicState" | "enrollmentState">) {
+export function registerUnavailableMessage(item: ClassGateFields, now: number = Date.now()) {
   if (item.publicState === "cancelled") return "This class has been cancelled.";
   if (item.publicState === "past") return "This class has already taken place.";
+  if (hasClassStarted(item, now)) return "This class has already started and can no longer be joined online.";
   if (item.enrollmentState === "full") return "This class is full.";
   return "Online registration isn't available for this class. Contact the studio to join.";
 }

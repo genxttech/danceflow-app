@@ -331,8 +331,8 @@ export default async function ClassRegisterPage({ params, searchParams }: PagePr
       <RegisterShell item={item}>
         <StepTitle>No class credit available</StepTitle>
         <StepText>
-          No eligible class credit is available for this registration{dancer.isSelf ? "" : ` for ${dancer.displayName}`}.
-          Contact {item.studioName} to get set up for this class.
+          No eligible class credit is available for online registration
+          {dancer.isSelf ? "" : ` for ${dancer.displayName}`}. Contact {item.studioName} to get set up for this class.
         </StepText>
         {errorBanner}
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
