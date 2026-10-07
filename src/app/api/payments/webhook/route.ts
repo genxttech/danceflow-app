@@ -3241,15 +3241,17 @@ export async function handleStripeRefundUpdated(
   // REFUND-RECON-1: payment-summary refund state only ever reflects money that
   // was actually returned. A resolved charge's amount_refunded is authoritative
   // (it already excludes failed/canceled refunds, so a reversal is never
-  // recorded as a refund); without it, a failed/canceled refund's own amount is
-  // not evidence of anything. The package ledger/reversal calls below still
+  // recorded as a refund). Without the charge, only the refund's own amount for
+  // a refund Stripe reports as `succeeded` counts: `pending` and
+  // `requires_action` have not returned money yet (their later `succeeded`
+  // refund.updated reconciles), `failed`/`canceled` never will, and any other or
+  // missing status fails closed. The package ledger/reversal calls below still
   // observe every status.
-  const refundReversed = refundEventStatus === "failed" || refundEventStatus === "canceled";
   const summaryRefundAmount = resolvedCharge
     ? centsToDollars(resolvedCharge.amount_refunded ?? 0)
-    : refundReversed
-      ? 0
-      : cumulativeRefundAmount;
+    : refundEventStatus === "succeeded"
+      ? cumulativeRefundAmount
+      : 0;
 
   const paymentUpdated = summaryRefundAmount > 0
     ? await updatePaymentRefundByPaymentIntent(

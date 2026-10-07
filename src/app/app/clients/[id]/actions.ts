@@ -1886,24 +1886,22 @@ export async function refundClientPaymentAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "refund_reconciliation_conflict");
   }
 
-  // Staff-only metadata the RPC does not own: when, how much and why. Written once per Stripe refund (a replayed
-  // submit of the same refund adds no second note); never touches status, amounts or Stripe identity.
+  // Staff-only metadata the RPC does not own: how much and why. The RPC owns refund state, including refunded_at
+  // (REFUND-RECON-2). Written once per Stripe refund (a replayed submit of the same refund adds no second note); never
+  // touches status, amounts, timestamps or Stripe identity.
   const refundNote = `Refunded ${(refundedCents / 100).toFixed(2)} via Stripe (${refund.id}). Reason: ${reason}`;
   const existingNotes = typeof payment.notes === "string" ? payment.notes : "";
-  const { error: metadataError } = await adminSupabase
-    .from("payments")
-    .update({
-      refunded_at: new Date().toISOString(),
-      ...(existingNotes.includes(refund.id)
-        ? {}
-        : { notes: [existingNotes, refundNote].filter(Boolean).join(" | ") }),
-    })
-    .eq("id", payment.id)
-    .eq("studio_id", studioId);
+  if (!existingNotes.includes(refund.id)) {
+    const { error: metadataError } = await adminSupabase
+      .from("payments")
+      .update({ notes: [existingNotes, refundNote].filter(Boolean).join(" | ") })
+      .eq("id", payment.id)
+      .eq("studio_id", studioId);
 
-  if (metadataError) {
-    // The refund itself is reconciled; only the note/timestamp is missing.
-    console.error("staff_refund_metadata_update_failed");
+    if (metadataError) {
+      // The refund itself is reconciled; only the staff note is missing.
+      console.error("staff_refund_metadata_update_failed");
+    }
   }
 
   revalidatePath(`/app/clients/${clientId}`);

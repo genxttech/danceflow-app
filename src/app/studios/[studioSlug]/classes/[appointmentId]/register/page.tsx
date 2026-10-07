@@ -232,8 +232,10 @@ function PurchaseStatusView({
     case "finalizing":
       return (
         <RegisterShell item={item}>
-          <StepTitle>Payment received — finalizing…</StepTitle>
-          <StepText>We&apos;re confirming your registration with {item.studioName}. This usually takes a few seconds.</StepText>
+          <StepTitle>Confirming your payment…</StepTitle>
+          <StepText>
+            We&apos;re confirming your payment and registration with {item.studioName}. This usually takes a few seconds.
+          </StepText>
           <PurchaseFinalizingPoller attempts={FINALIZING_POLL.attempts} intervalMs={FINALIZING_POLL.intervalMs} />
         </RegisterShell>
       );

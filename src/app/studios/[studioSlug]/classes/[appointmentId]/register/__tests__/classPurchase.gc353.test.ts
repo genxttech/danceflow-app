@@ -363,7 +363,9 @@ describe("return / status views (L, Y, Z)", () => {
   it("Y: returning before the webhook shows finalizing with bounded polling, never 'registered'", async () => {
     holdsTable.rows.push(hold());
     const { html } = await page({ purchase: "return" });
-    expect(html).toContain("Payment received — finalizing");
+    // The return flag is browser-controlled: the wording claims nothing the database has not confirmed.
+    expect(html).toContain("Confirming your payment");
+    expect(html).not.toContain("Payment received");
     expect(html).toContain("Checking your registration");
     expect(html).not.toContain("You&#x27;re registered");
   });

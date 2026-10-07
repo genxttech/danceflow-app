@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 
 import { createOwnershipFakeSupabase, type Row } from "@/lib/payments/__tests__/ownershipFakes";
+import { setRefundRpcNow } from "@/lib/payments/__tests__/refundReconciliationRpcFake";
+
+const RPC_NOW = "2026-10-07T12:00:00.000Z";
+setRefundRpcNow(() => RPC_NOW);
 
 /**
  * REFUND-RECON-1 application refactor: every refund -- staff-issued, Stripe-originated (dashboard / webhook) and the
@@ -51,6 +55,7 @@ let rpcFailure: "error" | "conflict" | null;
 let refundMode: "ok" | "throw" | "failed_status";
 let beforeRefundReturns: ((params: Record<string, unknown>) => void) | null;
 let chargeForRetrieve: Partial<Stripe.Charge> | null;
+let chargeRetrieveFails: boolean;
 const refundCalls: Array<{ params: Record<string, unknown>; opts: { stripeAccount?: string; idempotencyKey?: string } }> = [];
 const refundIdsByKey = new Map<string, string>();
 
@@ -65,7 +70,12 @@ const stripeFake = {
       return { id: refundIdsByKey.get(key)!, status: refundMode === "failed_status" ? "failed" : "succeeded", amount: params.amount };
     },
   },
-  charges: { retrieve: async () => ({ ...(chargeForRetrieve ?? {}) }) },
+  charges: {
+    retrieve: async () => {
+      if (chargeRetrieveFails) throw new Error("stripe unavailable");
+      return { ...(chargeForRetrieve ?? {}) };
+    },
+  },
   paymentIntents: { retrieve: async () => ({}) },
   balanceTransactions: { retrieve: async () => ({ fee: 0 }) },
 };
@@ -160,6 +170,7 @@ beforeEach(() => {
   refundMode = "ok";
   beforeRefundReturns = null;
   chargeForRetrieve = null;
+  chargeRetrieveFails = false;
   refundCalls.length = 0;
   refundIdsByKey.clear();
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -302,11 +313,23 @@ describe("staff refunds route business effects through the canonical RPC", () =>
     expect(payment().stripe_refund_id).toBe("re_staff_1");
     const metadata = db.mutations.filter((m) => m.table === "payments");
     expect(metadata).toHaveLength(1);
-    expect(Object.keys(metadata[0].values).sort()).toEqual(["notes", "refunded_at"]);
+    expect(Object.keys(metadata[0].values)).toEqual(["notes"]);
     expect(String(payment().notes)).toContain("Refunded 20.00 via Stripe (re_staff_1). Reason: Customer request");
     // a later webhook without a refund id never erases it
     await chargeRefunded(2000, null);
     expect(payment().stripe_refund_id).toBe("re_staff_1");
+  });
+
+  it("Y: the staff action never writes refunded_at -- the canonical RPC owns it (REFUND-RECON-2)", async () => {
+    seedPackage();
+    await staffRefund("20", "0");
+    expect(db.mutations.some((m) => m.table === "payments" && "refunded_at" in m.values)).toBe(false);
+    expect(payment().refunded_at).toBe(RPC_NOW);
+    // a note already carrying this refund (a replayed submit) is not rewritten at all
+    seedPackage({ notes: "Refunded 20.00 via Stripe (re_staff_1). Reason: Customer request" });
+    beforeRefundReturns = () => Object.assign(payment(), { refund_amount: 20, stripe_refund_id: "re_staff_1" });
+    expect(await staffRefund("20", "0")).toContain("success=payment_refunded");
+    expect(db.mutations.filter((m) => m.table === "payments")).toEqual([]);
   });
 });
 
@@ -398,6 +421,100 @@ describe("Stripe-originated refunds (webhook) use the same canonical RPC", () =>
     expect(refundRpcCalls()).toEqual([]);
     expect(payment()).toMatchObject({ status: "paid", refund_amount: 0 });
     expect(pkg().active).toBe(true);
+  });
+});
+
+describe("refund.updated when the Charge cannot be retrieved: only a `succeeded` refund counts", () => {
+  // Stripe v22 Refund.status: pending | requires_action | succeeded | failed | canceled (or null).
+  const refundEvent = (id: string, status: string | null, amountCents: number) =>
+    ({ id, amount: amountCents, status, payment_intent: "pi_1", charge: "ch_1" }) as unknown as Stripe.Refund;
+  const refundUpdated = (refund: Stripe.Refund, eventId: string) =>
+    handleStripeRefundUpdated(db.client as never, stripeFake as never, refund, ACCT, eventId, "refund.updated");
+
+  beforeEach(() => {
+    chargeRetrieveFails = true;
+  });
+
+  it("A: a succeeded refund reconciles from its own amount through the canonical RPC", async () => {
+    seedPackage({}, 0);
+    await refundUpdated(refundEvent("re_s", "succeeded", 2000), "evt_s");
+    expect(refundRpcCalls()).toHaveLength(1);
+    expect(refundRpcCalls()[0].params).toMatchObject({ p_new_status: "paid", p_refund_amount: 20, p_stripe_refund_id: "re_s", p_stripe_event_id: "evt_s" });
+    expect(payment()).toMatchObject({ status: "paid", refund_amount: 20, refunded_at: RPC_NOW });
+  });
+
+  it("B/J: a pending refund is not money returned yet -- no RPC, no package or Group Class effect", async () => {
+    seedPackage();
+    await refundUpdated(refundEvent("re_p", "pending", 5000), "evt_p");
+    expect(payment()).toMatchObject({ status: "paid", refund_amount: 0 });
+    expect(payment().refunded_at).toBeUndefined();
+    expect(pkg().active).toBe(true);
+    seedClass();
+    await refundUpdated(refundEvent("re_p2", "pending", 2500), "evt_p2");
+    expect(refundRpcCalls()).toEqual([]);
+    expect(attendee()).toMatchObject({ status: "booked", payment_status: "paid" });
+  });
+
+  it.each(["failed", "canceled"])("C/D/J: a %s refund never reconciles (package stays active)", async (status) => {
+    seedPackage();
+    await refundUpdated(refundEvent("re_x", status, 5000), "evt_x");
+    expect(refundRpcCalls()).toEqual([]);
+    expect(payment()).toMatchObject({ status: "paid", refund_amount: 0 });
+    expect(pkg().active).toBe(true);
+  });
+
+  it.each([["requires_action"], [null], ["something_new"]])("E: status %s fails closed (no reconciliation)", async (status) => {
+    seedClass();
+    await refundUpdated(refundEvent("re_u", status as string | null, 2500), "evt_u");
+    expect(refundRpcCalls()).toEqual([]);
+    expect(attendee()).toMatchObject({ status: "booked", payment_status: "paid" });
+  });
+
+  it("F: an exact replay of the succeeded event is a no-op the second time", async () => {
+    seedClass();
+    await refundUpdated(refundEvent("re_s", "succeeded", 2500), "evt_s");
+    payment().refunded_at = "2026-09-01T00:00:00.000Z"; // sentinel: the replay must not touch it
+    await refundUpdated(refundEvent("re_s", "succeeded", 2500), "evt_s");
+    expect(refundRpcCalls()).toHaveLength(2);
+    expect(payment()).toMatchObject({ status: "refunded", refund_amount: 25, refunded_at: "2026-09-01T00:00:00.000Z" });
+    expect(attendee()).toMatchObject({ status: "cancelled", payment_status: "refunded" });
+    expect(db.rows("payment_settlement_conflicts")).toEqual([]);
+  });
+
+  it("G: pending -> succeeded: nothing on pending, reconciled on succeeded", async () => {
+    seedClass();
+    await refundUpdated(refundEvent("re_g", "pending", 1000), "evt_g1");
+    expect(refundRpcCalls()).toEqual([]);
+    await refundUpdated(refundEvent("re_g", "succeeded", 1000), "evt_g2");
+    expect(refundRpcCalls()).toHaveLength(1);
+    expect(payment()).toMatchObject({ status: "paid", refund_amount: 10 });
+    expect(attendee()).toMatchObject({ status: "booked", payment_status: "partial" });
+  });
+
+  it("H: a stale succeeded event below the stored cumulative refund never lowers it", async () => {
+    seedPackage({}, 0);
+    payment().refund_amount = 30;
+    payment().refunded_at = "2026-09-01T00:00:00.000Z";
+    await refundUpdated(refundEvent("re_old", "succeeded", 1000), "evt_old");
+    expect(payment()).toMatchObject({ status: "paid", refund_amount: 30, refunded_at: "2026-09-01T00:00:00.000Z" });
+  });
+
+  it("I: a failed event after a successful refund never rolls state back (with or without the charge)", async () => {
+    seedPackage({}, 0);
+    await refundUpdated(refundEvent("re_ok", "succeeded", 2000), "evt_ok");
+    await refundUpdated(refundEvent("re_bad", "failed", 2000), "evt_bad");
+    chargeRetrieveFails = false;
+    chargeForRetrieve = { payment_intent: "pi_1", amount_refunded: 0, balance_transaction: null } as never;
+    await refundUpdated(refundEvent("re_ok", "failed", 2000), "evt_bad2");
+    expect(payment()).toMatchObject({ status: "paid", refund_amount: 20, stripe_refund_id: "re_ok" });
+  });
+
+  it("the retrieved Charge stays authoritative: its cumulative amount_refunded is used whatever the refund status", async () => {
+    seedPackage({}, 0);
+    chargeRetrieveFails = false;
+    chargeForRetrieve = { payment_intent: "pi_1", amount_refunded: 3000, balance_transaction: null } as never;
+    await refundUpdated(refundEvent("re_p", "pending", 1000), "evt_cp");
+    expect(refundRpcCalls()[0].params).toMatchObject({ p_new_status: "paid", p_refund_amount: 30 });
   });
 });
 

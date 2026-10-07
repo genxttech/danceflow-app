@@ -2,14 +2,17 @@
   REFUND-RECON-1 test double: the CONTRACT of the repaired canonical refund
   reconciliation RPC public._apply_payment_refund_and_reevaluate (+ its
   internal helper _sync_group_class_purchase_refund), as proven against
-  Postgres by sql-tests/test_T_refund_reconciliation_integrity.sql (body md5
-  800b4ded / bd861352, live on DEV and PROD). Application tests use it to show
+  Postgres by sql-tests/test_T_refund_reconciliation_integrity.sql and
+  test_T_refund_reconciliation_timestamp.sql (body md5 6867f57d / bd861352,
+  live on DEV and PROD). Application tests use it to show
   WHAT the app passes and that it relies on the RPC for every business effect;
   the SQL suite is the authority on the behaviour itself.
 
     - only 'paid' (partial) / 'refunded' (full); amount >= 0 (cumulative);
     - CAS on status 'paid'; cumulative refund never lowered; a same-amount
       partial is a duplicate; a null refund id never erases a stored one;
+    - applied refund progress sets refunded_at = greatest(refunded_at, now())
+      (REFUND-RECON-2); replays and stale events never touch it;
     - package-linked: settlement re-evaluation (deactivate when net paid < price);
     - group_class_direct_payment: enrollment effect through the CONVERTED hold
       of the same studio (full + no attended/no_show -> cancelled + refunded;
@@ -38,6 +41,12 @@ export type RefundRpcCall = {
   p_stripe_event_id: string;
   p_stripe_event_type: string;
 };
+
+/** The RPC transaction time (now()); overridable so tests can tell an RPC write from a stale value. */
+export let REFUND_RPC_NOW = () => new Date().toISOString();
+export function setRefundRpcNow(fn: () => string) {
+  REFUND_RPC_NOW = fn;
+}
 
 const cents = (value: unknown) => Math.round(Number(value ?? 0) * 100);
 
@@ -110,6 +119,8 @@ export function applyRefundReconciliation(state: RefundRpcState, args: RefundRpc
     payment.status = args.p_new_status;
     payment.refund_amount = amount / 100;
     payment.stripe_refund_id = args.p_stripe_refund_id ?? payment.stripe_refund_id ?? null;
+    const now = REFUND_RPC_NOW();
+    payment.refunded_at = payment.refunded_at && String(payment.refunded_at) > now ? payment.refunded_at : now;
     let deactivated = false;
     if (payment.client_package_id) deactivated = reevaluatePackage(state, payment.client_package_id);
     if (payment.payment_type === "group_class_direct_payment") syncGroupClass(state, payment, args.p_new_status === "refunded");
