@@ -76,6 +76,31 @@ export async function listManageableDancers(params: {
     });
 }
 
+/**
+ * GC-3.4C: does this already-authorized dancer hold an active (not cancelled)
+ * enrollment in this class? Scoped to the class's studio, the class and the
+ * dancer, all server-derived. Drives the "You're registered" state from the
+ * database rather than from any URL flag.
+ */
+export async function hasActiveClassEnrollment(params: {
+  studioId: string;
+  appointmentId: string;
+  clientId: string;
+}): Promise<boolean> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("appointment_attendees")
+    .select("id")
+    .eq("studio_id", params.studioId)
+    .eq("appointment_id", params.appointmentId)
+    .eq("client_id", params.clientId)
+    .neq("status", "cancelled")
+    .limit(1);
+
+  if (error) throw new Error("Class enrollment lookup failed.");
+  return (data ?? []).length > 0;
+}
+
 /** The studio id behind a public class's canonical slug (the public read model exposes only the slug). */
 export async function getStudioIdForPublicSlug(studioSlug: string): Promise<string | null> {
   const admin = createAdminClient();

@@ -12,6 +12,7 @@ import {
 } from "@/lib/notifications/scheduling-emails";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { notifyGroupClassEnrolled, notifyStudioOfExternalGroupClassEnrollment } from "@/lib/notifications/groupClassNotices";
+import { classifySelfEnrollmentError, selfEnrollmentErrorMessage } from "@/lib/schedule/selfEnrollmentErrors";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
@@ -711,36 +712,11 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
 // text via the error query param directly, not an opaque code requiring a
 // separate page-level dictionary (unlike the staff-side
 // classifyEnrollClassAttendeeError pattern), so this mirrors that.
+// GC-3.4C: the classification is shared with the public class flow
+// (src/lib/schedule/selfEnrollmentErrors.ts); the portal's messages are
+// unchanged, plus the new started-class message.
 function classifySelfEnrollError(message: string): string {
-  if (message.includes("already enrolled")) {
-    return "You are already enrolled in this class.";
-  }
-  if (message.includes("not open for self-enrollment")) {
-    return "Online enrollment isn't available for this class.";
-  }
-  if (message.includes("No eligible package or membership")) {
-    return "You don't currently have an eligible package or membership for this class.";
-  }
-  if (message.includes("single funding source choice is required")) {
-    return "Choose a funding source to join this class.";
-  }
-  if (message.includes("is not an eligible funding source")) {
-    return "That funding source is no longer eligible for this class. Choose another.";
-  }
-  if (message.includes("no available seats remaining")) {
-    return "This class is full.";
-  }
-  // GC-S1C-3: the database refuses a booked enrollment into a cancelled class.
-  if (message.includes("GCSC3_CLASS_CANCELLED")) {
-    return "This class has been cancelled.";
-  }
-  if (message.includes("Not authorized")) {
-    return "You're not authorized to enroll this client in this class.";
-  }
-  if (message.includes("not found")) {
-    return "This class could not be found.";
-  }
-  return "Could not join this class. Try again.";
+  return selfEnrollmentErrorMessage(classifySelfEnrollmentError(message));
 }
 
 // A single native <input type="radio" name="fundingChoice"> group can only

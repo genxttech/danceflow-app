@@ -382,24 +382,32 @@ begin
   raise notice 'PASS T-gc3-3-single-source-auto-enrolls-ignores-wrong-caller-supplied-id';
 end $$;
 
--- 3f. self_enrollment_allowed=true is honored by the RPC even when
---     publicly_discoverable=false (f40003) -- the RPC and the new RLS
---     branch are deliberately independent checks; a class need not be
---     "discoverable" for an already-linked, already-aware caller to
---     successfully self-enroll into it once self-enrollment is on.
---     Different appointment than 3e, so no duplicate conflict for f20001.
+-- 3f. SUPERSEDED BY GC-3.4C (owner decision D2, 20261025090000): the RPC now
+--     also requires the occurrence to be publicly discoverable (the canonical
+--     gc3e predicate), so self_enrollment_allowed=true on a NON-discoverable
+--     class (f40003) is refused with the same message as a disabled policy.
+--     (Originally this asserted the two flags were independent at the RPC
+--     layer and that the enrollment succeeded.)
 do $$
 declare
-  v_attendee_id uuid;
+  v_errored boolean := false;
+  v_message text;
 begin
   set local role authenticated;
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000f10001')::text, true);
 
-  v_attendee_id := public.self_enroll_class_attendee('00000000-0000-0000-0000-000000f40003', '00000000-0000-0000-0000-000000f20001');
+  begin
+    perform public.self_enroll_class_attendee('00000000-0000-0000-0000-000000f40003', '00000000-0000-0000-0000-000000f20001');
+  exception when others then
+    v_errored := true;
+    v_message := sqlerrm;
+  end;
 
   reset role;
-  if v_attendee_id is null then raise exception 'FAIL T-gc3-3-self-enrollment-works-when-not-discoverable'; end if;
-  raise notice 'PASS T-gc3-3-self-enrollment-allowed-independent-of-discoverable-at-rpc-layer';
+  if not v_errored or v_message <> 'This class is not open for self-enrollment.' then
+    raise exception 'FAIL T-gc3-3-not-discoverable-self-enrollment-refused-gc34c (%)', v_message;
+  end if;
+  raise notice 'PASS T-gc3-3-not-discoverable-self-enrollment-refused-gc34c';
 end $$;
 
 -- ============================================================================

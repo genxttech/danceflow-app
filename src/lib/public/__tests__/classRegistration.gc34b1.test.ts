@@ -38,8 +38,11 @@ describe("resolveRegistrationDancer", () => {
 });
 
 describe("class state gate", () => {
-  it("only an upcoming class with open public enrollment may proceed", () => {
-    expect(canProceedToRegister({ publicState: "upcoming", enrollmentState: "open" })).toBe(true);
+  const NOW = Date.parse("2030-11-02T21:00:00Z");
+  const FUTURE = "2030-11-02T22:00:00Z";
+
+  it("only an upcoming, not-yet-started class with open public enrollment may proceed", () => {
+    expect(canProceedToRegister({ publicState: "upcoming", enrollmentState: "open", startsAt: FUTURE }, NOW)).toBe(true);
     for (const [publicState, enrollmentState] of [
       ["upcoming", "full"],
       ["upcoming", "unavailable"],
@@ -47,8 +50,16 @@ describe("class state gate", () => {
       ["cancelled", "closed"],
       ["past", "closed"],
     ] as const) {
-      expect(canProceedToRegister({ publicState, enrollmentState })).toBe(false);
-      expect(registerUnavailableMessage({ publicState, enrollmentState })).toBeTruthy();
+      expect(canProceedToRegister({ publicState, enrollmentState, startsAt: FUTURE }, NOW)).toBe(false);
+      expect(registerUnavailableMessage({ publicState, enrollmentState, startsAt: FUTURE }, NOW)).toBeTruthy();
+    }
+  });
+
+  it("GC-3.4C: a class starting now or already started cannot proceed, on the server clock (UX gate)", () => {
+    for (const startsAt of ["2030-11-02T21:00:00Z", "2030-11-02T20:30:00Z", "not-a-date"]) {
+      const item = { publicState: "upcoming", enrollmentState: "open", startsAt } as const;
+      expect(canProceedToRegister(item, NOW)).toBe(false);
+      expect(registerUnavailableMessage(item, NOW)).toBe("This class has already started and can no longer be joined online.");
     }
   });
 

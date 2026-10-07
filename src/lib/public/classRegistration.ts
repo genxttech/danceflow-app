@@ -18,17 +18,75 @@ export const classRegisterPath = (studioSlug: string, appointmentId: string, dan
     dancerId ? `?dancer=${encodeURIComponent(dancerId)}` : ""
   }`;
 
-/** Only an upcoming class whose public enrollment state is open may proceed to the identity step. */
-export function canProceedToRegister(item: Pick<PublicGroupClass, "publicState" | "enrollmentState">) {
-  return item.publicState === "upcoming" && item.enrollmentState === "open";
+type ClassGateFields = Pick<PublicGroupClass, "publicState" | "enrollmentState" | "startsAt">;
+
+/**
+ * GC-3.4C (UX only -- the enrollment RPC's started-class guard is
+ * authoritative): a class whose start time has been reached, on the server
+ * clock, has started even while the public model still calls it upcoming.
+ */
+export function hasClassStarted(item: Pick<PublicGroupClass, "startsAt">, now: number = Date.now()) {
+  const startsAt = Date.parse(item.startsAt);
+  return !Number.isFinite(startsAt) || startsAt <= now;
+}
+
+/** Only an upcoming, not-yet-started class whose public enrollment state is open may proceed. */
+export function canProceedToRegister(item: ClassGateFields, now: number = Date.now()) {
+  return item.publicState === "upcoming" && item.enrollmentState === "open" && !hasClassStarted(item, now);
 }
 
 /** Public status copy for a class that cannot proceed (same public truth as the class page). */
-export function registerUnavailableMessage(item: Pick<PublicGroupClass, "publicState" | "enrollmentState">) {
+export function registerUnavailableMessage(item: ClassGateFields, now: number = Date.now()) {
   if (item.publicState === "cancelled") return "This class has been cancelled.";
   if (item.publicState === "past") return "This class has already taken place.";
+  if (hasClassStarted(item, now)) return "This class has already started and can no longer be joined online.";
   if (item.enrollmentState === "full") return "This class is full.";
   return "Online registration isn't available for this class. Contact the studio to join.";
+}
+
+/*
+  GC-3.4C funding display and choice. The candidates always come from the
+  canonical preview_self_enrollment_funding_candidates RPC; nothing here
+  decides eligibility, and the enrollment RPC re-validates any choice.
+*/
+export type RegistrationFundingCandidate = {
+  fundingType: "package" | "membership";
+  sourceId: string;
+  label: string;
+};
+
+export function toRegistrationFundingCandidates(
+  rows: Array<{ funding_type: string; source_id: string; label: string | null }> | null | undefined,
+): RegistrationFundingCandidate[] {
+  return (rows ?? []).flatMap((row) =>
+    (row.funding_type === "package" || row.funding_type === "membership") && isUuid(row.source_id)
+      ? [{ fundingType: row.funding_type, sourceId: row.source_id, label: row.label?.trim() || "" }]
+      : [],
+  );
+}
+
+/** "Using your 10-Lesson Package" / "Covered by your Monthly Membership". */
+export function fundingSummary(candidate: RegistrationFundingCandidate) {
+  if (candidate.fundingType === "membership") {
+    return candidate.label ? `Covered by your ${candidate.label}` : "Covered by your membership";
+  }
+  return candidate.label ? `Using your ${candidate.label}` : "Using your class package";
+}
+
+export const fundingChoiceValue = (candidate: RegistrationFundingCandidate) =>
+  `${candidate.fundingType}:${candidate.sourceId}`;
+
+/** Parses a submitted "package:<uuid>" / "membership:<uuid>" choice; anything else is no choice. */
+export function parseRegistrationFundingChoice(raw: string | null | undefined): {
+  clientPackageId: string | null;
+  clientMembershipId: string | null;
+} {
+  const [type, id, ...rest] = String(raw ?? "").trim().split(":");
+  if (rest.length === 0 && isUuid(id)) {
+    if (type === "package") return { clientPackageId: id, clientMembershipId: null };
+    if (type === "membership") return { clientPackageId: null, clientMembershipId: id };
+  }
+  return { clientPackageId: null, clientMembershipId: null };
 }
 
 export type ManageableDancer = {
