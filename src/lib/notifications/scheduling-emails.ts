@@ -592,22 +592,32 @@ export function buildPublicClassRefundIssueStaffEmail(params: {
   classWhen: string;
   amountLabel: string;
   classPath: string;
+  /** True when Stripe already returned the money but DanceFlow could not record the refund on the payment yet. */
+  refundIssued?: boolean;
 }): BuiltEmail {
   const identity = identityOf(params.studio);
   const studioName = identity.name;
   const title = params.classTitle.trim() || "Group class";
   const dancer = params.dancerName.trim() || "A purchaser";
   const classUrl = buildAppUrl(params.classPath);
-  const subject = sanitizeEmailSubject(`Action needed: refund for ${dancer} (${title}) did not go through`);
-  const intro = `${dancer} paid ${params.amountLabel.trim()} online for ${title}, but the registration could not be confirmed and the automatic refund did not go through.`;
-  const detail =
-    "No enrollment or client record was created. Please refund this payment in your Stripe dashboard or contact the payer. DanceFlow will keep retrying the refund automatically for a limited time.";
+  const issued = params.refundIssued === true;
+  const subject = sanitizeEmailSubject(
+    issued
+      ? `Action needed: refund for ${dancer} (${title}) was issued but not recorded`
+      : `Action needed: refund for ${dancer} (${title}) did not go through`,
+  );
+  const intro = issued
+    ? `${dancer} paid ${params.amountLabel.trim()} online for ${title}, but the registration could not be confirmed. The automatic refund was issued in Stripe, but DanceFlow could not record it on the payment.`
+    : `${dancer} paid ${params.amountLabel.trim()} online for ${title}, but the registration could not be confirmed and the automatic refund did not go through.`;
+  const detail = issued
+    ? "No enrollment or client record was created. Do not refund this payment again. DanceFlow will keep trying to record the refund automatically for a limited time; if the payment still shows as paid in DanceFlow, compare it with your Stripe dashboard."
+    : "No enrollment or client record was created. Please refund this payment in your Stripe dashboard or contact the payer. DanceFlow will keep retrying the refund automatically for a limited time.";
   const rows: Array<{ label: string; value: string }> = [
     { label: "Payer", value: dancer },
     { label: "Class", value: title },
     { label: "When", value: params.classWhen },
     { label: "Amount", value: params.amountLabel.trim() },
-    { label: "Status", value: "Refund needed" },
+    { label: "Status", value: issued ? "Refunded in Stripe, not yet recorded" : "Refund needed" },
   ];
 
   const bodyText = letter([intro, "", ...rows.map((row) => `${row.label}: ${row.value}`), "", detail, "", "View the class in DanceFlow:", classUrl]);
@@ -615,7 +625,7 @@ export function buildPublicClassRefundIssueStaffEmail(params: {
   const bodyHtml = renderStudioBrandedEmail(identity, {
     previewText: subject,
     eyebrow: "Payment Attention",
-    heading: "Refund did not go through",
+    heading: issued ? "Refund not recorded" : "Refund did not go through",
     intro,
     bodyText: paragraphs([detail]),
     detailRows: rows,

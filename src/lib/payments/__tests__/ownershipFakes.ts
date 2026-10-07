@@ -3,6 +3,8 @@
  * the stripe_account_id immutability trigger emulated) and a Stripe call recorder.
  */
 
+import { applyRefundReconciliation, type RefundRpcCall } from "./refundReconciliationRpcFake";
+
 export type Row = Record<string, unknown>;
 export type Mutation = {
   table: string;
@@ -17,7 +19,11 @@ export type RowGuard = (table: string, before: Row | null, after: Row) => string
 
 export function createOwnershipFakeSupabase(
   seed: Record<string, Row[]> = {},
-  options: { rowGuard?: RowGuard } = {},
+  options: {
+    rowGuard?: RowGuard;
+    /** Returns a result to replace an RPC call (e.g. to inject a failure); undefined falls through. */
+    rpcOverride?: (name: string, params: Row) => { data: unknown; error: { message: string } | null } | undefined;
+  } = {},
 ) {
   const tables: Record<string, Row[]> = {};
   for (const [name, rows] of Object.entries(seed)) tables[name] = rows.map((row) => ({ ...row }));
@@ -119,10 +125,6 @@ export function createOwnershipFakeSupabase(
         filters.push((row) => (row[column] ?? null) === value);
         return builder;
       },
-      lt: (column: string, value: unknown) => {
-        filters.push((row) => Number(row[column] ?? 0) < Number(value));
-        return builder;
-      },
       order: () => builder,
       limit: (count: number) => {
         limitCount = count;
@@ -142,6 +144,22 @@ export function createOwnershipFakeSupabase(
   const rpcCalls: Array<{ name: string; params: Row }> = [];
   async function rpc(name: string, params: Row) {
     rpcCalls.push({ name, params });
+    const overridden = options.rpcOverride?.(name, params);
+    if (overridden) return overridden;
+    if (name === "_apply_payment_refund_and_reevaluate") {
+      // REFUND-RECON-1: the repaired RPC contract applied to these in-memory tables.
+      return applyRefundReconciliation(
+        {
+          payments: (tables.payments ??= []),
+          holds: tables.group_class_enrollment_holds,
+          attendees: tables.appointment_attendees,
+          attendance: tables.attendance_records,
+          packages: tables.client_packages,
+          conflicts: (tables.payment_settlement_conflicts ??= []),
+        },
+        params as unknown as RefundRpcCall,
+      );
+    }
     return { data: [{ applied: true }], error: null };
   }
 
@@ -193,7 +211,8 @@ export function createStripeRecorder(options: {
       create: async (...args: unknown[]) => {
         calls.push({ method: "refunds.create", args });
         if (options.refundError) throw options.refundError;
-        return { id: "re_test_1" };
+        const params = (args[0] ?? {}) as { amount?: number };
+        return { id: "re_test_1", status: "succeeded", amount: params.amount };
       },
     },
   };

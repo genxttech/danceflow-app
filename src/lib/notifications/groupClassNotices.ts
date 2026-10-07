@@ -832,10 +832,19 @@ export async function notifyStudioOfPublicPurchaseRefundIssue(params: {
   appointmentId: string;
   dancerName: string;
   amountLabel: string;
+  /**
+   * refund_failed: Stripe did not return the money (staff must act). refund_not_recorded: Stripe returned the money but
+   * DanceFlow could not record it on the payment yet (staff must NOT refund again). Each is sent at most once per hold.
+   */
+  issue?: "refund_failed" | "refund_not_recorded";
 }): Promise<NoticeOutcome> {
   try {
     const admin = createAdminClient();
     const { studioId } = params;
+    const notRecorded = params.issue === "refund_not_recorded";
+    const kind = notRecorded
+      ? "group_class_public_purchase_refund_record_issue_staff"
+      : "group_class_public_purchase_refund_issue_staff";
     const [{ data: appointment }, ctx, recipients] = await Promise.all([
       admin.from("appointments").select("id, title, starts_at").eq("id", params.appointmentId).eq("studio_id", studioId).maybeSingle(),
       loadStudioContext(admin, studioId),
@@ -846,14 +855,15 @@ export async function notifyStudioOfPublicPurchaseRefundIssue(params: {
 
     const result = await queueOneEmailPerAddress({
       studioId,
-      templateKey: "group_class_public_purchase_refund_issue_staff",
+      templateKey: kind,
       relatedTable: "group_class_enrollment_holds",
       relatedId: params.holdId,
-      dedupeKind: "group_class_public_purchase_refund_issue_staff",
+      dedupeKind: kind,
       eventId: params.holdId,
       recipients: recipients.map((email) => ({ email })),
       build: () =>
         buildPublicClassRefundIssueStaffEmail({
+          refundIssued: notRecorded,
           studio: ctx.studio,
           dancerName: params.dancerName,
           classTitle: cleanText(cls.title) || "Group class",

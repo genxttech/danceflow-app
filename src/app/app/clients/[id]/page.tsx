@@ -1909,17 +1909,24 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
-  if (search.error === "refund_enrollment_update_failed") {
+  if (search.error === "refund_payment_changed") {
     return {
       kind: "error" as const,
-      message: "The payment was refunded, but DanceFlow could not update the class enrollment. Check the class roster and update the enrollment.",
+      message: "This payment changed since the page was loaded (another refund may have been recorded). Nothing was refunded. Review the payment and try again.",
     };
   }
 
-  if (search.error === "refund_record_update_failed") {
+  if (search.error === "refund_reconciliation_failed") {
     return {
       kind: "error" as const,
-      message: "Stripe refunded the payment, but DanceFlow could not update the local payment record. Review Stripe and update the record before retrying.",
+      message: "Stripe refunded the payment, but DanceFlow could not record the refund yet. Do not refund again: DanceFlow records it automatically when Stripe confirms the refund. If the payment still shows as paid later, compare it with Stripe.",
+    };
+  }
+
+  if (search.error === "refund_reconciliation_conflict") {
+    return {
+      kind: "error" as const,
+      message: "Stripe refunded the payment, but the payment changed in DanceFlow before the refund could be recorded. It has been flagged for review. Do not refund again.",
     };
   }
 
@@ -4424,6 +4431,7 @@ export default async function ClientDetailPage({
                       <form action={refundClientPaymentAction} className="mt-3 space-y-3">
                         <input type="hidden" name="clientId" value={typedClient.id} />
                         <input type="hidden" name="paymentId" value={payment.id} />
+                        <input type="hidden" name="expectedRefundAmount" value={String(Number(payment.refund_amount ?? 0))} />
                         <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}?tab=billing`} />
 
                         <div className="space-y-2 text-sm leading-6 text-amber-900">
@@ -6478,6 +6486,7 @@ export default async function ClientDetailPage({
                           <form action={refundClientPaymentAction} className="mt-3 space-y-3">
                             <input type="hidden" name="clientId" value={typedClient.id} />
                             <input type="hidden" name="paymentId" value={payment.id} />
+                            <input type="hidden" name="expectedRefundAmount" value={String(Number(payment.refund_amount ?? 0))} />
                             <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}?tab=billing`} />
 
                             <div className="space-y-2 text-sm leading-6 text-amber-900">

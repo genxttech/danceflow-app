@@ -140,10 +140,13 @@ describe("historical NULL owner (D1(b))", () => {
     expect(recorder.calls.map((call) => call.method)).toEqual(["paymentIntents.retrieve", "refunds.create"]);
     expect(recorder.accountsUsed()).toEqual([B, B]);
     const ownerWrite = db.mutations.findIndex((m) => m.values.stripe_account_id === B);
-    const refundWrite = db.mutations.findIndex((m) => m.values.stripe_refund_id === "re_test_1");
     expect(ownerWrite).toBeGreaterThanOrEqual(0);
-    expect(refundWrite).toBeGreaterThan(ownerWrite);
-    expect(db.rows("payments")[0].stripe_account_id).toBe(B);
+    // REFUND-RECON-1: the refund is recorded by the canonical reconciliation RPC (after the owner was persisted and
+    // Stripe confirmed the refund on B), never by a direct status/refund-id write.
+    expect(db.mutations.some((m) => "stripe_refund_id" in m.values || "status" in m.values)).toBe(false);
+    expect(db.rpcCalls.map((call) => call.name)).toEqual(["_apply_payment_refund_and_reevaluate"]);
+    expect(db.rpcCalls[0].params).toMatchObject({ p_payment_id: "pay-1", p_stripe_refund_id: "re_test_1" });
+    expect(db.rows("payments")[0]).toMatchObject({ stripe_account_id: B, status: "refunded", stripe_refund_id: "re_test_1" });
   });
 
   it("NULL, not found on B -> no refund, unverified", async () => {

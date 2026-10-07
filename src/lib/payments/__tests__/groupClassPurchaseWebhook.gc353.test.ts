@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { FakeTable, createFakeEntitlementClient, type Row } from "@/lib/packages/__tests__/fakeEntitlementSupabase";
 import { createFakeStripe } from "./gc353FakeStripe";
+import { applyRefundReconciliation, type RefundRpcCall } from "./refundReconciliationRpcFake";
 
 const h = vi.hoisted(() => ({
   notifyDancer: vi.fn(),
@@ -40,6 +41,9 @@ let clients: FakeTable;
 let payments: FakeTable;
 let finalizeCalls: Array<Record<string, unknown>>;
 let applyCalls: Array<Record<string, unknown>>;
+let directPaymentUpdates: Array<Record<string, unknown>>;
+let settlementConflicts: Row[];
+let rpcFailure: "error" | null;
 let conflictReason: string | null;
 let fake: ReturnType<typeof createFakeStripe>;
 
@@ -61,7 +65,7 @@ function finalize(args: Record<string, unknown>) {
   const reason = hold.status === "released" ? "hold_released" : conflictReason;
   if (reason) {
     Object.assign(hold, { status: "conflict", conflict_reason: reason, payment_id: "pay-conflict-1" });
-    payments.rows.push({ id: "pay-conflict-1", studio_id: hold.studio_id, client_id: null, status: "paid", stripe_payment_intent_id: args.p_payment_intent_id, refund_amount: 0 });
+    payments.rows.push({ id: "pay-conflict-1", studio_id: hold.studio_id, client_id: null, amount: 25, status: "paid", payment_type: "group_class_direct_payment", stripe_payment_intent_id: args.p_payment_intent_id, stripe_refund_id: null, refund_amount: 0 });
     return { data: [{ outcome: "conflict", hold_id: hold.id, client_id: null, link_id: null, attendee_id: null, payment_id: "pay-conflict-1", conflict_reason: reason }] };
   }
   clients.rows.push({ id: "client-new", studio_id: hold.studio_id, referral_source: "Public class registration" });
@@ -70,17 +74,35 @@ function finalize(args: Record<string, unknown>) {
 }
 
 function db() {
-  return createFakeEntitlementClient(
+  const client = createFakeEntitlementClient(
     { group_class_enrollment_holds: holds, clients, payments },
     {
       finalize_public_class_purchase: finalize,
-      // The shared refund RPC is deliberately NOT used (pre-existing cast defect); calling it fails the test.
+      // REFUND-RECON-1: the repaired canonical refund RPC contract (proven in SQL by test_T_refund_reconciliation_integrity).
       _apply_payment_refund_and_reevaluate: (args) => {
         applyCalls.push(args);
-        return { error: { message: "must not be called" } };
+        if (rpcFailure === "error") return { error: { message: "REFUND_RECON_TEST_FAILURE: secret internal detail acct_SECRET" } };
+        return applyRefundReconciliation(
+          { payments: payments.rows, holds: holds.rows, conflicts: settlementConflicts },
+          args as unknown as RefundRpcCall,
+        );
       },
     },
-  ) as unknown as SupabaseClient;
+  ) as unknown as { from: (table: string) => { update: (payload: Row) => unknown } };
+  // Any direct payments-row write by the webhook module is recorded (there must be none).
+  const from = client.from.bind(client);
+  client.from = (table: string) => {
+    const query = from(table);
+    if (table === "payments") {
+      const update = query.update;
+      query.update = (payload: Row) => {
+        directPaymentUpdates.push(payload);
+        return update(payload);
+      };
+    }
+    return query;
+  };
+  return client as unknown as SupabaseClient;
 }
 
 function paidSession(over: Partial<Stripe.Checkout.Session> & { metadata?: Record<string, string> } = {}) {
@@ -118,6 +140,9 @@ beforeEach(() => {
   });
   finalizeCalls = [];
   applyCalls = [];
+  directPaymentUpdates = [];
+  settlementConflicts = [];
+  rpcFailure = null;
   conflictReason = null;
   fake = createFakeStripe();
   h.notifyDancer.mockReset();
@@ -240,42 +265,108 @@ describe("mismatches (N-Q) and metadata substitution", () => {
   });
 });
 
-describe("conflict refunds (U-X)", () => {
-  it("U/V: a conflict refunds the full payment on the same connected account and records it on the clientless payment", async () => {
+describe("conflict refunds (U-X) -- recorded through the canonical refund reconciliation RPC", () => {
+  it("U/V: a conflict refunds the full payment on the same connected account and reconciles it through the canonical RPC", async () => {
     conflictReason = "class_cancelled";
     await run(paidSession());
     expect(fake.calls.refunds).toHaveLength(1);
     expect(fake.calls.refunds[0].params).toMatchObject({ payment_intent: "pi_test_1", reason: "requested_by_customer" });
+    expect(fake.calls.refunds[0].params).not.toHaveProperty("amount");
     expect(fake.calls.refunds[0].opts).toEqual({ stripeAccount: ACCT, idempotencyKey: conflictRefundIdempotencyKey(HOLD) });
-    expect(applyCalls).toHaveLength(0);
-    expect(payments.rows[0]).toMatchObject({ id: "pay-conflict-1", status: "refunded", refund_amount: 25, client_id: null, stripe_refund_id: expect.stringMatching(/^re_/) });
-    expect(payments.rows[0].refunded_at).toBeTruthy();
+    const refundId = payments.rows[0].stripe_refund_id;
+    expect(refundId).toMatch(/^re_/);
+    // Authoritative cumulative amount (the verified session total), full-refund status, the actual Stripe refund id.
+    expect(applyCalls).toEqual([
+      {
+        p_payment_id: "pay-conflict-1",
+        p_new_status: "refunded",
+        p_refund_amount: 25,
+        p_stripe_refund_id: refundId,
+        p_stripe_event_id: conflictRefundIdempotencyKey(HOLD),
+        p_stripe_event_type: "checkout.session.completed",
+      },
+    ]);
+    expect(directPaymentUpdates).toEqual([]);
+    expect(payments.rows[0]).toMatchObject({ id: "pay-conflict-1", status: "refunded", refund_amount: 25, client_id: null });
+    expect(settlementConflicts).toEqual([]);
+    expect(h.notifyRefundIssue).not.toHaveBeenCalled();
     expect(h.notifyDancer).not.toHaveBeenCalled();
     expect(h.notifyStudio).not.toHaveBeenCalled();
   });
 
-  it("W: conflict refund is idempotent across webhook replays (same key -> same refund)", async () => {
+  it("W: conflict refund is idempotent across webhook replays (same key -> same refund; the replayed reconciliation is a no-op)", async () => {
     conflictReason = "class_full";
     await run(paidSession());
     await run(paidSession());
     expect(fake.calls.refunds).toHaveLength(2);
     expect(new Set(fake.calls.refunds.map((c) => c.opts?.idempotencyKey))).toEqual(new Set([conflictRefundIdempotencyKey(HOLD)]));
+    expect(applyCalls).toHaveLength(2);
+    expect(applyCalls[1]).toEqual(applyCalls[0]);
     expect(payments.rows).toHaveLength(1);
-    expect(payments.rows[0].status).toBe("refunded");
+    expect(payments.rows[0]).toMatchObject({ status: "refunded", refund_amount: 25 });
     // both deliveries got the SAME Stripe refund back for the same idempotency key, and that is the one recorded
     const replayRefund = await fake.stripe.refunds.create({ payment_intent: "pi_test_1" }, { stripeAccount: ACCT, idempotencyKey: conflictRefundIdempotencyKey(HOLD) });
     expect(payments.rows[0].stripe_refund_id).toBe(replayRefund.id);
+    expect(settlementConflicts).toEqual([]);
+    expect(directPaymentUpdates).toEqual([]);
+    expect(h.notifyRefundIssue).not.toHaveBeenCalled();
   });
 
-  it("X: refund failure keeps the conflict, alerts staff once (deduped per hold) and makes Stripe retry", async () => {
+  it("X: refund failure keeps the conflict, alerts staff once (deduped per hold), never reconciles and makes Stripe retry", async () => {
     conflictReason = "hold_expired";
     fake.failures.refund = true;
     await expect(run(paidSession())).rejects.toThrow("gc35_conflict_refund_failed");
     expect(holds.rows[0].status).toBe("conflict");
+    expect(h.notifyRefundIssue).toHaveBeenCalledTimes(1);
     expect(h.notifyRefundIssue).toHaveBeenCalledWith({
-      studioId: "studio-a", holdId: HOLD, appointmentId: "class-1", dancerName: "Ada Lovelace", amountLabel: "$25.00",
+      studioId: "studio-a", holdId: HOLD, appointmentId: "class-1", dancerName: "Ada Lovelace", amountLabel: "$25.00", issue: "refund_failed",
     });
+    expect(applyCalls).toHaveLength(0);
+    expect(directPaymentUpdates).toEqual([]);
     expect(payments.rows[0].status).toBe("paid");
+  });
+
+  it("Y: refund succeeded but reconciliation failed -> conflict kept, staff alerted (refund NOT recorded), bounded log, throws for retry", async () => {
+    conflictReason = "class_full";
+    rpcFailure = "error";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(run(paidSession())).rejects.toThrow("gc35_conflict_refund_reconcile_failed");
+    expect(fake.calls.refunds).toHaveLength(1);
+    expect(applyCalls).toHaveLength(1);
+    expect(directPaymentUpdates).toEqual([]); // no silent fallback write
+    expect(holds.rows[0].status).toBe("conflict");
+    expect(payments.rows[0].status).toBe("paid"); // the purchaser page says "refunded" only once this is 'refunded'
+    expect(h.notifyRefundIssue).toHaveBeenCalledTimes(1);
+    expect(h.notifyRefundIssue.mock.calls[0][0]).toMatchObject({ holdId: HOLD, issue: "refund_not_recorded" });
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(logged).toContain("gc35_conflict_refund_reconcile_failed");
+    expect(logged).toContain("REFUND_RECON_TEST_FAILURE");
+    expect(logged).not.toMatch(/secret internal detail|acct_SECRET/);
+    expect(h.notifyDancer).not.toHaveBeenCalled();
+  });
+
+  it("Y2: the Stripe retry after a failed reconciliation replays the SAME refund and then reconciles it", async () => {
+    conflictReason = "class_full";
+    rpcFailure = "error";
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(run(paidSession())).rejects.toThrow("gc35_conflict_refund_reconcile_failed");
+    rpcFailure = null;
+    await expect(run(paidSession())).resolves.toBe(true);
+    expect(new Set(fake.calls.refunds.map((c) => c.opts?.idempotencyKey))).toEqual(new Set([conflictRefundIdempotencyKey(HOLD)]));
+    expect(new Set(applyCalls.map((c) => c.p_stripe_refund_id)).size).toBe(1);
+    expect(payments.rows[0]).toMatchObject({ status: "refunded", refund_amount: 25 });
+  });
+
+  it("Z: a conflict payment that is no longer 'paid' is never overwritten: settlement conflict recorded, staff alerted, retry", async () => {
+    conflictReason = "class_full";
+    await run(paidSession()); // creates the conflict payment and reconciles it
+    payments.rows[0].status = "voided"; // simulate an unexpected state before a replay
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(run(paidSession())).rejects.toThrow("gc35_conflict_refund_reconcile_failed");
+    expect(payments.rows[0].status).toBe("voided");
+    expect(settlementConflicts).toHaveLength(1);
+    expect(h.notifyRefundIssue.mock.calls.at(-1)?.[0]).toMatchObject({ issue: "refund_not_recorded" });
+    expect(directPaymentUpdates).toEqual([]);
   });
 
   it("late paid webhook after the purchaser released the hold becomes a conflict and is refunded", async () => {
@@ -284,6 +375,13 @@ describe("conflict refunds (U-X)", () => {
     expect(holds.rows[0]).toMatchObject({ status: "conflict", conflict_reason: "hold_released" });
     expect(fake.calls.refunds).toHaveLength(1);
     expect(fake.calls.refunds[0].opts?.stripeAccount).toBe(ACCT);
+    expect(payments.rows[0].status).toBe("refunded");
+  });
+
+  it("the module never writes the payments table directly (the canonical RPC owns refund state)", () => {
+    const source = readFileSync("src/lib/payments/groupClassPurchaseWebhook.ts", "utf8");
+    expect(source).not.toMatch(/from\(\s*"payments"\s*\)/);
+    expect(source).toMatch(/rpc\(\s*"_apply_payment_refund_and_reevaluate"/);
   });
 });
 

@@ -138,6 +138,19 @@ describe("refund-issue staff alert (X)", () => {
     expect(call.bodyText).not.toMatch(/was refunded|refund (has been|was) (issued|completed)/i);
   });
 
+  it("REFUND-RECON-1: a refund issued in Stripe but not recorded gets its own once-per-hold alert telling staff NOT to refund again", async () => {
+    await n.notifyStudioOfPublicPurchaseRefundIssue({ studioId: S1, holdId: "hold-1", appointmentId: "c1", dancerName: "Ada Lovelace", amountLabel: "$25.00", issue: "refund_not_recorded" });
+    expect(h.queue).toHaveBeenCalledTimes(1);
+    const call = h.queue.mock.calls[0][0];
+    expect(call).toMatchObject({ templateKey: "group_class_public_purchase_refund_record_issue_staff", relatedTable: "group_class_enrollment_holds", relatedId: "hold-1" });
+    expect(call.dedupeKey).toBe("group_class_public_purchase_refund_record_issue_staff:hold-1:owner@example.test");
+    expect(call.subject).toContain("was issued but not recorded");
+    expect(call.bodyText).toContain("The automatic refund was issued in Stripe, but DanceFlow could not record it on the payment.");
+    expect(call.bodyText).toContain("Do not refund this payment again.");
+    expect(call.bodyText).not.toMatch(/did not go through|Please refund this payment/);
+    expect(call.bodyHtml).toContain("Refund not recorded");
+  });
+
   it("never throws", async () => {
     h.recipients.mockRejectedValue(new Error("boom"));
     await expect(

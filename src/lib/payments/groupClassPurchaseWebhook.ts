@@ -30,7 +30,9 @@ import {
                  payment on the SAME connected account (deterministic
                  idempotency key), record it through the canonical refund
                  reconciliation RPC. A failed refund keeps the conflict, alerts
-                 studio staff once and throws so Stripe retries the event.
+                 studio staff once and throws so Stripe retries the event; a
+                 refund DanceFlow could not record does the same (with its own
+                 staff notice), never falling back to a direct payment write.
   Idempotency is the database's (hold state, unique session/PaymentIntent,
   one payment per hold, finalize replay), not payment_provider_events.
 */
@@ -161,7 +163,7 @@ export async function handleGroupClassPurchaseCheckout(params: {
   }
 
   // Conflict: never enrolled; refund the verified payment on the same connected account.
-  await refundConflict({ supabase, stripe, stripeAccountId, hold, result, paymentIntentId, amountCents });
+  await refundConflict({ supabase, stripe, stripeAccountId, hold, result, paymentIntentId, amountCents, eventType: params.eventType });
   return true;
 }
 
@@ -231,6 +233,7 @@ async function refundConflict(params: {
   result: FinalizeRow;
   paymentIntentId: string;
   amountCents: number;
+  eventType: string;
 }) {
   const { hold, result } = params;
   let refund: Stripe.Refund | null = null;
@@ -256,31 +259,44 @@ async function refundConflict(params: {
       appointmentId: hold.appointment_id,
       dancerName: [hold.dancer_first_name, hold.dancer_last_name].filter(Boolean).join(" "),
       amountLabel: formatUsdCents(params.amountCents),
+      issue: "refund_failed",
     });
     throw new Error("gc35_conflict_refund_failed");
   }
 
-  // Record the refund on the conflict payment the same way the canonical staff refund action does (direct payment-row
-  // write, compare-and-swap on 'paid' so a replay or an earlier reconciliation is a no-op). Clientless and package-free,
-  // so there is nothing to re-evaluate. NOTE: the shared RPC _apply_payment_refund_and_reevaluate currently fails on a
-  // text -> payment_status cast (pre-existing, tracked separately), so it is deliberately not used here.
-  if (result.payment_id) {
-    const { error } = await params.supabase
-      .from("payments")
-      .update({
-        status: "refunded",
-        refund_amount: Math.round(params.amountCents) / 100,
-        refunded_at: new Date().toISOString(),
-        stripe_refund_id: refund!.id,
-      })
-      .eq("id", result.payment_id)
-      .eq("studio_id", hold.studio_id)
-      .eq("stripe_payment_intent_id", params.paymentIntentId)
-      .eq("status", "paid");
-    if (error) {
-      // The refund itself went through at Stripe; the payment row can be reconciled from the refund id later.
-      console.error("gc35_conflict_refund_record_failed");
-    }
+  // Record the refund through the canonical refund reconciliation RPC (the same path every Stripe refund takes). The
+  // refund carried no amount, so Stripe returned everything still refundable on this PaymentIntent: the cumulative
+  // refund is the verified session total (finalize already proved it equals the stored payment amount). The RPC
+  // compare-and-swaps on 'paid' (a replay, or the later charge.refunded webhook, is a no-op) and finds no enrollment to
+  // change, because a conflict hold never converts. The purchaser is told "refunded" only once payments.status is
+  // 'refunded', i.e. after this reconciliation committed.
+  if (!result.payment_id) return;
+  const { data, error } = await params.supabase.rpc("_apply_payment_refund_and_reevaluate", {
+    p_payment_id: result.payment_id,
+    p_new_status: "refunded",
+    p_refund_amount: Math.round(params.amountCents) / 100,
+    p_stripe_refund_id: refund!.id,
+    p_stripe_event_id: conflictRefundIdempotencyKey(hold.id),
+    p_stripe_event_type: params.eventType || "checkout.session.completed",
+  });
+  const outcome = ((Array.isArray(data) ? data[0] : data) ?? null) as { conflict_recorded?: boolean } | null;
+
+  if (error || !outcome || outcome.conflict_recorded) {
+    // Money went back at Stripe but DanceFlow could not confirm it on the payment (a settlement-conflict review row
+    // exists when the payment was no longer 'paid'). Keep the hold conflict, alert staff once, and throw so Stripe
+    // retries: the refund replays idempotently and only the reconciliation runs again.
+    console.error("gc35_conflict_refund_reconcile_failed", {
+      code: error ? (/^([A-Z0-9_]+):/.exec(error.message ?? "")?.[1] ?? "rpc_error") : outcome ? "settlement_conflict" : "empty_result",
+    });
+    await notifyStudioOfPublicPurchaseRefundIssue({
+      studioId: hold.studio_id,
+      holdId: hold.id,
+      appointmentId: hold.appointment_id,
+      dancerName: [hold.dancer_first_name, hold.dancer_last_name].filter(Boolean).join(" "),
+      amountLabel: formatUsdCents(params.amountCents),
+      issue: "refund_not_recorded",
+    });
+    throw new Error("gc35_conflict_refund_reconcile_failed");
   }
 }
 

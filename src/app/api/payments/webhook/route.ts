@@ -34,10 +34,6 @@ import { resolveEventEmailBranding } from "@/lib/notifications/event-email-brand
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
 import { assertMembershipReferencesBelongToStudio } from "@/lib/payments/membershipReferenceOwnership";
 import { handleGroupClassPurchaseCheckout } from "@/lib/payments/groupClassPurchaseWebhook";
-import {
-  GROUP_CLASS_PURCHASE_PAYMENT_TYPE,
-  applyGroupClassPurchaseRefundEffects,
-} from "@/lib/payments/groupClassPurchaseRefund";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -3058,7 +3054,7 @@ async function updatePaymentRefundByPaymentIntent(
 ) {
   const { data: payments, error: paymentsLookupError } = await supabase
     .from("payments")
-    .select("id, amount, stripe_account_id, payment_type")
+    .select("id, amount, stripe_account_id")
     .eq("stripe_payment_intent_id", paymentIntentId);
 
   if (paymentsLookupError) {
@@ -3075,30 +3071,6 @@ async function updatePaymentRefundByPaymentIntent(
     const totalAmount = Number(payment.amount ?? 0);
     const fullyRefunded = refundAmount >= totalAmount;
 
-    // GC-3.5-3: a Group Class direct-payment purchase (never package-linked). Record the refund with a monotonic CAS on
-    // 'paid' (the shared RPC below currently fails on a payment_status cast -- tracked separately -- and has no package
-    // to re-evaluate here), then apply the locked enrollment effects: full -> attendee cancelled + refunded (seat
-    // released), partial -> attendee payment 'partial', still booked. Both steps are idempotent.
-    if ((payment as { payment_type?: string | null }).payment_type === GROUP_CLASS_PURCHASE_PAYMENT_TYPE) {
-      const { error: gcPaymentError } = await supabase
-        .from("payments")
-        .update({
-          status: fullyRefunded ? "refunded" : "paid",
-          refund_amount: refundAmount,
-          refunded_at: new Date().toISOString(),
-          ...(stripeRefundId ? { stripe_refund_id: stripeRefundId } : {}),
-        })
-        .eq("id", payment.id)
-        .eq("status", "paid")
-        .lt("refund_amount", refundAmount);
-      if (gcPaymentError) {
-        throw new Error(gcPaymentError.message);
-      }
-      await applyGroupClassPurchaseRefundEffects(supabase, { paymentId: payment.id, fullyRefunded });
-      updated = true;
-      continue;
-    }
-
     // PKG-P1: CAS-guarded via _apply_payment_refund_and_reevaluate --
     // legal prior state is 'paid' only (confirmed by direct read: this
     // loop previously had NO status filter at all, so a refund event could
@@ -3106,6 +3078,9 @@ async function updatePaymentRefundByPaymentIntent(
     // re-evaluates and, if needed, deactivates the linked package in the
     // same transaction -- a full refund removing a package's only paid
     // basis must not leave it usable.
+    // REFUND-RECON-1: refundAmount is the CUMULATIVE refund; the RPC never
+    // lowers it, never erases a stored refund id, and applies the Group Class
+    // enrollment effect (GC-3.5) itself -- no per-payment-type branch here.
     const { data: refundResult, error: refundRpcError } = await supabase.rpc(
       "_apply_payment_refund_and_reevaluate",
       {
@@ -3263,23 +3238,40 @@ export async function handleStripeRefundUpdated(
 
   if (!resolvedPaymentIntentId || cumulativeRefundAmount <= 0) return false;
 
-  const paymentUpdated = await updatePaymentRefundByPaymentIntent(
-    supabase,
-    resolvedPaymentIntentId,
-    cumulativeRefundAmount,
-    stripeRefundId,
-    stripeAccountId,
-    stripeEventId,
-    stripeEventType,
-  );
+  // REFUND-RECON-1: payment-summary refund state only ever reflects money that
+  // was actually returned. A resolved charge's amount_refunded is authoritative
+  // (it already excludes failed/canceled refunds, so a reversal is never
+  // recorded as a refund); without it, a failed/canceled refund's own amount is
+  // not evidence of anything. The package ledger/reversal calls below still
+  // observe every status.
+  const refundReversed = refundEventStatus === "failed" || refundEventStatus === "canceled";
+  const summaryRefundAmount = resolvedCharge
+    ? centsToDollars(resolvedCharge.amount_refunded ?? 0)
+    : refundReversed
+      ? 0
+      : cumulativeRefundAmount;
 
-  const eventPaymentUpdated = await updateEventPaymentRefundByPaymentIntent(
-    supabase,
-    resolvedPaymentIntentId,
-    cumulativeRefundAmount,
-    stripeRefundId,
-    stripeAccountId,
-  );
+  const paymentUpdated = summaryRefundAmount > 0
+    ? await updatePaymentRefundByPaymentIntent(
+        supabase,
+        resolvedPaymentIntentId,
+        summaryRefundAmount,
+        stripeRefundId,
+        stripeAccountId,
+        stripeEventId,
+        stripeEventType,
+      )
+    : false;
+
+  const eventPaymentUpdated = summaryRefundAmount > 0
+    ? await updateEventPaymentRefundByPaymentIntent(
+        supabase,
+        resolvedPaymentIntentId,
+        summaryRefundAmount,
+        stripeRefundId,
+        stripeAccountId,
+      )
+    : false;
 
   // Package Refund P0, Slice 2c-1: refund.created/refund.updated (and
   // charge.refund.updated, which also routes through this same handler)
