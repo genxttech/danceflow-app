@@ -119,6 +119,10 @@ export function createOwnershipFakeSupabase(
         filters.push((row) => (row[column] ?? null) === value);
         return builder;
       },
+      lt: (column: string, value: unknown) => {
+        filters.push((row) => Number(row[column] ?? 0) < Number(value));
+        return builder;
+      },
       order: () => builder,
       limit: (count: number) => {
         limitCount = count;

@@ -34,6 +34,10 @@ import { resolveEventEmailBranding } from "@/lib/notifications/event-email-brand
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
 import { assertMembershipReferencesBelongToStudio } from "@/lib/payments/membershipReferenceOwnership";
 import { handleGroupClassPurchaseCheckout } from "@/lib/payments/groupClassPurchaseWebhook";
+import {
+  GROUP_CLASS_PURCHASE_PAYMENT_TYPE,
+  applyGroupClassPurchaseRefundEffects,
+} from "@/lib/payments/groupClassPurchaseRefund";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -3054,7 +3058,7 @@ async function updatePaymentRefundByPaymentIntent(
 ) {
   const { data: payments, error: paymentsLookupError } = await supabase
     .from("payments")
-    .select("id, amount, stripe_account_id")
+    .select("id, amount, stripe_account_id, payment_type")
     .eq("stripe_payment_intent_id", paymentIntentId);
 
   if (paymentsLookupError) {
@@ -3070,6 +3074,30 @@ async function updatePaymentRefundByPaymentIntent(
 
     const totalAmount = Number(payment.amount ?? 0);
     const fullyRefunded = refundAmount >= totalAmount;
+
+    // GC-3.5-3: a Group Class direct-payment purchase (never package-linked). Record the refund with a monotonic CAS on
+    // 'paid' (the shared RPC below currently fails on a payment_status cast -- tracked separately -- and has no package
+    // to re-evaluate here), then apply the locked enrollment effects: full -> attendee cancelled + refunded (seat
+    // released), partial -> attendee payment 'partial', still booked. Both steps are idempotent.
+    if ((payment as { payment_type?: string | null }).payment_type === GROUP_CLASS_PURCHASE_PAYMENT_TYPE) {
+      const { error: gcPaymentError } = await supabase
+        .from("payments")
+        .update({
+          status: fullyRefunded ? "refunded" : "paid",
+          refund_amount: refundAmount,
+          refunded_at: new Date().toISOString(),
+          ...(stripeRefundId ? { stripe_refund_id: stripeRefundId } : {}),
+        })
+        .eq("id", payment.id)
+        .eq("status", "paid")
+        .lt("refund_amount", refundAmount);
+      if (gcPaymentError) {
+        throw new Error(gcPaymentError.message);
+      }
+      await applyGroupClassPurchaseRefundEffects(supabase, { paymentId: payment.id, fullyRefunded });
+      updated = true;
+      continue;
+    }
 
     // PKG-P1: CAS-guarded via _apply_payment_refund_and_reevaluate --
     // legal prior state is 'paid' only (confirmed by direct read: this

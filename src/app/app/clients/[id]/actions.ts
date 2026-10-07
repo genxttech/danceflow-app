@@ -23,6 +23,10 @@ import {
   selectStoredStripeAccount,
 } from "@/lib/payments/paymentStripeAccount";
 import {
+  GROUP_CLASS_PURCHASE_PAYMENT_TYPE,
+  applyGroupClassPurchaseRefundEffects,
+} from "@/lib/payments/groupClassPurchaseRefund";
+import {
   createOrRefreshClientInvitation,
   disconnectClientAccount,
   linkExistingClientAccount,
@@ -1853,6 +1857,21 @@ export async function refundClientPaymentAction(formData: FormData) {
 
   if (updateError) {
     redirectWithResult(returnTo, "error", "refund_record_update_failed");
+  }
+
+  // GC-3.5-3 (locked refund behavior): a Group Class direct-payment purchase's enrollment follows its refund --
+  // full refund cancels the enrollment (seat released), partial refund keeps it booked with payment 'partial'.
+  if (payment.payment_type === GROUP_CLASS_PURCHASE_PAYMENT_TYPE) {
+    try {
+      await applyGroupClassPurchaseRefundEffects(adminSupabase, {
+        paymentId: payment.id,
+        fullyRefunded: nextStatus === "refunded",
+      });
+      revalidatePath("/app/schedule");
+    } catch {
+      console.error("gc35_staff_refund_enrollment_update_failed");
+      redirectWithResult(returnTo, "error", "refund_enrollment_update_failed");
+    }
   }
 
   revalidatePath(`/app/clients/${clientId}`);

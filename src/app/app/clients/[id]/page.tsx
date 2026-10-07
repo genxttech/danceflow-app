@@ -1909,6 +1909,13 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "refund_enrollment_update_failed") {
+    return {
+      kind: "error" as const,
+      message: "The payment was refunded, but DanceFlow could not update the class enrollment. Check the class roster and update the enrollment.",
+    };
+  }
+
   if (search.error === "refund_record_update_failed") {
     return {
       kind: "error" as const,
