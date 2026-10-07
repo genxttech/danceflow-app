@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-07 (roadmap v2.16: Phase 6 — GC-3.4 COMPLETE / CLOSED — GC-3.4A, GC-3.4B and GC-3.4C released; GC-3.5 (Phase 7, direct payment) next and not started; Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
+**Last updated:** 2026-10-07 (roadmap v2.17: Phase 7 — GC-3.5 Direct-payment Group Class enrollment COMPLETE / CLOSED and released; Phase 8 — Documents Center completion next; Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,13 +10,13 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `e39fa4a694858cba00c39026f4a55e5d00dc5143` (GC-3.4C, PR #176; tree `af05f7d8f4aab025b606ab3607b50154f7eb3d58`; migration `20261025090000_gc34c_self_enroll_started_class_guard.sql` applied to PROD before the application release; 4199 / 4199 tests). Live application: `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh` (GC-3.4C; rollback `dpl_HssyAtYo8dBm8PjAoFZnAbzJCuo2`, application first, then the SQL rollback only if needed). The docs-only commits that record this lag it by one commit each time |
-| **CURRENT PROD DEPLOYMENT** | `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh` (source `e39fa4a694858cba00c39026f4a55e5d00dc5143`; GC-3.4C live on `www.idanceflow.com` and `idanceflow.com`; promoted 2026-10-07 00:22:11–00:22:16 UTC; signed-out production smoke passed, authenticated production smoke omitted under the established production safety policy; class-specific signed-out smoke not exercisable because production has 0 public Group Classes). PROD `self_enroll_class_attendee` fingerprint `c5edafd4915060533faca30a9376e2d2` (migration applied 2026-10-07 00:11:41–00:11:45 UTC; rollback available, unused). Previous production deployment and rollback target: `dpl_HssyAtYo8dBm8PjAoFZnAbzJCuo2` (GC-3.4B-1, source `9f74439cc05e6d8b1ee021d495238c6673df8937`). Docs-only commits change no runtime and are not deployed |
+| **CURRENT MAIN** | `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (GC-3.5-3, PR #182; tree `5b470d4644c761ee7688e24008c775ef12e12209`; GC-3.5-2, REFUND-RECON-1 and REFUND-RECON-2 migrations applied to PROD and verified before the application release; 4417 / 4417 tests). Live application: `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw` (GC-3.5; application rollback `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`; the SQL rollbacks are separate decisions). The docs-only commits that record this lag it by one commit each time |
+| **CURRENT PROD DEPLOYMENT** | `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw` (source `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854`; GC-3.5 live on `www.idanceflow.com` and `idanceflow.com`; promoted 2026-10-07 23:37:05–23:37:15 UTC; public smoke clean; authenticated production smoke omitted under the established production safety policy; class-specific `/register` not exercisable because production has no upcoming public Group Classes). PROD refund RPC `_apply_payment_refund_and_reevaluate` fingerprint `6867f57dca8ae457c04cf557c21420e7`. Previous production deployment and application rollback target: `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh` (GC-3.4C, source `e39fa4a694858cba00c39026f4a55e5d00dc5143`). Docs-only commits change no runtime and are not deployed |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
 | **PRIMARY REPO LINK** | DEV |
 | **NON-TWILIO LAUNCH STATUS** | READY / CLOSED; no new launch blocker from BR-4, BR-5 or ENT-1 |
-| **PENDING PROD MIGRATIONS** | None. ENT-1 migration `20261013090000_ent1_usage_allowance_reservations.sql` was applied to PROD 2026-10-03 23:01:22–23:01:24Z (isolated scratch workdir, exit 0) and verified before the application deployment |
+| **PENDING PROD MIGRATIONS** | None. Most recent: GC-3.5-2 `20261026090000_gc352_public_class_purchase_holds.sql`, REFUND-RECON-1 `20261027090000_refund_reconciliation_integrity.sql` and REFUND-RECON-2 `20261028090000_refund_reconciliation_timestamp_integrity.sql`, each applied to PROD on 2026-10-07 from an isolated workdir after a clean read-only preflight and verified before the GC-3.5 application release (no historical remediation required) |
 | **PACKAGE REFUND HOLD** | Released / `false` |
 | **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified outside the Twilio operational dependency |
 | **KNOWN HYGIENE DEBT** | pre-existing lint errors in some public pages (not introduced by BR-4, BR-5 or ENT-1); they keep the changed-file lint step in CI red when those files are touched. Bounded UI polish bug: New Client page shows a literal newline marker (`/n`, from literal `\n` text in the JSX around the "Personal details" and "Client photo" sections of `src/app/app/clients/new/page.tsx`) where a line break / layout break was intended. Fix: replace the visible marker with the intended newline, spacing or layout and verify the New Client page renders cleanly. Small UI/polish bug, not a redesign; not a launch blocker. |
@@ -198,13 +198,42 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 - **Errors:** outcomes map to plain messages shared with the portal; no raw database errors surface.
 - **Entitlements:** package debit timing is unchanged (attendance-time; nothing is reserved). Decision #10 remains open.
 
-**GC-3.4 slice status:** **Phase 6 — GC-3.4 Public discovery and account linking — is COMPLETE / CLOSED (2026-10-07). GC-3.4A RELEASED / COMPLETE; GC-3.4B COMPLETE / CLOSED (GC-3.4B-0 and GC-3.4B-1); GC-3.4C RELEASED / COMPLETE.** Completed boundaries: **GC-3.4A** — public, read-only Group Class discovery; **GC-3.4B** — authentication, verified identity, safe client/account linking and authorized dancer resolution; **GC-3.4C** — authoritative non-payment Group Class self-enrollment. **GC-3.5 — direct-payment public Group Class enrollment (Phase 7) — is NEXT / NOT STARTED;** payment was not folded into GC-3.4C, and no Stripe checkout, seat holds, webhooks or reconciliation exist in GC-3.4. Public Discovery notification rule: GC-3.4C implements it for public Group Class self-enrollment (dancer confirmation + studio operational notice, only after an authoritative successful enrollment, existing recipient policy, no false payment wording). Decision #10 (depleted-credit behavior) remains OPEN: a package must have remaining > 0 at enrollment and is debited at attendance, nothing is reserved, so future enrollments can exceed eventual attendance credits. Legacy Events remain active and separate.
+**GC-3.4 slice status:** **Phase 6 — GC-3.4 Public discovery and account linking — is COMPLETE / CLOSED (2026-10-07). GC-3.4A RELEASED / COMPLETE; GC-3.4B COMPLETE / CLOSED (GC-3.4B-0 and GC-3.4B-1); GC-3.4C RELEASED / COMPLETE.** Completed boundaries: **GC-3.4A** — public, read-only Group Class discovery; **GC-3.4B** — authentication, verified identity, safe client/account linking and authorized dancer resolution; **GC-3.4C** — authoritative non-payment Group Class self-enrollment. **GC-3.5 — direct-payment public Group Class enrollment (Phase 7) — is NEXT / NOT STARTED;** payment was not folded into GC-3.4C, and no Stripe checkout, seat holds, webhooks or reconciliation exist in GC-3.4. Public Discovery notification rule: GC-3.4C implements it for public Group Class self-enrollment (dancer confirmation + studio operational notice, only after an authoritative successful enrollment, existing recipient policy, no false payment wording). Decision #10 (depleted-credit behavior) remains OPEN: a package must have remaining > 0 at enrollment and is debited at attendance, nothing is reserved, so future enrollments can exceed eventual attendance credits. Legacy Events remain active and separate. *(Superseded by the GC-3.5 closeout below: GC-3.5 is COMPLETE / CLOSED and released.)*
 
 **Deferred GC-3.4B identity items (bounded; not automatic GC-3.5 blockers; any SQL needs its own explicit gate):** database/RPC treatment of duplicate open self invitations for one email in one studio; clearing the invitation token hash on the login-time claim; stronger rate limiting than the current in-memory mechanism.
 
 **Inactive-client portal access (bounded follow-up):** A client marked inactive while an existing linked portal relationship remains active may retain portal access under the current portal authorization model. This predates GC-3.4B-1, was not introduced by GC-3.4B, and is a separate product/security policy decision: not a GC-3.4C blocker and not remediated here. Under current canonical rules such a client, with a still-active booking-authorized relationship, may also self-enroll (GC-3.4C did not change this; a separate product/security policy decision, not an automatic GC-3.5 blocker).
 
 **Legacy SQL test debt:** Known test debt (pre-existing, not repaired in GC-3.4): the legacy SQL suites gc1_1, gc1_2, gc1_4a, gc3_1 and gc3_2 fail during instructor-assignability fixture setup (guard added in #83); they do not invoke the GC-3.4C function.
+
+**GC-3.5 (Phase 7 — direct-payment Group Class enrollment) — COMPLETE / CLOSED and RELEASED (2026-10-07).**
+
+- **GC-3.5-1** (staff direct-payment policy controls): merged, PR #178 `ee3f3930842535b5421a38b3c604eceee20206ee`. No SQL.
+- **GC-3.5-2** (acquisition holds / database authority): merged, PR #179 `c12169f87226fe33333e1c668510d467c4485bcc`. PROD SQL live.
+- **REFUND-RECON-1** (canonical refund reconciliation integrity): merged, PR #180 `0e003530b91af40083785f108965a94fad3bbeaf`. PROD SQL live.
+- **REFUND-RECON-2** (refund timestamp / accounting integrity): merged, PR #181 `e7590dfb54eec7d37b0442e7dc391b0cdcc5a057`. PROD SQL live.
+- **GC-3.5-3** (public paid registration application): merged, PR #182 `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854`. Production deployment `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw`, promoted 2026-10-07. Public smoke clean. Authenticated production smoke was intentionally omitted because prior production read-only verification attempts resulted in secret/key exposure. Authenticated behavior was instead validated in DEV/local before release.
+
+**Released capability:**
+- Unlinked verified users can register and pay for public Group Classes. Self-registration only, with no email auto-link to existing studio clients. Linked students stay on the Student Portal / credit path.
+- Database-backed seat holds; Stripe Checkout on the studio's connected account; webhook-authoritative settlement.
+- An active studio client, a self relationship and the attendee are created only after a successful paid finalization. A dancer confirmation and one studio public-acquisition notification follow settlement.
+- A safe conflict refund path.
+- Canonical refund reconciliation for Stripe-originated, staff and conflict refunds, with full, partial and post-attendance handling.
+- Refund timestamp / accounting integrity.
+
+**Release note (not a blocker):** at production smoke time PROD had no upcoming public Group Classes, so a real class-specific `/register` flow could not be exercised in production. Public routes and invalid-input handling were smoke-tested; transaction behavior was previously validated in DEV/local; no production class was fabricated for the smoke.
+
+**Tracked follow-ups (not resolved by GC-3.5):**
+- PKG-REFUND-2 still depends on `refund.created` timing.
+- Raw RPC error text is stored in `payment_provider_events`.
+- DEV `accounting_upsert_entry` drift: DEV-only variant; the repository and PROD are canonical.
+- The floor-rental pending-payment index exists on DEV but not PROD.
+- Portal-only / member-only Group Classes remain unsupported.
+- "This and following" direct-payment propagation remains unsupported.
+- `payment_provider_events` dedupe is not database-atomic.
+- Seven legacy SQL-suite failures: gc1_1, gc1_2, gc1_4a, gc3_1, gc3_2, h2c1, launchsec1ca.
+- Decision #10 (depleted-credit behavior) remains OPEN.
 
 ### Public-claim restrictions (still in force for BR-6 onward)
 - No meaningful Featured Events promotion claim; avoid "Featured" language beyond implemented behavior.
@@ -237,4 +266,4 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 
 ## NEXT GATE
 
-None for ENT-1 (closed). BR-6 resumes when the professional ARIA voice recording arrives. Phase 5 is COMPLETE / CLOSED. Phase 6 (GC-3.4 Public discovery and account linking) is COMPLETE / CLOSED: GC-3.4A (read-only discovery), GC-3.4B (identity and linking) and GC-3.4C (non-payment self-enrollment) are released. The next engineering item is Phase 7 — GC-3.5 direct-payment public Group Class enrollment (NOT STARTED). Remaining Phase 4 work waits on open decision #8.
+None for ENT-1 (closed). BR-6 resumes when the professional ARIA voice recording arrives. Phase 5 and Phase 6 (GC-3.4) are COMPLETE / CLOSED. Phase 7 (GC-3.5 direct-payment Group Class enrollment) is COMPLETE / CLOSED and released (GC-3.5-1, GC-3.5-2, REFUND-RECON-1, REFUND-RECON-2 and GC-3.5-3). The next roadmap phase is Phase 8 — Documents Center completion (SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS). Remaining Phase 4 work waits on open decision #8.

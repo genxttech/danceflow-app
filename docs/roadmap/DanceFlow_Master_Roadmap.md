@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v2.16 |
-| **Last reconciled against main** | `e39fa4a694858cba00c39026f4a55e5d00dc5143` (GC-3.4C public Group Class self-enrollment, PR #176; migration `20261025090000` applied to PROD and verified before the application release). Live application `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh` (GC-3.4C); the docs-only closeout that records this lags it by one commit |
+| **Roadmap version** | v2.17 |
+| **Last reconciled against main** | `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (GC-3.5-3 public Group Class paid registration, PR #182; GC-3.5-2, REFUND-RECON-1 and REFUND-RECON-2 SQL applied to PROD and verified before the application release). Live application `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw` (GC-3.5); the docs-only closeout that records this lags it by one commit |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
 | **Current external dependency** | Twilio / per-studio A2P campaign review and ConfiDance setup |
 | **Current recommended next roadmap phase** | Phase 3 — Branding Relaunch: BR-4 is LIVE; BR-5 is MERGED (PR #137); BR-6 — Promotional Media is active but parked awaiting the professional ARIA voice recording. Product work continues in parallel with Phase 4: ENT-1 (email-campaign recipient allowance) is RELEASED (PR #138, live) |
@@ -85,8 +85,8 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 | 4 | Remaining entitlement foundation | PARTIAL — MATERIAL WORK REMAINS |
 | 5 | Group Class canonical foundation | COMPLETE / CLOSED (items carried forward are listed in Phase 5) |
 | 6 | GC-3.4 — Public discovery and account linking | COMPLETE / CLOSED (GC-3.4A, GC-3.4B and GC-3.4C released) |
-| 7 | GC-3.5 — Direct-payment Group Class enrollment | NOT STARTED — NEXT |
-| 8 | Documents Center completion | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS |
+| 7 | GC-3.5 — Direct-payment Group Class enrollment | COMPLETE / CLOSED (GC-3.5-1, GC-3.5-2, REFUND-RECON-1, REFUND-RECON-2 and GC-3.5-3 released) |
+| 8 | Documents Center completion | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT |
 | 9 | Payroll Prep v1 | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS |
 | 10 | Organizer + Competition OS | PARTIAL — MATERIAL WORK REMAINS |
 | 11 | Messaging / Notification platform completion | PARTIAL — MATERIAL WORK REMAINS |
@@ -612,47 +612,82 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 - **Errors:** outcomes map to plain messages shared with the portal; no raw database errors surface.
 - **Entitlements:** package debit timing is unchanged (attendance-time; nothing is reserved). Decision #10 remains open.
 
-**GC-3.4 slice status:** **Phase 6 — GC-3.4 Public discovery and account linking — is COMPLETE / CLOSED (2026-10-07). GC-3.4A RELEASED / COMPLETE; GC-3.4B COMPLETE / CLOSED (GC-3.4B-0 and GC-3.4B-1); GC-3.4C RELEASED / COMPLETE.** Completed boundaries: **GC-3.4A** — public, read-only Group Class discovery; **GC-3.4B** — authentication, verified identity, safe client/account linking and authorized dancer resolution; **GC-3.4C** — authoritative non-payment Group Class self-enrollment. **GC-3.5 — direct-payment public Group Class enrollment (Phase 7) — is NEXT / NOT STARTED;** payment was not folded into GC-3.4C, and no Stripe checkout, seat holds, webhooks or reconciliation exist in GC-3.4. Public Discovery notification rule: GC-3.4C implements it for public Group Class self-enrollment (dancer confirmation + studio operational notice, only after an authoritative successful enrollment, existing recipient policy, no false payment wording). Decision #10 (depleted-credit behavior) remains OPEN: a package must have remaining > 0 at enrollment and is debited at attendance, nothing is reserved, so future enrollments can exceed eventual attendance credits. Legacy Events remain active and separate.
+**GC-3.4 slice status:** **Phase 6 — GC-3.4 Public discovery and account linking — is COMPLETE / CLOSED (2026-10-07). GC-3.4A RELEASED / COMPLETE; GC-3.4B COMPLETE / CLOSED (GC-3.4B-0 and GC-3.4B-1); GC-3.4C RELEASED / COMPLETE.** Completed boundaries: **GC-3.4A** — public, read-only Group Class discovery; **GC-3.4B** — authentication, verified identity, safe client/account linking and authorized dancer resolution; **GC-3.4C** — authoritative non-payment Group Class self-enrollment. **GC-3.5 — direct-payment public Group Class enrollment (Phase 7) — is NEXT / NOT STARTED;** payment was not folded into GC-3.4C, and no Stripe checkout, seat holds, webhooks or reconciliation exist in GC-3.4. Public Discovery notification rule: GC-3.4C implements it for public Group Class self-enrollment (dancer confirmation + studio operational notice, only after an authoritative successful enrollment, existing recipient policy, no false payment wording). Decision #10 (depleted-credit behavior) remains OPEN: a package must have remaining > 0 at enrollment and is debited at attendance, nothing is reserved, so future enrollments can exceed eventual attendance credits. Legacy Events remain active and separate. *(Superseded by the Phase 7 closeout: GC-3.5 is COMPLETE / CLOSED and released; Phase 8 is next.)*
 
 ---
 
 ## Phase 7 — GC-3.5 Direct-payment Group Class enrollment
 
-**STATUS:** NOT STARTED — NEXT (Phase 6 closed 2026-10-07)
+**STATUS:** COMPLETE / CLOSED (2026-10-07; released to production). GC-3.5-1, GC-3.5-2, REFUND-RECON-1, REFUND-RECON-2 and GC-3.5-3 are merged and released. Next: Phase 8 — Documents Center completion.
 
 **OBJECTIVE:** Students pay directly (Stripe) to enroll in a group class, with seat holds and reconciliation.
 
 **PRODUCT INTENT:** A class enrollment checkout that cannot oversell or leave orphaned payments.
 
-**COMPLETED CAPABILITIES:** None currently identified (payment ownership and webhook patterns from the PAY-DC series exist and should be reused).
+**COMPLETED CAPABILITIES (released)**
+- An unlinked, verified customer can register and pay online for a public Group Class. Self-registration only; no parent/dependent acquisition; no email auto-link to existing studio clients and no disclosure of one. Students already linked to the studio stay on the GC-3.4C Student Portal / credit path.
+- Database-backed seat holds: one active hold per purchaser and class, with an authoritative server-snapshotted price; live holds count toward capacity and the final seat is decided by the database.
+- Stripe Checkout on the studio's connected account (direct charge, no platform fee, USD, card only), attached to the hold before redirect; double-clicks reuse one Checkout path.
+- Webhook-authoritative settlement. Account, session, PaymentIntent, amount and currency are verified against the hold, and browser return is display-only. A successful paid finalization creates the active studio client, the self relationship and the attendee.
+- After settlement, one dancer confirmation ("Paid online") and one studio public-acquisition notification are sent.
+- Conflicts (class full, cancelled, started, hold released or expired) create no client or attendee. They are refunded once, automatically, on the same connected account, and the durable conflict is kept. Refund-failure and refund-not-recorded staff notices are separate and deduplicated.
+- Canonical refund reconciliation: every refund (Stripe-originated, staff-issued or checkout-conflict) reaches its business effects through `_apply_payment_refund_and_reevaluate`:
+  - package settlement re-evaluation;
+  - full Group Class refund before attendance cancels the enrollment and releases the seat;
+  - partial refund keeps the dancer booked with payment status `partial`;
+  - full refund after attendance or no-show records the refund and preserves history.
+- Refund timestamp / accounting integrity: the RPC sets `refunded_at` when refund progress is applied, so the refund accounting entry lands in the refund period.
+- When a refund event's Charge cannot be retrieved, only a Stripe refund with status `succeeded` is reconciled.
 
-**REMAINING DELIVERABLES:** Seat-hold schema and RPCs with expiry; Stripe checkout for class enrollment; webhook finalization and release; reconciliation; tests.
+**REMAINING DELIVERABLES:** None for Phase 7. Follow-ups are listed under DEFERRED / POST-LAUNCH ITEMS below.
 
-**LOCKED DECISIONS:** Payments follow the established connected-account ownership model (PAY-DC).
+**LOCKED DECISIONS:** Payments follow the established connected-account ownership model (PAY-DC). Public paid registration is self-registration only, with no email auto-link. The webhook is the only settlement authority. All refund business effects run through the canonical refund reconciliation RPC, which also owns `refunded_at`.
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Hold duration and release rules; interplay with depleted-credit behavior.
+**UNRESOLVED PRODUCT DECISIONS:** Hold duration and release rules were resolved in GC-3.5-2:
+- 30-minute hold;
+- a Checkout window that never exceeds the database's attach limit;
+- a 10-minute reconciliation grace after hold expiry;
+- a late payment becomes a refunded conflict.
+
+Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not consume package credits.
 
 **DEPENDENCIES:** Phase 5, Phase 6.
 
-**WEB IMPLICATIONS:** Checkout and confirmation UX.
+**WEB IMPLICATIONS:** Checkout and confirmation UX (`/register` shows the price, "Confirming your payment…" on return, registered state only after authoritative conversion).
 
 **MOBILE IMPLICATIONS:** Mobile PaymentSheet is a deferred item (see register).
 
-**SECURITY / PERMISSIONS CONSIDERATIONS:** Payment identity, idempotency and reconciliation need a dedicated Security Review.
+**SECURITY / PERMISSIONS CONSIDERATIONS:** The dedicated payment/security review was completed before release. It covered price, tenant and account authority, session and PaymentIntent binding, refund replay, failed or pending refund events, staff double refund, identity boundaries and redirects.
 
 **BRANDING / POLISH CONSIDERATIONS:** Studio-named merchant identity per PAY-DC-3.
 
-**DEFERRED / POST-LAUNCH ITEMS:** None currently identified.
+**DEFERRED / POST-LAUNCH ITEMS (tracked; not resolved by GC-3.5):**
+- The PKG-REFUND-2 package-credit ledger for staff refunds depends on `refund.created` webhook timing.
+- The Stripe webhook stores raw RPC error text in `payment_provider_events`.
+- `payment_provider_events` dedupe is not database-atomic.
+- DEV `accounting_upsert_entry` drift: an untracked DEV-only variant; the repository and PROD are canonical.
+- The floor-rental pending-payment index exists on DEV but not PROD.
+- Portal-only / member-only Group Classes remain unsupported.
+- "This and following" edits do not propagate direct-payment settings.
+- Seven legacy SQL-suite failures: gc1_1, gc1_2, gc1_4a, gc3_1, gc3_2, h2c1, launchsec1ca.
+- Depleted-credit behavior (decision #10) remains OPEN.
 
-**EVIDENCE / RELEASE REFERENCES:** No class-enrollment checkout or seat-hold objects found.
+**EVIDENCE / RELEASE REFERENCES**
+- **GC-3.5-1** — staff direct-payment policy controls: PR #178, squash `ee3f3930842535b5421a38b3c604eceee20206ee`. No SQL.
+- **GC-3.5-2** — acquisition holds / database authority: PR #179, squash `c12169f87226fe33333e1c668510d467c4485bcc`. Migration `20261026090000_gc352_public_class_purchase_holds.sql` (sha256 `2eae4da2879e22812a416c1e24ba81624c96dfd86fcb4b1d537ac7971264934c`) is live on PROD.
+- **REFUND-RECON-1** — canonical refund reconciliation integrity: PR #180, squash `0e003530b91af40083785f108965a94fad3bbeaf`. Migration `20261027090000_refund_reconciliation_integrity.sql` (sha256 `d2ad6bf3b74109b061bbe1da1f857b64fc50f7b4c83ed2f323cccb42117b53e1`) is live on PROD. Preflight found 0 historical stale refunds, so no remediation was needed.
+- **REFUND-RECON-2** — refund timestamp / accounting integrity: PR #181, squash `e7590dfb54eec7d37b0442e7dc391b0cdcc5a057`. Migration `20261028090000_refund_reconciliation_timestamp_integrity.sql` (sha256 `7c54e68497d2d3cc637c9775412b35e54c692db4e29030cdd74ef5b4d47ab6e3`) is live on PROD; the PROD refund RPC fingerprint is `6867f57dca8ae457c04cf557c21420e7`. Preflight found 0 affected rows, so no remediation was needed.
+- **GC-3.5-3** — public paid registration application: PR #182, squash `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (tree `5b470d4644c761ee7688e24008c775ef12e12209`). Production deployment `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw`, promoted 2026-10-07 (23:37:05–23:37:15 UTC). Application rollback target `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`; the SQL rollbacks are separate decisions. 4417 / 4417 tests.
+- **Production smoke:** public smoke clean. Authenticated production smoke was intentionally omitted because prior production read-only verification attempts resulted in secret/key exposure. Authenticated behavior was instead validated in DEV/local before release.
+- **Release note (not a blocker):** at smoke time PROD had no upcoming public Group Classes, so a real class-specific `/register` flow could not be exercised in production. Public routes and invalid-input handling were smoke-tested, transaction behavior was validated in DEV/local (including Stripe test mode), and no production class was fabricated for the smoke.
 
 ---
 
 ## Phase 8 — Documents Center completion
 
-**STATUS:** SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS
+**STATUS:** SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT (Phase 7 closed 2026-10-07)
 
 **OBJECTIVE:** Complete document operations: revise/resend, client and general documents, waivers, signing lifecycle, certificates, receipts, branding and status UX within tier boundaries.
 
@@ -1464,6 +1499,7 @@ None of these becomes immediate roadmap work without an explicit decision. Do no
 - G2
 - Add-on GET → POST
 - Raw RPC error text in commerce actions
+- Raw RPC error text stored in `payment_provider_events` by the Stripe webhook (GC-3.5 follow-up)
 - Shared CSV helper does not neutralize formula-leading cells (payroll export does; accountant-delivery CSVs unverified)
 - Redundant PROD deduction-errors index cleanup
 
@@ -1477,9 +1513,13 @@ None of these becomes immediate roadmap work without an explicit decision. Do no
 - Confirm-route push
 - Seller payouts / revenue split for the marketplace
 - Mobile PaymentSheet
+- PKG-REFUND-2 package-credit ledger for staff refunds depends on `refund.created` webhook timing (GC-3.5 follow-up)
+- `payment_provider_events` dedupe is not database-atomic (GC-3.5 follow-up)
 
 **Product decisions / future work**
 - Group-class depleted-credit behavior (#10)
+- Portal-only / member-only Group Classes (unsupported; GC-3.5 follow-up)
+- "This and following" edits do not propagate Group Class direct-payment settings (GC-3.5 follow-up)
 - Floor-rental studio-authoritative pricing/approval redesign
 - Public waitlist
 - Featured Events governing/business model
@@ -1489,6 +1529,9 @@ None of these becomes immediate roadmap work without an explicit decision. Do no
 **Engineering hygiene**
 - Repo-wide lint debt: about 293 errors and 378 warnings pre-exist (CI lints changed files only). Not a launch blocker.
 - **New Client page `/n` display bug (bounded UI polish):** New Client page shows a literal newline marker (`/n`, from literal `\n` text in the JSX around the "Personal details" and "Client photo" sections of `src/app/app/clients/new/page.tsx`) where a line break / layout break was intended. Fix: replace the visible marker with the intended newline, spacing or layout and verify the New Client page renders cleanly. Small UI/polish bug, not a redesign; not a launch blocker.
+- **DEV `accounting_upsert_entry` drift:** DEV runs an untracked variant (md5 `a2779c25219dc8fd50a781985e6909db`); the repository and PROD are canonical (`548b512c2cf4ca3534ff2541594a1c7c`). Take migration precondition pins from the repository, not the DEV catalog. Repair in its own gate.
+- **Floor-rental index drift:** `payments_floor_rental_pending_studio_client_key` exists on DEV but not PROD. Investigate in its own gate.
+- **Legacy SQL-suite failures (seven, pre-existing):** gc1_1, gc1_2, gc1_4a, gc3_1, gc3_2 (instructor-assignability fixture setup), h2c1 and launchsec1ca. Not repaired in GC-3.5.
 
 ---
 
@@ -1534,6 +1577,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-07 | v2.17 | GC-3.5 canonical closeout (docs only). **Phase 7 — GC-3.5 Direct-payment Group Class enrollment — COMPLETE / CLOSED and released.** GC-3.5-1 (staff direct-payment policy controls) PR #178 `ee3f3930842535b5421a38b3c604eceee20206ee`, no SQL. GC-3.5-2 (acquisition holds / database authority) PR #179 `c12169f87226fe33333e1c668510d467c4485bcc`, migration `20261026090000` live on PROD. REFUND-RECON-1 (canonical refund reconciliation integrity) PR #180 `0e003530b91af40083785f108965a94fad3bbeaf`, migration `20261027090000` live on PROD. REFUND-RECON-2 (refund timestamp / accounting integrity) PR #181 `e7590dfb54eec7d37b0442e7dc391b0cdcc5a057`, migration `20261028090000` live on PROD (refund RPC `6867f57dca8ae457c04cf557c21420e7`). GC-3.5-3 (public paid registration application) PR #182 `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (tree `5b470d4644c761ee7688e24008c775ef12e12209`), production `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw`, promoted 2026-10-07, application rollback `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`. 4417 / 4417 tests. Public smoke clean; authenticated production smoke omitted under the established policy; class-specific `/register` not exercisable in production (no upcoming public Group Classes; none fabricated). Released: verified, unlinked self-registration and payment for public Group Classes (no email auto-link; linked students stay on the portal/credit path), database seat holds, studio-connected Stripe Checkout, webhook-authoritative settlement creating client + self link + attendee, dancer and studio notifications after settlement, safe conflict refunds, canonical refund reconciliation for every refund path (full, partial and post-attendance handling) and refund timestamp/accounting integrity. Follow-ups tracked in the deferred register: PKG-REFUND-2 `refund.created` timing, raw RPC error text in `payment_provider_events`, non-atomic event dedupe, DEV `accounting_upsert_entry` drift, DEV-only floor-rental index, portal-only/member-only classes, "This and following" direct-payment propagation, seven legacy SQL-suite failures. Decision #10 open. **Next: Phase 8 — Documents Center completion.** Twilio and BR-6 unchanged. |
 | 2026-10-07 | v2.16 | GC-3.4 canonical closeout (docs only): GC-3.4C PR #176 squash `e39fa4a694858cba00c39026f4a55e5d00dc5143` (tree `af05f7d8f4aab025b606ab3607b50154f7eb3d58`, identical to the reviewed candidate), qfem `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`, application rollback `dpl_HssyAtYo8dBm8PjAoFZnAbzJCuo2` (application first, then SQL if needed). Migration `20261025090000_gc34c_self_enroll_started_class_guard.sql` (sha256 `ac5f9aaa0f9c7d252a87467f1d039b9ebc595970fd276ec3ebb8847c16f9afc3`; rollback sha256 `aa16eae26412a4ad33e7ddee52ed80b6ecf2f6b16944caaccb5d16d6d2ea378f`) applied to PROD once after a clean read-only preflight; PROD function fingerprint `c5edafd4915060533faca30a9376e2d2`; no other function changed. 4199 / 4199 tests; GC-3.4C and gc3_3 SQL suites pass on DEV; signed-out production smoke passed; authenticated smoke omitted under the established policy; class-specific smoke not exercisable (0 public Group Classes in production). Authoritative non-payment public Group Class self-enrollment: auth-free class page, `/register` as the identity/enrollment boundary, server-side dancer reauthorization, canonical funding preview with authoritative revalidation, single source auto-selected and explicit choice otherwise, no-funding boundary with no payment, started and non-public classes refused by the database, database-authoritative capacity, idempotent duplicates with already-enrolled as success, post-commit idempotent dancer + studio notifications, no raw database errors. **Phase 6 — GC-3.4 — COMPLETE / CLOSED** (A read-only discovery; B identity and linking; C non-payment enrollment). **GC-3.5 (Phase 7, direct payment) NEXT / NOT STARTED.** Public Discovery notification rule implemented for public Group Class self-enrollment. Decision #10 open; inactive-client follow-up extended to self-enrollment (separate policy decision); legacy SQL test debt (gc1_1, gc1_2, gc1_4a, gc3_1, gc3_2) recorded; New Client `/n` polish item preserved; legacy Events active; Twilio and BR-6 unchanged. |
 | 2026-10-06 | v2.15 | GC-3.4B canonical closeout (docs only): GC-3.4B-1 PR #174 squash `9f74439cc05e6d8b1ee021d495238c6673df8937` (tree `6769eb33852688fd15826649b6db42f1262f05b8`, identical to the reviewed candidate), qfem `dpl_HssyAtYo8dBm8PjAoFZnAbzJCuo2`, rollback `dpl_ELwUfwoxJ8KWNfbJJ5yTkDtoK4mx` (application only), no SQL or migration, 4154 / 4154 tests. Public class identity and linking flow: auth-free public class page with one call-to-action into `/studios/{slug}/classes/{appointmentId}/register`; safe login return via `next`; canonical verified-email proof; staff-issued invitations only (never `clients.email`); one generic no-link / no-booking-authority state; Check again limited to the existing claim; single dancer auto-resolves, scoped chooser otherwise, dancer parameter revalidated server-side; Open Student Portal ready state with the portal authorizing independently; sign-in-again path for stale bound sessions; server-only scoped service-role reads; no enrollment, payment or SQL. Signed-out production smoke passed; authenticated smoke omitted under the established policy; class-specific signed-out smoke not exercisable (production has no public Group Classes). **GC-3.4B COMPLETE / CLOSED** (B-0 and B-1 released; B-0 facts preserved). **GC-3.4C NEXT / NOT STARTED** with the enrollment-write boundary recorded (enrollment mutation, entitlement consumption, capacity/concurrency, idempotency, studio notification, confirmation, security review; non-payment enrollment only). GC-3.5 future; identity deferrals preserved (no longer framed as GC-3.4B-1 blockers; not automatic GC-3.4C blockers); the pre-existing inactive-client portal-access behavior recorded as a separate policy follow-up; Public Discovery notification rule unchanged; decision #10 open; legacy Events active; GC-3.4 PARTIAL / ACTIVE; Twilio and BR-6 unchanged. Engineering hygiene: the New Client page literal `/n` display bug recorded as a bounded UI polish item. |
 | 2026-10-06 | v2.14 | GC-3.4B-0 release closeout (docs only): PR #172 squash `4a57883ca023355b2e7d0b7668b3002b0cc00b80` (tree `90dae827185447450c769d4951506cb66b5b6aa2`, identical to the reviewed candidate), qfem `dpl_ELwUfwoxJ8KWNfbJJ5yTkDtoK4mx`, rollback `dpl_89h8nJfgm8GoTEtEKXS8ZeU8dWJF` (application only), no SQL or migration. Identity-linking security prerequisite completed before any public identity flow: verified-email proof required for invitation accept/reject; mismatched or unverified token holders cause no invitation mutation; the historical staff conflict-resolution authorization defect fixed with the staff-issued relationship type preserved; unrelated invitation intents preserved and another mailbox's pending invitation row never reused; invitation-claim failures no longer block sign-in and never synthesize authorization; handled invitation tokens render generically; raw database errors not surfaced; redirect handling corrected. Historical aggregate PROD posture check clean (zero linked non-self relationships, zero apparent mismatches; no remediation). Signed-out production smoke passed; authenticated production smoke omitted under the established policy. GC-3.4B owner decisions recorded (staff-issued invitations only, never `clients.email`; one generic unlinked state; no self-created clients or public guardian relationships; existing studio page for contact; no persisted connection requests) and the approved GC-3.4B-1 direction recorded; bounded identity deferrals recorded (duplicate self-invitation DB treatment, token clearing on login-time claim, stronger rate limiting). GC-3.4 PARTIAL / ACTIVE; GC-3.4A RELEASED / CLOSED; GC-3.4B PARTIAL / ACTIVE (B-0 released, B-1 next); GC-3.4C and GC-3.5 future; Public Discovery notification rule unchanged; decision #10 open; legacy Events active; Twilio and BR-6 unchanged. |
