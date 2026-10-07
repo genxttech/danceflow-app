@@ -5,7 +5,8 @@
 --
 --   1. Verifies the exact GC-3.5-2 definitions before touching anything.
 --   2. Restores the exact predecessor _group_class_roster_reserved_count
---      (booked attendees only; body md5 79777b57...), same owner/ACL.
+--      (booked attendees only; body md5 79777b57...) and the exact predecessor
+--      capacity-floor wording (body md5 5113dccb...), same owner/ACL.
 --   3. Drops the four GC-3.5-2 RPCs (start/attach/finalize/release).
 --   4. The holds table:
 --        * ZERO rows  -> dropped with its guard triggers/functions (never used).
@@ -32,7 +33,8 @@ begin
   select string_agg(want.sig, ', ') into v_drift
   from (values
     ('public._group_class_roster_reserved_count(uuid)', '6c3b2f2cb9642e991e1f4da0a7b35e4b'),
-    ('public.start_public_class_purchase(uuid,text,text,text)', '0412aa4dd5edb763bdd5456ea02207f6'),
+    ('public.enforce_group_class_capacity_floor()', 'cf224ee1267bb137093a12cf83fb62d6'),
+    ('public.start_public_class_purchase(uuid,text,text,text)', '5671e1002ec743d336b0aa4f08923a02'),
     ('public.attach_public_class_purchase_checkout(uuid,text,text,timestamp with time zone)', '868f6467473e2c93f957364133577b6f'),
     ('public.finalize_public_class_purchase(uuid,text,text,text,integer,text)', '07404efdc108a0dcd5fe38389ca6ebdf'),
     ('public.release_public_class_purchase(uuid)', '08f5e4508d6c37ac267266a751079aac'),
@@ -61,6 +63,38 @@ as $$
 $$;
 
 revoke all on function public._group_class_roster_reserved_count(uuid) from public, anon, authenticated, service_role;
+
+-- 2b. Exact predecessor capacity floor (gcsc3 wording, body md5 5113dccb...).
+create or replace function public.enforce_group_class_capacity_floor()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_reserved integer;
+begin
+  -- Only a LOWERING of a limit can strand booked students: clearing the limit or
+  -- raising it never can.
+  if new.roster_capacity is null
+     or (old.roster_capacity is not null and new.roster_capacity >= old.roster_capacity)
+  then
+    return new;
+  end if;
+
+  -- The UPDATE already holds this row's lock; enrollment takes the same lock before
+  -- it counts, so the count below cannot race a booking.
+  v_reserved := public._group_class_roster_reserved_count(new.id);
+
+  if v_reserved > new.roster_capacity then
+    raise exception 'GCSC3_CAPACITY_BELOW_BOOKED: Maximum students cannot be lower than the % students already booked.', v_reserved;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_group_class_capacity_floor() from public, anon, authenticated, service_role;
 
 -- 3. The RPCs.
 drop function public.start_public_class_purchase(uuid, text, text, text);
@@ -97,6 +131,17 @@ begin
       and (select string_agg(x::text, ',' order by x::text) from unnest(p.proacl) x) = 'postgres=X/postgres'
   ) then
     raise exception 'GC-3.5-2 rollback: reserved-count predecessor not restored exactly';
+  end if;
+  if not exists (
+    select 1 from pg_proc p
+    where p.oid = 'public.enforce_group_class_capacity_floor()'::regprocedure
+      and p.prosecdef
+      and pg_get_userbyid(p.proowner) = 'postgres'
+      and p.proconfig = array['search_path=public']
+      and md5(replace(p.prosrc, E'\r', '')) = '5113dccb533402311cf2cfbc9e179959'
+      and (select string_agg(x::text, ',' order by x::text) from unnest(p.proacl) x) = 'postgres=X/postgres'
+  ) then
+    raise exception 'GC-3.5-2 rollback: capacity-floor predecessor not restored exactly';
   end if;
   if exists (
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace

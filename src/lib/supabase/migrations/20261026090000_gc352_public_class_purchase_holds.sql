@@ -6,7 +6,8 @@
 -- class that accepts direct payment. This migration owns:
 --
 --   1. public.group_class_enrollment_holds -- seat hold + purchase record;
---   2. capacity: _group_class_roster_reserved_count also counts live holds;
+--   2. capacity: _group_class_roster_reserved_count also counts live holds
+--      (and the capacity-floor message now says "booked or reserved");
 --   3. start_public_class_purchase          (authenticated purchaser);
 --   4. attach_public_class_purchase_checkout (service_role only);
 --   5. finalize_public_class_purchase        (service_role only);
@@ -441,16 +442,52 @@ $$;
 
 revoke all on function public._group_class_roster_reserved_count(uuid) from public, anon, authenticated, service_role;
 
+-- Capacity floor: WORDING ONLY. Its count now includes live holds, so "students
+-- already booked" would be untrue. The machine code GCSC3_CAPACITY_BELOW_BOOKED,
+-- the trigger, the comparison and the lock discipline are unchanged; app
+-- parsers accept both the old and the new wording.
+create or replace function public.enforce_group_class_capacity_floor()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_reserved integer;
+begin
+  -- Only a LOWERING of a limit can strand booked students: clearing the limit or
+  -- raising it never can.
+  if new.roster_capacity is null
+     or (old.roster_capacity is not null and new.roster_capacity >= old.roster_capacity)
+  then
+    return new;
+  end if;
+
+  -- The UPDATE already holds this row's lock; enrollment takes the same lock before
+  -- it counts, so the count below cannot race a booking.
+  v_reserved := public._group_class_roster_reserved_count(new.id);
+
+  if v_reserved > new.roster_capacity then
+    raise exception 'GCSC3_CAPACITY_BELOW_BOOKED: Maximum students cannot be lower than the % seats already booked or reserved.', v_reserved;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_group_class_capacity_floor() from public, anon, authenticated, service_role;
+
 -- ============================================================================
 -- 3. START (authenticated purchaser)
 --
 -- Derives user, verified email, studio, policy and price on the server; takes
 -- only the class id and the dancer's name/phone. Reuse: a live held hold for
 -- the same class and user is returned UNCHANGED (same id, same expiry, same
--- snapshot) -- repeated calls never extend it. An expired hold is marked
--- 'released' and replaced, unless it has a Checkout attached and is still
--- inside the reconciliation grace (a payment may still settle): then
--- GC35_PAYMENT_PENDING.
+-- price and name snapshot) -- repeated calls never extend it, and later policy
+-- or price changes do not invalidate it (only class cancellation does). An
+-- expired hold is marked 'released' and replaced, unless it has a Checkout
+-- attached and is still inside the reconciliation grace (a payment may still
+-- settle): then GC35_PAYMENT_PENDING.
 -- ============================================================================
 create function public.start_public_class_purchase(
   p_appointment_id uuid,
@@ -499,20 +536,6 @@ begin
     raise exception 'GC35_EMAIL_UNVERIFIED: Verify your email address to register for this class.';
   end if;
 
-  if v_first is null or v_last is null
-     or char_length(v_first) > 100 or char_length(v_last) > 100
-     or v_first ~ '[[:cntrl:]]' or v_last ~ '[[:cntrl:]]' then
-    raise exception 'GC35_NAME_INVALID: Enter the dancer''s first and last name.';
-  end if;
-
-  if v_phone is not null and (
-       char_length(v_phone) > 32
-       or v_phone !~ '^[0-9+(). -]+$'
-       or char_length(regexp_replace(v_phone, '[^0-9]', '', 'g')) not between 7 and 15
-     ) then
-    raise exception 'GC35_PHONE_INVALID: Enter a valid phone number or leave it blank.';
-  end if;
-
   -- Lock the class row first (the roster-capacity trigger's lock): serializes
   -- holds against each other and against every enrollment path.
   select a.id, a.studio_id, a.appointment_type, a.status, a.starts_at, a.roster_capacity
@@ -521,11 +544,37 @@ begin
     where a.id = p_appointment_id
     for update;
 
+  if v_class.id is null
+     or v_class.appointment_type is distinct from 'group_class'::public.appointment_type then
+    raise exception 'GC35_CLASS_UNAVAILABLE: This class is not available for registration.';
+  end if;
+
+  -- Existing active hold for this class and purchaser.
+  select h.* into v_existing
+    from public.group_class_enrollment_holds h
+    where h.appointment_id = p_appointment_id
+      and h.purchaser_user_id = v_user_id
+      and h.status in ('held', 'converting')
+    for update;
+
+  -- REUSE (locked product decision): a live hold is a temporary offer at its
+  -- snapshotted price. Later policy, price, discoverability or relationship
+  -- changes do not invalidate it; only class cancellation (authoritative) does.
+  -- It is returned unchanged: same id, expiry, price and name snapshot.
+  if v_existing.id is not null and v_existing.status = 'held' and v_existing.expires_at > now() then
+    if v_class.status = 'cancelled'::public.appointment_status then
+      raise exception 'GC35_CLASS_CANCELLED: This class has been cancelled.';
+    end if;
+    return query select v_existing.id, v_existing.status, v_existing.amount_cents, v_existing.currency,
+      v_existing.expires_at, v_existing.stripe_checkout_session_id,
+      v_existing.dancer_first_name, v_existing.dancer_last_name, true;
+    return;
+  end if;
+
+  -- NEW HOLD: every eligibility rule is evaluated live, now.
   -- Not found, not a group class and not publicly discoverable are one answer:
   -- no existence signal for non-public classes.
-  if v_class.id is null
-     or v_class.appointment_type is distinct from 'group_class'::public.appointment_type
-     or not public.is_group_class_publicly_discoverable(p_appointment_id) then
+  if not public.is_group_class_publicly_discoverable(p_appointment_id) then
     raise exception 'GC35_CLASS_UNAVAILABLE: This class is not available for registration.';
   end if;
 
@@ -570,22 +619,27 @@ begin
     raise exception 'GC35_ALREADY_LINKED: You''re already connected to this studio. Join this class from your Student Portal.';
   end if;
 
-  -- Existing active hold for this class and purchaser.
-  select h.* into v_existing
-    from public.group_class_enrollment_holds h
-    where h.appointment_id = p_appointment_id
-      and h.purchaser_user_id = v_user_id
-      and h.status in ('held', 'converting')
-    for update;
+  if v_first is null or v_last is null
+     or char_length(v_first) > 100 or char_length(v_last) > 100
+     or v_first ~ '[[:cntrl:]]' or v_last ~ '[[:cntrl:]]' then
+    raise exception 'GC35_NAME_INVALID: Enter the dancer''s first and last name.';
+  end if;
 
+  if v_phone is not null and (
+       char_length(v_phone) > 32
+       or v_phone !~ '^[0-9+(). -]+$'
+       or char_length(regexp_replace(v_phone, '[^0-9]', '', 'g')) not between 7 and 15
+     ) then
+    raise exception 'GC35_PHONE_INVALID: Enter a valid phone number or leave it blank.';
+  end if;
+
+  -- EXPIRED HOLD (effective state: status 'held' with expires_at <= now()). It
+  -- no longer counts, but it still occupies the one-active partial unique index
+  -- (status in held/converting), so it is moved to 'released' in this same
+  -- transaction, under the class row lock and its own row lock, before the
+  -- replacement insert. Exception: a Checkout is attached and the reconciliation
+  -- grace has not passed -- a payment may still settle, so no replacement yet.
   if v_existing.id is not null then
-    if v_existing.status = 'held' and v_existing.expires_at > now() then
-      return query select v_existing.id, v_existing.status, v_existing.amount_cents, v_existing.currency,
-        v_existing.expires_at, v_existing.stripe_checkout_session_id,
-        v_existing.dancer_first_name, v_existing.dancer_last_name, true;
-      return;
-    end if;
-
     if v_existing.stripe_checkout_session_id is not null and now() <= v_existing.expires_at + c_grace then
       raise exception 'GC35_PAYMENT_PENDING: Your previous payment is still being confirmed. Try again in a few minutes.';
     end if;
@@ -751,6 +805,18 @@ grant execute on function public.attach_public_class_purchase_checkout(uuid, tex
 --                client), hold conflict + reason; no client, link or attendee.
 --                The application refunds (never from SQL).
 -- Repeated calls return the stored outcome; nothing is created twice.
+--
+-- PAYMENTINTENT BINDING CONTRACT. The Checkout Session (and its account) is
+-- bound at attach. The PaymentIntent is NOT known until payment, so it is bound
+-- here, exactly once, by the FIRST finalize whose account, session, amount and
+-- currency all match the stored hold (checked before any write). It is written
+-- in the same statement that moves the hold out of 'held' ('converting', or
+-- 'conflict'), so it can never exist on a hold without a settled outcome; any
+-- failure rolls the whole call back and leaves no PaymentIntent behind. Replays
+-- must present the same PaymentIntent (GC35_PAYMENT_INTENT_MISMATCH otherwise);
+-- a PaymentIntent already bound to another hold is refused by the unique index
+-- (GC35_PAYMENT_INTENT_IN_USE). The caller is the server's verified Stripe
+-- webhook (connected-account scoped); a browser-supplied value is never used.
 -- ============================================================================
 create function public.finalize_public_class_purchase(
   p_hold_id uuid,

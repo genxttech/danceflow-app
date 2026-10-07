@@ -346,7 +346,8 @@ describe("S1C-5 action: errors are fixed copy", () => {
       ["GCSC5_IDEMPOTENCY_CONFLICT: used", /already used for a different change/],
       ["GCSC5_CONFLICT: reason=instructor index=3", /instructor is already booked.*Nothing was changed/],
       ["GCSC5_CONFLICT: reason=room_busy index=4", /room is already booked.*Nothing was changed/],
-      ["GCSC3_CAPACITY_BELOW_BOOKED: Maximum students cannot be lower than the 3 students already booked.", /3 students booked.*Nothing was changed/],
+      ["GCSC3_CAPACITY_BELOW_BOOKED: Maximum students cannot be lower than the 3 students already booked.", /3 seats booked or reserved.*Nothing was changed/],
+      ["GCSC3_CAPACITY_BELOW_BOOKED: Maximum students cannot be lower than the 2 seats already booked or reserved.", /2 seats booked or reserved.*Nothing was changed/],
       ["deadlock detected; relation \"appointments\" secret", /Could not update the classes/],
     ];
     for (const [message, expected] of cases) {
@@ -698,6 +699,7 @@ describe("S1C-5 pure helpers", () => {
     expect(lib.classifySeriesEditError({ message: "GCSC5_CONFLICT: reason=instructor_block index=7" })).toEqual({ failure: "conflict", conflictReason: "instructor_block", conflictIndex: 7 });
     expect(lib.classifySeriesEditError({ message: "GCSC5_CONFLICT: reason=<script> index=7" }).failure).toBe("conflict");
     expect(lib.classifySeriesEditError({ message: "GCSC3_CAPACITY_BELOW_BOOKED: lower than the 1 students already booked" })).toMatchObject({ failure: "capacity_below_booked", booked: 1 });
+    expect(lib.classifySeriesEditError({ message: "GCSC3_CAPACITY_BELOW_BOOKED: lower than the 5 seats already booked or reserved." })).toMatchObject({ failure: "capacity_below_booked", booked: 5 });
     expect(lib.classifySeriesEditError({ message: "boom" }).failure).toBe("unknown");
     expect(lib.classifySeriesEditError(null).failure).toBe("unknown");
   });

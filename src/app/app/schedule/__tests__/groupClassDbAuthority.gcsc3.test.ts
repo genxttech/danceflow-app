@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   capacityBelowBookedMessage,
+  capacityBelowReservedMessage,
   mapOccurrenceUpdateDbError,
 } from "@/lib/schedule/groupClassOccurrenceEdit";
 
@@ -19,15 +20,20 @@ const ROLLBACK = read("src", "lib", "supabase", "migrations", "rollback", "20261
 const noComments = (sql: string) => sql.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
 
 describe("GC-S1C-3 error mapping (no raw database text reaches the owner)", () => {
-  it("maps the database capacity floor to the same copy as the app-level check", () => {
+  it("maps the database capacity floor (old and GC-3.5-2 wording) to booked-or-reserved copy", () => {
     const db = "GCSC3_CAPACITY_BELOW_BOOKED: Maximum students cannot be lower than the 8 students already booked.";
-    expect(mapOccurrenceUpdateDbError(db)).toBe(capacityBelowBookedMessage(8));
-    expect(mapOccurrenceUpdateDbError("GCSC3_CAPACITY_BELOW_BOOKED: ... the 1 students already booked.")).toBe(capacityBelowBookedMessage(1));
+    expect(mapOccurrenceUpdateDbError(db)).toBe(capacityBelowReservedMessage(8));
+    expect(mapOccurrenceUpdateDbError("GCSC3_CAPACITY_BELOW_BOOKED: ... the 1 students already booked.")).toBe(capacityBelowReservedMessage(1));
+    const gc352 = "GCSC3_CAPACITY_BELOW_BOOKED: Maximum students cannot be lower than the 3 seats already booked or reserved.";
+    expect(mapOccurrenceUpdateDbError(gc352)).toBe("This class already has 3 seats booked or reserved. Capacity cannot be set below 3.");
+    expect(capacityBelowReservedMessage(1)).toBe("This class already has 1 seat booked or reserved. Capacity cannot be set below 1.");
+    // the app-level pre-check (booked students only) keeps its own truthful copy
+    expect(capacityBelowBookedMessage(2)).toBe("This class already has 2 students booked. Capacity cannot be set below 2.");
   });
 
   it("falls back to a fixed sentence when the count cannot be read, and returns null for every other error", () => {
     expect(mapOccurrenceUpdateDbError("GCSC3_CAPACITY_BELOW_BOOKED: unexpected")).toBe(
-      "Capacity cannot be set below the number of students already booked.",
+      "Capacity cannot be set below the number of seats already booked or reserved.",
     );
     expect(mapOccurrenceUpdateDbError("permission denied for table appointments")).toBeNull();
     expect(mapOccurrenceUpdateDbError(null)).toBeNull();

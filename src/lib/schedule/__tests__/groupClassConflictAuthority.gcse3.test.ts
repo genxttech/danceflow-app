@@ -102,9 +102,9 @@ describe("GC-S1E-3 refusal mapping", () => {
   it("the series create maps it to the conflict code, the occurrence edit to category copy", () => {
     expect(mapSeriesRpcError({ message: "GCSE3_CONFLICT: reason=room_busy index=3 count=2" })).toBe("conflict");
     expect(mapOccurrenceUpdateDbError("GCSE3_CONFLICT: reason=room_busy")).toBe(SERIES_CONFLICT_COPY.room_booked);
-    // the released capacity-floor mapping is unchanged
+    // the capacity-floor mapping (GC-3.5-2: the database count includes live holds -> booked or reserved)
     expect(mapOccurrenceUpdateDbError("GCSC3_CAPACITY_BELOW_BOOKED: lower than the 4 students already booked")).toBe(
-      "This class already has 4 students booked. Capacity cannot be set below 4.",
+      "This class already has 4 seats booked or reserved. Capacity cannot be set below 4.",
     );
   });
 });

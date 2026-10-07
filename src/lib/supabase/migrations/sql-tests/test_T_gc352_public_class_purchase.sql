@@ -227,6 +227,11 @@ insert into public.appointments (id, studio_id, appointment_type, status, starts
   ('00000000-0000-0000-0000-0000035b6015', '00000000-0000-0000-0000-0000035b0001', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', null), -- K15 released then paid
   ('00000000-0000-0000-0000-0000035b6016', '00000000-0000-0000-0000-0000035b0001', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', 1),    -- K16 seat lost in grace
   ('00000000-0000-0000-0000-0000035b6017', '00000000-0000-0000-0000-0000035b0001', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', null), -- K17 guardian conflict
+  ('00000000-0000-0000-0000-0000035b6018', '00000000-0000-0000-0000-0000035b0001', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', null), -- K18 price changes after hold
+  ('00000000-0000-0000-0000-0000035b6019', '00000000-0000-0000-0000-0000035b0001', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', null), -- K19 direct payment disabled after hold
+  ('00000000-0000-0000-0000-0000035b6020', '00000000-0000-0000-0000-0000035b0001', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', null), -- K20 PaymentIntent binding
+  ('00000000-0000-0000-0000-0000035b6021', '00000000-0000-0000-0000-0000035b0001', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', 4),    -- K21 expired-row semantics
+  ('00000000-0000-0000-0000-0000035b6022', '00000000-0000-0000-0000-0000035b0001', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', null), -- K22 hidden / cancelled after hold
   ('00000000-0000-0000-0000-0000035b6101', '00000000-0000-0000-0000-0000035b0002', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', null), -- KB1 studio B
   ('00000000-0000-0000-0000-0000035b6201', '00000000-0000-0000-0000-0000035b0003', 'group_class', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour', null); -- KC1 no Stripe account
 
@@ -249,6 +254,11 @@ select s, a, d, se, f, amt from (values
   ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6015', true,  true,  array['direct_payment'], 25.00),
   ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6016', true,  true,  array['direct_payment'], 25.00),
   ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6017', true,  true,  array['direct_payment'], 25.00),
+  ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6018', true,  true,  array['direct_payment'], 25.00),
+  ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6019', true,  true,  array['package','direct_payment'], 25.00),
+  ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6020', true,  true,  array['direct_payment'], 25.00),
+  ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6021', true,  true,  array['direct_payment'], 25.00),
+  ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6022', true,  true,  array['direct_payment'], 25.00),
   ('00000000-0000-0000-0000-0000035b0002', '00000000-0000-0000-0000-0000035b6101', true,  true,  array['direct_payment'], 40.00),
   ('00000000-0000-0000-0000-0000035b0003', '00000000-0000-0000-0000-0000035b6201', true,  true,  array['direct_payment'], 25.00)
 ) v(s, a, d, se, f, amt);
@@ -342,8 +352,8 @@ begin
     update public.appointments set roster_capacity = 0 where id = '00000000-0000-0000-0000-0000035b6008';
     raise exception 'FAIL M capacity lowered below a live hold';
   exception when others then
-    if sqlerrm not like 'GCSC3_CAPACITY_BELOW_BOOKED:%' then raise; end if;
-    perform pg_temp.t_pass('M capacity floor counts live holds');
+    if sqlerrm <> 'GCSC3_CAPACITY_BELOW_BOOKED: Maximum students cannot be lower than the 1 seats already booked or reserved.' then raise; end if;
+    perform pg_temp.t_pass('M capacity floor counts live holds and says booked or reserved');
   end;
 end $$;
 -- O (structural): both start and the roster trigger lock the class row FOR UPDATE before counting.
@@ -553,6 +563,15 @@ begin
     if r.client_id is not null or r.link_id is not null or r.attendee_id is not null then
       raise exception 'FAIL AH conflict hold carries client/link/attendee %', row_to_json(r);
     end if;
+    if not exists (
+      select 1 from public.accounting_entries ae
+      join public.group_class_enrollment_holds h2 on h2.payment_id = ae.source_id
+      where h2.id = r.id and ae.source_table = 'payments' and ae.client_id is null
+        and ae.entry_type = 'revenue' and ae.category = 'group_class_revenue' and ae.gross_amount = 25.00
+        and ae.voided_at is null
+    ) then
+      raise exception 'FAIL AF clientless conflict payment has no live accounting entry %', row_to_json(r);
+    end if;
   end loop;
   perform pg_temp.t_ok('AF six conflicts, each with a paid payment and no client', (select count(*) from public.group_class_enrollment_holds where status = 'conflict') = 6);
 end $$;
@@ -619,6 +638,122 @@ select pg_temp.t_expect('AO studio A staff read studio A holds only', pg_temp.t_
   'select count(*) filter (where studio_id <> ''00000000-0000-0000-0000-0000035b0001'')::text || ''/'' || (count(*) > 0)::text from public.group_class_enrollment_holds'), 'OK:0/true');
 select pg_temp.t_expect('AO an unrelated user reads nothing', pg_temp.t_run('authenticated', pg_temp.t_user(4), pg_temp.t_sid(4),
   'select count(*)::text from public.group_class_enrollment_holds'), 'OK:0');
+
+-- ============================================================================
+-- REVIEW: POLICY / PRICE CHANGES AFTER HOLD (locked decision: a live hold is a
+-- temporary offer at its snapshotted price; only cancellation invalidates it)
+-- ============================================================================
+insert into t_h values ('u7k18', pg_temp.t_start(7, '00000000-0000-0000-0000-0000035b6018', 'Seven', 'Price'));
+select pg_temp.t_ok('PC-A hold created at $25 (2500 cents)', (select amount_cents from public.group_class_enrollment_holds where id = pg_temp.t_hid((select v from t_h where k = 'u7k18'))::uuid) = 2500);
+update public.group_class_enrollment_policies set direct_payment_amount = 30.00 where appointment_id = '00000000-0000-0000-0000-0000035b6018';
+select pg_temp.t_ok('PC-B staff changed the price to $30', (select direct_payment_amount from public.group_class_enrollment_policies where appointment_id = '00000000-0000-0000-0000-0000035b6018') = 30.00);
+insert into t_h values ('u7k18b', pg_temp.t_start(7, '00000000-0000-0000-0000-0000035b6018', 'Seven', 'Price'));
+select pg_temp.t_ok('PC-C existing hold reused at the $25 snapshot', (select v from t_h where k = 'u7k18b') = 'OK:' || pg_temp.t_hid((select v from t_h where k = 'u7k18')) || ',true'
+  and (select amount_cents from public.group_class_enrollment_holds where id = pg_temp.t_hid((select v from t_h where k = 'u7k18'))::uuid) = 2500);
+insert into t_h values ('u8k18', pg_temp.t_start(8, '00000000-0000-0000-0000-0000035b6018', 'Eight', 'Price'));
+select pg_temp.t_ok('PC-D a new hold uses the new $30 price', (select amount_cents from public.group_class_enrollment_holds where id = pg_temp.t_hid((select v from t_h where k = 'u8k18'))::uuid) = 3000);
+select pg_temp.t_expect('PC-C attach the existing $25 hold (no policy re-check)', pg_temp.t_attach(pg_temp.t_hid((select v from t_h where k = 'u7k18')), 'acct_gc352StudioA', 'cs_test_gc352_k18'), 'OK:%');
+select pg_temp.t_expect('PC-C finalize at the new price is refused', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u7k18')), 'acct_gc352StudioA', 'cs_test_gc352_k18', 'pi_test_gc352_k18', 3000), 'ERR:GC35_AMOUNT_MISMATCH:%');
+select pg_temp.t_expect('PC-C finalize at the snapshotted $25 converts', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u7k18')), 'acct_gc352StudioA', 'cs_test_gc352_k18', 'pi_test_gc352_k18', 2500), 'OK:converted,%');
+select pg_temp.t_ok('PC-C payment and attendee recorded at $25', exists (
+  select 1 from public.group_class_enrollment_holds h join public.payments p on p.id = h.payment_id join public.appointment_attendees a on a.id = h.attendee_id
+  where h.id = pg_temp.t_hid((select v from t_h where k = 'u7k18'))::uuid and p.amount = 25.00 and a.price_amount = 25.00));
+
+insert into t_h values ('u13k19', pg_temp.t_start(13, '00000000-0000-0000-0000-0000035b6019', 'Thirteen', 'Disable'));
+select pg_temp.t_expect('PC-E hold created while direct payment is offered', (select v from t_h where k = 'u13k19'), 'OK:%,false');
+update public.group_class_enrollment_policies set accepted_funding_types = array['package'], direct_payment_amount = null
+  where appointment_id = '00000000-0000-0000-0000-0000035b6019';
+select pg_temp.t_ok('PC-E staff disabled direct payment', not exists (select 1 from public.group_class_enrollment_policies
+  where appointment_id = '00000000-0000-0000-0000-0000035b6019' and 'direct_payment' = any (accepted_funding_types)));
+select pg_temp.t_ok('PC-F existing hold is still reused after the disable',
+  pg_temp.t_start(13, '00000000-0000-0000-0000-0000035b6019', 'Thirteen', 'Disable') = 'OK:' || pg_temp.t_hid((select v from t_h where k = 'u13k19')) || ',true');
+select pg_temp.t_expect('PC-F existing hold can still attach', pg_temp.t_attach(pg_temp.t_hid((select v from t_h where k = 'u13k19')), 'acct_gc352StudioA', 'cs_test_gc352_k19'), 'OK:%');
+select pg_temp.t_expect('PC-G a new purchaser cannot start a direct-payment hold', pg_temp.t_start(2, '00000000-0000-0000-0000-0000035b6019', 'Two', 'Late'), 'ERR:GC35_DIRECT_PAYMENT_UNAVAILABLE:%');
+select pg_temp.t_expect('PC-F existing hold completes at its snapshot', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u13k19')), 'acct_gc352StudioA', 'cs_test_gc352_k19', 'pi_test_gc352_k19', 2500), 'OK:converted,%');
+
+-- Discoverability turned off after the hold: the hold survives; new purchasers cannot start. Cancellation invalidates.
+insert into t_h values ('u8k22', pg_temp.t_start(8, '00000000-0000-0000-0000-0000035b6022', 'Eight', 'Hidden'));
+update public.group_class_enrollment_policies set publicly_discoverable = false where appointment_id = '00000000-0000-0000-0000-0000035b6022';
+select pg_temp.t_ok('PC existing hold still reused after the class is hidden',
+  pg_temp.t_start(8, '00000000-0000-0000-0000-0000035b6022', 'Eight', 'Hidden') = 'OK:' || pg_temp.t_hid((select v from t_h where k = 'u8k22')) || ',true');
+select pg_temp.t_expect('PC new purchaser cannot start on a hidden class', pg_temp.t_start(2, '00000000-0000-0000-0000-0000035b6022', 'Two', 'Hidden'), 'ERR:GC35_CLASS_UNAVAILABLE:%');
+update public.appointments set status = 'cancelled' where id = '00000000-0000-0000-0000-0000035b6022';
+select pg_temp.t_expect('PC cancellation invalidates the hold: reuse refused', pg_temp.t_start(8, '00000000-0000-0000-0000-0000035b6022', 'Eight', 'Hidden'), 'ERR:GC35_CLASS_CANCELLED:%');
+select pg_temp.t_expect('PC cancellation invalidates the hold: attach refused', pg_temp.t_attach(pg_temp.t_hid((select v from t_h where k = 'u8k22')), 'acct_gc352StudioA', 'cs_test_gc352_k22'), 'ERR:GC35_CLASS_CANCELLED:%');
+
+-- ============================================================================
+-- REVIEW: PAYMENTINTENT BINDING (the first verified finalize binds it once)
+-- ============================================================================
+insert into t_h values ('u2k20', pg_temp.t_start(2, '00000000-0000-0000-0000-0000035b6020', 'Two', 'Intent'));
+select pg_temp.t_expect('PI attach', pg_temp.t_attach(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioA', 'cs_test_gc352_k20'), 'OK:%');
+create function pg_temp.t_k20_unbound() returns boolean language sql as $$
+  select exists (select 1 from public.group_class_enrollment_holds where id = pg_temp.t_hid((select v from t_h where k = 'u2k20'))::uuid
+                 and status = 'held' and stripe_payment_intent_id is null and payment_id is null)
+     and not exists (select 1 from public.payments where stripe_checkout_session_id = 'cs_test_gc352_k20'); $$;
+select pg_temp.t_expect('PI wrong account + candidate PI refused', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioB', 'cs_test_gc352_k20', 'pi_test_gc352_cand', 2500), 'ERR:GC35_ACCOUNT_MISMATCH:%');
+select pg_temp.t_ok('PI wrong account left no PaymentIntent bound', pg_temp.t_k20_unbound());
+select pg_temp.t_expect('PI wrong session + candidate PI refused', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioA', 'cs_test_gc352_k18', 'pi_test_gc352_cand', 2500), 'ERR:GC35_SESSION_MISMATCH:%');
+select pg_temp.t_ok('PI wrong session left no PaymentIntent bound', pg_temp.t_k20_unbound());
+select pg_temp.t_expect('PI wrong amount + candidate PI refused', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioA', 'cs_test_gc352_k20', 'pi_test_gc352_cand', 2499), 'ERR:GC35_AMOUNT_MISMATCH:%');
+select pg_temp.t_ok('PI wrong amount left no PaymentIntent bound', pg_temp.t_k20_unbound());
+select pg_temp.t_expect('PI wrong currency + candidate PI refused', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioA', 'cs_test_gc352_k20', 'pi_test_gc352_cand', 2500, 'cad'), 'ERR:GC35_CURRENCY_MISMATCH:%');
+select pg_temp.t_ok('PI wrong currency left no PaymentIntent bound', pg_temp.t_k20_unbound());
+select pg_temp.t_expect('PI already bound to another hold refused (unique)', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioA', 'cs_test_gc352_k20', 'pi_test_gc352_k01', 2500), 'ERR:GC35_PAYMENT_INTENT_IN_USE:%');
+select pg_temp.t_ok('PI in-use attempt left no PaymentIntent, client, link or attendee', pg_temp.t_k20_unbound()
+  and not exists (select 1 from public.clients where first_name = 'Two' and last_name = 'Intent')
+  and (select count(*) from public.appointment_attendees where appointment_id = '00000000-0000-0000-0000-0000035b6020') = 0);
+select pg_temp.t_ok('PI no failed call persisted the candidate anywhere', not exists (select 1 from public.group_class_enrollment_holds where stripe_payment_intent_id = 'pi_test_gc352_cand')
+  and not exists (select 1 from public.payments where stripe_payment_intent_id = 'pi_test_gc352_cand'));
+insert into t_h values ('fin_u2k20', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioA', 'cs_test_gc352_k20', 'pi_test_gc352_k20', 2500));
+select pg_temp.t_expect('PI first verified finalize binds and converts', (select v from t_h where k = 'fin_u2k20'), 'OK:converted,%');
+select pg_temp.t_ok('PI bound exactly once on hold and payment', (select stripe_payment_intent_id from public.group_class_enrollment_holds where id = pg_temp.t_hid((select v from t_h where k = 'u2k20'))::uuid) = 'pi_test_gc352_k20'
+  and (select count(*) from public.payments where stripe_payment_intent_id = 'pi_test_gc352_k20') = 1);
+select pg_temp.t_expect('PI same replay is idempotent', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioA', 'cs_test_gc352_k20', 'pi_test_gc352_k20', 2500), (select v from t_h where k = 'fin_u2k20'));
+select pg_temp.t_expect('PI changed PaymentIntent on replay refused', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u2k20')), 'acct_gc352StudioA', 'cs_test_gc352_k20', 'pi_test_gc352_cand', 2500), 'ERR:GC35_PAYMENT_INTENT_MISMATCH:%');
+select pg_temp.t_ok('PI changed attempt did not rebind', (select stripe_payment_intent_id from public.group_class_enrollment_holds where id = pg_temp.t_hid((select v from t_h where k = 'u2k20'))::uuid) = 'pi_test_gc352_k20'
+  and not exists (select 1 from public.payments where stripe_payment_intent_id = 'pi_test_gc352_cand'));
+
+-- ============================================================================
+-- REVIEW: EXPIRED-ROW SEMANTICS (effective active = status 'held' AND expires_at > now())
+-- ============================================================================
+insert into t_h values ('u8k21', pg_temp.t_start(8, '00000000-0000-0000-0000-0000035b6021', 'Eight', 'Expired'));
+update public.group_class_enrollment_holds set expires_at = now() - interval '1 second' where id = pg_temp.t_hid((select v from t_h where k = 'u8k21'))::uuid;
+select pg_temp.t_ok('EX expired held row does not count (capacity and public spots)', public._group_class_roster_reserved_count('00000000-0000-0000-0000-0000035b6021') = 0
+  and (select spots_remaining from public.public_group_class_occurrences(null, null, '00000000-0000-0000-0000-0000035b6021', 1)) = 4);
+do $$
+begin
+  begin
+    insert into public.group_class_enrollment_holds (studio_id, appointment_id, purchaser_user_id, purchaser_email, dancer_first_name, dancer_last_name, amount_cents, expires_at)
+    values ('00000000-0000-0000-0000-0000035b0001', '00000000-0000-0000-0000-0000035b6021', pg_temp.t_user(8)::uuid, 't-gc352-u8@example.test', 'X', 'Y', 2500, now() + interval '30 minutes');
+    raise exception 'FAIL EX a raw insert slipped past an expired held row';
+  exception when unique_violation then
+    perform pg_temp.t_pass('EX an expired held row still occupies the partial unique index (raw insert refused)');
+  end;
+end $$;
+select pg_temp.t_expect('EX expired hold cannot accept a Checkout', pg_temp.t_attach(pg_temp.t_hid((select v from t_h where k = 'u8k21')), 'acct_gc352StudioA', 'cs_test_gc352_k21a'), 'ERR:GC35_HOLD_EXPIRED:%');
+insert into t_h values ('u8k21b', pg_temp.t_start(8, '00000000-0000-0000-0000-0000035b6021', 'Eight', 'Expired'));
+select pg_temp.t_ok('EX expired hold is not reused: start releases it and inserts a replacement in one call',
+  (select v from t_h where k = 'u8k21b') like 'OK:%,false'
+  and pg_temp.t_hid((select v from t_h where k = 'u8k21b')) <> pg_temp.t_hid((select v from t_h where k = 'u8k21'))
+  and (select status from public.group_class_enrollment_holds where id = pg_temp.t_hid((select v from t_h where k = 'u8k21'))::uuid) = 'released'
+  and (select count(*) from public.group_class_enrollment_holds where appointment_id = '00000000-0000-0000-0000-0000035b6021'
+       and purchaser_user_id = pg_temp.t_user(8)::uuid and status in ('held', 'converting')) = 1);
+select pg_temp.t_expect('EX the released expired row accepts no Checkout', pg_temp.t_attach(pg_temp.t_hid((select v from t_h where k = 'u8k21')), 'acct_gc352StudioA', 'cs_test_gc352_k21a'), 'ERR:GC35_HOLD_NOT_ACTIVE:%');
+select pg_temp.t_ok('EX start row-locks the existing hold under the class lock before releasing it',
+  (select prosrc ~* 'h\.status in \(''held'', ''converting''\)\s+for update' from pg_proc where oid = 'public.start_public_class_purchase(uuid,text,text,text)'::regprocedure));
+
+-- Release keeps the Stripe binding needed to reconcile a late payment.
+select pg_temp.t_expect('RL attach the replacement hold', pg_temp.t_attach(pg_temp.t_hid((select v from t_h where k = 'u8k21b')), 'acct_gc352StudioA', 'cs_test_gc352_k21b'), 'OK:%');
+select pg_temp.t_expect('RL release with a Checkout attached', pg_temp.t_release(8, pg_temp.t_hid((select v from t_h where k = 'u8k21b'))), 'OK:released');
+select pg_temp.t_ok('RL release keeps account and session', exists (select 1 from public.group_class_enrollment_holds
+  where id = pg_temp.t_hid((select v from t_h where k = 'u8k21b'))::uuid and status = 'released'
+    and stripe_account_id = 'acct_gc352StudioA' and stripe_checkout_session_id = 'cs_test_gc352_k21b'));
+select pg_temp.t_expect('RL late payment after release becomes a hold_released conflict', pg_temp.t_finalize(pg_temp.t_hid((select v from t_h where k = 'u8k21b')), 'acct_gc352StudioA', 'cs_test_gc352_k21b', 'pi_test_gc352_k21b', 2500), 'OK:conflict,hold_released,-,-,-,%');
+select pg_temp.t_ok('RL late payment: no enrollment, no client, paid clientless evidence with accounting', (select count(*) from public.appointment_attendees where appointment_id = '00000000-0000-0000-0000-0000035b6021') = 0
+  and not exists (select 1 from public.clients where first_name = 'Eight')
+  and exists (select 1 from public.payments p join public.accounting_entries ae on ae.source_table = 'payments' and ae.source_id = p.id
+              where p.stripe_payment_intent_id = 'pi_test_gc352_k21b' and p.status = 'paid' and p.client_id is null
+                and p.guest_name = 'Eight Expired' and ae.client_id is null and ae.voided_at is null));
 
 -- ============================================================================
 -- TRANSITION GUARD (owner-level writes)
