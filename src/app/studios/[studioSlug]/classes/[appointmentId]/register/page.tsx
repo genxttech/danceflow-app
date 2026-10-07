@@ -33,7 +33,32 @@ import {
   listManageableDancers,
 } from "@/lib/public/classRegistrationData";
 import { isSelfEnrollmentErrorKind, selfEnrollmentErrorMessage } from "@/lib/schedule/selfEnrollmentErrors";
-import { checkClassRegistrationLinkAction, enrollInClassAction, signInAgainForClassAction } from "./actions";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  hasLinkedStudioRelationship,
+  loadLatestOwnPurchase,
+  loadPublicClassPaymentOffer,
+  loadPurchaserPrefill,
+  loadPurchaseSettlementState,
+  type PublicClassPaymentOffer,
+} from "@/lib/payments/groupClassPurchase";
+import {
+  FINALIZING_POLL,
+  classPurchaseErrorMessage,
+  formatUsdCents,
+  isClassPurchaseErrorKind,
+  parsePurchaseReturnFlag,
+  resolvePurchaseView,
+  type PurchaseView,
+} from "@/lib/public/classPurchase";
+import PurchaseFinalizingPoller from "./PurchaseFinalizingPoller";
+import {
+  checkClassRegistrationLinkAction,
+  enrollInClassAction,
+  releaseClassPurchaseAction,
+  signInAgainForClassAction,
+  startClassPurchaseAction,
+} from "./actions";
 
 type PageProps = {
   params: Promise<{ studioSlug: string; appointmentId: string }>;
@@ -86,6 +111,184 @@ function StepText({ children }: { children: ReactNode }) {
   return <p className="mt-3 text-base leading-7 text-slate-700">{children}</p>;
 }
 
+const inputClass =
+  "mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-base text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900";
+
+/**
+ * GC-3.5-3: the minimal identity form for a public paid registration (self only). The browser posts only the class id and
+ * the dancer's names/phone; the price shown here is a display preview -- the charge is the hold's server-snapshotted amount.
+ */
+function PurchaseForm({
+  item,
+  amountCents,
+  email,
+  prefill,
+  submitLabel,
+}: {
+  item: PublicGroupClass;
+  amountCents: number;
+  email: string;
+  prefill: { firstName: string; lastName: string; phone: string };
+  submitLabel?: string;
+}) {
+  if (submitLabel) {
+    // Resume: the existing hold keeps its own snapshot (start_public_class_purchase reuses it unchanged).
+    return (
+      <form action={startClassPurchaseAction} className="mt-6">
+        <input type="hidden" name="appointmentId" value={item.appointmentId} />
+        <input type="hidden" name="firstName" value={prefill.firstName} />
+        <input type="hidden" name="lastName" value={prefill.lastName} />
+        <button type="submit" className={`${primaryButton} w-full sm:w-auto`}>
+          {submitLabel}
+        </button>
+      </form>
+    );
+  }
+  return (
+    <form action={startClassPurchaseAction} className="mt-6 space-y-4">
+      <input type="hidden" name="appointmentId" value={item.appointmentId} />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm font-medium text-slate-800">
+          First name
+          <input name="firstName" defaultValue={prefill.firstName} required maxLength={100} autoComplete="given-name" className={inputClass} />
+        </label>
+        <label className="block text-sm font-medium text-slate-800">
+          Last name
+          <input name="lastName" defaultValue={prefill.lastName} required maxLength={100} autoComplete="family-name" className={inputClass} />
+        </label>
+      </div>
+      <label className="block text-sm font-medium text-slate-800">
+        Phone <span className="font-normal text-slate-500">(optional)</span>
+        <input name="phone" type="tel" defaultValue={prefill.phone} maxLength={32} autoComplete="tel" className={inputClass} />
+      </label>
+      <p className="text-sm text-slate-600">Your receipt and confirmation will go to {email}.</p>
+      <button type="submit" className={`${primaryButton} w-full sm:w-auto`}>
+        {`Pay ${formatUsdCents(amountCents)}`}
+      </button>
+      <p className="text-xs text-slate-500">
+        You&apos;ll pay securely with Stripe. You&apos;re registered once your payment is confirmed.
+      </p>
+    </form>
+  );
+}
+
+function ReleaseForm({ item, holdId }: { item: PublicGroupClass; holdId: string }) {
+  return (
+    <form action={releaseClassPurchaseAction}>
+      <input type="hidden" name="appointmentId" value={item.appointmentId} />
+      <input type="hidden" name="holdId" value={holdId} />
+      <button type="submit" className={`${secondaryButton} w-full`}>
+        Cancel registration
+      </button>
+    </form>
+  );
+}
+
+/** The authoritative purchase state (database only; the return flag only picks wording). */
+function PurchaseStatusView({
+  item,
+  view,
+  email,
+}: {
+  item: PublicGroupClass;
+  view: Exclude<PurchaseView, { kind: "none" }>;
+  email: string | null;
+}) {
+  const { purchase } = view;
+  const dancerName = [purchase.dancerFirstName, purchase.dancerLastName].filter(Boolean).join(" ");
+  const amount = formatUsdCents(purchase.amountCents);
+  const classWhen = `${formatClassDay(item.startsAt, item.timeZone)}, ${formatClassTimeRange(item.startsAt, item.endsAt, item.timeZone)}`;
+  const contact = (
+    <Link href={`/studios/${encodeURIComponent(item.studioSlug)}`} className={secondaryButton}>
+      Contact {item.studioName}
+    </Link>
+  );
+  const resumeForm = (label: string) => (
+    <PurchaseForm
+      item={item}
+      amountCents={purchase.amountCents}
+      email={email ?? "your account email"}
+      prefill={{ firstName: purchase.dancerFirstName, lastName: purchase.dancerLastName, phone: "" }}
+      submitLabel={label}
+    />
+  );
+
+  switch (view.kind) {
+    case "registered":
+      return (
+        <RegisterShell item={item}>
+          <StepTitle>You&apos;re registered</StepTitle>
+          <StepText>
+            {dancerName || "You"} {dancerName ? "is" : "are"} registered for {item.title} on {classWhen} at {item.studioName}.
+          </StepText>
+          <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Paid online — {amount}</p>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <Link href={portalClientPath(item.studioSlug, purchase.clientId ?? "")} className={primaryButton}>
+              Open Student Portal
+            </Link>
+          </div>
+        </RegisterShell>
+      );
+    case "finalizing":
+      return (
+        <RegisterShell item={item}>
+          <StepTitle>Payment received — finalizing…</StepTitle>
+          <StepText>We&apos;re confirming your registration with {item.studioName}. This usually takes a few seconds.</StepText>
+          <PurchaseFinalizingPoller attempts={FINALIZING_POLL.attempts} intervalMs={FINALIZING_POLL.intervalMs} />
+        </RegisterShell>
+      );
+    case "checkout_open":
+      return (
+        <RegisterShell item={item}>
+          <StepTitle>Finish your payment</StepTitle>
+          <StepText>Your spot in {item.title} is being held while you pay ({amount}).</StepText>
+          {resumeForm("Continue to payment")}
+          <div className="mt-4">
+            <ReleaseForm item={item} holdId={purchase.holdId} />
+          </div>
+        </RegisterShell>
+      );
+    case "not_completed":
+      return (
+        <RegisterShell item={item}>
+          <StepTitle>Payment not completed — try again</StepTitle>
+          <StepText>You haven&apos;t been charged. Your spot is held for a short time if you&apos;d like to try again.</StepText>
+          {resumeForm("Try again")}
+          <div className="mt-4">
+            <ReleaseForm item={item} holdId={purchase.holdId} />
+          </div>
+        </RegisterShell>
+      );
+    case "refunded":
+      return (
+        <RegisterShell item={item}>
+          <StepTitle>Your payment was refunded</StepTitle>
+          <StepText>
+            Your payment was refunded because registration could not be completed. Refunds usually appear on your statement
+            within 5–10 business days.
+          </StepText>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <Link href={publicClassPath(item.studioSlug, item.appointmentId)} className={primaryButton}>
+              Back to class
+            </Link>
+            {contact}
+          </div>
+        </RegisterShell>
+      );
+    case "needs_studio":
+    default:
+      return (
+        <RegisterShell item={item}>
+          <StepTitle>We couldn&apos;t finish registration</StepTitle>
+          <StepText>
+            We couldn&apos;t complete your registration for this class. Please contact {item.studioName} about your payment.
+          </StepText>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">{contact}</div>
+        </RegisterShell>
+      );
+  }
+}
+
 /**
  * GC-3.4B-1 identity step. The public class page stays auth-free; this route is
  * the registration intent. Order: public class truth -> sign-in -> verified
@@ -103,6 +306,33 @@ export default async function ClassRegisterPage({ params, searchParams }: PagePr
 
   const registerPath = classRegisterPath(item.studioSlug, item.appointmentId);
   if (!sameStudioSlug(studioSlug, item.studioSlug)) redirect(registerPath);
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // GC-3.5-3: the purchaser's own public paid registration, if any, comes first (it may hold or have taken the last seat).
+  // Database state only; the ?purchase flag picks wording and never changes anything.
+  if (user) {
+    let view: PurchaseView = { kind: "none" };
+    try {
+      const purchase = await loadLatestOwnPurchase(supabase, { appointmentId: item.appointmentId, userId: user.id });
+      if (purchase) {
+        const purchaseStudioId = await getStudioIdForPublicSlug(item.studioSlug);
+        const settlement = purchaseStudioId
+          ? await loadPurchaseSettlementState(createAdminClient(), { studioId: purchaseStudioId, purchase })
+          : { attendeeActive: false, refunded: false };
+        view = resolvePurchaseView({ purchase, returnFlag: parsePurchaseReturnFlag(single(search.purchase)), ...settlement });
+      }
+    } catch {
+      view = { kind: "none" };
+    }
+    if (view.kind !== "none") {
+      const email =
+        view.kind === "checkout_open" || view.kind === "not_completed" ? await getMyVerifiedEmail(supabase) : null;
+      return <PurchaseStatusView item={item} view={view} email={email} />;
+    }
+  }
 
   if (!canProceedToRegister(item)) {
     return (
@@ -122,9 +352,6 @@ export default async function ClassRegisterPage({ params, searchParams }: PagePr
   }
 
   // 2. Signed in? The route itself is the intent, so sign-in returns here.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) {
     redirect(`/login?intent=public&next=${encodeURIComponent(registerPath)}`);
   }
@@ -195,6 +422,56 @@ export default async function ClassRegisterPage({ params, searchParams }: PagePr
   if (resolution.kind === "invalid_selection") redirect(registerPath);
 
   if (resolution.kind === "unlinked") {
+    // GC-3.5-3: a verified account with NO linked relationship at this studio may register and pay online when the
+    // class offers direct payment (self-registration only). Anyone linked here (even view-only) keeps the existing state.
+    let offer: PublicClassPaymentOffer = { available: false, reason: "not_offered" };
+    try {
+      const admin = createAdminClient();
+      if (studioId && !(await hasLinkedStudioRelationship(admin, { userId: user.id, studioId }))) {
+        offer = await loadPublicClassPaymentOffer(admin, { studioId, appointmentId: item.appointmentId });
+      }
+    } catch {
+      offer = { available: false, reason: "not_offered" };
+    }
+
+    const purchaseErrorKind = single(search.purchase_error);
+    const purchaseError = isClassPurchaseErrorKind(purchaseErrorKind)
+      ? classPurchaseErrorMessage(purchaseErrorKind, item.studioName)
+      : null;
+    const purchaseErrorBanner = purchaseError ? (
+      <p role="alert" className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        {purchaseError}
+      </p>
+    ) : null;
+
+    if (offer.available) {
+      const prefill = await loadPurchaserPrefill(createAdminClient(), user);
+      return (
+        <RegisterShell item={item}>
+          <StepTitle>Register for {item.title}</StepTitle>
+          <StepText>
+            Price: <span className="font-semibold text-slate-950">{formatUsdCents(offer.amountCents)}</span>
+          </StepText>
+          {purchaseErrorBanner}
+          <PurchaseForm item={item} amountCents={offer.amountCents} email={verifiedEmail} prefill={prefill} />
+        </RegisterShell>
+      );
+    }
+
+    if (offer.reason === "payment_not_ready") {
+      return (
+        <RegisterShell item={item}>
+          <StepTitle>Online payment isn&apos;t available</StepTitle>
+          <StepText>Online payment is not available for this class right now. Please contact {item.studioName}.</StepText>
+          <div className="mt-6">
+            <Link href={`/studios/${encodeURIComponent(item.studioSlug)}`} className={primaryButton}>
+              Contact {item.studioName}
+            </Link>
+          </div>
+        </RegisterShell>
+      );
+    }
+
     // One generic state for every "no safe link" case: no invitation, expired
     // or ambiguous invitations, a failed claim, or no record at all.
     const check = single(search.check);

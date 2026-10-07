@@ -33,6 +33,7 @@ import {
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
 import { assertMembershipReferencesBelongToStudio } from "@/lib/payments/membershipReferenceOwnership";
+import { handleGroupClassPurchaseCheckout } from "@/lib/payments/groupClassPurchaseWebhook";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -3754,6 +3755,21 @@ export async function handleCheckoutSessionCompleted(
     );
 
   if (handledClientPaymentRequest) {
+    return;
+  }
+
+  // GC-3.5-3: public paid Group Class registration (metadata.source "group_class_direct_payment").
+  // Settled only from this verified, connected-account-scoped session via finalize_public_class_purchase.
+  const handledGroupClassPurchase = await handleGroupClassPurchaseCheckout({
+    supabase,
+    stripe,
+    session,
+    stripeAccountId,
+    eventId: stripeEventId ?? "",
+    eventType: stripeEventType ?? "",
+  });
+
+  if (handledGroupClassPurchase) {
     return;
   }
 
