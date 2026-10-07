@@ -1740,6 +1740,16 @@ export async function refundClientPaymentAction(formData: FormData) {
 
   const originalAmount = Number(payment.amount ?? 0);
   const alreadyRefunded = Number(payment.refund_amount ?? 0);
+
+  // Stale-request guard: the form carries the refunded amount it was rendered with. If another refund was recorded
+  // since, this submit (e.g. a delayed duplicate) would otherwise derive a new idempotency key and refund again.
+  const expectedRefundRaw = getString(formData, "expectedRefundAmount");
+  if (expectedRefundRaw) {
+    const expectedRefund = Number(expectedRefundRaw);
+    if (!Number.isFinite(expectedRefund) || Math.round(expectedRefund * 100) !== Math.round(alreadyRefunded * 100)) {
+      redirectWithResult(returnTo, "error", "refund_payment_changed");
+    }
+  }
   const remainingRefundable = Math.max(
     0,
     Math.round((originalAmount - alreadyRefunded) * 100) / 100
@@ -1827,37 +1837,77 @@ export async function refundClientPaymentAction(formData: FormData) {
       return null;
     });
 
-  if (!refund?.id) {
+  // A refund Stripe reports as failed/canceled returned no money: nothing to reconcile.
+  if (!refund?.id || refund.status === "failed" || refund.status === "canceled") {
     redirectWithResult(returnTo, "error", refundFailureCode);
   }
 
-  const nextRefundAmount = Math.round((alreadyRefunded + requestedAmount) * 100) / 100;
-  const nextStatus = nextRefundAmount >= originalAmount ? "refunded" : "paid";
-  const nowIso = new Date().toISOString();
-  const noteParts = [
-    payment.notes,
-    `Refunded ${requestedAmount.toFixed(2)} via Stripe. Reason: ${reason}`,
-  ].filter(Boolean);
+  // REFUND-RECON-1: business effects go through the canonical refund reconciliation RPC -- the same path every
+  // Stripe-originated refund takes -- only after Stripe confirmed the refund. The RPC owns status / refund_amount /
+  // stripe_refund_id and the domain effects (package settlement re-evaluation; Group Class enrollment: cancel before
+  // recorded attendance, keep history after it, 'partial' on a partial refund). It compare-and-swaps on 'paid' and a
+  // never-lowered cumulative amount, so a double submit (same idempotency key -> same Stripe refund) or a stale request
+  // can't overwrite an unexpected state; the later charge.refunded webhook for this refund is a no-op.
+  const refundedCents =
+    typeof refund.amount === "number" && refund.amount > 0 ? refund.amount : Math.round(requestedAmount * 100);
+  const cumulativeCents = Math.min(
+    Math.round(originalAmount * 100),
+    Math.round(alreadyRefunded * 100) + refundedCents,
+  );
+  const nextStatus = cumulativeCents >= Math.round(originalAmount * 100) ? "refunded" : "paid";
 
-  const { error: updateError } = await adminSupabase
-    .from("payments")
-    .update({
-      status: nextStatus,
-      refund_amount: nextRefundAmount,
-      refunded_at: nowIso,
-      stripe_refund_id: refund.id,
-      notes: noteParts.join(" | "),
-    })
-    .eq("id", payment.id)
-    .eq("studio_id", studioId);
+  const { data: reconcileData, error: reconcileError } = await adminSupabase.rpc(
+    "_apply_payment_refund_and_reevaluate",
+    {
+      p_payment_id: payment.id,
+      p_new_status: nextStatus,
+      p_refund_amount: cumulativeCents / 100,
+      p_stripe_refund_id: refund.id,
+      p_stripe_event_id: `danceflow_staff_refund:${refund.id}`,
+      p_stripe_event_type: "danceflow.staff_refund",
+    }
+  );
+  const reconcileOutcome = ((Array.isArray(reconcileData) ? reconcileData[0] : reconcileData) ?? null) as
+    | { applied?: boolean; conflict_recorded?: boolean }
+    | null;
 
-  if (updateError) {
-    redirectWithResult(returnTo, "error", "refund_record_update_failed");
+  if (reconcileError || !reconcileOutcome) {
+    // Stripe returned the money; DanceFlow has not recorded it yet. Never report success, never fall back to a
+    // direct write -- the refund webhook reconciles the same refund through the same RPC.
+    console.error("staff_refund_reconcile_failed", {
+      code: reconcileError ? (/^([A-Z0-9_]+):/.exec(reconcileError.message ?? "")?.[1] ?? "rpc_error") : "empty_result",
+    });
+    redirectWithResult(returnTo, "error", "refund_reconciliation_failed");
+  }
+
+  if (reconcileOutcome.conflict_recorded) {
+    // The payment was no longer 'paid' when the refund was recorded: a settlement-conflict review row now exists.
+    console.error("staff_refund_reconcile_conflict");
+    redirectWithResult(returnTo, "error", "refund_reconciliation_conflict");
+  }
+
+  // Staff-only metadata the RPC does not own: how much and why. The RPC owns refund state, including refunded_at
+  // (REFUND-RECON-2). Written once per Stripe refund (a replayed submit of the same refund adds no second note); never
+  // touches status, amounts, timestamps or Stripe identity.
+  const refundNote = `Refunded ${(refundedCents / 100).toFixed(2)} via Stripe (${refund.id}). Reason: ${reason}`;
+  const existingNotes = typeof payment.notes === "string" ? payment.notes : "";
+  if (!existingNotes.includes(refund.id)) {
+    const { error: metadataError } = await adminSupabase
+      .from("payments")
+      .update({ notes: [existingNotes, refundNote].filter(Boolean).join(" | ") })
+      .eq("id", payment.id)
+      .eq("studio_id", studioId);
+
+    if (metadataError) {
+      // The refund itself is reconciled; only the staff note is missing.
+      console.error("staff_refund_metadata_update_failed");
+    }
   }
 
   revalidatePath(`/app/clients/${clientId}`);
   revalidatePath("/app/payments");
   revalidatePath("/app/reports");
+  revalidatePath("/app/schedule");
 
   redirectWithResult(returnTo, "success", "payment_refunded");
 }

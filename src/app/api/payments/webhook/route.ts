@@ -33,6 +33,7 @@ import {
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
 import { assertMembershipReferencesBelongToStudio } from "@/lib/payments/membershipReferenceOwnership";
+import { handleGroupClassPurchaseCheckout } from "@/lib/payments/groupClassPurchaseWebhook";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -3077,6 +3078,9 @@ async function updatePaymentRefundByPaymentIntent(
     // re-evaluates and, if needed, deactivates the linked package in the
     // same transaction -- a full refund removing a package's only paid
     // basis must not leave it usable.
+    // REFUND-RECON-1: refundAmount is the CUMULATIVE refund; the RPC never
+    // lowers it, never erases a stored refund id, and applies the Group Class
+    // enrollment effect (GC-3.5) itself -- no per-payment-type branch here.
     const { data: refundResult, error: refundRpcError } = await supabase.rpc(
       "_apply_payment_refund_and_reevaluate",
       {
@@ -3234,23 +3238,42 @@ export async function handleStripeRefundUpdated(
 
   if (!resolvedPaymentIntentId || cumulativeRefundAmount <= 0) return false;
 
-  const paymentUpdated = await updatePaymentRefundByPaymentIntent(
-    supabase,
-    resolvedPaymentIntentId,
-    cumulativeRefundAmount,
-    stripeRefundId,
-    stripeAccountId,
-    stripeEventId,
-    stripeEventType,
-  );
+  // REFUND-RECON-1: payment-summary refund state only ever reflects money that
+  // was actually returned. A resolved charge's amount_refunded is authoritative
+  // (it already excludes failed/canceled refunds, so a reversal is never
+  // recorded as a refund). Without the charge, only the refund's own amount for
+  // a refund Stripe reports as `succeeded` counts: `pending` and
+  // `requires_action` have not returned money yet (their later `succeeded`
+  // refund.updated reconciles), `failed`/`canceled` never will, and any other or
+  // missing status fails closed. The package ledger/reversal calls below still
+  // observe every status.
+  const summaryRefundAmount = resolvedCharge
+    ? centsToDollars(resolvedCharge.amount_refunded ?? 0)
+    : refundEventStatus === "succeeded"
+      ? cumulativeRefundAmount
+      : 0;
 
-  const eventPaymentUpdated = await updateEventPaymentRefundByPaymentIntent(
-    supabase,
-    resolvedPaymentIntentId,
-    cumulativeRefundAmount,
-    stripeRefundId,
-    stripeAccountId,
-  );
+  const paymentUpdated = summaryRefundAmount > 0
+    ? await updatePaymentRefundByPaymentIntent(
+        supabase,
+        resolvedPaymentIntentId,
+        summaryRefundAmount,
+        stripeRefundId,
+        stripeAccountId,
+        stripeEventId,
+        stripeEventType,
+      )
+    : false;
+
+  const eventPaymentUpdated = summaryRefundAmount > 0
+    ? await updateEventPaymentRefundByPaymentIntent(
+        supabase,
+        resolvedPaymentIntentId,
+        summaryRefundAmount,
+        stripeRefundId,
+        stripeAccountId,
+      )
+    : false;
 
   // Package Refund P0, Slice 2c-1: refund.created/refund.updated (and
   // charge.refund.updated, which also routes through this same handler)
@@ -3754,6 +3777,21 @@ export async function handleCheckoutSessionCompleted(
     );
 
   if (handledClientPaymentRequest) {
+    return;
+  }
+
+  // GC-3.5-3: public paid Group Class registration (metadata.source "group_class_direct_payment").
+  // Settled only from this verified, connected-account-scoped session via finalize_public_class_purchase.
+  const handledGroupClassPurchase = await handleGroupClassPurchaseCheckout({
+    supabase,
+    stripe,
+    session,
+    stripeAccountId,
+    eventId: stripeEventId ?? "",
+    eventType: stripeEventType ?? "",
+  });
+
+  if (handledGroupClassPurchase) {
     return;
   }
 

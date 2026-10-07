@@ -1,11 +1,21 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMyVerifiedEmail } from "@/lib/auth/verifiedIdentity";
 import { ensurePortalProfileAndClientLinks, getAuthUserFullName } from "@/lib/auth/portal-linking";
 import { checkRateLimit, getServerActionRateLimitKey } from "@/lib/security/rate-limit";
-import { fetchPublicGroupClass, isUuid } from "@/lib/public/groupClasses";
+import { fetchPublicGroupClass, formatClassDay, formatClassTimeRange, isUuid } from "@/lib/public/groupClasses";
+import { getTrustedRequestOrigin } from "@/lib/security/redirects";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getStripe } from "@/lib/payments/stripe";
+import {
+  hasLinkedStudioRelationship,
+  releaseOwnPublicClassPurchase,
+  startPublicClassCheckout,
+} from "@/lib/payments/groupClassPurchase";
+import type { ClassPurchaseErrorKind } from "@/lib/public/classPurchase";
 import {
   canProceedToRegister,
   classRegisterPath,
@@ -196,4 +206,125 @@ export async function enrollInClassAction(formData: FormData) {
   }
 
   redirect(dancerPath);
+}
+
+const PURCHASE_START_LIMIT = { limit: 8, windowMs: 10 * 60 * 1000 };
+const PURCHASE_RELEASE_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 };
+
+function purchaseErrorPath(registerPath: string, kind: ClassPurchaseErrorKind) {
+  return `${registerPath}?purchase_error=${kind}`;
+}
+
+/*
+  GC-3.5-3: start (or resume) a public paid registration for a verified
+  account that is NOT linked to the class's studio (self-registration only).
+
+  The browser supplies only the appointment id and the dancer's first name,
+  last name and optional phone. Never an amount, email, user, studio, hold or
+  account id. The hold comes from start_public_class_purchase on the USER
+  session (verified email, studio, policy and price are database-derived);
+  Checkout is created on the studio's own connected account for exactly the
+  hold's amount, attached to the hold, and only then is the purchaser sent to
+  Stripe. Rate limiting here is per-instance defense in depth; the database's
+  one-active-hold rule is the real bound.
+*/
+export async function startClassPurchaseAction(formData: FormData) {
+  const appointmentId = String(formData.get("appointmentId") ?? "").trim();
+  if (!isUuid(appointmentId)) redirect("/discover/classes");
+
+  const supabase = await createClient();
+  const item = await fetchPublicGroupClass(supabase, appointmentId);
+  if (!item) redirect("/discover/classes");
+
+  const registerPath = classRegisterPath(item.studioSlug, item.appointmentId);
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    redirect(`/login?intent=public&next=${encodeURIComponent(registerPath)}`);
+  }
+
+  const verifiedEmail = await getMyVerifiedEmail(supabase);
+  if (!verifiedEmail) redirect(registerPath);
+
+  const limit = checkRateLimit(
+    await getServerActionRateLimitKey("class-register:purchase-start", [user.id, item.appointmentId]),
+    PURCHASE_START_LIMIT,
+  );
+  if (!limit.allowed) redirect(purchaseErrorPath(registerPath, "rate_limited"));
+
+  const studioId = await getStudioIdForPublicSlug(item.studioSlug);
+  if (!studioId) redirect(registerPath);
+
+  const admin = createAdminClient();
+  // Linked students keep the Student Portal flow; Public Discovery never sells to them.
+  if (await hasLinkedStudioRelationship(admin, { userId: user.id, studioId })) {
+    redirect(purchaseErrorPath(registerPath, "already_linked"));
+  }
+
+  const origin = getTrustedRequestOrigin(await headers());
+  const result = await startPublicClassCheckout({
+    userClient: supabase,
+    admin,
+    stripe: getStripe(),
+    userId: user.id,
+    studioId,
+    appointmentId: item.appointmentId,
+    classTitle: item.title,
+    classDescription: `${item.studioName} · ${formatClassDay(item.startsAt, item.timeZone)}, ${formatClassTimeRange(item.startsAt, item.endsAt, item.timeZone)}`,
+    classStartsAt: item.startsAt,
+    firstName: String(formData.get("firstName") ?? "").slice(0, 200),
+    lastName: String(formData.get("lastName") ?? "").slice(0, 200),
+    phone: String(formData.get("phone") ?? "").slice(0, 64),
+    customerEmail: verifiedEmail,
+    successUrl: `${origin}${registerPath}?purchase=return`,
+    cancelUrl: `${origin}${registerPath}?purchase=cancelled`,
+  });
+
+  if (result.kind === "redirect") {
+    // A Stripe-hosted Checkout URL returned by the Stripe API for a session already attached to the hold.
+    if (!/^https:\/\//.test(result.url)) redirect(purchaseErrorPath(registerPath, "checkout_failed"));
+    redirect(result.url);
+  }
+  if (result.kind === "finalizing") redirect(`${registerPath}?purchase=return`);
+  redirect(purchaseErrorPath(registerPath, result.code));
+}
+
+/*
+  GC-3.5-3: the purchaser cancels their own pending registration. The hold id
+  is only a pointer: the hold is re-read on the user's session (RLS: own
+  holds only) and released by release_public_class_purchase, which itself
+  refuses anyone else's hold. An open Checkout is expired first; a session
+  that was already paid is left for the webhook (no forced refund).
+*/
+export async function releaseClassPurchaseAction(formData: FormData) {
+  const appointmentId = String(formData.get("appointmentId") ?? "").trim();
+  const holdId = String(formData.get("holdId") ?? "").trim();
+  if (!isUuid(appointmentId)) redirect("/discover/classes");
+
+  const supabase = await createClient();
+  const item = await fetchPublicGroupClass(supabase, appointmentId);
+  if (!item) redirect("/discover/classes");
+
+  const registerPath = classRegisterPath(item.studioSlug, item.appointmentId);
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    redirect(`/login?intent=public&next=${encodeURIComponent(registerPath)}`);
+  }
+  if (!isUuid(holdId)) redirect(registerPath);
+
+  const limit = checkRateLimit(
+    await getServerActionRateLimitKey("class-register:purchase-release", [user.id]),
+    PURCHASE_RELEASE_LIMIT,
+  );
+  if (!limit.allowed) redirect(purchaseErrorPath(registerPath, "rate_limited"));
+
+  const outcome = await releaseOwnPublicClassPurchase({ userClient: supabase, stripe: getStripe(), userId: user.id, holdId });
+  if (outcome === "finalizing") redirect(`${registerPath}?purchase=return`);
+  if (outcome === "error") redirect(purchaseErrorPath(registerPath, "release_failed"));
+  redirect(registerPath);
 }

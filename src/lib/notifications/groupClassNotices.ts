@@ -21,6 +21,7 @@ import {
   buildGroupClassEnrollmentEmail,
   buildGroupClassExternalEnrollmentStaffEmail,
   buildGroupClassRemovalEmail,
+  buildPublicClassRefundIssueStaffEmail,
   type GroupClassChangeLine,
   type StudioEmailSource,
 } from "@/lib/notifications/scheduling-emails";
@@ -448,6 +449,8 @@ export async function notifyGroupClassEnrolled(params: {
   series: boolean;
   /** GC-S1F: the dancer enrolled themselves through the client portal (changes only the wording of the email). */
   selfEnrolled?: boolean;
+  /** GC-3.5-3: "$25.00 paid online" -- only after the verified Stripe webhook finalized the purchase. */
+  paymentLabel?: string | null;
 }): Promise<NoticeOutcome> {
   if (!params.appointmentIds.length) return NOTHING;
   try {
@@ -486,6 +489,7 @@ export async function notifyGroupClassEnrolled(params: {
               instructorName: names.instructor(first.instructor_id),
               locationName: locationName || null,
               selfEnrolled: params.selfEnrolled === true,
+              paymentLabel: params.paymentLabel ?? null,
             }),
         })
       : { queued: 0, duplicates: 0 };
@@ -750,17 +754,25 @@ export function externalEnrollmentFundingLabel(billingType: string | null | unde
  * (getStudioRegistrationNotificationEmails), looked up for this studio only. Branded HTML + text, no SMS. Never
  * throws: the enrollment stands even if nobody can be reached.
  */
-export async function notifyStudioOfExternalGroupClassEnrollment(params: { studioId: string; attendeeId: string }): Promise<NoticeOutcome> {
+export async function notifyStudioOfExternalGroupClassEnrollment(params: {
+  studioId: string;
+  attendeeId: string;
+  /**
+   * GC-3.5-3: the attendee was created by a verified public paid registration (new client). Honored only when the
+   * attendee row itself is a paid pay-as-you-go enrollment, so this notice can never claim a payment that isn't recorded.
+   */
+  publicPaidRegistration?: { amountLabel: string; newClient: boolean } | null;
+}): Promise<NoticeOutcome> {
   try {
     const admin = createAdminClient();
     const { studioId, attendeeId } = params;
     const { data: attendee } = await admin
       .from("appointment_attendees")
-      .select("id, appointment_id, client_id, status, billing_type")
+      .select("id, appointment_id, client_id, status, billing_type, payment_status")
       .eq("id", attendeeId)
       .eq("studio_id", studioId)
       .maybeSingle();
-    const row = attendee as { id: string; appointment_id: string; client_id: string; status: string; billing_type: string | null } | null;
+    const row = attendee as { id: string; appointment_id: string; client_id: string; status: string; billing_type: string | null; payment_status?: string | null } | null;
     // only a committed, booked enrollment is announced
     if (!row || row.status !== "booked") return NOTHING;
 
@@ -796,11 +808,73 @@ export async function notifyStudioOfExternalGroupClassEnrollment(params: { studi
           locationName: locationName || null,
           fundingLabel: externalEnrollmentFundingLabel(row.billing_type),
           classPath: `/app/schedule/${cls.id}`,
+          publicPaidRegistration:
+            params.publicPaidRegistration && row.billing_type === "pay_as_you_go" && row.payment_status === "paid"
+              ? params.publicPaidRegistration
+              : null,
         }),
     });
     return { emailsQueued: result.queued, pushedAccounts: 0 };
   } catch (error) {
     console.error("Enrolled, but the studio enrollment notice failed:", error);
+    return NOTHING;
+  }
+}
+
+/**
+ * GC-3.5-3: tell studio staff that a public paid registration could not be confirmed AND the automatic refund failed, so a
+ * human must act (refund in Stripe / contact the payer). Deduplicated per purchase hold, so webhook retries alert once.
+ * Recipients are the studio's active owners, admins and front desk. Branded HTML + text. Never throws.
+ */
+export async function notifyStudioOfPublicPurchaseRefundIssue(params: {
+  studioId: string;
+  holdId: string;
+  appointmentId: string;
+  dancerName: string;
+  amountLabel: string;
+  /**
+   * refund_failed: Stripe did not return the money (staff must act). refund_not_recorded: Stripe returned the money but
+   * DanceFlow could not record it on the payment yet (staff must NOT refund again). Each is sent at most once per hold.
+   */
+  issue?: "refund_failed" | "refund_not_recorded";
+}): Promise<NoticeOutcome> {
+  try {
+    const admin = createAdminClient();
+    const { studioId } = params;
+    const notRecorded = params.issue === "refund_not_recorded";
+    const kind = notRecorded
+      ? "group_class_public_purchase_refund_record_issue_staff"
+      : "group_class_public_purchase_refund_issue_staff";
+    const [{ data: appointment }, ctx, recipients] = await Promise.all([
+      admin.from("appointments").select("id, title, starts_at").eq("id", params.appointmentId).eq("studio_id", studioId).maybeSingle(),
+      loadStudioContext(admin, studioId),
+      getStudioRegistrationNotificationEmails(admin, studioId),
+    ]);
+    const cls = appointment as { id: string; title: string | null; starts_at: string | null } | null;
+    if (!cls || !recipients.length) return NOTHING;
+
+    const result = await queueOneEmailPerAddress({
+      studioId,
+      templateKey: kind,
+      relatedTable: "group_class_enrollment_holds",
+      relatedId: params.holdId,
+      dedupeKind: kind,
+      eventId: params.holdId,
+      recipients: recipients.map((email) => ({ email })),
+      build: () =>
+        buildPublicClassRefundIssueStaffEmail({
+          refundIssued: notRecorded,
+          studio: ctx.studio,
+          dancerName: params.dancerName,
+          classTitle: cleanText(cls.title) || "Group class",
+          classWhen: formatClassStart(cls.starts_at, ctx.timeZone),
+          amountLabel: params.amountLabel,
+          classPath: `/app/schedule/${cls.id}`,
+        }),
+    });
+    return { emailsQueued: result.queued, pushedAccounts: 0 };
+  } catch (error) {
+    console.error("gc35_refund_issue_notice_failed", error instanceof Error ? error.message : "unknown");
     return NOTHING;
   }
 }

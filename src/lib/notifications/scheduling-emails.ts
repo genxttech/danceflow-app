@@ -458,6 +458,11 @@ export function buildGroupClassEnrollmentEmail(params: {
   locationName: string | null;
   /** The dancer enrolled themselves (client portal): the confirmation speaks to their own action, not the studio's. */
   selfEnrolled?: boolean;
+  /**
+   * GC-3.5-3: "$25.00 paid online". Passed ONLY after authoritative settlement (the verified Stripe webhook finalized
+   * the purchase); never for package/membership enrollments.
+   */
+  paymentLabel?: string | null;
 }): BuiltEmail {
   const identity = identityOf(params.studio);
   const studioName = identity.name;
@@ -477,6 +482,7 @@ export function buildGroupClassEnrollmentEmail(params: {
     ...(multiple ? [{ label: "Sessions", value: String(params.classCount) }] : []),
     ...(params.instructorName ? [{ label: "Instructor", value: params.instructorName }] : []),
     ...(params.locationName ? [{ label: "Location", value: params.locationName }] : []),
+    ...(params.paymentLabel?.trim() ? [{ label: "Payment", value: params.paymentLabel.trim() }] : []),
   ];
   const detail = "You do not need to do anything. Contact the studio if you have any questions.";
   const subject = sanitizeEmailSubject(`${studioName}: you are enrolled in ${title}`);
@@ -575,6 +581,63 @@ export function buildGroupClassRemovalEmail(params: {
 }
 
 /**
+ * GC-3.5-3: internal operational alert to studio staff that a public online class payment could NOT be applied to a
+ * registration (the class could no longer be confirmed) and DanceFlow's automatic refund did not go through. Staff must
+ * refund in Stripe or contact the payer. Never sent to the purchaser; never claims a refund happened.
+ */
+export function buildPublicClassRefundIssueStaffEmail(params: {
+  studio: StudioEmailSource;
+  dancerName: string;
+  classTitle: string;
+  classWhen: string;
+  amountLabel: string;
+  classPath: string;
+  /** True when Stripe already returned the money but DanceFlow could not record the refund on the payment yet. */
+  refundIssued?: boolean;
+}): BuiltEmail {
+  const identity = identityOf(params.studio);
+  const studioName = identity.name;
+  const title = params.classTitle.trim() || "Group class";
+  const dancer = params.dancerName.trim() || "A purchaser";
+  const classUrl = buildAppUrl(params.classPath);
+  const issued = params.refundIssued === true;
+  const subject = sanitizeEmailSubject(
+    issued
+      ? `Action needed: refund for ${dancer} (${title}) was issued but not recorded`
+      : `Action needed: refund for ${dancer} (${title}) did not go through`,
+  );
+  const intro = issued
+    ? `${dancer} paid ${params.amountLabel.trim()} online for ${title}, but the registration could not be confirmed. The automatic refund was issued in Stripe, but DanceFlow could not record it on the payment.`
+    : `${dancer} paid ${params.amountLabel.trim()} online for ${title}, but the registration could not be confirmed and the automatic refund did not go through.`;
+  const detail = issued
+    ? "No enrollment or client record was created. Do not refund this payment again. DanceFlow will keep trying to record the refund automatically for a limited time; if the payment still shows as paid in DanceFlow, compare it with your Stripe dashboard."
+    : "No enrollment or client record was created. Please refund this payment in your Stripe dashboard or contact the payer. DanceFlow will keep retrying the refund automatically for a limited time.";
+  const rows: Array<{ label: string; value: string }> = [
+    { label: "Payer", value: dancer },
+    { label: "Class", value: title },
+    { label: "When", value: params.classWhen },
+    { label: "Amount", value: params.amountLabel.trim() },
+    { label: "Status", value: issued ? "Refunded in Stripe, not yet recorded" : "Refund needed" },
+  ];
+
+  const bodyText = letter([intro, "", ...rows.map((row) => `${row.label}: ${row.value}`), "", detail, "", "View the class in DanceFlow:", classUrl]);
+
+  const bodyHtml = renderStudioBrandedEmail(identity, {
+    previewText: subject,
+    eyebrow: "Payment Attention",
+    heading: issued ? "Refund not recorded" : "Refund did not go through",
+    intro,
+    bodyText: paragraphs([detail]),
+    detailRows: rows,
+    actionLabel: "View class",
+    actionUrl: classUrl,
+    footerNote: `Internal notification for ${studioName} staff.`,
+  });
+
+  return { subject, bodyText, bodyHtml };
+}
+
+/**
  * GC-S1F: internal operational notice to studio staff that a dancer enrolled themselves in a class through the client portal
  * (no staff involved). The funding line describes the real funding source (package credit or membership) and this email never
  * claims a payment: self-enrollment is funded by an existing package or membership only.
@@ -588,39 +651,57 @@ export function buildGroupClassExternalEnrollmentStaffEmail(params: {
   locationName: string | null;
   fundingLabel: string;
   classPath: string;
+  /**
+   * GC-3.5-3: a NEW client created by a public paid registration (verified Stripe settlement). The funding line is then
+   * the settled online payment, and staff get a restrained, staff-only note that this may duplicate an existing record.
+   */
+  publicPaidRegistration?: { amountLabel: string; newClient: boolean } | null;
 }): BuiltEmail {
   const identity = identityOf(params.studio);
   const studioName = identity.name;
   const title = params.classTitle.trim() || "Group class";
   const dancer = params.dancerName.trim() || "A dancer";
   const classUrl = buildAppUrl(params.classPath);
-  const subject = sanitizeEmailSubject(`New class enrollment: ${dancer} joined ${title}`);
-  const intro = `${dancer} enrolled in ${title} from the client portal.`;
+  const paid = params.publicPaidRegistration?.amountLabel?.trim() ? params.publicPaidRegistration : null;
+  const newClient = paid?.newClient === true;
+  const subject = sanitizeEmailSubject(
+    paid
+      ? `${newClient ? "New client — public paid registration" : "Public paid registration"}: ${dancer} joined ${title}`
+      : `New class enrollment: ${dancer} joined ${title}`,
+  );
+  const intro = paid
+    ? `${dancer} registered for ${title} from your public class page and paid online.${newClient ? " DanceFlow created a new client record for them." : ""}`
+    : `${dancer} enrolled in ${title} from the client portal.`;
   const rows: Array<{ label: string; value: string }> = [
     { label: "Dancer", value: dancer },
     { label: "Class", value: title },
     { label: "When", value: params.classWhen },
     { label: "Status", value: "Enrolled" },
-    { label: "Funding", value: params.fundingLabel },
+    { label: paid ? "Payment" : "Funding", value: paid ? `Paid online — ${paid.amountLabel.trim()}` : params.fundingLabel },
     ...(params.instructorName ? [{ label: "Instructor", value: params.instructorName }] : []),
     ...(params.locationName ? [{ label: "Location", value: params.locationName }] : []),
   ];
+  const reconcileNote = newClient
+    ? "This client was created from a public registration. If this person already has a record at your studio, you may want to reconcile the two records."
+    : null;
 
   const bodyText = letter([
     intro,
     "",
     ...rows.map((row) => `${row.label}: ${row.value}`),
     "",
+    reconcileNote,
+    reconcileNote ? "" : null,
     "View the class roster in DanceFlow:",
     classUrl,
   ]);
 
   const bodyHtml = renderStudioBrandedEmail(identity, {
     previewText: subject,
-    eyebrow: "Class Enrollment",
-    heading: "New Class Enrollment",
+    eyebrow: paid ? "Public Paid Registration" : "Class Enrollment",
+    heading: paid ? (newClient ? "New client — public paid registration" : "Public paid registration") : "New Class Enrollment",
     intro,
-    bodyText: "",
+    bodyText: reconcileNote ? paragraphs([reconcileNote]) : "",
     detailRows: rows,
     actionLabel: "View class roster",
     actionUrl: classUrl,
