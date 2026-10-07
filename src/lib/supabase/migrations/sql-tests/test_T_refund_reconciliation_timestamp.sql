@@ -90,7 +90,7 @@ begin
       ('accounting_mark_source_voided(text,uuid,text)', '883ff6fb8c8b3c1aa00564f570ee3d8e'),
       ('sync_payment_accounting_entry()', '732032d8149b52844c636185cb6aa202'),
       ('sync_payment_accounting_entry_row(uuid)', 'd52d31d97d4504793af20b018490cb38')) v(s, m))
-    and (select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.accounting_upsert_entry(uuid,uuid,date,text,text,text,numeric,numeric,numeric,numeric,text,text,text,uuid,uuid,uuid,uuid,text,text,text,text,text,jsonb,uuid)'::regprocedure) = 'a2779c25219dc8fd50a781985e6909db');
+    and (select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.accounting_upsert_entry(uuid,uuid,date,text,text,text,numeric,numeric,numeric,numeric,text,text,text,uuid,uuid,uuid,uuid,text,text,text,text,text,jsonb,uuid)'::regprocedure) = '548b512c2cf4ca3534ff2541594a1c7c');
   perform pg_temp.t_ok('P payment accounting trigger definition unchanged (re-syncs on refunded_at)',
     (select md5(pg_get_triggerdef(t.oid)) || '/' || t.tgenabled::text from pg_trigger t where t.tgrelid = 'public.payments'::regclass and t.tgname = 'trg_sync_payment_accounting_entry')
     = 'e5466ad577cabf01dac2557af87483cb/O');

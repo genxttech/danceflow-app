@@ -63,7 +63,7 @@ begin
     ('public.enforce_attendee_cancel_no_terminal_attendance()', 'd7e90072acc77b158bd4121306d30db6'),
     ('public.sync_payment_accounting_entry()', '732032d8149b52844c636185cb6aa202'),
     ('public.sync_payment_accounting_entry_row(uuid)', 'd52d31d97d4504793af20b018490cb38'),
-    ('public.accounting_upsert_entry(uuid,uuid,date,text,text,text,numeric,numeric,numeric,numeric,text,text,text,uuid,uuid,uuid,uuid,text,text,text,text,text,jsonb,uuid)', 'a2779c25219dc8fd50a781985e6909db'),
+    ('public.accounting_upsert_entry(uuid,uuid,date,text,text,text,numeric,numeric,numeric,numeric,text,text,text,uuid,uuid,uuid,uuid,text,text,text,text,text,jsonb,uuid)', '548b512c2cf4ca3534ff2541594a1c7c'),
     ('public.accounting_mark_source_voided(text,uuid,text)', '883ff6fb8c8b3c1aa00564f570ee3d8e'),
     ('public.accounting_assert_entry_mutable()', 'f94269788e32046f52c56a641234620b')
   ) as want(sig, body_md5)
