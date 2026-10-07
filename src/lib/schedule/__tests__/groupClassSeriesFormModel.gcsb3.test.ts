@@ -6,6 +6,7 @@ import {
   checkDefinition,
   definitionKey,
   deriveSeriesView,
+  directPaymentActive,
   dstGuidance,
   effectiveSkipped,
   formatOccurrenceDate,
@@ -371,5 +372,134 @@ describe("presentation helpers", () => {
       expect(text).not.toMatch(/postgres|rfc|utc|offset|timestamp|sql|database/i);
     }
     expect(dstGuidance(null)).toBeNull();
+  });
+});
+
+describe("GC-3.5-1 series direct payment", () => {
+  it("defaults to no direct payment and posts no price", () => {
+    const fd = buildSeriesFormData(filled());
+    expect(fd.getAll("acceptedFundingTypes")).not.toContain("direct_payment");
+    expect(fd.has("directPaymentAmount")).toBe(false);
+  });
+
+  it("posts direct_payment with its price alongside package and membership, and the server parser accepts it", () => {
+    const state = seriesFormReducer(filled(), {
+      type: "edit",
+      patch: {
+        showToLinkedStudents: true,
+        allowSelfEnrollment: true,
+        packageEnabled: true,
+        membershipEnabled: true,
+        directPaymentEnabled: true,
+        directPaymentAmount: "35",
+      },
+    });
+    const fd = buildSeriesFormData(state);
+    expect(fd.getAll("acceptedFundingTypes")).toEqual(["package", "membership", "direct_payment"]);
+    expect(fd.get("directPaymentAmount")).toBe("35");
+    const parsed = parseSeriesInput(fd);
+    expect(parsed.ok && parsed.value.directPaymentAmount).toBe(35);
+    expect(checkDefinition(state).ok).toBe(true);
+  });
+
+  it("direct payment alone satisfies the series funding requirement", () => {
+    const state = seriesFormReducer(filled(), {
+      type: "edit",
+      patch: { showToLinkedStudents: true, directPaymentEnabled: true, directPaymentAmount: "20.00" },
+    });
+    expect(checkDefinition(state).ok).toBe(true);
+  });
+
+  it.each([
+    ["", "direct_payment_amount_required"],
+    ["0", "direct_payment_amount_invalid"],
+    ["-3", "direct_payment_amount_invalid"],
+    ["12.345", "direct_payment_amount_invalid"],
+    ["twelve", "direct_payment_amount_invalid"],
+  ])("blocks preview/create for the price %j with %s", (amount, code) => {
+    const state = seriesFormReducer(filled(), {
+      type: "edit",
+      patch: { allowSelfEnrollment: true, directPaymentEnabled: true, directPaymentAmount: amount },
+    });
+    expect(checkDefinition(state)).toMatchObject({ ok: false, code });
+  });
+
+  it("turning direct payment off drops it and its price from the submission", () => {
+    let state = seriesFormReducer(filled(), {
+      type: "edit",
+      patch: { allowSelfEnrollment: true, packageEnabled: true, directPaymentEnabled: true, directPaymentAmount: "35" },
+    });
+    state = seriesFormReducer(state, { type: "edit", patch: { directPaymentEnabled: false } });
+    const fd = buildSeriesFormData(state);
+    expect(fd.getAll("acceptedFundingTypes")).toEqual(["package"]);
+    expect(fd.has("directPaymentAmount")).toBe(false);
+    const parsed = parseSeriesInput(fd);
+    expect(parsed.ok && parsed.value.directPaymentAmount).toBeNull();
+  });
+
+  it("changing direct payment or its price invalidates a preview; a price typed while off does not", () => {
+    const base = seriesFormReducer(filled(), { type: "edit", patch: { showToLinkedStudents: true, packageEnabled: true } });
+    const on = seriesFormReducer(base, { type: "edit", patch: { directPaymentEnabled: true, directPaymentAmount: "35" } });
+    expect(definitionKey(on.values)).not.toBe(definitionKey(base.values));
+    const repriced = seriesFormReducer(on, { type: "edit", patch: { directPaymentAmount: "40" } });
+    expect(definitionKey(repriced.values)).not.toBe(definitionKey(on.values));
+    const typedWhileOff = seriesFormReducer(base, { type: "edit", patch: { directPaymentAmount: "40" } });
+    expect(definitionKey(typedWhileOff.values)).toBe(definitionKey(base.values));
+  });
+
+  it("supports every direct-payment combination at creation (only, +package, +membership, all three)", () => {
+    for (const [patch, expected] of [
+      [{}, ["direct_payment"]],
+      [{ packageEnabled: true }, ["package", "direct_payment"]],
+      [{ membershipEnabled: true }, ["membership", "direct_payment"]],
+      [{ packageEnabled: true, membershipEnabled: true }, ["package", "membership", "direct_payment"]],
+    ] as const) {
+      const state = seriesFormReducer(filled(), {
+        type: "edit",
+        patch: { allowSelfEnrollment: true, ...patch, directPaymentEnabled: true, directPaymentAmount: "19.99" },
+      });
+      const parsed = parseSeriesInput(buildSeriesFormData(state));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) {
+        expect(parsed.value.acceptedFundingTypes).toEqual(expected);
+        expect(parsed.value.directPaymentAmount).toBe(19.99);
+      }
+    }
+  });
+
+  it("E: hidden direct payment (both enrollment toggles off) is inactive -- never submitted, never an invisible blocker", () => {
+    let state = seriesFormReducer(filled(), {
+      type: "edit",
+      patch: { allowSelfEnrollment: true, directPaymentEnabled: true, directPaymentAmount: "abc" },
+    });
+    expect(checkDefinition(state)).toMatchObject({ ok: false, code: "direct_payment_amount_invalid" });
+    state = seriesFormReducer(state, { type: "edit", patch: { allowSelfEnrollment: false } });
+    expect(directPaymentActive(state.values)).toBe(false);
+    expect(checkDefinition(state)).toEqual({ ok: true });
+    const fd = buildSeriesFormData(state);
+    expect(fd.getAll("acceptedFundingTypes")).not.toContain("direct_payment");
+    expect(fd.has("directPaymentAmount")).toBe(false);
+    const parsed = parseSeriesInput(fd);
+    expect(parsed.ok && parsed.value.directPaymentAmount).toBeNull();
+  });
+
+  it("F: re-showing the enrollment methods restores the direct-payment choice and price (and its visible validation)", () => {
+    let state = seriesFormReducer(filled(), {
+      type: "edit",
+      patch: { showToLinkedStudents: true, directPaymentEnabled: true, directPaymentAmount: "abc" },
+    });
+    state = seriesFormReducer(state, { type: "edit", patch: { showToLinkedStudents: false } });
+    state = seriesFormReducer(state, { type: "edit", patch: { showToLinkedStudents: true } });
+    expect(state.values.directPaymentEnabled).toBe(true);
+    expect(state.values.directPaymentAmount).toBe("abc");
+    expect(checkDefinition(state)).toMatchObject({ ok: false, code: "direct_payment_amount_invalid" });
+    state = seriesFormReducer(state, { type: "edit", patch: { directPaymentAmount: "30" } });
+    expect(checkDefinition(state)).toEqual({ ok: true });
+    expect(buildSeriesFormData(state).get("directPaymentAmount")).toBe("30");
+  });
+
+  it("package/membership keep their existing submission semantics while hidden (unchanged)", () => {
+    const state = seriesFormReducer(filled(), { type: "edit", patch: { packageEnabled: true, membershipEnabled: true } });
+    expect(buildSeriesFormData(state).getAll("acceptedFundingTypes")).toEqual(["package", "membership"]);
   });
 });

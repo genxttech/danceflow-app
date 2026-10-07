@@ -8,6 +8,11 @@ import SeriesSettingsFooter from "@/components/schedule/SeriesSettingsFooter";
 import { classFormMaterialChanged, singleEditNoticeText } from "@/lib/schedule/groupClassEditNotice";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
+  directPaymentAmountMessage,
+  formatDirectPaymentAmountInput,
+  hiddenDirectPaymentSubmission,
+} from "@/lib/schedule/directPaymentAmount";
+import {
   getItemWarningLevel,
   getUnsuppressedWarningUsageTypes,
   type PackageWithItems,
@@ -22,6 +27,7 @@ type EnrollmentPolicy = {
   publicly_discoverable: boolean;
   self_enrollment_allowed: boolean;
   accepted_funding_types: string[] | null;
+  direct_payment_amount?: number | string | null;
 };
 
 type ClientOption = {
@@ -446,19 +452,46 @@ export default function AppointmentEditForm({
   const [membershipEnabled, setMembershipEnabled] = useState(
     enrollmentPolicy?.accepted_funding_types?.includes("membership") ?? false,
   );
+  // GC-3.5-1: direct payment and its USD price (validated on the server).
+  const [directPaymentEnabled, setDirectPaymentEnabled] = useState(
+    enrollmentPolicy?.accepted_funding_types?.includes("direct_payment") ?? false,
+  );
+  const [directPaymentAmount, setDirectPaymentAmount] = useState(
+    formatDirectPaymentAmountInput(enrollmentPolicy?.direct_payment_amount),
+  );
   // Client-side mirror of updateGroupClassEnrollmentPolicyAction's own
   // resulting-merged-array validation -- the RESULTING array, not "at least
   // one checkbox checked": a class with a pre-existing unmanaged funding
-  // value (direct_payment/manual_other) already satisfies
+  // value (manual_other) already satisfies
   // group_class_enrollment_policies_discovery_requires_funding even with
-  // both checkboxes off.
+  // every checkbox off.
   const preservedFundingTypes = (enrollmentPolicy?.accepted_funding_types ?? []).filter(
-    (value) => value !== "package" && value !== "membership",
+    (value) => value !== "package" && value !== "membership" && value !== "direct_payment",
   );
   const resultingFundingTypeCount =
-    preservedFundingTypes.length + (packageEnabled ? 1 : 0) + (membershipEnabled ? 1 : 0);
+    preservedFundingTypes.length +
+    (packageEnabled ? 1 : 0) +
+    (membershipEnabled ? 1 : 0) +
+    (directPaymentEnabled ? 1 : 0);
   const policyRequiresFundingType =
     (publiclyDiscoverable || selfEnrollmentAllowed) && resultingFundingTypeCount === 0;
+  const directPaymentAmountError = directPaymentAmountMessage(directPaymentEnabled, directPaymentAmount);
+  // GC-3.5-1: the funding controls are only shown while the class is
+  // discoverable or self-enrollable. While they are hidden, an in-progress
+  // (invalid) direct-payment price must not silently block Save: the hidden
+  // inputs then carry the class's STORED direct-payment setting instead. The
+  // edited values stay in state and reappear when the controls are shown.
+  const fundingControlsVisible = publiclyDiscoverable || selfEnrollmentAllowed;
+  const hiddenDirectPayment = hiddenDirectPaymentSubmission({
+    enabled: directPaymentEnabled,
+    amount: directPaymentAmount,
+    storedFundingTypes: enrollmentPolicy?.accepted_funding_types,
+    storedAmount: enrollmentPolicy?.direct_payment_amount,
+  });
+  // "This and following classes" never changes direct payment (the series
+  // settings RPC preserves each class's own value), so the controls are locked
+  // in that scope rather than looking like part of the series-wide change.
+  const directPaymentLocked = seriesSettingsEnabled && policyScope === "series";
 
   const [appointmentType, setAppointmentType] = useState(
     appointment.appointment_type,
@@ -1458,7 +1491,63 @@ export default function AppointmentEditForm({
                       />
                       Membership
                     </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        name="directPaymentEnabled"
+                        checked={directPaymentEnabled}
+                        onChange={(event) => setDirectPaymentEnabled(event.target.checked)}
+                        disabled={directPaymentLocked}
+                        aria-describedby={directPaymentLocked ? "directPaymentPerClassNote" : undefined}
+                        className="h-4 w-4 rounded border-slate-300 disabled:opacity-50"
+                      />
+                      Direct payment
+                    </label>
                   </div>
+
+                  {directPaymentLocked ? (
+                    // GC-3.5-1: the series settings apply only changes Package/Membership
+                    // and discoverability; each class keeps its own direct payment.
+                    <p id="directPaymentPerClassNote" className="mt-2 text-xs font-medium text-slate-600">
+                      Direct payment is managed per class and is not changed for following
+                      classes. Switch to &quot;This class&quot; to change this class&apos;s
+                      payment setting.
+                    </p>
+                  ) : null}
+
+                  {directPaymentEnabled ? (
+                    <div className="mt-3">
+                      <label htmlFor="directPaymentAmount" className="text-sm font-medium text-slate-900">
+                        Direct payment price
+                      </label>
+                      <div className="mt-1 flex max-w-[12rem] items-center rounded-lg border border-slate-300 bg-white px-3">
+                        <span aria-hidden="true" className="text-sm text-slate-500">
+                          $
+                        </span>
+                        <input
+                          id="directPaymentAmount"
+                          name="directPaymentAmount"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder="25.00"
+                          value={directPaymentAmount}
+                          onChange={(event) => setDirectPaymentAmount(event.target.value)}
+                          disabled={directPaymentLocked}
+                          aria-invalid={directPaymentAmountError && !directPaymentLocked ? true : undefined}
+                          aria-describedby={
+                            directPaymentAmountError && !directPaymentLocked ? "directPaymentAmountError" : undefined
+                          }
+                          className="w-full border-0 bg-transparent py-2 pl-1 text-sm text-slate-900 outline-none disabled:text-slate-400"
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">USD, charged per class.</p>
+                      {directPaymentAmountError && !directPaymentLocked ? (
+                        <p id="directPaymentAmountError" className="mt-1 text-xs font-medium text-red-600">
+                          {directPaymentAmountError}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   {policyRequiresFundingType ? (
                     <p className="mt-3 text-xs font-medium text-red-600">
@@ -1487,6 +1576,8 @@ export default function AppointmentEditForm({
                 <>
                   <input type="hidden" name="packageEnabled" value={packageEnabled ? "on" : ""} />
                   <input type="hidden" name="membershipEnabled" value={membershipEnabled ? "on" : ""} />
+                  <input type="hidden" name="directPaymentEnabled" value={hiddenDirectPayment.enabled ? "on" : ""} />
+                  <input type="hidden" name="directPaymentAmount" value={hiddenDirectPayment.amount} />
                 </>
               )}
 
@@ -1496,7 +1587,7 @@ export default function AppointmentEditForm({
                 scope={policyScope}
                 onScopeChange={setPolicyScope}
                 settings={{ publiclyDiscoverable, selfEnrollmentAllowed, packageEnabled, membershipEnabled }}
-                singleDisabled={policyRequiresFundingType}
+                singleDisabled={policyRequiresFundingType || (fundingControlsVisible && Boolean(directPaymentAmountError))}
                 timeZone={studioTimeZone}
                 returnPath={`/app/schedule/${appointment.id}/edit`}
               />

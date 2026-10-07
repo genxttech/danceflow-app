@@ -278,8 +278,8 @@ describe("boundaries (source guards)", () => {
     expect(source).not.toMatch(/create_group_class_series|preview_group_class_series|create_group_class_appointment/);
   });
 
-  it("has no legacy Events, Stripe, Twilio or payment code", () => {
-    expect(source).not.toMatch(/\/app\/events|event_sessions|stripe|twilio|checkout|direct_payment|directPayment|campaignAllowance/i);
+  it("has no legacy Events, Stripe, Twilio or checkout code (GC-3.5-1 adds only the staff direct-payment price)", () => {
+    expect(source).not.toMatch(/\/app\/events|event_sessions|stripe|twilio|checkout|campaignAllowance/i);
   });
 
   it("generates the request id once through the form model, never in render or in handlers", () => {

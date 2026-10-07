@@ -1,5 +1,7 @@
 "use client";
 
+import { directPaymentAmountMessage } from "@/lib/schedule/directPaymentAmount";
+
 import { startTransition, useActionState, useReducer, useRef } from "react";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { ChevronDown } from "lucide-react";
@@ -29,6 +31,7 @@ import {
   checkDefinition,
   definitionKey,
   deriveSeriesView,
+  directPaymentActive,
   initSeriesFormState,
   seriesFormReducer,
   type SeriesFormValues,
@@ -341,7 +344,13 @@ export default function GroupClassSeriesForm({
   const previewStale = previewResult.state.status === "preview" && !view.previewCurrent;
 
   const fundingMissing =
-    (values.allowSelfEnrollment || values.showToLinkedStudents) && !values.packageEnabled && !values.membershipEnabled;
+    (values.allowSelfEnrollment || values.showToLinkedStudents) &&
+    !values.packageEnabled &&
+    !values.membershipEnabled &&
+    !values.directPaymentEnabled;
+  // GC-3.5-1: same validation as the server parser (shared module).
+  // Only while the enrollment methods are shown (see directPaymentActive).
+  const directPaymentError = directPaymentAmountMessage(directPaymentActive(values), values.directPaymentAmount);
 
   const hint = !definition.ok
     ? "Fill in the class name, start date, days and schedule to preview."
@@ -692,7 +701,7 @@ export default function GroupClassSeriesForm({
 
               {values.allowSelfEnrollment || values.showToLinkedStudents ? (
                 <fieldset className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <legend className="px-1 text-sm font-medium text-slate-900">Which credits can be used?</legend>
+                  <legend className="px-1 text-sm font-medium text-slate-900">Accepted enrollment methods</legend>
                   <div className="mt-2 space-y-2">
                     <label className="flex items-center gap-2 text-sm text-slate-700" htmlFor="series-fund-package">
                       <input
@@ -714,7 +723,45 @@ export default function GroupClassSeriesForm({
                       />
                       Memberships
                     </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700" htmlFor="series-fund-direct">
+                      <input
+                        id="series-fund-direct"
+                        type="checkbox"
+                        checked={values.directPaymentEnabled}
+                        onChange={(e) => edit({ directPaymentEnabled: e.target.checked })}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Direct payment
+                    </label>
                   </div>
+                  {values.directPaymentEnabled ? (
+                    <div className="mt-3">
+                      <label htmlFor="series-direct-price" className="text-sm font-medium text-slate-900">
+                        Direct payment price
+                      </label>
+                      <div className="mt-1 flex max-w-[12rem] items-center rounded-lg border border-slate-300 bg-white px-3">
+                        <span aria-hidden="true" className="text-sm text-slate-500">
+                          $
+                        </span>
+                        <input
+                          id="series-direct-price"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder="25.00"
+                          value={values.directPaymentAmount}
+                          onChange={(e) => edit({ directPaymentAmount: e.target.value })}
+                          aria-invalid={directPaymentError ? true : undefined}
+                          className="w-full border-0 bg-transparent py-2 pl-1 text-sm text-slate-900 outline-none"
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">USD, per class. Applies to every class in this series.</p>
+                      {directPaymentError ? (
+                        <p role="alert" className="mt-1 text-sm font-medium text-red-700">
+                          {directPaymentError}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {fundingMissing ? (
                     <p role="alert" className="mt-3 text-sm font-medium text-red-700">
                       Choose at least one option to show these classes or let students join.
