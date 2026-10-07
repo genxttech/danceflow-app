@@ -290,7 +290,8 @@ export function classifySeriesEditError(error: { message?: string | null } | nul
   if (/GCSC5_ROOM_INVALID/.test(message)) return { failure: "room_invalid" };
   if (/GCSC5_IDEMPOTENCY_CONFLICT/.test(message)) return { failure: "idempotency" };
   if (/GCSC3_CAPACITY_BELOW_BOOKED/.test(message)) {
-    const match = /(\d+) students already booked/.exec(message);
+    // Either database wording: "N students already booked" (pre GC-3.5-2) or "N seats already booked or reserved".
+    const match = /(\d+) (?:students already booked|seats already booked or reserved)/.exec(message);
     return { failure: "capacity_below_booked", booked: match ? Number(match[1]) : undefined };
   }
   const conflict = /GCSC5_CONFLICT: reason=(\w+) index=(\d+)/.exec(message);
@@ -335,8 +336,8 @@ export function seriesEditFailureMessage(
         : "These changes conflict with the schedule. Nothing was changed.";
     case "capacity_below_booked":
       return detail?.booked && detail.booked > 0
-        ? `One of these classes already has ${detail.booked === 1 ? "1 student" : `${detail.booked} students`} booked. Maximum students cannot be set lower. Nothing was changed.`
-        : "Maximum students cannot be set below the number of students already booked. Nothing was changed.";
+        ? `One of these classes already has ${detail.booked === 1 ? "1 seat" : `${detail.booked} seats`} booked or reserved. Maximum students cannot be set lower. Nothing was changed.`
+        : "Maximum students cannot be set below the number of seats already booked or reserved. Nothing was changed.";
     case "idempotency":
       return "This request was already used for a different change. Reload the page and try again.";
     default:

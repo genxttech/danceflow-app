@@ -69,8 +69,21 @@ export function capacityBelowBookedMessage(booked: number): string {
 }
 
 /**
- * GC-S1C-3: the database's capacity floor (GCSC3_CAPACITY_BELOW_BOOKED, "... lower than the N students already booked")
- * mapped to the same owner-facing copy as the app-level check. Returns null for any other database error so the caller
+ * GC-3.5-2: the database floor counts booked students AND live public-purchase holds, so its count is
+ * "seats booked or reserved" (truthful for both the old and the new database wording).
+ */
+export function capacityBelowReservedMessage(reserved: number): string {
+  const seats = reserved === 1 ? "1 seat" : `${reserved} seats`;
+  return `This class already has ${seats} booked or reserved. Capacity cannot be set below ${reserved}.`;
+}
+
+/** Reads N from either database wording: "N students already booked" (pre GC-3.5-2) or "N seats already booked or reserved". */
+export const CAPACITY_FLOOR_COUNT_PATTERN = /(\d+) (?:students already booked|seats already booked or reserved)/;
+
+/**
+ * GC-S1C-3: the database's capacity floor (GCSC3_CAPACITY_BELOW_BOOKED, "... lower than the N students already booked";
+ * since GC-3.5-2 "... N seats already booked or reserved") mapped to owner-facing copy that counts seats booked or
+ * reserved (the database count includes live public-purchase holds). Returns null for any other database error so the caller
  * keeps its generic message; raw database text is never shown.
  */
 export function mapOccurrenceUpdateDbError(message: string | null | undefined): string | null {
@@ -79,11 +92,11 @@ export function mapOccurrenceUpdateDbError(message: string | null | undefined): 
   if (conflict) return conflict.message;
   if (message?.includes("GCSE3_ROOM_INVALID")) return OCCURRENCE_EDIT_ERROR_COPY.invalid_room;
   if (!message || !message.includes("GCSC3_CAPACITY_BELOW_BOOKED")) return null;
-  const match = /(\d+) students already booked/.exec(message);
-  const booked = match ? Number(match[1]) : NaN;
-  return Number.isFinite(booked) && booked > 0
-    ? capacityBelowBookedMessage(booked)
-    : "Capacity cannot be set below the number of students already booked.";
+  const match = CAPACITY_FLOOR_COUNT_PATTERN.exec(message);
+  const reserved = match ? Number(match[1]) : NaN;
+  return Number.isFinite(reserved) && reserved > 0
+    ? capacityBelowReservedMessage(reserved)
+    : "Capacity cannot be set below the number of seats already booked or reserved.";
 }
 
 /** True when the new capacity would leave fewer seats than booked students. */

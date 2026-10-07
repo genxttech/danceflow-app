@@ -280,7 +280,7 @@ begin
   set local role authenticated;
   -- A1: capacity 3, two booked
   perform public.t_gcsc3_expect($q$update public.appointments set roster_capacity = 1 where id = '00000000-0000-0000-0000-000000ea4001'$q$, 'GCSC3_CAPACITY_BELOW_BOOKED', 'T-gcsc3-instructor-capacity-below-booked-refused');
-  perform public.t_gcsc3_expect($q$update public.appointments set roster_capacity = 1 where id = '00000000-0000-0000-0000-000000ea4001'$q$, '2 students already booked', 'T-gcsc3-capacity-refusal-names-the-booked-count');
+  perform public.t_gcsc3_expect($q$update public.appointments set roster_capacity = 1 where id = '00000000-0000-0000-0000-000000ea4001'$q$, '2 seats already booked or reserved', 'T-gcsc3-capacity-refusal-names-the-booked-count');
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-000000ea1001')::text, true);
   perform public.t_gcsc3_expect($q$update public.appointments set roster_capacity = 1 where id = '00000000-0000-0000-0000-000000ea4001'$q$, 'GCSC3_CAPACITY_BELOW_BOOKED', 'T-gcsc3-owner-capacity-below-booked-refused');
   perform public.t_gcsc3_ok($q$update public.appointments set roster_capacity = 2 where id = '00000000-0000-0000-0000-000000ea4001'$q$, 'T-gcsc3-capacity-equal-to-booked-allowed');
