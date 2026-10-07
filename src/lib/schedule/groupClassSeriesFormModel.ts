@@ -113,6 +113,17 @@ export function initSeriesFormState(
 }
 
 /** Everything that defines the series (never the request id or the skip list). */
+/**
+ * GC-3.5-1: direct payment is part of the series only while the enrollment
+ * methods are shown (self-enrollment or portal visibility on). Hidden, it is an
+ * inactive control: never submitted and never validated, so it cannot block
+ * Preview/Create invisibly. The values stay in state and return when shown.
+ * (Package/Membership keep their existing submission semantics.)
+ */
+export function directPaymentActive(values: SeriesFormValues): boolean {
+  return (values.allowSelfEnrollment || values.showToLinkedStudents) && values.directPaymentEnabled;
+}
+
 export function definitionKey(values: SeriesFormValues): string {
   return JSON.stringify({
     t: values.title.trim(),
@@ -133,8 +144,8 @@ export function definitionKey(values: SeriesFormValues): string {
     sh: values.showToLinkedStudents,
     p: values.packageEnabled,
     me: values.membershipEnabled,
-    dp: values.directPaymentEnabled,
-    da: values.directPaymentEnabled ? values.directPaymentAmount.trim() : "",
+    dp: directPaymentActive(values),
+    da: directPaymentActive(values) ? values.directPaymentAmount.trim() : "",
   });
 }
 
@@ -205,9 +216,9 @@ export function buildSeriesFormData(state: SeriesFormState): FormData {
   const funding: string[] = [];
   if (values.packageEnabled) funding.push("package");
   if (values.membershipEnabled) funding.push("membership");
-  if (values.directPaymentEnabled) funding.push("direct_payment");
+  if (directPaymentActive(values)) funding.push("direct_payment");
   for (const type of funding) fd.append("acceptedFundingTypes", type);
-  if (values.directPaymentEnabled) fd.set("directPaymentAmount", values.directPaymentAmount);
+  if (directPaymentActive(values)) fd.set("directPaymentAmount", values.directPaymentAmount);
   if (values.showToLinkedStudents) fd.set("publiclyDiscoverable", "on");
   if (values.allowSelfEnrollment) fd.set("selfEnrollmentAllowed", "on");
   return fd;

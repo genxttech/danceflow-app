@@ -42,3 +42,32 @@ export const DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES = {
   direct_payment_amount_required: "Enter a direct payment price to accept direct payment.",
   direct_payment_amount_invalid: "Enter a direct payment price greater than $0 with at most 2 decimal places.",
 } as const;
+
+/** The inline error for the editor's current direct-payment state (null when valid or off). */
+export function directPaymentAmountMessage(enabled: boolean, amount: string): string | null {
+  if (!enabled) return null;
+  const parsed = parseDirectPaymentAmount(amount);
+  return parsed.ok ? null : DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES[parsed.code];
+}
+
+/**
+ * What the single-class editor submits for direct payment while its funding
+ * controls are hidden (class neither discoverable nor self-enrollable). A valid
+ * edited state is carried through, exactly like Package/Membership. An
+ * in-progress INVALID price is never submitted from hidden controls -- the
+ * class's stored setting (always valid; the database requires an amount
+ * whenever direct payment is accepted) is carried instead, so a hidden control
+ * can never block Save. The server still validates whatever is posted.
+ */
+export function hiddenDirectPaymentSubmission(params: {
+  enabled: boolean;
+  amount: string;
+  storedFundingTypes: string[] | null | undefined;
+  storedAmount: number | string | null | undefined;
+}): { enabled: boolean; amount: string } {
+  if (directPaymentAmountMessage(params.enabled, params.amount) === null) {
+    return { enabled: params.enabled, amount: params.enabled ? params.amount : "" };
+  }
+  const storedEnabled = params.storedFundingTypes?.includes("direct_payment") ?? false;
+  return { enabled: storedEnabled, amount: storedEnabled ? formatDirectPaymentAmountInput(params.storedAmount) : "" };
+}

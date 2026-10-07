@@ -1,6 +1,6 @@
 "use client";
 
-import { DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES, parseDirectPaymentAmount } from "@/lib/schedule/directPaymentAmount";
+import { directPaymentAmountMessage } from "@/lib/schedule/directPaymentAmount";
 
 import { startTransition, useActionState, useReducer, useRef } from "react";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
@@ -31,6 +31,7 @@ import {
   checkDefinition,
   definitionKey,
   deriveSeriesView,
+  directPaymentActive,
   initSeriesFormState,
   seriesFormReducer,
   type SeriesFormValues,
@@ -348,9 +349,8 @@ export default function GroupClassSeriesForm({
     !values.membershipEnabled &&
     !values.directPaymentEnabled;
   // GC-3.5-1: same validation as the server parser (shared module).
-  const directPaymentCheck = values.directPaymentEnabled ? parseDirectPaymentAmount(values.directPaymentAmount) : null;
-  const directPaymentError =
-    directPaymentCheck && !directPaymentCheck.ok ? DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES[directPaymentCheck.code] : null;
+  // Only while the enrollment methods are shown (see directPaymentActive).
+  const directPaymentError = directPaymentAmountMessage(directPaymentActive(values), values.directPaymentAmount);
 
   const hint = !definition.ok
     ? "Fill in the class name, start date, days and schedule to preview."
