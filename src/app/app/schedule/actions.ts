@@ -76,6 +76,7 @@ import {
   validateAssignableInstructor,
 } from "@/lib/instructors/assignability";
 import { requireAppointmentRelationshipAccess } from "@/lib/auth/appointmentAccess";
+import { parseDirectPaymentAmount } from "@/lib/schedule/directPaymentAmount";
 import { requireBookingRequestRelationshipAccess } from "@/lib/auth/bookingRequestAccess";
 import {
   VIDEO_UPLOAD_MIME_TYPES,
@@ -3093,16 +3094,46 @@ export async function updateGroupClassEnrollmentPolicyAction(formData: FormData)
     const selfEnrollmentAllowed = getBoolean(formData, "selfEnrollmentAllowed");
     const packageEnabled = getBoolean(formData, "packageEnabled");
     const membershipEnabled = getBoolean(formData, "membershipEnabled");
+    const directPaymentEnabled = getBoolean(formData, "directPaymentEnabled");
     const returnTo = getString(formData, "returnTo") || `/app/schedule/${appointmentId}/edit`;
 
     if (!appointmentId) {
       redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
     }
 
+    // GC-3.5-1: a direct-payment price is required (and validated/normalized
+    // here, never trusted from the browser) whenever direct payment is on;
+    // turning direct payment off clears the price so no stale payable amount
+    // stays on the class.
+    let directPaymentAmount: number | null = null;
+    if (directPaymentEnabled) {
+      const parsedAmount = parseDirectPaymentAmount(getString(formData, "directPaymentAmount"));
+      if (!parsedAmount.ok) redirect(getErrorRedirect(formData, returnTo, parsedAmount.code));
+      directPaymentAmount = parsedAmount.amount;
+    }
+
+    // GC-3.5-1: the class must belong to the studio the staff member is
+    // acting in (resolved server-side from the session, never from the
+    // form). The policy shape trigger and RLS remain the database backstops.
+    const { data: ownedAppointment, error: ownedAppointmentError } = await supabase
+      .from("appointments")
+      .select("id")
+      .eq("id", appointmentId)
+      .eq("studio_id", studioId)
+      .maybeSingle<{ id: string }>();
+
+    if (ownedAppointmentError || !ownedAppointment) {
+      redirect(getErrorRedirect(formData, returnTo, "policy_save_failed"));
+    }
+
+    // Scoped to the session's studio as well as the class (RLS remains the
+    // fine-grained authority; this keeps the write pinned to the studio the
+    // staff member is acting in).
     const { data: existing, error: existingError } = await supabase
       .from("group_class_enrollment_policies")
       .select("accepted_funding_types")
       .eq("appointment_id", appointmentId)
+      .eq("studio_id", studioId)
       .maybeSingle<{ accepted_funding_types: string[] | null }>();
 
     if (existingError) {
@@ -3110,16 +3141,17 @@ export async function updateGroupClassEnrollmentPolicyAction(formData: FormData)
       redirect(getErrorRedirect(formData, returnTo, "policy_save_failed"));
     }
 
-    // Preserve every value this UI doesn't manage (direct_payment,
-    // manual_other -- set only outside this UI, e.g. by support) on every
-    // save; only package/membership are ever added or removed here.
+    // Preserve every value this UI doesn't manage (manual_other -- set only
+    // outside this UI, e.g. by support) on every save; package, membership
+    // and (GC-3.5-1) direct_payment are added or removed here.
     const preserved = (existing?.accepted_funding_types ?? []).filter(
-      (value) => value !== "package" && value !== "membership",
+      (value) => value !== "package" && value !== "membership" && value !== "direct_payment",
     );
     const mergedFundingTypes = [
       ...preserved,
       ...(packageEnabled ? ["package"] : []),
       ...(membershipEnabled ? ["membership"] : []),
+      ...(directPaymentEnabled ? ["direct_payment"] : []),
     ];
 
     // Mirrors group_class_enrollment_policies_discovery_requires_funding
@@ -3138,7 +3170,7 @@ export async function updateGroupClassEnrollmentPolicyAction(formData: FormData)
     // Explicit insert-vs-update branch (not a single upsert): the insert
     // path has nothing pre-existing to preserve and always writes
     // created_by; the update path preserves created_by/created_at and only
-    // ever touches the three fields this UI manages.
+    // ever touches the fields this UI manages.
     const { error } = existing
       ? await supabase
           .from("group_class_enrollment_policies")
@@ -3146,15 +3178,18 @@ export async function updateGroupClassEnrollmentPolicyAction(formData: FormData)
             publicly_discoverable: publiclyDiscoverable,
             self_enrollment_allowed: selfEnrollmentAllowed,
             accepted_funding_types: acceptedFundingTypes,
+            direct_payment_amount: directPaymentAmount,
             updated_at: new Date().toISOString(),
           })
           .eq("appointment_id", appointmentId)
+          .eq("studio_id", studioId)
       : await supabase.from("group_class_enrollment_policies").insert({
           studio_id: studioId,
           appointment_id: appointmentId,
           publicly_discoverable: publiclyDiscoverable,
           self_enrollment_allowed: selfEnrollmentAllowed,
           accepted_funding_types: acceptedFundingTypes,
+          direct_payment_amount: directPaymentAmount,
           created_by: user.id,
         });
 

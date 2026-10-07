@@ -73,6 +73,7 @@ describe("parseSeriesInput", () => {
         publiclyDiscoverable: false,
         selfEnrollmentAllowed: false,
         acceptedFundingTypes: null,
+        directPaymentAmount: null,
       });
     }
   });
@@ -122,7 +123,11 @@ describe("parseSeriesInput", () => {
     ["skip index 0", { skipIndices: ["0"] }, "invalid_skip"],
     ["skip index text", { skipIndices: ["x"] }, "invalid_skip"],
     ["unknown funding type", { acceptedFundingTypes: ["cash"] }, "policy_invalid"],
-    ["direct payment is not accepted from this layer", { acceptedFundingTypes: ["direct_payment"] }, "policy_invalid"],
+    ["direct payment without a price (GC-3.5-1)", { acceptedFundingTypes: ["direct_payment"] }, "direct_payment_amount_required"],
+    ["direct payment with a zero price", { acceptedFundingTypes: ["direct_payment"], directPaymentAmount: "0" }, "direct_payment_amount_invalid"],
+    ["direct payment with a negative price", { acceptedFundingTypes: ["direct_payment"], directPaymentAmount: "-1" }, "direct_payment_amount_invalid"],
+    ["direct payment with a malformed price", { acceptedFundingTypes: ["direct_payment"], directPaymentAmount: "ten" }, "direct_payment_amount_invalid"],
+    ["direct payment with more than 2 decimals", { acceptedFundingTypes: ["direct_payment"], directPaymentAmount: "9.999" }, "direct_payment_amount_invalid"],
     ["discoverable without funding", { publiclyDiscoverable: "on" }, "policy_invalid"],
     ["self-enrollment without funding", { selfEnrollmentAllowed: "true" }, "policy_invalid"],
   ])("rejects %s", (_label, overrides, code) => {
@@ -139,7 +144,7 @@ describe("parseSeriesInput", () => {
 });
 
 describe("RPC argument builders", () => {
-  it("use the supplied studio, send the same definition to both RPCs, and never send a payment amount", () => {
+  it("use the supplied studio, send the same definition to both RPCs, and send no payment amount without direct payment", () => {
     const parsed = parseSeriesInput(valid({ acceptedFundingTypes: ["membership"] }));
     if (!parsed.ok) throw new Error("parse failed");
     const preview = buildPreviewRpcArgs("studio-ctx", parsed.value);
@@ -156,6 +161,32 @@ describe("RPC argument builders", () => {
       p_accepted_funding_types: ["membership"],
       p_direct_payment_amount: null,
     });
+  });
+
+  it("GC-3.5-1: series-level direct payment sends the normalized price to create (never to preview)", () => {
+    const parsed = parseSeriesInput(
+      valid({
+        publiclyDiscoverable: "on",
+        selfEnrollmentAllowed: "on",
+        acceptedFundingTypes: ["package", "membership", "direct_payment"],
+        directPaymentAmount: "$22.5",
+      }),
+    );
+    if (!parsed.ok) throw new Error("parse failed");
+    expect(parsed.value.acceptedFundingTypes).toEqual(["package", "membership", "direct_payment"]);
+    expect(parsed.value.directPaymentAmount).toBe(22.5);
+    const create = buildCreateRpcArgs("studio-ctx", parsed.value);
+    expect(create.p_accepted_funding_types).toEqual(["package", "membership", "direct_payment"]);
+    expect(create.p_direct_payment_amount).toBe(22.5);
+    expect(create.p_studio_id).toBe("studio-ctx");
+    expect(buildPreviewRpcArgs("studio-ctx", parsed.value)).not.toHaveProperty("p_direct_payment_amount");
+  });
+
+  it("GC-3.5-1: a stale price is dropped when the series does not accept direct payment", () => {
+    const parsed = parseSeriesInput(valid({ acceptedFundingTypes: ["package"], directPaymentAmount: "30" }));
+    if (!parsed.ok) throw new Error("parse failed");
+    expect(parsed.value.directPaymentAmount).toBeNull();
+    expect(buildCreateRpcArgs("studio-ctx", parsed.value).p_direct_payment_amount).toBeNull();
   });
 });
 

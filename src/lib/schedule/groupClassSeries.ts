@@ -8,6 +8,8 @@
  * malformed input and keeps raw database text away from users.
  */
 
+import { DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES, parseDirectPaymentAmount } from "@/lib/schedule/directPaymentAmount";
+
 export const SERIES_MAX_OCCURRENCES = 104;
 const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 2000;
@@ -30,6 +32,8 @@ export type SeriesErrorCode =
   | "invalid_skip"
   | "no_occurrences"
   | "policy_invalid"
+  | "direct_payment_amount_required"
+  | "direct_payment_amount_invalid"
   | "idempotency_conflict"
   | "conflict"
   | "conflict_check_failed"
@@ -44,7 +48,7 @@ export type SeriesConflictCategory =
   | "room_booked"
   | "other";
 
-export type SeriesFundingType = "membership" | "package" | "manual_other";
+export type SeriesFundingType = "membership" | "package" | "direct_payment" | "manual_other";
 
 /** The authoritative, validated series definition (what both RPCs receive). */
 export type SeriesDefinition = {
@@ -66,6 +70,8 @@ export type SeriesDefinition = {
   publiclyDiscoverable: boolean;
   selfEnrollmentAllowed: boolean;
   acceptedFundingTypes: SeriesFundingType[] | null;
+  /** GC-3.5-1: USD direct-payment price; non-null exactly when direct_payment is accepted. */
+  directPaymentAmount: number | null;
 };
 
 export type ParsedSeriesInput =
@@ -117,6 +123,8 @@ export const SERIES_ERROR_MESSAGES: Record<SeriesErrorCode, string> = {
   invalid_skip: "One of the skipped dates is not part of this schedule.",
   no_occurrences: "Every class in this series was skipped. Keep at least one class.",
   policy_invalid: "The enrollment options are not valid.",
+  direct_payment_amount_required: DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES.direct_payment_amount_required,
+  direct_payment_amount_invalid: DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES.direct_payment_amount_invalid,
   idempotency_conflict: "This series was already created or changed. Refresh before trying again.",
   conflict: "Some classes conflict with existing bookings. Resolve or skip them to continue.",
   conflict_check_failed: "We couldn't check the schedule for conflicts. Please try again.",
@@ -286,12 +294,13 @@ function flag(values: FormData | Record<string, string | string[] | undefined>, 
   return ["on", "true", "1", "yes"].includes(text(values, key).toLowerCase());
 }
 
-const ALLOWED_FUNDING_TYPES: SeriesFundingType[] = ["membership", "package", "manual_other"];
+const ALLOWED_FUNDING_TYPES: SeriesFundingType[] = ["membership", "package", "direct_payment", "manual_other"];
 
 /**
  * Parses and validates the submitted series definition. The studio is NEVER
  * read from the input: the caller supplies it from the authenticated context.
- * direct_payment (and its amount) are deliberately not accepted here (Phase 7).
+ * GC-3.5-1: direct_payment is accepted together with a validated USD price
+ * (directPaymentAmount); the price is required exactly when direct payment is.
  */
 export function parseSeriesInput(values: FormData | Record<string, string | string[] | undefined>): ParsedSeriesInput {
   const title = text(values, "title");
@@ -387,6 +396,13 @@ export function parseSeriesInput(values: FormData | Record<string, string | stri
     return { ok: false, code: "policy_invalid" };
   }
 
+  let directPaymentAmount: number | null = null;
+  if (acceptedFundingTypes?.includes("direct_payment")) {
+    const parsedAmount = parseDirectPaymentAmount(text(values, "directPaymentAmount"));
+    if (!parsedAmount.ok) return { ok: false, code: parsedAmount.code };
+    directPaymentAmount = parsedAmount.amount;
+  }
+
   return {
     ok: true,
     value: {
@@ -408,6 +424,7 @@ export function parseSeriesInput(values: FormData | Record<string, string | stri
       publiclyDiscoverable,
       selfEnrollmentAllowed,
       acceptedFundingTypes,
+      directPaymentAmount,
     },
   };
 }
@@ -455,8 +472,8 @@ export function buildCreateRpcArgs(studioId: string, def: SeriesDefinition) {
     p_publicly_discoverable: def.publiclyDiscoverable,
     p_self_enrollment_allowed: def.selfEnrollmentAllowed,
     p_accepted_funding_types: def.acceptedFundingTypes,
-    // Phase 7 owns direct payment: never accepted or sent from this layer.
-    p_direct_payment_amount: null,
+    // GC-3.5-1: the validated price (null whenever direct payment is not accepted).
+    p_direct_payment_amount: def.directPaymentAmount,
   };
 }
 

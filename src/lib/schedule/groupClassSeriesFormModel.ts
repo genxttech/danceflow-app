@@ -43,12 +43,14 @@ export type SeriesFormValues = {
   roomId: string;
   locationName: string;
   rosterCapacity: string;
-  // Enrollment options (progressively disclosed). Funding sources are limited to
-  // the two the existing class-level UI manages; no payment settings exist here.
+  // Enrollment options (progressively disclosed): packages, memberships and
+  // (GC-3.5-1) direct payment with its USD price.
   allowSelfEnrollment: boolean;
   showToLinkedStudents: boolean;
   packageEnabled: boolean;
   membershipEnabled: boolean;
+  directPaymentEnabled: boolean;
+  directPaymentAmount: string;
 };
 
 export const SERIES_FORM_DEFAULTS: SeriesFormValues = {
@@ -70,6 +72,8 @@ export const SERIES_FORM_DEFAULTS: SeriesFormValues = {
   showToLinkedStudents: false,
   packageEnabled: false,
   membershipEnabled: false,
+  directPaymentEnabled: false,
+  directPaymentAmount: "",
 };
 
 export const WEEKDAY_OPTIONS: { value: number; short: string; long: string }[] = [
@@ -129,6 +133,8 @@ export function definitionKey(values: SeriesFormValues): string {
     sh: values.showToLinkedStudents,
     p: values.packageEnabled,
     me: values.membershipEnabled,
+    dp: values.directPaymentEnabled,
+    da: values.directPaymentEnabled ? values.directPaymentAmount.trim() : "",
   });
 }
 
@@ -199,7 +205,9 @@ export function buildSeriesFormData(state: SeriesFormState): FormData {
   const funding: string[] = [];
   if (values.packageEnabled) funding.push("package");
   if (values.membershipEnabled) funding.push("membership");
+  if (values.directPaymentEnabled) funding.push("direct_payment");
   for (const type of funding) fd.append("acceptedFundingTypes", type);
+  if (values.directPaymentEnabled) fd.set("directPaymentAmount", values.directPaymentAmount);
   if (values.showToLinkedStudents) fd.set("publiclyDiscoverable", "on");
   if (values.allowSelfEnrollment) fd.set("selfEnrollmentAllowed", "on");
   return fd;

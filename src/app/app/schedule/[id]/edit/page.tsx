@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canEditAppointments, canEditGroupClassSeries } from "@/lib/auth/permissions";
 import { seriesSettingsBannerMessage } from "@/lib/schedule/groupClassSeriesSettings";
+import { DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES } from "@/lib/schedule/directPaymentAmount";
 import { countEnrolledDancers } from "@/lib/notifications/groupClassNotices";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import AppointmentEditForm from "./AppointmentEditForm";
@@ -37,6 +38,9 @@ function policyBannerFromSearchParams(query: { error?: string; success?: string;
       message:
         "Select at least one funding source to make this class discoverable or self-enrollable.",
     };
+  }
+  if (query.error === "direct_payment_amount_required" || query.error === "direct_payment_amount_invalid") {
+    return { kind: "error" as const, message: DIRECT_PAYMENT_AMOUNT_ERROR_MESSAGES[query.error] };
   }
   if (query.error === "policy_save_failed") {
     return { kind: "error" as const, message: "Could not save enrollment settings. Try again." };
@@ -146,6 +150,7 @@ type EnrollmentPolicy = {
   publicly_discoverable: boolean;
   self_enrollment_allowed: boolean;
   accepted_funding_types: string[] | null;
+  direct_payment_amount: number | string | null;
 };
 
 const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";
@@ -342,7 +347,7 @@ export default async function EditAppointmentPage({
 
     supabase
       .from("group_class_enrollment_policies")
-      .select("publicly_discoverable, self_enrollment_allowed, accepted_funding_types")
+      .select("publicly_discoverable, self_enrollment_allowed, accepted_funding_types, direct_payment_amount")
       .eq("appointment_id", id)
       .maybeSingle<EnrollmentPolicy>(),
   ]);
