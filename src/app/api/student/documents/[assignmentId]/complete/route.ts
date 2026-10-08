@@ -15,6 +15,8 @@ import {
   requestIp,
 } from "@/lib/documents/public-signing-security";
 import { SIGNING_CONSENT_TEXT } from "@/lib/documents/consent";
+import { buildSignerEvidence } from "@/lib/documents/signer-evidence";
+import { queueSigningCompletedEmails } from "@/lib/documents/signing-completion-emails";
 import { isOpenSignEnvelopeStatus, isSignableAssignmentStatus, OPEN_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
 
 type Params = Promise<{ assignmentId: string }>;
@@ -108,7 +110,7 @@ export async function POST(
 
   const { data: relationship, error: relationshipError } = await admin
     .from("client_account_links")
-    .select("id")
+    .select("id, relationship_type")
     .eq("user_id", auth.user.id)
     .eq("studio_id", assignment.studio_id)
     .eq("client_id", assignment.client_id)
@@ -141,6 +143,8 @@ export async function POST(
       studio_id,
       client_id,
       assignment_id,
+      title,
+      signer_name,
       signer_email,
       status,
       expires_at,
@@ -413,22 +417,54 @@ export async function POST(
     });
   }
 
+  // Phase 8C: the authenticated app account is the actor; its linked relationship (self, guardian, ...) says whether
+  // it signed for itself or on behalf of the client. The requested recipient is never substituted as the actor.
+  const signerEvidence = buildSignerEvidence({
+    signerName,
+    channel: "student_app",
+    authenticatedUserId: auth.user.id,
+    subjectClientId: assignment.client_id ?? null,
+    relationship: relationship
+      ? { relationshipType: String(relationship.relationship_type ?? ""), canSignDocuments: true }
+      : null,
+    requestedSignerEmail: envelope.signer_email ?? null,
+  });
   await admin.from("document_sign_events").insert({
     envelope_id: envelope.id,
     event_type: "completed",
     actor_user_id: auth.user.id,
-    actor_email: auth.user.email ?? envelope.signer_email,
+    actor_email: auth.user.email ?? null,
     ip_address: ip === "unknown" ? null : ip,
     user_agent: request.headers.get("user-agent"),
-    summary: "Signer completed the document in the DanceFlow student app.",
+    summary: signerEvidence.on_behalf
+      ? `${signerName} completed the document in the DanceFlow student app on behalf of the client.`
+      : `${signerName} completed the document in the DanceFlow student app.`,
     metadata: {
       source: "student_mobile_app",
       consent_text: SIGNING_CONSENT_TEXT,
       signature_method: method,
       signed_timezone: timezone,
       signed_at: signedAt,
+      requested_signer_name: envelope.signer_name ?? null,
+      ...signerEvidence,
     },
   });
+
+  // Phase 8C: same completion notifications as the secure-link channel (branded HTML, deduplicated per envelope).
+  try {
+    await queueSigningCompletedEmails({
+      envelopeId: envelope.id,
+      studioId: assignment.studio_id,
+      title: envelope.title || "Document",
+      signerName,
+      signerEmail: envelope.signer_email ?? null,
+    });
+  } catch (emailError) {
+    console.error(
+      "Student document completion email queue failed",
+      emailError instanceof Error ? emailError.message : emailError,
+    );
+  }
 
   const { data: signedDocument } = await admin.storage
     .from(DOCUMENT_FILES_BUCKET)

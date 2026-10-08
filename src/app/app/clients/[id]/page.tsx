@@ -66,6 +66,7 @@ import {
 } from "@/app/app/memberships/actions";
 import { recordPayAsYouGoLessonPaymentAction } from "@/app/app/schedule/actions";
 import { deriveClientLifecycle, getClientLifecycleAction } from "@/lib/clients/lifecycle";
+import { presentDocumentAssignment } from "@/lib/documents/presentation";
 
 export type ClientRecord = {
   id: string;
@@ -449,6 +450,7 @@ type ClientDocumentAssignmentRow = {
   id: string;
   template_id: string;
   status: string;
+  sign_envelope_id?: string | null;
   assigned_at: string | null;
   due_at: string | null;
   signed_at: string | null;
@@ -523,6 +525,11 @@ type ClientDetailTab =
   signedAt: string | null;
   signatureId: string | null;
   source: string;
+  /** Phase 8C: truthful label + action state (shared presentation contract for assigned documents). */
+  statusLabel?: string;
+  needsAction?: boolean;
+  /** Completed DanceFlow Sign envelope (authoritative signed artifact + certificate). */
+  envelopeId?: string | null;
 };
 
 const clientDetailTabs: { id: ClientDetailTab; label: string; description: string }[] = [
@@ -2143,7 +2150,7 @@ function getDocumentTemplateValue(
 function documentStatusClass(status: string) {
   if (status === "signed" || status === "completed") return "bg-green-50 text-green-700";
   if (status === "declined") return "bg-red-50 text-red-700";
-  if (status === "expired") return "bg-slate-100 text-slate-600";
+  if (status === "expired" || status === "waived" || status === "void" || status === "unavailable" || status === "preparing") return "bg-slate-100 text-slate-600";
   return "bg-amber-50 text-amber-700";
 }
 
@@ -2541,6 +2548,7 @@ export default async function ClientDetailPage({
         id,
         template_id,
         status,
+        sign_envelope_id,
         assigned_at,
         due_at,
         signed_at,
@@ -3221,12 +3229,38 @@ export default async function ClientDetailPage({
         };
       });
 
+  // Phase 8C: an assigned document's status comes from the assignment + its current envelope (shared contract).
+  // Evidence is never borrowed: only a legacy signature bound to THIS assignment is linked, never for an
+  // envelope-backed request, and an envelope completion links its own signed PDF + certificate.
+  const clientEnvelopeIds = typedDocumentAssignments
+    .map((assignment) => assignment.sign_envelope_id)
+    .filter((value): value is string => Boolean(value));
+  const clientEnvelopesById = new Map<string, { id: string; status: string; expires_at: string }>();
+  if (clientEnvelopeIds.length) {
+    const { data: clientEnvelopes } = await supabase
+      .from("document_sign_envelopes")
+      .select("id, status, expires_at")
+      .eq("studio_id", studioId)
+      .in("id", clientEnvelopeIds);
+    for (const envelope of clientEnvelopes ?? []) clientEnvelopesById.set(envelope.id, envelope);
+  }
+
   const assignedDocumentStatusRows: ClientDocumentStatusRow[] =
     typedDocumentAssignments.map((assignment) => {
       const template = getDocumentTemplateValue(assignment.document_templates);
-      const signature =
-        latestSignatureByAssignmentId.get(assignment.id) ??
-        latestSignatureByTemplateId.get(assignment.template_id);
+      const envelope = assignment.sign_envelope_id
+        ? clientEnvelopesById.get(assignment.sign_envelope_id) ?? null
+        : null;
+      const signature = assignment.sign_envelope_id
+        ? undefined
+        : latestSignatureByAssignmentId.get(assignment.id);
+      const presentation = presentDocumentAssignment({
+        assignmentStatus: assignment.status,
+        dueAt: assignment.due_at,
+        hasEnvelope: Boolean(assignment.sign_envelope_id),
+        envelope,
+        legacySignature: Boolean(signature),
+      });
 
       return {
         id: assignment.id,
@@ -3234,11 +3268,14 @@ export default async function ClientDetailPage({
         documentType: template?.document_type ?? "document",
         requiresSignature: Boolean(template?.requires_signature),
         isRequired: Boolean(template?.is_required),
-        status: assignment.status,
+        status: presentation.state === "signed" ? "signed" : presentation.state,
+        statusLabel: presentation.label,
+        needsAction: presentation.needsAction,
         assignedAt: assignment.assigned_at,
         dueAt: assignment.due_at,
-        signedAt: assignment.signed_at ?? signature?.signed_at ?? null,
+        signedAt: presentation.state === "signed" ? assignment.signed_at ?? signature?.signed_at ?? null : null,
         signatureId: signature?.id ?? null,
+        envelopeId: presentation.state === "signed" && envelope ? envelope.id : null,
         source: "Assigned",
       };
     });
@@ -3249,7 +3286,9 @@ export default async function ClientDetailPage({
   ];
   const requiredDocumentCount = documentStatusRows.filter((row) => row.isRequired).length;
   const pendingRequiredDocumentCount = documentStatusRows.filter(
-    (row) => row.isRequired && row.status !== "signed" && row.status !== "completed",
+    (row) =>
+      row.isRequired &&
+      (row.needsAction ?? (row.status !== "signed" && row.status !== "completed")),
   ).length;
 
   const clientLifecycle = deriveClientLifecycle({
@@ -3836,8 +3875,33 @@ export default async function ClientDetailPage({
                         {document.dueAt ? ` · Due ${fmtShortDate(document.dueAt)}` : ""}
                         {document.signedAt ? ` · Signed ${fmtShortDate(document.signedAt)}` : ""}
                       </p>
-                                            {document.signatureId ? (
+                      {document.envelopeId ? (
                         <div className="mt-3 flex flex-wrap gap-2">
+                          <Link
+                            href={`/app/documents/sign/${document.envelopeId}`}
+                            className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+                          >
+                            Signing record
+                          </Link>
+                          <a
+                            href={`/app/documents/sign/${document.envelopeId}/signed`}
+                            className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+                          >
+                            Signed PDF
+                          </a>
+                          <a
+                            href={`/app/documents/sign/${document.envelopeId}/certificate`}
+                            className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+                          >
+                            Certificate
+                          </a>
+                        </div>
+                      ) : null}
+                      {document.signatureId ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                            Legacy typed signature
+                          </span>
                           <Link
                             href={`/app/clients/${id}/documents/${document.signatureId}`}
                             className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
@@ -3858,7 +3922,7 @@ export default async function ClientDetailPage({
                         ? document.requiresSignature
                           ? "Ready to Sign"
                           : "Available"
-                        : documentStatusLabel(document.status)}
+                        : document.statusLabel ?? documentStatusLabel(document.status)}
                     </span>
                   </div>
                 </div>

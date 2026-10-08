@@ -8,116 +8,24 @@ import { DOCUMENT_FILES_BUCKET, hashSigningToken, signedStoragePath } from "@/li
 import { consumePublicSigningRateLimit, serverActionIp } from "@/lib/documents/public-signing-security";
 import { advanceEventSigningCheckpoint, normalizeSigningReturnUrl } from "@/lib/documents/event-signing";
 import { isSignableAssignmentStatus, OPEN_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
-import { queueOutboundDelivery } from "@/lib/notifications/outbound";
-import { resolveStudioDisplayName } from "@/lib/email/brand";
 import { SIGNING_CONSENT_TEXT } from "@/lib/documents/consent";
-import {
-  buildSigningCompletedSignerEmail,
-  buildSigningCompletedStudioEmail,
-  buildSigningDeclinedStudioEmail,
-  type SigningEmailContext,
-} from "./signingEmails";
+import { queueSigningCompletedEmails, queueSigningDeclinedEmail } from "@/lib/documents/signing-completion-emails";
+import { buildSignerEvidence, resolveSignerRelationship } from "@/lib/documents/signer-evidence";
+import { parsePortalReturn, portalReturnQuery } from "@/lib/documents/portal-return";
+import { createClient } from "@/lib/supabase/server";
 
-async function getSigningEmailContext(studioId: string): Promise<SigningEmailContext> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("studios")
-    .select("name, public_name, public_logo_url, slug, email")
-    .eq("id", studioId)
-    .maybeSingle();
-
-  return {
-    studioName: resolveStudioDisplayName(data),
-    studioLogoUrl: data?.public_logo_url ?? null,
-    studioSlug: data?.slug ?? null,
-    studioEmail: data?.email?.trim() || null,
-  };
-}
-
-async function queueSigningCompletedEmails(params: {
-  envelopeId: string;
-  studioId: string;
-  title: string;
-  signerName: string;
-  signerEmail: string | null;
-}) {
-  const context = await getSigningEmailContext(params.studioId);
-
-  if (params.signerEmail) {
-    const { subject, bodyText, bodyHtml } = buildSigningCompletedSignerEmail({
-      context,
-      title: params.title,
-      signerName: params.signerName,
-    });
-
-    await queueOutboundDelivery({
-      studioId: params.studioId,
-      channel: "email",
-      templateKey: "document_signing_completed_signer",
-      recipientEmail: params.signerEmail,
-      subject,
-      bodyText,
-      bodyHtml,
-      relatedTable: "document_sign_envelopes",
-      relatedId: params.envelopeId,
-      dedupeKey: `document_signing_completed_signer:${params.envelopeId}`,
-    });
+/**
+ * Phase 8C: the signed-in DanceFlow account in this browser at signing time, if any. A portal hand-off reaches this
+ * public surface with the portal session still present; a plain emailed link usually has none. Never guessed.
+ */
+async function currentSigningUser(): Promise<{ id: string; email: string | null } | null> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    return data?.user?.id ? { id: data.user.id, email: data.user.email ?? null } : null;
+  } catch {
+    return null;
   }
-
-  if (context.studioEmail) {
-    const { subject, bodyText, bodyHtml } = buildSigningCompletedStudioEmail({
-      context,
-      title: params.title,
-      signerName: params.signerName,
-    });
-
-    await queueOutboundDelivery({
-      studioId: params.studioId,
-      channel: "email",
-      templateKey: "document_signing_completed_studio",
-      recipientEmail: context.studioEmail,
-      subject,
-      bodyText,
-      bodyHtml,
-      relatedTable: "document_sign_envelopes",
-      relatedId: params.envelopeId,
-      dedupeKey: `document_signing_completed_studio:${params.envelopeId}`,
-      replyToEmail: params.signerEmail,
-    });
-  }
-}
-
-async function queueSigningDeclinedEmail(params: {
-  envelopeId: string;
-  studioId: string;
-  title: string;
-  signerName: string | null;
-  signerEmail: string | null;
-  reason: string;
-}) {
-  const context = await getSigningEmailContext(params.studioId);
-  if (!context.studioEmail) return;
-
-  const { subject, bodyText, bodyHtml } = buildSigningDeclinedStudioEmail({
-    context,
-    title: params.title,
-    signerName: params.signerName,
-    reason: params.reason,
-  });
-
-  await queueOutboundDelivery({
-    studioId: params.studioId,
-    channel: "email",
-    templateKey: "document_signing_declined_studio",
-    recipientEmail: context.studioEmail,
-    subject,
-    bodyText,
-    bodyHtml,
-    relatedTable: "document_sign_envelopes",
-    relatedId: params.envelopeId,
-    dedupeKey: `document_signing_declined_studio:${params.envelopeId}`,
-    replyToEmail: params.signerEmail,
-  });
 }
 
 function clean(value: FormDataEntryValue | null, max = 300) {
@@ -142,7 +50,10 @@ export async function completeSigningAction(formData: FormData) {
   const signerName = clean(formData.get("signerName"), 160);
   const timezone = clean(formData.get("timezone"), 100) || "UTC";
   const consent = formData.get("consent") === "on";
-  if (!token || !signerName || !consent) redirect(`/sign/${encodeURIComponent(token)}?error=missing_required_fields`);
+  const portalReturn = parsePortalReturn(formData.get("portalSlug"), formData.get("portalClient"));
+  const back = portalReturnQuery(portalReturn);
+  const here = (query: string) => `/sign/${encodeURIComponent(token)}?${query}${back ? `&${back}` : ""}`;
+  if (!token || !signerName || !consent) redirect(here(`error=missing_required_fields`));
 
   const admin = createAdminClient();
   const tokenHash = hashSigningToken(token);
@@ -153,21 +64,21 @@ export async function completeSigningAction(formData: FormData) {
     ip,
   });
   if (!rateLimit.allowed) {
-    redirect(`/sign/${encodeURIComponent(token)}?error=too_many_attempts`);
+    redirect(here(`error=too_many_attempts`));
   }
   const { data: envelope } = await admin
     .from("document_sign_envelopes")
-    .select("id,studio_id,assignment_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path,source_sha256,return_url,context_type,context_id,sequence_group_id,sequence_position,sequence_total,event_signing_checkpoint_id")
+    .select("id,studio_id,client_id,assignment_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path,source_sha256,return_url,context_type,context_id,sequence_group_id,sequence_position,sequence_total,event_signing_checkpoint_id")
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
-  if (!envelope) redirect(`/sign/${encodeURIComponent(token)}?error=invalid_link`);
-  if (envelope.status === "completed") redirect(`/sign/${encodeURIComponent(token)}?success=completed`);
-  if (["declined", "expired", "void"].includes(envelope.status)) redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
+  if (!envelope) redirect(here(`error=invalid_link`));
+  if (envelope.status === "completed") redirect(here(`success=completed`));
+  if (["declined", "expired", "void"].includes(envelope.status)) redirect(here(`error=link_unavailable`));
   if (new Date(envelope.expires_at).getTime() <= Date.now()) {
     // Phase 8A: only an envelope that is still open may be marked expired (never a concurrently completed one).
     await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelope.id).in("status", [...OPEN_SIGN_ENVELOPE_STATUSES]);
-    redirect(`/sign/${encodeURIComponent(token)}?error=link_expired`);
+    redirect(here(`error=link_expired`));
   }
 
   // Phase 8A: re-read the authoritative assignment -- a waived / void / already-signed assignment is not signable even if
@@ -180,7 +91,7 @@ export async function completeSigningAction(formData: FormData) {
       .eq("studio_id", envelope.studio_id)
       .maybeSingle();
     if (!linkedAssignment || !isSignableAssignmentStatus(linkedAssignment.status)) {
-      redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
+      redirect(here(`error=link_unavailable`));
     }
   }
 
@@ -189,7 +100,7 @@ export async function completeSigningAction(formData: FormData) {
     .select("id,field_type,page_number,x,y,width,height,label,required,placeholder_text,default_value")
     .eq("envelope_id", envelope.id)
     .order("sort_order");
-  if (fieldsError || !fields?.length) redirect(`/sign/${encodeURIComponent(token)}?error=fields_unavailable`);
+  if (fieldsError || !fields?.length) redirect(here(`error=fields_unavailable`));
 
   const values: Record<string, SigningValue> = {};
   const signatureMethods = new Set<string>();
@@ -197,12 +108,12 @@ export async function completeSigningAction(formData: FormData) {
     const key = `field_${field.id}`;
     if (field.field_type === "checkbox") {
       values[field.id] = formData.get(key) === "on";
-      if (field.required && values[field.id] !== true) redirect(`/sign/${encodeURIComponent(token)}?error=missing_required_fields`);
+      if (field.required && values[field.id] !== true) redirect(here(`error=missing_required_fields`));
       continue;
     }
     if (field.field_type === "signature" || field.field_type === "initials") {
       const signature = parseSignature(clean(formData.get(key), 1_500_000));
-      if (!signature && field.required) redirect(`/sign/${encodeURIComponent(token)}?error=missing_required_signature`);
+      if (!signature && field.required) redirect(here(`error=missing_required_signature`));
       if (signature) {
         values[field.id] = signature;
         signatureMethods.add(signature.method);
@@ -214,15 +125,15 @@ export async function completeSigningAction(formData: FormData) {
     if (!value && field.field_type === "date") value = new Date().toLocaleDateString("en-US");
     if (!value && field.field_type === "printed_name") value = signerName;
     values[field.id] = value;
-    if (field.required && !value) redirect(`/sign/${encodeURIComponent(token)}?error=missing_required_fields`);
+    if (field.required && !value) redirect(here(`error=missing_required_fields`));
   }
 
   const { data: sourceBlob, error: sourceError } = await admin.storage.from(envelope.source_bucket).download(envelope.source_path);
-  if (sourceError || !sourceBlob) redirect(`/sign/${encodeURIComponent(token)}?error=document_unavailable`);
+  if (sourceError || !sourceBlob) redirect(here(`error=document_unavailable`));
 
   const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
   if (sha256Hex(sourceBytes) !== envelope.source_sha256) {
-    redirect(`/sign/${encodeURIComponent(token)}?error=completion_failed`);
+    redirect(here(`error=completion_failed`));
   }
   const signedAt = new Date().toISOString();
   const result = await applySigningFields({
@@ -236,7 +147,7 @@ export async function completeSigningAction(formData: FormData) {
   });
   const signedPath = signedStoragePath(envelope.studio_id, envelope.id);
   const { error: signedUploadError } = await admin.storage.from(DOCUMENT_FILES_BUCKET).upload(signedPath, result.bytes, { contentType: "application/pdf", upsert: false, cacheControl: "0" });
-  if (signedUploadError) redirect(`/sign/${encodeURIComponent(token)}?error=completion_failed`);
+  if (signedUploadError) redirect(here(`error=completion_failed`));
 
   const headerStore = await headers();
   const userAgent = headerStore.get("user-agent");
@@ -263,7 +174,7 @@ export async function completeSigningAction(formData: FormData) {
       envelopeId: envelope.id,
       message: valuesError.message,
     });
-    redirect(`/sign/${encodeURIComponent(token)}?error=completion_failed`);
+    redirect(here(`error=completion_failed`));
   }
 
   const method = signatureMethods.size === 1 ? Array.from(signatureMethods)[0] : signatureMethods.size > 1 ? "mixed" : null;
@@ -284,17 +195,41 @@ export async function completeSigningAction(formData: FormData) {
     .maybeSingle();
   if (updateError || !completedEnvelope) {
     await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([signedPath]);
-    redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
+    redirect(here(`error=link_unavailable`));
   }
 
+  // Phase 8C: record who actually signed, as known at this moment -- the entered name, the signed-in account (if
+  // any) and its relationship to the client. The requested recipient is kept separately and never used as the actor.
+  const sessionUser = await currentSigningUser();
+  const relationship = sessionUser
+    ? await resolveSignerRelationship({ userId: sessionUser.id, studioId: envelope.studio_id, clientId: envelope.client_id })
+    : null;
+  const signerEvidence = buildSignerEvidence({
+    signerName,
+    channel: sessionUser && relationship?.canSignDocuments ? "portal_session" : "public_link",
+    authenticatedUserId: sessionUser?.id ?? null,
+    subjectClientId: envelope.client_id ?? null,
+    relationship,
+    requestedSignerEmail: envelope.signer_email ?? null,
+  });
   await admin.from("document_sign_events").insert({
     envelope_id: envelope.id,
     event_type: "completed",
-    actor_email: envelope.signer_email,
+    actor_user_id: sessionUser?.id ?? null,
+    actor_email: sessionUser?.email ?? null,
     ip_address: ip,
     user_agent: userAgent,
-    summary: "Signer completed the document with an electronic signature.",
-    metadata: { consent_text: SIGNING_CONSENT_TEXT, signature_method: method, signed_timezone: timezone, signed_at: signedAt },
+    summary: signerEvidence.on_behalf
+      ? `${signerName} completed the document with an electronic signature on behalf of the client.`
+      : `${signerName} completed the document with an electronic signature.`,
+    metadata: {
+      consent_text: SIGNING_CONSENT_TEXT,
+      signature_method: method,
+      signed_timezone: timezone,
+      signed_at: signedAt,
+      requested_signer_name: envelope.signer_name ?? null,
+      ...signerEvidence,
+    },
   });
 
   try {
@@ -327,7 +262,7 @@ export async function completeSigningAction(formData: FormData) {
         "Event signing continuation failed",
         error instanceof Error ? error.message : error,
       );
-      redirect(`/sign/${encodeURIComponent(token)}?error=event_checkout_continuation_failed`);
+      redirect(here(`error=event_checkout_continuation_failed`));
     }
   }
 
@@ -339,12 +274,15 @@ export async function completeSigningAction(formData: FormData) {
     );
   }
 
-  redirect(`/sign/${encodeURIComponent(token)}?success=completed`);
+  redirect(here(`success=completed`));
 }
 
 export async function declineSigningAction(formData: FormData) {
   const token = clean(formData.get("token"), 200);
   const reason = clean(formData.get("reason"), 500);
+  const portalReturn = parsePortalReturn(formData.get("portalSlug"), formData.get("portalClient"));
+  const back = portalReturnQuery(portalReturn);
+  const here = (query: string) => `/sign/${encodeURIComponent(token)}?${query}${back ? `&${back}` : ""}`;
   const admin = createAdminClient();
   const tokenHash = hashSigningToken(token);
   const ip = await serverActionIp();
@@ -353,7 +291,7 @@ export async function declineSigningAction(formData: FormData) {
     tokenHash,
     ip,
   });
-  if (!rateLimit.allowed) redirect(`/sign/${encodeURIComponent(token)}?error=too_many_attempts`);
+  if (!rateLimit.allowed) redirect(here(`error=too_many_attempts`));
 
   const { data: envelope } = await admin
     .from("document_sign_envelopes")
@@ -361,11 +299,11 @@ export async function declineSigningAction(formData: FormData) {
     .eq("token_hash", tokenHash)
     .maybeSingle();
   if (!envelope || !["sent", "viewed", "started"].includes(envelope.status)) {
-    redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
+    redirect(here(`error=link_unavailable`));
   }
   if (new Date(envelope.expires_at).getTime() <= Date.now()) {
     await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelope.id).in("status", [...OPEN_SIGN_ENVELOPE_STATUSES]);
-    redirect(`/sign/${encodeURIComponent(token)}?error=link_expired`);
+    redirect(here(`error=link_expired`));
   }
   const now = new Date().toISOString();
   const { data: declinedEnvelope } = await admin
@@ -375,8 +313,16 @@ export async function declineSigningAction(formData: FormData) {
     .in("status", ["sent", "viewed", "started"])
     .select("id")
     .maybeSingle();
-  if (!declinedEnvelope) redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
-  await admin.from("document_sign_events").insert({ envelope_id: envelope.id, event_type: "declined", actor_email: envelope.signer_email, summary: reason || "Signer declined the document." });
+  if (!declinedEnvelope) redirect(here(`error=link_unavailable`));
+  const declinedBy = await currentSigningUser();
+  await admin.from("document_sign_events").insert({
+    envelope_id: envelope.id,
+    event_type: "declined",
+    actor_user_id: declinedBy?.id ?? null,
+    actor_email: declinedBy?.email ?? null,
+    summary: reason || "Signer declined the document.",
+    metadata: { requested_signer_email: envelope.signer_email ?? null, signing_channel: declinedBy ? "portal_session" : "public_link" },
+  });
 
   try {
     await queueSigningDeclinedEmail({
@@ -393,5 +339,5 @@ export async function declineSigningAction(formData: FormData) {
       emailError instanceof Error ? emailError.message : emailError,
     );
   }
-  redirect(`/sign/${encodeURIComponent(token)}?success=declined`);
+  redirect(here(`success=declined`));
 }

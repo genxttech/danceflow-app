@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getStudentApiUser } from "@/lib/auth/studentApiAuth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deriveSignEnvelopeLifecycle } from "@/lib/documents/signing-integrity";
+import { presentDocumentAssignment } from "@/lib/documents/presentation";
 
 type AssignmentRow = {
   id: string;
@@ -152,6 +153,12 @@ export async function GET(request: Request) {
       row.status === "signed" || envelope?.status === "completed" || signedAt
         ? "signed"
         : row.status || "assigned";
+    const presentation = presentDocumentAssignment({
+      assignmentStatus: status === "signed" ? "signed" : row.status,
+      dueAt: row.due_at,
+      hasEnvelope: Boolean(row.sign_envelope_id),
+      envelope,
+    });
 
     return {
       id: row.id,
@@ -173,7 +180,12 @@ export async function GET(request: Request) {
         envelope && deriveSignEnvelopeLifecycle(envelope) === "expired"
           ? "expired"
           : envelope?.status ?? null,
-      nativeSigningAvailable: Boolean(row.sign_envelope_id),
+      // Phase 8C: the shared presentation contract -- only an actionable request offers native signing / counts as
+      // needing action.
+      nativeSigningAvailable: Boolean(row.sign_envelope_id) && presentation.needsAction,
+      presentationState: presentation.state,
+      statusLabel: presentation.label,
+      needsAction: presentation.needsAction,
     };
   });
 

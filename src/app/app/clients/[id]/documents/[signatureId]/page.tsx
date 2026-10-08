@@ -221,6 +221,11 @@ export default async function ClientSignedDocumentReceiptPage({ params }: { para
             <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{documentTitle(signature)}</h1>
             {documentDescription(signature) ? <p className="mt-2 text-sm text-slate-600">{documentDescription(signature)}</p> : null}
             <p className="mt-4 text-sm text-slate-500">Receipt generated {formatDateTime(new Date().toISOString())}</p>
+            {/* Phase 8C: be explicit about the strength of this evidence. */}
+            <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+              Legacy typed-signature record: the typed name, consent and document text captured at signing. It is not
+              a DanceFlow Sign envelope, so it has no signed-PDF hash or completion certificate.
+            </p>
           </header>
 
           <section className="avoid-break mt-6 grid gap-4 md:grid-cols-2">

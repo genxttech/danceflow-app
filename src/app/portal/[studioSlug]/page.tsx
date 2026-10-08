@@ -12,6 +12,9 @@ import {
   getAuthUserFullName,
 } from "@/lib/auth/portal-linking";
 import { EVENT_LIST_PAST_BUFFER, eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
+import { portalClientPath } from "@/lib/student-identity/portal-context";
+import { presentDocumentAssignment } from "@/lib/documents/presentation";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -286,6 +289,7 @@ type PortalDocumentAssignmentRow = {
   due_at: string | null;
   assigned_at: string;
   signed_at: string | null;
+  sign_envelope_id?: string | null;
 };
 
 type PortalEventSummaryRow = {
@@ -906,7 +910,7 @@ export default async function PortalHomePage({
     supabase
       .from("document_assignments")
       .select(
-        "id, template_id, template_version_id, status, due_at, assigned_at, signed_at",
+        "id, template_id, template_version_id, status, due_at, assigned_at, signed_at, sign_envelope_id",
       )
       .eq("studio_id", typedStudio.id)
       .eq("client_id", typedClient.id)
@@ -1163,8 +1167,29 @@ export default async function PortalHomePage({
     : upcomingAppointments.length;
 
   const nextUpItem = upcomingItems[0] ?? null;
+  // Phase 8C: "needs your action" uses the shared presentation contract (waived / expired / declined / withdrawn
+  // requests are not counted), with each request's current envelope read for this studio + client only.
+  const homeEnvelopeIds = typedDocumentAssignments
+    .map((item) => item.sign_envelope_id)
+    .filter((id): id is string => Boolean(id));
+  const homeEnvelopesById = new Map<string, { id: string; status: string; expires_at: string }>();
+  if (homeEnvelopeIds.length) {
+    const { data: homeEnvelopes } = await createAdminClient()
+      .from("document_sign_envelopes")
+      .select("id, status, expires_at")
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .in("id", homeEnvelopeIds);
+    for (const envelope of homeEnvelopes ?? []) homeEnvelopesById.set(envelope.id, envelope);
+  }
   const unsignedDocumentAssignments = typedDocumentAssignments.filter(
-    (item) => item.status !== "signed" && !item.signed_at,
+    (item) =>
+      presentDocumentAssignment({
+        assignmentStatus: item.status,
+        dueAt: item.due_at,
+        hasEnvelope: Boolean(item.sign_envelope_id),
+        envelope: item.sign_envelope_id ? homeEnvelopesById.get(item.sign_envelope_id) ?? null : null,
+      }).needsAction,
   );
   const unsignedDocumentCount = unsignedDocumentAssignments.length;
   const overdueDocumentCount = unsignedDocumentAssignments.filter((item) => {
@@ -1413,7 +1438,7 @@ export default async function PortalHomePage({
                   unsignedDocumentCount === 1 ? "needs" : "need"
                 } your signature before an upcoming studio activity.`,
             tone: overdueDocumentCount ? ("rose" as const) : ("violet" as const),
-            href: `/portal/${encodeURIComponent(typedStudio.slug)}/documents`,
+            href: portalClientPath(typedStudio.slug, typedClient.id, "/documents"),
             label: "Documents",
           },
         ]
@@ -1525,7 +1550,7 @@ export default async function PortalHomePage({
                   upcomingDueDocumentCount ? " soon" : ""
                 }.`,
             tone: overdueDocumentCount ? ("rose" as const) : ("violet" as const),
-            href: `/portal/${encodeURIComponent(typedStudio.slug)}/documents`,
+            href: portalClientPath(typedStudio.slug, typedClient.id, "/documents"),
             cta: "Sign documents",
           },
         ]
@@ -1695,7 +1720,7 @@ export default async function PortalHomePage({
               Events
             </Link>
             <Link
-              href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+              href={portalClientPath(typedStudio.slug, typedClient.id, "/documents")}
               className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               Documents
@@ -1786,7 +1811,7 @@ export default async function PortalHomePage({
                   : "No documents currently need your signature."}
               </p>
               <Link
-                href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+                href={portalClientPath(typedStudio.slug, typedClient.id, "/documents")}
                 className="mt-4 inline-flex rounded-2xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100"
               >
                 Open Documents
@@ -1964,7 +1989,7 @@ export default async function PortalHomePage({
                   </p>
                 </div>
                 <Link
-                  href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+                  href={portalClientPath(typedStudio.slug, typedClient.id, "/documents")}
                   className="inline-flex rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
                 >
                   Review documents
@@ -2089,7 +2114,7 @@ export default async function PortalHomePage({
                         View event
                       </Link>
                       <Link
-                        href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+                        href={portalClientPath(typedStudio.slug, typedClient.id, "/documents")}
                         className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
                       >
                         Check waivers
@@ -2219,7 +2244,7 @@ export default async function PortalHomePage({
             tone="emerald"
           />
           <ActionTile
-            href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+            href={portalClientPath(typedStudio.slug, typedClient.id, "/documents")}
             title="Documents"
             description="Review and sign documents from your studio."
             tone="orange"

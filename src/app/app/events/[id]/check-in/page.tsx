@@ -123,6 +123,13 @@ type EventDocumentRequirementRow = {
     | null;
 };
 
+type SignedWaiverAssignmentRow = {
+  id: string;
+  event_registration_id: string | null;
+  template_id: string;
+  signed_at: string | null;
+};
+
 type DocumentSignatureRow = {
   id: string;
   event_registration_id: string | null;
@@ -562,11 +569,13 @@ export default async function EventCheckInPage({
 
   let documentRequirementRows: EventDocumentRequirementRow[] = [];
   let documentSignatureRows: DocumentSignatureRow[] = [];
+  let signedAssignmentRows: SignedWaiverAssignmentRow[] = [];
 
   if (registrationIds.length > 0) {
     const [
       { data: requirements, error: documentRequirementsError },
       { data: signatures, error: documentSignaturesError },
+      { data: signedAssignments, error: signedAssignmentsError },
     ] = await Promise.all([
       supabase
         .from("event_document_requirements")
@@ -596,7 +605,22 @@ export default async function EventCheckInPage({
         `,
         )
         .in("event_registration_id", registrationIds),
+
+      // Phase 8C: operational waiver STATUS comes from the signed assignment (readable by every studio role, and it
+      // covers envelope-signed checkout waivers). Legacy signature evidence above is visible to Documents roles only.
+      supabase
+        .from("document_assignments")
+        .select("id, event_registration_id, template_id, signed_at")
+        .in("event_registration_id", registrationIds)
+        .eq("status", "signed"),
     ]);
+
+    if (signedAssignmentsError) {
+      throw new Error(
+        `Failed to load event document status: ${signedAssignmentsError.message}`,
+      );
+    }
+    signedAssignmentRows = (signedAssignments ?? []) as SignedWaiverAssignmentRow[];
 
     if (documentRequirementsError) {
       throw new Error(
@@ -779,11 +803,21 @@ export default async function EventCheckInPage({
     signaturesByRegistrationId.set(signature.event_registration_id, current);
   }
 
+  const signedAssignmentTemplatesByRegistrationId = new Map<string, Set<string>>();
+  for (const row of signedAssignmentRows) {
+    if (!row.event_registration_id) continue;
+    const current = signedAssignmentTemplatesByRegistrationId.get(row.event_registration_id) ?? new Set<string>();
+    current.add(row.template_id);
+    signedAssignmentTemplatesByRegistrationId.set(row.event_registration_id, current);
+  }
+
   const getDocumentStatus = (registrationId: string) => {
     const signatures = signaturesByRegistrationId.get(registrationId) ?? [];
-    const signedTemplateIds = new Set(
-      signatures.map((signature) => signature.template_id),
-    );
+    // A requirement is complete when a signed assignment or a legacy signature exists (counted once per template).
+    const signedTemplateIds = new Set([
+      ...signatures.map((signature) => signature.template_id),
+      ...(signedAssignmentTemplatesByRegistrationId.get(registrationId) ?? []),
+    ]);
     const missingRequirements = documentRequirementRows.filter(
       (requirement) => !signedTemplateIds.has(requirement.template_id),
     );

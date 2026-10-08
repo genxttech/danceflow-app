@@ -25,6 +25,7 @@ import {
   reviseSignEnvelopeAction,
   revokeSignEnvelopeAction,
 } from "./sign/actions";
+import { countSignedRecordsByTemplate } from "@/lib/documents/presentation";
 
 type SearchParams = {
   success?: string;
@@ -64,6 +65,7 @@ type DocumentSignatureSummary = {
   id: string;
   template_id: string;
   signed_at: string | null;
+  assignment_id?: string | null;
 };
 
 type DocumentAssignmentSummary = {
@@ -1050,7 +1052,7 @@ export default async function DocumentsPage({
     ? await Promise.all([
         supabase
           .from("document_signatures")
-          .select("id, template_id, signed_at")
+          .select("id, template_id, signed_at, assignment_id")
           .in("template_id", templateIds)
           .limit(10000),
         supabase
@@ -1103,13 +1105,12 @@ export default async function DocumentsPage({
     envelopesById.set(envelope.id, envelope);
   }
 
-  const signedCountByTemplateId = new Map<string, number>();
-  for (const signature of (signatureRows ?? []) as DocumentSignatureSummary[]) {
-    signedCountByTemplateId.set(
-      signature.template_id,
-      (signedCountByTemplateId.get(signature.template_id) ?? 0) + 1,
-    );
-  }
+  // Phase 8C: a signed record is a signed assignment (envelope completions included) or a legacy signature not
+  // already represented by its signed assignment -- each record counted once.
+  const signedCountByTemplateId = countSignedRecordsByTemplate(
+    (assignmentRows ?? []) as DocumentAssignmentSummary[],
+    (signatureRows ?? []) as DocumentSignatureSummary[],
+  );
 
   const pendingCountByTemplateId = new Map<string, number>();
   for (const assignment of (assignmentRows ?? []) as DocumentAssignmentSummary[]) {

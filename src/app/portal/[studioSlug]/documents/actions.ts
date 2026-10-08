@@ -34,9 +34,15 @@ function normalizeOptionalUuid(value: string) {
   return cleaned && UUID_PATTERN.test(cleaned) ? cleaned : "";
 }
 
-function portalDocumentsPath(studioSlug: string, key?: string, value?: string) {
+// Phase 8C: keeps the selected client (a guardian's dependent) so the redirect lands back on that client's
+// documents; the page re-verifies the relationship, so the value only selects, never grants.
+function portalDocumentsPath(studioSlug: string, key?: string, value?: string, clientId?: string | null) {
   const path = `/portal/${encodeURIComponent(studioSlug)}/documents`;
-  return key && value ? `${path}?${key}=${encodeURIComponent(value)}` : path;
+  const params = new URLSearchParams();
+  if (clientId) params.set("client", clientId);
+  if (key && value) params.set(key, value);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }
 
 async function getPortalClient(params: { studioSlug: string; clientId?: string | null }) {
@@ -126,15 +132,15 @@ export async function signPortalDocumentAction(formData: FormData) {
   }
 
   if (!templateId && !assignmentId) {
-    redirect(portalDocumentsPath(studioSlug, "error", "missing_document"));
+    redirect(portalDocumentsPath(studioSlug, "error", "missing_document", clientId));
   }
 
   if (!signerName || signerName.length < 2) {
-    redirect(portalDocumentsPath(studioSlug, "error", "missing_signature_name"));
+    redirect(portalDocumentsPath(studioSlug, "error", "missing_signature_name", clientId));
   }
 
   if (!consentAccepted) {
-    redirect(portalDocumentsPath(studioSlug, "error", "missing_consent"));
+    redirect(portalDocumentsPath(studioSlug, "error", "missing_consent", clientId));
   }
 
   const { supabase, user, studio, client } = await getPortalClient({ studioSlug, clientId });
@@ -165,7 +171,7 @@ export async function signPortalDocumentAction(formData: FormData) {
     assignment = data;
 
     if (!assignment) {
-      redirect(portalDocumentsPath(studioSlug, "error", "document_not_found"));
+      redirect(portalDocumentsPath(studioSlug, "error", "document_not_found", clientId));
     }
   }
 
@@ -182,26 +188,26 @@ export async function signPortalDocumentAction(formData: FormData) {
   if (templateError) throw templateError;
 
   if (!template || !template.is_active) {
-    redirect(portalDocumentsPath(studioSlug, "error", "document_not_found"));
+    redirect(portalDocumentsPath(studioSlug, "error", "document_not_found", clientId));
   }
 
   if (!assignment && template.studio_id !== studio.id) {
-    redirect(portalDocumentsPath(studioSlug, "error", "document_not_found"));
+    redirect(portalDocumentsPath(studioSlug, "error", "document_not_found", clientId));
   }
 
   if (!assignment && template.applies_to !== "all_clients") {
-    redirect(portalDocumentsPath(studioSlug, "error", "document_not_assigned"));
+    redirect(portalDocumentsPath(studioSlug, "error", "document_not_assigned", clientId));
   }
 
   if (assignment?.status === "signed") {
-    redirect(portalDocumentsPath(studioSlug, "success", "signed"));
+    redirect(portalDocumentsPath(studioSlug, "success", "signed", clientId));
   }
 
   // Phase 8A: this typed-signature path only serves genuinely legacy documents. An envelope-backed assignment must be
   // completed through its signing request (which carries the source/signed PDF evidence), and a waived or void
   // assignment is no longer actionable.
   if (assignment && (assignment.sign_envelope_id || !isSignableAssignmentStatus(assignment.status))) {
-    redirect(portalDocumentsPath(studioSlug, "error", "signing_request_unavailable"));
+    redirect(portalDocumentsPath(studioSlug, "error", "signing_request_unavailable", clientId));
   }
 
   // Writes are server-mediated with the service role: the relationship (can_sign_documents), studio, client, template
@@ -241,7 +247,7 @@ export async function signPortalDocumentAction(formData: FormData) {
         .is("sign_envelope_id", null);
     }
 
-    redirect(portalDocumentsPath(studioSlug, "success", "signed"));
+    redirect(portalDocumentsPath(studioSlug, "success", "signed", clientId));
   }
 
   const version = await getTemplateVersion({
@@ -291,7 +297,7 @@ export async function signPortalDocumentAction(formData: FormData) {
   .single();
 
   if (signatureError) {
-    redirect(portalDocumentsPath(studioSlug, "error", "signing_failed"));
+    redirect(portalDocumentsPath(studioSlug, "error", "signing_failed", clientId));
   }
 
   if (assignment) {
@@ -312,7 +318,7 @@ export async function signPortalDocumentAction(formData: FormData) {
       if (insertedSignature?.id) {
         await admin.from("document_signatures").delete().eq("id", insertedSignature.id).eq("studio_id", studio.id);
       }
-      redirect(portalDocumentsPath(studioSlug, "error", "signing_failed"));
+      redirect(portalDocumentsPath(studioSlug, "error", "signing_failed", clientId));
     }
   }
 
@@ -343,5 +349,5 @@ export async function signPortalDocumentAction(formData: FormData) {
   }
 
   revalidatePath(`/portal/${studioSlug}/documents`);
-  redirect(portalDocumentsPath(studioSlug, "success", "signed"));
+  redirect(portalDocumentsPath(studioSlug, "success", "signed", clientId));
 }

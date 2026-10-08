@@ -189,8 +189,11 @@ function SignatureModal({
   );
 }
 
-export default function SigningCanvas({ token, signerName, fields, pageSizes }: { token: string; signerName: string; fields: Field[]; pageSizes: PageSize[] }) {
+export default function SigningCanvas({ token, signerName, fields, pageSizes, portalReturn }: { token: string; signerName: string; fields: Field[]; pageSizes: PageSize[]; portalReturn?: { studioSlug: string; clientId: string } | null }) {
   const [page, setPage] = useState(1);
+  // Phase 8C: the person signing states their own name (pre-filled with the requested signer; a guardian signing
+  // for a client changes it). This entered name -- not the requested one -- is the signer-name evidence.
+  const [signerFullName, setSignerFullName] = useState(signerName);
   const [activeField, setActiveField] = useState<Field | null>(null);
   const [signatureValues, setSignatureValues] = useState<Record<string, SignatureValue>>({});
   const [appliedAt, setAppliedAt] = useState<Record<string, string>>({});
@@ -234,7 +237,12 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
     <>
       <form action={completeSigningAction} className="space-y-5">
         <input type="hidden" name="token" value={token} />
-        <input type="hidden" name="signerName" value={signerName} />
+        {portalReturn ? (
+          <>
+            <input type="hidden" name="portalSlug" value={portalReturn.studioSlug} />
+            <input type="hidden" name="portalClient" value={portalReturn.clientId} />
+          </>
+        ) : null}
         <input type="hidden" name="timezone" value={timezone} />
         {Object.entries(signatureValues).map(([fieldId, value]) => (
           <input key={fieldId} type="hidden" name={`field_${fieldId}`} value={JSON.stringify(value)} />
@@ -376,6 +384,18 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <label className="mb-4 block text-sm font-semibold text-slate-800">
+            Your full name (the person signing)
+            <input
+              name="signerName"
+              required
+              maxLength={160}
+              value={signerFullName}
+              onChange={(event) => setSignerFullName(event.target.value)}
+              className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-normal"
+            />
+            <span className="mt-1 block text-xs font-normal text-slate-500">If you are signing for someone else, such as a child, enter your own name.</span>
+          </label>
           <label className="flex gap-3 text-sm leading-6"><input type="checkbox" name="consent" required className="mt-1" /><span>{SIGNING_CONSENT_ACKNOWLEDGEMENT} {SIGNING_CONSENT_POLICY_LEAD_IN} <a href="/electronic-signature-consent" target="_blank" rel="noreferrer" className="font-semibold text-violet-700 underline">{SIGNING_CONSENT_POLICY_LINK_LABEL}</a>.</span></label>
           <button className="mt-4 w-full rounded-xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-semibold text-white">Finish and sign</button>
         </div>
@@ -384,7 +404,7 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
       <SignatureModal
         open={Boolean(activeField)}
         kind={activeField?.field_type === "initials" ? "initials" : "signature"}
-        signerName={signerName}
+        signerName={signerFullName}
         onClose={() => setActiveField(null)}
         onApply={(value) => {
           if (!activeField) return;
