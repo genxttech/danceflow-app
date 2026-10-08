@@ -13,6 +13,7 @@ import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signin
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
 import { buildDocumentAssignmentEmail } from "./documentAssignmentEmail";
+import { LIVE_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
 
 export type DocumentActionState = {
   error?: string;
@@ -1006,42 +1007,92 @@ export async function sendDocumentReminderAction(formData: FormData) {
   redirect("/app/documents?success=reminder_queued");
 }
 
-export async function waiveDocumentAssignmentAction(formData: FormData) {
-  const result = await getManagedAssignment(formData);
-
+/**
+ * Phase 8A: close an assignment (waive / void) without leaving a signable envelope behind and without overwriting a
+ * concurrent completion. Every live envelope is closed FIRST (guarded on its live statuses), so a signer who submits
+ * afterwards fails cleanly; the assignment then moves only from `pending`. A completed envelope, or a write that
+ * changed nothing, is reported as a conflict instead of being forced.
+ */
+async function closeDocumentAssignment(params: {
+  formData: FormData;
+  nextStatus: "waived" | "void";
+  reason?: string;
+}): Promise<{ error: string } | { owner: { studioId: string; userId: string }; assignmentId: string }> {
+  const result = await getManagedAssignment(params.formData);
   if ("error" in result) {
-    return redirect(
-      `/app/documents?error=${encodeURIComponent(result.error ?? "Assignment not found.")}`,
-    );
+    return { error: result.error ?? "Assignment not found." };
   }
 
   const now = new Date().toISOString();
-  const { error } = await result.owner.supabase
-    .from("document_assignments")
-    .update({ status: "waived", completed_at: now })
-    .eq("id", result.assignment.id)
-    .eq("studio_id", result.owner.studioId)
-    .eq("status", "pending");
-
-  if (error) {
-    redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
-  }
+  const admin = createAdminClient();
 
   if (result.assignment.sign_envelope_id) {
-    await createAdminClient()
+    const { data: envelope } = await admin
       .from("document_sign_envelopes")
-      .update({ status: "void", voided_at: now })
+      .select("id, status")
       .eq("id", result.assignment.sign_envelope_id)
       .eq("studio_id", result.owner.studioId)
-      .eq("status", "draft");
+      .maybeSingle();
+
+    if (envelope?.status === "completed") {
+      return { error: "This document was already signed, so it can no longer be changed." };
+    }
+
+    if (envelope && (LIVE_SIGN_ENVELOPE_STATUSES as readonly string[]).includes(envelope.status)) {
+      const { data: closedEnvelope } = await admin
+        .from("document_sign_envelopes")
+        .update({ status: "void", token_hash: null, voided_at: now, updated_at: now })
+        .eq("id", envelope.id)
+        .eq("studio_id", result.owner.studioId)
+        .in("status", [...LIVE_SIGN_ENVELOPE_STATUSES])
+        .select("id")
+        .maybeSingle();
+
+      if (!closedEnvelope) {
+        return { error: "The signing request changed while you were working. Refresh and try again." };
+      }
+    }
+  }
+
+  const { data: closedAssignment, error } = await result.owner.supabase
+    .from("document_assignments")
+    .update(
+      params.nextStatus === "waived"
+        ? { status: "waived", completed_at: now }
+        : { status: "void", voided_at: now, void_reason: params.reason ?? null },
+    )
+    .eq("id", result.assignment.id)
+    .eq("studio_id", result.owner.studioId)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { error: error.message };
+  }
+  if (!closedAssignment) {
+    return { error: "This document is no longer pending. Refresh to see its current status." };
+  }
+
+  return {
+    owner: { studioId: result.owner.studioId, userId: result.owner.userId },
+    assignmentId: result.assignment.id,
+  };
+}
+
+export async function waiveDocumentAssignmentAction(formData: FormData) {
+  const closed = await closeDocumentAssignment({ formData, nextStatus: "waived" });
+
+  if ("error" in closed) {
+    return redirect(`/app/documents?error=${encodeURIComponent(closed.error)}`);
   }
 
   await createAdminClient().from("document_operation_events").insert({
-    studio_id: result.owner.studioId,
-    assignment_id: result.assignment.id,
+    studio_id: closed.owner.studioId,
+    assignment_id: closed.assignmentId,
     event_type: "waived",
     summary: "Required document waived by studio staff.",
-    actor_user_id: result.owner.userId,
+    actor_user_id: closed.owner.userId,
   });
 
   revalidatePath("/app/documents");
@@ -1049,43 +1100,20 @@ export async function waiveDocumentAssignmentAction(formData: FormData) {
 }
 
 export async function voidDocumentAssignmentAction(formData: FormData) {
-  const result = await getManagedAssignment(formData);
-
-  if ("error" in result) {
-    return redirect(
-      `/app/documents?error=${encodeURIComponent(result.error ?? "Assignment not found.")}`,
-    );
-  }
-
   const reason =
     cleanText(getString(formData, "reason"), 500) || "Voided by studio staff.";
-  const now = new Date().toISOString();
-  const { error } = await result.owner.supabase
-    .from("document_assignments")
-    .update({ status: "void", voided_at: now, void_reason: reason })
-    .eq("id", result.assignment.id)
-    .eq("studio_id", result.owner.studioId)
-    .eq("status", "pending");
+  const closed = await closeDocumentAssignment({ formData, nextStatus: "void", reason });
 
-  if (error) {
-    redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
-  }
-
-  if (result.assignment.sign_envelope_id) {
-    await createAdminClient()
-      .from("document_sign_envelopes")
-      .update({ status: "void", voided_at: now })
-      .eq("id", result.assignment.sign_envelope_id)
-      .eq("studio_id", result.owner.studioId)
-      .in("status", ["draft", "sent", "viewed"]);
+  if ("error" in closed) {
+    return redirect(`/app/documents?error=${encodeURIComponent(closed.error)}`);
   }
 
   await createAdminClient().from("document_operation_events").insert({
-    studio_id: result.owner.studioId,
-    assignment_id: result.assignment.id,
+    studio_id: closed.owner.studioId,
+    assignment_id: closed.assignmentId,
     event_type: "voided",
     summary: reason,
-    actor_user_id: result.owner.userId,
+    actor_user_id: closed.owner.userId,
   });
 
   revalidatePath("/app/documents");

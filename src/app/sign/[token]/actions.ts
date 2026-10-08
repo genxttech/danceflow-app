@@ -7,6 +7,7 @@ import { applySigningFields, sha256Hex, type AppliedSignature, type SigningField
 import { DOCUMENT_FILES_BUCKET, hashSigningToken, signedStoragePath } from "@/lib/documents/signing";
 import { consumePublicSigningRateLimit, serverActionIp } from "@/lib/documents/public-signing-security";
 import { advanceEventSigningCheckpoint, normalizeSigningReturnUrl } from "@/lib/documents/event-signing";
+import { isSignableAssignmentStatus, OPEN_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { resolveStudioDisplayName } from "@/lib/email/brand";
 import { SIGNING_CONSENT_TEXT } from "@/lib/documents/consent";
@@ -156,7 +157,7 @@ export async function completeSigningAction(formData: FormData) {
   }
   const { data: envelope } = await admin
     .from("document_sign_envelopes")
-    .select("id,studio_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path,source_sha256,return_url,context_type,context_id,sequence_group_id,sequence_position,sequence_total,event_signing_checkpoint_id")
+    .select("id,studio_id,assignment_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path,source_sha256,return_url,context_type,context_id,sequence_group_id,sequence_position,sequence_total,event_signing_checkpoint_id")
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
@@ -164,8 +165,23 @@ export async function completeSigningAction(formData: FormData) {
   if (envelope.status === "completed") redirect(`/sign/${encodeURIComponent(token)}?success=completed`);
   if (["declined", "expired", "void"].includes(envelope.status)) redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
   if (new Date(envelope.expires_at).getTime() <= Date.now()) {
-    await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelope.id);
+    // Phase 8A: only an envelope that is still open may be marked expired (never a concurrently completed one).
+    await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelope.id).in("status", [...OPEN_SIGN_ENVELOPE_STATUSES]);
     redirect(`/sign/${encodeURIComponent(token)}?error=link_expired`);
+  }
+
+  // Phase 8A: re-read the authoritative assignment -- a waived / void / already-signed assignment is not signable even if
+  // its envelope is still open. (Staff waive/void close the envelope first, so the guarded completion below also fails.)
+  if (envelope.assignment_id) {
+    const { data: linkedAssignment } = await admin
+      .from("document_assignments")
+      .select("status")
+      .eq("id", envelope.assignment_id)
+      .eq("studio_id", envelope.studio_id)
+      .maybeSingle();
+    if (!linkedAssignment || !isSignableAssignmentStatus(linkedAssignment.status)) {
+      redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
+    }
   }
 
   const { data: fields, error: fieldsError } = await admin
@@ -348,7 +364,7 @@ export async function declineSigningAction(formData: FormData) {
     redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
   }
   if (new Date(envelope.expires_at).getTime() <= Date.now()) {
-    await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelope.id);
+    await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelope.id).in("status", [...OPEN_SIGN_ENVELOPE_STATUSES]);
     redirect(`/sign/${encodeURIComponent(token)}?error=link_expired`);
   }
   const now = new Date().toISOString();

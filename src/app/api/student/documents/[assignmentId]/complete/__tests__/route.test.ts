@@ -106,7 +106,8 @@ function seedRows(overrides: { envelope?: Row } = {}) {
     studio_id: STUDIO_ID,
     client_id: CLIENT_ID,
     sign_envelope_id: ENVELOPE_ID,
-    status: "sent",
+    // a real assignment is pending/signed/waived/void (document_assignments_status_check); "sent" is an envelope status
+    status: "pending",
     signed_at: null,
   });
   linksTable.rows.push({
@@ -226,7 +227,7 @@ describe("POST /api/student/documents/[assignmentId]/complete -- BR-3D2c1 source
     expect(uploadMock).not.toHaveBeenCalled();
     expect(valuesTable.rows).toHaveLength(0);
     expect(eventsTable.rows).toHaveLength(0);
-    expect(assignmentsTable.rows.find((r) => r.id === ASSIGNMENT_ID)?.status).toBe("sent");
+    expect(assignmentsTable.rows.find((r) => r.id === ASSIGNMENT_ID)?.status).toBe("pending");
     expect(envelopesTable.rows.find((r) => r.id === ENVELOPE_ID)?.status).toBe("sent");
   });
 

@@ -6,6 +6,7 @@ import {
   hashSigningToken,
 } from "@/lib/documents/signing";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
+import { isSignableAssignmentStatus } from "@/lib/documents/signing-integrity";
 
 type Params = Promise<{
   studioSlug: string;
@@ -93,6 +94,18 @@ export async function GET(
     .eq("studio_id", studio.id)
     .eq("client_id", relationship.clientId)
     .maybeSingle();
+
+  // Phase 8A: waived / void / signed assignments never open a signing session.
+  if (assignment && !isSignableAssignmentStatus(assignment.status)) {
+    return NextResponse.redirect(
+      portalDocumentsUrl({
+        request,
+        studioSlug,
+        clientId: relationship.clientId,
+        error: "signing_request_unavailable",
+      }),
+    );
+  }
 
   if (!assignment?.sign_envelope_id) {
     return NextResponse.redirect(

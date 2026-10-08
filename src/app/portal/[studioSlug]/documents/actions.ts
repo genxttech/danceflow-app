@@ -4,6 +4,8 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { isSignableAssignmentStatus } from "@/lib/documents/signing-integrity";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
@@ -142,6 +144,7 @@ export async function signPortalDocumentAction(formData: FormData) {
     template_id: string;
     template_version_id: string | null;
     status: string;
+    sign_envelope_id: string | null;
     event_id: string | null;
     event_registration_id: string | null;
     organizer_id: string | null;
@@ -151,7 +154,7 @@ export async function signPortalDocumentAction(formData: FormData) {
   if (assignmentId) {
     const { data, error } = await supabase
       .from("document_assignments")
-      .select("id, template_id, template_version_id, status, event_id, event_registration_id, organizer_id, organizer_contact_id")
+      .select("id, template_id, template_version_id, status, sign_envelope_id, event_id, event_registration_id, organizer_id, organizer_contact_id")
       .eq("id", assignmentId)
       .eq("client_id", client.id)
       .eq("studio_id", studio.id)
@@ -194,6 +197,17 @@ export async function signPortalDocumentAction(formData: FormData) {
     redirect(portalDocumentsPath(studioSlug, "success", "signed"));
   }
 
+  // Phase 8A: this typed-signature path only serves genuinely legacy documents. An envelope-backed assignment must be
+  // completed through its signing request (which carries the source/signed PDF evidence), and a waived or void
+  // assignment is no longer actionable.
+  if (assignment && (assignment.sign_envelope_id || !isSignableAssignmentStatus(assignment.status))) {
+    redirect(portalDocumentsPath(studioSlug, "error", "signing_request_unavailable"));
+  }
+
+  // Writes are server-mediated with the service role: the relationship (can_sign_documents), studio, client, template
+  // and assignment lifecycle have all been validated above. Portal users have no direct write access.
+  const admin = createAdminClient();
+
   const existingSignatureQuery = supabase
     .from("document_signatures")
     .select("id")
@@ -217,12 +231,14 @@ export async function signPortalDocumentAction(formData: FormData) {
 
   if (existingSignature?.id) {
     if (assignment?.id) {
-      await supabase
+      await admin
         .from("document_assignments")
         .update({ status: "signed", signed_at: new Date().toISOString() })
         .eq("id", assignment.id)
         .eq("studio_id", studio.id)
-        .eq("client_id", client.id);
+        .eq("client_id", client.id)
+        .eq("status", "pending")
+        .is("sign_envelope_id", null);
     }
 
     redirect(portalDocumentsPath(studioSlug, "success", "signed"));
@@ -247,7 +263,7 @@ export async function signPortalDocumentAction(formData: FormData) {
     null;
   const signedAt = new Date().toISOString();
 
-  const { data: insertedSignature, error: signatureError } = await supabase.from("document_signatures").insert({
+  const { data: insertedSignature, error: signatureError } = await admin.from("document_signatures").insert({
     assignment_id: assignment?.id ?? null,
     template_id: resolvedTemplateId,
     template_version_id: version?.id ?? null,
@@ -279,21 +295,29 @@ export async function signPortalDocumentAction(formData: FormData) {
   }
 
   if (assignment) {
-    const { error: assignmentError } = await supabase
+    // Conditional on the assignment still being pending and legacy (no envelope): a concurrent staff waive/void or a
+    // switch to an envelope wins, and the just-created signature row is withdrawn instead of standing as evidence.
+    const { data: signedAssignment, error: assignmentError } = await admin
       .from("document_assignments")
       .update({ status: "signed", signed_at: signedAt })
       .eq("id", assignment.id)
       .eq("studio_id", studio.id)
       .eq("client_id", client.id)
-      .neq("status", "void");
+      .eq("status", "pending")
+      .is("sign_envelope_id", null)
+      .select("id")
+      .maybeSingle();
 
-    if (assignmentError) {
+    if (assignmentError || !signedAssignment) {
+      if (insertedSignature?.id) {
+        await admin.from("document_signatures").delete().eq("id", insertedSignature.id).eq("studio_id", studio.id);
+      }
       redirect(portalDocumentsPath(studioSlug, "error", "signing_failed"));
     }
   }
 
   if (insertedSignature?.id) {
-    const { error: auditError } = await supabase
+    const { error: auditError } = await admin
       .from("document_signature_audit_events")
       .insert({
         signature_id: insertedSignature.id,

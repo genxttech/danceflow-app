@@ -12,6 +12,10 @@ import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 import { buildAppUrl } from "@/lib/email/brand";
 import { buildSignatureRequestEmail } from "./signatureRequestEmail";
+import { LIVE_SIGN_ENVELOPE_STATUSES, OPEN_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
+
+/** Envelope statuses a revision may supersede (never `completed` or `draft`). */
+const REVISABLE_SIGN_ENVELOPE_STATUSES = ["sent", "viewed", "started", "expired", "declined", "void"] as const;
 
 type FieldType = "signature" | "initials" | "printed_name" | "date" | "text" | "checkbox";
 type FieldDraft = { field_type: FieldType; page_number: number; x: number; y: number; width: number; height: number; label: string; required: boolean; placeholder_text?: string | null; default_value?: string | null };
@@ -174,12 +178,14 @@ export async function resendSignEnvelopeAction(formData: FormData) {
   const { admin, envelope, user, studioId } = await requireStudioEnvelope(envelopeId);
   if (!["sent","viewed","started"].includes(envelope.status)) redirect(signPath("error", "request_not_active"));
   if (new Date(envelope.expires_at).getTime() <= Date.now()) {
-    await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelopeId);
+    await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelopeId).in("status", [...OPEN_SIGN_ENVELOPE_STATUSES]);
     redirect(signPath("error", "request_expired"));
   }
   const token = createSigningToken(); const now = new Date().toISOString();
-  const { error: updateError } = await admin.from("document_sign_envelopes").update({ token_hash: hashSigningToken(token), last_reminded_at: now, reminder_count: Number(envelope.reminder_count ?? 0) + 1, updated_at: now }).eq("id", envelopeId).eq("studio_id", studioId);
+  // Phase 8A: rotate the link only while the request is still open (never on a concurrently completed / voided one).
+  const { data: resentEnvelope, error: updateError } = await admin.from("document_sign_envelopes").update({ token_hash: hashSigningToken(token), last_reminded_at: now, reminder_count: Number(envelope.reminder_count ?? 0) + 1, updated_at: now }).eq("id", envelopeId).eq("studio_id", studioId).in("status", [...OPEN_SIGN_ENVELOPE_STATUSES]).select("id").maybeSingle();
   if (updateError) redirect(signPath("error", "resend_failed"));
+  if (!resentEnvelope) redirect(signPath("error", "request_changed"));
   const { error: deliveryError } = await queueEnvelopeEmail({ admin, envelope, token, studioId, dedupeKey: `document-sign:${envelopeId}:resend:${Date.now()}`, subjectPrefix: "Reminder: signature requested" });
   await admin.from("document_sign_events").insert({ envelope_id: envelopeId, event_type: deliveryError ? "delivery_exception" : "resent", actor_user_id: user.id, actor_email: user.email ?? null, summary: deliveryError ? "Reminder could not be queued." : "Signing reminder queued and secure link rotated." });
   revalidatePath("/app/documents"); revalidatePath(`/app/documents/sign/${envelopeId}`);
@@ -352,7 +358,7 @@ export async function reviseSignEnvelopeAction(formData: FormData) {
   const { admin, envelope, user, studioId } =
     await requireStudioEnvelope(envelopeId);
 
-  if (!["sent", "viewed", "started", "expired", "declined", "void"].includes(envelope.status)) {
+  if (!(REVISABLE_SIGN_ENVELOPE_STATUSES as readonly string[]).includes(envelope.status)) {
     redirect(signPath("error", "request_not_revisable"));
   }
 
@@ -383,7 +389,7 @@ export async function reviseSignEnvelopeAction(formData: FormData) {
 
   const { newEnvelopeId, now } = copyResult!;
 
-  const { error: supersedeError } = await admin
+  const { data: supersededEnvelope, error: supersedeError } = await admin
     .from("document_sign_envelopes")
     .update({
       status: "void",
@@ -397,9 +403,13 @@ export async function reviseSignEnvelopeAction(formData: FormData) {
     })
     .eq("id", envelopeId)
     .eq("studio_id", studioId)
-    .is("superseded_by_envelope_id", null);
+    .is("superseded_by_envelope_id", null)
+    // Phase 8A: never overwrite a request that completed (or was superseded) after it was read.
+    .in("status", [...REVISABLE_SIGN_ENVELOPE_STATUSES])
+    .select("id")
+    .maybeSingle();
 
-  if (supersedeError) {
+  if (supersedeError || !supersededEnvelope) {
     await admin.from("document_sign_fields").delete().eq("envelope_id", newEnvelopeId);
     await admin.from("document_sign_envelopes").delete().eq("id", newEnvelopeId);
     await admin.storage
@@ -505,10 +515,12 @@ export async function revokeSignEnvelopeAction(formData: FormData) {
   const { admin, envelope, user, studioId } = await requireStudioEnvelope(envelopeId);
   if (!["draft","sent","viewed","started"].includes(envelope.status)) redirect(signPath("error", "request_not_revocable"));
   const now = new Date().toISOString();
-  const { error } = await admin.from("document_sign_envelopes").update({ status: "void", token_hash: null, voided_at: now, revoked_reason: reason, updated_at: now }).eq("id", envelopeId).eq("studio_id", studioId);
+  // Phase 8A: only a request that is still live is revoked; a request that completed meanwhile keeps its evidence.
+  const { data: revokedEnvelope, error } = await admin.from("document_sign_envelopes").update({ status: "void", token_hash: null, voided_at: now, revoked_reason: reason, updated_at: now }).eq("id", envelopeId).eq("studio_id", studioId).in("status", [...LIVE_SIGN_ENVELOPE_STATUSES]).select("id").maybeSingle();
   if (error) redirect(signPath("error", "revoke_failed"));
+  if (!revokedEnvelope) redirect(signPath("error", "request_changed"));
   await admin.from("document_sign_events").insert({ envelope_id: envelopeId, event_type: "revoked", actor_user_id: user.id, actor_email: user.email ?? null, summary: reason });
-  if (envelope.assignment_id) await admin.from("document_assignments").update({ status: "void" }).eq("id", envelope.assignment_id).eq("studio_id", studioId).neq("status", "signed");
+  if (envelope.assignment_id) await admin.from("document_assignments").update({ status: "void" }).eq("id", envelope.assignment_id).eq("studio_id", studioId).eq("status", "pending");
   revalidatePath("/app/documents"); revalidatePath("/app/documents");
   redirect(signPath("success", "revoked"));
 }
