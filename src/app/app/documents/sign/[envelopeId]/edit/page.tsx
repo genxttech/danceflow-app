@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 import FieldPlacementEditor from "./FieldPlacementEditor";
+import { requireStudioFeature } from "@/lib/billing/access";
 
 type PageSize = {
   pageNumber: number;
@@ -22,6 +23,7 @@ export default async function EditSigningEnvelopePage({
   const query = await searchParams;
   const context = await getCurrentStudioContext();
   if (!canManageDocumentsRole(context.studioRole)) redirect("/app");
+  await requireStudioFeature("documents");
   const admin = createAdminClient();
 
   const { data: envelope } = await admin

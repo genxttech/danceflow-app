@@ -13,6 +13,7 @@ import {
   toggleDocumentTemplateStatusAction,
   updateDocumentTemplateAction,
   sendDocumentReminderAction,
+  updateDocumentAssignmentDueDateAction,
   waiveDocumentAssignmentAction,
   voidDocumentAssignmentAction,
 } from "./actions";
@@ -73,6 +74,7 @@ type DocumentAssignmentSummary = {
   due_at: string | null;
   assigned_to_email: string | null;
   sign_envelope_id: string | null;
+  event_signing_checkpoint_id?: string | null;
   document_templates: { title: string | null; is_required: boolean | null } | { title: string | null; is_required: boolean | null }[] | null;
   clients: { first_name: string | null; last_name: string | null; email: string | null } | { first_name: string | null; last_name: string | null; email: string | null }[] | null;
 };
@@ -211,6 +213,7 @@ function statusMessage(searchParams: SearchParams) {
   if (searchParams.success === "reminder_queued") return "Document reminder queued.";
   if (searchParams.success === "waived") return "Document requirement waived.";
   if (searchParams.success === "voided") return "Document assignment voided.";
+  if (searchParams.success === "due_date_updated") return "Due date updated. Reminders will follow the new date.";
   if (searchParams.error === "missing_title") return "Add a document title.";
   if (searchParams.error === "missing_body")
     return "Add the document text before saving.";
@@ -1037,7 +1040,7 @@ export default async function DocumentsPage({
           .limit(10000),
         supabase
           .from("document_assignments")
-          .select("id, template_id, client_id, status, assigned_at, due_at, assigned_to_email, sign_envelope_id, document_templates(title, is_required), clients(first_name, last_name, email)")
+          .select("id, template_id, client_id, status, assigned_at, due_at, assigned_to_email, sign_envelope_id, event_signing_checkpoint_id, document_templates(title, is_required), clients(first_name, last_name, email)")
           .in("template_id", templateIds)
           .neq("status", "void")
           .limit(10000),
@@ -1346,6 +1349,14 @@ export default async function DocumentsPage({
                         </Link>
                       ) : !missingEmail ? (
                         <form action={sendDocumentReminderAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"><Send className="h-3.5 w-3.5"/>Send reminder</button></form>
+                      ) : null}
+                      {!assignment.event_signing_checkpoint_id ? (
+                        <form action={updateDocumentAssignmentDueDateAction} className="flex items-center gap-1">
+                          <input type="hidden" name="assignmentId" value={assignment.id} />
+                          <input type="hidden" name="scope" value="studio" />
+                          <input type="date" name="dueDate" aria-label="Due date" defaultValue={assignment.due_at ? assignment.due_at.slice(0, 10) : ""} className="rounded-xl border border-[var(--brand-border)] bg-white px-2 py-1.5 text-xs text-[var(--brand-text)]" />
+                          <button className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--brand-text)]">Set due date</button>
+                        </form>
                       ) : null}
                       <form action={waiveDocumentAssignmentAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800">Waive</button></form>
                       <form action={voidDocumentAssignmentAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><input type="hidden" name="reason" value="Voided from Document Operations Center."/><button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">Void</button></form>

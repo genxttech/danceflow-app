@@ -9,6 +9,7 @@ import {
   reviseSignEnvelopeAction,
   revokeSignEnvelopeAction,
 } from "../actions";
+import { requireStudioFeature } from "@/lib/billing/access";
 
 function fmt(value: string | null) {
   if (!value) return "—";
@@ -28,6 +29,10 @@ function errorMessage(code?: string) {
     return "The replacement draft was created, but the original could not be superseded safely.";
   if (code === "duplicate_create_failed")
     return "The completed request could not be duplicated.";
+  if (code === "event_checkout_not_revisable")
+    return "Event checkout waivers cannot be revised. The registrant signs again by restarting checkout.";
+  if (code === "assignment_closed")
+    return "This requirement was waived, voided, or signed, so it cannot be reopened by a revision. Assign the document again to request a new signature.";
   return code.replaceAll("_", " ");
 }
 
@@ -43,6 +48,7 @@ export default async function SignEnvelopeDetailPage({
   const context = await getCurrentStudioContext();
 
   if (!canManageDocumentsRole(context.studioRole)) redirect("/app");
+  await requireStudioFeature("documents");
 
   const admin = createAdminClient();
   const { data: envelope } = await admin
@@ -65,10 +71,15 @@ export default async function SignEnvelopeDetailPage({
     .order("created_at", { ascending: false });
 
   const active = ["sent", "viewed", "started"].includes(envelope.status);
+  const isEventCheckout =
+    envelope.context_type === "event_checkout" ||
+    Boolean(envelope.event_signing_checkpoint_id);
   const revisable =
     ["sent", "viewed", "started", "expired", "declined", "void"].includes(
       envelope.status,
-    ) && !envelope.superseded_by_envelope_id;
+    ) &&
+    !envelope.superseded_by_envelope_id &&
+    !isEventCheckout;
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-6 md:px-8">
@@ -215,6 +226,13 @@ export default async function SignEnvelopeDetailPage({
             </>
           ) : null}
         </div>
+
+        {isEventCheckout && envelope.status !== "completed" ? (
+          <p className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+            This waiver belongs to an event checkout, so it cannot be revised
+            here. The registrant signs again by restarting checkout.
+          </p>
+        ) : null}
 
         {revisable ? (
           <form

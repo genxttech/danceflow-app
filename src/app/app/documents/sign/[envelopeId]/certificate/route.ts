@@ -4,11 +4,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 import { sha256Hex } from "@/lib/documents/pdf";
+import { studioHasFeature } from "@/lib/billing/access";
 
 function line(page: PDFPage, font: PDFFont, label: string, value: string, y: number) { page.drawText(label, { x: 54, y, size: 10, font, color: rgb(.35,.35,.42) }); page.drawText(value || "—", { x: 180, y, size: 10, font, color: rgb(.08,.08,.12), maxWidth: 360 }); }
 function unavailable() { return new NextResponse("Certificate unavailable", { status: 404 }); }
 export async function GET(_request: Request, { params }: { params: Promise<{ envelopeId: string }> }) {
-  const { envelopeId } = await params; const context = await getCurrentStudioContext(); if (!canManageDocumentsRole(context.studioRole)) return new NextResponse("Not found", { status: 404 }); const admin = createAdminClient();
+  const { envelopeId } = await params; const context = await getCurrentStudioContext(); if (!canManageDocumentsRole(context.studioRole)) return new NextResponse("Not found", { status: 404 }); if (!(await studioHasFeature("documents"))) return new NextResponse("Not found", { status: 404 }); const admin = createAdminClient();
   const { data: envelope } = await admin.from("document_sign_envelopes").select("id,title,status,signer_name,signer_email,source_sha256,signed_sha256,signed_bucket,signed_path,sent_at,viewed_at,started_at,completed_at,signature_method,signed_timezone,consent_text").eq("id", envelopeId).eq("studio_id", context.studioId).maybeSingle();
   if (!envelope || envelope.status !== "completed") return unavailable();
   if (!envelope.signed_bucket || !envelope.signed_path || !envelope.signed_sha256) return unavailable();

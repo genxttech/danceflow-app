@@ -8,6 +8,8 @@ import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signin
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { studioHasFeature } from "@/lib/billing/access";
+import { signLinkExpiryForDueDate } from "@/lib/documents/signing-integrity";
 import { requireClientEditAccess } from "@/lib/auth/serverRoleGuard";
 import { CLIENT_PHOTO_BUCKET, parseClientPhotoObjectPath } from "@/lib/clients/clientPhotoAccess";
 import {
@@ -340,6 +342,11 @@ export async function loadOnboardingDocumentOptionsAction(): Promise<
 > {
   const { supabase, studioId } = await getCurrentUserStudioContext();
 
+  // Phase 8B: onboarding documents are part of the Documents plan feature.
+  if (!(await studioHasFeature("documents"))) {
+    return [];
+  }
+
   const { data, error } = await supabase
     .from("document_templates")
     .select("id, title, description, requires_signature, is_required")
@@ -525,7 +532,7 @@ async function createOnboardingDocumentDraft(params: {
   const envelopeId = randomUUID();
   const assignmentId = randomUUID();
   const sourcePath = sourceStoragePath(params.studioId, envelopeId);
-  const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString();
+  const expiresAt = signLinkExpiryForDueDate(null);
 
   const { error: uploadError } = await admin.storage
     .from(DOCUMENT_FILES_BUCKET)
@@ -950,7 +957,17 @@ export async function createClientAction(
     let firstEnvelopeId: string | null = null;
     const documentErrors: string[] = [];
 
-    for (const templateId of selectedTemplateIds) {
+    // Phase 8B: without the Documents plan feature no onboarding request is created (server-side), but the client
+    // itself is still saved.
+    const documentsEnabled =
+      selectedTemplateIds.length > 0 && (await studioHasFeature("documents"));
+
+    if (selectedTemplateIds.length > 0 && !documentsEnabled) {
+      onboardingWarning =
+        "Client created. Onboarding documents were skipped because your plan does not include Documents.";
+    }
+
+    for (const templateId of documentsEnabled ? selectedTemplateIds : []) {
       try {
         const result = await createOnboardingDocumentDraft({
           studioId,

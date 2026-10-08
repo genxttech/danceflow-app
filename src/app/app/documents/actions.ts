@@ -13,7 +13,12 @@ import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signin
 import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
 import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
 import { buildDocumentAssignmentEmail } from "./documentAssignmentEmail";
-import { LIVE_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
+import {
+  deriveSignEnvelopeLifecycle,
+  LIVE_SIGN_ENVELOPE_STATUSES,
+  OPEN_SIGN_ENVELOPE_STATUSES,
+  signLinkExpiryForDueDate,
+} from "@/lib/documents/signing-integrity";
 
 export type DocumentActionState = {
   error?: string;
@@ -430,7 +435,8 @@ export async function assignDocumentToClientAction(formData: FormData) {
   const assignmentId = randomUUID();
   const sourcePath = sourceStoragePath(owner.studioId, envelopeId);
   const dueAt = dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null;
-  const expiresAt = dueAt ?? new Date(Date.now() + 7 * 86400000).toISOString();
+  // Phase 8B: the link outlives the due date by a grace window, so the overdue reminder lands on a live request.
+  const expiresAt = signLinkExpiryForDueDate(dueAt);
 
   const { error: uploadError } = await admin.storage
     .from(DOCUMENT_FILES_BUCKET)
@@ -943,7 +949,7 @@ async function getManagedAssignment(formData: FormData) {
   const { data, error } = await owner.supabase
     .from("document_assignments")
     .select(
-      "id, studio_id, client_id, template_id, assigned_to_email, status, sign_envelope_id",
+      "id, studio_id, client_id, template_id, assigned_to_email, status, sign_envelope_id, due_at, event_signing_checkpoint_id",
     )
     .eq("id", assignmentId)
     .eq("studio_id", owner.studioId)
@@ -974,13 +980,25 @@ export async function sendDocumentReminderAction(formData: FormData) {
   if (result.assignment.sign_envelope_id) {
     const { data: envelope } = await result.owner.supabase
       .from("document_sign_envelopes")
-      .select("id, status")
+      .select("id, status, expires_at")
       .eq("id", result.assignment.sign_envelope_id)
       .eq("studio_id", result.owner.studioId)
       .maybeSingle();
 
     if (envelope?.status === "draft") {
       redirect(`/app/documents/sign/${envelope.id}/edit`);
+    }
+
+    // Phase 8B: never remind a client about a request they can no longer sign.
+    const lifecycle = deriveSignEnvelopeLifecycle(envelope);
+    if (lifecycle !== "open") {
+      redirect(
+        `/app/documents?error=${encodeURIComponent(
+          lifecycle === "expired" || lifecycle === "declined"
+            ? `This signing request is ${lifecycle}. Open it and create a revision to send a new link.`
+            : "This signing request is no longer open, so no reminder was sent.",
+        )}`,
+      );
     }
   }
 
@@ -1005,6 +1023,98 @@ export async function sendDocumentReminderAction(formData: FormData) {
 
   revalidatePath("/app/documents");
   redirect("/app/documents?success=reminder_queued");
+}
+
+function parseDueDate(value: string) {
+  if (!value) return { dueAt: null } as const;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { error: "Choose a valid due date." } as const;
+  const date = new Date(`${value}T23:59:59`);
+  if (Number.isNaN(date.getTime())) return { error: "Choose a valid due date." } as const;
+  return { dueAt: date.toISOString() } as const;
+}
+
+/**
+ * Phase 8B: change (or clear) a pending assignment's due date. Gated like every other assignment action (role +
+ * Documents feature, studio scope). Only a `pending` assignment changes; the reminder cycle restarts; a live signing
+ * link is extended so it still outlives the new due date (it is never shortened, and an expired / declined / closed
+ * request is never revived -- that takes a revision).
+ */
+export async function updateDocumentAssignmentDueDateAction(formData: FormData) {
+  const result = await getManagedAssignment(formData);
+
+  if ("error" in result) {
+    return redirect(
+      `/app/documents?error=${encodeURIComponent(result.error ?? "Assignment not found.")}`,
+    );
+  }
+
+  const parsed = parseDueDate(getString(formData, "dueDate"));
+  if ("error" in parsed) {
+    return redirect(`/app/documents?error=${encodeURIComponent(parsed.error ?? "Choose a valid due date.")}`);
+  }
+
+  if (result.assignment.status !== "pending") {
+    return redirect(
+      `/app/documents?error=${encodeURIComponent("Only pending documents can have their due date changed.")}`,
+    );
+  }
+
+  if (result.assignment.event_signing_checkpoint_id) {
+    return redirect(
+      `/app/documents?error=${encodeURIComponent("Event checkout waivers follow the checkout window and have no due date.")}`,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const { data: updated, error } = await result.owner.supabase
+    .from("document_assignments")
+    .update({
+      due_at: parsed.dueAt,
+      reminder_sent_at: null,
+      overdue_reminder_sent_at: null,
+      updated_at: now,
+    })
+    .eq("id", result.assignment.id)
+    .eq("studio_id", result.owner.studioId)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return redirect(`/app/documents?error=${encodeURIComponent("Could not update the due date.")}`);
+  }
+  if (!updated) {
+    return redirect(
+      `/app/documents?error=${encodeURIComponent("This document is no longer pending. Refresh to see its current status.")}`,
+    );
+  }
+
+  if (result.assignment.sign_envelope_id) {
+    const admin = createAdminClient();
+    const { data: envelope } = await admin
+      .from("document_sign_envelopes")
+      .select("id, status, expires_at")
+      .eq("id", result.assignment.sign_envelope_id)
+      .eq("studio_id", result.owner.studioId)
+      .maybeSingle();
+    const lifecycle = deriveSignEnvelopeLifecycle(envelope);
+
+    if (envelope && (lifecycle === "open" || lifecycle === "draft")) {
+      const nextExpiry = signLinkExpiryForDueDate(parsed.dueAt);
+      if (new Date(nextExpiry).getTime() > new Date(envelope.expires_at).getTime()) {
+        await admin
+          .from("document_sign_envelopes")
+          .update({ expires_at: nextExpiry, updated_at: now })
+          .eq("id", envelope.id)
+          .eq("studio_id", result.owner.studioId)
+          .in("status", lifecycle === "draft" ? ["draft"] : [...OPEN_SIGN_ENVELOPE_STATUSES])
+          .gt("expires_at", now);
+      }
+    }
+  }
+
+  revalidatePath("/app/documents");
+  redirect("/app/documents?success=due_date_updated");
 }
 
 /**
