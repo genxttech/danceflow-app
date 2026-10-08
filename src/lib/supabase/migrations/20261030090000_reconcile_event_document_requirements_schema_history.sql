@@ -1,9 +1,18 @@
 -- Phase 8B -- reconciliation migration: event_document_requirements
 --
 -- public.event_document_requirements exists on DEV and PROD (identical catalog metadata at Phase 8B review: columns,
--- defaults, constraints, indexes, RLS, policies, trigger) but no migration in this repository creates it;
--- 20260712_danceflow_sign_v1_7_1_event_registration_completion.sql already references it. This migration records the
--- exact live schema so environments without the table get it, and is a strict no-op where it already exists.
+-- defaults, constraints, indexes, RLS, policies, trigger). Like studios / clients / events / organizers, it predates
+-- this repository's migration history and was never created by a repository migration (none exists in git history).
+--
+-- Schema history: this project rebuilds a database from the production baseline snapshot
+-- (danceflow-production-pre-accounting-v1-2026-07-15) followed by the repository migrations dated 2026-07-15 and later.
+-- That baseline already contains this table with exactly the reviewed definition (fingerprint below), so in a rebuilt
+-- database it exists before its first dependency, 20260712_danceflow_sign_v1_7_1_event_registration_completion.sql
+-- (pre-baseline; its effects are part of the baseline). A backdated bootstrap migration would never execute in that
+-- rebuild, and the repository cannot be replayed from an empty schema at all (its base tables are baseline-only), so
+-- none is added. This migration is the forward record and defensive verification: a strict no-op on a correct table,
+-- the exact definition where the table is absent, and a hard failure on drift. Verified (Phase 8B) by a disposable
+-- rebuild: baseline + 195 forward migrations, this file a no-op, fingerprint unchanged.
 --
 -- Fail-closed:
 --   * Preflight: if the table exists, its catalog fingerprint (md5 over columns, constraints, indexes, RLS flags,
@@ -22,6 +31,8 @@ create or replace function pg_temp.p8b_event_document_requirements_fingerprint()
 returns text
 language sql
 stable
+-- Pinned so the deparsed predicates (auth.users, auth.uid()) are identical whatever the caller search_path is.
+set search_path to pg_catalog, public
 as $fn$
   select md5(string_agg(k || '|' || n || '|' || v, E'\n' order by k collate "C", n collate "C"))
   from (

@@ -11,8 +11,10 @@ import {
 
 /**
  * Phase 8B -- Documents lifecycle correctness + gating (behavioural coverage of the server paths):
- *   - every staff Documents surface (sign actions, envelope pages, evidence routes, assignment actions, onboarding)
- *     requires the `documents` plan feature server-side, while signers can still complete already-issued requests;
+ *   - every staff Documents MANAGEMENT surface (sign actions, draft editor, assignment actions, onboarding) requires the
+ *     `documents` plan feature server-side; after a downgrade authorized staff keep READ access to historical records
+ *     (envelope history, signed / source PDFs, certificates) under the same auth, role and tenancy checks; signers can
+ *     still complete already-issued requests;
  *   - a revision keeps client / template / version / context (portal access survives), never reopens a waived / void
  *     requirement, is refused for event-checkout waivers, and relinks only a still-pending assignment;
  *   - expiry / decline keep the assignment pending with a derived state; the cron persists expiry, voids abandoned
@@ -69,6 +71,7 @@ const RELATIONS = {
 const state: {
   db: DocumentsFake;
   authUserId: string;
+  unauthenticated: boolean;
   role: string;
   features: Set<string>;
   studioFeatures: Record<string, string[]>;
@@ -77,6 +80,7 @@ const state: {
 } = {
   db: new DocumentsFake(),
   authUserId: STAFF,
+  unauthenticated: false,
   role: "studio_owner",
   features: new Set(["documents"]),
   studioFeatures: {},
@@ -101,7 +105,11 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("@/lib/auth/studio", () => ({
-  getCurrentStudioContext: async () => ({ studioId: STUDIO, studioRole: state.role, userId: STAFF }),
+  // Mirrors the real helper: requireAuthenticatedUser() redirects a signed-out request to /login.
+  getCurrentStudioContext: async () => {
+    if (state.unauthenticated) throw new Error("redirect:/login");
+    return { studioId: STUDIO, studioRole: state.role, userId: STAFF };
+  },
 }));
 vi.mock("@/lib/billing/access", () => ({
   requireStudioFeature: async (feature: string) => {
@@ -280,6 +288,7 @@ async function remind(assignmentId = "asg-1") {
 
 beforeEach(() => {
   state.authUserId = STAFF;
+  state.unauthenticated = false;
   state.role = "studio_owner";
   state.features = new Set(["documents"]);
   state.studioFeatures = { [STUDIO]: ["documents"] };
@@ -345,35 +354,20 @@ describe("plan-feature gating (server-side)", () => {
     expect(JSON.stringify(db.tables)).toBe(before);
   });
 
-  it.each(["source", "signed"])("the staff %s evidence route serves the file with the feature (positive control)", async (route) => {
-    state.features = new Set(["documents"]);
-    seed({ envelopeStatus: "completed" });
-    Object.assign(envelope(), { signed_bucket: "document-files", signed_path: `studios/${STUDIO}/envelopes/env-1/signed.pdf` });
-    state.db.files.set(`document-files/studios/${STUDIO}/envelopes/env-1/signed.pdf`, new Uint8Array([9, 9, 9]));
-    const mod = (await import(`@/app/app/documents/sign/[envelopeId]/${route}/route`)) as {
-      GET: (request: Request, ctx: { params: Promise<{ envelopeId: string }> }) => Promise<Response>;
-    };
-    const response = await mod.GET(new Request("https://example.test"), { params: Promise.resolve({ envelopeId: "env-1" }) });
-    expect(response.status).toBe(200);
-  });
-
-  it.each(["source", "signed", "certificate"])("the staff %s evidence route 404s without the documents feature", async (route) => {
-    seed({ envelopeStatus: "completed" });
-    Object.assign(envelope(), { signed_bucket: "document-files", signed_path: `studios/${STUDIO}/envelopes/env-1/signed.pdf` });
-    state.db.files.set(`document-files/studios/${STUDIO}/envelopes/env-1/signed.pdf`, new Uint8Array([9, 9, 9]));
-    const mod = (await import(`@/app/app/documents/sign/[envelopeId]/${route}/route`)) as {
-      GET: (request: Request, ctx: { params: Promise<{ envelopeId: string }> }) => Promise<Response>;
-    };
-    const response = await mod.GET(new Request("https://example.test"), { params: Promise.resolve({ envelopeId: "env-1" }) });
-    expect(response.status).toBe(404);
-  });
-
   it.each([
     ["detail", "@/app/app/documents/sign/[envelopeId]/page"],
     ["edit", "@/app/app/documents/sign/[envelopeId]/edit/page"],
-  ])("the staff envelope %s page requires the documents feature", async (_label, path) => {
+  ])("the staff envelope %s page is reachable with the documents feature (positive control)", async (_label, path) => {
+    state.features = new Set(["documents"]);
     seed({ envelopeStatus: "draft" });
     const mod = (await import(path)) as { default: (props: unknown) => Promise<unknown> };
+    const result = await outcome(() => mod.default({ params: Promise.resolve({ envelopeId: "env-1" }), searchParams: Promise.resolve({}) }));
+    expect(result).toBe("no-redirect");
+  });
+
+  it("the draft field editor (management) still requires the documents feature", async () => {
+    seed({ envelopeStatus: "draft" });
+    const mod = (await import("@/app/app/documents/sign/[envelopeId]/edit/page")) as { default: (props: unknown) => Promise<unknown> };
     expect(
       await outcome(() => mod.default({ params: Promise.resolve({ envelopeId: "env-1" }), searchParams: Promise.resolve({}) })),
     ).toBe("redirect:/app/settings/billing?upgrade=documents");
@@ -402,6 +396,151 @@ describe("plan-feature gating (server-side)", () => {
 
   it("the old standalone /app/documents/sign page no longer exists (orphan removed)", async () => {
     await expect(import("@/app/app/documents/sign/page" as string)).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+describe("historical record access after a plan downgrade (record retention)", () => {
+  const SIGNED = new Uint8Array([9, 9, 9]);
+
+  function seedCompleted(studioId = STUDIO) {
+    seed({ envelopeStatus: "completed" });
+    Object.assign(envelope(), {
+      studio_id: studioId,
+      signed_bucket: "document-files",
+      signed_path: `studios/${STUDIO}/envelopes/env-1/signed.pdf`,
+      signed_sha256: sha256Hex(SIGNED),
+      completed_at: "2026-05-01T00:00:00.000Z",
+    });
+    state.db.files.set(`document-files/studios/${STUDIO}/envelopes/env-1/signed.pdf`, SIGNED);
+  }
+
+  async function read(route: string) {
+    const mod = (await import(`@/app/app/documents/sign/[envelopeId]/${route}/route`)) as {
+      GET: (request: Request, ctx: { params: Promise<{ envelopeId: string }> }) => Promise<Response>;
+    };
+    return mod.GET(new Request("https://example.test"), { params: Promise.resolve({ envelopeId: "env-1" }) });
+  }
+
+  /** Every form action rendered by the (single-component) detail page, found by walking the returned element tree. */
+  function formActions(node: unknown, found = new Set<unknown>()): Set<unknown> {
+    if (Array.isArray(node)) {
+      for (const child of node) formActions(child, found);
+      return found;
+    }
+    if (node && typeof node === "object" && "props" in node) {
+      const props = (node as { props: Record<string, unknown> }).props;
+      if (typeof props.action === "function") found.add(props.action);
+      formActions(props.children, found);
+    }
+    return found;
+  }
+
+  async function detailPage() {
+    const mod = (await import("@/app/app/documents/sign/[envelopeId]/page")) as { default: (props: unknown) => Promise<unknown> };
+    return mod.default({ params: Promise.resolve({ envelopeId: "env-1" }), searchParams: Promise.resolve({}) });
+  }
+
+  it.each(["source", "signed", "certificate"])("A. with Documents: the %s evidence read is allowed", async (route) => {
+    seedCompleted();
+    const response = await read(route);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/pdf");
+  });
+
+  it.each(["source", "signed", "certificate"])("B. without Documents: the historical %s evidence read is still allowed", async (route) => {
+    state.features = new Set();
+    seedCompleted();
+    const response = await read(route);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/pdf");
+  });
+
+  it("B. without Documents: the completed record's history page renders read-only (no management controls)", async () => {
+    state.features = new Set();
+    seedCompleted();
+    const tree = await detailPage();
+    expect(tree).toBeTruthy();
+    expect(formActions(tree).size).toBe(0);
+  });
+
+  it("B. without Documents: an open request's page is read-only too, while its actions stay denied on the server", async () => {
+    state.features = new Set();
+    seed({ envelopeStatus: "sent" });
+    expect(formActions(await detailPage()).size).toBe(0);
+    const { resendSignEnvelopeAction, reviseSignEnvelopeAction, revokeSignEnvelopeAction } = await signActions();
+    for (const action of [resendSignEnvelopeAction, reviseSignEnvelopeAction, revokeSignEnvelopeAction]) {
+      expect(await outcome(() => action(form({ envelopeId: "env-1", reason: "Corrected terms needed" })))).toBe(
+        "redirect:/app/settings/billing?upgrade=documents",
+      );
+    }
+    expect(envelope().status).toBe("sent");
+  });
+
+  it("A. with Documents: the same page offers the management controls (positive control)", async () => {
+    seed({ envelopeStatus: "sent" });
+    const { resendSignEnvelopeAction, reviseSignEnvelopeAction, revokeSignEnvelopeAction } = await signActions();
+    const actions = formActions(await detailPage());
+    expect(actions.has(resendSignEnvelopeAction)).toBe(true);
+    expect(actions.has(reviseSignEnvelopeAction)).toBe(true);
+    expect(actions.has(revokeSignEnvelopeAction)).toBe(true);
+  });
+
+  it("B. without Documents: due-date edit, reminder, waive and void are denied", async () => {
+    state.features = new Set();
+    seed();
+    expect(await setDueDate("2099-03-01")).toBe("redirect:/app/settings/billing?upgrade=documents");
+    expect(await remind()).toBe("redirect:/app/settings/billing?upgrade=documents");
+    const { waiveDocumentAssignmentAction, voidDocumentAssignmentAction } = await docActions();
+    expect(await outcome(() => waiveDocumentAssignmentAction(form({ assignmentId: "asg-1", scope: "studio" })))).toBe(
+      "redirect:/app/settings/billing?upgrade=documents",
+    );
+    expect(await outcome(() => voidDocumentAssignmentAction(form({ assignmentId: "asg-1", scope: "studio" })))).toBe(
+      "redirect:/app/settings/billing?upgrade=documents",
+    );
+    expect(assignment()).toMatchObject({ status: "pending", due_at: null });
+  });
+
+  it.each(["source", "signed", "certificate"])("C. another studio's historical %s evidence is still denied", async (route) => {
+    state.features = new Set();
+    seedCompleted(OTHER_STUDIO);
+    expect((await read(route)).status).toBe(404);
+    state.features = new Set(["documents"]);
+    expect((await read(route)).status).toBe(404);
+  });
+
+  it("C. another studio's record page is not found", async () => {
+    state.features = new Set();
+    seedCompleted(OTHER_STUDIO);
+    const tree = (await detailPage()) as { props: { children: unknown } };
+    expect(formActions(tree).size).toBe(0);
+    expect(JSON.stringify(tree.props.children)).toContain("Signing request not found.");
+  });
+
+  it.each(["source", "signed", "certificate"])("role: a non-document role cannot read the %s evidence even with Documents", async (route) => {
+    seedCompleted();
+    state.role = "instructor";
+    expect((await read(route)).status).toBe(404);
+  });
+
+  it.each(["source", "signed", "certificate"])("D. an unauthenticated request for the %s evidence is login-gated", async (route) => {
+    seedCompleted();
+    state.unauthenticated = true;
+    await expect(read(route)).rejects.toThrow("redirect:/login");
+  });
+
+  it("E. a signer still completes an already-issued request after the downgrade", async () => {
+    state.features = new Set();
+    seed();
+    state.authUserId = USER;
+    const { completeSigningAction } = await import("@/app/sign/[token]/actions");
+    const result = await outcome(() =>
+      completeSigningAction(
+        form({ token: TOKEN, signerName: "Robin Lee", consent: "on", "field_fld-sig": JSON.stringify({ method: "typed", value: "Robin Lee" }) }),
+      ),
+    );
+    expect(result).toContain("success=completed");
+    expect(envelope().status).toBe("completed");
   });
 });
 

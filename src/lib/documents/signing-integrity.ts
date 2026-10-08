@@ -37,7 +37,11 @@ export function isOpenSignEnvelopeStatus(status: string | null | undefined) {
     request.
 */
 
-/** How long a signing link stays usable after the assignment's due date (and the minimum life of a new link). */
+/**
+ * How long a signing link stays usable after the assignment's due date (and the minimum life of a new link).
+ * This is the chosen Phase 8B grace-window rule, an application policy -- not a database requirement. The due date
+ * (`document_assignments.due_at`) and the link expiry (`document_sign_envelopes.expires_at`) remain separate values.
+ */
 export const SIGN_LINK_GRACE_DAYS = 7;
 
 const DAY_MS = 86_400_000;

@@ -7,6 +7,9 @@
 
 begin;
 
+-- Same pinned search_path as the migration fingerprint (deparsed predicates depend on it).
+set local search_path to pg_catalog, public;
+
 do $$
 declare
   v_fp text;
