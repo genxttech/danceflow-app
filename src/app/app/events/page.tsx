@@ -30,6 +30,7 @@ import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { duplicateEventAction } from "./actions";
 import { updateOrganizerAriaActionStatusAction } from "./aria-actions";
+import { filterNotPastEvents, filterPastEvents, getEventEndUtc, isEventPast } from "@/lib/events/eventTiming";
 
 function createServiceRoleClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -679,7 +680,19 @@ function ComparisonCard({
   );
 }
 
-export default async function EventsPage() {
+type EventsListView = "upcoming" | "past";
+
+/** Cleanup PR B: the listing defaults to current/upcoming events; ended events live in the Past view (never deleted). */
+function parseEventsListView(value: string | string[] | undefined): EventsListView {
+  return (Array.isArray(value) ? value[0] : value) === "past" ? "past" : "upcoming";
+}
+
+export default async function EventsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const listView = parseEventsListView((await searchParams)?.view);
   const supabase = await createClient();
 
   const {
@@ -978,7 +991,7 @@ export default async function EventsPage() {
     }
   }
 
-  const todayStart = new Date(new Date().toDateString());
+  const now = new Date();
 
   const organizerEventRows: OrganizerEventDashboardRow[] = typedEvents.map(
     (event) => {
@@ -1009,9 +1022,7 @@ export default async function EventsPage() {
         ticketsCheckedInOverride:
           ticketRows.length > 0 ? checkedInTickets : legacyCheckedIn,
       });
-      const eventStartDate = new Date(`${event.start_date}T00:00:00`);
-      const isPastEvent =
-        !Number.isNaN(eventStartDate.getTime()) && eventStartDate < todayStart;
+      const isPastEvent = isEventPast(event, now);
       const isCompletedOrPast = event.status === "completed" || isPastEvent;
 
       return {
@@ -1114,9 +1125,13 @@ export default async function EventsPage() {
   const totalCheckInRate = totalTicketsIssued
     ? (totalCheckedIn / totalTicketsIssued) * 100
     : null;
-  const upcomingEventsCount = typedEvents.filter(
-    (event) => new Date(`${event.start_date}T00:00:00`) >= todayStart,
-  ).length;
+  const upcomingListEvents = filterNotPastEvents(typedEvents, now);
+  // Most recently ended first.
+  const pastListEvents = filterPastEvents(typedEvents, now).sort(
+    (a, b) => (getEventEndUtc(b)?.getTime() ?? 0) - (getEventEndUtc(a)?.getTime() ?? 0),
+  );
+  const listedEvents = listView === "past" ? pastListEvents : upcomingListEvents;
+  const upcomingEventsCount = upcomingListEvents.length;
   const completedEventsCount = typedEvents.filter(
     (event) => event.status === "completed",
   ).length;
@@ -1560,7 +1575,7 @@ export default async function EventsPage() {
   const persistedAriaActionByKey = new Map(
     persistedAriaActionItems.map((item) => [item.action_key, item]),
   );
-  const nowMs = Date.now();
+  const nowMs = now.getTime();
 
   const visiblePrioritizedAriaActionQueue = prioritizedAriaActionQueue.filter(
     (action) => {
@@ -2689,9 +2704,41 @@ export default async function EventsPage() {
               ? "All organizer-managed event offerings in one operational view."
               : "All organizer and public-facing event offerings in one branded workspace."}
           </p>
+          <nav aria-label="Event timing" className="mt-4 flex flex-wrap gap-2">
+            {(
+              [
+                { view: "upcoming", label: "Upcoming", href: "/app/events", count: upcomingListEvents.length },
+                { view: "past", label: "Past", href: "/app/events?view=past", count: pastListEvents.length },
+              ] as const
+            ).map((tab) => (
+              <Link
+                key={tab.view}
+                href={tab.href}
+                aria-current={listView === tab.view ? "page" : undefined}
+                className={
+                  listView === tab.view
+                    ? "rounded-full bg-slate-900 px-4 py-1.5 text-sm font-medium text-white"
+                    : "rounded-full border border-slate-200 bg-white px-4 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                }
+              >
+                {tab.label} ({tab.count})
+              </Link>
+            ))}
+          </nav>
         </div>
 
-        {typedEvents.length === 0 ? (
+        {typedEvents.length > 0 && listedEvents.length === 0 ? (
+          <div className="px-6 py-14 text-center">
+            <p className="text-base font-medium text-slate-900">
+              {listView === "past" ? "No past events yet." : "No upcoming events."}
+            </p>
+            <p className="mt-2 text-sm text-slate-500">
+              {listView === "past"
+                ? "Events move here automatically after they end, with their registrations, payments and reports intact."
+                : "Ended events stay available in the Past view."}
+            </p>
+          </div>
+        ) : typedEvents.length === 0 ? (
           <div className="px-6 py-14 text-center">
             <p className="text-base font-medium text-slate-900">
               No events yet
@@ -2715,7 +2762,7 @@ export default async function EventsPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-200">
-            {typedEvents.map((event) => {
+            {listedEvents.map((event) => {
               const organizer = getOrganizer(event.organizers);
               const hostLabel = getEventHostLabel({
                 organizer,

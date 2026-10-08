@@ -26,6 +26,7 @@ import { getDanceGoalIntelligence } from "@/lib/aria/danceGoalInsights";
 import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
 import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
+import { isEventPast } from "@/lib/events/eventTiming";
 
 type ClientPackageRow = {
   id: string;
@@ -137,6 +138,8 @@ type OrganizerAriaEventRow = {
   status: string | null;
   start_date: string;
   end_date: string | null;
+  end_time: string | null;
+  timezone: string | null;
 };
 
 type OrganizerAriaRegistrationRow = {
@@ -390,11 +393,11 @@ export default async function AriaOpportunityHubPage() {
   const organizerWorkspace = isOrganizerRole(context.studioRole);
 
   if (organizerWorkspace) {
-    const todayStart = new Date(new Date().toDateString());
+    const now = new Date();
 
     const { data: eventsData, error: eventsError } = await supabase
       .from("events")
-      .select("id, name, slug, status, start_date, end_date")
+      .select("id, name, slug, status, start_date, end_date, end_time, timezone")
       .eq("studio_id", studioId)
       .order("start_date", { ascending: true })
       .limit(250);
@@ -529,9 +532,7 @@ export default async function AriaOpportunityHubPage() {
       const ticketsCheckedIn = tickets.filter(
         (ticket) => ticket.checked_in_at,
       ).length;
-      const eventDate = new Date(`${event.start_date}T00:00:00`);
-      const isPast =
-        !Number.isNaN(eventDate.getTime()) && eventDate < todayStart;
+      const isPast = isEventPast(event, now);
 
       return {
         event,
@@ -1023,7 +1024,7 @@ export default async function AriaOpportunityHubPage() {
   const nowIso = new Date().toISOString();
   const now = new Date(nowIso);
   const ninetyDaysAgoIso = new Date(
-    Date.now() - 90 * 24 * 60 * 60 * 1000,
+    now.getTime() - 90 * 24 * 60 * 60 * 1000,
   ).toISOString();
   const ninetyDaysAgo = new Date(ninetyDaysAgoIso);
 

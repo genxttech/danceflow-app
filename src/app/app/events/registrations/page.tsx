@@ -11,6 +11,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
+import { getEventDayBucket } from "@/lib/events/eventTiming";
 
 type EventRow = {
   id: string;
@@ -21,6 +22,7 @@ type EventRow = {
   end_date: string;
   start_time: string | null;
   end_time: string | null;
+  timezone: string | null;
   city: string | null;
   state: string | null;
   status: string;
@@ -121,26 +123,6 @@ function getLocation(city: string | null, state: string | null) {
   return parts.length ? parts.join(", ") : "Location not set";
 }
 
-function getEventTimingBucket(startDate: string) {
-  const today = new Date();
-  const todayKey = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate()
-  ).getTime();
-
-  const eventDate = new Date(`${startDate}T00:00:00`);
-  const eventKey = new Date(
-    eventDate.getFullYear(),
-    eventDate.getMonth(),
-    eventDate.getDate()
-  ).getTime();
-
-  if (eventKey < todayKey) return "past";
-  if (eventKey === todayKey) return "today";
-  return "upcoming";
-}
-
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -198,6 +180,7 @@ export default async function EventRegistrationsIndexPage() {
       end_date,
       start_time,
       end_time,
+      timezone,
       city,
       state,
       status,
@@ -270,6 +253,8 @@ export default async function EventRegistrationsIndexPage() {
     attendanceByRegistrationId.set(attendance.event_registration_id, current);
   }
 
+  const now = new Date();
+
   const eventCards = typedEvents.map((event) => {
     const registrations = registrationsByEventId.get(event.id) ?? [];
 
@@ -309,7 +294,7 @@ export default async function EventRegistrationsIndexPage() {
       pendingCount,
       checkedInCount,
       grossRevenue,
-      timing: getEventTimingBucket(event.start_date),
+      timing: getEventDayBucket(event, now),
     };
   });
 

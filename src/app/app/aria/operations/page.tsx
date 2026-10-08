@@ -34,6 +34,7 @@ import {
   retryAriaAutomationActionDeliveryAction,
   updateAutomationActionStatusAction,
 } from "@/app/app/automations/actions";
+import { isEventPast } from "@/lib/events/eventTiming";
 
 type PriorityTone = "urgent" | "warning" | "info" | "success";
 
@@ -218,6 +219,8 @@ type OrganizerEventRow = {
   status: string | null;
   start_date: string;
   end_date: string | null;
+  end_time: string | null;
+  timezone: string | null;
 };
 
 type OrganizerRegistrationRow = {
@@ -2763,7 +2766,7 @@ export default async function AriaOperationsCenterPage() {
   if (organizerWorkspace) {
     const { data: eventsData, error: eventsError } = await supabase
       .from("events")
-      .select("id, name, slug, status, start_date, end_date")
+      .select("id, name, slug, status, start_date, end_date, end_time, timezone")
       .eq("studio_id", studioId)
       .order("start_date", { ascending: true })
       .limit(250);
@@ -2852,8 +2855,7 @@ export default async function AriaOperationsCenterPage() {
       const checkedIn = eventTickets.filter(
         (ticket) => ticket.checked_in_at,
       ).length;
-      const startDate = new Date(`${event.start_date}T00:00:00`);
-      const isPast = !Number.isNaN(startDate.getTime()) && startDate < now;
+      const isPast = isEventPast(event, now);
 
       return {
         event,

@@ -11,6 +11,7 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
 import PublicStudioTabs from "./PublicStudioTabs";
 import { fetchPublicGroupClasses } from "@/lib/public/groupClasses";
+import { EVENT_LIST_PAST_BUFFER, eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
 type StudioPageParams = Promise<{
   studioSlug: string;
@@ -107,6 +108,9 @@ type EventRow = {
   event_type: string | null;
   start_date: string | null;
   end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  timezone: string | null;
   public_summary: string | null;
   public_description: string | null;
   public_cover_image_url: string | null;
@@ -420,6 +424,8 @@ export default async function PublicStudioPage({
   // GC-3.4A: only offer the Classes link when this studio has upcoming public classes (read through the public read model).
   const hasPublicClasses = (await fetchPublicGroupClasses(supabase, { studioSlug: studio.slug, limit: 1 }).catch(() => [])).length > 0;
 
+  const now = new Date();
+
   const [
     { data: styles, error: stylesError },
     { data: offerings, error: offeringsError },
@@ -451,6 +457,9 @@ export default async function PublicStudioPage({
           event_type,
           start_date,
           end_date,
+          start_time,
+          end_time,
+          timezone,
           public_summary,
           public_description,
           public_cover_image_url,
@@ -465,8 +474,9 @@ export default async function PublicStudioPage({
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
       .in("status", ["published", "open"])
+      .gte("end_date", eventEndDateLowerBound(now))
       .order("start_date", { ascending: true })
-      .limit(6),
+      .limit(6 + EVENT_LIST_PAST_BUFFER),
 
     supabase
       .from("studio_settings")
@@ -560,7 +570,8 @@ export default async function PublicStudioPage({
 
   const typedStyles = (styles ?? []) as StyleRow[];
   const typedOfferings = (offerings ?? []) as OfferingRow[];
-  const typedEvents = (events ?? []) as EventRow[];
+  // Ended events never occupy one of the six slots.
+  const typedEvents = filterNotPastEvents((events ?? []) as EventRow[], now).slice(0, 6);
   const typedPublicInstructors = (publicInstructors ?? []) as PublicInstructorRow[];
   const typedPublicInstructorCredentials = (publicInstructorCredentials ?? []) as PublicInstructorCredentialRow[];
   const publicCredentialsByInstructorId = typedPublicInstructorCredentials.reduce((map, credential) => {

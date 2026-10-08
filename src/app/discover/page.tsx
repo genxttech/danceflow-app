@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import type { Metadata } from "next";
+import { eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
 export const metadata: Metadata = {
   title: "Discover",
@@ -111,6 +112,8 @@ export default async function DiscoverLandingPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const now = new Date();
+
   const [
     studioCountResult,
     eventCountResult,
@@ -124,12 +127,14 @@ export default async function DiscoverLandingPage() {
       .select("*", { count: "exact", head: true })
       .eq("public_directory_enabled", true),
 
+    // Current and upcoming only: the date prefilter bounds the rows; the exact end-moment rule is applied below.
     supabase
       .from("events")
-      .select("*", { count: "exact", head: true })
+      .select("id, start_date, end_date, end_time, timezone")
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
-      .in("status", ["published", "open"]),
+      .in("status", ["published", "open"])
+      .gte("end_date", eventEndDateLowerBound(now)),
 
     supabase
       .from("dancer_partner_profiles")
@@ -175,7 +180,10 @@ export default async function DiscoverLandingPage() {
   }
 
   const publicStudioCount = studioCountResult.count ?? 0;
-  const publicEventCount = eventCountResult.count ?? 0;
+  const publicEventCount = filterNotPastEvents(
+    (eventCountResult.data ?? []) as Array<{ end_date: string | null; end_time: string | null; timezone: string | null }>,
+    now,
+  ).length;
   const publicPartnerCount = partnerCountResult.count ?? 0;
   const publicJobCount = jobCountResult.count ?? 0;
   const marketplaceCount = marketplaceCountResult.count ?? 0;

@@ -13,6 +13,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
+import { getEventDayBucket } from "@/lib/events/eventTiming";
 
 type EventRow = {
   id: string;
@@ -23,6 +24,7 @@ type EventRow = {
   end_date: string;
   start_time: string | null;
   end_time: string | null;
+  timezone: string | null;
   city: string | null;
   state: string | null;
   status: string;
@@ -137,28 +139,6 @@ function visibilityBadgeClass(value: string) {
 function getLocation(city: string | null, state: string | null) {
   const parts = [city, state].filter(Boolean);
   return parts.length ? parts.join(", ") : "Location not set";
-}
-
-function getEventTimingBucket(
-  startDate: string,
-): "past" | "today" | "upcoming" {
-  const today = new Date();
-  const todayKey = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  ).getTime();
-
-  const eventDate = new Date(`${startDate}T00:00:00`);
-  const eventKey = new Date(
-    eventDate.getFullYear(),
-    eventDate.getMonth(),
-    eventDate.getDate(),
-  ).getTime();
-
-  if (eventKey < todayKey) return "past";
-  if (eventKey === todayKey) return "today";
-  return "upcoming";
 }
 
 function progressPercent(checkedInCount: number, total: number) {
@@ -346,6 +326,7 @@ export default async function EventCheckInIndexPage() {
       end_date,
       start_time,
       end_time,
+      timezone,
       city,
       state,
       status,
@@ -429,6 +410,8 @@ export default async function EventCheckInIndexPage() {
     attendeesByEvent.set(attendee.event_id, current);
   }
 
+  const now = new Date();
+
   const eventCards: EventCardRow[] = typedEvents.map((event) => {
     const registrations = registrationsByEvent.get(event.id) ?? [];
     const attendees = attendeesByEvent.get(event.id) ?? [];
@@ -458,7 +441,7 @@ export default async function EventCheckInIndexPage() {
       checkInTotal,
       checkedInCount,
       remainingCount: Math.max(checkInTotal - checkedInCount, 0),
-      timing: getEventTimingBucket(event.start_date),
+      timing: getEventDayBucket(event, now),
     };
   });
 

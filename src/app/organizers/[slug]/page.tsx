@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
 type Params = Promise<{
   slug: string;
@@ -74,6 +75,8 @@ type EventRow = {
   state: string | null;
   start_date: string;
   end_date: string;
+  end_time: string | null;
+  timezone: string | null;
   featured: boolean;
   public_cover_image_url: string | null;
   registration_required: boolean | null;
@@ -148,6 +151,7 @@ export default async function PublicOrganizerProfilePage({
 
   const typedOrganizer = organizer as OrganizerRow;
   const organizerWebsiteUrl = safeExternalUrl(typedOrganizer.website_url);
+  const now = new Date();
 
   const { data: events, error: eventsError } = await supabase
     .from("events")
@@ -161,6 +165,8 @@ export default async function PublicOrganizerProfilePage({
       state,
       start_date,
       end_date,
+      end_time,
+      timezone,
       featured,
       public_cover_image_url,
       registration_required,
@@ -173,6 +179,7 @@ export default async function PublicOrganizerProfilePage({
     .eq("status", "published")
     .eq("visibility", "public")
     .eq("public_directory_enabled", true)
+    .gte("end_date", eventEndDateLowerBound(now))
     .order("featured", { ascending: false })
     .order("start_date", { ascending: true })
     .order("name", { ascending: true });
@@ -181,7 +188,7 @@ export default async function PublicOrganizerProfilePage({
     throw new Error(`Failed to load organizer events: ${eventsError.message}`);
   }
 
-  const typedEvents = ((events ?? []) as EventRow[]).filter((event) =>
+  const typedEvents = filterNotPastEvents((events ?? []) as EventRow[], now).filter((event) =>
     hasActivePublicAccess(getStudio(event.studios)),
   );
   const eventIds = typedEvents.map((event) => event.id);

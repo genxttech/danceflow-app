@@ -2,6 +2,7 @@ import Link from "next/link";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import TodayWorkspaceHeader from "@/components/app/today/TodayWorkspaceHeader";
 import { redirect } from "next/navigation";
+import { EVENT_LIST_PAST_BUFFER, eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 import {
   ArrowRight,
   Bell,
@@ -214,6 +215,9 @@ type EventRow = {
   status: string;
   featured: boolean;
   public_directory_enabled: boolean;
+  start_time?: string | null;
+  end_time?: string | null;
+  timezone?: string | null;
 };
 
 type OrganizerRow = {
@@ -1248,8 +1252,10 @@ export default async function AppDashboardPage({
   const onboardingDismissed = Boolean(onboardingPreference?.dismissed_at);
   const onboardingCompleted = Boolean(onboardingPreference?.completed_at);
   if (organizerWorkspace) {
+    const now = new Date();
     const [
       { data: events, error: eventsError },
+      { data: snapshotEvents, error: snapshotEventsError },
       { data: organizers, error: organizersError },
       { data: registrations, error: registrationsError },
     ] = await Promise.all([
@@ -1261,6 +1267,17 @@ export default async function AppDashboardPage({
         .eq("studio_id", studioId)
         .order("start_date", { ascending: true })
         .limit(8),
+
+      // Event Snapshot: current and upcoming events only (ended events are in /app/events?view=past).
+      supabase
+        .from("events")
+        .select(
+          "id, name, slug, event_type, start_date, end_date, start_time, end_time, timezone, visibility, status, featured, public_directory_enabled",
+        )
+        .eq("studio_id", studioId)
+        .gte("end_date", eventEndDateLowerBound(now))
+        .order("start_date", { ascending: true })
+        .limit(5 + EVENT_LIST_PAST_BUFFER),
 
       supabase
         .from("organizers")
@@ -1279,6 +1296,11 @@ export default async function AppDashboardPage({
         `Failed to load dashboard events: ${eventsError.message}`,
       );
     }
+    if (snapshotEventsError) {
+      throw new Error(
+        `Failed to load dashboard event snapshot: ${snapshotEventsError.message}`,
+      );
+    }
     if (organizersError) {
       throw new Error(
         `Failed to load dashboard organizers: ${organizersError.message}`,
@@ -1291,6 +1313,7 @@ export default async function AppDashboardPage({
     }
 
     const typedEvents = (events ?? []) as EventRow[];
+    const activeSnapshotEvents = filterNotPastEvents((snapshotEvents ?? []) as EventRow[], now).slice(0, 5);
     const typedOrganizers = (organizers ?? []) as OrganizerRow[];
     const typedRegistrations = (registrations ?? []) as RegistrationRow[];
 
@@ -1659,7 +1682,7 @@ export default async function AppDashboardPage({
     const persistedOrganizerAriaActionByKey = new Map(
       persistedOrganizerAriaActions.map((item) => [item.action_key, item]),
     );
-    const nowMs = Date.now();
+    const nowMs = now.getTime();
 
     const visibleOrganizerAriaActions = organizerAriaActions.filter((action) => {
       const persistedAction = persistedOrganizerAriaActionByKey.get(action.key);
@@ -1976,9 +1999,19 @@ export default async function AppDashboardPage({
               <EmptyState>
                 No events yet. Create your first event to begin publishing.
               </EmptyState>
+            ) : activeSnapshotEvents.length === 0 ? (
+              <EmptyState>
+                No upcoming events.{" "}
+                <Link
+                  href="/app/events?view=past"
+                  className="font-medium text-[var(--brand-primary)] hover:underline"
+                >
+                  View past events
+                </Link>
+              </EmptyState>
             ) : (
               <div className="space-y-4">
-                {typedEvents.slice(0, 5).map((event) => (
+                {activeSnapshotEvents.map((event) => (
                   <div
                     key={event.id}
                     className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
@@ -2302,7 +2335,7 @@ export default async function AppDashboardPage({
 
   const followUpNowIso = new Date().toISOString();
   const followUpThirtyDaysAgoIso = new Date(
-    Date.now() - 30 * 24 * 60 * 60 * 1000,
+    new Date(followUpNowIso).getTime() - 30 * 24 * 60 * 60 * 1000,
   ).toISOString();
 
   const [

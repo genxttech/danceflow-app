@@ -13,6 +13,7 @@ import {
 import { clearStudioContextAction } from "@/app/platform/actions";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import AppSidebarShell from "./AppSidebarShell";
+import { isEventPast } from "@/lib/events/eventTiming";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -157,7 +158,7 @@ async function getOrganizerAriaSidebarCounts({
 
   const { data: events } = await supabase
     .from("events")
-    .select("id, name, status, start_date, end_date")
+    .select("id, name, status, start_date, end_date, end_time, timezone")
     .eq("organizer_id", organizerId)
     .order("start_date", { ascending: false })
     .limit(200);
@@ -169,6 +170,8 @@ async function getOrganizerAriaSidebarCounts({
       status: string | null;
       start_date: string | null;
       end_date: string | null;
+      end_time: string | null;
+      timezone: string | null;
     }>
   ).filter((event) => event.id);
 
@@ -246,9 +249,7 @@ async function getOrganizerAriaSidebarCounts({
     registrationsByEventId.set(registration.event_id, existing);
   }
 
-  const todayStartMs = new Date(
-    new Date().toISOString().slice(0, 10),
-  ).getTime();
+  const now = new Date();
   const lowMarginThreshold = 15;
 
   const generatedActions: Array<{
@@ -285,13 +286,10 @@ async function getOrganizerAriaSidebarCounts({
       return paymentStatus === "refunded" || status === "refunded";
     }).length;
 
-    const endDate = event.end_date || event.start_date;
-    const eventEndMs = endDate
-      ? new Date(`${endDate}T00:00:00`).getTime()
-      : NaN;
+    // Same rule as the /app/events ARIA queue: past only after the end moment in the event's own time zone.
     const isCompletedOrPast =
       (event.status ?? "").toLowerCase() === "completed" ||
-      (Number.isFinite(eventEndMs) && eventEndMs < todayStartMs);
+      isEventPast(event, now);
 
     return {
       event,
