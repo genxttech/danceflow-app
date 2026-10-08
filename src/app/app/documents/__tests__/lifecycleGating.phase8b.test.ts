@@ -418,6 +418,12 @@ describe("Documents Center after a plan downgrade (read-only history surface)", 
       const element = node as { type: unknown; props: Record<string, unknown> };
       if (typeof element.type === "function" && /^[A-Z]/.test((element.type as { name: string }).name) && element.type.length <= 1) {
         const name = (element.type as { name: string }).name;
+        // Phase 8D: the shared assignment form is a client component (hooks); it is a management control, counted
+        // as such and not expanded.
+        if (name === "AssignDocumentForm") {
+          out.actions.add(element.type);
+          return out;
+        }
         if (name !== "LinkComponent" && name !== "Link") {
           // Page-local components are plain functions; a throw here is a real rendering failure, so it propagates.
           return walk((element.type as (props: unknown) => unknown)(element.props), out);
@@ -496,8 +502,9 @@ describe("Documents Center after a plan downgrade (read-only history surface)", 
     expect(page.text).toContain("Your Documents feature is not active. Existing document records remain available read-only.");
     // existing records and statuses are visible
     expect(page.text).toContain("Waiver");
-    expect(page.text).toContain("completed");
-    expect(page.text).toContain("sent");
+    // Phase 8D: user-facing status labels (shared vocabulary), not raw envelope statuses.
+    expect(page.text).toContain("Signed");
+    expect(page.text).toContain("Needs signature");
     // historical detail + evidence links (a draft opens its read-only detail, never the gated editor)
     expect(page.hrefs).toEqual(
       expect.arrayContaining([

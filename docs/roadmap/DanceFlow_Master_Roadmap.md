@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v2.17 |
-| **Last reconciled against main** | `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (GC-3.5-3 public Group Class paid registration, PR #182; GC-3.5-2, REFUND-RECON-1 and REFUND-RECON-2 SQL applied to PROD and verified before the application release). Live application `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw` (GC-3.5); the docs-only closeout that records this lags it by one commit |
+| **Roadmap version** | v2.18 |
+| **Last reconciled against main** | `0e8391a34907c11fa95f0c640a77867c60a5dc41` (Phase 8C, PR #191; tree `2f9c73c0594a45bf4a45950643a3ed4680183f04`). Live application `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` (Phase 8C). Phase 8 migrations `20261029090000`, `20261030090000` and `20261031090000` are applied to PROD. The Phase 8D closeout (application + migration `20261101090000`) is recorded by the same PR that merges it; its production release follows the standard gate |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
 | **Current external dependency** | Twilio / per-studio A2P campaign review and ConfiDance setup |
-| **Current recommended next roadmap phase** | Phase 3 — Branding Relaunch: BR-4 is LIVE; BR-5 is MERGED (PR #137); BR-6 — Promotional Media is active but parked awaiting the professional ARIA voice recording. Product work continues in parallel with Phase 4: ENT-1 (email-campaign recipient allowance) is RELEASED (PR #138, live) |
+| **Current recommended next roadmap phase** | Phase 9 — Payroll Prep v1 (Phase 8 — Documents Center is COMPLETE / CLOSED, 2026-10-08). Phase 3 — Branding Relaunch stays PARTIAL: BR-6 — Promotional Media is parked awaiting the professional ARIA voice recording. ENT-1 is RELEASED (PR #138) |
 
 > **Explicit note:** BR-4 was shaped by Featured Events and Partner Match maturity and was **not blocked** by either; their public-claim restrictions remain in force for BR-5 onward. See [Featured Events](#strategic-module-featured-events), [Partner Match](#strategic-module-partner-match) and Phase 3 §Public-claim restrictions.
 
@@ -86,8 +86,8 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 | 5 | Group Class canonical foundation | COMPLETE / CLOSED (items carried forward are listed in Phase 5) |
 | 6 | GC-3.4 — Public discovery and account linking | COMPLETE / CLOSED (GC-3.4A, GC-3.4B and GC-3.4C released) |
 | 7 | GC-3.5 — Direct-payment Group Class enrollment | COMPLETE / CLOSED (GC-3.5-1, GC-3.5-2, REFUND-RECON-1, REFUND-RECON-2 and GC-3.5-3 released) |
-| 8 | Documents Center completion | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT |
-| 9 | Payroll Prep v1 | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS |
+| 8 | Documents Center completion | COMPLETE / CLOSED (8A, 8B and 8C released; 8D closeout) |
+| 9 | Payroll Prep v1 | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT |
 | 10 | Organizer + Competition OS | PARTIAL — MATERIAL WORK REMAINS |
 | 11 | Messaging / Notification platform completion | PARTIAL — MATERIAL WORK REMAINS |
 | 12 | Team & Permissions expansion | PARTIAL — MATERIAL WORK REMAINS |
@@ -687,45 +687,55 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 ## Phase 8 — Documents Center completion
 
-**STATUS:** SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT (Phase 7 closed 2026-10-07)
+**STATUS:** COMPLETE / CLOSED (2026-10-08). 8A, 8B and 8C are released to production; 8D (product decisions + UX closeout) closes the phase.
 
 **OBJECTIVE:** Complete document operations: revise/resend, client and general documents, waivers, signing lifecycle, certificates, receipts, branding and status UX within tier boundaries.
 
 **PRODUCT INTENT:** Studios send, track and archive documents and signatures reliably.
 
-**COMPLETED CAPABILITIES:** Revise-and-resend migration and operations; signing lifecycle (public and portal signing, e-signature consent, field placement editor, signed document and certificate routes); client vs general documents; branded assignment and signature emails (br3b2 tests); PDF generation; "Documents & E-Signatures" plan feature.
+**COMPLETED CAPABILITIES**
+- **Canonical envelope signing** for every signed document (client assignments, onboarding, event waivers): template-version evidence (source PDF + hash, signed PDF + hash, the exact version signed).
+- **Signing integrity (8A, PR #189):** no client-writable signature or assignment policies; only `pending` requests are actionable; waived / void are final; an envelope-backed assignment is signed only by envelope completion; every lifecycle write is guarded against races.
+- **Lifecycle correctness + entitlement gating (8B, PR #190):** Documents management is gated by the Documents plan feature on the server; after a downgrade, authorized staff keep a read-only Documents history (records, signed / source PDFs, certificates); signers can always finish already-issued requests. Revise keeps client / template / context identity and never reopens waived / void / signed or event-checkout requests; expiry and decline are derived (no new assignment statuses); reminders are bounded, ordered and starvation-free; due date is separate from link expiry; abandoned event-checkout waivers are cleaned up.
+- **Evidence + portal truth (8C, PR #191):** each completion records who actually signed (entered name, signed-in account or none, relationship, on-behalf, channel, requested recipient); guardian client context survives the portal; one shared "needs your action" contract across portal, student app and counts; a deterministic, on-demand signing certificate built from recorded evidence with an event timeline; legacy typed-signature evidence is labelled as legacy; instructors cannot read raw signing evidence (RLS).
+- **Closeout (8D):** fail-safe signing permission (self signs; any other relationship only when staff grant it), a staff control for it on the client profile, guardian / authorized-recipient delivery for clients without email, truthful statuses with only valid actions, a searchable client picker with one assignment flow (including "Assign document" from the client profile), and field-layout reuse per template version.
 
-**REMAINING DELIVERABLES**
-- Confirm tier gating on every documents action and route, including public sign and portal routes (unverified).
-- Decide whether waivers are a dedicated deliverable (no waiver-specific module found; may be templates) and whether document receipts are canonical (not found).
-- Status UX review.
-- Revise/resend test coverage beyond the email tests.
+**REMAINING DELIVERABLES:** None. Non-blocking enhancements are listed under Deferred.
 
-**LOCKED DECISIONS:** None currently identified.
+**LOCKED DECISIONS**
+- **Signing permission:** a client's own account (self) signs for itself; every other relationship (guardian, parent, billing contact, dependent manager, dependent) signs only when authorized staff explicitly grant it. Relationship type alone never grants signing; the stored `can_sign_documents` value is the authority. The database default is `false` (`20261101090000`); existing stored values were not rewritten.
+- **Delivery recipient:** the client always owns and is the subject of the assignment. The request is delivered to the client, or to one explicitly eligible linked signer (active link, signing permission, signed-in account with an email). A client without email and one eligible signer uses that signer; several require staff to choose; none blocks with a clear message. The actual signer is recorded by the 8C evidence (on-behalf for a guardian).
+- **Decision #9 — waivers:** a waiver is a Documents template / use type (events, clients, other workflows), not a separate signing system or evidence model; when a signature is required it uses the canonical envelope lifecycle.
+- **Decision #9 — receipts:** for Documents / e-sign, the envelope completion (signing) certificate is the canonical evidence receipt; there is no separate Documents receipt object. Payment / financial receipts stay in Commerce / payments.
 
-**PROPOSED BUT NOT APPROVED:** None currently identified.
+**PROPOSED BUT NOT APPROVED:** None.
 
-**UNRESOLVED PRODUCT DECISIONS:** Waiver and receipt scope.
+**UNRESOLVED PRODUCT DECISIONS:** None (decision #9 closed 2026-10-08).
 
 **DEPENDENCIES:** Phase 4 (gating).
 
 **WEB IMPLICATIONS:** Documents is a named workspace in the Phase 17 pass.
 
-**MOBILE IMPLICATIONS:** Student wallet shows documents; Business app handles sending/tracking.
+**MOBILE IMPLICATIONS:** The student API exposes the shared presentation contract (`presentationState`, `statusLabel`, `needsAction`, `nativeSigningAvailable`); native screens should use it rather than raw statuses (Phase 18 / 19).
 
-**SECURITY / PERMISSIONS CONSIDERATIONS:** Public signing security helpers exist; keep closed.
+**SECURITY / PERMISSIONS CONSIDERATIONS:** Signing evidence (envelopes, audit events, fields, field values, legacy signatures) is readable only by Documents-management roles; instructors keep assignment status only. Signing-permission changes go through an authorized, studio- and client-scoped server action. Broader Team & Permissions remains Phase 12.
 
-**BRANDING / POLISH CONSIDERATIONS:** Document and email branding coverage.
+**BRANDING / POLISH CONSIDERATIONS:** All Documents emails are branded HTML (assignment, reminders, signing completion — now including the student app).
 
-**DEFERRED / POST-LAUNCH ITEMS:** None currently identified.
+**DEFERRED / POST-LAUNCH ITEMS (non-blocking enhancements)**
+- A template-level field designer (today a sent layout is reused per template version; a new version starts from a fresh layout).
+- Bulk assignment.
+- Additional document taxonomy beyond the current document types.
+- Deeper audit exports, and an audit entry for signing-permission changes.
+- Native mobile adoption of the presentation-contract fields.
 
-**EVIDENCE / RELEASE REFERENCES:** `src/lib/documents`, `src/app/app/documents`, migration `20260721000200`.
+**EVIDENCE / RELEASE REFERENCES:** PR #189 (`3cdff68`, migration `20261029090000`), PR #190 (`2c55cbd`, migration `20261030090000`), PR #191 (`0e8391a`, migration `20261031090000`), Phase 8D closeout (migration `20261101090000`); SQL suites `test_T_phase8a_*`, `test_T_phase8b_*`, `test_T_phase8c_*`, `test_T_phase8d_*`; `src/lib/documents`, `src/app/app/documents`.
 
 ---
 
 ## Phase 9 — Payroll Prep v1
 
-**STATUS:** SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS
+**STATUS:** SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT (Phase 8 closed 2026-10-08)
 
 **OBJECTIVE:** Draft → approved → exported/finalized payroll preparation with immutable snapshots, exports, locking and safe CSV.
 
@@ -1556,7 +1566,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 6. Final mobile app boundary (Phase 18).
 7. Landmark 1A canonical closeout scope (invitation flow, seat UI, audit viewer).
 8. Phase 4 plan placement for SMS, payroll, marketplace, ARIA. **Open; blocks all remaining Phase 4 implementation** (SMS allowance and quantity, payroll/marketplace/ARIA tiers, ARIA gated by plan vs AI credits only, tie to Phase 22 pricing). No speculative `BillingFeature` keys until decided.
-9. Documents scope: waivers and receipts.
+9. **CLOSED (2026-10-08, Phase 8D):** Documents scope: waivers and receipts. A waiver is a Documents template / use type on the canonical envelope lifecycle (no separate waiver engine); the envelope completion (signing) certificate is the canonical evidence receipt for Documents; payment receipts stay in Commerce.
 10. Payroll "exported/finalized" state.
 11. Competition scoring system(s) and where judging runs.
 12. Pricing cutover timing.
@@ -1577,6 +1587,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-08 | v2.18 | **Phase 8 — Documents Center completion — COMPLETE / CLOSED.** Cleanup before Phase 8: PR #184 (`6588400`, lesson package eligibility + client form rendering), PR #185 (`c5e9553`, past event lifecycle across Discovery and Events), PRs #186–#188 (`291e9a4`, `a3857cb`, `fd925ff`, ARIA reconciliation, current-state and opportunity truthfulness lifecycle), all released. **8A** signing integrity PR #189 (`3cdff68`); PROD migration `20261029090000` applied 2026-10-08 11:35Z after the application release. **8B** lifecycle correctness + gating PR #190 (`2c55cbd`); application `dpl_898GsDy9i8GPFN5mJHXg8swR522p`; PROD verify-only migration `20261030090000` applied 18:12Z (no-op; canonical fingerprint confirmed). **8C** evidence + portal truth PR #191 (`0e8391a`, tree `2f9c73c0`); application `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` promoted 19:47Z; PROD evidence-read migration `20261031090000` applied 19:49Z. **8D** closeout: fail-safe signing permission (migration `20261101090000`, DEV applied; PROD with its release), staff signing-permission control, guardian / authorized-recipient delivery for clients without email, truthful statuses and actions, searchable assignment picker + Assign document from the client profile, field-layout reuse, decision #9 closed (waivers = Documents template type; signing certificate = Documents evidence receipt). Rollback note: `dpl_898GsDy9…` is not a clean rollback target under the 8C evidence policies. Next phase: Phase 9 — Payroll Prep v1 |
 | 2026-10-07 | v2.17 | GC-3.5 canonical closeout (docs only). **Phase 7 — GC-3.5 Direct-payment Group Class enrollment — COMPLETE / CLOSED and released.** GC-3.5-1 (staff direct-payment policy controls) PR #178 `ee3f3930842535b5421a38b3c604eceee20206ee`, no SQL. GC-3.5-2 (acquisition holds / database authority) PR #179 `c12169f87226fe33333e1c668510d467c4485bcc`, migration `20261026090000` live on PROD. REFUND-RECON-1 (canonical refund reconciliation integrity) PR #180 `0e003530b91af40083785f108965a94fad3bbeaf`, migration `20261027090000` live on PROD. REFUND-RECON-2 (refund timestamp / accounting integrity) PR #181 `e7590dfb54eec7d37b0442e7dc391b0cdcc5a057`, migration `20261028090000` live on PROD (refund RPC `6867f57dca8ae457c04cf557c21420e7`). GC-3.5-3 (public paid registration application) PR #182 `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (tree `5b470d4644c761ee7688e24008c775ef12e12209`), production `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw`, promoted 2026-10-07, application rollback `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`. 4417 / 4417 tests. Public smoke clean; authenticated production smoke omitted under the established policy; class-specific `/register` not exercisable in production (no upcoming public Group Classes; none fabricated). Released: verified, unlinked self-registration and payment for public Group Classes (no email auto-link; linked students stay on the portal/credit path), database seat holds, studio-connected Stripe Checkout, webhook-authoritative settlement creating client + self link + attendee, dancer and studio notifications after settlement, safe conflict refunds, canonical refund reconciliation for every refund path (full, partial and post-attendance handling) and refund timestamp/accounting integrity. Follow-ups tracked in the deferred register: PKG-REFUND-2 `refund.created` timing, raw RPC error text in `payment_provider_events`, non-atomic event dedupe, DEV `accounting_upsert_entry` drift, DEV-only floor-rental index, portal-only/member-only classes, "This and following" direct-payment propagation, seven legacy SQL-suite failures. Decision #10 open. **Next: Phase 8 — Documents Center completion.** Twilio and BR-6 unchanged. |
 | 2026-10-07 | v2.16 | GC-3.4 canonical closeout (docs only): GC-3.4C PR #176 squash `e39fa4a694858cba00c39026f4a55e5d00dc5143` (tree `af05f7d8f4aab025b606ab3607b50154f7eb3d58`, identical to the reviewed candidate), qfem `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`, application rollback `dpl_HssyAtYo8dBm8PjAoFZnAbzJCuo2` (application first, then SQL if needed). Migration `20261025090000_gc34c_self_enroll_started_class_guard.sql` (sha256 `ac5f9aaa0f9c7d252a87467f1d039b9ebc595970fd276ec3ebb8847c16f9afc3`; rollback sha256 `aa16eae26412a4ad33e7ddee52ed80b6ecf2f6b16944caaccb5d16d6d2ea378f`) applied to PROD once after a clean read-only preflight; PROD function fingerprint `c5edafd4915060533faca30a9376e2d2`; no other function changed. 4199 / 4199 tests; GC-3.4C and gc3_3 SQL suites pass on DEV; signed-out production smoke passed; authenticated smoke omitted under the established policy; class-specific smoke not exercisable (0 public Group Classes in production). Authoritative non-payment public Group Class self-enrollment: auth-free class page, `/register` as the identity/enrollment boundary, server-side dancer reauthorization, canonical funding preview with authoritative revalidation, single source auto-selected and explicit choice otherwise, no-funding boundary with no payment, started and non-public classes refused by the database, database-authoritative capacity, idempotent duplicates with already-enrolled as success, post-commit idempotent dancer + studio notifications, no raw database errors. **Phase 6 — GC-3.4 — COMPLETE / CLOSED** (A read-only discovery; B identity and linking; C non-payment enrollment). **GC-3.5 (Phase 7, direct payment) NEXT / NOT STARTED.** Public Discovery notification rule implemented for public Group Class self-enrollment. Decision #10 open; inactive-client follow-up extended to self-enrollment (separate policy decision); legacy SQL test debt (gc1_1, gc1_2, gc1_4a, gc3_1, gc3_2) recorded; New Client `/n` polish item preserved; legacy Events active; Twilio and BR-6 unchanged. |
 | 2026-10-06 | v2.15 | GC-3.4B canonical closeout (docs only): GC-3.4B-1 PR #174 squash `9f74439cc05e6d8b1ee021d495238c6673df8937` (tree `6769eb33852688fd15826649b6db42f1262f05b8`, identical to the reviewed candidate), qfem `dpl_HssyAtYo8dBm8PjAoFZnAbzJCuo2`, rollback `dpl_ELwUfwoxJ8KWNfbJJ5yTkDtoK4mx` (application only), no SQL or migration, 4154 / 4154 tests. Public class identity and linking flow: auth-free public class page with one call-to-action into `/studios/{slug}/classes/{appointmentId}/register`; safe login return via `next`; canonical verified-email proof; staff-issued invitations only (never `clients.email`); one generic no-link / no-booking-authority state; Check again limited to the existing claim; single dancer auto-resolves, scoped chooser otherwise, dancer parameter revalidated server-side; Open Student Portal ready state with the portal authorizing independently; sign-in-again path for stale bound sessions; server-only scoped service-role reads; no enrollment, payment or SQL. Signed-out production smoke passed; authenticated smoke omitted under the established policy; class-specific signed-out smoke not exercisable (production has no public Group Classes). **GC-3.4B COMPLETE / CLOSED** (B-0 and B-1 released; B-0 facts preserved). **GC-3.4C NEXT / NOT STARTED** with the enrollment-write boundary recorded (enrollment mutation, entitlement consumption, capacity/concurrency, idempotency, studio notification, confirmation, security review; non-payment enrollment only). GC-3.5 future; identity deferrals preserved (no longer framed as GC-3.4B-1 blockers; not automatic GC-3.4C blockers); the pre-existing inactive-client portal-access behavior recorded as a separate policy follow-up; Public Discovery notification rule unchanged; decision #10 open; legacy Events active; GC-3.4 PARTIAL / ACTIVE; Twilio and BR-6 unchanged. Engineering hygiene: the New Client page literal `/n` display bug recorded as a bounded UI polish item. |

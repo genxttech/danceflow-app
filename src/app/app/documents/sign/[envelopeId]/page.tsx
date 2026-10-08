@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageDocumentsRole } from "@/lib/documents/studio-access";
+import { deriveSignEnvelopeLifecycle } from "@/lib/documents/signing-integrity";
 import { redirect } from "next/navigation";
 import {
   duplicateCompletedSignEnvelopeAction,
@@ -10,6 +11,16 @@ import {
   revokeSignEnvelopeAction,
 } from "../actions";
 import { studioHasFeature } from "@/lib/billing/access";
+
+/** Phase 8D: the shared user-facing vocabulary for a signing request. */
+const ENVELOPE_STATUS_LABELS: Record<string, string> = {
+  open: "Needs signature",
+  draft: "Being prepared",
+  completed: "Signed",
+  expired: "Expired",
+  declined: "Declined",
+  void: "Void",
+};
 
 function fmt(value: string | null) {
   if (!value) return "—";
@@ -154,7 +165,7 @@ export default async function SignEnvelopeDetailPage({
         <div>
           <p className="text-xs font-bold uppercase text-slate-500">Status</p>
           <p className="mt-2 font-bold capitalize text-slate-950">
-            {envelope.status}
+            {ENVELOPE_STATUS_LABELS[deriveSignEnvelopeLifecycle(envelope)] ?? envelope.status}
           </p>
         </div>
         <div>
@@ -224,7 +235,7 @@ export default async function SignEnvelopeDetailPage({
                 href={`/app/documents/sign/${envelope.id}/certificate`}
                 className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700"
               >
-                Completion certificate
+                Signing certificate
               </a>
             </>
           ) : null}

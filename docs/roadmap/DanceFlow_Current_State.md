@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-07 (roadmap v2.17: Phase 7 — GC-3.5 Direct-payment Group Class enrollment COMPLETE / CLOSED and released; Phase 8 — Documents Center completion next; Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
+**Last updated:** 2026-10-08 (roadmap v2.18: Phase 8 — Documents Center COMPLETE / CLOSED (8A, 8B, 8C released; 8D closeout); Phase 9 — Payroll Prep v1 next; Phase 7, Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,13 +10,13 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (GC-3.5-3, PR #182; tree `5b470d4644c761ee7688e24008c775ef12e12209`; GC-3.5-2, REFUND-RECON-1 and REFUND-RECON-2 migrations applied to PROD and verified before the application release; 4417 / 4417 tests). Live application: `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw` (GC-3.5; application rollback `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`; the SQL rollbacks are separate decisions). The docs-only commits that record this lag it by one commit each time |
-| **CURRENT PROD DEPLOYMENT** | `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw` (source `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854`; GC-3.5 live on `www.idanceflow.com` and `idanceflow.com`; promoted 2026-10-07 23:37:05–23:37:15 UTC; public smoke clean; authenticated production smoke omitted under the established production safety policy; class-specific `/register` not exercisable because production has no upcoming public Group Classes). PROD refund RPC `_apply_payment_refund_and_reevaluate` fingerprint `6867f57dca8ae457c04cf557c21420e7`. Previous production deployment and application rollback target: `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh` (GC-3.4C, source `e39fa4a694858cba00c39026f4a55e5d00dc5143`). Docs-only commits change no runtime and are not deployed |
+| **CURRENT MAIN** | `0e8391a34907c11fa95f0c640a77867c60a5dc41` (Phase 8C, PR #191; tree `2f9c73c0594a45bf4a45950643a3ed4680183f04`). Live application: `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6`. The Phase 8D closeout PR (application + migration `20261101090000`) records itself and lags main by its own merge |
+| **CURRENT PROD DEPLOYMENT** | `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` (source `0e8391a34907c11fa95f0c640a77867c60a5dc41`; Phase 8C live on `www.idanceflow.com`; promoted 2026-10-08 19:47:38–19:47:43 UTC; public smoke clean; authenticated production smoke omitted under the established production safety policy). Rollback caution: the pre-8C deployment `dpl_898GsDy9i8GPFN5mJHXg8swR522p` is not a clean rollback target under the narrowed 8C evidence policies (its check-in reads legacy signatures instructors no longer receive); any rollback must be reviewed |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
 | **PRIMARY REPO LINK** | DEV |
 | **NON-TWILIO LAUNCH STATUS** | READY / CLOSED; no new launch blocker from BR-4, BR-5 or ENT-1 |
-| **PENDING PROD MIGRATIONS** | None. Most recent: GC-3.5-2 `20261026090000_gc352_public_class_purchase_holds.sql`, REFUND-RECON-1 `20261027090000_refund_reconciliation_integrity.sql` and REFUND-RECON-2 `20261028090000_refund_reconciliation_timestamp_integrity.sql`, each applied to PROD on 2026-10-07 from an isolated workdir after a clean read-only preflight and verified before the GC-3.5 application release (no historical remediation required) |
+| **PENDING PROD MIGRATIONS** | `20261101090000_client_account_links_signing_default.sql` (Phase 8D; applied to DEV; PROD with the 8D release, application first). Most recent applied: `20261029090000` (8A, 2026-10-08 11:35Z), `20261030090000` (8B verify-only, 18:12Z), `20261031090000` (8C evidence read boundary, 19:49Z), each from an isolated workdir after a clean read-only preflight |
 | **PACKAGE REFUND HOLD** | Released / `false` |
 | **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified outside the Twilio operational dependency |
 | **KNOWN HYGIENE DEBT** | pre-existing lint errors in some public pages (not introduced by BR-4, BR-5 or ENT-1); they keep the changed-file lint step in CI red when those files are touched. Bounded UI polish bug: New Client page shows a literal newline marker (`/n`, from literal `\n` text in the JSX around the "Personal details" and "Client photo" sections of `src/app/app/clients/new/page.tsx`) where a line break / layout break was intended. Fix: replace the visible marker with the intended newline, spacing or layout and verify the New Client page renders cleanly. Small UI/polish bug, not a redesign; not a launch blocker. |
@@ -51,7 +51,9 @@ External dependency awaiting Sachin / Twilio response before ConfiDance resource
 
 ## Current roadmap position
 
-**ACTIVE PHASE:** Phase 3 — Branding Relaunch (PARTIAL)
+**ACTIVE PHASE:** Phase 9 — Payroll Prep v1 (next canonical phase; Phase 8 — Documents Center is COMPLETE / CLOSED, 2026-10-08). Phase 3 — Branding Relaunch stays PARTIAL with BR-6 parked.
+
+**PHASE 8 — DOCUMENTS CENTER:** COMPLETE / CLOSED. 8A signing integrity, 8B lifecycle correctness + gating and 8C evidence + portal truth are released; 8D closes the product decisions (signing permission, guardian delivery for clients without email, decision #9 — waivers are Documents template types and the signing certificate is the Documents evidence receipt) and the status / assignment UX.
 
 **BR-4 (Public Website & Launch Messaging):** COMPLETE AND LIVE
 
@@ -266,4 +268,4 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 
 ## NEXT GATE
 
-None for ENT-1 (closed). BR-6 resumes when the professional ARIA voice recording arrives. Phase 5 and Phase 6 (GC-3.4) are COMPLETE / CLOSED. Phase 7 (GC-3.5 direct-payment Group Class enrollment) is COMPLETE / CLOSED and released (GC-3.5-1, GC-3.5-2, REFUND-RECON-1, REFUND-RECON-2 and GC-3.5-3). The next roadmap phase is Phase 8 — Documents Center completion (SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS). Remaining Phase 4 work waits on open decision #8.
+Phase 8D closeout: PR + merge, then release (application first, then PROD migration `20261101090000`). After that, Phase 9 — Payroll Prep v1. BR-6 resumes when the professional ARIA voice recording arrives. Phases 5, 6, 7 and 8 are COMPLETE / CLOSED. Remaining Phase 4 work waits on open decision #8.
