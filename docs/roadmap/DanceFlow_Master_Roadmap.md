@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v2.18 |
-| **Last reconciled against main** | `0e8391a34907c11fa95f0c640a77867c60a5dc41` (Phase 8C, PR #191; tree `2f9c73c0594a45bf4a45950643a3ed4680183f04`). Live application `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` (Phase 8C). Phase 8 migrations `20261029090000`, `20261030090000` and `20261031090000` are applied to PROD. The Phase 8D closeout (application + migration `20261101090000`) is recorded by the same PR that merges it; its production release follows the standard gate |
+| **Roadmap version** | v2.19 |
+| **Last reconciled against main** | `ab60dba55b10162bb1f057136c9bdf705bccce91` (Phase 8D, PR #192; tree `7a86ef5b6ba5cfa5d2823fcf475e53d2b3c660af`). Live application `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC` (promoted 2026-10-08). Phase 8A, 8B, 8C and 8D are all RELEASED; Phase 8 — Documents Center is COMPLETE / CLOSED / FULLY RELEASED. Phase 8 migrations `20261029090000`, `20261030090000`, `20261031090000` and `20261101090000_client_account_links_signing_default.sql` are applied to PROD (the last on 2026-10-08) |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
-| **Current external dependency** | Twilio / per-studio A2P campaign review and ConfiDance setup |
+| **Current external dependency** | None blocking. Phase 2 Twilio A2P is an ACTIVE parallel compliance lane (studio-specific ConfiDance pilot campaign: final compliance review and submission); it does not block Phase 9 |
 | **Current recommended next roadmap phase** | Phase 9 — Payroll Prep v1 (Phase 8 — Documents Center is COMPLETE / CLOSED, 2026-10-08). Phase 3 — Branding Relaunch stays PARTIAL: BR-6 — Promotional Media is parked awaiting the professional ARIA voice recording. ENT-1 is RELEASED (PR #138) |
 
 > **Explicit note:** BR-4 was shaped by Featured Events and Partner Match maturity and was **not blocked** by either; their public-claim restrictions remain in force for BR-5 onward. See [Featured Events](#strategic-module-featured-events), [Partner Match](#strategic-module-partner-match) and Phase 3 §Public-claim restrictions.
@@ -55,6 +55,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 | **PARTIAL — MATERIAL WORK REMAINS** | Meaningful capability exists, but material canonical deliverables are missing. |
 | **NOT STARTED** | No meaningful implementation of the canonical objective (a baseline elsewhere may exist; it is noted). |
 | **EXTERNAL DEPENDENCY** | Engineering is complete or independent; completion waits on an outside party or real-world activity. |
+| **ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION** | Engineering is complete; the remaining work is owned by DanceFlow (compliance materials, submission, verification) and runs in parallel with engineering phases. Not a blocker. |
 | **SUPERSEDED / REPLACED** | Replaced by later architecture or decisions; the replacement is named. |
 
 ---
@@ -62,7 +63,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 ## Governing principles
 
 - Build capability → establish security and permissions → stabilize web workflow → design mobile around the stabilized workflow.
-- Twilio/A2P is an **external-dependency lane** that proceeds in parallel; it is not a global roadmap blocker.
+- Twilio/A2P (Phase 2) is a **parallel compliance/pilot lane** owned by DanceFlow (final compliance and submission work, then production verification); it is not a global roadmap blocker and does not gate Phase 9.
 - The Branding relaunch precedes later public launch materials, mobile store materials and broad public promotion.
 - Do not redesign Business or Student mobile apps around workflows that are still structurally changing.
 - The Mobile App Architecture & Boundary Audit must occur before locking final app count, app names, navigation ownership or store strategy.
@@ -80,13 +81,13 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 | # | Phase | Status |
 |---|---|---|
 | 1 | Landmark 1A | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS |
-| 2 | Twilio A2P / SMS | EXTERNAL DEPENDENCY |
+| 2 | Twilio A2P / SMS | ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION |
 | 3 | Branding Relaunch / Public Branding & Launch Readiness | PARTIAL — MATERIAL WORK REMAINS |
 | 4 | Remaining entitlement foundation | PARTIAL — MATERIAL WORK REMAINS |
 | 5 | Group Class canonical foundation | COMPLETE / CLOSED (items carried forward are listed in Phase 5) |
 | 6 | GC-3.4 — Public discovery and account linking | COMPLETE / CLOSED (GC-3.4A, GC-3.4B and GC-3.4C released) |
 | 7 | GC-3.5 — Direct-payment Group Class enrollment | COMPLETE / CLOSED (GC-3.5-1, GC-3.5-2, REFUND-RECON-1, REFUND-RECON-2 and GC-3.5-3 released) |
-| 8 | Documents Center completion | COMPLETE / CLOSED (8A, 8B and 8C released; 8D closeout) |
+| 8 | Documents Center completion | COMPLETE / CLOSED (8A, 8B, 8C and 8D all released) |
 | 9 | Payroll Prep v1 | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT |
 | 10 | Organizer + Competition OS | PARTIAL — MATERIAL WORK REMAINS |
 | 11 | Messaging / Notification platform completion | PARTIAL — MATERIAL WORK REMAINS |
@@ -154,9 +155,9 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 ## Phase 2 — Twilio A2P / SMS
 
-**STATUS:** EXTERNAL DEPENDENCY (engineering complete)
+**STATUS:** ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION (engineering complete; not blocked on Twilio architecture; runs in parallel with Phase 9 and does not block starting Payroll Prep v1)
 
-**OBJECTIVE:** Compliant SMS under Twilio's ISV model: GenX TotalTech LLC / DanceFlow is the ISV; each studio is its own campaign and message sender.
+**OBJECTIVE:** Compliant SMS under Twilio's ISV model: DanceFlow operates as the ISV (existing GenX TotalTech LLC / DanceFlow Twilio account); each studio receives its own studio-specific A2P campaign and is its own message sender.
 
 **PRODUCT INTENT:** Studios send service SMS to opted-in clients through DanceFlow, with per-studio identity, consent, registration and routing.
 
@@ -166,8 +167,25 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 - SMS-A2P-3B (#133) and 3C (#134): public samples equal real dispatcher output (pinned by test); `#lead` deep link opens the Contact/opt-in form.
 - ConfiDance Studio public opt-in proof verified live: `https://www.idanceflow.com/studios/confidance-studio#lead` (slug `confidance-studio`).
 
-**REMAINING DELIVERABLES** (operational, outside engineering)
-- Sachin/Twilio review of the ConfiDance package; resubmission as instructed by Twilio.
+**APPROVED DIRECTION (Twilio support ticket #29647095; latest controlling guidance from Sachin Singh, Twilio A2P 10DLC Appeals Team, 2026-10-06)**
+- DanceFlow operates as the ISV. Each studio receives its own studio-specific A2P campaign, created under the existing GenX TotalTech LLC / DanceFlow Twilio account.
+- For each studio-specific campaign: Brand/Customer registration uses the studio's underlying legal entity information; the studio is identified as the customer-facing brand; DanceFlow is described as the ISV providing the software and messaging infrastructure for the studio.
+- The previous shared DanceFlow campaign is intentionally left unused. It does not need to be modified or resubmitted.
+- ConfiDance Studio is the immediate pilot and first studio-specific campaign.
+- Twilio guidance: for transactional appointment messages and one-to-one operational staff messages, the appropriate campaign use case is typically Mixed or Customer Care, provided the campaign description and samples accurately reflect transactional/operational messaging and contain no marketing or promotional content. The final use case has NOT been chosen (see Unresolved product decisions).
+- Twilio reviewed the proposed ConfiDance opt-in flow and supporting materials and said they appear aligned with compliance requirements.
+- The remaining work is not a Twilio architecture blocker; the next actions are on DanceFlow. Nothing is yet recorded as submitted, approved or production-verified.
+
+**REMAINING DELIVERABLES** (DanceFlow-owned compliance/pilot work, parallel to Phase 9)
+1. Finalize the ConfiDance campaign description.
+2. Finalize the supporting evidence/materials.
+3. Send the package back to Twilio for final pre-submission review.
+4. Submit the studio-specific ConfiDance campaign.
+5. Obtain approval.
+6. Perform production SMS verification.
+7. Use the approved ConfiDance implementation as the repeatable studio onboarding model.
+
+Supporting operational detail for the above (ConfiDance Twilio setup and app records):
 - Twilio Console work for ConfiDance: customer brand registration under the GenX ISV profile; A2P campaign; dedicated Messaging Service; sending number; inbound webhook `POST https://www.idanceflow.com/api/sms/twilio/inbound`. (Status callbacks need no Console setting; the app attaches the callback per message.)
 - Console checks: brand legal name / EIN / address / website; whether any ConfiDance resource already exists; that the Console campaign SID matches the `QE…` format the database requires; that the resources are in the same Twilio account as the app's credentials (no subaccount support); Advanced Opt-Out interaction with the app's own STOP reply.
 - Record the ConfiDance row in `/platform/sms` (`in_review` once submitted; `approved` only after campaign approval, number attached, webhook set).
@@ -175,7 +193,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 - ConfiDance clients must hold an opted-in consent row for texts to send.
 
 **LOCKED DECISIONS**
-- Per-studio registration under the DanceFlow/GenX ISV relationship; not one global campaign.
+- Per-studio registration under the DanceFlow/GenX ISV relationship; not one global campaign. The previous shared DanceFlow campaign is retired/unused and is not to be repaired or resubmitted.
 - Registered/supported scope: automated appointment/lesson confirmation, reschedule, cancellation; one-to-one staff messages to opted-in clients; STOP/START/HELP.
 - Event SMS stays blocked; no marketing or promotional SMS; no bulk or mass campaigns.
 - STOP/START/HELP are scoped per studio (no cross-studio opt-out).
@@ -184,9 +202,9 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Campaign use-case type to register (to be chosen with Twilio).
+**UNRESOLVED PRODUCT DECISIONS:** Campaign use-case type to register: Mixed or Customer Care (Twilio says either is typically appropriate for transactional/operational messaging; not yet chosen).
 
-**DEPENDENCIES:** Twilio review (external). Phase 4 (plan gating of SMS is not yet implemented).
+**DEPENDENCIES:** Twilio final pre-submission review and campaign approval (steps in the DanceFlow-owned compliance lane; not a blocker for other phases). Phase 4 (plan gating of SMS is not yet implemented).
 
 **WEB IMPLICATIONS:** Platform SMS admin page (`/platform/sms`) exists. Studio-facing registration status UX is not built.
 
@@ -687,7 +705,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 ## Phase 8 — Documents Center completion
 
-**STATUS:** COMPLETE / CLOSED (2026-10-08). 8A, 8B and 8C are released to production; 8D (product decisions + UX closeout) closes the phase.
+**STATUS:** COMPLETE / CLOSED (2026-10-08). 8A, 8B, 8C and 8D are all released to production (main `ab60dba`, PR #192; live `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`); Phase 8 is fully released.
 
 **OBJECTIVE:** Complete document operations: revise/resend, client and general documents, waivers, signing lifecycle, certificates, receipts, branding and status UX within tier boundaries.
 
@@ -703,7 +721,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 **REMAINING DELIVERABLES:** None. Non-blocking enhancements are listed under Deferred.
 
 **LOCKED DECISIONS**
-- **Signing permission:** a client's own account (self) signs for itself; every other relationship (guardian, parent, billing contact, dependent manager, dependent) signs only when authorized staff explicitly grant it. Relationship type alone never grants signing; the stored `can_sign_documents` value is the authority. The database default is `false` (`20261101090000`); existing stored values were not rewritten.
+- **Signing permission:** a client's own account (self) signs for itself; every other relationship (guardian, parent, billing contact, dependent manager, dependent) signs only when authorized staff explicitly grant it. Relationship type alone never grants signing; the stored `can_sign_documents` value is the authority. The database default is fail-safe `false` (migration `20261101090000`, applied to PROD 2026-10-08); self links are set `true` by the INSERT-only self-link trigger; existing relationships were not backfilled.
 - **Delivery recipient:** the client always owns and is the subject of the assignment. The request is delivered to the client, or to one explicitly eligible linked signer (active link, signing permission, signed-in account with an email). A client without email and one eligible signer uses that signer; several require staff to choose; none blocks with a clear message. The actual signer is recorded by the 8C evidence (on-behalf for a guardian).
 - **Decision #9 — waivers:** a waiver is a Documents template / use type (events, clients, other workflows), not a separate signing system or evidence model; when a signature is required it uses the canonical envelope lifecycle.
 - **Decision #9 — receipts:** for Documents / e-sign, the envelope completion (signing) certificate is the canonical evidence receipt; there is no separate Documents receipt object. Payment / financial receipts stay in Commerce / payments.
@@ -729,7 +747,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 - Deeper audit exports, and an audit entry for signing-permission changes.
 - Native mobile adoption of the presentation-contract fields.
 
-**EVIDENCE / RELEASE REFERENCES:** PR #189 (`3cdff68`, migration `20261029090000`), PR #190 (`2c55cbd`, migration `20261030090000`), PR #191 (`0e8391a`, migration `20261031090000`), Phase 8D closeout (migration `20261101090000`); SQL suites `test_T_phase8a_*`, `test_T_phase8b_*`, `test_T_phase8c_*`, `test_T_phase8d_*`; `src/lib/documents`, `src/app/app/documents`.
+**EVIDENCE / RELEASE REFERENCES:** PR #189 (`3cdff68`, migration `20261029090000`), PR #190 (`2c55cbd`, migration `20261030090000`), PR #191 (`0e8391a`, migration `20261031090000`), PR #192 (`ab60dba`, migration `20261101090000`, SHA-256 `76e9c6a8c5aebbaf7b807d834d3ddc4b67f8bbf34634745e5ca43835c1767f13`, applied to PROD 2026-10-08); SQL suites `test_T_phase8a_*`, `test_T_phase8b_*`, `test_T_phase8c_*`, `test_T_phase8d_*`; `src/lib/documents`, `src/app/app/documents`.
 
 ---
 
@@ -824,7 +842,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 ## Phase 11 — Messaging / Notification platform completion
 
-**STATUS:** PARTIAL — MATERIAL WORK REMAINS (Twilio approval is external and not counted against this phase)
+**STATUS:** PARTIAL — MATERIAL WORK REMAINS (Twilio campaign approval is a parallel Phase 2 compliance lane and is not counted against this phase)
 
 **OBJECTIVE:** A complete messaging platform across email, push and SMS with preferences, templates, reminders, alerts, logging and error visibility.
 
@@ -1587,6 +1605,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-08 | v2.19 | **Docs-only reconciliation (no application, SQL, Twilio-integration or deployment change).** (1) **Phase 2 Twilio A2P status corrected** to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION: DanceFlow is the ISV and each studio gets its own studio-specific A2P campaign (ticket #29647095; Twilio guidance 2026-10-06); the shared campaign is unused; ConfiDance is the pilot and its opt-in materials appear aligned; Mixed vs Customer Care not yet selected; no remaining step recorded as done; Twilio proceeds in parallel with Phase 9. (2) **Phase 8 production baseline reconciled after the final 8D release:** main `ab60dba` (PR #192), live `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`, migration `20261101090000` applied to PROD 2026-10-08; Phase 8 scope unchanged. Phase 9 — Payroll Prep v1 remains next; numbering unchanged. |
 | 2026-10-08 | v2.18 | **Phase 8 — Documents Center completion — COMPLETE / CLOSED.** Cleanup before Phase 8: PR #184 (`6588400`, lesson package eligibility + client form rendering), PR #185 (`c5e9553`, past event lifecycle across Discovery and Events), PRs #186–#188 (`291e9a4`, `a3857cb`, `fd925ff`, ARIA reconciliation, current-state and opportunity truthfulness lifecycle), all released. **8A** signing integrity PR #189 (`3cdff68`); PROD migration `20261029090000` applied 2026-10-08 11:35Z after the application release. **8B** lifecycle correctness + gating PR #190 (`2c55cbd`); application `dpl_898GsDy9i8GPFN5mJHXg8swR522p`; PROD verify-only migration `20261030090000` applied 18:12Z (no-op; canonical fingerprint confirmed). **8C** evidence + portal truth PR #191 (`0e8391a`, tree `2f9c73c0`); application `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` promoted 19:47Z; PROD evidence-read migration `20261031090000` applied 19:49Z. **8D** closeout: fail-safe signing permission (migration `20261101090000`, DEV applied; PROD with its release), staff signing-permission control, guardian / authorized-recipient delivery for clients without email, truthful statuses and actions, searchable assignment picker + Assign document from the client profile, field-layout reuse, decision #9 closed (waivers = Documents template type; signing certificate = Documents evidence receipt). Rollback note: `dpl_898GsDy9…` is not a clean rollback target under the 8C evidence policies. Next phase: Phase 9 — Payroll Prep v1 |
 | 2026-10-07 | v2.17 | GC-3.5 canonical closeout (docs only). **Phase 7 — GC-3.5 Direct-payment Group Class enrollment — COMPLETE / CLOSED and released.** GC-3.5-1 (staff direct-payment policy controls) PR #178 `ee3f3930842535b5421a38b3c604eceee20206ee`, no SQL. GC-3.5-2 (acquisition holds / database authority) PR #179 `c12169f87226fe33333e1c668510d467c4485bcc`, migration `20261026090000` live on PROD. REFUND-RECON-1 (canonical refund reconciliation integrity) PR #180 `0e003530b91af40083785f108965a94fad3bbeaf`, migration `20261027090000` live on PROD. REFUND-RECON-2 (refund timestamp / accounting integrity) PR #181 `e7590dfb54eec7d37b0442e7dc391b0cdcc5a057`, migration `20261028090000` live on PROD (refund RPC `6867f57dca8ae457c04cf557c21420e7`). GC-3.5-3 (public paid registration application) PR #182 `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (tree `5b470d4644c761ee7688e24008c775ef12e12209`), production `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw`, promoted 2026-10-07, application rollback `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`. 4417 / 4417 tests. Public smoke clean; authenticated production smoke omitted under the established policy; class-specific `/register` not exercisable in production (no upcoming public Group Classes; none fabricated). Released: verified, unlinked self-registration and payment for public Group Classes (no email auto-link; linked students stay on the portal/credit path), database seat holds, studio-connected Stripe Checkout, webhook-authoritative settlement creating client + self link + attendee, dancer and studio notifications after settlement, safe conflict refunds, canonical refund reconciliation for every refund path (full, partial and post-attendance handling) and refund timestamp/accounting integrity. Follow-ups tracked in the deferred register: PKG-REFUND-2 `refund.created` timing, raw RPC error text in `payment_provider_events`, non-atomic event dedupe, DEV `accounting_upsert_entry` drift, DEV-only floor-rental index, portal-only/member-only classes, "This and following" direct-payment propagation, seven legacy SQL-suite failures. Decision #10 open. **Next: Phase 8 — Documents Center completion.** Twilio and BR-6 unchanged. |
 | 2026-10-07 | v2.16 | GC-3.4 canonical closeout (docs only): GC-3.4C PR #176 squash `e39fa4a694858cba00c39026f4a55e5d00dc5143` (tree `af05f7d8f4aab025b606ab3607b50154f7eb3d58`, identical to the reviewed candidate), qfem `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`, application rollback `dpl_HssyAtYo8dBm8PjAoFZnAbzJCuo2` (application first, then SQL if needed). Migration `20261025090000_gc34c_self_enroll_started_class_guard.sql` (sha256 `ac5f9aaa0f9c7d252a87467f1d039b9ebc595970fd276ec3ebb8847c16f9afc3`; rollback sha256 `aa16eae26412a4ad33e7ddee52ed80b6ecf2f6b16944caaccb5d16d6d2ea378f`) applied to PROD once after a clean read-only preflight; PROD function fingerprint `c5edafd4915060533faca30a9376e2d2`; no other function changed. 4199 / 4199 tests; GC-3.4C and gc3_3 SQL suites pass on DEV; signed-out production smoke passed; authenticated smoke omitted under the established policy; class-specific smoke not exercisable (0 public Group Classes in production). Authoritative non-payment public Group Class self-enrollment: auth-free class page, `/register` as the identity/enrollment boundary, server-side dancer reauthorization, canonical funding preview with authoritative revalidation, single source auto-selected and explicit choice otherwise, no-funding boundary with no payment, started and non-public classes refused by the database, database-authoritative capacity, idempotent duplicates with already-enrolled as success, post-commit idempotent dancer + studio notifications, no raw database errors. **Phase 6 — GC-3.4 — COMPLETE / CLOSED** (A read-only discovery; B identity and linking; C non-payment enrollment). **GC-3.5 (Phase 7, direct payment) NEXT / NOT STARTED.** Public Discovery notification rule implemented for public Group Class self-enrollment. Decision #10 open; inactive-client follow-up extended to self-enrollment (separate policy decision); legacy SQL test debt (gc1_1, gc1_2, gc1_4a, gc3_1, gc3_2) recorded; New Client `/n` polish item preserved; legacy Events active; Twilio and BR-6 unchanged. |

@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-08 (roadmap v2.18: Phase 8 — Documents Center COMPLETE / CLOSED (8A, 8B, 8C released; 8D closeout); Phase 9 — Payroll Prep v1 next; Phase 7, Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
+**Last updated:** 2026-10-08 (roadmap v2.19: Phase 2 Twilio A2P status corrected to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION (studio-specific ISV campaigns; ConfiDance pilot); roadmap v2.18: Phase 8 — Documents Center COMPLETE / CLOSED (8A, 8B, 8C and 8D all released); Phase 9 — Payroll Prep v1 next; Phase 7, Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,15 +10,15 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `0e8391a34907c11fa95f0c640a77867c60a5dc41` (Phase 8C, PR #191; tree `2f9c73c0594a45bf4a45950643a3ed4680183f04`). Live application: `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6`. The Phase 8D closeout PR (application + migration `20261101090000`) records itself and lags main by its own merge |
-| **CURRENT PROD DEPLOYMENT** | `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` (source `0e8391a34907c11fa95f0c640a77867c60a5dc41`; Phase 8C live on `www.idanceflow.com`; promoted 2026-10-08 19:47:38–19:47:43 UTC; public smoke clean; authenticated production smoke omitted under the established production safety policy). Rollback caution: the pre-8C deployment `dpl_898GsDy9i8GPFN5mJHXg8swR522p` is not a clean rollback target under the narrowed 8C evidence policies (its check-in reads legacy signatures instructors no longer receive); any rollback must be reviewed |
+| **CURRENT MAIN** | `ab60dba55b10162bb1f057136c9bdf705bccce91` (Phase 8D, PR #192; tree `7a86ef5b6ba5cfa5d2823fcf475e53d2b3c660af`). Live application: `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`. Phase 8 — Documents Center is fully released |
+| **CURRENT PROD DEPLOYMENT** | `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC` (source `ab60dba55b10162bb1f057136c9bdf705bccce91`; Phase 8D live on `www.idanceflow.com`; promoted 2026-10-08). Rollback caution: the previous 8C deployment `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` is NOT a clean automatic rollback target, because it explicitly grants `can_sign_documents` on new non-self links (including guardians and billing contacts), which would reopen the fail-open behavior even though the database default is now FALSE; any rollback must be reviewed |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
 | **PRIMARY REPO LINK** | DEV |
 | **NON-TWILIO LAUNCH STATUS** | READY / CLOSED; no new launch blocker from BR-4, BR-5 or ENT-1 |
-| **PENDING PROD MIGRATIONS** | `20261101090000_client_account_links_signing_default.sql` (Phase 8D; applied to DEV; PROD with the 8D release, application first). Most recent applied: `20261029090000` (8A, 2026-10-08 11:35Z), `20261030090000` (8B verify-only, 18:12Z), `20261031090000` (8C evidence read boundary, 19:49Z), each from an isolated workdir after a clean read-only preflight |
+| **PENDING PROD MIGRATIONS** | None. `20261101090000_client_account_links_signing_default.sql` (SHA-256 `76e9c6a8c5aebbaf7b807d834d3ddc4b67f8bbf34634745e5ca43835c1767f13`) is APPLIED to PROD (2026-10-08): the `can_sign_documents` database default is fail-safe FALSE, self links are set TRUE by the INSERT-only self-link trigger, and existing relationships were not backfilled. Earlier Phase 8 migrations applied: `20261029090000` (8A, 11:35Z), `20261030090000` (8B verify-only, 18:12Z), `20261031090000` (8C evidence read boundary, 19:49Z), each from an isolated workdir after a clean read-only preflight |
 | **PACKAGE REFUND HOLD** | Released / `false` |
-| **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified outside the Twilio operational dependency |
+| **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified. Twilio compliance/submission (Phase 2) is a parallel DanceFlow-owned lane, not an engineering blocker |
 | **KNOWN HYGIENE DEBT** | pre-existing lint errors in some public pages (not introduced by BR-4, BR-5 or ENT-1); they keep the changed-file lint step in CI red when those files are touched. Bounded UI polish bug: New Client page shows a literal newline marker (`/n`, from literal `\n` text in the JSX around the "Personal details" and "Client photo" sections of `src/app/app/clients/new/page.tsx`) where a line break / layout break was intended. Fix: replace the visible marker with the intended newline, spacing or layout and verify the New Client page renders cleanly. Small UI/polish bug, not a redesign; not a launch blocker. |
 
 BR-4 (Public Website & Launch Messaging) is merged and live. Public smoke of the live domains and the live attribution cookie passed; authenticated production smoke was intentionally omitted. BR-5 (Event / Print Collateral) is merged as PR #137.
@@ -47,13 +47,20 @@ The BR-6 branch is not main. Do not treat BR-6 as merged until its pull request 
 
 ## Twilio status
 
-External dependency awaiting Sachin / Twilio response before ConfiDance resource configuration and submission actions. Engineering for the per-studio A2P model is live (SMS-A2P-1 through 3C). No `studio_sms_registrations` row exists in PROD, the global SMS status has not been changed, and every studio is fail-closed until individually approved. Twilio does not block unrelated roadmap work. No new Twilio information is recorded here.
+**Phase 2 — Twilio A2P / SMS: ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION** (not blocked; runs in parallel with Phase 9 and does not block starting Payroll Prep v1). Reference: Twilio support ticket #29647095; latest controlling guidance from Sachin Singh, Twilio A2P 10DLC Appeals Team, 2026-10-06.
+
+- DanceFlow operates as the ISV. Each studio receives its own studio-specific A2P campaign under the existing GenX TotalTech LLC / DanceFlow Twilio account (studio legal entity for Brand/Customer registration; studio as customer-facing brand; DanceFlow described as the ISV providing software and messaging infrastructure).
+- The previous shared DanceFlow campaign is intentionally left unused; it is not being repaired or resubmitted.
+- ConfiDance Studio is the pilot and first studio-specific campaign. Twilio reviewed the proposed ConfiDance opt-in flow and supporting materials and said they appear aligned with compliance requirements.
+- Twilio says Mixed or Customer Care is typically appropriate for transactional appointment and one-to-one operational staff messages (no marketing/promotional content). The final choice has not been made.
+- Not a Twilio architecture blocker. Next actions are on DanceFlow: (1) finalize the ConfiDance campaign description; (2) finalize supporting evidence/materials; (3) send the package to Twilio for final pre-submission review; (4) submit the studio-specific campaign; (5) obtain approval; (6) perform production SMS verification; (7) use the approved ConfiDance implementation as the repeatable studio onboarding model.
+- Engineering for the per-studio A2P model is live (SMS-A2P-1 through 3C). No `studio_sms_registrations` row exists in PROD, the global SMS status has not been changed, and every studio is fail-closed until individually approved. The ConfiDance campaign is not yet submitted, approved or production-verified.
 
 ## Current roadmap position
 
 **ACTIVE PHASE:** Phase 9 — Payroll Prep v1 (next canonical phase; Phase 8 — Documents Center is COMPLETE / CLOSED, 2026-10-08). Phase 3 — Branding Relaunch stays PARTIAL with BR-6 parked.
 
-**PHASE 8 — DOCUMENTS CENTER:** COMPLETE / CLOSED. 8A signing integrity, 8B lifecycle correctness + gating and 8C evidence + portal truth are released; 8D closes the product decisions (signing permission, guardian delivery for clients without email, decision #9 — waivers are Documents template types and the signing certificate is the Documents evidence receipt) and the status / assignment UX.
+**PHASE 8 — DOCUMENTS CENTER:** COMPLETE / CLOSED. 8A signing integrity, 8B lifecycle correctness + gating, 8C evidence + portal truth and 8D are all RELEASED (FULLY RELEASED; main `ab60dba`, live `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`); 8D closed the product decisions (signing permission, guardian delivery for clients without email, decision #9 — waivers are Documents template types and the signing certificate is the Documents evidence receipt) and the status / assignment UX.
 
 **BR-4 (Public Website & Launch Messaging):** COMPLETE AND LIVE
 
@@ -246,7 +253,7 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 
 ## Current external dependencies
 
-- Twilio / Sachin
+- None blocking from Twilio: Phase 2 campaign submission and approval is a DanceFlow-owned parallel compliance lane (final Twilio pre-submission review and approval are steps within it)
 - Migration Center real-studio pilot validation
 - Eventual pricing cutover business/configuration decision
 - Banner vendor / stand selection (BR-5 follow-up, needed only before a banner print order)
@@ -268,4 +275,4 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 
 ## NEXT GATE
 
-Phase 8D closeout: PR + merge, then release (application first, then PROD migration `20261101090000`). After that, Phase 9 — Payroll Prep v1. BR-6 resumes when the professional ARIA voice recording arrives. Phases 5, 6, 7 and 8 are COMPLETE / CLOSED. Remaining Phase 4 work waits on open decision #8.
+Phase 8 — Documents Center is complete and fully released. The next engineering phase is Phase 9 — Payroll Prep v1; Phase 2 Twilio continues in parallel as compliance / pilot submission work. BR-6 resumes when the professional ARIA voice recording arrives. Phases 5, 6, 7 and 8 are COMPLETE / CLOSED. Remaining Phase 4 work waits on open decision #8.
