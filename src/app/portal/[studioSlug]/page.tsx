@@ -11,6 +11,7 @@ import {
   ensurePortalProfileAndClientLinks,
   getAuthUserFullName,
 } from "@/lib/auth/portal-linking";
+import { EVENT_LIST_PAST_BUFFER, eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -294,6 +295,8 @@ type PortalEventSummaryRow = {
   start_date: string;
   start_time: string | null;
   end_date: string | null;
+  end_time?: string | null;
+  timezone?: string | null;
   venue_name: string | null;
   city: string | null;
   state: string | null;
@@ -952,6 +955,8 @@ export default async function PortalHomePage({
         start_date,
         start_time,
         end_date,
+        end_time,
+        timezone,
         venue_name,
         city,
         state,
@@ -964,9 +969,9 @@ export default async function PortalHomePage({
       .eq("studio_id", typedStudio.id)
       .eq("status", "published")
       .eq("visibility", "public")
-      .gte("start_date", new Date().toISOString().slice(0, 10))
+      .gte("end_date", eventEndDateLowerBound(new Date(nowIso)))
       .order("start_date", { ascending: true })
-      .limit(6),
+      .limit(6 + EVENT_LIST_PAST_BUFFER),
 
     supabase
       .from("booking_requests")
@@ -1043,8 +1048,11 @@ export default async function PortalHomePage({
     []) as PortalDocumentAssignmentRow[];
   const typedEventRegistrations = (eventRegistrations ??
     []) as PortalEventRegistrationRow[];
-  const typedUpcomingStudioEvents = (upcomingStudioEvents ??
-    []) as PortalStudioEventRow[];
+  // Current (including in-progress multi-day) and upcoming events, by each event's end moment in its own time zone.
+  const typedUpcomingStudioEvents = filterNotPastEvents(
+    (upcomingStudioEvents ?? []) as PortalStudioEventRow[],
+    new Date(nowIso),
+  ).slice(0, 6);
   const typedBookingRequests = (bookingRequests ?? []) as PendingBookingRequestRow[];
   const typedPaymentHistory = (paymentHistory ?? []) as PaymentHistoryRow[];
   const registrationIds = typedEventRegistrations.map((item) => item.id);
@@ -1162,13 +1170,13 @@ export default async function PortalHomePage({
   const overdueDocumentCount = unsignedDocumentAssignments.filter((item) => {
     if (!item.due_at) return false;
     const dueTime = new Date(item.due_at).getTime();
-    return Number.isFinite(dueTime) && dueTime < Date.now();
+    return Number.isFinite(dueTime) && dueTime < new Date(nowIso).getTime();
   }).length;
   const upcomingDueDocumentCount = unsignedDocumentAssignments.filter((item) => {
     if (!item.due_at) return false;
     const dueTime = new Date(item.due_at).getTime();
     if (!Number.isFinite(dueTime)) return false;
-    const diffDays = Math.ceil((dueTime - Date.now()) / 86_400_000);
+    const diffDays = Math.ceil((dueTime - new Date(nowIso).getTime()) / 86_400_000);
     return diffDays >= 0 && diffDays <= 7;
   }).length;
   // Schedule Stabilization Slice 1b-b: canonical per-usage-type warning

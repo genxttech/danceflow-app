@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
 import SellTicketsForm from "./SellTicketsForm";
+import { eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
 type EventRow = {
   id: string;
@@ -12,6 +13,9 @@ type EventRow = {
   status: string;
   start_date: string;
   start_time: string | null;
+  end_date: string | null;
+  end_time: string | null;
+  timezone: string | null;
 };
 
 type TicketTypeRow = {
@@ -102,6 +106,7 @@ export default async function SellTicketsPage() {
   }
 
   const studioId = context.studioId;
+  const now = new Date();
 
   const [
     { data: events, error: eventsError },
@@ -111,9 +116,11 @@ export default async function SellTicketsPage() {
   ] = await Promise.all([
     supabase
       .from("events")
-      .select("id, name, status, start_date, start_time")
+      .select("id, name, status, start_date, start_time, end_date, end_time, timezone")
       .eq("studio_id", studioId)
       .not("status", "in", '("cancelled","completed")')
+      // Ended events are not sale targets (their history stays in Events / Registrations).
+      .gte("end_date", eventEndDateLowerBound(now))
       .order("start_date", { ascending: true })
       .order("start_time", { ascending: true }),
 
@@ -153,7 +160,7 @@ export default async function SellTicketsPage() {
     throw new Error(`Failed to load clients: ${clientsError.message}`);
   }
 
-  const typedEvents = (events ?? []) as EventRow[];
+  const typedEvents = filterNotPastEvents((events ?? []) as EventRow[], now);
   const typedTickets = (ticketTypes ?? []) as TicketTypeRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationRow[];
   const typedClients = (clients ?? []) as ClientRow[];

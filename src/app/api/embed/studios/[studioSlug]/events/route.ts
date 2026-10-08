@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { botBlockedJson, requestLooksAutomated } from "@/lib/security/bot-protection";
+import { EVENT_LIST_PAST_BUFFER, eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
 type Params = Promise<{
   studioSlug: string;
@@ -173,6 +174,7 @@ export async function GET(
 
   const url = new URL(request.url);
   const limit = normalizeLimit(url.searchParams.get("limit"));
+  const now = new Date();
   const supabase = await createClient();
 
   const { data: studio, error: studioError } = await supabase
@@ -225,8 +227,9 @@ export async function GET(
     .eq("public_directory_enabled", true)
     .in("status", ["published", "open"])
     .not("start_date", "is", null)
+    .gte("end_date", eventEndDateLowerBound(now))
     .order("start_date", { ascending: true })
-    .limit(limit);
+    .limit(limit + EVENT_LIST_PAST_BUFFER);
 
   if (eventsError) {
     return NextResponse.json(
@@ -243,9 +246,10 @@ export async function GET(
       slug: normalizedSlug,
       hostName,
       publicUrl: `${SITE_URL}/studios/${normalizedSlug}?tab=events`,
-      events: ((events ?? []) as EventRow[]).map((event) =>
-        mapEvent(event, hostName),
-      ),
+      // Ended events are never listed and never use up the requested limit.
+      events: filterNotPastEvents((events ?? []) as EventRow[], now)
+        .slice(0, limit)
+        .map((event) => mapEvent(event, hostName)),
     },
     {
       status: 200,

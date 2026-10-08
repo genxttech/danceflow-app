@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { isEventPast } from "@/lib/events/eventTiming";
 
 type EventRow = {
   id: string;
   name: string | null;
   event_type: string | null;
   start_date: string | null;
+  end_date: string | null;
+  end_time: string | null;
+  timezone: string | null;
   status: string | null;
 };
 
@@ -139,7 +143,7 @@ async function loadEventSummaryRows() {
 
   const { data: eventRows, error: eventsError } = await supabase
     .from("events")
-    .select("id,name,event_type,start_date,status")
+    .select("id,name,event_type,start_date,end_date,end_time,timezone,status")
     .eq("studio_id", context.studioId)
     .order("start_date", { ascending: true })
     .limit(10000);
@@ -259,7 +263,7 @@ async function loadEventSummaryRows() {
     ticketsByEventId.set(row.event_id, current);
   }
 
-  const todayStart = new Date(new Date().toDateString());
+  const now = new Date();
 
   const rows = events.map((event) => {
     const profitability = profitabilityByEventId.get(event.id);
@@ -274,11 +278,7 @@ async function loadEventSummaryRows() {
         ? ticketRowsForEvent.length
         : registrations.reduce((sum, row) => sum + Number(row.quantity ?? 1), 0);
     const ticketsCheckedIn = ticketRowsForEvent.filter((row) => row.checked_in_at).length;
-    const eventStartDate = event.start_date ? new Date(`${event.start_date}T00:00:00`) : null;
-    const isPastEvent =
-      Boolean(eventStartDate) &&
-      !Number.isNaN(eventStartDate?.getTime()) &&
-      eventStartDate! < todayStart;
+    const isPastEvent = isEventPast(event, now);
 
     return {
       event,

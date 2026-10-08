@@ -5,6 +5,7 @@ import ShareButton from "@/components/public/ShareButton";
 import CurrentLocationButton from "@/components/public/CurrentLocationButton";
 import { getResumeBanner } from "./resumeBanner";
 import type { Metadata } from "next";
+import { eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
 export const metadata: Metadata = {
   title: "Find Dance Events",
@@ -36,6 +37,7 @@ type EventRow = {
   end_date: string | null;
   start_time: string | null;
   end_time: string | null;
+  timezone: string | null;
   visibility: string | null;
   status: string | null;
   public_summary: string | null;
@@ -506,6 +508,8 @@ export default async function DiscoverEventsPage({
     data: { user },
   } = await supabase.auth.getUser();
 
+  const now = new Date();
+
   const [
     { data: events, error: eventsError },
     { data: studios, error: studiosError },
@@ -528,6 +532,7 @@ export default async function DiscoverEventsPage({
         end_date,
         start_time,
         end_time,
+        timezone,
         visibility,
         status,
         public_summary,
@@ -547,6 +552,8 @@ export default async function DiscoverEventsPage({
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
       .in("status", ["published", "open"])
+      // Ended events are not discoverable; the exact end-moment rule is applied to the rows below.
+      .gte("end_date", eventEndDateLowerBound(now))
       .order("start_date", { ascending: true }),
 
     supabase.from("studios").select(
@@ -641,7 +648,7 @@ export default async function DiscoverEventsPage({
     );
   }
 
-  const typedEvents = (events ?? []) as EventRow[];
+  const typedEvents = filterNotPastEvents((events ?? []) as EventRow[], now);
   const typedStudios = ((studios ?? []) as StudioRow[]).filter(hasActivePublicAccess);
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
   const typedEventStyles = (eventStyles ?? []) as EventStyleRow[];

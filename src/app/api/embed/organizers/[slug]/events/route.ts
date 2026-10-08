@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { botBlockedJson, requestLooksAutomated } from "@/lib/security/bot-protection";
+import { EVENT_LIST_PAST_BUFFER, eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
 type Params = Promise<{
   slug: string;
@@ -182,6 +183,7 @@ export async function GET(
 
   const url = new URL(request.url);
   const limit = normalizeLimit(url.searchParams.get("limit"));
+  const now = new Date();
   const supabase = await createClient();
 
   const { data: organizer, error: organizerError } = await supabase
@@ -238,8 +240,9 @@ export async function GET(
     .eq("public_directory_enabled", true)
     .in("status", ["published", "open"])
     .not("start_date", "is", null)
+    .gte("end_date", eventEndDateLowerBound(now))
     .order("start_date", { ascending: true })
-    .limit(limit);
+    .limit(limit + EVENT_LIST_PAST_BUFFER);
 
   if (eventsError) {
     return NextResponse.json(
@@ -249,9 +252,10 @@ export async function GET(
   }
 
   const hostName = organizer.name || "DanceFlow Organizer";
-  const publicEvents = ((events ?? []) as EventRow[]).filter((event) =>
-    hasActivePublicAccess(getStudio(event.studios)),
-  );
+  // Ended events are never listed and never use up the requested limit.
+  const publicEvents = filterNotPastEvents((events ?? []) as EventRow[], now)
+    .filter((event) => hasActivePublicAccess(getStudio(event.studios)))
+    .slice(0, limit);
 
   return NextResponse.json(
     {
