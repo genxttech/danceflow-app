@@ -181,12 +181,16 @@ function buildDigestSummary(params: {
   digestType: DigestType;
   now: Date;
 }) {
-  const { actions, recipientUserId, digestType, now } = params;
+  const { recipientUserId, digestType, now } = params;
+  // Cleanup PR C3: a queued action is work ARIA has already handed to outbound delivery. It is reported only as an
+  // execution-status count ("queued follow-ups"), never re-presented as a current opportunity with its original
+  // (possibly outdated) wording. The queued delivery itself is not touched here.
+  const queuedActions = params.actions.filter((action) => action.status === "queued");
+  const actions = params.actions.filter((action) => action.status !== "queued");
   const overdueActions = actions.filter((action) => isOverdueAction(action, now));
   const assignedActions = recipientUserId
     ? actions.filter((action) => action.assigned_to === recipientUserId)
     : [];
-  const queuedActions = actions.filter((action) => action.status === "queued");
   const urgentActions = actions.filter((action) => action.priority === "urgent");
   const highPriorityActions = actions.filter((action) => action.priority === "high");
   const topActions = [...overdueActions, ...urgentActions, ...highPriorityActions, ...actions]
