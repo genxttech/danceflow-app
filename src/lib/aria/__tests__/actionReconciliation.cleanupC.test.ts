@@ -3,6 +3,7 @@ import {
   ARIA_CONDITION_RECONCILIATION_SOURCE,
   ariaLowPackageConditionHolds,
   isAriaActionSnoozedUntilFuture,
+  isNewAriaIncidentOccurrence,
   reconcileAriaActionsForStudio,
 } from "@/lib/aria/actionReconciliation";
 import { FakeSupabase } from "./fakeSupabase";
@@ -440,5 +441,99 @@ describe("snooze helper", () => {
     expect(isAriaActionSnoozedUntilFuture({ status: "snoozed", snoozed_until: "2026-10-08T14:59:59.000Z" }, NOW)).toBe(false);
     expect(isAriaActionSnoozedUntilFuture({ status: "snoozed", snoozed_until: null }, NOW)).toBe(false);
     expect(isAriaActionSnoozedUntilFuture({ status: "approved", snoozed_until: "2026-10-09T00:00:00.000Z" }, NOW)).toBe(false);
+  });
+});
+
+describe("legacy low_package_balance (Evaluate now) uses the studio's configured threshold", () => {
+  function legacyDb(threshold: number | null, remaining: number, replacement?: number) {
+    const packages: Record<string, unknown>[] = [{ id: "pkg-1", studio_id: A, client_id: "client-1", active: true, expiration_date: null }];
+    const items: Record<string, unknown>[] = [
+      { client_package_id: "pkg-1", studio_id: A, usage_type: "private_lesson", quantity_remaining: remaining, is_unlimited: false },
+    ];
+    if (replacement !== undefined) {
+      packages.push({ id: "pkg-2", studio_id: A, client_id: "client-1", active: true, expiration_date: null });
+      items.push({ client_package_id: "pkg-2", studio_id: A, usage_type: "private_lesson", quantity_remaining: replacement, is_unlimited: false });
+    }
+    return new FakeSupabase({
+      automation_rules: threshold === null ? [] : [{ studio_id: A, rule_key: "low_package_balance", trigger_config: { threshold } }],
+      automation_actions: [
+        action({ id: "legacy", studio_id: A, rule_key: "low_package_balance", related_table: "client_packages", related_id: "pkg-1" }),
+      ],
+      automation_action_events: [],
+      client_packages: packages,
+      client_package_items: items,
+    });
+  }
+
+  it("stays open at 4 remaining when the studio threshold is 5 (ARIA's fixed 2 would wrongly close it)", async () => {
+    const db = legacyDb(5, 4);
+    await run(db);
+    expect(statusOf(db, "legacy")).toBe("suggested");
+  });
+
+  it("completes once the balance is above the configured threshold", async () => {
+    const db = legacyDb(5, 6);
+    await run(db);
+    expect(statusOf(db, "legacy")).toBe("completed");
+  });
+
+  it("completes when a replacement package covers the low balance (default threshold when unset)", async () => {
+    const db = legacyDb(null, 1, 10);
+    await run(db);
+    expect(statusOf(db, "legacy")).toBe("completed");
+    expect(eventsFor(db, "legacy")[0].metadata).toMatchObject({ reason: "package_replacement_coverage", rule_key: "low_package_balance" });
+  });
+});
+
+describe("isNewAriaIncidentOccurrence", () => {
+  const closed = (fields: Partial<{ status: string; created_at: string; systemObservedResolution: boolean }>) => ({
+    id: "x",
+    status: "dismissed",
+    created_at: "2026-10-01T00:00:00.000Z",
+    systemObservedResolution: false,
+    ...fields,
+  });
+
+  it("staff-closed + no new-occurrence evidence = same incident", () => {
+    expect(isNewAriaIncidentOccurrence({ ruleKey: "aria_payment_exception", latest: closed({}), now: NOW })).toBe(false);
+    expect(isNewAriaIncidentOccurrence({ ruleKey: "aria_payment_exception", latest: closed({ status: "completed" }), now: NOW })).toBe(false);
+  });
+
+  it("system-observed resolution, a later occurrence start, or the rule's existing re-notify window = new occurrence", () => {
+    expect(
+      isNewAriaIncidentOccurrence({ ruleKey: "aria_payment_exception", latest: closed({ status: "completed", systemObservedResolution: true }), now: NOW }),
+    ).toBe(true);
+    expect(
+      isNewAriaIncidentOccurrence({
+        ruleKey: "aria_membership_past_due",
+        latest: closed({}),
+        incidentStartedAt: "2026-10-05T00:00:00.000Z",
+        now: NOW,
+      }),
+    ).toBe(true);
+    expect(
+      isNewAriaIncidentOccurrence({
+        ruleKey: "aria_membership_past_due",
+        latest: closed({}),
+        incidentStartedAt: "2026-09-01T00:00:00.000Z",
+        now: NOW,
+      }),
+    ).toBe(false);
+    expect(
+      isNewAriaIncidentOccurrence({ ruleKey: "aria_low_package_balance", latest: closed({ created_at: "2026-09-01T00:00:00.000Z" }), now: NOW }),
+    ).toBe(true);
+    expect(isNewAriaIncidentOccurrence({ ruleKey: "aria_low_package_balance", latest: closed({}), now: NOW })).toBe(false);
+  });
+
+  it("in-flight rows (awaiting_outcome, failed) always suppress", () => {
+    for (const status of ["awaiting_outcome", "failed"]) {
+      expect(
+        isNewAriaIncidentOccurrence({
+          ruleKey: "aria_low_package_balance",
+          latest: closed({ status, created_at: "2026-01-01T00:00:00.000Z", systemObservedResolution: true }),
+          now: NOW,
+        }),
+      ).toBe(false);
+    }
   });
 });

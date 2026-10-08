@@ -23,6 +23,9 @@ import {
 import {
   ariaLowPackageConditionHolds,
   ariaLowPackageItems,
+  isNewAriaIncidentOccurrence,
+  legacyLowPackageItems,
+  loadAriaIncidentHistory,
   reconcileAriaActionsForStudio,
 } from "@/lib/aria/actionReconciliation";
 
@@ -985,6 +988,11 @@ type AriaOperationalActionCandidate = {
   relatedId: string;
   clientId?: string | null;
   dueAt: string;
+  /**
+   * Cleanup PR C: when the source record knows when THIS occurrence of the condition began (e.g. the membership
+   * billing period, the intro lesson), a closed action created before it does not suppress the new occurrence.
+   */
+  incidentStartedAt?: string | null;
 };
 
 type AriaActionPriority = AriaOperationalActionCandidate["priority"];
@@ -2148,52 +2156,16 @@ async function insertAriaOperationalActions(params: {
     }
   }
 
-  const cooldownSuppressedKeys = new Set<string>();
-  const lowPackageRelatedIds = eligibleCandidates
-    .filter(
-      (candidate) =>
-        candidate.ruleKey === "aria_low_package_balance" &&
-        candidate.relatedTable === "client_packages",
-    )
-    .map((candidate) => candidate.relatedId);
-
-  if (lowPackageRelatedIds.length > 0) {
-    const lowPackageCooldownStart = new Date(
-      Date.now() - 30 * 24 * 60 * 60 * 1000,
-    ).toISOString();
-    const { data: recentLowPackageActions, error: recentLowPackageError } =
-      await supabase
-        .from("automation_actions")
-        .select("id, rule_key, related_table, related_id, status, assigned_to, snoozed_until")
-        .eq("studio_id", studioId)
-        .eq("rule_key", "aria_low_package_balance")
-        .eq("related_table", "client_packages")
-        .in("related_id", lowPackageRelatedIds)
-        .gte("created_at", lowPackageCooldownStart);
-
-    if (recentLowPackageError) {
-      throw new Error(recentLowPackageError.message);
-    }
-
-    for (const row of (recentLowPackageActions ??
-      []) as ExistingAriaOperationalActionRow[]) {
-      if (row.rule_key && row.related_table && row.related_id) {
-        const key = ariaOperationalDedupeKey({
-          ruleKey: row.rule_key,
-          relatedTable: row.related_table,
-          relatedId: row.related_id,
-        });
-        // Cleanup PR C: a recent terminal (completed / dismissed / skipped / failed / sent) row only suppresses a new
-        // action during the cooldown. It is never treated as the existing action, so it can never be re-approved,
-        // re-assigned or otherwise rewritten. An open row found above always wins.
-        if (row.status && activeStatuses.includes(row.status)) {
-          if (!existingActionByKey.has(key)) existingActionByKey.set(key, row);
-        } else {
-          cooldownSuppressedKeys.add(key);
-        }
-      }
-    }
-  }
+  // Cleanup PR C: closed / in-flight history for the same incident identity. A closed action is never resurrected
+  // or rewritten, and the same continuous incident is not re-inserted; only a new occurrence may create a new action
+  // (see isNewAriaIncidentOccurrence). This replaces the low-package-only 30-day cooldown, whose window is kept as that
+  // rule's re-notify policy.
+  const incidentHistory = await loadAriaIncidentHistory({
+    supabase,
+    studioId,
+    candidates: eligibleCandidates,
+  });
+  const incidentNow = new Date();
 
   const ruleIdByKey = new Map<string, string>();
   const actionsToInsert: Array<Record<string, unknown>> = [];
@@ -2240,7 +2212,16 @@ async function insertAriaOperationalActions(params: {
       continue;
     }
 
-    if (cooldownSuppressedKeys.has(dedupeKey)) {
+    const closedIncident = incidentHistory.get(dedupeKey);
+    if (
+      closedIncident &&
+      !isNewAriaIncidentOccurrence({
+        ruleKey: candidate.ruleKey,
+        latest: closedIncident,
+        incidentStartedAt: candidate.incidentStartedAt,
+        now: incidentNow,
+      })
+    ) {
       continue;
     }
 
@@ -2445,6 +2426,7 @@ type AriaMembershipAttentionRow = {
   client_id: string | null;
   name_snapshot: string | null;
   status: string | null;
+  current_period_start?: string | null;
   current_period_end: string | null;
   cancel_at_period_end: boolean | null;
 };
@@ -2597,7 +2579,7 @@ async function buildStudioAriaOperationalCandidates(params: {
     supabase
       .from("client_memberships")
       .select(
-        "id, client_id, name_snapshot, status, current_period_end, cancel_at_period_end",
+        "id, client_id, name_snapshot, status, current_period_start, current_period_end, cancel_at_period_end",
       )
       .eq("studio_id", studioId)
       .in("status", ["active", "pending", "past_due", "unpaid"])
@@ -2714,6 +2696,8 @@ async function buildStudioAriaOperationalCandidates(params: {
       relatedId: membership.id,
       clientId: membership.client_id,
       dueAt: needsBilling ? nowIso : addAriaDays(now, 2).toISOString(),
+      // a later billing period is a new occurrence; the same period is the same continuous episode
+      incidentStartedAt: membership.current_period_start ?? null,
     });
   }
 
@@ -2831,6 +2815,8 @@ async function buildStudioAriaOperationalCandidates(params: {
       relatedId: client.id,
       clientId: client.id,
       dueAt: addAriaDays(now, 1).toISOString(),
+      // a gap after a newer lesson is a new occurrence
+      incidentStartedAt: latest.starts_at,
     });
   }
 
@@ -2878,6 +2864,8 @@ async function buildStudioAriaOperationalCandidates(params: {
       relatedId: clientId,
       clientId,
       dueAt: nowIso,
+      // a newer completed intro lesson is a new occurrence
+      incidentStartedAt: appointment.starts_at,
     });
   }
 
@@ -5549,6 +5537,38 @@ function getUsualLessonTimeSummary(appointments: AppointmentAutomationRow[]) {
   return sorted[0]?.label ?? null;
 }
 
+/**
+ * Cleanup PR C: legacy "Evaluate now" rules skip a candidate whose incident already has a closed action, unless there is
+ * evidence of a new occurrence (same rule as ARIA generation; see isNewAriaIncidentOccurrence).
+ */
+async function addClosedLegacyIncidents(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  ruleKey: string;
+  relatedTable: string;
+  relatedIds: string[];
+  suppressed: Set<string>;
+}) {
+  const { supabase, studioId, ruleKey, relatedTable, relatedIds, suppressed } =
+    params;
+  const history = await loadAriaIncidentHistory({
+    supabase,
+    studioId,
+    candidates: relatedIds.map((relatedId) => ({
+      ruleKey,
+      relatedTable,
+      relatedId,
+    })),
+  });
+  const now = new Date();
+  for (const relatedId of relatedIds) {
+    const closed = history.get(`${ruleKey}:${relatedTable}:${relatedId}`);
+    if (closed && !isNewAriaIncidentOccurrence({ ruleKey, latest: closed, now })) {
+      suppressed.add(relatedId);
+    }
+  }
+}
+
 async function evaluateLowPackageBalanceAutomation(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   context: Awaited<ReturnType<typeof getCurrentStudioContext>>;
@@ -5599,16 +5619,10 @@ async function evaluateLowPackageBalanceAutomation(params: {
   const typedPackages = (packages ?? []) as ClientPackageBalanceRow[];
   const candidates = typedPackages
     .map((clientPackage) => {
-      const lowItems = (clientPackage.client_package_items ?? []).filter(
-        (item) => {
-          if (item.is_unlimited) return false;
-          if (
-            item.quantity_remaining === null ||
-            item.quantity_remaining === undefined
-          )
-            return false;
-          return Number(item.quantity_remaining) <= threshold;
-        },
+      // Cleanup PR C: shared with condition reconciliation for this legacy rule.
+      const lowItems = legacyLowPackageItems(
+        clientPackage.client_package_items,
+        threshold,
       );
 
       if (lowItems.length === 0) return null;
@@ -5671,6 +5685,15 @@ async function evaluateLowPackageBalanceAutomation(params: {
     for (const action of existingActions ?? []) {
       if (action.related_id) existingRelatedIds.add(String(action.related_id));
     }
+
+    await addClosedLegacyIncidents({
+      supabase,
+      studioId: context.studioId,
+      ruleKey,
+      relatedTable: "client_packages",
+      relatedIds: candidates.map((candidate) => candidate.clientPackage.id),
+      suppressed: existingRelatedIds,
+    });
   }
 
   const now = new Date();
@@ -5856,6 +5879,15 @@ async function evaluateNoUpcomingLessonAutomation(params: {
     for (const action of existingActions ?? []) {
       if (action.related_id) existingRelatedIds.add(String(action.related_id));
     }
+
+    await addClosedLegacyIncidents({
+      supabase,
+      studioId: context.studioId,
+      ruleKey,
+      relatedTable: "clients",
+      relatedIds: candidates.map((candidate) => candidate.client.id),
+      suppressed: existingRelatedIds,
+    });
   }
 
   const actionStatus = packageActionStatusForMode(rule.mode);
@@ -5990,6 +6022,15 @@ async function evaluateUnsignedDocumentAutomation(params: {
     for (const action of existingActions ?? []) {
       if (action.related_id) existingRelatedIds.add(String(action.related_id));
     }
+
+    await addClosedLegacyIncidents({
+      supabase,
+      studioId: context.studioId,
+      ruleKey,
+      relatedTable: "document_assignments",
+      relatedIds: candidates.map((candidate) => candidate.id),
+      suppressed: existingRelatedIds,
+    });
   }
 
   const actionStatus = packageActionStatusForMode(rule.mode);
@@ -6110,6 +6151,15 @@ async function evaluatePendingBookingRequestAutomation(params: {
     for (const action of existingActions ?? []) {
       if (action.related_id) existingRelatedIds.add(String(action.related_id));
     }
+
+    await addClosedLegacyIncidents({
+      supabase,
+      studioId: context.studioId,
+      ruleKey,
+      relatedTable: "booking_requests",
+      relatedIds: candidates.map((candidate) => candidate.id),
+      suppressed: existingRelatedIds,
+    });
   }
 
   const actionStatus = packageActionStatusForMode(rule.mode);
