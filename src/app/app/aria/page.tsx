@@ -28,6 +28,7 @@ import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntel
 import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 import { isEventPast } from "@/lib/events/eventTiming";
 import { reconcileAriaActionsForStudio } from "@/lib/aria/actionReconciliation";
+import { refreshAriaActionWordingForStudio } from "@/app/app/automations/actions";
 
 type ClientPackageRow = {
   id: string;
@@ -393,8 +394,18 @@ export default async function AriaOpportunityHubPage() {
   const studioId = context.studioId;
   const organizerWorkspace = isOrganizerRole(context.studioRole);
 
-  // Cleanup PR C2: the active queue shows current facts -- close, expire or supersede actions whose condition no longer
-  // holds before reading them. Never blocks the page.
+  // Cleanup PR C2/C3: the active queue shows current facts. First refresh the wording of open actions whose condition
+  // still holds (refresh-only: creates, approves, assigns and sends nothing), then close, expire or supersede actions
+  // whose condition no longer holds -- all before reading them. Runs with the viewer's own client; never blocks the page.
+  try {
+    await refreshAriaActionWordingForStudio({
+      studioId,
+      supabase,
+      workspace: organizerWorkspace ? "organizer" : "studio",
+    });
+  } catch (error) {
+    console.warn("ARIA Opportunity Hub: ARIA wording refresh failed", error);
+  }
   try {
     await reconcileAriaActionsForStudio({ supabase, studioId });
   } catch (error) {

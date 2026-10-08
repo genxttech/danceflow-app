@@ -318,12 +318,12 @@ function run(db: FakeSupabase, now = NOW) {
 
 const action = (db: FakeSupabase) => db.rows("automation_actions")[0];
 
-describe("every remaining rule except the deferred schedule conflict has a current-state handler", () => {
-  it("registry coverage", () => {
+describe("every ARIA rule has a current-state handler", () => {
+  it("registry coverage (C3 adds aria_schedule_conflict: 35 of 35)", () => {
     const covered = new Set(ARIA_LIFECYCLE_RULE_KEYS);
     for (const testCase of CASES) expect(covered.has(testCase.rule)).toBe(true);
-    expect(covered.has("aria_schedule_conflict")).toBe(false);
-    expect(covered.size).toBe(34);
+    expect(covered.has("aria_schedule_conflict")).toBe(true);
+    expect(covered.size).toBe(35);
   });
 });
 

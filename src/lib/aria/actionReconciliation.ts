@@ -702,7 +702,7 @@ export const ARIA_CONDITION_RECONCILERS: Record<
 /**
  * Cleanup PR C2: every rule with a current-state handler -- the C1 objective reconcilers, the legacy booking-request rule
  * (same condition as aria_booking_request_aging), and the remaining opportunity types (src/lib/aria/lifecycleHandlers.ts).
- * aria_schedule_conflict is deliberately absent: its stored identity is one appointment of an overlapping pair.
+ * aria_schedule_conflict (C3) is reconciled from its anchor appointment only when no conflict remains at all.
  */
 export const ARIA_LIFECYCLE_HANDLERS: Record<string, AriaConditionReconciler> = {
   ...ARIA_CONDITION_RECONCILERS,

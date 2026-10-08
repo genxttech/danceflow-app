@@ -115,7 +115,9 @@ function topActionIds(db: FakeSupabase) {
   return { open: summary.open_actions, ids: summary.top_actions.map((action) => action.id).sort() };
 }
 
-describe("Morning Briefing selection", () => {
+// The first test pays the cold import of the digest route (which pulls in the ARIA generation module); allow for that
+// under a fully parallel run.
+describe("Morning Briefing selection", { timeout: 20_000 }, () => {
   it("in-app: reconciles first, then reports only still-actionable, non-snoozed, same-studio actions", async () => {
     state.db = seed();
     const result = await runDigest("in_app");

@@ -383,7 +383,8 @@ const confirmationGapHandler: AriaLifecycleHandler = {
       const row = action.related_id ? rows.get(action.related_id) : undefined;
       if (!row) return [];
       const status = norm(row.status);
-      if (["confirmed", "cancelled", "attended", "no_show", "rescheduled"].includes(status)) {
+      // C3: rescheduled appointments still await client confirmation (CONFIRMABLE_STATUSES in appointmentConfirmation).
+      if (["confirmed", "cancelled", "attended", "no_show"].includes(status)) {
         return [complete(action, "appointment_no_longer_unconfirmed", `Completed automatically: this appointment is now ${status.replaceAll("_", " ")}.`, { appointment_status: status })];
       }
       const startsAt = new Date(String(row.starts_at ?? "")).getTime();
@@ -739,7 +740,76 @@ const lowCheckinHandler: AriaLifecycleHandler = {
   },
 };
 
-/** Registry for the remaining 27 rules (aria_schedule_conflict stays deferred: its identity is one appointment of a pair). */
+/*
+  Cleanup PR C3: aria_schedule_conflict. The action is anchored to ONE appointment of an overlapping pair (related_id);
+  the other appointment is not stored. Reconciliation therefore never guesses the original pair. It re-runs the
+  generator's own conflict definition for the anchor against current data -- other UPCOMING appointments of the studio,
+  not cancelled / declined / no-show, overlapping in time and sharing the instructor or the room -- and:
+    - completes when the anchor has NO remaining conflict at all (so the original pair cannot still conflict);
+    - completes when the anchor itself was cancelled / declined / marked no-show;
+    - expires once the anchor has started (the generator only considers upcoming appointments);
+    - otherwise leaves the action open, even if the conflicting appointment is now a different one (generation then
+      refreshes the wording to the current conflict).
+  The conflict search is exact for the anchor's time range (starts from now up to the anchor's end), not a bounded batch.
+*/
+const SCHEDULE_CONFLICT_EXCLUDED_STATUSES = ["cancelled", "canceled", "declined", "no_show"];
+
+function appointmentWindow(row: Row) {
+  const start = new Date(String(row.starts_at ?? "")).getTime();
+  const end = new Date(String(row.ends_at ?? row.starts_at ?? "")).getTime();
+  return { start, end };
+}
+
+const scheduleConflictHandler: AriaLifecycleHandler = {
+  relatedTable: "appointments",
+  async resolve({ supabase, studioId, now, actions }) {
+    const anchors = await loadById(supabase, "appointments", "id, status, instructor_id, room_id, starts_at, ends_at", studioId, ids(actions));
+    const resolutions: AriaActionResolution[] = [];
+    for (const action of actions) {
+      const anchor = action.related_id ? anchors.get(action.related_id) : undefined;
+      if (!anchor) continue;
+      const { start, end } = appointmentWindow(anchor);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const status = norm(anchor.status);
+      if (SCHEDULE_CONFLICT_EXCLUDED_STATUSES.includes(status)) {
+        resolutions.push(complete(action, "conflict_appointment_cancelled", `Completed automatically: this appointment is now ${status.replaceAll("_", " ")}, so the conflict no longer applies.`, { appointment_status: status }));
+        continue;
+      }
+      if (start <= now.getTime()) {
+        resolutions.push(expire(action, "conflict_window_passed", "Closed automatically: this appointment has started, so the scheduling conflict can no longer be resolved in advance."));
+        continue;
+      }
+      if (!anchor.instructor_id && !anchor.room_id) {
+        resolutions.push(complete(action, "conflict_resources_cleared", "Completed automatically: this appointment no longer shares an instructor or room with another booking."));
+        continue;
+      }
+      const { data, error } = await supabase
+        .from("appointments")
+        .select("id, status, instructor_id, room_id, starts_at, ends_at")
+        .eq("studio_id", studioId)
+        .gte("starts_at", now.toISOString())
+        .lt("starts_at", new Date(Math.max(end, start + 1)).toISOString());
+      if (error) throw new Error(error.message);
+      const stillConflicts = ((data ?? []) as Row[]).some((other) => {
+        if (String(other.id) === String(anchor.id)) return false;
+        if (SCHEDULE_CONFLICT_EXCLUDED_STATUSES.includes(norm(other.status))) return false;
+        const window = appointmentWindow(other);
+        if (!Number.isFinite(window.start) || !Number.isFinite(window.end)) return false;
+        const overlaps = start < window.end && window.start < end;
+        if (!overlaps) return false;
+        const sameInstructor = Boolean(anchor.instructor_id && other.instructor_id && anchor.instructor_id === other.instructor_id);
+        const sameRoom = Boolean(anchor.room_id && other.room_id && anchor.room_id === other.room_id);
+        return sameInstructor || sameRoom;
+      });
+      if (!stillConflicts) {
+        resolutions.push(complete(action, "conflict_cleared", "Completed automatically: this appointment no longer overlaps another upcoming booking for the same instructor or room."));
+      }
+    }
+    return resolutions;
+  },
+};
+
+/** Registry for the remaining 28 rules (C2: 27; C3: aria_schedule_conflict). */
 export const ARIA_C2_LIFECYCLE_HANDLERS: Record<string, AriaLifecycleHandler> = {
   // A
   aria_document_expiration: documentHandler({ dueDateMatters: true }),
@@ -772,4 +842,6 @@ export const ARIA_C2_LIFECYCLE_HANDLERS: Record<string, AriaLifecycleHandler> = 
   aria_marketing_opportunity: marketingDraftHandler,
   aria_inactive_client_reactivation: inactiveReactivationHandler,
   aria_event_low_checkin: lowCheckinHandler,
+  // C3
+  aria_schedule_conflict: scheduleConflictHandler,
 };

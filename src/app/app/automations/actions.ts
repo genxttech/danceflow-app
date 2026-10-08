@@ -4944,6 +4944,27 @@ Thank you,
   };
 }
 
+/**
+ * Cleanup PR C3: a draft is only current execution material while its ARIA action is still open. Once the action was
+ * completed (e.g. by condition reconciliation), dismissed, skipped or handed to delivery, the draft must not be queued.
+ */
+async function loadOpenAutomationActionIds(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  actionIds: string[];
+}) {
+  const { supabase, studioId, actionIds } = params;
+  if (actionIds.length === 0) return new Set<string>();
+  const { data, error } = await supabase
+    .from("automation_actions")
+    .select("id, status")
+    .eq("studio_id", studioId)
+    .in("id", actionIds)
+    .in("status", ARIA_WORDING_REFRESHABLE_STATUSES);
+  if (error) throw new Error(error.message);
+  return new Set(((data ?? []) as Array<{ id: string }>).map((row) => row.id));
+}
+
 export async function createAutomationEmailDraftAction(formData: FormData) {
   const actionId = String(formData.get("actionId") ?? "");
 
@@ -5292,6 +5313,15 @@ export async function queueAutomationEmailDraftAction(formData: FormData) {
 
   if (typedDraft.status !== "draft") {
     redirect("/app/automations?error=draft-not-queueable");
+  }
+
+  const openActionIds = await loadOpenAutomationActionIds({
+    supabase,
+    studioId: context.studioId,
+    actionIds: [actionId],
+  });
+  if (!openActionIds.has(actionId)) {
+    redirect("/app/automations?error=draft-action-closed");
   }
 
   const updatePayload: Record<string, unknown> = {
@@ -6828,9 +6858,19 @@ export async function queueSelectedAutomationEmailDraftsAction(
     body_text: string | null;
   }>;
 
+  const openActionIds = await loadOpenAutomationActionIds({
+    supabase,
+    studioId: context.studioId,
+    actionIds: Array.from(
+      new Set(
+        typedDrafts.map((draft) => draft.related_id).filter(Boolean) as string[],
+      ),
+    ),
+  });
   const queueableDrafts = typedDrafts.filter(
     (draft) =>
       draft.status === "draft" &&
+      Boolean(draft.related_id && openActionIds.has(draft.related_id)) &&
       Boolean(draft.recipient_email?.trim()) &&
       Boolean(draft.subject?.trim()) &&
       Boolean(draft.body_text?.trim()),
@@ -7068,16 +7108,33 @@ async function ensureDefaultAriaAutomationConfiguration(params: {
  */
 export async function refreshAriaActionWordingForStudio(params: {
   studioId: string;
+  /**
+   * Cleanup PR C3: page loads pass the viewer's own (RLS) client and their workspace kind, so only the relevant
+   * builders run and every write stays within what the viewer may already do. The briefing omits both and uses the
+   * service client with every builder.
+   */
+  supabase?: Awaited<ReturnType<typeof createClient>>;
+  workspace?: "studio" | "organizer";
 }): Promise<void> {
-  const { studioId } = params;
-  const supabase = createAdminClient() as unknown as Awaited<
-    ReturnType<typeof createClient>
-  >;
+  const { studioId, workspace } = params;
+  const supabase =
+    params.supabase ??
+    (createAdminClient() as unknown as Awaited<ReturnType<typeof createClient>>);
+  const includeStudio = workspace !== "organizer";
+  const includeOrganizer = workspace !== "studio";
   const candidateGroups = await Promise.all([
-    buildStudioAriaOperationalCandidates({ supabase, studioId }),
-    buildExpandedStudioAriaOperationalCandidates({ supabase, studioId }),
-    buildCompletionAriaOperationalCandidates({ supabase, studioId }),
-    buildOrganizerAriaOperationalCandidates({ supabase, studioId }),
+    includeStudio
+      ? buildStudioAriaOperationalCandidates({ supabase, studioId })
+      : Promise.resolve([]),
+    includeStudio
+      ? buildExpandedStudioAriaOperationalCandidates({ supabase, studioId })
+      : Promise.resolve([]),
+    includeStudio
+      ? buildCompletionAriaOperationalCandidates({ supabase, studioId })
+      : Promise.resolve([]),
+    includeOrganizer
+      ? buildOrganizerAriaOperationalCandidates({ supabase, studioId })
+      : Promise.resolve([]),
   ]);
   await insertAriaOperationalActions({
     supabase,
