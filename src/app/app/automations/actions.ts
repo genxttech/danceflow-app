@@ -28,6 +28,7 @@ import {
   loadAriaIncidentHistory,
   reconcileAriaActionsForStudio,
 } from "@/lib/aria/actionReconciliation";
+import { ariaLowCheckinBody } from "@/lib/aria/lifecycleHandlers";
 
 type AutomationDefinition = {
   key: string;
@@ -2057,7 +2058,13 @@ type ExistingAriaOperationalActionRow = {
   status: string | null;
   assigned_to: string | null;
   snoozed_until?: string | null;
+  title?: string | null;
+  body?: string | null;
+  priority?: string | null;
 };
+
+/** Cleanup PR C2: open statuses whose stored wording may be refreshed (a queued delivery keeps the text it was sent with). */
+const ARIA_WORDING_REFRESHABLE_STATUSES = ["suggested", "drafted", "approved", "snoozed"];
 
 /**
  * Cleanup PR C: policy auto-approval may only promote an existing open row that is still awaiting review -- suggested,
@@ -2084,8 +2091,13 @@ async function insertAriaOperationalActions(params: {
   studioId: string;
   userId: string;
   candidates: AriaOperationalActionCandidate[];
+  /**
+   * Cleanup PR C2: only refresh the wording/priority of existing open actions from current facts -- no inserts, no
+   * approvals, no assignments. Used before the Morning Briefing so it never reports facts older than the briefing.
+   */
+  refreshOnly?: boolean;
 }) {
-  const { supabase, studioId, userId, candidates } = params;
+  const { supabase, studioId, userId, candidates, refreshOnly = false } = params;
   const enabledPackKeys = await loadEnabledAriaOperationalPackKeys({
     supabase,
     studioId,
@@ -2131,7 +2143,7 @@ async function insertAriaOperationalActions(params: {
   for (const [relatedTable, relatedIds] of groupedRelatedIds.entries()) {
     const { data: existing, error } = await supabase
       .from("automation_actions")
-      .select("id, rule_key, related_table, related_id, status, assigned_to, snoozed_until")
+      .select("id, rule_key, related_table, related_id, status, assigned_to, snoozed_until, title, body, priority")
       .eq("studio_id", studioId)
       .eq("related_table", relatedTable)
       .in("related_id", Array.from(relatedIds))
@@ -2206,9 +2218,13 @@ async function insertAriaOperationalActions(params: {
       existingActionUpdates.push({
         action: existingAction,
         candidate,
-        autoApproved,
-        assignTo,
+        autoApproved: refreshOnly ? false : autoApproved,
+        assignTo: refreshOnly ? null : assignTo,
       });
+      continue;
+    }
+
+    if (refreshOnly) {
       continue;
     }
 
@@ -2282,8 +2298,16 @@ async function insertAriaOperationalActions(params: {
     const shouldAssign = Boolean(
       update.assignTo && update.action.assigned_to !== update.assignTo,
     );
+    // Cleanup PR C2: while the condition still holds, the stored wording follows the current facts (counts, dates,
+    // statuses), so ARIA never keeps presenting an outdated value.
+    const shouldRefreshWording =
+      ARIA_WORDING_REFRESHABLE_STATUSES.includes(currentStatus) &&
+      update.action.id !== "pending-insert" &&
+      (update.action.title !== update.candidate.title ||
+        update.action.body !== update.candidate.body ||
+        update.action.priority !== update.candidate.priority);
 
-    if (!shouldApprove && !shouldAssign) {
+    if (!shouldApprove && !shouldAssign && !shouldRefreshWording) {
       continue;
     }
 
@@ -2291,6 +2315,12 @@ async function insertAriaOperationalActions(params: {
     const updatePayload: Record<string, unknown> = {
       updated_at: now,
     };
+
+    if (shouldRefreshWording) {
+      updatePayload.title = update.candidate.title;
+      updatePayload.body = update.candidate.body;
+      updatePayload.priority = update.candidate.priority;
+    }
 
     if (shouldApprove) {
       updatePayload.status = "approved";
@@ -2326,6 +2356,10 @@ async function insertAriaOperationalActions(params: {
     }
 
     updatedCount += 1;
+
+    if (!shouldApprove && !shouldAssign) {
+      continue;
+    }
 
     const { error: eventError } = await supabase
       .from("automation_action_events")
@@ -3965,7 +3999,7 @@ async function buildOrganizerAriaOperationalCandidates(params: {
         ruleDescription:
           "Creates ARIA actions for completed events with low check-in rates.",
         title: `Check-in quality review: ${event.name}`,
-        body: `${event.name} checked in ${Math.round(checkInRate * 100)}% of issued tickets. Review whether scans were missed, attendees no-showed, or reminder timing needs improvement.`,
+        body: ariaLowCheckinBody(event.name, checkInRate),
         priority: "high",
         relatedTable: "events",
         relatedId: event.id,
@@ -7026,6 +7060,32 @@ async function ensureDefaultAriaAutomationConfiguration(params: {
       throw new Error(error.message);
     }
   }
+}
+
+/**
+ * Cleanup PR C2: bring the stored wording of a studio's open ARIA actions up to date with current facts. Creates,
+ * approves, assigns and sends nothing. Used before the Morning Briefing (followed by condition reconciliation).
+ */
+export async function refreshAriaActionWordingForStudio(params: {
+  studioId: string;
+}): Promise<void> {
+  const { studioId } = params;
+  const supabase = createAdminClient() as unknown as Awaited<
+    ReturnType<typeof createClient>
+  >;
+  const candidateGroups = await Promise.all([
+    buildStudioAriaOperationalCandidates({ supabase, studioId }),
+    buildExpandedStudioAriaOperationalCandidates({ supabase, studioId }),
+    buildCompletionAriaOperationalCandidates({ supabase, studioId }),
+    buildOrganizerAriaOperationalCandidates({ supabase, studioId }),
+  ]);
+  await insertAriaOperationalActions({
+    supabase,
+    studioId,
+    userId: "",
+    candidates: candidateGroups.flat(),
+    refreshOnly: true,
+  });
 }
 
 export type ScheduledAriaOperationsResult = {

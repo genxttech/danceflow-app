@@ -14,6 +14,7 @@ import {
   isAriaActionSnoozedUntilFuture,
   reconcileAriaActionsForStudio,
 } from "@/lib/aria/actionReconciliation";
+import { refreshAriaActionWordingForStudio } from "@/app/app/automations/actions";
 
 export type DigestType = "morning" | "end_of_day";
 export type DigestPreferenceRow = {
@@ -365,8 +366,17 @@ export async function processDigestRun(params: {
   });
 
   try {
-    // Cleanup PR C: the briefing must not trust stored action state blindly. Close actions whose condition has already
-    // been resolved before selecting what to report. A reconciliation failure is logged and does not block the briefing.
+    // Cleanup PR C: the briefing must not trust stored action state blindly. Refresh stored wording from current facts
+    // (C2), then close / expire / supersede actions whose condition no longer holds, before selecting what to report.
+    // A failure is logged and does not block the briefing.
+    try {
+      await refreshAriaActionWordingForStudio({ studioId: preference.studio_id });
+    } catch (refreshError) {
+      console.warn("[aria_digest] Wording refresh failed; continuing with stored wording", {
+        studio_id: preference.studio_id,
+        error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+      });
+    }
     try {
       await reconcileAriaActionsForStudio({
         supabase: adminSupabase,

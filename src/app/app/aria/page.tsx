@@ -27,6 +27,7 @@ import { getCommerceIntelligence } from "@/lib/commerce/intelligence";
 import CommerceIntelligenceSection from "@/components/app/commerce/CommerceIntelligenceSection";
 import { loadStudioLifecycleSnapshot } from "@/lib/clients/lifecycle";
 import { isEventPast } from "@/lib/events/eventTiming";
+import { reconcileAriaActionsForStudio } from "@/lib/aria/actionReconciliation";
 
 type ClientPackageRow = {
   id: string;
@@ -391,6 +392,14 @@ export default async function AriaOpportunityHubPage() {
 
   const studioId = context.studioId;
   const organizerWorkspace = isOrganizerRole(context.studioRole);
+
+  // Cleanup PR C2: the active queue shows current facts -- close, expire or supersede actions whose condition no longer
+  // holds before reading them. Never blocks the page.
+  try {
+    await reconcileAriaActionsForStudio({ supabase, studioId });
+  } catch (error) {
+    console.warn("ARIA Opportunity Hub: ARIA condition reconciliation failed", error);
+  }
 
   if (organizerWorkspace) {
     const now = new Date();

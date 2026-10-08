@@ -35,6 +35,7 @@ import {
   updateAutomationActionStatusAction,
 } from "@/app/app/automations/actions";
 import { isEventPast } from "@/lib/events/eventTiming";
+import { reconcileAriaActionsForStudio } from "@/lib/aria/actionReconciliation";
 
 type PriorityTone = "urgent" | "warning" | "info" | "success";
 
@@ -2699,6 +2700,15 @@ export default async function AriaOperationsCenterPage() {
 
   const studioId = context.studioId;
   const organizerWorkspace = isOrganizerRole(context.studioRole);
+
+  // Cleanup PR C2: the active queue shows current facts -- close, expire or supersede actions whose condition no longer
+  // holds before reading them. Never blocks the page.
+  try {
+    await reconcileAriaActionsForStudio({ supabase, studioId });
+  } catch (error) {
+    console.warn("ARIA Operations Center: ARIA condition reconciliation failed", error);
+  }
+
   const now = new Date();
   const nowIso = now.toISOString();
   const ninetyDaysAgoIso = addDays(now, -90).toISOString();

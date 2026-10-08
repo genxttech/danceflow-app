@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ARIA_C2_LIFECYCLE_HANDLERS } from "./lifecycleHandlers";
 import {
   ariaPackageHasReplacementCoverage,
   type AriaPackageWarningItem,
@@ -71,6 +72,13 @@ export type AriaActionResolution = {
   /** Staff-facing explanation, stored as review_note / event note. */
   note: string;
   evidence: Record<string, unknown>;
+  /**
+   * Cleanup PR C2: complete (condition definitively false; default), expire (actionable window ended, stored as the
+   * existing `skipped` status) or refresh (stays open for a human; stored wording superseded with current facts).
+   */
+  kind?: "complete" | "expire" | "refresh";
+  /** refresh only: the current-fact body to store. */
+  body?: string;
 };
 
 type ReconcilerContext = {
@@ -691,6 +699,19 @@ export const ARIA_CONDITION_RECONCILERS: Record<
   low_package_balance: legacyLowPackageReconciler,
 };
 
+/**
+ * Cleanup PR C2: every rule with a current-state handler -- the C1 objective reconcilers, the legacy booking-request rule
+ * (same condition as aria_booking_request_aging), and the remaining opportunity types (src/lib/aria/lifecycleHandlers.ts).
+ * aria_schedule_conflict is deliberately absent: its stored identity is one appointment of an overlapping pair.
+ */
+export const ARIA_LIFECYCLE_HANDLERS: Record<string, AriaConditionReconciler> = {
+  ...ARIA_CONDITION_RECONCILERS,
+  pending_booking_request: bookingRequestAgingReconciler,
+  ...ARIA_C2_LIFECYCLE_HANDLERS,
+};
+
+export const ARIA_LIFECYCLE_RULE_KEYS = Object.keys(ARIA_LIFECYCLE_HANDLERS);
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /* Runner                                                                                                              */
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -699,14 +720,17 @@ export type AriaReconciliationResult = {
   checked: number;
   completed: number;
   completedActionIds: string[];
+  expiredActionIds: string[];
+  refreshedActionIds: string[];
 };
 
 /** Upper bound on open actions examined per studio per run; anything beyond is picked up by the next run. */
 const MAX_ACTIONS_PER_RUN = 500;
 
 /**
- * Re-check every open, reconcilable action of the supported rules for ONE studio against current DanceFlow records and
- * complete the ones whose condition definitively no longer holds. Idempotent and safe to run concurrently.
+ * Re-check every open, eligible action of the supported rules for ONE studio against current DanceFlow records:
+ * complete actions whose condition definitively no longer holds, expire actions whose window has passed (`skipped`),
+ * and supersede stale factual wording on actions that stay open for a human. Idempotent and safe to run concurrently.
  */
 export async function reconcileAriaActionsForStudio(params: {
   supabase: AnySupabaseClient;
@@ -715,70 +739,95 @@ export async function reconcileAriaActionsForStudio(params: {
 }): Promise<AriaReconciliationResult> {
   const { supabase, studioId } = params;
   const now = params.now ?? new Date();
+  const empty = (checked: number): AriaReconciliationResult => ({
+    checked,
+    completed: 0,
+    completedActionIds: [],
+    expiredActionIds: [],
+    refreshedActionIds: [],
+  });
 
   const { data, error } = await supabase
     .from("automation_actions")
-    .select("id, rule_key, related_table, related_id, client_id, status")
+    .select("id, rule_key, related_table, related_id, client_id, status, body")
     .eq("studio_id", studioId)
-    .in("rule_key", [...ARIA_RECONCILED_RULE_KEYS])
+    .in("rule_key", ARIA_LIFECYCLE_RULE_KEYS)
     .in("status", [...ARIA_RECONCILABLE_STATUSES])
     .order("created_at", { ascending: true })
     .limit(MAX_ACTIONS_PER_RUN);
   if (error) throw new Error(error.message);
 
-  const actions = (data ?? []) as ReconcilableAriaAction[];
-  if (actions.length === 0)
-    return { checked: 0, completed: 0, completedActionIds: [] };
+  const actions = (data ?? []) as Array<ReconcilableAriaAction & { body?: string | null }>;
+  if (actions.length === 0) return empty(0);
 
   const resolutions: AriaActionResolution[] = [];
-  for (const ruleKey of ARIA_RECONCILED_RULE_KEYS) {
-    const reconciler = ARIA_CONDITION_RECONCILERS[ruleKey];
+  for (const [ruleKey, handler] of Object.entries(ARIA_LIFECYCLE_HANDLERS)) {
     const ruleActions = actions.filter(
-      (action) =>
-        action.rule_key === ruleKey &&
-        action.related_table === reconciler.relatedTable,
+      (action) => action.rule_key === ruleKey && action.related_table === handler.relatedTable,
     );
     if (ruleActions.length === 0) continue;
-    resolutions.push(
-      ...(await reconciler.resolve({
-        supabase,
-        studioId,
-        now,
-        actions: ruleActions,
-      })),
-    );
+    resolutions.push(...(await handler.resolve({ supabase, studioId, now, actions: ruleActions })));
   }
-  if (resolutions.length === 0)
-    return { checked: actions.length, completed: 0, completedActionIds: [] };
+  if (resolutions.length === 0) return empty(actions.length);
 
   const actionById = new Map(actions.map((action) => [action.id, action]));
   const nowIso = now.toISOString();
-  const completedActionIds: string[] = [];
+  const result = empty(actions.length);
 
-  // One guarded update per (previous status, note) group: the status predicate makes concurrent runs converge, and the
-  // returned rows are exactly the ones this run transitioned.
+  // Wording supersession: open actions only, written only when the stored text differs (idempotent), no status change.
+  for (const resolution of resolutions.filter((item) => item.kind === "refresh")) {
+    const action = actionById.get(resolution.actionId);
+    if (!action || !resolution.body || action.body === resolution.body) continue;
+    const { data: updated, error: refreshError } = await supabase
+      .from("automation_actions")
+      .update({ body: resolution.body, updated_at: nowIso })
+      .eq("studio_id", studioId)
+      .eq("id", action.id)
+      .eq("status", action.status)
+      .select("id");
+    if (refreshError) throw new Error(refreshError.message);
+    if (((updated ?? []) as unknown[]).length > 0) result.refreshedActionIds.push(action.id);
+  }
+
+  // Status transitions: one guarded update per (kind, previous status, note) group. The status predicate makes
+  // concurrent runs converge, and the returned rows are exactly the ones this run transitioned.
   const groups = new Map<string, AriaActionResolution[]>();
   for (const resolution of resolutions) {
+    if (resolution.kind === "refresh") continue;
     const action = actionById.get(resolution.actionId);
     if (!action) continue;
-    const key = `${action.status}\u0000${resolution.note}`;
+    const key = `${resolution.kind ?? "complete"}\u0000${action.status}\u0000${resolution.note}`;
     groups.set(key, [...(groups.get(key) ?? []), resolution]);
   }
 
   for (const [key, group] of groups) {
-    const previousStatus = key.split("\u0000")[0];
+    const [kind, previousStatus] = key.split("\u0000");
+    const expiring = kind === "expire";
     const note = group[0].note;
+    const newStatus = expiring ? "skipped" : "completed";
     const { data: updated, error: updateError } = await supabase
       .from("automation_actions")
-      .update({
-        status: "completed",
-        completed_at: nowIso,
-        completed_by: null,
-        reviewed_at: nowIso,
-        reviewed_by: null,
-        review_note: note,
-        updated_at: nowIso,
-      })
+      .update(
+        expiring
+          ? {
+              status: "skipped",
+              skipped_at: nowIso,
+              skipped_by: null,
+              reviewed_at: nowIso,
+              reviewed_by: null,
+              review_note: note,
+              updated_at: nowIso,
+            }
+          : {
+              status: "completed",
+              completed_at: nowIso,
+              completed_by: null,
+              reviewed_at: nowIso,
+              reviewed_by: null,
+              review_note: note,
+              updated_at: nowIso,
+            },
+      )
       .eq("studio_id", studioId)
       .eq("status", previousStatus)
       .in(
@@ -788,9 +837,7 @@ export async function reconcileAriaActionsForStudio(params: {
       .select("id");
     if (updateError) throw new Error(updateError.message);
 
-    const transitioned = new Set(
-      ((updated ?? []) as Array<{ id: string }>).map((row) => row.id),
-    );
+    const transitioned = new Set(((updated ?? []) as Array<{ id: string }>).map((row) => row.id));
     if (transitioned.size === 0) continue;
 
     const events = group
@@ -798,9 +845,9 @@ export async function reconcileAriaActionsForStudio(params: {
       .map((resolution) => ({
         studio_id: studioId,
         automation_action_id: resolution.actionId,
-        event_type: "completed",
+        event_type: newStatus,
         previous_status: previousStatus,
-        new_status: "completed",
+        new_status: newStatus,
         note: resolution.note,
         metadata: {
           source: ARIA_CONDITION_RECONCILIATION_SOURCE,
@@ -810,26 +857,18 @@ export async function reconcileAriaActionsForStudio(params: {
         },
         created_by: null,
       }));
-    completedActionIds.push(
-      ...events.map((event) => event.automation_action_id),
-    );
+    const transitionedIds = events.map((event) => event.automation_action_id);
+    if (expiring) result.expiredActionIds.push(...transitionedIds);
+    else result.completedActionIds.push(...transitionedIds);
 
-    const { error: eventError } = await supabase
-      .from("automation_action_events")
-      .insert(events);
+    const { error: eventError } = await supabase.from("automation_action_events").insert(events);
     if (eventError) {
-      console.warn(
-        "ARIA condition reconciliation could not record completion events",
-        eventError.message,
-      );
+      console.warn("ARIA condition reconciliation could not record lifecycle events", eventError.message);
     }
   }
 
-  return {
-    checked: actions.length,
-    completed: completedActionIds.length,
-    completedActionIds,
-  };
+  result.completed = result.completedActionIds.length;
+  return result;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */

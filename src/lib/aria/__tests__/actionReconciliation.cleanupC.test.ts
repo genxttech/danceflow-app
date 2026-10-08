@@ -398,7 +398,7 @@ describe("O/P. idempotency and concurrency", () => {
     await run(db);
     const after = { ...db.rows("automation_actions")[0] };
     const second = await run(db);
-    expect(second).toEqual({ checked: 0, completed: 0, completedActionIds: [] });
+    expect(second).toMatchObject({ checked: 0, completed: 0, completedActionIds: [], expiredActionIds: [], refreshedActionIds: [] });
     expect(db.rows("automation_actions")[0]).toEqual(after);
     expect(eventsFor(db, "act-low")).toHaveLength(1);
     expect(db.rows("automation_actions")).toHaveLength(1);
