@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 import { createSignEnvelopeAction, resendSignEnvelopeAction, revokeSignEnvelopeAction } from "./actions";
 
 function formatDate(value: string | null) {
@@ -26,6 +28,9 @@ function message(params: { success?: string; error?: string }) {
 export default async function DanceFlowSignPage({ searchParams }: { searchParams: Promise<{ success?: string; error?: string }> }) {
   const params = await searchParams;
   const context = await getCurrentStudioContext();
+  // Phase 8A: same gate as every other DanceFlow Sign surface -- signer names/emails are not shown to roles that cannot
+  // manage documents.
+  if (!canManageDocumentsRole(context.studioRole)) redirect("/app");
   const supabase = await createClient();
   const { data: envelopes, error } = await supabase.from("document_sign_envelopes")
     .select("id,title,signer_name,signer_email,status,expires_at,sent_at,viewed_at,started_at,completed_at,created_at,last_reminded_at,reminder_count")

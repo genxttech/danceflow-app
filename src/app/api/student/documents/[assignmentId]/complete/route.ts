@@ -15,6 +15,7 @@ import {
   requestIp,
 } from "@/lib/documents/public-signing-security";
 import { SIGNING_CONSENT_TEXT } from "@/lib/documents/consent";
+import { isOpenSignEnvelopeStatus, isSignableAssignmentStatus, OPEN_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
 
 type Params = Promise<{ assignmentId: string }>;
 
@@ -172,7 +173,12 @@ export async function POST(
     });
   }
 
-  if (!["sent", "viewed", "started"].includes(envelope.status)) {
+  // Phase 8A: a waived or void assignment is final and can never be signed from the app.
+  if (!isSignableAssignmentStatus(assignment.status)) {
+    return studentApiJsonError("Signing request is no longer available.", 409);
+  }
+
+  if (!isOpenSignEnvelopeStatus(envelope.status)) {
     return studentApiJsonError("Signing request is no longer available.", 409);
   }
 
@@ -183,7 +189,8 @@ export async function POST(
         status: "expired",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", envelope.id);
+      .eq("id", envelope.id)
+      .in("status", [...OPEN_SIGN_ENVELOPE_STATUSES]);
 
     return studentApiJsonError("Signing request has expired.", 410);
   }
@@ -395,7 +402,8 @@ export async function POST(
     })
     .eq("id", assignment.id)
     .eq("sign_envelope_id", envelope.id)
-    .neq("status", "void");
+    // Phase 8A: only a still-pending assignment moves to signed (never waived -> signed or void -> signed).
+    .eq("status", "pending");
 
   if (assignmentUpdateError) {
     console.error("Student document assignment status update failed", {

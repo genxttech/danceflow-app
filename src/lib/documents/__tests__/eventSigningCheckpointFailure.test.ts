@@ -186,6 +186,8 @@ describe("advanceEventSigningCheckpoint -- two-required-waiver sequence, positio
     expect(tables.document_assignments.rows[0].status).toBe("pending");
 
     const position0EnvelopeId = tables.document_sign_envelopes.rows[0].id as string;
+    // advanceEventSigningCheckpoint runs only after the signer completed the envelope (Phase 8A guards this).
+    tables.document_sign_envelopes.rows[0].status = "completed";
 
     await expect(advanceEventSigningCheckpoint(position0EnvelopeId)).rejects.toThrow(
       "Required event document is no longer available.",
@@ -229,6 +231,8 @@ describe("advanceEventSigningCheckpoint -- checkpoint cleanup update itself also
     expect(begun?.signingUrl).toBeTruthy();
 
     const position0EnvelopeId = tables.document_sign_envelopes.rows[0].id as string;
+    // advanceEventSigningCheckpoint runs only after the signer completed the envelope (Phase 8A guards this).
+    tables.document_sign_envelopes.rows[0].status = "completed";
 
     // Scoped to the *cleanup* update specifically (payload has
     // status:"cancelled") -- not the earlier position-advance update

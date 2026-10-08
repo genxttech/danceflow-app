@@ -218,6 +218,8 @@ function statusMessage(searchParams: SearchParams) {
     return "Title and document text are required.";
   if (searchParams.error === "template_not_found")
     return "Document template not found.";
+  if (searchParams.error === "request_changed")
+    return "This signing request changed while you were working (it may have just been completed). Refresh to see its current status.";
   if (searchParams.error) return decodeURIComponent(searchParams.error);
   return null;
 }
@@ -1124,7 +1126,7 @@ export default async function DocumentsPage({
 
 
   const one = <T,>(value: T | T[] | null): T | null => Array.isArray(value) ? value[0] ?? null : value;
-  const now = Date.now();
+  const now = new Date().getTime();
   const pendingAssignments = ((assignmentRows ?? []) as DocumentAssignmentSummary[])
     .filter((assignment) => assignment.status === "pending")
     .sort((a, b) => {

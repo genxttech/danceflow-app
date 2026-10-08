@@ -445,8 +445,12 @@ export async function advanceEventSigningCheckpoint(envelopeId: string) {
     throw new Error("Event checkout expired before signing was completed.");
   }
 
+  // Phase 8A: only a completed envelope signs its assignment, and only a still-pending assignment moves to signed.
+  if (envelope.status !== "completed") {
+    throw new Error("Event signing cannot advance before the document is completed.");
+  }
   if (envelope.assignment_id) {
-    await admin.from("document_assignments").update({ status: "signed", signed_at: new Date().toISOString(), completed_at: new Date().toISOString() }).eq("id", envelope.assignment_id);
+    await admin.from("document_assignments").update({ status: "signed", signed_at: new Date().toISOString(), completed_at: new Date().toISOString() }).eq("id", envelope.assignment_id).eq("status", "pending");
   }
 
   const nextPosition = Math.max(checkpoint.current_position + 1, Number(checkpoint.current_position ?? 0) + 1);
