@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   evaluatePackageForAppointment,
+  evaluatePackageForAppointmentDates,
   formatPackageBalance,
   getClientPackageStatus,
   getEligiblePackagesForAppointment,
@@ -285,7 +286,7 @@ describe("validateClientPackageForBooking (staff explicit selection: the canonic
       clientId: CLIENT_ID,
       clientPackageId,
       appointmentType: "private_lesson",
-      appointmentDate,
+      appointmentDates: [appointmentDate],
     });
 
   it("passes through with no error when no clientPackageId is supplied (booking without a package)", async () => {
@@ -456,7 +457,7 @@ describe("Package Refund P0, Slice 2b: refund_status='full' entitlement block", 
       clientId: CLIENT_ID,
       clientPackageId: "pkg-1",
       appointmentType: "private_lesson",
-      appointmentDate: "2026-09-01",
+      appointmentDates: ["2026-09-01"],
     });
 
     expect(result).toEqual({ ok: false, error: expect.stringMatching(/refunded/) });
@@ -474,7 +475,7 @@ describe("Package Refund P0, Slice 2b: refund_status='full' entitlement block", 
       clientId: CLIENT_ID,
       clientPackageId: "pkg-1",
       appointmentType: "private_lesson",
-      appointmentDate: "2026-09-01",
+      appointmentDates: ["2026-09-01"],
     });
 
     expect(result.ok).toBe(false);
@@ -497,7 +498,7 @@ describe("Package Refund P0, Slice 2b: refund_status='full' entitlement block", 
         clientId: CLIENT_ID,
         clientPackageId: "pkg-1",
         appointmentType: "private_lesson",
-        appointmentDate: "2026-09-01",
+        appointmentDates: ["2026-09-01"],
       });
 
     expect(await call(partialWithBalance)).toEqual({ ok: true });
@@ -1055,5 +1056,74 @@ describe("canonical scheduling eligibility (picker helpers shared by the forms a
     });
     expect(resolved).toEqual({ outcome: "single_eligible", clientPackageId: "ok", remaining: 2 });
     expect(eligibleIds(rows as ReturnType<typeof candidate>[], APPOINTMENT_DATE_ISO.slice(0, 10))).toEqual(["ok"]);
+  });
+});
+
+describe("evaluatePackageForAppointmentDates (one package across a recurring series)", () => {
+  const pkgWith = (remaining: number | null, overrides: Record<string, unknown> = {}) => ({
+    id: "s",
+    active: true,
+    archived_at: null,
+    expiration_date: null,
+    refund_status: null,
+    client_package_items: [
+      remaining === null
+        ? { usage_type: "private_lesson", quantity_remaining: 0, is_unlimited: true }
+        : { usage_type: "private_lesson", quantity_remaining: remaining, is_unlimited: false },
+    ],
+    ...overrides,
+  });
+  const weekly = ["2026-09-20", "2026-09-27", "2026-10-04", "2026-10-11", "2026-10-18"];
+
+  it("a finite package with one credit per occurrence covers the series", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(5), "private_lesson", weekly)).toEqual({
+      eligible: true,
+      isUnlimited: false,
+      remaining: 5,
+    });
+  });
+
+  it("a finite package with fewer credits than occurrences is refused (not checked per date against the same balance)", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(3), "private_lesson", weekly)).toEqual({
+      eligible: false,
+      reason: "insufficient_credit",
+      remaining: 3,
+      required: 5,
+    });
+  });
+
+  it("a package that expires partway through is refused at the first uncovered date", () => {
+    expect(
+      evaluatePackageForAppointmentDates(pkgWith(10, { expiration_date: "2026-10-04" }), "private_lesson", weekly),
+    ).toEqual({ eligible: false, reason: "expired", date: "2026-10-11" });
+  });
+
+  it("inactive, refunded and depleted packages are refused for a series", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(5, { active: false }), "private_lesson", weekly)).toMatchObject({
+      eligible: false,
+      reason: "inactive",
+    });
+    expect(evaluatePackageForAppointmentDates(pkgWith(5, { refund_status: "full" }), "private_lesson", weekly)).toMatchObject({
+      eligible: false,
+      reason: "refunded",
+    });
+    expect(evaluatePackageForAppointmentDates(pkgWith(0), "private_lesson", weekly)).toMatchObject({
+      eligible: false,
+      reason: "depleted",
+    });
+  });
+
+  it("an unlimited package covers any series length when otherwise eligible", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(null), "coaching", weekly)).toEqual({
+      eligible: true,
+      isUnlimited: true,
+      remaining: null,
+    });
+  });
+
+  it("a single date behaves exactly like the single-appointment rule", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(1), "private_lesson", ["2026-09-20"])).toEqual(
+      evaluatePackageForAppointment(pkgWith(1), "private_lesson", "2026-09-20"),
+    );
   });
 });

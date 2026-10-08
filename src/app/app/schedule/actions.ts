@@ -1743,18 +1743,21 @@ export async function createAppointmentAction(
     }
 
     // Attaching a package: the canonical eligibility rule for this appointment type and its studio-local date
-    // (the same rule the picker uses). Booking without a package is unaffected.
-    const packageValidation = await validateClientPackageForBooking({
-      supabase,
-      studioId,
-      clientId,
-      clientPackageId: relations.client_package_id,
-      appointmentType,
-      appointmentDate: getZonedDateKey(new Date(startsAt), studioTimeZone),
-    });
+    // (the same rule the picker uses). A recurring request is checked against every occurrence further below,
+    // before any row is written. Booking without a package is unaffected.
+    if (!getBoolean(formData, "isRecurring")) {
+      const packageValidation = await validateClientPackageForBooking({
+        supabase,
+        studioId,
+        clientId,
+        clientPackageId: relations.client_package_id,
+        appointmentType,
+        appointmentDates: [getZonedDateKey(new Date(startsAt), studioTimeZone)],
+      });
 
-    if (!packageValidation.ok) {
-      return { error: packageValidation.error ?? "Package cannot be used." };
+      if (!packageValidation.ok) {
+        return { error: packageValidation.error ?? "Package cannot be used." };
+      }
     }
 
     let resolvedClientMembershipId: string | null = null;
@@ -1930,6 +1933,23 @@ export async function createAppointmentAction(
 
     if (!occurrenceDates.length) {
       return { error: "No recurring dates were generated." };
+    }
+
+    // The package is linked to EVERY occurrence: each must be eligible on its own studio-local date (occurrence dates
+    // are generated in the studio's calendar), and a finite package needs a credit per occurrence -- links reserve
+    // nothing, so an oversized series would otherwise be accepted and fail lesson by lesson. Checked before any
+    // conflict lookups or writes, so a refused series creates nothing.
+    const seriesPackageValidation = await validateClientPackageForBooking({
+      supabase,
+      studioId,
+      clientId,
+      clientPackageId: relations.client_package_id,
+      appointmentType,
+      appointmentDates: occurrenceDates,
+    });
+
+    if (!seriesPackageValidation.ok) {
+      return { error: seriesPackageValidation.error ?? "Package cannot be used." };
     }
 
     const startTime = getTimeInTimeZone(startsAt, studioTimeZone);
@@ -2425,7 +2445,7 @@ export async function updateAppointmentAction(
           clientId,
           clientPackageId: relations.client_package_id,
           appointmentType,
-          appointmentDate: getZonedDateKey(new Date(startsAt), studioTimeZone),
+          appointmentDates: [getZonedDateKey(new Date(startsAt), studioTimeZone)],
         });
 
         if (!packageValidation.ok) {

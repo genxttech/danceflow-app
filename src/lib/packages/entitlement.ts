@@ -170,6 +170,45 @@ export function evaluatePackageForAppointment(
   return { eligible: true, isUnlimited: false, remaining };
 }
 
+export type PackageSeriesEvaluation =
+  | { readonly eligible: true; readonly isUnlimited: boolean; readonly remaining: number | null }
+  | { readonly eligible: false; readonly reason: PackageIneligibleReason; readonly date: string }
+  | { readonly eligible: false; readonly reason: "insufficient_credit"; readonly remaining: number; readonly required: number };
+
+/**
+ * A package linked to every appointment in a request (one appointment, or every occurrence of a recurring series):
+ * each occurrence must be eligible on its OWN studio-local date (so a package that expires partway through a series
+ * is refused), and a finite package must have at least one credit per package-consuming occurrence being created --
+ * links reserve nothing and credits are only deducted at attendance, so a series larger than the remaining balance
+ * would otherwise be accepted and then fail lesson by lesson. Unlimited packages are subject to the date/status/type
+ * rules only.
+ */
+export function evaluatePackageForAppointmentDates(
+  pkg: PackageEligibilityCandidate,
+  appointmentType: string,
+  appointmentDates: readonly string[],
+): PackageSeriesEvaluation {
+  const dates = [...new Set(appointmentDates)].sort();
+  let first: PackageEligibilityEvaluation | null = null;
+  for (const date of dates) {
+    const evaluation = evaluatePackageForAppointment(pkg, appointmentType, date);
+    if (!evaluation.eligible) return { eligible: false, reason: evaluation.reason, date };
+    first ??= evaluation;
+  }
+  if (!first || !first.eligible) {
+    return { eligible: false, reason: "no_matching_usage", date: "" };
+  }
+  if (!first.isUnlimited && (first.remaining ?? 0) < appointmentDates.length) {
+    return {
+      eligible: false,
+      reason: "insufficient_credit",
+      remaining: first.remaining ?? 0,
+      required: appointmentDates.length,
+    };
+  }
+  return first;
+}
+
 export type EligiblePackageOption = {
   readonly id: string;
   readonly name: string;
@@ -352,8 +391,9 @@ export async function isPackageStillEligible(params: {
  * client), then the canonical `evaluatePackageForAppointment` rule -- the
  * exact rule the scheduling picker uses to decide which packages to offer, so
  * the UI and the server cannot disagree. Unconditional: the former
- * `block_depleted_package_booking` "warn only" softening no longer applies to
- * attaching a package, because a package that cannot fund the booking would
+ * `block_depleted_package_booking` "warn only" setting (column kept as dormant
+ * schema; no longer shown, written or read) does not apply to attaching a
+ * package, because a package that cannot fund the booking would
  * only fail later at attendance-time deduction. Booking WITHOUT a package
  * (`clientPackageId` null) is unaffected and stays governed by the caller's
  * billing rules.
@@ -364,10 +404,13 @@ export async function validateClientPackageForBooking(params: {
   clientId: string;
   clientPackageId: string | null;
   appointmentType: string;
-  /** Studio-local appointment date, `YYYY-MM-DD`. */
-  appointmentDate: string;
+  /**
+   * The studio-local date (`YYYY-MM-DD`) of every appointment that will carry this package: one date for a single
+   * appointment, every occurrence date for a recurring series.
+   */
+  appointmentDates: readonly string[];
 }): Promise<PackageValidationResult> {
-  const { supabase, studioId, clientId, clientPackageId, appointmentType, appointmentDate } = params;
+  const { supabase, studioId, clientId, clientPackageId, appointmentType, appointmentDates } = params;
 
   if (!clientPackageId) return { ok: true };
 
@@ -393,17 +436,32 @@ export async function validateClientPackageForBooking(params: {
     };
   }
 
-  const evaluation = evaluatePackageForAppointment(row, appointmentType, appointmentDate);
+  if (appointmentDates.length === 0) {
+    return { ok: false, error: "Selected package could not be checked for this appointment date." };
+  }
+
+  const evaluation = evaluatePackageForAppointmentDates(row, appointmentType, appointmentDates);
   if (evaluation.eligible) return { ok: true };
 
+  const isSeries = appointmentDates.length > 1;
   switch (evaluation.reason) {
+    case "insufficient_credit":
+      return {
+        ok: false,
+        error: `Selected package has ${evaluation.remaining} ${evaluation.remaining === 1 ? "lesson" : "lessons"} remaining, but this series books ${evaluation.required}. Shorten the series or choose another package.`,
+      };
     case "refunded":
       return { ok: false, error: "Selected package has been refunded and cannot be used for booking." };
     case "inactive":
     case "archived":
       return { ok: false, error: "Selected package is inactive and cannot be used for booking." };
     case "expired":
-      return { ok: false, error: "Selected package is expired for this appointment date." };
+      return {
+        ok: false,
+        error: isSeries
+          ? `Selected package expires before ${evaluation.date}, which is part of this series.`
+          : "Selected package is expired for this appointment date.",
+      };
     case "no_matching_usage":
       return { ok: false, error: "Selected package does not cover this type of appointment." };
     case "depleted":

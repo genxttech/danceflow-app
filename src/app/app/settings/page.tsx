@@ -42,7 +42,6 @@ type StudioSettingsRow = {
   booking_lead_time_hours: number | null;
   no_show_deducts_lesson: boolean | null;
   allow_negative_balance: boolean | null;
-  block_depleted_package_booking: boolean | null;
   block_depleted_membership_booking: boolean | null;
   block_unpaid_membership_booking: boolean | null;
   warn_low_package_balance: boolean | null;
@@ -173,7 +172,6 @@ export default async function SettingsPage() {
         booking_lead_time_hours,
         no_show_deducts_lesson,
         allow_negative_balance,
-        block_depleted_package_booking,
         block_depleted_membership_booking,
         block_unpaid_membership_booking,
         warn_low_package_balance,
