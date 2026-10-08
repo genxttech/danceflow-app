@@ -5,6 +5,12 @@ import {
   studentApiJsonError,
 } from "@/lib/auth/studentApiAuth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { presentDocumentAssignment, type DocumentPresentation } from "@/lib/documents/presentation";
+import { OPEN_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
+
+function presentationFields(presentation: DocumentPresentation) {
+  return { presentationState: presentation.state, statusLabel: presentation.label, needsAction: presentation.needsAction };
+}
 
 type Params = Promise<{ assignmentId: string }>;
 
@@ -101,6 +107,14 @@ export async function GET(
         signedAt: assignment.signed_at,
         envelopeStatus: null,
         nativeSigningAvailable: false,
+        ...presentationFields(
+          presentDocumentAssignment({
+            assignmentStatus: assignment.status,
+            dueAt: assignment.due_at,
+            hasEnvelope: false,
+            envelope: null,
+          }),
+        ),
         signerName: "",
         signerEmail: auth.user.email ?? null,
         expiresAt: null,
@@ -156,7 +170,9 @@ export async function GET(
         status: "expired",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", envelope.id);
+      .eq("id", envelope.id)
+      // Phase 8C (8A rule): lazy expiry never overwrites a concurrently completed / closed envelope.
+      .in("status", [...OPEN_SIGN_ENVELOPE_STATUSES]);
     envelope.status = "expired";
   }
 
@@ -236,6 +252,15 @@ export async function GET(
     assignment.status === "signed" ||
     Boolean(assignment.signed_at || envelope.completed_at);
 
+  // Phase 8C: native signing is offered only for an actionable request (never waived / void / expired / declined /
+  // signed / being prepared), per the shared presentation contract.
+  const presentation = presentDocumentAssignment({
+    assignmentStatus: completed ? "signed" : assignment.status,
+    dueAt: assignment.due_at,
+    hasEnvelope: true,
+    envelope,
+  });
+
   return NextResponse.json({
     document: {
       id: assignment.id,
@@ -253,7 +278,8 @@ export async function GET(
       assignedAt: assignment.assigned_at,
       signedAt: assignment.signed_at ?? envelope.completed_at ?? null,
       envelopeStatus: envelope.status,
-      nativeSigningAvailable: true,
+      nativeSigningAvailable: presentation.needsAction,
+      ...presentationFields(presentation),
       signerName: envelope.signer_name,
       signerEmail: envelope.signer_email,
       expiresAt: envelope.expires_at,

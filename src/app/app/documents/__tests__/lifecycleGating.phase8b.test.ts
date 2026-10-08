@@ -760,7 +760,8 @@ describe("revise (protected revision)", () => {
     const response = await GET(new NextRequest("https://example.test/portal/studio-a/documents/asg-1/sign"), {
       params: Promise.resolve({ studioSlug: "studio-a", assignmentId: "asg-1" }),
     });
-    expect(response.headers.get("location")).toMatch(/\/sign\/[^/?]+$/);
+    // Phase 8C: the hand-off also carries the verified client so the signer returns to that client's documents.
+    expect(response.headers.get("location")).toMatch(/\/sign\/[^/?]+\?portal=studio-a&client=client-a$/);
   });
 
   it.each(["waived", "void", "signed"])("refuses to reopen a %s requirement and creates nothing", async (status) => {

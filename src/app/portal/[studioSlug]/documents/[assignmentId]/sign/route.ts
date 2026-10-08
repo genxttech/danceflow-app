@@ -7,6 +7,7 @@ import {
 } from "@/lib/documents/signing";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 import { isSignableAssignmentStatus } from "@/lib/documents/signing-integrity";
+import { portalReturnQuery } from "@/lib/documents/portal-return";
 
 type Params = Promise<{
   studioSlug: string;
@@ -197,6 +198,10 @@ export async function GET(
   }
 
   return NextResponse.redirect(
-    new URL(`/sign/${encodeURIComponent(token)}`, request.url),
+    new URL(
+      // Phase 8C: keep the verified client so the signer returns to that client's documents (re-verified there).
+      `/sign/${encodeURIComponent(token)}?${portalReturnQuery({ studioSlug: studio.slug ?? studioSlug, clientId: relationship.clientId })}`,
+      request.url,
+    ),
   );
 }

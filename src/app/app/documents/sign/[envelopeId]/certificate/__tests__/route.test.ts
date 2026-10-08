@@ -64,6 +64,9 @@ function makeAdminClient(fixture: Fixture) {
       chain.eq = self;
       if (table === "document_sign_envelopes") {
         chain.maybeSingle = () => Promise.resolve({ data: fixture.envelope, error: null });
+      } else if (table === "document_sign_events") {
+        // Phase 8C: the certificate reads the recorded audit trail (none in these fixtures).
+        chain.order = () => Promise.resolve({ data: [], error: null });
       } else if (table === "studios") {
         chain.maybeSingle = () =>
           Promise.resolve({ data: { name: "Test Studio", public_name: null, public_logo_url: null }, error: null });

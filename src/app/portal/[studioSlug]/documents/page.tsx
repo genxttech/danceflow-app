@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { signPortalDocumentAction } from "./actions";
 import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
+import { presentDocumentAssignment, presentPortalTemplate, type DocumentPresentation } from "@/lib/documents/presentation";
 
 type Params = Promise<{
   studioSlug: string;
@@ -88,6 +89,7 @@ type DocumentItem = {
   signature: SignatureRow | null;
   isSigned: boolean;
   isRequired: boolean;
+  presentation: DocumentPresentation;
 };
 
 function formatDateTime(value: string | null) {
@@ -298,7 +300,7 @@ export default async function PortalDocumentsPage({
 
   let templatesById = new Map<string, TemplateRow>();
   let versionsById = new Map<string, VersionRow>();
-  let latestVersionsByTemplateId = new Map<string, VersionRow>();
+  const latestVersionsByTemplateId = new Map<string, VersionRow>();
 
   if (allTemplateIds.length) {
     const [{ data: templates, error: templatesError }, { data: versions, error: versionsError }] =
@@ -364,19 +366,21 @@ export default async function PortalDocumentsPage({
       const version = assignment.template_version_id
         ? versionsById.get(assignment.template_version_id) ?? null
         : latestVersionsByTemplateId.get(template.id) ?? null;
-      const signature =
-        signaturesByAssignmentId.get(assignment.id) ??
-        (version?.id
-          ? signaturesByTemplateVersion.get(`${template.id}:${version.id}`)
-          : undefined) ??
-        null;
+      // Phase 8C: only a legacy signature bound to THIS assignment counts, and never for an envelope-backed request
+      // (an older signature of the same template / version does not sign a newer request).
+      const signature = assignment.sign_envelope_id
+        ? null
+        : signaturesByAssignmentId.get(assignment.id) ?? null;
       const envelope = assignment.sign_envelope_id
         ? envelopesById.get(assignment.sign_envelope_id) ?? null
         : null;
-      const isSigned =
-        assignment.status === "signed" ||
-        envelope?.status === "completed" ||
-        Boolean(signature);
+      const presentation = presentDocumentAssignment({
+        assignmentStatus: assignment.status,
+        dueAt: assignment.due_at,
+        hasEnvelope: Boolean(assignment.sign_envelope_id),
+        envelope,
+        legacySignature: Boolean(signature),
+      });
 
       return {
         key: `assignment-${assignment.id}`,
@@ -385,8 +389,9 @@ export default async function PortalDocumentsPage({
         template,
         version,
         signature,
-        isSigned,
+        isSigned: presentation.state === "signed",
         isRequired: Boolean(template.is_required || version?.is_required),
+        presentation,
       };
     })
     .filter(Boolean) as DocumentItem[];
@@ -402,6 +407,13 @@ export default async function PortalDocumentsPage({
           ? signaturesByTemplateVersion.get(`${template.id}:${version.id}`)
           : undefined) ?? signaturesByTemplate.get(template.id) ?? null;
 
+      const isRequired = Boolean(template.is_required || version?.is_required);
+      const presentation = presentPortalTemplate({
+        signed: Boolean(signature),
+        requiresSignature: Boolean(template.requires_signature || version?.requires_signature),
+        isRequired,
+      });
+
       return {
         key: `template-${template.id}`,
         assignment: null,
@@ -409,30 +421,26 @@ export default async function PortalDocumentsPage({
         template,
         version,
         signature,
-        isSigned: Boolean(signature),
-        isRequired: Boolean(template.is_required || version?.is_required),
+        isSigned: presentation.state === "signed",
+        isRequired,
+        presentation,
       };
     });
 
   const documentItems = [...assignedItems, ...allClientItems].sort((a, b) => {
+    if (a.presentation.needsAction !== b.presentation.needsAction) return a.presentation.needsAction ? -1 : 1;
     if (a.isSigned !== b.isSigned) return a.isSigned ? 1 : -1;
     if (a.isRequired !== b.isRequired) return a.isRequired ? -1 : 1;
     return a.template.title.localeCompare(b.template.title);
   });
 
-  const unsignedItems = documentItems.filter((item) => !item.isSigned);
-  const signedItems = documentItems.filter((item) => item.isSigned);
-  const overdueItems = unsignedItems.filter((item) =>
-    isOverdue(item.assignment?.due_at ?? null),
-  );
-  const referenceItems = documentItems.filter(
-    (item) =>
-      item.isSigned ||
-      (!item.isRequired &&
-        !item.assignment &&
-        !item.template.requires_signature &&
-        !item.version?.requires_signature),
-  );
+  // Phase 8C: "needs your action" = the shared presentation contract (actionable states only). Everything else --
+  // signed, waived, expired, declined, being prepared, reference -- is history / reference, never a signing prompt.
+  const unsignedItems = documentItems.filter((item) => item.presentation.needsAction);
+  const signedItems = documentItems.filter((item) => item.presentation.state === "signed");
+  const overdueItems = documentItems.filter((item) => item.presentation.state === "overdue");
+  const referenceItems = documentItems.filter((item) => !item.presentation.needsAction);
+  const canSign = relationship.canSignDocuments;
   const eventDocumentCount = documentItems.filter((item) =>
     ["event", "event_registration"].includes(item.template.applies_to ?? ""),
   ).length;
@@ -452,18 +460,18 @@ export default async function PortalDocumentsPage({
         id={item.key}
         key={item.key}
         className={`scroll-mt-6 overflow-hidden rounded-[28px] border bg-white shadow-sm ${
-          !item.isSigned && isPastDue
+          item.presentation.state === "overdue"
             ? "border-rose-200"
-            : !item.isSigned
+            : item.presentation.needsAction
               ? "border-orange-200"
               : "border-slate-200"
         }`}
       >
         <div
           className={`border-b p-5 ${
-            !item.isSigned && isPastDue
+            item.presentation.state === "overdue"
               ? "border-rose-200 bg-rose-50"
-              : !item.isSigned
+              : item.presentation.needsAction
                 ? "border-orange-200 bg-orange-50"
                 : "border-slate-200 bg-slate-50"
           }`}
@@ -482,19 +490,19 @@ export default async function PortalDocumentsPage({
                     Required
                   </span>
                 ) : null}
-                {item.isSigned ? (
-                  <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
-                    Signed
-                  </span>
-                ) : isPastDue ? (
-                  <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700 ring-1 ring-rose-100">
-                    Past Due
-                  </span>
-                ) : (
-                  <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700 ring-1 ring-orange-100">
-                    Needs Signature
-                  </span>
-                )}
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1 ${
+                    item.presentation.state === "signed"
+                      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                      : item.presentation.state === "overdue"
+                        ? "bg-rose-50 text-rose-700 ring-rose-100"
+                        : item.presentation.needsAction
+                          ? "bg-orange-50 text-orange-700 ring-orange-100"
+                          : "bg-slate-100 text-slate-700 ring-slate-200"
+                  }`}
+                >
+                  {item.presentation.label}
+                </span>
               </div>
               <h2 className="mt-3 text-xl font-semibold text-slate-950">
                 {displayTitle}
@@ -506,7 +514,7 @@ export default async function PortalDocumentsPage({
               ) : null}
             </div>
             <div className="text-sm text-slate-500 md:text-right">
-              {item.isSigned ? (
+              {!item.presentation.needsAction && !item.isSigned ? null : item.isSigned ? (
                 <p>
                   Signed{" "}
                   {formatDateTime(
@@ -530,13 +538,14 @@ export default async function PortalDocumentsPage({
           </div>
 
           <div className="border-t border-slate-200 bg-slate-50 p-5 lg:border-l lg:border-t-0">
-            {item.isSigned ? (
+            {item.presentation.state === "signed" ? (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                 <p className="text-sm font-semibold text-emerald-900">
                   Signature recorded
                 </p>
                 <p className="mt-2 text-sm leading-6 text-emerald-800">
-                  Signed by {item.signature?.signer_name || getClientName(typedClient)} on{" "}
+                  {/* Phase 8C: name the signer only from legacy signature evidence; never assume the client signed. */}
+                  {item.signature?.signer_name ? `Signed by ${item.signature.signer_name} on ` : "Signed on "}
                   {formatDateTime(
                     item.signature?.signed_at ?? item.assignment?.signed_at ?? null,
                   )}
@@ -555,20 +564,47 @@ export default async function PortalDocumentsPage({
                   </Link>
                 ) : null}
               </div>
+            ) : item.presentation.state === "preparing" ? (
+              <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                <p className="text-sm font-semibold text-violet-950">
+                  Your studio is preparing this document
+                </p>
+                <p className="mt-2 text-sm leading-6 text-violet-800">
+                  The signing fields are still being prepared. You will be able to
+                  open and sign the document here as soon as it is sent.
+                </p>
+              </div>
+            ) : item.presentation.state === "waived" ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-950">No signature needed</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">The studio waived this document, so it does not need a signature.</p>
+              </div>
+            ) : item.presentation.state === "void" ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-950">Document voided</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">The studio voided this document. Contact the studio if you have questions.</p>
+              </div>
+            ) : item.presentation.state === "expired" ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-950">Signing request expired</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">This signing request expired. Contact the studio if you still need to sign it.</p>
+              </div>
+            ) : item.presentation.state === "declined" ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-950">Signing request declined</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">This signing request was declined. Contact the studio if you still need to sign it.</p>
+              </div>
+            ) : item.presentation.state === "unavailable" ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-950">Signing request unavailable</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">This request was withdrawn or is no longer available. Contact the studio if you still need to sign it.</p>
+              </div>
+            ) : !canSign ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-950">Signing not available for your account</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Your account can view this document but is not set up to sign it. Contact the studio if you need to sign.</p>
+              </div>
             ) : item.assignment?.sign_envelope_id ? (
-              item.envelope?.status === "draft" ? (
-                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
-                  <p className="text-sm font-semibold text-violet-950">
-                    Your studio is preparing this document
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-violet-800">
-                    The signing fields are still being prepared. You will be able to
-                    open and sign the document here as soon as it is sent.
-                  </p>
-                </div>
-              ) : item.envelope &&
-                ["sent", "viewed", "started"].includes(item.envelope.status) &&
-                new Date(item.envelope.expires_at).getTime() > Date.now() ? (
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
                     <p className="text-sm font-semibold text-orange-950">
@@ -590,17 +626,6 @@ export default async function PortalDocumentsPage({
                     Review and Sign Securely
                   </Link>
                 </div>
-              ) : (
-                <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <p className="text-sm font-semibold text-slate-950">
-                    Signing request unavailable
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    This request expired, was declined, or was withdrawn. Contact the
-                    studio if you still need to sign it.
-                  </p>
-                </div>
-              )
             ) : (
               <form action={signPortalDocumentAction} className="space-y-4">
                 <input type="hidden" name="studioSlug" value={typedStudio.slug} />
@@ -639,7 +664,7 @@ export default async function PortalDocumentsPage({
                 </button>
 
                 <p className="text-xs leading-5 text-slate-500">
-                  This older document uses DanceFlow's legacy typed-signature flow.
+                  This older document uses DanceFlow&apos;s legacy typed-signature flow.
                 </p>
               </form>
             )}

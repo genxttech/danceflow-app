@@ -32,8 +32,8 @@ function extractBlock(source: string, startMarker: string, endMarker: string) {
 describe("portal documents page -- signed-document download link (BR-3D2b1)", () => {
   const signedBlock = extractBlock(
     pageSource,
-    "{item.isSigned ? (",
-    ") : item.assignment?.sign_envelope_id ? (",
+    '{item.presentation.state === "signed" ? (',
+    ') : item.presentation.state === "preparing" ? (',
   );
 
   it("renders the download link only inside the already-signed branch, gated on sign_envelope_id", () => {
@@ -52,9 +52,10 @@ describe("portal documents page -- signed-document download link (BR-3D2b1)", ()
     expect(signedBlock).not.toMatch(/token/i);
   });
 
-  it("preserves the existing signer/completion text unchanged", () => {
+  it("names the signer only from recorded legacy evidence, never by assuming the client signed (Phase 8C)", () => {
     expect(signedBlock).toContain("Signature recorded");
-    expect(signedBlock).toMatch(/Signed by \{item\.signature\?\.signer_name/);
+    expect(signedBlock).toMatch(/item\.signature\?\.signer_name \? `Signed by \$\{item\.signature\.signer_name\} on `/);
+    expect(signedBlock).not.toMatch(/getClientName/);
   });
 
   it("the pending/unsigned branch (sign_envelope_id present, not yet signed) does not contain the download link", () => {
@@ -70,7 +71,7 @@ describe("portal documents page -- signed-document download link (BR-3D2b1)", ()
     const legacyBlock = extractBlock(
       pageSource,
       "<form action={signPortalDocumentAction}",
-      "This older document uses DanceFlow's legacy typed-signature flow.",
+      "This older document uses DanceFlow&apos;s legacy typed-signature flow.",
     );
     expect(legacyBlock).not.toMatch(/Download signed document/);
   });
