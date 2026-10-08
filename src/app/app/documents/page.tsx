@@ -4,7 +4,8 @@ import { AlertTriangle, CheckCircle2, Clock3, FileSignature, History, Plus, Send
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewClients, isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
-import { requireStudioFeature } from "@/lib/billing/access";
+import { requireStudioFeature, studioHasFeature } from "@/lib/billing/access";
+import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 import {
   assignDocumentToClientAction,
   assignDocumentToEventAction,
@@ -516,6 +517,7 @@ function TemplateCard({
   pendingAssignmentCount,
   signedRecordCount,
   isOrganizerWorkspace,
+  readOnly = false,
 }: {
   template: DocumentTemplate;
   organizers: OrganizerOption[];
@@ -525,6 +527,7 @@ function TemplateCard({
   pendingAssignmentCount: number;
   signedRecordCount: number;
   isOrganizerWorkspace: boolean;
+  readOnly?: boolean;
 }) {
   const organizerName = organizers.find(
     (organizer) => organizer.id === template.organizer_id,
@@ -585,6 +588,7 @@ function TemplateCard({
             </div>
           </div>
 
+          {readOnly ? null : (
           <form action={toggleDocumentTemplateStatusAction}>
             <input type="hidden" name="templateId" value={template.id} />
             <input type="hidden" name="scope" value={template.scope} />
@@ -607,8 +611,11 @@ function TemplateCard({
               {template.is_active ? "Deactivate" : "Activate"}
             </button>
           </form>
+          )}
         </div>
       </summary>
+      {readOnly ? null : (
+      <>
 
       {!isOrganizerWorkspace &&
       template.scope === "studio" &&
@@ -950,6 +957,8 @@ function TemplateCard({
           Save changes
         </button>
       </form>
+      </>
+      )}
     </details>
   );
 }
@@ -960,9 +969,15 @@ export default async function DocumentsPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const resolvedSearchParams = (await searchParams) ?? {};
-  await requireStudioFeature("documents");
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
+  // Phase 8B: without the Documents feature the Center stays available as a READ-ONLY history of the records created
+  // while it was active (record retention) -- for document-management roles only. It is discovery / navigation:
+  // every management action keeps its own server-side feature gate, so hiding the controls is not the protection.
+  const canManage = await studioHasFeature("documents");
+  if (!canManage && !canManageDocumentsRole(context.studioRole)) {
+    await requireStudioFeature("documents");
+  }
   const isOrganizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
 
   // FC-1B5D: this page had no role gate for the studio-workspace branch --
@@ -1183,6 +1198,7 @@ export default async function DocumentsPage({
             fields, send requests, track progress, and retain completed records from one workspace.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
+            {canManage ? (
             <a
               href="#create-document"
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-[var(--brand-primary)] shadow-sm transition hover:bg-white/90"
@@ -1190,6 +1206,7 @@ export default async function DocumentsPage({
               <Plus className="h-4 w-4" />
               Create document
             </a>
+            ) : null}
             <a
               href="#active-requests"
               className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:bg-white/20"
@@ -1201,6 +1218,12 @@ export default async function DocumentsPage({
         </div>
       </section>
 
+      {!canManage ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Your Documents feature is not active. Existing document records remain available read-only.
+        </div>
+      ) : null}
+
       {pageMessage ? (
         <div
           className={`rounded-2xl border p-4 text-sm ${isError ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
@@ -1209,6 +1232,7 @@ export default async function DocumentsPage({
         </div>
       ) : null}
 
+      {canManage ? (
       <section id="create-document" className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--brand-primary)]">Create document</p>
@@ -1291,6 +1315,7 @@ export default async function DocumentsPage({
           </details>
         </div>
       </section>
+      ) : null}
 
       <section className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1339,7 +1364,7 @@ export default async function DocumentsPage({
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {assignment.client_id ? <Link href={`/app/clients/${assignment.client_id}?tab=documents`} className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--brand-text)]">Open client</Link> : null}
-                      {draftEnvelope && assignment.sign_envelope_id ? (
+                      {!canManage ? null : draftEnvelope && assignment.sign_envelope_id ? (
                         <Link
                           href={`/app/documents/sign/${assignment.sign_envelope_id}/edit`}
                           className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"
@@ -1350,7 +1375,7 @@ export default async function DocumentsPage({
                       ) : !missingEmail ? (
                         <form action={sendDocumentReminderAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"><Send className="h-3.5 w-3.5"/>Send reminder</button></form>
                       ) : null}
-                      {!assignment.event_signing_checkpoint_id ? (
+                      {canManage && !assignment.event_signing_checkpoint_id ? (
                         <form action={updateDocumentAssignmentDueDateAction} className="flex items-center gap-1">
                           <input type="hidden" name="assignmentId" value={assignment.id} />
                           <input type="hidden" name="scope" value="studio" />
@@ -1358,8 +1383,10 @@ export default async function DocumentsPage({
                           <button className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--brand-text)]">Set due date</button>
                         </form>
                       ) : null}
+                      {canManage ? (<>
                       <form action={waiveDocumentAssignmentAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800">Waive</button></form>
                       <form action={voidDocumentAssignmentAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><input type="hidden" name="reason" value="Voided from Document Operations Center."/><button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">Void</button></form>
+                      </>) : null}
                     </div>
                   </div>
                 </div>
@@ -1407,14 +1434,14 @@ export default async function DocumentsPage({
             </thead>
             <tbody>
               {allEnvelopes.map((item) => {
-                const active = ["sent", "viewed", "started"].includes(item.status);
+                const active = canManage && ["sent", "viewed", "started"].includes(item.status);
                 const fieldCount = item.document_sign_fields?.length ?? 0;
                 return (
                   <tr key={item.id} className="border-b border-slate-100 align-top">
                     <td className="py-4 pr-4">
                       <Link
                         className="font-semibold text-[var(--brand-primary)] hover:underline"
-                        href={item.status === "draft" ? `/app/documents/sign/${item.id}/edit` : `/app/documents/sign/${item.id}`}
+                        href={canManage && item.status === "draft" ? `/app/documents/sign/${item.id}/edit` : `/app/documents/sign/${item.id}`}
                       >
                         {item.title}
                       </Link>
@@ -1449,7 +1476,7 @@ export default async function DocumentsPage({
                     </td>
                     <td className="py-4">
                       <div className="flex flex-wrap gap-2">
-                        {item.status === "draft" ? (
+                        {canManage && item.status === "draft" ? (
                           <Link href={`/app/documents/sign/${item.id}/edit`} className="rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white">
                             {fieldCount ? "Edit field layout" : "Place fields"}
                           </Link>
@@ -1464,7 +1491,8 @@ export default async function DocumentsPage({
                             <button className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-semibold text-white">Resend</button>
                           </form>
                         ) : null}
-                        {["sent", "viewed", "started", "expired", "declined", "void"].includes(item.status) &&
+                        {canManage &&
+                        ["sent", "viewed", "started", "expired", "declined", "void"].includes(item.status) &&
                         !item.superseded_by_envelope_id ? (
                           <details className="relative">
                             <summary className="cursor-pointer list-none rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700">
@@ -1500,7 +1528,7 @@ export default async function DocumentsPage({
                             </form>
                           </details>
                         ) : null}
-                        {item.status === "completed" ? (
+                        {canManage && item.status === "completed" ? (
                           <form action={duplicateCompletedSignEnvelopeAction}>
                             <input type="hidden" name="envelopeId" value={item.id} />
                             <input
@@ -1514,7 +1542,7 @@ export default async function DocumentsPage({
                             </button>
                           </form>
                         ) : null}
-                        {["draft", "sent", "viewed", "started"].includes(item.status) ? (
+                        {canManage && ["draft", "sent", "viewed", "started"].includes(item.status) ? (
                           <form action={revokeSignEnvelopeAction}>
                             <input type="hidden" name="envelopeId" value={item.id} />
                             <input type="hidden" name="reason" value="Revoked from Documents Center." />
@@ -1579,6 +1607,7 @@ export default async function DocumentsPage({
                 pendingAssignmentCount={pendingCountByTemplateId.get(template.id) ?? 0}
                 signedRecordCount={signedCountByTemplateId.get(template.id) ?? 0}
                 isOrganizerWorkspace={isOrganizerWorkspace}
+                readOnly={!canManage}
               />
             ))}
           </div>

@@ -400,6 +400,195 @@ describe("plan-feature gating (server-side)", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------
+describe("Documents Center after a plan downgrade (read-only history surface)", () => {
+  type Rendered = { actions: Set<unknown>; hrefs: string[]; text: string };
+
+  /** Walks the page's element tree, expanding plain function components (TemplateCard, forms) but not library ones. */
+  function walk(node: unknown, out: Rendered = { actions: new Set(), hrefs: [], text: "" }): Rendered {
+    if (node === null || node === undefined || typeof node === "boolean") return out;
+    if (typeof node === "string" || typeof node === "number") {
+      out.text += `${node} `;
+      return out;
+    }
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child, out);
+      return out;
+    }
+    if (typeof node === "object" && "props" in node) {
+      const element = node as { type: unknown; props: Record<string, unknown> };
+      if (typeof element.type === "function" && /^[A-Z]/.test((element.type as { name: string }).name) && element.type.length <= 1) {
+        const name = (element.type as { name: string }).name;
+        if (name !== "LinkComponent" && name !== "Link") {
+          // Page-local components are plain functions; a throw here is a real rendering failure, so it propagates.
+          return walk((element.type as (props: unknown) => unknown)(element.props), out);
+        }
+      }
+      const props = element.props;
+      if (typeof props.action === "function") out.actions.add(props.action);
+      if (typeof props.href === "string") out.hrefs.push(props.href);
+      walk(props.children, out);
+    }
+    return out;
+  }
+
+  function seedCenter() {
+    const db = seed({ envelopeStatus: "sent" });
+    Object.assign(db.rows("document_templates")[0], {
+      scope: "studio",
+      organizer_id: null,
+      document_type: "waiver",
+      description: null,
+      body: "Waiver body",
+      default_consent_text: null,
+      applies_to: "manual",
+      current_version: 1,
+      current_version_id: "ver-1",
+      updated_at: "2026-04-01T00:00:00.000Z",
+      document_template_versions: [{ id: "ver-1", version_number: 1, title: "Waiver", created_at: "2026-04-01T00:00:00.000Z" }],
+    });
+    db.rows("document_sign_envelopes").push(
+      envelopeRow("env-done", "asg-done", {
+        status: "completed",
+        signed_bucket: "document-files",
+        signed_path: `studios/${STUDIO}/envelopes/env-done/signed.pdf`,
+        completed_at: "2026-05-01T00:00:00.000Z",
+        created_at: "2026-04-01T00:00:00.000Z",
+      }),
+      envelopeRow("env-draft", "asg-draft", { status: "draft", created_at: "2026-04-02T00:00:00.000Z" }),
+    );
+    db.rows("document_assignments").push(assignmentRow("asg-done", { status: "signed", sign_envelope_id: "env-done" }));
+    return db;
+  }
+
+  async function center() {
+    const { default: DocumentsPage } = await import("@/app/app/documents/page");
+    return walk(await DocumentsPage({ searchParams: Promise.resolve({}) }));
+  }
+
+  it("A. with Documents: the full management Center renders (create, reminders, waive/void, resend, revise, revoke)", async () => {
+    seedCenter();
+    const page = await center();
+    const docs = await docActions();
+    const sign = await signActions();
+    for (const action of [
+      docs.createDocumentTemplateAction,
+      docs.sendDocumentReminderAction,
+      docs.updateDocumentAssignmentDueDateAction,
+      docs.waiveDocumentAssignmentAction,
+      docs.voidDocumentAssignmentAction,
+      docs.updateDocumentTemplateAction,
+      sign.createSignEnvelopeAction,
+      sign.resendSignEnvelopeAction,
+      sign.reviseSignEnvelopeAction,
+      sign.revokeSignEnvelopeAction,
+      sign.duplicateCompletedSignEnvelopeAction,
+    ]) {
+      expect(page.actions.has(action)).toBe(true);
+    }
+    expect(page.hrefs).toContain("/app/documents/sign/env-draft/edit");
+    expect(page.text).not.toContain("Existing document records remain available read-only.");
+  });
+
+  it("B. without Documents: the Center renders read-only with records, history links, evidence and the notice", async () => {
+    state.features = new Set();
+    seedCenter();
+    const page = await center();
+    expect(page.text).toContain("Your Documents feature is not active. Existing document records remain available read-only.");
+    // existing records and statuses are visible
+    expect(page.text).toContain("Waiver");
+    expect(page.text).toContain("completed");
+    expect(page.text).toContain("sent");
+    // historical detail + evidence links (a draft opens its read-only detail, never the gated editor)
+    expect(page.hrefs).toEqual(
+      expect.arrayContaining([
+        "/app/documents/sign/env-1",
+        "/app/documents/sign/env-done",
+        "/app/documents/sign/env-done/signed",
+        "/app/documents/sign/env-done/certificate",
+        "/app/documents/sign/env-draft",
+      ]),
+    );
+    expect(page.hrefs.some((href) => href.endsWith("/edit"))).toBe(false);
+    expect(page.hrefs).not.toContain("#create-document");
+    // no management control of any kind
+    expect(page.actions.size).toBe(0);
+  });
+
+  it("B. without Documents: the linked history page and evidence routes open", async () => {
+    state.features = new Set();
+    seedCenter();
+    Object.assign(envelope("env-done"), { signed_sha256: sha256Hex(new Uint8Array([9, 9, 9])) });
+    state.db.files.set(`document-files/studios/${STUDIO}/envelopes/env-done/signed.pdf`, new Uint8Array([9, 9, 9]));
+    state.db.files.set(`document-files/studios/${STUDIO}/envelopes/env-done/source.pdf`, SOURCE);
+    for (const route of ["source", "signed", "certificate"]) {
+      const mod = (await import(`@/app/app/documents/sign/[envelopeId]/${route}/route`)) as {
+        GET: (request: Request, ctx: { params: Promise<{ envelopeId: string }> }) => Promise<Response>;
+      };
+      const response = await mod.GET(new Request("https://example.test"), { params: Promise.resolve({ envelopeId: "env-done" }) });
+      expect(response.status).toBe(200);
+    }
+    const { default: Detail } = await import("@/app/app/documents/sign/[envelopeId]/page");
+    const detail = walk(await Detail({ params: Promise.resolve({ envelopeId: "env-done" }), searchParams: Promise.resolve({}) }));
+    expect(detail.actions.size).toBe(0);
+    expect(detail.hrefs).toContain("/app/documents/sign/env-done/signed");
+  });
+
+  it("C. without Documents: direct management calls are still denied on the server and change nothing", async () => {
+    state.features = new Set();
+    const db = seedCenter();
+    const before = JSON.stringify(db.tables);
+    const docs = await docActions();
+    const sign = await signActions();
+    const upgrade = "redirect:/app/settings/billing?upgrade=documents";
+    const calls: Array<[(data: FormData) => Promise<unknown>, Record<string, string>]> = [
+      [docs.createDocumentTemplateAction as unknown as (data: FormData) => Promise<unknown>, { scope: "studio", title: "New", body: "Body" }],
+      [docs.assignDocumentToClientAction, { scope: "studio", templateId: "tpl-1", clientId: CLIENT }],
+      [docs.sendDocumentReminderAction, { scope: "studio", assignmentId: "asg-1" }],
+      [docs.updateDocumentAssignmentDueDateAction, { scope: "studio", assignmentId: "asg-1", dueDate: "2099-01-01" }],
+      [docs.waiveDocumentAssignmentAction, { scope: "studio", assignmentId: "asg-1" }],
+      [docs.voidDocumentAssignmentAction, { scope: "studio", assignmentId: "asg-1" }],
+      [sign.createSignEnvelopeAction, { title: "T", signerName: "A", signerEmail: "a@example.test" }],
+      [sign.resendSignEnvelopeAction, { envelopeId: "env-1" }],
+      [sign.reviseSignEnvelopeAction, { envelopeId: "env-1", reason: "Corrected terms needed" }],
+      [sign.revokeSignEnvelopeAction, { envelopeId: "env-1" }],
+      [sign.duplicateCompletedSignEnvelopeAction, { envelopeId: "env-done" }],
+      [sign.sendSignEnvelopeAction, { envelopeId: "env-draft" }],
+    ];
+    for (const [action, values] of calls) {
+      const result = await outcome(() => (action as (data: FormData) => Promise<unknown>)(form(values)));
+      expect(result.startsWith(upgrade) || result.includes("upgrade=documents")).toBe(true);
+    }
+    expect(JSON.stringify(db.tables)).toBe(before);
+  });
+
+  it("D. without Documents: another studio's records never appear in the Center", async () => {
+    state.features = new Set();
+    seedCenter();
+    state.db.rows("document_sign_envelopes").push(envelopeRow("env-foreign", "asg-foreign", { studio_id: OTHER_STUDIO, status: "completed" }));
+    const page = await center();
+    expect(page.hrefs.some((href) => href.includes("env-foreign"))).toBe(false);
+  });
+
+  it("E. without Documents: a role outside the document-management boundary gets the upgrade redirect, not history", async () => {
+    state.features = new Set();
+    seedCenter();
+    state.role = "instructor";
+    const { default: DocumentsPage } = await import("@/app/app/documents/page");
+    const result = await outcome(() => DocumentsPage({ searchParams: Promise.resolve({}) }));
+    expect(result.startsWith("redirect:")).toBe(true);
+    expect(result).not.toBe("no-redirect");
+  });
+
+  it("F. signed-out: the Center is login-gated", async () => {
+    state.features = new Set();
+    seedCenter();
+    state.unauthenticated = true;
+    const { default: DocumentsPage } = await import("@/app/app/documents/page");
+    expect(await outcome(() => DocumentsPage({ searchParams: Promise.resolve({}) }))).toBe("redirect:/login");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
 describe("historical record access after a plan downgrade (record retention)", () => {
   const SIGNED = new Uint8Array([9, 9, 9]);
 
