@@ -300,7 +300,11 @@ export default function NewClientPage() {
         </section>
 
 
-        <details className="rounded-[28px] border border-slate-200 bg-white shadow-sm">\n          <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-slate-900 md:px-6">\n            Personal details <span className="ml-2 text-xs font-medium text-slate-500">Birthday and mailing address</span>\n          </summary>\n          <div className="border-t border-slate-100 p-5 md:p-6">
+        <details className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-slate-900 md:px-6">
+            Personal details <span className="ml-2 text-xs font-medium text-slate-500">Birthday and mailing address</span>
+          </summary>
+          <div className="border-t border-slate-100 p-5 md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
             Personal details
           </p>
@@ -421,7 +425,11 @@ export default function NewClientPage() {
           </div>
         </div>
         </details>
-        <details className="rounded-[28px] border border-slate-200 bg-white shadow-sm">\n          <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-slate-900 md:px-6">\n            Client photo <span className="ml-2 text-xs font-medium text-slate-500">Optional verification photo</span>\n          </summary>\n          <div className="border-t border-slate-100 p-5 md:p-6">
+        <details className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-slate-900 md:px-6">
+            Client photo <span className="ml-2 text-xs font-medium text-slate-500">Optional verification photo</span>
+          </summary>
+          <div className="border-t border-slate-100 p-5 md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
             Photo verification
           </p>
@@ -661,7 +669,7 @@ export default function NewClientPage() {
                 Optional partner
               </p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                Add this client's partner
+                Add this client&apos;s partner
               </h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
                 Use this when a couple comes in together and both people need client records.
@@ -762,7 +770,7 @@ export default function NewClientPage() {
                   Partner Dance Styles
                 </p>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Leave blank to use the first client's selected styles.
+                  Leave blank to use the first client&apos;s selected styles.
                 </p>
                 <div className="mt-3">
                   <CheckboxGroup name="partnerDanceStyles" groups={DANCE_STYLE_GROUPS} />
@@ -774,7 +782,7 @@ export default function NewClientPage() {
                   Partner Dance Goals
                 </p>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Leave blank to use the first client's selected goals.
+                  Leave blank to use the first client&apos;s selected goals.
                 </p>
                 <div className="mt-3">
                   <GoalCheckboxes name="partnerDanceGoals" />
