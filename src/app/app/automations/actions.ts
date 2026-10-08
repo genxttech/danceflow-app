@@ -20,6 +20,11 @@ import {
   ariaLowItemsIncludeCanonicalWarning,
   ariaPackageHasReplacementCoverage,
 } from "./ariaPackageWarnings";
+import {
+  ariaLowPackageConditionHolds,
+  ariaLowPackageItems,
+  reconcileAriaActionsForStudio,
+} from "@/lib/aria/actionReconciliation";
 
 type AutomationDefinition = {
   key: string;
@@ -2043,7 +2048,20 @@ type ExistingAriaOperationalActionRow = {
   related_id: string | null;
   status: string | null;
   assigned_to: string | null;
+  snoozed_until?: string | null;
 };
+
+/**
+ * Cleanup PR C: policy auto-approval may only promote an existing open row that is still awaiting review -- suggested,
+ * drafted, or snoozed with the snooze already over. Never a terminal row, a queued delivery, or an active staff snooze.
+ */
+function isAriaAutoApprovableExistingAction(action: ExistingAriaOperationalActionRow, nowMs: number) {
+  if (action.status === "suggested" || action.status === "drafted") return true;
+  if (action.status !== "snoozed") return false;
+  if (!action.snoozed_until) return true;
+  const until = new Date(action.snoozed_until).getTime();
+  return !Number.isFinite(until) || until <= nowMs;
+}
 
 function ariaOperationalDedupeKey(params: {
   ruleKey: string | null | undefined;
@@ -2105,7 +2123,7 @@ async function insertAriaOperationalActions(params: {
   for (const [relatedTable, relatedIds] of groupedRelatedIds.entries()) {
     const { data: existing, error } = await supabase
       .from("automation_actions")
-      .select("id, rule_key, related_table, related_id, status, assigned_to")
+      .select("id, rule_key, related_table, related_id, status, assigned_to, snoozed_until")
       .eq("studio_id", studioId)
       .eq("related_table", relatedTable)
       .in("related_id", Array.from(relatedIds))
@@ -2130,6 +2148,7 @@ async function insertAriaOperationalActions(params: {
     }
   }
 
+  const cooldownSuppressedKeys = new Set<string>();
   const lowPackageRelatedIds = eligibleCandidates
     .filter(
       (candidate) =>
@@ -2145,7 +2164,7 @@ async function insertAriaOperationalActions(params: {
     const { data: recentLowPackageActions, error: recentLowPackageError } =
       await supabase
         .from("automation_actions")
-        .select("id, rule_key, related_table, related_id, status, assigned_to")
+        .select("id, rule_key, related_table, related_id, status, assigned_to, snoozed_until")
         .eq("studio_id", studioId)
         .eq("rule_key", "aria_low_package_balance")
         .eq("related_table", "client_packages")
@@ -2159,14 +2178,19 @@ async function insertAriaOperationalActions(params: {
     for (const row of (recentLowPackageActions ??
       []) as ExistingAriaOperationalActionRow[]) {
       if (row.rule_key && row.related_table && row.related_id) {
-        existingActionByKey.set(
-          ariaOperationalDedupeKey({
-            ruleKey: row.rule_key,
-            relatedTable: row.related_table,
-            relatedId: row.related_id,
-          }),
-          row,
-        );
+        const key = ariaOperationalDedupeKey({
+          ruleKey: row.rule_key,
+          relatedTable: row.related_table,
+          relatedId: row.related_id,
+        });
+        // Cleanup PR C: a recent terminal (completed / dismissed / skipped / failed / sent) row only suppresses a new
+        // action during the cooldown. It is never treated as the existing action, so it can never be re-approved,
+        // re-assigned or otherwise rewritten. An open row found above always wins.
+        if (row.status && activeStatuses.includes(row.status)) {
+          if (!existingActionByKey.has(key)) existingActionByKey.set(key, row);
+        } else {
+          cooldownSuppressedKeys.add(key);
+        }
       }
     }
   }
@@ -2213,6 +2237,10 @@ async function insertAriaOperationalActions(params: {
         autoApproved,
         assignTo,
       });
+      continue;
+    }
+
+    if (cooldownSuppressedKeys.has(dedupeKey)) {
       continue;
     }
 
@@ -2263,7 +2291,13 @@ async function insertAriaOperationalActions(params: {
 
   for (const update of existingActionUpdates) {
     const currentStatus = update.action.status ?? "";
-    const shouldApprove = update.autoApproved && currentStatus !== "approved";
+    // Cleanup PR C: terminal rows are never rewritten here (see isAriaAutoApprovableExistingAction for approval).
+    if (!activeStatuses.includes(currentStatus)) {
+      continue;
+    }
+    const shouldApprove =
+      update.autoApproved &&
+      isAriaAutoApprovableExistingAction(update.action, Date.now());
     const shouldAssign = Boolean(
       update.assignTo && update.action.assigned_to !== update.assignTo,
     );
@@ -2541,7 +2575,6 @@ async function buildStudioAriaOperationalCandidates(params: {
   const nowIso = now.toISOString();
   const threeDaysAgoIso = addAriaDays(now, -3).toISOString();
   const ninetyDaysAgoIso = addAriaDays(now, -90).toISOString();
-  const nextFourteenDaysIso = addAriaDays(now, 14).toISOString();
 
   const [
     paymentsResult,
@@ -2707,32 +2740,18 @@ async function buildStudioAriaOperationalCandidates(params: {
   }
 
   for (const pkg of packages) {
-    const lowItems = (pkg.client_package_items ?? []).filter((item) => {
-      if (item.is_unlimited) return false;
-      const remaining = asNumber(
-        item.quantity_remaining,
-        Number.POSITIVE_INFINITY,
-      );
-      return Number.isFinite(remaining) && remaining <= 2;
-    });
-    const remaining = lowestAriaPackageRemaining(pkg);
-    const expiringSoon = Boolean(
-      pkg.expiration_date &&
-      new Date(`${pkg.expiration_date}T00:00:00`) <=
-        new Date(nextFourteenDaysIso),
-    );
-    if (lowItems.length === 0 && !expiringSoon) continue;
-
+    // Cleanup PR C: the same predicate decides condition reconciliation, so a reconciled action is not re-created.
     if (
-      lowItems.length > 0 &&
-      ariaPackageHasReplacementCoverage({
+      !ariaLowPackageConditionHolds({
         targetPackage: pkg,
-        allPackages: packages,
-        lowItems,
+        clientActivePackages: packages,
+        now,
       })
     ) {
       continue;
     }
+    const lowItems = ariaLowPackageItems(pkg.client_package_items);
+    const remaining = lowestAriaPackageRemaining(pkg);
 
     // Schedule Stabilization Slice 1b-b: this rule's proactive threshold
     // (<=2) is intentionally more sensitive than canonical Low (exact
@@ -4025,6 +4044,10 @@ export async function generateAriaOperationalActionsAction(formData: FormData) {
       userId: context.userId,
       candidates,
     });
+    // Cleanup PR C: close stored actions whose condition no longer holds.
+    if (!isOrganizerAutomationRole(context.studioRole)) {
+      await reconcileAriaActionsForStudio({ supabase, studioId: context.studioId });
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to create ARIA actions";
@@ -4371,6 +4394,18 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
 
   const supabase = await createClient();
   const adminSupabase = createAdminClient();
+
+  // Cleanup PR C: never send a follow-up whose condition has already been resolved.
+  let reconciliationFailed = false;
+  try {
+    await reconcileAriaActionsForStudio({ supabase, studioId: context.studioId });
+  } catch (error) {
+    console.error("ARIA condition reconciliation failed before execution", error);
+    reconciliationFailed = true;
+  }
+  if (reconciliationFailed) {
+    redirect(appendActionResult(returnTo, "error", "aria_execution_lookup_failed"));
+  }
 
   const { data: approvedActions, error: actionsError } = await supabase
     .from("automation_actions")
@@ -6995,6 +7030,12 @@ export async function runScheduledAriaOperationsForStudio(params: {
     userId: actorUserId,
     candidates,
   });
+
+  // Cleanup PR C: reconcile before selecting approved actions for delivery, so an action whose condition has already
+  // been resolved is completed instead of emailed.
+  if (includeStudioSignals) {
+    await reconcileAriaActionsForStudio({ supabase, studioId });
+  }
 
   const { data: approvedActions, error: actionsError } = await adminSupabase
     .from("automation_actions")

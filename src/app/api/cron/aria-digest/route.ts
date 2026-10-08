@@ -10,6 +10,10 @@ import {
   recordTerminalAriaDigestFailure,
   sanitizeAriaDigestError,
 } from "@/lib/aria/digest-observability";
+import {
+  isAriaActionSnoozedUntilFuture,
+  reconcileAriaActionsForStudio,
+} from "@/lib/aria/actionReconciliation";
 
 export type DigestType = "morning" | "end_of_day";
 export type DigestPreferenceRow = {
@@ -31,6 +35,7 @@ type DigestActionRow = {
   rule_key: string | null;
   due_at: string | null;
   assigned_to: string | null;
+  snoozed_until?: string | null;
   created_at: string;
 };
 
@@ -360,6 +365,21 @@ export async function processDigestRun(params: {
   });
 
   try {
+    // Cleanup PR C: the briefing must not trust stored action state blindly. Close actions whose condition has already
+    // been resolved before selecting what to report. A reconciliation failure is logged and does not block the briefing.
+    try {
+      await reconcileAriaActionsForStudio({
+        supabase: adminSupabase,
+        studioId: preference.studio_id,
+        now,
+      });
+    } catch (reconciliationError) {
+      console.warn("[aria_digest] Condition reconciliation failed; continuing with stored action state", {
+        studio_id: preference.studio_id,
+        error: reconciliationError instanceof Error ? reconciliationError.message : String(reconciliationError),
+      });
+    }
+
     const [{ data: studio }, { data: actions, error: actionsError }, { data: profile }] = await Promise.all([
       adminSupabase
         .from("studios")
@@ -368,7 +388,7 @@ export async function processDigestRun(params: {
         .maybeSingle<DigestStudioRow>(),
       adminSupabase
         .from("automation_actions")
-        .select("id, title, body, status, priority, rule_key, due_at, assigned_to, created_at")
+        .select("id, title, body, status, priority, rule_key, due_at, assigned_to, snoozed_until, created_at")
         .eq("studio_id", preference.studio_id)
         .in("status", [...ACTIVE_ACTION_STATUSES])
         .order("due_at", { ascending: true, nullsFirst: false })
@@ -387,7 +407,10 @@ export async function processDigestRun(params: {
       throw new Error(actionsError.message);
     }
 
-    const typedActions = (actions ?? []) as DigestActionRow[];
+    // Snoozed actions stay out of the briefing until their snooze ends (the snooze itself is never cleared here).
+    const typedActions = ((actions ?? []) as DigestActionRow[]).filter(
+      (action) => !isAriaActionSnoozedUntilFuture(action, now),
+    );
     const summary = buildDigestSummary({
       actions: typedActions,
       recipientUserId,
