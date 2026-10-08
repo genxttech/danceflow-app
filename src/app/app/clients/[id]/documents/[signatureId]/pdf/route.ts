@@ -186,7 +186,7 @@ function buildSignedDocumentPdf(params: {
 
   function footer() {
     commands.push(pdfLine(marginX, 46, pageWidth - marginX, 46));
-    commands.push(pdfTextLine(`DanceFlow Signed Document Receipt - Page ${pageNumber}`, marginX, 32, 8));
+    commands.push(pdfTextLine(`DanceFlow Legacy Signature Record - Page ${pageNumber}`, marginX, 32, 8));
   }
 
   function newPage() {
@@ -383,7 +383,7 @@ export async function GET(_request: Request, context: RouteContext) {
     : "No audit events were recorded for this signature.";
 
   const pdf = buildSignedDocumentPdf({
-    title: "Signed Document Receipt",
+    title: "Legacy Signature Record",
     subtitle: `${title} - ${clientName}`,
     generatedAt: formatDateTime(new Date().toISOString()),
     sections: [

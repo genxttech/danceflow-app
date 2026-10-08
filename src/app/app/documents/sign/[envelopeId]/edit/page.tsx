@@ -17,7 +17,7 @@ export default async function EditSigningEnvelopePage({
   searchParams,
 }: {
   params: Promise<{ envelopeId: string }>;
-  searchParams: Promise<{ success?: string; error?: string }>;
+  searchParams: Promise<{ success?: string; error?: string; layout?: string }>;
 }) {
   const { envelopeId } = await params;
   const query = await searchParams;
@@ -61,7 +61,9 @@ export default async function EditSigningEnvelopePage({
         ? "New draft created from the completed request. Review the copied field layout before sending."
         : query.success === "saved"
           ? "Field layout saved."
-          : null;
+          : query.layout === "reused"
+            ? "Signing fields were placed using your last request for this document version. Review them, then send."
+            : null;
 
   return (
     <main className="mx-auto max-w-[1500px] space-y-5 px-4 py-6 md:px-8">

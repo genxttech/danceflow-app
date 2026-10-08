@@ -67,6 +67,9 @@ import {
 import { recordPayAsYouGoLessonPaymentAction } from "@/app/app/schedule/actions";
 import { deriveClientLifecycle, getClientLifecycleAction } from "@/lib/clients/lifecycle";
 import { presentDocumentAssignment } from "@/lib/documents/presentation";
+import ClientLinkedAccountsPanel from "./ClientLinkedAccountsPanel";
+import { loadClientRelationshipLinks } from "@/lib/student-identity/relationship-links";
+import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 
 export type ClientRecord = {
   id: string;
@@ -2005,6 +2008,26 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.success === "signing_permission_granted") {
+    return { kind: "success" as const, message: "This person can now sign documents for this client." };
+  }
+
+  if (search.success === "signing_permission_removed") {
+    return { kind: "success" as const, message: "Signing permission removed. This person can no longer sign documents for this client." };
+  }
+
+  if (search.error === "signing_permission_update_failed") {
+    return { kind: "error" as const, message: "Signing permission could not be changed. Refresh and try again." };
+  }
+
+  if (search.error === "portal_invite_email_required") {
+    return { kind: "error" as const, message: "Enter a valid email address for the person you are inviting." };
+  }
+
+  if (search.error === "invalid_relationship_type") {
+    return { kind: "error" as const, message: "Choose a valid relationship." };
+  }
+
   if (search.error === "portal_email_required") {
     return {
       kind: "error" as const,
@@ -2924,6 +2947,10 @@ export default async function ClientDetailPage({
   const portalAdminStatus = canEditClients(role)
     ? await loadClientPortalAdminStatus(typedClient, studioId)
     : null;
+  const relationshipLinks =
+    activeTab === "portal" && canEditClients(role)
+      ? await loadClientRelationshipLinks({ studioId, clientId: typedClient.id })
+      : [];
   const portalAuthUser = portalAdminStatus?.linkedAuthUser ?? portalAdminStatus?.matchingAuthUser ?? null;
   const portalProfile = portalAdminStatus?.linkedProfile ?? portalAdminStatus?.matchingProfile ?? null;
   const hasConfirmedPortalEmail = !!portalAuthUser?.email_confirmed_at;
@@ -3819,12 +3846,23 @@ export default async function ClientDetailPage({
           title="Client Documents"
           subtitle="Track waivers, policies, agreements, and other documents connected to this client."
           action={
-            <Link
-              href="/app/documents"
-              className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
-            >
-              Manage Templates
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              {/* Phase 8D: one obvious next action -- the shared assignment flow with this client preselected. */}
+              {canManageDocumentsRole(role) ? (
+                <Link
+                  href={`/app/documents?assignClient=${typedClient.id}#assign-document`}
+                  className="rounded-2xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Assign document
+                </Link>
+              ) : null}
+              <Link
+                href="/app/documents"
+                className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+              >
+                Manage Templates
+              </Link>
+            </div>
           }
         >
           <div className="grid gap-4 sm:grid-cols-3">
@@ -3893,7 +3931,7 @@ export default async function ClientDetailPage({
                             href={`/app/documents/sign/${document.envelopeId}/certificate`}
                             className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
                           >
-                            Certificate
+                            Signing certificate
                           </a>
                         </div>
                       ) : null}
@@ -3906,7 +3944,7 @@ export default async function ClientDetailPage({
                             href={`/app/clients/${id}/documents/${document.signatureId}`}
                             className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
                           >
-                            View receipt
+                            View signature record
                           </Link>
                           <Link
                             href={`/app/clients/${id}/documents/${document.signatureId}/pdf`}
@@ -5439,20 +5477,9 @@ export default async function ClientDetailPage({
               name="returnTo"
               value={`/app/clients/${typedClient.id}`}
             />
-            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Account relationship
-            </label>
-            <select
-              name="relationshipType"
-              defaultValue="self"
-              className="mb-3 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm"
-            >
-              <option value="self">Self</option>
-              <option value="parent">Parent</option>
-              <option value="guardian">Guardian</option>
-              <option value="billing_contact">Billing Contact</option>
-              <option value="dependent_manager">Dependent Manager</option>
-            </select>
+            {/* Phase 8D: this invites the client's own account at the client's email; parents, guardians and contacts
+                are invited at their own email from "People who can act for this client". */}
+            <input type="hidden" name="relationshipType" value="self" />
             <button
               type="submit"
               className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
@@ -5465,6 +5492,14 @@ export default async function ClientDetailPage({
     </div>
   ) : null}
 </SectionCard>
+          ) : null}
+
+          {activeTab === "portal" && canEditClients(role) ? (
+            <ClientLinkedAccountsPanel
+              clientId={typedClient.id}
+              links={relationshipLinks}
+              canManageSigning={canManageDocumentsRole(role)}
+            />
           ) : null}
 
           {activeTab === "notes" ? (

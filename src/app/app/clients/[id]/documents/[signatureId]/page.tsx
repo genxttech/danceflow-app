@@ -217,10 +217,10 @@ export default async function ClientSignedDocumentReceiptPage({ params }: { para
 
         <article className="print-sheet rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
           <header className="border-b border-slate-200 pb-6">
-            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-600">Signed Document Receipt</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-600">Legacy signature record</p>
             <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{documentTitle(signature)}</h1>
             {documentDescription(signature) ? <p className="mt-2 text-sm text-slate-600">{documentDescription(signature)}</p> : null}
-            <p className="mt-4 text-sm text-slate-500">Receipt generated {formatDateTime(new Date().toISOString())}</p>
+            <p className="mt-4 text-sm text-slate-500">Record generated {formatDateTime(new Date().toISOString())}</p>
             {/* Phase 8C: be explicit about the strength of this evidence. */}
             <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
               Legacy typed-signature record: the typed name, consent and document text captured at signing. It is not

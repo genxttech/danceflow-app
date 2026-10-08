@@ -32,6 +32,7 @@ import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
 import { isPackageEligibleForReactivation } from "@/lib/packages/entitlement";
 import { buildVoidsFromFormData } from "@/lib/packages/refundReviewVoids";
 import { PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD } from "@/lib/payments/package-refund-release-hold";
+import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -851,6 +852,9 @@ export async function resolvePortalConflictAction(formData: FormData) {
   redirectWithResult(returnTo, "success", "portal_conflict_resolved");
 }
 
+const PORTAL_INVITE_RELATIONSHIPS = ["self", "guardian", "parent", "billing_contact", "dependent_manager"] as const;
+type PortalInviteRelationship = (typeof PORTAL_INVITE_RELATIONSHIPS)[number];
+
 export async function sendPortalInviteAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
   const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
@@ -859,7 +863,7 @@ export async function sendPortalInviteAction(formData: FormData) {
     redirect(appendQueryParam("/app/clients", "error", "missing_client"));
   }
 
-  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+  const { supabase, studioId, role } = await getEditableStudioContext(returnTo);
 
   const client = await getStudioClientOrRedirect({
     supabase,
@@ -874,11 +878,26 @@ export async function sendPortalInviteAction(formData: FormData) {
     clientId,
   });
 
-  const email = client.email?.trim().toLowerCase();
-
-  if (!email) {
-    redirectWithResult(returnTo, "error", "portal_email_required");
+  // Phase 8D: the client's OWN account is invited at the client's email; any other relationship (guardian, parent,
+  // billing contact, dependent manager) is invited at that person's own email -- this is how a client with no email
+  // gets an authorized document signer. Signing permission for a non-self relationship is never implied by its type:
+  // it is granted only when a Documents-management role explicitly ticks it.
+  const requestedRelationship = getString(formData, "relationshipType") || "self";
+  if (!PORTAL_INVITE_RELATIONSHIPS.includes(requestedRelationship as PortalInviteRelationship)) {
+    redirectWithResult(returnTo, "error", "invalid_relationship_type");
   }
+  const relationshipType = requestedRelationship as PortalInviteRelationship;
+  const isSelfInvite = relationshipType === "self";
+  const email = isSelfInvite
+    ? client.email?.trim().toLowerCase()
+    : getString(formData, "inviteEmail").trim().toLowerCase();
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    redirectWithResult(returnTo, "error", isSelfInvite ? "portal_email_required" : "portal_invite_email_required");
+  }
+
+  const grantDocumentSigning =
+    !isSelfInvite && getString(formData, "grantDocumentSigning") === "on" && canManageDocumentsRole(role);
 
   if (linkedUserId) {
     try {
@@ -918,8 +937,9 @@ export async function sendPortalInviteAction(formData: FormData) {
   const portalPath = `/portal/${encodeURIComponent(studio.slug)}`;
   const portalUrl = buildAppUrl(portalPath);
   const studioReplyTo = normalizeEmail(studio.email);
-  const fullName =
-    `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined;
+  const fullName = isSelfInvite
+    ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined
+    : undefined;
 
   let lifecycleInvite: Awaited<ReturnType<typeof createOrRefreshClientInvitation>>;
 
@@ -929,19 +949,13 @@ export async function sendPortalInviteAction(formData: FormData) {
       fullName,
     });
 
-    const relationshipType = getString(formData, "relationshipType") || "self";
-
     lifecycleInvite = await createOrRefreshClientInvitation({
       studioId,
       clientId: client.id,
       email,
       userId: existingProfile?.id ?? null,
-      relationshipType: relationshipType as
-        | "self"
-        | "guardian"
-        | "parent"
-        | "billing_contact"
-        | "dependent_manager",
+      relationshipType,
+      grantDocumentSigning,
     });
 
     const invitePath = `/studio-invites/${encodeURIComponent(
@@ -2182,3 +2196,45 @@ export async function archiveClientSyllabusStepAssignmentAction(formData: FormDa
   redirectWithResult(returnTo, "success", "syllabus_step_assignment_archived");
 }
 
+
+/**
+ * Phase 8D: authorized staff grant or remove a NON-SELF linked account's permission to sign documents for this
+ * client. Server-side boundary: a Documents-management role (owner, admin, front desk; never instructors) of the
+ * current studio, a client of that studio, and a non-self link of that client that is linked or still invited.
+ * A client's own (self) account always signs for itself and is not changed here. Writes only this flag.
+ */
+export async function updateDocumentSigningPermissionAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const linkId = getString(formData, "linkId");
+  const allow = getString(formData, "allow") === "true";
+  const returnTo = `/app/clients/${clientId}?tab=portal`;
+
+  if (!clientId || !linkId) {
+    redirect(appendQueryParam("/app/clients", "error", "missing_client"));
+  }
+
+  const { supabase, studioId, role } = await getEditableStudioContext(returnTo);
+  if (!canManageDocumentsRole(role)) {
+    redirectWithResult(returnTo, "error", "unauthorized");
+  }
+
+  await getStudioClientOrRedirect({ supabase, studioId, clientId, returnTo });
+
+  const { data: updated, error } = await createAdminClient()
+    .from("client_account_links")
+    .update({ can_sign_documents: allow, updated_at: new Date().toISOString() })
+    .eq("id", linkId)
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId)
+    .neq("relationship_type", "self")
+    .in("status", ["linked", "invited", "claim_pending"])
+    .select("id")
+    .maybeSingle();
+
+  if (error || !updated) {
+    redirectWithResult(returnTo, "error", "signing_permission_update_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", allow ? "signing_permission_granted" : "signing_permission_removed");
+}

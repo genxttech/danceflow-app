@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, CheckCircle2, Clock3, FileSignature, History, Plus, Send, ShieldCheck, Upload, UserPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, FileSignature, History, Plus, Send, ShieldCheck, Upload, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewClients, isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
 import { requireStudioFeature, studioHasFeature } from "@/lib/billing/access";
 import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 import {
-  assignDocumentToClientAction,
   assignDocumentToEventAction,
   createDocumentTemplateAction,
   removeDocumentFromEventAction,
@@ -26,10 +25,15 @@ import {
   revokeSignEnvelopeAction,
 } from "./sign/actions";
 import { countSignedRecordsByTemplate } from "@/lib/documents/presentation";
+import AssignDocumentForm from "./AssignDocumentForm";
+import { presentDocumentAssignment } from "@/lib/documents/presentation";
+import { deriveSignEnvelopeLifecycle } from "@/lib/documents/signing-integrity";
 
 type SearchParams = {
   success?: string;
   error?: string;
+  /** Phase 8D: client preselected when "Assign document" is started from a client profile. */
+  assignClient?: string;
 };
 
 type DocumentTemplate = {
@@ -85,13 +89,27 @@ type DocumentAssignmentSummary = {
 type SigningEnvelopeSummary = {
   id: string;
   status: string | null;
+  expires_at?: string | null;
   document_sign_fields:
     | { id: string }[]
     | null;
 };
 
+/** Phase 8D: one user-facing vocabulary for a signing request (matches the shared presentation contract). */
+function envelopeStatusLabel(lifecycle: string, superseded: boolean) {
+  if (lifecycle === "open") return "Needs signature";
+  if (lifecycle === "draft") return "Being prepared";
+  if (lifecycle === "completed") return "Signed";
+  if (lifecycle === "expired") return "Expired";
+  if (lifecycle === "declined") return "Declined";
+  if (lifecycle === "void") return superseded ? "Replaced by revision" : "Void";
+  return "Unavailable";
+}
+
 type SigningEnvelopeRow = {
   id: string;
+  context_type?: string | null;
+  event_signing_checkpoint_id?: string | null;
   title: string;
   signer_name: string;
   signer_email: string;
@@ -116,14 +134,6 @@ type SigningEnvelopeRow = {
 type OrganizerOption = {
   id: string;
   name: string | null;
-};
-
-type ClientOption = {
-  id: string;
-  first_name: string;
-  last_name: string;
-  email: string | null;
-  status: string | null;
 };
 
 type EventOption = {
@@ -513,7 +523,6 @@ function DocumentTemplateForm({
 function TemplateCard({
   template,
   organizers,
-  clients,
   events,
   eventRequirements,
   pendingAssignmentCount,
@@ -523,7 +532,6 @@ function TemplateCard({
 }: {
   template: DocumentTemplate;
   organizers: OrganizerOption[];
-  clients: ClientOption[];
   events: EventOption[];
   eventRequirements: EventRequirement[];
   pendingAssignmentCount: number;
@@ -547,8 +555,9 @@ function TemplateCard({
   );
 
   return (
-    <details className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-      <summary className="cursor-pointer list-none">
+    <details className="group/card rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+      <summary className="relative cursor-pointer list-none pr-8">
+        <ChevronDown aria-hidden="true" className="absolute right-0 top-1 h-5 w-5 text-[var(--brand-muted)] transition-transform group-open/card:rotate-180" />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -638,49 +647,7 @@ function TemplateCard({
             </div>
           </div>
 
-          <form
-            action={assignDocumentToClientAction}
-            className="mt-4 grid gap-3 lg:grid-cols-[1fr_180px_auto] lg:items-end"
-          >
-            <input type="hidden" name="templateId" value={template.id} />
-            <input type="hidden" name="scope" value="studio" />
-
-            <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
-              Client
-              <select
-                name="clientId"
-                required
-                className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm"
-                defaultValue=""
-              >
-                <option value="" disabled>
-                  Choose client
-                </option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.first_name} {client.last_name}
-                    {client.email ? ` · ${client.email}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
-              Due date
-              <input
-                name="dueDate"
-                type="date"
-                className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm"
-              />
-            </label>
-
-            <button
-              type="submit"
-              className="rounded-2xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-bold text-white shadow-sm hover:opacity-95"
-            >
-              Assign
-            </button>
-          </form>
+          <AssignDocumentForm templateId={template.id} />
         </div>
       ) : null}
 
@@ -798,7 +765,7 @@ function TemplateCard({
                 Version history
               </h4>
               <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
-                Signed receipts stay tied to the exact version accepted by the signer.
+                Signed records stay tied to the exact version accepted by the signer.
               </p>
             </div>
             <span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">
@@ -858,7 +825,7 @@ function TemplateCard({
         <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <p className="font-bold">Editing publishes a new version.</p>
           <p className="mt-1 leading-6">
-            Future assignments and event checkout signatures use the new version. Existing signed receipts keep the exact document text, consent text, and version that were accepted.
+            Future assignments and event checkout signatures use the new version. Existing signed records keep the exact document text, consent text, and version that were accepted.
           </p>
         </div>
 
@@ -1075,14 +1042,14 @@ export default async function DocumentsPage({
   const { data: envelopeRows, error: envelopesError } = envelopeIds.length
     ? await supabase
         .from("document_sign_envelopes")
-        .select("id, status, document_sign_fields(id)")
+        .select("id, status, expires_at, document_sign_fields(id)")
         .in("id", envelopeIds)
     : { data: [], error: null };
 
   const { data: allEnvelopeRows, error: allEnvelopesError } = await supabase
     .from("document_sign_envelopes")
     .select(
-      "id,title,signer_name,signer_email,status,expires_at,sent_at,viewed_at,started_at,completed_at,created_at,last_reminded_at,reminder_count,assignment_id,revision_of_envelope_id,revision_kind,revision_reason,revision_number,superseded_by_envelope_id,document_sign_fields(id)",
+      "id,title,signer_name,signer_email,status,expires_at,sent_at,viewed_at,started_at,completed_at,created_at,last_reminded_at,reminder_count,assignment_id,revision_of_envelope_id,revision_kind,revision_reason,revision_number,superseded_by_envelope_id,context_type,event_signing_checkpoint_id,document_sign_fields(id)",
     )
     .eq("studio_id", studioId)
     .order("created_at", { ascending: false })
@@ -1133,15 +1100,28 @@ export default async function DocumentsPage({
     organizerIds,
   );
 
-  const { data: clients, error: clientsError } = isOrganizerWorkspace
-    ? { data: [] as ClientOption[], error: null }
-    : await supabase
-        .from("clients")
-        .select("id, first_name, last_name, email, status")
-        .eq("studio_id", studioId)
-        .in("status", ["active", "lead"])
-        .order("first_name", { ascending: true })
-        .order("last_name", { ascending: true });
+  // Phase 8D: no full client roster here -- the assignment form searches on the server. Only a client preselected
+  // from their profile ("Assign document") is loaded, scoped to this studio.
+  const assignClientId = /^[0-9a-f-]{36}$/i.test(resolvedSearchParams.assignClient ?? "")
+    ? (resolvedSearchParams.assignClient as string)
+    : null;
+  const { data: assignClientRow } =
+    canManage && !isOrganizerWorkspace && assignClientId
+      ? await supabase
+          .from("clients")
+          .select("id, first_name, last_name, email")
+          .eq("id", assignClientId)
+          .eq("studio_id", studioId)
+          .maybeSingle()
+      : { data: null };
+  const assignClient = assignClientRow
+    ? {
+        id: assignClientRow.id as string,
+        name: [assignClientRow.first_name, assignClientRow.last_name].filter(Boolean).join(" ").trim() || assignClientRow.email || "Client",
+        email: (assignClientRow.email as string | null) ?? null,
+      }
+    : null;
+  const clientsError = null as { message: string } | null;
 
 
   const one = <T,>(value: T | T[] | null): T | null => Array.isArray(value) ? value[0] ?? null : value;
@@ -1233,6 +1213,20 @@ export default async function DocumentsPage({
         </div>
       ) : null}
 
+      {assignClient ? (
+        <section id="assign-document" className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--brand-primary)]">Assign document</p>
+          <h2 className="mt-2 text-2xl font-bold text-[var(--brand-text)]">Assign a document to {assignClient.name}</h2>
+          <AssignDocumentForm
+            templates={(templates ?? [])
+              .filter((template) => template.scope === "studio" && template.is_active)
+              .map((template) => ({ id: template.id as string, title: template.title as string }))}
+            initialClient={assignClient}
+            assignContext="client"
+          />
+        </section>
+      ) : null}
+
       {canManage ? (
       <section id="create-document" className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
         <div>
@@ -1244,8 +1238,9 @@ export default async function DocumentsPage({
         </div>
 
         <div className="mt-6 grid gap-5 xl:grid-cols-2">
-          <details className="rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
-            <summary className="cursor-pointer list-none">
+          <details className="group/create rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+            <summary className="relative cursor-pointer list-none pr-8">
+              <ChevronDown aria-hidden="true" className="absolute right-0 top-1 h-5 w-5 text-[var(--brand-muted)] transition-transform group-open/create:rotate-180" />
               <div className="flex items-start gap-3">
                 <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-2 text-[var(--brand-primary)]">
                   <FileSignature className="h-5 w-5" />
@@ -1266,8 +1261,9 @@ export default async function DocumentsPage({
             </div>
           </details>
 
-          <details className="rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
-            <summary className="cursor-pointer list-none">
+          <details className="group/upload rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+            <summary className="relative cursor-pointer list-none pr-8">
+              <ChevronDown aria-hidden="true" className="absolute right-0 top-1 h-5 w-5 text-[var(--brand-muted)] transition-transform group-open/upload:rotate-180" />
               <div className="flex items-start gap-3">
                 <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-2 text-[var(--brand-primary)]">
                   <Upload className="h-5 w-5" />
@@ -1339,12 +1335,20 @@ export default async function DocumentsPage({
               const client = one(assignment.clients);
               const template = one(assignment.document_templates);
               const clientName = [client?.first_name, client?.last_name].filter(Boolean).join(" ") || client?.email || assignment.assigned_to_email || "Client";
-              const overdue = Boolean(assignment.due_at && new Date(assignment.due_at).getTime() < now);
               const missingEmail = !assignment.assigned_to_email && !client?.email;
               const envelope = assignment.sign_envelope_id
                 ? envelopesById.get(assignment.sign_envelope_id) ?? null
                 : null;
-              const draftEnvelope = envelope?.status === "draft";
+              // Phase 8D: the shared presentation contract decides the label and which actions are valid.
+              const presentation = presentDocumentAssignment({
+                assignmentStatus: assignment.status,
+                dueAt: assignment.due_at,
+                hasEnvelope: Boolean(assignment.sign_envelope_id),
+                envelope,
+              });
+              const overdue = presentation.state === "overdue";
+              const draftEnvelope = presentation.state === "preparing";
+              const replaceable = ["expired", "declined", "unavailable"].includes(presentation.state);
               const savedFieldCount = envelope?.document_sign_fields?.length ?? 0;
               return (
                 <div key={assignment.id} className={`rounded-2xl border p-4 ${overdue ? "border-rose-200 bg-rose-50/60" : missingEmail ? "border-amber-200 bg-amber-50/60" : "border-[var(--brand-border)] bg-[var(--brand-surface)]"}`}>
@@ -1356,9 +1360,13 @@ export default async function DocumentsPage({
                         {template?.is_required ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">Required</span> : null}
                         {draftEnvelope ? (
                           <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800">
-                            {savedFieldCount > 0 ? "Draft layout" : "Needs field setup"}
+                            {savedFieldCount > 0 ? "Being prepared" : "Needs field setup"}
                           </span>
-                        ) : null}
+                        ) : (
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${presentation.needsAction ? (overdue ? "bg-rose-100 text-rose-800" : "bg-orange-100 text-orange-800") : "bg-slate-100 text-slate-700"}`}>
+                            {presentation.label}
+                          </span>
+                        )}
                         {missingEmail ? <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800">No email</span> : null}
                       </div>
                       <p className="mt-1 text-sm text-[var(--brand-muted)]">{template?.title || "Document"}{assignment.due_at ? ` · ${overdue ? "Past due" : "Due"} ${formatDateTime(assignment.due_at)}` : " · No due date"}</p>
@@ -1373,10 +1381,18 @@ export default async function DocumentsPage({
                           <FileSignature className="h-3.5 w-3.5" />
                           {savedFieldCount > 0 ? "Edit field layout" : "Finish field setup"}
                         </Link>
-                      ) : !missingEmail ? (
+                      ) : replaceable && assignment.sign_envelope_id && !assignment.event_signing_checkpoint_id ? (
+                        <Link
+                          href={`/app/documents/sign/${assignment.sign_envelope_id}`}
+                          className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"
+                        >
+                          <FileSignature className="h-3.5 w-3.5" />
+                          Revise request
+                        </Link>
+                      ) : presentation.needsAction && !missingEmail ? (
                         <form action={sendDocumentReminderAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"><Send className="h-3.5 w-3.5"/>Send reminder</button></form>
                       ) : null}
-                      {canManage && !assignment.event_signing_checkpoint_id ? (
+                      {canManage && presentation.needsAction && !assignment.event_signing_checkpoint_id ? (
                         <form action={updateDocumentAssignmentDueDateAction} className="flex items-center gap-1">
                           <input type="hidden" name="assignmentId" value={assignment.id} />
                           <input type="hidden" name="scope" value="studio" />
@@ -1435,7 +1451,11 @@ export default async function DocumentsPage({
             </thead>
             <tbody>
               {allEnvelopes.map((item) => {
-                const active = canManage && ["sent", "viewed", "started"].includes(item.status);
+                // Phase 8D: user-facing label from the derived lifecycle; resend only while the link is still live.
+                const lifecycle = deriveSignEnvelopeLifecycle(item);
+                const active = canManage && lifecycle === "open";
+                const statusLabel = envelopeStatusLabel(lifecycle, Boolean(item.superseded_by_envelope_id));
+                const isEventCheckout = item.context_type === "event_checkout" || Boolean(item.event_signing_checkpoint_id);
                 const fieldCount = item.document_sign_fields?.length ?? 0;
                 return (
                   <tr key={item.id} className="border-b border-slate-100 align-top">
@@ -1465,8 +1485,8 @@ export default async function DocumentsPage({
                       <div className="text-xs text-slate-500">{item.signer_email}</div>
                     </td>
                     <td className="py-4 pr-4">
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ring-1 ${envelopeStatusClass(item.status)}`}>
-                        {item.status}
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${envelopeStatusClass(lifecycle === "open" ? item.status : lifecycle)}`}>
+                        {statusLabel}
                       </span>
                     </td>
                     <td className="py-4 pr-4 text-xs text-slate-600">
@@ -1493,11 +1513,13 @@ export default async function DocumentsPage({
                           </form>
                         ) : null}
                         {canManage &&
+                        !isEventCheckout &&
                         ["sent", "viewed", "started", "expired", "declined", "void"].includes(item.status) &&
                         !item.superseded_by_envelope_id ? (
-                          <details className="relative">
-                            <summary className="cursor-pointer list-none rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700">
+                          <details className="group/revise relative">
+                            <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-700">
                               Revise
+                              <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open/revise:rotate-180" />
                             </summary>
                             <form
                               action={reviseSignEnvelopeAction}
@@ -1553,7 +1575,7 @@ export default async function DocumentsPage({
                         {item.status === "completed" ? (
                           <>
                             <a href={`/app/documents/sign/${item.id}/signed`} className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700">Signed PDF</a>
-                            <a href={`/app/documents/sign/${item.id}/certificate`} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Certificate</a>
+                            <a href={`/app/documents/sign/${item.id}/certificate`} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Signing certificate</a>
                           </>
                         ) : null}
                       </div>
@@ -1571,8 +1593,9 @@ export default async function DocumentsPage({
         </div>
       </section>
 
-      <details className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
-        <summary className="cursor-pointer list-none">
+      <details className="group/library rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+        <summary className="relative cursor-pointer list-none pr-8">
+          <ChevronDown aria-hidden="true" className="absolute right-0 top-1 h-5 w-5 text-[var(--brand-muted)] transition-transform group-open/library:rotate-180" />
           <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[var(--brand-text)]">Template library</h2><p className="mt-1 text-sm text-[var(--brand-muted)]">{isOrganizerWorkspace ? "Manage reusable event documents, registration requirements, and version history." : "Manage reusable templates, client assignment, event requirements, and version history."}</p></div><span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">{(templates ?? []).filter((template) => template.is_active).length} active</span></div>
         </summary>
         <div className="mt-6 space-y-6">
@@ -1602,7 +1625,6 @@ export default async function DocumentsPage({
                 key={template.id}
                 template={template as DocumentTemplate}
                 organizers={organizers}
-                clients={(clients ?? []) as ClientOption[]}
                 events={events}
                 eventRequirements={eventRequirements}
                 pendingAssignmentCount={pendingCountByTemplateId.get(template.id) ?? 0}

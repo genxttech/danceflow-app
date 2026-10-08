@@ -51,6 +51,24 @@ function tokenHash(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Phase 8D -- document-signing permission written when a link row is created or reused.
+ *   - a client's own account (self) always signs for itself;
+ *   - a NEW non-self link (guardian, parent, billing contact, ...) gets signing only when staff explicitly grant it;
+ *   - an EXISTING non-self row (e.g. an invitation being accepted) keeps its stored decision -- never rewritten.
+ * Relationship type alone never grants signing authority. (The database default is also false; see
+ * 20261101090000_client_account_links_signing_default.sql.)
+ */
+export function signingPermissionWrite(params: {
+  relationshipType: ClientRelationshipType;
+  isNewRow: boolean;
+  explicitGrant?: boolean;
+}): { can_sign_documents?: boolean } {
+  if (params.relationshipType === "self") return { can_sign_documents: true };
+  if (params.explicitGrant === true) return { can_sign_documents: true };
+  return params.isNewRow ? { can_sign_documents: false } : {};
+}
+
 export function createClientAccountInviteToken() {
   const token = randomBytes(32).toString("base64url");
   return { token, hash: tokenHash(token) };
@@ -76,6 +94,8 @@ export async function createOrRefreshClientInvitation(params: {
   email: string;
   userId?: string | null;
   relationshipType?: ClientRelationshipType;
+  /** Phase 8D: authorized staff explicitly allow this non-self relationship to sign documents. */
+  grantDocumentSigning?: boolean;
 }) {
   const admin = createAdminClient();
   const now = new Date();
@@ -91,7 +111,7 @@ export async function createOrRefreshClientInvitation(params: {
    */
   const { data: existingRows, error: existingError } = await admin
     .from("client_account_links")
-    .select("id, user_id, status, relationship_type, is_primary, created_at, invite_token_hash, invite_expires_at")
+    .select("id, user_id, status, relationship_type, is_primary, created_at, invite_token_hash, invite_expires_at, invited_email")
     .eq("studio_id", params.studioId)
     .eq("client_id", params.clientId)
     .order("created_at", { ascending: false });
@@ -144,7 +164,16 @@ export async function createOrRefreshClientInvitation(params: {
     can_view_schedule: true,
     can_view_billing: true,
     can_manage_bookings: true,
-    can_sign_documents: true,
+    // A reused row keeps its stored signing decision only when it is the SAME person (relationship + email); an
+    // open invitation re-targeted to someone else is treated as new, so a previous grant is never carried over.
+    ...signingPermissionWrite({
+      relationshipType,
+      isNewRow:
+        !existing?.id ||
+        existing.relationship_type !== relationshipType ||
+        normalizedEmail(existing.invited_email ?? "") !== normalizedEmail(email),
+      explicitGrant: params.grantDocumentSigning,
+    }),
     is_primary: relationshipType === "self",
     initiated_by: "studio",
     invited_email: email,
@@ -314,7 +343,7 @@ export async function linkExistingClientAccount(params: {
     can_view_schedule: true,
     can_view_billing: true,
     can_manage_bookings: true,
-    can_sign_documents: true,
+    ...signingPermissionWrite({ relationshipType, isNewRow: !existingLink?.id }),
     is_primary: relationshipType === "self",
     initiated_by: "studio",
     invited_email: normalizedEmail(params.invitedEmail),

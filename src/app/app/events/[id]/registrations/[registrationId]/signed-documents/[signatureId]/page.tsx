@@ -252,13 +252,18 @@ export default async function SignedDocumentReceiptPage({ params }: { params: Pa
 
         <article className="print-sheet rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
           <header className="border-b border-slate-200 pb-6">
-            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-600">Signed Document Receipt</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-600">Legacy signature record</p>
             <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{documentTitle(typedSignature)}</h1>
             {documentDescription(typedSignature) ? (
               <p className="mt-2 text-sm text-slate-600">{documentDescription(typedSignature)}</p>
             ) : null}
             <p className="mt-4 text-sm text-slate-500">
-              Receipt generated {formatDateTime(new Date().toISOString())}
+              Record generated {formatDateTime(new Date().toISOString())}
+            </p>
+                      {/* Phase 8C/8D: be explicit about the strength of this evidence; "receipt" is reserved for payments. */}
+            <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+              Legacy typed-signature record: the typed name, consent and document text captured at signing. It is not
+              a DanceFlow Sign envelope, so it has no signed-PDF hash or completion certificate.
             </p>
           </header>
 

@@ -19,6 +19,8 @@ import {
   OPEN_SIGN_ENVELOPE_STATUSES,
   signLinkExpiryForDueDate,
 } from "@/lib/documents/signing-integrity";
+import { chooseDocumentRecipient, loadEligibleDocumentSigners, RECIPIENT_ERRORS } from "@/lib/documents/recipients";
+import { reuseFieldLayoutFromVersion } from "@/lib/documents/field-layout-reuse";
 
 export type DocumentActionState = {
   error?: string;
@@ -356,11 +358,16 @@ export async function assignDocumentToClientAction(formData: FormData) {
   const templateId = getString(formData, "templateId");
   const clientId = getString(formData, "clientId");
   const dueDate = getString(formData, "dueDate");
+  // Phase 8D: an assignment started from the client profile keeps that client preselected on any error.
+  const assignContext =
+    getString(formData, "assignContext") === "client" && clientId
+      ? `&assignClient=${encodeURIComponent(clientId)}#assign-document`
+      : "";
+  const fail = (message: string): never =>
+    redirect(`/app/documents?error=${encodeURIComponent(message)}${assignContext}`);
 
   if (!templateId || !clientId) {
-    redirect(
-      "/app/documents?error=Choose a document and client before assigning.",
-    );
+    fail("Choose a document and client before assigning.");
   }
 
   const { data: template, error: templateError } = await owner.supabase
@@ -396,10 +403,21 @@ export async function assignDocumentToClientAction(formData: FormData) {
     redirect("/app/documents?error=Client not found.");
   }
 
-  const signerEmail = typeof client.email === "string" ? client.email.trim().toLowerCase() : "";
-  if (!signerEmail || !signerEmail.includes("@")) {
-    redirect("/app/documents?error=Add a valid client email before sending a document for signature.");
+  // Phase 8D: the client stays the owner and subject; the request is DELIVERED to the client or to one explicitly
+  // eligible linked signer (active link, stored can_sign_documents, real account with an email) -- never guessed.
+  const clientName = [client.first_name, client.last_name].filter(Boolean).join(" ").trim() || "Client";
+  const eligibleSigners = await loadEligibleDocumentSigners({ studioId: owner.studioId, clientId });
+  const recipientChoice = chooseDocumentRecipient({
+    clientName,
+    clientEmail: client.email,
+    eligible: eligibleSigners,
+    requested: getString(formData, "recipient"),
+  });
+  if (!recipientChoice.ok) {
+    fail(RECIPIENT_ERRORS[recipientChoice.reason]);
   }
+  const recipient = (recipientChoice as Extract<typeof recipientChoice, { ok: true }>).recipient;
+  const signerEmail = recipient.email;
 
   const { data: existing } = await owner.supabase
     .from("document_assignments")
@@ -411,12 +429,10 @@ export async function assignDocumentToClientAction(formData: FormData) {
     .maybeSingle();
 
   if (existing) {
-    redirect(
-      "/app/documents?error=This client already has a pending assignment for that document.",
-    );
+    fail("This client already has a pending assignment for that document.");
   }
 
-  const signerName = [client.first_name, client.last_name].filter(Boolean).join(" ").trim() || signerEmail;
+  const signerName = recipient.name;
   const admin = createAdminClient();
   const branding = await loadStudioDocumentBranding(admin, owner.studioId);
   const pdfBytes = await renderTemplateVersionPdf({
@@ -517,13 +533,28 @@ export async function assignDocumentToClientAction(formData: FormData) {
     envelope_id: envelopeId,
     event_type: "created",
     actor_user_id: owner.userId,
-    summary: "Signing draft created from a document template version.",
+    summary:
+      recipient.kind === "linked"
+        ? "Signing draft created from a document template version for an authorized signer on behalf of the client."
+        : "Signing draft created from a document template version.",
     metadata: {
       template_id: templateId,
       template_version_id: version.id,
       client_id: clientId,
       assignment_id: assignmentId,
+      recipient_kind: recipient.kind,
+      recipient_link_id: recipient.kind === "linked" ? recipient.linkId : null,
+      recipient_relationship_type: recipient.kind === "linked" ? recipient.relationshipType : null,
     },
+  });
+
+  // Phase 8D: reuse the field layout already placed and sent for this template version (staff still review it).
+  const layoutReused = await reuseFieldLayoutFromVersion({
+    studioId: owner.studioId,
+    templateVersionId: version.id,
+    newEnvelopeId: envelopeId,
+    pageCount: pageSizes.length,
+    pageSizes,
   });
 
   const { data: signerLinks } = await owner.supabase
@@ -563,7 +594,7 @@ export async function assignDocumentToClientAction(formData: FormData) {
 
   revalidatePath("/app/documents");
   revalidatePath(`/app/clients/${clientId}`);
-  redirect(`/app/documents/sign/${envelopeId}/edit?source=template`);
+  redirect(`/app/documents/sign/${envelopeId}/edit?source=template${layoutReused ? "&layout=reused" : ""}`);
 }
 
 export async function assignDocumentToEventAction(formData: FormData) {
