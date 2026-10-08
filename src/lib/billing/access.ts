@@ -93,10 +93,11 @@ function isOrganizerRole(value: string | null | undefined) {
 
 async function studioHasActiveOrganizerSuiteAddOn(
   studioId: string | null | undefined,
+  client?: Awaited<ReturnType<typeof createClient>>,
 ) {
   if (!studioId) return false;
 
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
 
   const { data, error } = await supabase
     .from("usage_addon_entitlements")
@@ -646,6 +647,34 @@ export async function studioHasFeature(feature: BillingFeature) {
 
   if (isOrganizerSuiteFeature(feature)) {
     return studioHasActiveOrganizerSuiteAddOn(subscription.studioId);
+  }
+
+  return false;
+}
+
+/**
+ * Feature check for an explicit studio id, for server jobs with no signed-in
+ * staff user (for example the document-operations cron). Same rules as
+ * `studioHasFeature`: the canonical plan resolver, an active/trialing
+ * status, the plan's feature list, then the Organizer Suite add-on. The
+ * caller supplies a client that is allowed to read the studio's billing rows
+ * (the admin client for cron work).
+ */
+export async function studioIdHasFeature(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  studioId: string,
+  feature: BillingFeature,
+) {
+  const subscription = await resolveStudioBillingPlan(supabase, studioId);
+
+  if (!isActiveBillingStatus(subscription.status)) return false;
+
+  if (planHasFeature(subscription.planCode, feature)) {
+    return true;
+  }
+
+  if (isOrganizerSuiteFeature(feature)) {
+    return studioHasActiveOrganizerSuiteAddOn(studioId, supabase);
   }
 
   return false;

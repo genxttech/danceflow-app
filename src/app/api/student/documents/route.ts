@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStudentApiUser } from "@/lib/auth/studentApiAuth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { deriveSignEnvelopeLifecycle } from "@/lib/documents/signing-integrity";
 
 type AssignmentRow = {
   id: string;
@@ -41,6 +42,7 @@ type EnvelopeRow = {
   id: string;
   status: string;
   completed_at: string | null;
+  expires_at: string | null;
 };
 
 function firstJoin<T>(value: T | T[] | null | undefined) {
@@ -124,7 +126,7 @@ export async function GET(request: Request) {
   if (envelopeIds.length) {
     const { data: envelopes, error: envelopesError } = await supabase
       .from("document_sign_envelopes")
-      .select("id, status, completed_at")
+      .select("id, status, completed_at, expires_at")
       .in("id", envelopeIds);
 
     if (envelopesError) {
@@ -166,7 +168,11 @@ export async function GET(request: Request) {
       dueAt: row.due_at,
       assignedAt: row.assigned_at,
       signedAt,
-      envelopeStatus: envelope?.status ?? null,
+      // Phase 8B: an open request past its link expiry is reported as `expired` before the cron persists it.
+      envelopeStatus:
+        envelope && deriveSignEnvelopeLifecycle(envelope) === "expired"
+          ? "expired"
+          : envelope?.status ?? null,
       nativeSigningAvailable: Boolean(row.sign_envelope_id),
     };
   });

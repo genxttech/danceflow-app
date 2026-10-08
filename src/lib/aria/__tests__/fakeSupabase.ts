@@ -3,6 +3,10 @@
  * subset the ARIA code paths use: select / insert / upsert / update / delete with eq, neq, in, is, not, gt(e), lt(e),
  * order, limit, single, maybeSingle. Embedded relation selects are ignored (rows are returned whole, so tests seed any
  * embedded data directly on the row). Unknown filter methods are accepted and ignored.
+ *
+ * Filters on an embedded column ("alias.column") are ignored unless the test declares that relation via the
+ * `relations` option; a declared relation is resolved live against its table with `!inner` semantics (a row whose
+ * related row is missing, or fails the filter, is excluded) -- the PostgREST behaviour of an inner-embedded filter.
  */
 
 type Row = Record<string, unknown>;
@@ -29,15 +33,20 @@ function parseInList(value: unknown): unknown[] {
     .map((part) => part.trim().replace(/^"|"$/g, ""));
 }
 
+/** An embedded relation: `table.localKey` references `relation.table.foreignKey` (default `id`). */
+export type FakeRelation = { table: string; localKey: string; foreignKey?: string };
+
 export class FakeSupabase {
   tables: Record<string, Row[]> = {};
   operations: FakeOperation[] = [];
+  relations: Record<string, Record<string, FakeRelation>>;
   private nextId = 1;
 
-  constructor(seed: Record<string, Row[]> = {}) {
+  constructor(seed: Record<string, Row[]> = {}, options: { relations?: Record<string, Record<string, FakeRelation>> } = {}) {
     for (const [table, rows] of Object.entries(seed)) {
       this.tables[table] = rows.map((row) => ({ ...row }));
     }
+    this.relations = options.relations ?? {};
   }
 
   rows(table: string) {
@@ -100,41 +109,53 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: null; count?: num
     this.filters.push(filter);
     return this;
   }
+  /** Filter on a column of this row, or on a declared embedded relation's column ("alias.column", inner semantics). */
+  private on(column: string, predicate: (value: unknown) => boolean) {
+    if (!column.includes(".")) return this.add((row) => predicate(row[column]));
+    const [alias, field] = column.split(".", 2);
+    const relation = this.db.relations[this.table]?.[alias];
+    if (!relation) return this;
+    return this.add((row) => {
+      const related = this.db
+        .rows(relation.table)
+        .find((candidate) => candidate[relation.foreignKey ?? "id"] === row[relation.localKey]);
+      return related ? predicate(related[field]) : false;
+    });
+  }
   eq(column: string, value: unknown) {
     this.eqs.push([column, value]);
-    if (column.includes(".")) return this;
-    return this.add((row) => row[column] === value);
+    return this.on(column, (cell) => cell === value);
   }
   neq(column: string, value: unknown) {
-    return this.add((row) => row[column] !== value);
+    return this.on(column, (cell) => cell !== value);
   }
   in(column: string, values: unknown) {
     const list = parseInList(values);
-    return this.add((row) => list.includes(row[column]));
+    return this.on(column, (cell) => list.includes(cell));
   }
   is(column: string, value: unknown) {
-    return this.add((row) => (value === null ? row[column] === null || row[column] === undefined : row[column] === value));
+    return this.on(column, (cell) => (value === null ? cell === null || cell === undefined : cell === value));
   }
   not(column: string, operator: string, value: unknown) {
-    if (operator === "is") return this.add((row) => !(value === null ? row[column] == null : row[column] === value));
+    if (operator === "is") return this.on(column, (cell) => !(value === null ? cell == null : cell === value));
     if (operator === "in") {
       const list = parseInList(value);
-      return this.add((row) => !list.includes(row[column]));
+      return this.on(column, (cell) => !list.includes(cell));
     }
-    if (operator === "eq") return this.add((row) => row[column] !== value);
+    if (operator === "eq") return this.on(column, (cell) => cell !== value);
     return this;
   }
   gt(column: string, value: unknown) {
-    return this.add((row) => compare(row[column], value) > 0);
+    return this.on(column, (cell) => compare(cell, value) > 0);
   }
   gte(column: string, value: unknown) {
-    return this.add((row) => compare(row[column], value) >= 0);
+    return this.on(column, (cell) => compare(cell, value) >= 0);
   }
   lt(column: string, value: unknown) {
-    return this.add((row) => compare(row[column], value) < 0);
+    return this.on(column, (cell) => compare(cell, value) < 0);
   }
   lte(column: string, value: unknown) {
-    return this.add((row) => compare(row[column], value) <= 0);
+    return this.on(column, (cell) => compare(cell, value) <= 0);
   }
   order(column: string, options?: { ascending?: boolean }) {
     this.orderBy.push({ column, ascending: options?.ascending !== false });

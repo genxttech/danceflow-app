@@ -26,6 +26,12 @@ const SIGNED_BYTES = new Uint8Array([5, 5, 5, 5]);
 const CORRECT_SIGNED_SHA256 = sha256Hex(SIGNED_BYTES);
 
 const getCurrentStudioContextMock = vi.fn();
+// Phase 8B: these suites exercise role / evidence behaviour on a plan that includes Documents.
+vi.mock("@/lib/billing/access", () => ({
+  requireStudioFeature: async () => undefined,
+  studioHasFeature: async () => true,
+}));
+
 vi.mock("@/lib/auth/studio", () => ({
   getCurrentStudioContext: (...args: unknown[]) => getCurrentStudioContextMock(...args),
 }));

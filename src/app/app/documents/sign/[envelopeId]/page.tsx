@@ -9,6 +9,7 @@ import {
   reviseSignEnvelopeAction,
   revokeSignEnvelopeAction,
 } from "../actions";
+import { studioHasFeature } from "@/lib/billing/access";
 
 function fmt(value: string | null) {
   if (!value) return "—";
@@ -28,6 +29,10 @@ function errorMessage(code?: string) {
     return "The replacement draft was created, but the original could not be superseded safely.";
   if (code === "duplicate_create_failed")
     return "The completed request could not be duplicated.";
+  if (code === "event_checkout_not_revisable")
+    return "Event checkout waivers cannot be revised. The registrant signs again by restarting checkout.";
+  if (code === "assignment_closed")
+    return "This requirement was waived, voided, or signed, so it cannot be reopened by a revision. Assign the document again to request a new signature.";
   return code.replaceAll("_", " ");
 }
 
@@ -43,6 +48,9 @@ export default async function SignEnvelopeDetailPage({
   const context = await getCurrentStudioContext();
 
   if (!canManageDocumentsRole(context.studioRole)) redirect("/app");
+  // Phase 8B: the record stays readable after a plan downgrade (record retention); management controls need the
+  // Documents feature, and every management action re-checks it on the server.
+  const canManage = await studioHasFeature("documents");
 
   const admin = createAdminClient();
   const { data: envelope } = await admin
@@ -64,11 +72,17 @@ export default async function SignEnvelopeDetailPage({
     .eq("envelope_id", envelopeId)
     .order("created_at", { ascending: false });
 
-  const active = ["sent", "viewed", "started"].includes(envelope.status);
+  const active = canManage && ["sent", "viewed", "started"].includes(envelope.status);
+  const isEventCheckout =
+    envelope.context_type === "event_checkout" ||
+    Boolean(envelope.event_signing_checkpoint_id);
   const revisable =
     ["sent", "viewed", "started", "expired", "declined", "void"].includes(
       envelope.status,
-    ) && !envelope.superseded_by_envelope_id;
+    ) &&
+    !envelope.superseded_by_envelope_id &&
+    !isEventCheckout &&
+    canManage;
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-6 md:px-8">
@@ -165,7 +179,7 @@ export default async function SignEnvelopeDetailPage({
 
       <section className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap gap-3">
-          {envelope.status === "draft" ? (
+          {canManage && envelope.status === "draft" ? (
             <Link
               href={`/app/documents/sign/${envelope.id}/edit`}
               className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white"
@@ -183,7 +197,7 @@ export default async function SignEnvelopeDetailPage({
             </form>
           ) : null}
 
-          {["draft", "sent", "viewed", "started"].includes(envelope.status) ? (
+          {canManage && ["draft", "sent", "viewed", "started"].includes(envelope.status) ? (
             <form action={revokeSignEnvelopeAction} className="flex gap-2">
               <input type="hidden" name="envelopeId" value={envelope.id} />
               <input
@@ -215,6 +229,21 @@ export default async function SignEnvelopeDetailPage({
             </>
           ) : null}
         </div>
+
+        {!canManage ? (
+          <p className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+            Your current plan does not include Documents, so this record is
+            read-only. Signed documents, source files and completion
+            certificates remain available.
+          </p>
+        ) : null}
+
+        {canManage && isEventCheckout && envelope.status !== "completed" ? (
+          <p className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+            This waiver belongs to an event checkout, so it cannot be revised
+            here. The registrant signs again by restarting checkout.
+          </p>
+        ) : null}
 
         {revisable ? (
           <form
@@ -256,7 +285,7 @@ export default async function SignEnvelopeDetailPage({
           </form>
         ) : null}
 
-        {envelope.status === "completed" ? (
+        {canManage && envelope.status === "completed" ? (
           <form
             action={duplicateCompletedSignEnvelopeAction}
             className="rounded-2xl border border-slate-200 bg-slate-50 p-4"

@@ -13,6 +13,7 @@ import { canManageDocumentsRole } from "@/lib/documents/studio-access";
 import { buildAppUrl } from "@/lib/email/brand";
 import { buildSignatureRequestEmail } from "./signatureRequestEmail";
 import { LIVE_SIGN_ENVELOPE_STATUSES, OPEN_SIGN_ENVELOPE_STATUSES } from "@/lib/documents/signing-integrity";
+import { requireStudioFeature } from "@/lib/billing/access";
 
 /** Envelope statuses a revision may supersede (never `completed` or `draft`). */
 const REVISABLE_SIGN_ENVELOPE_STATUSES = ["sent", "viewed", "started", "expired", "declined", "void"] as const;
@@ -38,6 +39,8 @@ async function requireStudioEnvelope(envelopeId: string) {
   if (!canManageDocumentsRole(context.studioRole)) {
     redirect("/app");
   }
+  // Phase 8B: every staff signing operation requires the Documents plan feature (server-side, not just hidden UI).
+  await requireStudioFeature("documents");
   const admin = createAdminClient();
   const { data: envelope } = await admin.from("document_sign_envelopes")
     .select("*").eq("id", envelopeId).eq("studio_id", context.studioId).maybeSingle();
@@ -58,6 +61,7 @@ export async function createSignEnvelopeAction(formData: FormData) {
   if (!canManageDocumentsRole(context.studioRole)) {
     redirect("/app");
   }
+  await requireStudioFeature("documents");
   const title = text(formData, "title", 180);
   const signerName = text(formData, "signerName", 160);
   const signerEmail = text(formData, "signerEmail", 320).toLowerCase();
@@ -122,6 +126,14 @@ type SigningEnvelopeRow = {
   source_sha256: string | null;
   page_count: number | null;
   page_sizes: unknown;
+  client_id?: string | null;
+  organizer_id?: string | null;
+  template_id?: string | null;
+  template_version_id?: string | null;
+  source_kind?: string | null;
+  context_type?: string | null;
+  context_id?: string | null;
+  event_signing_checkpoint_id?: string | null;
 };
 
 async function queueEnvelopeEmail(args: { admin: ReturnType<typeof createAdminClient>; envelope: SigningEnvelopeRow; token: string; studioId: string; dedupeKey: string; subjectPrefix?: string }) {
@@ -251,6 +263,15 @@ async function createEnvelopeCopy(params: {
         id: newEnvelopeId,
         studio_id: studioId,
         assignment_id: kind === "revision" ? envelope.assignment_id ?? null : null,
+        // Phase 8B: keep the request's identity so portal / student access (scoped by client) and template-version
+        // provenance survive a revision. A duplicate is a new standalone request, so it carries no assignment context.
+        client_id: envelope.client_id ?? null,
+        organizer_id: envelope.organizer_id ?? null,
+        template_id: envelope.template_id ?? null,
+        template_version_id: envelope.template_version_id ?? null,
+        source_kind: envelope.source_kind ?? "uploaded_pdf",
+        context_type: kind === "revision" ? envelope.context_type ?? null : null,
+        context_id: kind === "revision" ? envelope.context_id ?? null : null,
         title: envelope.title,
         signer_name: envelope.signer_name,
         signer_email: envelope.signer_email,
@@ -370,6 +391,30 @@ export async function reviseSignEnvelopeAction(formData: FormData) {
     redirect(`/app/documents/sign/${envelopeId}?error=already_superseded`);
   }
 
+  // Phase 8B: an event-checkout waiver belongs to a time-boxed checkout session; a revision would detach it from
+  // the checkout and could never advance it. The registrant restarts checkout instead.
+  if (envelope.context_type === "event_checkout" || envelope.event_signing_checkpoint_id) {
+    redirect(`/app/documents/sign/${envelopeId}?error=event_checkout_not_revisable`);
+  }
+
+  // Phase 8B: a revision never silently reopens a waived / void requirement (or touches a signed one). Staff
+  // create a new assignment instead.
+  if (envelope.assignment_id) {
+    const { data: linkedAssignment } = await admin
+      .from("document_assignments")
+      .select("id, status, event_signing_checkpoint_id")
+      .eq("id", envelope.assignment_id)
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+    if (linkedAssignment?.event_signing_checkpoint_id) {
+      redirect(`/app/documents/sign/${envelopeId}?error=event_checkout_not_revisable`);
+    }
+    if (linkedAssignment && linkedAssignment.status !== "pending") {
+      redirect(`/app/documents/sign/${envelopeId}?error=assignment_closed`);
+    }
+  }
+
   let copyResult: { newEnvelopeId: string; now: string };
   try {
     copyResult = await createEnvelopeCopy({
@@ -431,21 +476,44 @@ export async function reviseSignEnvelopeAction(formData: FormData) {
   });
 
   if (envelope.assignment_id) {
-    const { error: assignmentError } = await admin
+    // Phase 8B: relink only a still-pending assignment (never reopen waived / void / signed). A new link restarts
+    // the reminder cycle, so both reminder markers are cleared.
+    const { data: relinkedAssignment, error: assignmentError } = await admin
       .from("document_assignments")
       .update({
         sign_envelope_id: newEnvelopeId,
-        status: "pending",
+        reminder_sent_at: null,
+        overdue_reminder_sent_at: null,
+        updated_at: now,
       })
       .eq("id", envelope.assignment_id)
       .eq("studio_id", studioId)
-      .neq("status", "signed");
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
 
     if (assignmentError) {
       console.error(
         "Revision created, but assignment relinking failed:",
         assignmentError.message,
       );
+    } else if (!relinkedAssignment) {
+      // The assignment was closed (waived / voided / signed) while the revision was being created: retire the
+      // new draft so it can never be sent against a closed requirement.
+      await admin
+        .from("document_sign_envelopes")
+        .update({
+          status: "void",
+          token_hash: null,
+          voided_at: now,
+          revoked_reason: "Assignment closed before the revision was linked.",
+          updated_at: now,
+        })
+        .eq("id", newEnvelopeId)
+        .eq("studio_id", studioId)
+        .eq("status", "draft");
+      revalidatePath("/app/documents");
+      redirect(`/app/documents/sign/${envelopeId}?error=assignment_closed`);
     }
   }
 
