@@ -65,7 +65,9 @@ vi.mock("@/lib/memberships/entitlements", () => ({
   validateMembershipEntitlement: vi.fn().mockResolvedValue({ ok: true, membershipId: null }),
 }));
 
-vi.mock("@/lib/packages/entitlement", () => ({
+vi.mock("@/lib/packages/entitlement", async (importOriginal) => ({
+  // Keep the canonical pure helpers (e.g. packageUsageTypeForAppointment); only the I/O validator is stubbed.
+  ...(await importOriginal<typeof import("@/lib/packages/entitlement")>()),
   validateClientPackageForBooking: vi.fn().mockResolvedValue({ ok: true }),
 }));
 

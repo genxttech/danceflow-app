@@ -1,9 +1,13 @@
 import AppointmentCreateForm from "./AppointmentCreateForm";
+import type { ComponentProps } from "react";
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canCreateAppointments } from "@/lib/auth/permissions";
+
+type FormProps = ComponentProps<typeof AppointmentCreateForm>;
 
 type SearchParams = Promise<{
   clientId?: string;
@@ -61,7 +65,9 @@ type ClientPackageRow = {
   client_id: string | null;
   name_snapshot: string | null;
   active: boolean | null;
+  archived_at: string | null;
   expiration_date: string | null;
+  refund_status: string | null;
   client_package_items: ClientPackageItemRow[] | null;
 };
 
@@ -183,7 +189,9 @@ export default async function NewAppointmentPage({
         client_id,
         name_snapshot,
         active,
+        archived_at,
         expiration_date,
+        refund_status,
         client_package_items (
           usage_type,
           quantity_remaining,
@@ -570,18 +578,18 @@ if (hostStudioIds.length > 0) {
 
       <AppointmentCreateForm
         studioTimeZone={studioTimeZone}
-        clients={availableClients as any}
-        instructors={availableInstructors as any}
-        rooms={availableRooms as any}
-        clientPackagesByClientId={clientPackagesByClientId as any}
-        clientMembershipsByClientId={hydratedClientMembershipsByClientId as any}
+        clients={availableClients as FormProps["clients"]}
+        instructors={availableInstructors as FormProps["instructors"]}
+        rooms={availableRooms as FormProps["rooms"]}
+        clientPackagesByClientId={clientPackagesByClientId as FormProps["clientPackagesByClientId"]}
+        clientMembershipsByClientId={hydratedClientMembershipsByClientId as FormProps["clientMembershipsByClientId"]}
         instructorSearchMode={isInstructorRole}
         initialClientLabel={initialClientLabel}
         initialClientId={validInitialClientId}
         initialDate={requestedDate}
         initialStartTime={requestedStartTime}
         initialEndTime={requestedEndTime}
-        linkedPartnersByClientId={linkedPartnersByClientId as any}
+        linkedPartnersByClientId={linkedPartnersByClientId as FormProps["linkedPartnersByClientId"]}
         canBookHostStudioFloorSpace={canBookHostStudioFloorSpace}
         linkedHostStudios={linkedHostStudios}
       />

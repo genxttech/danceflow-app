@@ -1,9 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { createAppointmentAction, type BookableClientSearchResult } from "../actions";
-import { hasReplacementCoverage, type PackageWithItems } from "@/lib/packages/entitlement";
+import {
+  formatPackageBalance,
+  getEligiblePackagesForAppointment,
+  pickDefaultPackageSelection,
+  hasReplacementCoverage,
+  packageUsageTypeForAppointment,
+  type PackageWithItems,
+} from "@/lib/packages/entitlement";
 import InstructorClientSearchField from "../InstructorClientSearchField";
 import GroupClassModeToggle, { type GroupClassMode } from "./GroupClassModeToggle";
 import GroupClassSeriesForm from "./GroupClassSeriesForm";
@@ -42,7 +49,9 @@ export type ClientPackageOption = {
   id: string;
   name_snapshot: string | null;
   active: boolean | null;
+  archived_at?: string | null;
   expiration_date: string | null;
+  refund_status?: string | null;
   client_package_items: ClientPackageItem[];
 };
 
@@ -150,24 +159,18 @@ function packageUsageTypeLabel(value: string | null) {
   return "Package Credit";
 }
 
-function appointmentTypeToPackageUsageTypes(appointmentType: string) {
-  if (
-    appointmentType === "private_lesson" ||
-    appointmentType === "intro_lesson" ||
-    appointmentType === "coaching"
-  ) {
-    return ["private_lesson"];
-  }
+function appointmentTypeToPackageUsageTypes(appointmentType: string): string[] {
+  const usageType = packageUsageTypeForAppointment(appointmentType);
+  return usageType ? [usageType] : [];
+}
 
-  if (appointmentType === "group_class") {
-    return ["group_class"];
+/** Today's date (`YYYY-MM-DD`) in the studio's time zone -- the picker's date until a start time is chosen. */
+function todayInTimeZone(timeZone: string) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
   }
-
-  if (appointmentType === "practice_party" || appointmentType === "event") {
-    return ["practice_party"];
-  }
-
-  return [appointmentType];
 }
 
 function toNumber(value: number | string | null | undefined) {
@@ -470,7 +473,10 @@ export default function AppointmentCreateForm({
   const [clientId, setClientId] = useState(initialClientId);
   const [selectedClientLabel, setSelectedClientLabel] = useState(initialClientLabel);
   const [partnerClientId, setPartnerClientId] = useState("");
-  const [linkedPackageId, setLinkedPackageId] = useState("");
+  const [packageChoice, setPackageChoice] = useState<{ key: string; packageId: string } | null>(null);
+  const [startsAtValue, setStartsAtValue] = useState(
+    initialDate ? `${initialDate}T${initialStartTime || "09:00"}` : "",
+  );
   const [billingType, setBillingType] = useState("package_credit");
   const [billingNote, setBillingNote] = useState("");
   const [overrideRoomConflict, setOverrideRoomConflict] = useState(false);
@@ -492,11 +498,6 @@ export default function AppointmentCreateForm({
     "count" | "date"
   >("count");
 
-  useEffect(() => {
-    setPartnerClientId("");
-    setLinkedPackageId("");
-  }, [clientId]);
-
   function selectSearchedClient(client: BookableClientSearchResult) {
     setClientId(client.id);
     setSelectedClientLabel(
@@ -506,11 +507,10 @@ export default function AppointmentCreateForm({
     setLinkedPackageId("");
   }
 
-  useEffect(() => {
-    if (
-      appointmentType === "floor_space_rental" ||
-      appointmentType === "room_unavailable"
-    ) {
+  function changeAppointmentType(nextType: string) {
+    setAppointmentType(nextType);
+
+    if (nextType === "floor_space_rental" || nextType === "room_unavailable") {
       setAlsoBookFloorSpace(false);
       setHostStudioId("");
       setHostRoomId("");
@@ -518,17 +518,17 @@ export default function AppointmentCreateForm({
       setRecurrenceEndsMode("count");
     }
 
-    if (appointmentType === "room_unavailable" || appointmentType === "group_class") {
+    if (nextType === "room_unavailable" || nextType === "group_class") {
       setClientId("");
       setPartnerClientId("");
-      setLinkedPackageId("");
+      setPackageChoice(null);
       setBillingType("package_credit");
       setBillingNote("");
       setPriceAmount("");
       setPaymentStatus("unpaid");
       setFloorRentalSlots([]);
     }
-  }, [appointmentType]);
+  }
 
   const selectedHostStudio = useMemo(
     () =>
@@ -556,6 +556,24 @@ export default function AppointmentCreateForm({
     () => linkedPartnersByClientId[clientId] ?? [],
     [clientId, linkedPartnersByClientId],
   );
+
+  // Only packages that can fund THIS appointment (type + studio-local date), each with its usable balance -- the
+  // canonical rule the server enforces too. One eligible package is selected automatically; several are never
+  // guessed between; "No linked package" stays available (booking without a package is a separate billing choice).
+  const appointmentDate = startsAtValue.slice(0, 10) || todayInTimeZone(studioTimeZone);
+  const eligiblePackageOptions = useMemo(
+    () => getEligiblePackagesForAppointment(selectedPackages, { appointmentType, appointmentDate }),
+    [selectedPackages, appointmentType, appointmentDate],
+  );
+  const packageChoiceKey = `${clientId}|${appointmentType}|${eligiblePackageOptions.map((option) => option.id).join(",")}`;
+  const defaultPackageSelection = pickDefaultPackageSelection(eligiblePackageOptions);
+  const linkedPackageId =
+    packageChoice?.key === packageChoiceKey
+      ? packageChoice.packageId
+      : defaultPackageSelection.kind === "single"
+        ? defaultPackageSelection.packageId
+        : "";
+  const setLinkedPackageId = (packageId: string) => setPackageChoice({ key: packageChoiceKey, packageId });
 
   const selectedPackage =
     selectedPackages.find(
@@ -756,7 +774,7 @@ export default function AppointmentCreateForm({
                   id="appointmentType"
                   name="appointmentType"
                   value={appointmentType}
-                  onChange={(e) => setAppointmentType(e.target.value)}
+                  onChange={(e) => changeAppointmentType(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 >
                   <option value="private_lesson">Private Lesson</option>
@@ -831,6 +849,8 @@ export default function AppointmentCreateForm({
                     onClear={() => {
                       setClientId("");
                       setSelectedClientLabel("");
+                      setPartnerClientId("");
+                      setPackageChoice(null);
                     }}
                   />
                 ) : (
@@ -887,7 +907,7 @@ export default function AppointmentCreateForm({
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-slate-500">
-                    Optional. Link a student's saved partner for a couple
+                    Optional. Link a student&apos;s saved partner for a couple
                     lesson.
                   </p>
                 </div>
@@ -981,6 +1001,7 @@ export default function AppointmentCreateForm({
                       ? `${initialDate}T${initialStartTime || "09:00"}`
                       : ""
                   }
+                  onChange={(e) => setStartsAtValue(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 />
               </div>
@@ -1479,23 +1500,39 @@ export default function AppointmentCreateForm({
                 >
                   Linked Package
                 </label>
-                <select
-                  id="clientPackageId"
-                  name="clientPackageId"
-                  value={linkedPackageId}
-                  onChange={(e) => setLinkedPackageId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                  disabled={!clientId}
-                >
-                  <option value="">
-                    {clientId ? "No linked package" : "Select a client first"}
-                  </option>
-                  {selectedPackages.map((pkg) => (
-                    <option key={pkg.id} value={pkg.id}>
-                      {pkg.name_snapshot}
-                    </option>
-                  ))}
-                </select>
+                {clientId && eligiblePackageOptions.length === 0 ? (
+                  <>
+                    <input type="hidden" name="clientPackageId" value="" />
+                    <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                      No active package available for this appointment. You can still book it without a linked package.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <select
+                      id="clientPackageId"
+                      name="clientPackageId"
+                      value={linkedPackageId}
+                      onChange={(e) => setLinkedPackageId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                      disabled={!clientId}
+                    >
+                      <option value="">
+                        {clientId ? "No linked package" : "Select a client first"}
+                      </option>
+                      {eligiblePackageOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {`${option.name} — ${formatPackageBalance(option)}`}
+                        </option>
+                      ))}
+                    </select>
+                    {eligiblePackageOptions.length > 1 ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        {eligiblePackageOptions.length} packages can cover this appointment. Choose the one to use.
+                      </p>
+                    ) : null}
+                  </>
+                )}
               </div>
             ) : (
               <input type="hidden" name="clientPackageId" value="" />

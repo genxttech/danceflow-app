@@ -19,7 +19,8 @@ import { mapGroupClassConflictDbError, toSafeConflict } from "@/lib/schedule/gro
 import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
 import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
 import { validateMembershipEntitlement } from "@/lib/memberships/entitlements";
-import { validateClientPackageForBooking } from "@/lib/packages/entitlement";
+import { packageUsageTypeForAppointment, validateClientPackageForBooking } from "@/lib/packages/entitlement";
+import { getZonedDateKey } from "@/lib/booking/selfServiceAvailability";
 import { sendAppointmentSchedulePush, sendGroupClassCancellationPush } from "@/lib/notifications/schedulePush";
 import { isSmsSendingApproved } from "@/lib/sms/compliance";
 import { isTwilioConfigured } from "@/lib/sms/twilio";
@@ -1147,22 +1148,6 @@ async function syncMembershipUsageForAppointment(params: {
   }
 }
 
-function getPackageUsageTypeForAppointmentType(appointmentType: string) {
-  switch (appointmentType) {
-    case "private_lesson":
-    case "intro_lesson":
-    case "coaching":
-      return "private_lesson";
-    case "group_class":
-      return "group_class";
-    case "practice_party":
-    case "event":
-      return "practice_party";
-    default:
-      return null;
-  }
-}
-
 /**
  * Package credit deduction for an attended appointment is performed
  * atomically and idempotently by the `deduct_package_credit_when_appointment_attended`
@@ -1214,7 +1199,7 @@ export async function syncPackageUsageForAttendedAppointment(params: {
 
   if (!clientId || !clientPackageId) return;
 
-  const usageType = getPackageUsageTypeForAppointmentType(appointmentType);
+  const usageType = packageUsageTypeForAppointment(appointmentType);
   if (!usageType) return;
 
   const { data, error } = await supabase.rpc(
@@ -1734,17 +1719,6 @@ export async function createAppointmentAction(
       redirect(`/app/schedule/${insertedRows[0].id}`);
     }
 
-    const packageValidation = await validateClientPackageForBooking({
-      supabase,
-      studioId,
-      clientId,
-      clientPackageId: relations.client_package_id,
-    });
-
-    if (!packageValidation.ok) {
-      return { error: packageValidation.error ?? "Package cannot be used." };
-    }
-
     const startsAt =
       toIsoFromLocalDateTime(getString(formData, "startsAt"), studioTimeZone) ??
       toIsoDateTime(
@@ -1766,6 +1740,24 @@ export async function createAppointmentAction(
 
     if (new Date(endsAt) <= new Date(startsAt)) {
       return { error: "Appointment must end after it starts." };
+    }
+
+    // Attaching a package: the canonical eligibility rule for this appointment type and its studio-local date
+    // (the same rule the picker uses). A recurring request is checked against every occurrence further below,
+    // before any row is written. Booking without a package is unaffected.
+    if (!getBoolean(formData, "isRecurring")) {
+      const packageValidation = await validateClientPackageForBooking({
+        supabase,
+        studioId,
+        clientId,
+        clientPackageId: relations.client_package_id,
+        appointmentType,
+        appointmentDates: [getZonedDateKey(new Date(startsAt), studioTimeZone)],
+      });
+
+      if (!packageValidation.ok) {
+        return { error: packageValidation.error ?? "Package cannot be used." };
+      }
     }
 
     let resolvedClientMembershipId: string | null = null;
@@ -1943,6 +1935,23 @@ export async function createAppointmentAction(
       return { error: "No recurring dates were generated." };
     }
 
+    // The package is linked to EVERY occurrence: each must be eligible on its own studio-local date (occurrence dates
+    // are generated in the studio's calendar), and a finite package needs a credit per occurrence -- links reserve
+    // nothing, so an oversized series would otherwise be accepted and fail lesson by lesson. Checked before any
+    // conflict lookups or writes, so a refused series creates nothing.
+    const seriesPackageValidation = await validateClientPackageForBooking({
+      supabase,
+      studioId,
+      clientId,
+      clientPackageId: relations.client_package_id,
+      appointmentType,
+      appointmentDates: occurrenceDates,
+    });
+
+    if (!seriesPackageValidation.ok) {
+      return { error: seriesPackageValidation.error ?? "Package cannot be used." };
+    }
+
     const startTime = getTimeInTimeZone(startsAt, studioTimeZone);
     const durationMs =
       new Date(endsAt).getTime() - new Date(startsAt).getTime();
@@ -2082,6 +2091,7 @@ export async function updateAppointmentAction(
       ends_at?: string;
       roster_capacity?: number | null;
       location_name?: string | null;
+      client_package_id?: string | null;
     }>({
       supabase,
       studioId,
@@ -2093,7 +2103,7 @@ export async function updateAppointmentAction(
       // authoritative row (never against client claims) to decide whether a
       // conflict recheck or capacity check is needed.
       select:
-        "id, studio_id, client_id, instructor_id, appointment_type, room_id, starts_at, ends_at, roster_capacity, location_name",
+        "id, studio_id, client_id, instructor_id, appointment_type, room_id, starts_at, ends_at, roster_capacity, location_name, client_package_id",
     });
 
     if (!earlyRelationshipResult.ok) {
@@ -2419,15 +2429,28 @@ export async function updateAppointmentAction(
         };
       }
     } else {
-      const packageValidation = await validateClientPackageForBooking({
-        supabase,
-        studioId,
-        clientId,
-        clientPackageId: relations.client_package_id,
-      });
+      // An unchanged link to the appointment's existing package (same package, same client) is history and is
+      // preserved even if that package has since been used up or expired; a NEW link (or a link moved to another
+      // client) must satisfy the canonical eligibility rule the picker uses.
+      const storedAppointment = earlyRelationshipResult.appointment;
+      const keepsExistingPackage =
+        relations.client_package_id !== null &&
+        relations.client_package_id === (storedAppointment.client_package_id ?? null) &&
+        clientId === (storedAppointment.client_id ?? null);
 
-      if (!packageValidation.ok) {
-        return { error: packageValidation.error ?? "Package cannot be used." };
+      if (!keepsExistingPackage) {
+        const packageValidation = await validateClientPackageForBooking({
+          supabase,
+          studioId,
+          clientId,
+          clientPackageId: relations.client_package_id,
+          appointmentType,
+          appointmentDates: [getZonedDateKey(new Date(startsAt), studioTimeZone)],
+        });
+
+        if (!packageValidation.ok) {
+          return { error: packageValidation.error ?? "Package cannot be used." };
+        }
       }
     }
 
@@ -4039,7 +4062,7 @@ async function packageHasAvailableCreditForAttendance(params: {
 
   if (!clientId || !clientPackageId) return false;
 
-  const usageType = getPackageUsageTypeForAppointmentType(appointmentType);
+  const usageType = packageUsageTypeForAppointment(appointmentType);
   if (!usageType) return false;
 
   const { data: packageItem, error: packageItemError } = await supabase
@@ -4094,7 +4117,7 @@ async function canMarkAppointmentAttendedWithoutPaymentWarning(params: {
 }) {
   const { supabase, studioId, appointment } = params;
 
-  const usageType = getPackageUsageTypeForAppointmentType(
+  const usageType = packageUsageTypeForAppointment(
     appointment.appointment_type,
   );
   if (!usageType) return true;

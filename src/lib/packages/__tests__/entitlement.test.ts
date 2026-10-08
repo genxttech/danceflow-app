@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  evaluatePackageForAppointment,
+  evaluatePackageForAppointmentDates,
+  formatPackageBalance,
   getClientPackageStatus,
+  getEligiblePackagesForAppointment,
   getItemWarningLevel,
   getUnsuppressedWarningUsageTypes,
   getWarningCausingUsageTypes,
@@ -10,6 +14,9 @@ import {
   hasUnsuppressedPackageWarning,
   isPackageEligibleForReactivation,
   isPackageStillEligible,
+  packageIneligibleReasonLabel,
+  packageUsageTypeForAppointment,
+  pickDefaultPackageSelection,
   resolveEligiblePackage,
   validateClientPackageForBooking,
   type PackageWithItems,
@@ -271,78 +278,81 @@ describe("isPackageStillEligible (reschedule preserve-linkage check)", () => {
   });
 });
 
-describe("validateClientPackageForBooking (staff explicit-selection validator, unchanged behavior)", () => {
-  it("passes through with no error when no clientPackageId is supplied", async () => {
-    const { fake } = buildClient([], [{ studio_id: STUDIO_ID, block_depleted_package_booking: true }]);
-
-    const result = await validateClientPackageForBooking({
+describe("validateClientPackageForBooking (staff explicit selection: the canonical rule, no warn-only softening)", () => {
+  const validate = (fake: SupabaseClient, clientPackageId: string | null, appointmentDate = "2026-09-01") =>
+    validateClientPackageForBooking({
       supabase: fake,
       studioId: STUDIO_ID,
       clientId: CLIENT_ID,
-      clientPackageId: null,
+      clientPackageId,
+      appointmentType: "private_lesson",
+      appointmentDates: [appointmentDate],
     });
 
-    expect(result).toEqual({ ok: true });
+  it("passes through with no error when no clientPackageId is supplied (booking without a package)", async () => {
+    const { fake } = buildClient([]);
+    expect(await validate(fake, null)).toEqual({ ok: true });
   });
 
-  it("blocks a depleted package when block_depleted_package_booking is on", async () => {
-    const { fake } = buildClient(
-      [
-        privateLessonPackage({
-          client_package_items: [
-            { usage_type: "private_lesson", quantity_remaining: 0, quantity_total: 5, is_unlimited: false },
-          ],
-        }),
-      ],
-      [{ studio_id: STUDIO_ID, block_depleted_package_booking: true }],
-    );
-
-    const result = await validateClientPackageForBooking({
-      supabase: fake,
-      studioId: STUDIO_ID,
-      clientId: CLIENT_ID,
-      clientPackageId: "pkg-1",
+  it("accepts an eligible finite package and an unlimited one", async () => {
+    expect(await validate(buildClient([privateLessonPackage()]).fake, "pkg-1")).toEqual({ ok: true });
+    const unlimited = privateLessonPackage({
+      client_package_items: [{ usage_type: "private_lesson", quantity_remaining: 0, is_unlimited: true }],
     });
-
-    expect(result.ok).toBe(false);
+    expect(await validate(buildClient([unlimited]).fake, "pkg-1")).toEqual({ ok: true });
   });
 
-  it("does not block a depleted package when block_depleted_package_booking is off (existing soft-gate behavior)", async () => {
-    const { fake } = buildClient(
-      [
-        privateLessonPackage({
-          client_package_items: [
-            { usage_type: "private_lesson", quantity_remaining: 0, quantity_total: 5, is_unlimited: false },
-          ],
-        }),
-      ],
-      [{ studio_id: STUDIO_ID, block_depleted_package_booking: false }],
-    );
+  it.each([true, false])(
+    "rejects a depleted package whatever block_depleted_package_booking says (setting=%s)",
+    async (block) => {
+      const { fake } = buildClient(
+        [
+          privateLessonPackage({
+            client_package_items: [
+              { usage_type: "private_lesson", quantity_remaining: 0, quantity_total: 5, is_unlimited: false },
+            ],
+          }),
+        ],
+        [{ studio_id: STUDIO_ID, block_depleted_package_booking: block }],
+      );
+      expect(await validate(fake, "pkg-1")).toEqual({ ok: false, error: expect.stringMatching(/no remaining balance/) });
+    },
+  );
 
-    const result = await validateClientPackageForBooking({
-      supabase: fake,
-      studioId: STUDIO_ID,
-      clientId: CLIENT_ID,
-      clientPackageId: "pkg-1",
-    });
-
-    expect(result).toEqual({ ok: true });
+  it("rejects an inactive package and an archived one", async () => {
+    expect((await validate(buildClient([privateLessonPackage({ active: false })]).fake, "pkg-1")).ok).toBe(false);
+    expect(
+      (await validate(buildClient([privateLessonPackage({ archived_at: "2026-08-01T00:00:00Z" })]).fake, "pkg-1")).ok,
+    ).toBe(false);
   });
 
-  it("blocks a package belonging to a different client", async () => {
-    const { fake } = buildClient(
-      [privateLessonPackage({ client_id: OTHER_CLIENT_ID })],
-      [{ studio_id: STUDIO_ID, block_depleted_package_booking: true }],
-    );
-
-    const result = await validateClientPackageForBooking({
-      supabase: fake,
-      studioId: STUDIO_ID,
-      clientId: CLIENT_ID,
-      clientPackageId: "pkg-1",
+  it("respects the appointment date for expiry (valid through the expiration date, rejected after)", async () => {
+    const expiring = buildClient([privateLessonPackage({ expiration_date: "2026-09-01" })]).fake;
+    expect(await validate(expiring, "pkg-1", "2026-09-01")).toEqual({ ok: true });
+    expect(await validate(expiring, "pkg-1", "2026-09-02")).toEqual({
+      ok: false,
+      error: expect.stringMatching(/expired for this appointment date/),
     });
+  });
 
-    expect(result.ok).toBe(false);
+  it("rejects a package with no item for this appointment's usage type", async () => {
+    const groupOnly = privateLessonPackage({
+      client_package_items: [{ usage_type: "group_class", quantity_remaining: 8, is_unlimited: false }],
+    });
+    expect(await validate(buildClient([groupOnly]).fake, "pkg-1")).toEqual({
+      ok: false,
+      error: expect.stringMatching(/does not cover this type of appointment/),
+    });
+  });
+
+  it("blocks a package belonging to a different client, and one from another studio", async () => {
+    expect((await validate(buildClient([privateLessonPackage({ client_id: OTHER_CLIENT_ID })]).fake, "pkg-1")).ok).toBe(false);
+    expect((await validate(buildClient([privateLessonPackage({ studio_id: OTHER_STUDIO_ID })]).fake, "pkg-1")).ok).toBe(false);
+  });
+
+  it("does not depend on studio settings at all (no settings row needed)", async () => {
+    const { fake } = buildClient([privateLessonPackage()], []);
+    expect(await validate(fake, "pkg-1")).toEqual({ ok: true });
   });
 });
 
@@ -439,19 +449,18 @@ describe("Package Refund P0, Slice 2b: refund_status='full' entitlement block", 
   });
 
   it("validateClientPackageForBooking blocks a refund_status='full' package even though active=true and balance>0", async () => {
-    const { fake } = buildClient(
-      [privateLessonPackage({ refund_status: "full" })],
-      [{ studio_id: STUDIO_ID, block_depleted_package_booking: true }],
-    );
+    const { fake } = buildClient([privateLessonPackage({ refund_status: "full" })]);
 
     const result = await validateClientPackageForBooking({
       supabase: fake,
       studioId: STUDIO_ID,
       clientId: CLIENT_ID,
       clientPackageId: "pkg-1",
+      appointmentType: "private_lesson",
+      appointmentDates: ["2026-09-01"],
     });
 
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({ ok: false, error: expect.stringMatching(/refunded/) });
   });
 
   it("validateClientPackageForBooking blocks a refund_status='full' package even when block_depleted_package_booking=false (the critical bug regression)", async () => {
@@ -465,34 +474,36 @@ describe("Package Refund P0, Slice 2b: refund_status='full' entitlement block", 
       studioId: STUDIO_ID,
       clientId: CLIENT_ID,
       clientPackageId: "pkg-1",
+      appointmentType: "private_lesson",
+      appointmentDates: ["2026-09-01"],
     });
 
     expect(result.ok).toBe(false);
   });
 
-  it("validateClientPackageForBooking: a refund_status='partial' package still follows the existing block_depleted_package_booking-gated depletion rules, unaffected", async () => {
-    const { fake } = buildClient(
-      [
-        privateLessonPackage({
-          refund_status: "partial",
-          client_package_items: [
-            { usage_type: "private_lesson", quantity_remaining: 0, quantity_total: 5, is_unlimited: false },
-          ],
-        }),
-      ],
-      [{ studio_id: STUDIO_ID, block_depleted_package_booking: true }],
-    );
+  it("validateClientPackageForBooking: a refund_status='partial' package follows the ordinary rules (no hard block of its own)", async () => {
+    const partialWithBalance = buildClient([privateLessonPackage({ refund_status: "partial" })]).fake;
+    const partialDepleted = buildClient([
+      privateLessonPackage({
+        refund_status: "partial",
+        client_package_items: [
+          { usage_type: "private_lesson", quantity_remaining: 0, quantity_total: 5, is_unlimited: false },
+        ],
+      }),
+    ]).fake;
+    const call = (fake: SupabaseClient) =>
+      validateClientPackageForBooking({
+        supabase: fake,
+        studioId: STUDIO_ID,
+        clientId: CLIENT_ID,
+        clientPackageId: "pkg-1",
+        appointmentType: "private_lesson",
+        appointmentDates: ["2026-09-01"],
+      });
 
-    const result = await validateClientPackageForBooking({
-      supabase: fake,
-      studioId: STUDIO_ID,
-      clientId: CLIENT_ID,
-      clientPackageId: "pkg-1",
-    });
-
-    // Blocked for the ordinary depletion reason, not the refund reason --
-    // proves 'partial' creates no hard block of its own.
-    expect(result.ok).toBe(false);
+    expect(await call(partialWithBalance)).toEqual({ ok: true });
+    // Blocked for the ordinary depletion reason, not the refund reason.
+    expect(await call(partialDepleted)).toEqual({ ok: false, error: expect.stringMatching(/no remaining balance/) });
   });
 });
 
@@ -940,5 +951,179 @@ describe("getUnsuppressedWarningUsageTypes / hasUnsuppressedPackageWarning (Slic
       otherClientPackages: [target],
     });
     expect(unsuppressed).toEqual(["private_lesson"]);
+  });
+});
+
+describe("canonical scheduling eligibility (picker helpers shared by the forms and the server)", () => {
+  const DATE = "2026-09-01";
+  const candidate = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    name_snapshot: `Package ${id}`,
+    active: true,
+    archived_at: null,
+    expiration_date: null,
+    refund_status: null,
+    client_package_items: [{ usage_type: "private_lesson", quantity_remaining: 6, is_unlimited: false }],
+    ...overrides,
+  });
+  const eligibleIds = (packages: ReturnType<typeof candidate>[], date = DATE, appointmentType = "private_lesson") =>
+    getEligiblePackagesForAppointment(packages, { appointmentType, appointmentDate: date }).map((o) => o.id);
+
+  it("maps every appointment type to its single package usage type (one canonical mapping)", () => {
+    expect(packageUsageTypeForAppointment("private_lesson")).toBe("private_lesson");
+    expect(packageUsageTypeForAppointment("intro_lesson")).toBe("private_lesson");
+    expect(packageUsageTypeForAppointment("coaching")).toBe("private_lesson");
+    expect(packageUsageTypeForAppointment("group_class")).toBe("group_class");
+    expect(packageUsageTypeForAppointment("practice_party")).toBe("practice_party");
+    expect(packageUsageTypeForAppointment("event")).toBe("practice_party");
+    expect(packageUsageTypeForAppointment("floor_space_rental")).toBeNull();
+    expect(packageUsageTypeForAppointment("room_unavailable")).toBeNull();
+  });
+
+  it("includes an active finite package with its remaining count for the matching usage type only", () => {
+    const pkg = candidate("a", {
+      client_package_items: [
+        { usage_type: "private_lesson", quantity_remaining: "6", is_unlimited: false },
+        { usage_type: "group_class", quantity_remaining: 20, is_unlimited: false },
+      ],
+    });
+    const [option] = getEligiblePackagesForAppointment([pkg], { appointmentType: "private_lesson", appointmentDate: DATE });
+    expect(option).toEqual({ id: "a", name: "Package a", isUnlimited: false, remaining: 6 });
+    expect(formatPackageBalance(option)).toBe("6 remaining");
+  });
+
+  it("includes an unlimited package as Unlimited", () => {
+    const pkg = candidate("u", {
+      client_package_items: [{ usage_type: "private_lesson", quantity_remaining: 0, is_unlimited: true }],
+    });
+    const [option] = getEligiblePackagesForAppointment([pkg], { appointmentType: "coaching", appointmentDate: DATE });
+    expect(option).toMatchObject({ id: "u", isUnlimited: true, remaining: null });
+    expect(formatPackageBalance(option)).toBe("Unlimited");
+  });
+
+  it.each<[string, Record<string, unknown>, string]>([
+    ["depleted", { client_package_items: [{ usage_type: "private_lesson", quantity_remaining: 0, is_unlimited: false }] }, "depleted"],
+    ["expired", { expiration_date: "2026-08-31" }, "expired"],
+    ["inactive", { active: false }, "inactive"],
+    ["archived", { archived_at: "2026-08-01T00:00:00Z" }, "archived"],
+    ["fully refunded", { refund_status: "full" }, "refunded"],
+    ["wrong usage type", { client_package_items: [{ usage_type: "practice_party", quantity_remaining: 3, is_unlimited: false }] }, "no_matching_usage"],
+  ])("excludes a %s package (reason recorded)", (_label, overrides, reason) => {
+    const pkg = candidate("x", overrides);
+    expect(eligibleIds([pkg])).toEqual([]);
+    expect(evaluatePackageForAppointment(pkg, "private_lesson", DATE)).toEqual({ eligible: false, reason });
+  });
+
+  it("respects the appointment date: eligible through the expiration date, not after", () => {
+    const pkg = candidate("e", { expiration_date: "2026-09-01" });
+    expect(eligibleIds([pkg], "2026-09-01")).toEqual(["e"]);
+    expect(eligibleIds([pkg], "2026-09-02")).toEqual([]);
+  });
+
+  it("selection: one eligible auto-selects, several are never guessed, none is an empty state", () => {
+    expect(pickDefaultPackageSelection([])).toEqual({ kind: "none" });
+    const one = getEligiblePackagesForAppointment([candidate("a"), candidate("d", { active: false })], {
+      appointmentType: "private_lesson",
+      appointmentDate: DATE,
+    });
+    expect(pickDefaultPackageSelection(one)).toEqual({ kind: "single", packageId: "a" });
+    const many = getEligiblePackagesForAppointment([candidate("a"), candidate("b")], {
+      appointmentType: "private_lesson",
+      appointmentDate: DATE,
+    });
+    expect(pickDefaultPackageSelection(many)).toEqual({ kind: "multiple" });
+  });
+
+  it("labels a preserved historical link's state for the edit form", () => {
+    expect(packageIneligibleReasonLabel("depleted")).toBe("no remaining balance");
+    expect(packageIneligibleReasonLabel("expired")).toBe("expired");
+  });
+
+  it("self-service auto-selection (resolveEligiblePackage) agrees with the picker rule", async () => {
+    const rows = [
+      privateLessonPackage({ id: "ok", client_package_items: [{ usage_type: "private_lesson", quantity_remaining: 2, is_unlimited: false }] }),
+      privateLessonPackage({ id: "gone", client_package_items: [{ usage_type: "private_lesson", quantity_remaining: 0, is_unlimited: false }] }),
+      privateLessonPackage({ id: "old", expiration_date: "2026-08-01" }),
+      privateLessonPackage({ id: "arch", archived_at: "2026-08-01T00:00:00Z" }),
+    ];
+    const { fake } = buildClient(rows);
+    const resolved = await resolveEligiblePackage({
+      supabase: fake,
+      studioId: STUDIO_ID,
+      clientId: CLIENT_ID,
+      appointmentType: "private_lesson",
+      appointmentDateIso: APPOINTMENT_DATE_ISO,
+    });
+    expect(resolved).toEqual({ outcome: "single_eligible", clientPackageId: "ok", remaining: 2 });
+    expect(eligibleIds(rows as ReturnType<typeof candidate>[], APPOINTMENT_DATE_ISO.slice(0, 10))).toEqual(["ok"]);
+  });
+});
+
+describe("evaluatePackageForAppointmentDates (one package across a recurring series)", () => {
+  const pkgWith = (remaining: number | null, overrides: Record<string, unknown> = {}) => ({
+    id: "s",
+    active: true,
+    archived_at: null,
+    expiration_date: null,
+    refund_status: null,
+    client_package_items: [
+      remaining === null
+        ? { usage_type: "private_lesson", quantity_remaining: 0, is_unlimited: true }
+        : { usage_type: "private_lesson", quantity_remaining: remaining, is_unlimited: false },
+    ],
+    ...overrides,
+  });
+  const weekly = ["2026-09-20", "2026-09-27", "2026-10-04", "2026-10-11", "2026-10-18"];
+
+  it("a finite package with one credit per occurrence covers the series", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(5), "private_lesson", weekly)).toEqual({
+      eligible: true,
+      isUnlimited: false,
+      remaining: 5,
+    });
+  });
+
+  it("a finite package with fewer credits than occurrences is refused (not checked per date against the same balance)", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(3), "private_lesson", weekly)).toEqual({
+      eligible: false,
+      reason: "insufficient_credit",
+      remaining: 3,
+      required: 5,
+    });
+  });
+
+  it("a package that expires partway through is refused at the first uncovered date", () => {
+    expect(
+      evaluatePackageForAppointmentDates(pkgWith(10, { expiration_date: "2026-10-04" }), "private_lesson", weekly),
+    ).toEqual({ eligible: false, reason: "expired", date: "2026-10-11" });
+  });
+
+  it("inactive, refunded and depleted packages are refused for a series", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(5, { active: false }), "private_lesson", weekly)).toMatchObject({
+      eligible: false,
+      reason: "inactive",
+    });
+    expect(evaluatePackageForAppointmentDates(pkgWith(5, { refund_status: "full" }), "private_lesson", weekly)).toMatchObject({
+      eligible: false,
+      reason: "refunded",
+    });
+    expect(evaluatePackageForAppointmentDates(pkgWith(0), "private_lesson", weekly)).toMatchObject({
+      eligible: false,
+      reason: "depleted",
+    });
+  });
+
+  it("an unlimited package covers any series length when otherwise eligible", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(null), "coaching", weekly)).toEqual({
+      eligible: true,
+      isUnlimited: true,
+      remaining: null,
+    });
+  });
+
+  it("a single date behaves exactly like the single-appointment rule", () => {
+    expect(evaluatePackageForAppointmentDates(pkgWith(1), "private_lesson", ["2026-09-20"])).toEqual(
+      evaluatePackageForAppointment(pkgWith(1), "private_lesson", "2026-09-20"),
+    );
   });
 });
