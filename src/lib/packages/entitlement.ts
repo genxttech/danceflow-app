@@ -7,15 +7,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * auto-selection paths (`src/lib/booking/entitlementResolution.ts`).
  *
  * Two deliberately different concepts live here:
- *   - `validateClientPackageForBooking` -- relocated, unchanged in behavior,
- *     from `schedule/actions.ts`. Validates a package a caller already
- *     explicitly chose (staff picked it from a dropdown). Gated by the
- *     `block_depleted_package_booking` studio setting, same as before.
+ *   - `validateClientPackageForBooking` -- validates a package a caller
+ *     explicitly chose (staff picked it from the scheduling picker) with the
+ *     same canonical `evaluatePackageForAppointment` rule the picker uses.
  *   - `resolveEligiblePackage` -- new. Self-service has no picker at all, so
  *     this computes which package(s) a booking could use from real state
- *     (never gated by the studio setting -- see its own doc comment for
- *     why), so the caller can auto-select when exactly one qualifies and
- *     fail closed, not guess, when zero or multiple do.
+ *     (never gated by any studio setting), so the caller can auto-select
+ *     when exactly one qualifies and fail closed, not guess, when zero or
+ *     multiple do.
  */
 
 export type PackageValidationResult = {
@@ -34,28 +33,35 @@ export type PackageEligibilityOutcome =
   | { readonly outcome: "lookup_failed"; readonly error: string };
 
 /**
- * Mirrors `appointmentTypeToPackageUsageTypes` in
- * `src/app/app/schedule/new/AppointmentCreateForm.tsx` (client-side UI
- * filtering only, today) -- ported server-side so it can actually gate a
- * write, not just a picker's display. Anything not covered here (e.g.
- * `floor_space_rental`, `room_unavailable`) falls back to the literal
- * appointment type, which will simply never match a real
- * `package_usage_type` value -- the same "no package usage type applies"
- * outcome the client-side version produces.
+ * The single canonical appointment-type -> package usage-type mapping. Every
+ * caller that needs "which package item does this appointment consume" uses
+ * this: staff scheduling (picker + server validation), self-service
+ * auto-selection, and the attendance-time deduction call in
+ * `src/app/app/schedule/actions.ts`. Appointment types that no package can
+ * fund (`floor_space_rental`, `room_unavailable`, anything unknown) return
+ * null. `client_package_items.usage_type` is the `package_usage_type` enum
+ * (`private_lesson`, `group_class`, `practice_party`), one item per type per
+ * package.
  */
+export function packageUsageTypeForAppointment(appointmentType: string): string | null {
+  switch (appointmentType) {
+    case "private_lesson":
+    case "intro_lesson":
+    case "coaching":
+      return "private_lesson";
+    case "group_class":
+      return "group_class";
+    case "practice_party":
+    case "event":
+      return "practice_party";
+    default:
+      return null;
+  }
+}
+
 function usageTypesForAppointment(appointmentType: string): readonly string[] {
-  if (
-    appointmentType === "private_lesson" ||
-    appointmentType === "intro_lesson" ||
-    appointmentType === "coaching"
-  ) {
-    return ["private_lesson"];
-  }
-  if (appointmentType === "group_class") return ["group_class"];
-  if (appointmentType === "practice_party" || appointmentType === "event") {
-    return ["practice_party"];
-  }
-  return [appointmentType];
+  const usageType = packageUsageTypeForAppointment(appointmentType);
+  return usageType ? [usageType] : [];
 }
 
 export type PackageItemRow = {
@@ -69,12 +75,13 @@ type PackageRow = {
   studio_id: string;
   client_id: string;
   active: boolean;
+  archived_at?: string | null;
   expiration_date: string | null;
   refund_status: string | null;
   client_package_items: PackageItemRow[] | PackageItemRow | null;
 };
 
-function itemsOf(relation: PackageItemRow[] | PackageItemRow | null): PackageItemRow[] {
+function itemsOf<T>(relation: T[] | T | null | undefined): T[] {
   return Array.isArray(relation) ? relation : relation ? [relation] : [];
 }
 
@@ -90,45 +97,145 @@ function itemsOf(relation: PackageItemRow[] | PackageItemRow | null): PackageIte
  * the way there is with SQL/PostgREST inequality operators (see call sites
  * in lifecycle.ts and the payment-fulfillment/import guards for that case).
  */
-export function isPackageRefundBlocked(pkg: { refund_status: string | null }): boolean {
+export function isPackageRefundBlocked(pkg: { refund_status?: string | null }): boolean {
   return pkg.refund_status === "full";
 }
 
-/**
- * The real-state eligibility predicate: does this specific package cover
- * this specific appointment right now? Deliberately never gated by the
- * `block_depleted_package_booking` studio setting -- that setting only
- * softens the staff explicit-pick validator below; a self-service auto-
- * selection has no human confirming the choice, so eligibility must be
- * unconditional on real state (real remaining balance, real expiration),
- * never a policy toggle. A package at zero remaining is ineligible
- * immediately, even if `reconcileClientPackageLifecycle` hasn't yet
- * flipped its stored `active` flag to `false` (a Slice 1b data-hygiene
- * concern, not a Slice 1 correctness dependency).
- *
- * Package Refund P0, Slice 2b: a `refund_status='full'` package is excluded
- * here, before any other check -- this is the single choke point shared by
- * both `resolveEligiblePackage` (auto-selection) and `isPackageStillEligible`
- * (reschedule revalidation) below, so the exclusion applies to both, and
- * applies before `resolveEligiblePackage`'s own ambiguity check runs (a
- * refund-blocked package must never be able to cause a false
- * "multiple_eligible_packages" result for an otherwise-single genuinely
- * eligible package).
- */
-function isPackageEligibleNow(
-  pkg: PackageRow,
-  usageTypes: readonly string[],
-  appointmentDate: string,
-): boolean {
-  if (!pkg.active) return false;
-  if (isPackageRefundBlocked(pkg)) return false;
-  if (pkg.expiration_date && pkg.expiration_date < appointmentDate) return false;
+/** Minimal package shape the eligibility evaluator needs (DB rows and form props both fit). */
+export type PackageEligibilityItem = {
+  usage_type: string | null;
+  quantity_remaining: number | string | null;
+  is_unlimited: boolean | null;
+};
 
-  return itemsOf(pkg.client_package_items).some(
-    (item) =>
-      usageTypes.includes(item.usage_type) &&
-      (item.is_unlimited || Number(item.quantity_remaining ?? 0) > 0),
+export type PackageEligibilityCandidate = {
+  id: string;
+  name_snapshot?: string | null;
+  active: boolean | null;
+  archived_at?: string | null;
+  expiration_date?: string | null;
+  refund_status?: string | null;
+  client_package_items: PackageEligibilityItem[] | PackageEligibilityItem | null;
+};
+
+export type PackageIneligibleReason =
+  | "inactive"
+  | "archived"
+  | "refunded"
+  | "expired"
+  | "no_matching_usage"
+  | "depleted";
+
+export type PackageEligibilityEvaluation =
+  | { readonly eligible: true; readonly isUnlimited: boolean; readonly remaining: number | null }
+  | { readonly eligible: false; readonly reason: PackageIneligibleReason };
+
+/**
+ * THE real-state eligibility rule: can this specific package fund this
+ * specific appointment (type + studio-local appointment date `YYYY-MM-DD`)?
+ * Used by every path -- self-service auto-selection (`resolveEligiblePackage`),
+ * reschedule revalidation (`isPackageStillEligible`), the staff scheduling
+ * picker (`getEligiblePackagesForAppointment`) and the staff server validator
+ * (`validateClientPackageForBooking`) -- so the UI and the server can never
+ * disagree. Never gated by any studio setting: a package that cannot actually
+ * fund the booking (inactive/archived -- which also covers unsettled
+ * purchases, PKG-P1 keeps those inactive -- fully refunded, expired by the
+ * appointment date, no item of the matching usage type, or that item at zero)
+ * is ineligible. A package at zero remaining is ineligible immediately, even if
+ * `reconcileClientPackageLifecycle` hasn't yet flipped its stored `active`
+ * flag. Remaining is read from the matching usage-type item only, never an
+ * aggregate across unrelated usage types.
+ */
+export function evaluatePackageForAppointment(
+  pkg: PackageEligibilityCandidate,
+  appointmentType: string,
+  appointmentDate: string,
+): PackageEligibilityEvaluation {
+  if (pkg.active !== true) return { eligible: false, reason: "inactive" };
+  if (pkg.archived_at) return { eligible: false, reason: "archived" };
+  if (isPackageRefundBlocked(pkg)) return { eligible: false, reason: "refunded" };
+  if (pkg.expiration_date && pkg.expiration_date < appointmentDate) {
+    return { eligible: false, reason: "expired" };
+  }
+
+  const usageTypes = usageTypesForAppointment(appointmentType);
+  const item = itemsOf(pkg.client_package_items).find(
+    (candidate) => candidate.usage_type !== null && usageTypes.includes(candidate.usage_type),
   );
+  if (!item) return { eligible: false, reason: "no_matching_usage" };
+  if (item.is_unlimited) return { eligible: true, isUnlimited: true, remaining: null };
+
+  const remaining = Number(item.quantity_remaining ?? 0);
+  if (!Number.isFinite(remaining) || remaining <= 0) return { eligible: false, reason: "depleted" };
+  return { eligible: true, isUnlimited: false, remaining };
+}
+
+export type EligiblePackageOption = {
+  readonly id: string;
+  readonly name: string;
+  readonly isUnlimited: boolean;
+  readonly remaining: number | null;
+};
+
+/**
+ * The staff scheduling picker's option list: only packages that can fund this
+ * appointment, in the given order, each with its usable balance for the
+ * matching usage type. Pure (no I/O), so desktop and mobile web -- which share
+ * the same forms -- and the tests use exactly the same rule.
+ */
+export function getEligiblePackagesForAppointment(
+  packages: readonly PackageEligibilityCandidate[],
+  params: { appointmentType: string; appointmentDate: string },
+): EligiblePackageOption[] {
+  const options: EligiblePackageOption[] = [];
+  for (const pkg of packages) {
+    const evaluation = evaluatePackageForAppointment(pkg, params.appointmentType, params.appointmentDate);
+    if (!evaluation.eligible) continue;
+    options.push({
+      id: pkg.id,
+      name: (pkg.name_snapshot ?? "").trim() || "Package",
+      isUnlimited: evaluation.isUnlimited,
+      remaining: evaluation.remaining,
+    });
+  }
+  return options;
+}
+
+/** "6 remaining" / "Unlimited" -- the balance shown on each picker option before selection. */
+export function formatPackageBalance(option: { isUnlimited: boolean; remaining: number | null }): string {
+  if (option.isUnlimited) return "Unlimited";
+  return `${option.remaining ?? 0} remaining`;
+}
+
+/** Picker default: exactly one eligible package is selected for the user; several are never guessed between. */
+export function pickDefaultPackageSelection(
+  options: readonly EligiblePackageOption[],
+): { kind: "none" } | { kind: "single"; packageId: string } | { kind: "multiple" } {
+  if (options.length === 0) return { kind: "none" };
+  if (options.length === 1) return { kind: "single", packageId: options[0].id };
+  return { kind: "multiple" };
+}
+
+/** Staff-facing state for a linked package that would not be eligible for a new booking (edit form history). */
+export function packageIneligibleReasonLabel(reason: PackageIneligibleReason): string {
+  switch (reason) {
+    case "inactive":
+      return "inactive";
+    case "archived":
+      return "archived";
+    case "refunded":
+      return "refunded";
+    case "expired":
+      return "expired";
+    case "no_matching_usage":
+      return "does not cover this appointment type";
+    case "depleted":
+      return "no remaining balance";
+  }
+}
+
+function isPackageEligibleNow(pkg: PackageRow, appointmentType: string, appointmentDate: string): boolean {
+  return evaluatePackageForAppointment(pkg, appointmentType, appointmentDate).eligible;
 }
 
 const PACKAGE_ELIGIBILITY_SELECT = `
@@ -136,6 +243,7 @@ const PACKAGE_ELIGIBILITY_SELECT = `
   studio_id,
   client_id,
   active,
+  archived_at,
   expiration_date,
   refund_status,
   client_package_items (
@@ -161,7 +269,6 @@ export async function resolveEligiblePackage(params: {
   appointmentDateIso: string;
 }): Promise<PackageEligibilityOutcome> {
   const { supabase, studioId, clientId, appointmentType, appointmentDateIso } = params;
-  const usageTypes = usageTypesForAppointment(appointmentType);
   const appointmentDate = appointmentDateIso.slice(0, 10);
 
   const { data, error } = await supabase
@@ -178,7 +285,7 @@ export async function resolveEligiblePackage(params: {
   const rows = ((data ?? []) as unknown as PackageRow[]).filter(
     (pkg) => pkg.studio_id === studioId && pkg.client_id === clientId,
   );
-  const eligible = rows.filter((pkg) => isPackageEligibleNow(pkg, usageTypes, appointmentDate));
+  const eligible = getEligiblePackagesForAppointment(rows, { appointmentType, appointmentDate });
 
   if (eligible.length === 0) return { outcome: "none_eligible" };
 
@@ -190,14 +297,10 @@ export async function resolveEligiblePackage(params: {
   }
 
   const only = eligible[0];
-  const matchingItem = itemsOf(only.client_package_items).find((item) =>
-    usageTypes.includes(item.usage_type),
-  );
-
   return {
     outcome: "single_eligible",
     clientPackageId: only.id,
-    remaining: matchingItem?.is_unlimited ? null : Number(matchingItem?.quantity_remaining ?? 0),
+    remaining: only.isUnlimited ? null : only.remaining,
   };
 }
 
@@ -218,7 +321,6 @@ export async function isPackageStillEligible(params: {
   appointmentDateIso: string;
 }): Promise<{ ok: true; eligible: boolean } | { ok: false; error: string }> {
   const { supabase, studioId, clientId, clientPackageId, appointmentType, appointmentDateIso } = params;
-  const usageTypes = usageTypesForAppointment(appointmentType);
   const appointmentDate = appointmentDateIso.slice(0, 10);
 
   const { data, error } = await supabase
@@ -240,115 +342,73 @@ export async function isPackageStillEligible(params: {
     return { ok: true, eligible: false };
   }
 
-  return { ok: true, eligible: isPackageEligibleNow(pkg, usageTypes, appointmentDate) };
+  return { ok: true, eligible: isPackageEligibleNow(pkg, appointmentType, appointmentDate) };
 }
 
 /**
- * Relocated from `src/app/app/schedule/actions.ts`, exported so both staff
- * (explicit selection) and this module's own callers can share it.
- * Behavior is intentionally unchanged from the original: validates a
- * caller-supplied `clientPackageId`, gated by the
- * `block_depleted_package_booking` studio setting -- this is the staff
- * "I already picked one, is it usable" check, distinct from
- * `resolveEligiblePackage`'s "which one(s) could I auto-pick" check above.
+ * Staff explicit-selection validator: a caller-supplied `clientPackageId`
+ * being attached to an appointment (create, or an update that changes the
+ * linked package or client). Ownership is checked first (same studio, same
+ * client), then the canonical `evaluatePackageForAppointment` rule -- the
+ * exact rule the scheduling picker uses to decide which packages to offer, so
+ * the UI and the server cannot disagree. Unconditional: the former
+ * `block_depleted_package_booking` "warn only" softening no longer applies to
+ * attaching a package, because a package that cannot fund the booking would
+ * only fail later at attendance-time deduction. Booking WITHOUT a package
+ * (`clientPackageId` null) is unaffected and stays governed by the caller's
+ * billing rules.
  */
 export async function validateClientPackageForBooking(params: {
   supabase: SupabaseClient;
   studioId: string;
   clientId: string;
   clientPackageId: string | null;
+  appointmentType: string;
+  /** Studio-local appointment date, `YYYY-MM-DD`. */
+  appointmentDate: string;
 }): Promise<PackageValidationResult> {
-  const { supabase, studioId, clientId, clientPackageId } = params;
+  const { supabase, studioId, clientId, clientPackageId, appointmentType, appointmentDate } = params;
 
   if (!clientPackageId) return { ok: true };
 
-  const { data: studioSettings, error: settingsError } = await supabase
-    .from("studio_settings")
-    .select("block_depleted_package_booking")
-    .eq("studio_id", studioId)
-    .single();
-
-  if (settingsError || !studioSettings) {
-    return { ok: false, error: "Studio settings could not be loaded." };
-  }
-
   const { data: pkg, error } = await supabase
     .from("client_packages")
-    .select(
-      `
-      id,
-      studio_id,
-      client_id,
-      active,
-      refund_status,
-      client_package_items (
-        usage_type,
-        quantity_remaining,
-        quantity_total,
-        is_unlimited
-      )
-    `,
-    )
+    .select(PACKAGE_ELIGIBILITY_SELECT)
     .eq("id", clientPackageId)
     .eq("studio_id", studioId)
-    .single();
+    .maybeSingle();
 
   if (error || !pkg) {
     return { ok: false, error: "Selected package was not found." };
   }
 
-  if (pkg.client_id !== clientId) {
+  const row = pkg as unknown as PackageRow;
+  if (row.studio_id !== studioId) {
+    return { ok: false, error: "Selected package was not found." };
+  }
+  if (row.client_id !== clientId) {
     return {
       ok: false,
       error: "Selected package does not belong to the chosen client.",
     };
   }
 
-  // Package Refund P0, Slice 2b: unconditional -- independent of
-  // block_depleted_package_booking, which is a depletion-policy convenience
-  // toggle, not a financial-integrity control. A refunded package must
-  // never be bookable regardless of that studio setting.
-  if (isPackageRefundBlocked(pkg)) {
-    return {
-      ok: false,
-      error: "Selected package has been refunded and cannot be used for booking.",
-    };
+  const evaluation = evaluatePackageForAppointment(row, appointmentType, appointmentDate);
+  if (evaluation.eligible) return { ok: true };
+
+  switch (evaluation.reason) {
+    case "refunded":
+      return { ok: false, error: "Selected package has been refunded and cannot be used for booking." };
+    case "inactive":
+    case "archived":
+      return { ok: false, error: "Selected package is inactive and cannot be used for booking." };
+    case "expired":
+      return { ok: false, error: "Selected package is expired for this appointment date." };
+    case "no_matching_usage":
+      return { ok: false, error: "Selected package does not cover this type of appointment." };
+    case "depleted":
+      return { ok: false, error: "Selected package has no remaining balance for this type of appointment." };
   }
-
-  if (!pkg.active) {
-    if (studioSettings.block_depleted_package_booking) {
-      return {
-        ok: false,
-        error: "Selected package is inactive and cannot be used for booking.",
-      };
-    }
-
-    return { ok: true };
-  }
-
-  const items = Array.isArray(pkg.client_package_items)
-    ? pkg.client_package_items
-    : [];
-  const finiteItems = items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
-  );
-
-  if (finiteItems.length === 0) {
-    return { ok: true };
-  }
-
-  const lowestRemaining = Math.min(
-    ...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)),
-  );
-
-  if (lowestRemaining <= 0 && studioSettings.block_depleted_package_booking) {
-    return {
-      ok: false,
-      error: "Selected package has no remaining balance.",
-    };
-  }
-
-  return { ok: true };
 }
 
 /**

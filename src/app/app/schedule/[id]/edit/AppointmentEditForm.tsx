@@ -8,6 +8,12 @@ import SeriesSettingsFooter from "@/components/schedule/SeriesSettingsFooter";
 import { classFormMaterialChanged, singleEditNoticeText } from "@/lib/schedule/groupClassEditNotice";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
 import {
+  evaluatePackageForAppointment,
+  formatPackageBalance,
+  getEligiblePackagesForAppointment,
+  packageIneligibleReasonLabel,
+} from "@/lib/packages/entitlement";
+import {
   directPaymentAmountMessage,
   formatDirectPaymentAmountInput,
   hiddenDirectPaymentSubmission,
@@ -62,6 +68,7 @@ type ClientPackageOption = {
   active: boolean;
   archived_at?: string | null;
   expiration_date?: string | null;
+  refund_status?: string | null;
   client_package_items: ClientPackageItem[];
 };
 
@@ -504,6 +511,9 @@ export default function AppointmentEditForm({
   const [linkedPackageId, setLinkedPackageId] = useState(
     appointment.client_package_id ?? "",
   );
+  const [startsAtValue, setStartsAtValue] = useState(() =>
+    toStudioDateTimeInputValue(appointment.starts_at, studioTimeZone),
+  );
   const [linkedMembershipId, setLinkedMembershipId] = useState(
     appointment.client_membership_id ?? "",
   );
@@ -525,10 +535,37 @@ export default function AppointmentEditForm({
     return clientPackages.filter((pkg) => pkg.client_id === clientId);
   }, [clientId, clientPackages]);
 
+  // New links: only packages that can fund this appointment (type + studio-local date), each with its usable balance
+  // -- the canonical rule the server enforces. The appointment's EXISTING linked package (same client) stays visible
+  // with its current state even when it would no longer qualify, so opening and saving never silently unlinks it;
+  // it is not offered as a new choice for any other appointment.
+  const appointmentDate = startsAtValue.slice(0, 10);
+  const eligiblePackageOptions = useMemo(
+    () => getEligiblePackagesForAppointment(selectedPackages, { appointmentType, appointmentDate }),
+    [selectedPackages, appointmentType, appointmentDate],
+  );
+  const historicalPackageOption = useMemo(() => {
+    const storedId = appointment.client_package_id ?? "";
+    if (!storedId || clientId !== (appointment.client_id ?? "")) return null;
+    if (eligiblePackageOptions.some((option) => option.id === storedId)) return null;
+    const stored = selectedPackages.find((pkg) => pkg.id === storedId);
+    if (!stored) return null;
+    const evaluation = evaluatePackageForAppointment(stored, appointmentType, appointmentDate);
+    const state = evaluation.eligible ? null : packageIneligibleReasonLabel(evaluation.reason);
+    return { id: stored.id, label: `${stored.name_snapshot} — current link${state ? ` (${state})` : ""}` };
+  }, [appointment.client_package_id, appointment.client_id, clientId, eligiblePackageOptions, selectedPackages, appointmentType, appointmentDate]);
+  // The choice stands while it is still selectable (an eligible package or the preserved existing link); otherwise
+  // nothing is linked. Never auto-picked on edit: the stored linkage is the default.
+  const selectableIds = [
+    ...eligiblePackageOptions.map((option) => option.id),
+    ...(historicalPackageOption ? [historicalPackageOption.id] : []),
+  ];
+  const effectivePackageId = linkedPackageId && selectableIds.includes(linkedPackageId) ? linkedPackageId : "";
+
   const selectedPackage = useMemo(() => {
-    if (!linkedPackageId) return null;
-    return selectedPackages.find((pkg) => pkg.id === linkedPackageId) ?? null;
-  }, [linkedPackageId, selectedPackages]);
+    if (!effectivePackageId) return null;
+    return selectedPackages.find((pkg) => pkg.id === effectivePackageId) ?? null;
+  }, [effectivePackageId, selectedPackages]);
 
   const otherPackagesForHealth = useMemo<PackageWithItems[]>(() => {
     if (!selectedPackage) return [];
@@ -769,7 +806,7 @@ export default function AppointmentEditForm({
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-slate-500">
-                  Optional. Link a student's saved partner for a couple lesson.
+                  Optional. Link a student&apos;s saved partner for a couple lesson.
                 </p>
               </div>
             ) : null}
@@ -875,6 +912,7 @@ export default function AppointmentEditForm({
                 type="datetime-local"
                 required
                 defaultValue={toStudioDateTimeInputValue(appointment.starts_at, studioTimeZone)}
+                onChange={(e) => setStartsAtValue(e.target.value)}
                 className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               />
             </div>
@@ -1053,7 +1091,7 @@ export default function AppointmentEditForm({
               <select
                 id="clientPackageId"
                 name="clientPackageId"
-                value={linkedPackageId}
+                value={effectivePackageId}
                 onChange={(e) => setLinkedPackageId(e.target.value)}
                 className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
                 disabled={!clientId}
@@ -1061,12 +1099,24 @@ export default function AppointmentEditForm({
                 <option value="">
                   {clientId ? "No linked package" : "Select a client first"}
                 </option>
-                {selectedPackages.map((pkg) => (
-                  <option key={pkg.id} value={pkg.id}>
-                    {pkg.name_snapshot}
+                {historicalPackageOption ? (
+                  <option value={historicalPackageOption.id}>{historicalPackageOption.label}</option>
+                ) : null}
+                {eligiblePackageOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {`${option.name} — ${formatPackageBalance(option)}`}
                   </option>
                 ))}
               </select>
+              {clientId && eligiblePackageOptions.length === 0 ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  No active package available for a new link to this appointment.
+                </p>
+              ) : eligiblePackageOptions.length > 1 ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  {eligiblePackageOptions.length} packages can cover this appointment. Choose the one to use.
+                </p>
+              ) : null}
             </div>
           ) : (
             <input type="hidden" name="clientPackageId" value="" />

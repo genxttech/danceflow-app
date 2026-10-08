@@ -80,6 +80,7 @@ type ClientPackageOption = {
   active: boolean;
   archived_at?: string | null;
   expiration_date?: string | null;
+  refund_status?: string | null;
   client_package_items: ClientPackageItem[];
 };
 
@@ -296,6 +297,7 @@ export default async function EditAppointmentPage({
         active,
         archived_at,
         expiration_date,
+        refund_status,
         client_package_items (
           usage_type,
           quantity_remaining,
