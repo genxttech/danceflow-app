@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import { buildLifecycleInput, computeLifecycle, type LifecycleProgram, type StageState } from "@/lib/competition/lifecycle";
 import PublishForm from "./PublishForm";
+import RegistrationForm from "./RegistrationForm";
 
 type ProgramRow = {
   id: string;
@@ -10,6 +11,8 @@ type ProgramRow = {
   rules_profile_key: string | null;
   rules_profile_version: number | null;
   profile_locked_at: string | null;
+  registration_status: "open" | "closed";
+  registration_opened_at: string | null;
   configuration: { simple?: { judging?: string } } | null;
 };
 
@@ -43,7 +46,7 @@ export default async function CompetitionOverviewPage({
   const { supabase } = await requireCompetitionWorkspace(id);
 
   const [programResult, contestResult, divisionResult, roundResult, ruleResult, offeringResult, entryResult, heatResult] = await Promise.all([
-    supabase.from("event_competition_programs").select("id, name, status, rules_profile_key, rules_profile_version, profile_locked_at, configuration").eq("event_id", id).order("sort_order").order("created_at"),
+    supabase.from("event_competition_programs").select("id, name, status, rules_profile_key, rules_profile_version, profile_locked_at, registration_status, registration_opened_at, configuration").eq("event_id", id).order("sort_order").order("created_at"),
     supabase.from("event_competition_contests").select("id, program_id").eq("event_id", id),
     supabase.from("event_competition_divisions").select("id, program_id, contest_id").eq("event_id", id),
     supabase.from("event_competition_rounds").select("division_id").eq("event_id", id),
@@ -69,6 +72,8 @@ export default async function CompetitionOverviewPage({
         rulesProfileKey: primary.rules_profile_key,
         rulesProfileVersion: primary.rules_profile_version,
         profileLocked: Boolean(primary.profile_locked_at),
+        registrationStatus: primary.registration_status,
+        registrationOpenedAt: primary.registration_opened_at,
       }
     : null;
 
@@ -121,6 +126,7 @@ export default async function CompetitionOverviewPage({
               {primary
                 ? [
                     lifecycle.published ? "Published" : "Draft",
+                    lifecycle.published ? (primary.registration_status === "open" ? "Registration open" : "Registration closed") : null,
                     profileName ? `${profileName} rules v${primary.rules_profile_version}` : null,
                     judgingLabel,
                   ]
@@ -143,6 +149,13 @@ export default async function CompetitionOverviewPage({
               </Link>
             ) : action.kind === "publish" ? (
               <PublishForm eventId={id} programId={action.programId} label={action.label} />
+            ) : action.kind === "registration" ? (
+              <RegistrationForm eventId={id} programId={action.programId} mode={action.mode} label={action.label} />
+            ) : null}
+            {primary && lifecycle.published && action.kind !== "registration" && primary.registration_opened_at && primary.registration_status === "closed" ? (
+              <div className="mt-3">
+                <RegistrationForm eventId={id} programId={primary.id} mode="open" label="Reopen registration" variant="secondary" />
+              </div>
             ) : null}
           </div>
         </div>

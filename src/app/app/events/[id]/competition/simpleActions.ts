@@ -97,6 +97,29 @@ export async function publishCompetitionAction(_previous: ActionState, formData:
   return { ok: true };
 }
 
+/**
+ * Phase 10C: OPEN / CLOSE registration through the canonical database lifecycle
+ * (open_/close_competition_registration). Opening moves the published categories, their draft
+ * divisions and registration rules to open; public visibility also needs the event to be published,
+ * public/unlisted, registration-required and inside its registration window.
+ */
+export async function setCompetitionRegistrationAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
+  const eventId = text(formData, "eventId");
+  const programId = text(formData, "programId");
+  const mode = text(formData, "mode");
+  if (!eventId || !programId || !["open", "close"].includes(mode)) return { ok: false, error: "Competition is required." };
+  const { supabase } = await requireCompetitionManager(eventId);
+
+  const { error } = await supabase.rpc(mode === "open" ? "open_competition_registration" : "close_competition_registration", { p_program_id: programId });
+  if (error) {
+    const message = friendly(error).replace(/^COMP10C_[A-Z_]+:s*/, "");
+    return { ok: false, error: message.charAt(0).toUpperCase() + message.slice(1) };
+  }
+
+  refreshWorkspace(eventId);
+  return { ok: true };
+}
+
 async function editableProgramStatus(supabase: Awaited<ReturnType<typeof createServerClient>>, eventId: string, programId: string) {
   const { data } = await supabase.from("event_competition_programs").select("status").eq("id", programId).eq("event_id", eventId).maybeSingle();
   return data?.status as string | undefined;

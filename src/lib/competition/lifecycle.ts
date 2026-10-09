@@ -36,6 +36,9 @@ export type LifecycleProgram = {
   rulesProfileKey: string | null;
   rulesProfileVersion: number | null;
   profileLocked: boolean;
+  /** Phase 10C canonical registration lifecycle (event_competition_programs.registration_status). */
+  registrationStatus?: "open" | "closed";
+  registrationOpenedAt?: string | null;
 };
 
 export type LifecycleInput = {
@@ -47,6 +50,8 @@ export type LifecycleInput = {
   divisionsWithoutRound: number;
   divisionsMissingDances: number;
   registrationOpen: boolean;
+  /** Registration was opened at least once (so "closed" means closed, not "not yet opened"). */
+  registrationEverOpened: boolean;
   entryCount: number;
   heatCount: number;
 };
@@ -54,6 +59,7 @@ export type LifecycleInput = {
 export type PrimaryAction =
   | { kind: "link"; label: string; href: string; description: string }
   | { kind: "publish"; label: string; programId: string; description: string }
+  | { kind: "registration"; mode: "open" | "close"; label: string; programId: string; description: string }
   | { kind: "info"; label: string; description: string };
 
 export type Lifecycle = {
@@ -97,7 +103,10 @@ export function buildLifecycleInput(args: {
     divisionCount: rows.divisions.length,
     divisionsWithoutRound: rows.divisions.filter((division) => !roundDivisions.has(division.id)).length,
     divisionsMissingDances: rows.divisions.filter((division) => division.contest_id && danceContests.has(division.contest_id) && !offeredDivisions.has(division.id)).length,
-    registrationOpen: rows.rules.some((rule) => rule.registration_open),
+    // Phase 10C: open means the program's canonical registration lifecycle is open (written only by
+    // open_/close_competition_registration), not merely that some contest rule is toggled on.
+    registrationOpen: args.program?.registrationStatus === "open",
+    registrationEverOpened: Boolean(args.program?.registrationOpenedAt),
     entryCount: args.entryCount,
     heatCount: args.heatCount,
   };
@@ -132,8 +141,8 @@ export function computeLifecycle(input: LifecycleInput): Lifecycle {
     { key: "create", label: "Create competition", done: Boolean(program), actionable: true },
     { key: "divisions", label: "Configure divisions", done: structureReady, actionable: true },
     { key: "publish", label: "Publish", done: published, actionable: profiled },
-    { key: "open_registration", label: "Open registration", done: input.registrationOpen, actionable: false, note: "Registration opens in the next Competition OS update." },
-    { key: "close_registration", label: "Close registration", done: false, actionable: false, note: LATER },
+    { key: "open_registration", label: "Open registration", done: input.registrationOpen || input.registrationEverOpened, actionable: published && !input.registrationOpen },
+    { key: "close_registration", label: "Close registration", done: input.registrationEverOpened && !input.registrationOpen, actionable: input.registrationOpen },
     { key: "build_heats", label: "Build heats", done: input.heatCount > 0, actionable: published },
     { key: "assign_officials", label: "Assign officials", done: false, actionable: false, note: LATER },
     { key: "run", label: "Run competition", done: false, actionable: false, note: LATER },
@@ -201,10 +210,28 @@ function primaryAction(
   if (["complete", "archived"].includes(program.status)) {
     return { kind: "info", label: "Competition complete", description: "This competition has finished." };
   }
+  if (!input.registrationOpen && !input.registrationEverOpened) {
+    return {
+      kind: "registration",
+      mode: "open",
+      label: "Open registration",
+      programId: program.id,
+      description: "Opening registration makes your published categories and divisions available to entrants during the event's registration window.",
+    };
+  }
+  if (input.registrationOpen) {
+    return {
+      kind: "registration",
+      mode: "close",
+      label: "Close registration",
+      programId: program.id,
+      description: "Registration is open. Close it when entries are final; you can reopen it later.",
+    };
+  }
   return {
     kind: "link",
     label: "Plan schedule & heats",
     href: `${context.base}/schedule`,
-    description: "Your competition is published. Registration opens in the next Competition OS update; you can prepare the schedule meanwhile.",
+    description: "Registration is closed. Plan the schedule and heats from your confirmed entries.",
   };
 }

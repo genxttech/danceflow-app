@@ -226,7 +226,9 @@ export async function GET(request: Request) {
         entry.eventId,
         entry.sourceTable === "event_payments" && entry.category === "event_ticket_revenue"
           ? "ledger_event_ticket_revenue"
-          : entry.sourceTable === "expenses" && entry.eventId
+          : entry.sourceTable === "event_payments" && entry.category === "competition_entry_revenue"
+            ? "ledger_competition_entry_revenue"
+            : entry.sourceTable === "expenses" && entry.eventId
             ? "event_expense"
             : "standard_entry",
         entry.appointmentId,

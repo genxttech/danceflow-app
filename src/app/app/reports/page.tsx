@@ -1157,7 +1157,7 @@ export default async function ReportsPage({
     (entry) =>
       entry.sourceTable === "event_payments" &&
       entry.entryType === "revenue" &&
-      entry.category === "event_ticket_revenue",
+      (entry.category === "event_ticket_revenue" || entry.category === "competition_entry_revenue"),
   );
 
   const accountingExpenseCategories = Array.from(
@@ -2036,7 +2036,7 @@ export default async function ReportsPage({
     },
     {
       key: "event_ticket_revenue",
-      label: "Event / ticket revenue",
+      label: "Event / ticket / competition revenue",
       count: eventTicketAccountingEntries.length,
       total: eventRevenueTotal,
     },
