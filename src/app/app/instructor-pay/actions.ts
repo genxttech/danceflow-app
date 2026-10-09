@@ -9,6 +9,10 @@ import {
 } from "@/lib/auth/serverRoleGuard";
 import { generateInstructorEarningsForCompletedAppointments } from "@/lib/compensation/earnings";
 import {
+  mapCompensationRuleSaveError,
+  validateCompensationRuleInput,
+} from "@/lib/compensation/rule-validation";
+import {
   isAllowedEarningReviewTransition,
   overrideEarningAmounts,
 } from "@/lib/compensation/payroll-integrity";
@@ -131,47 +135,74 @@ export async function saveInstructorPayrollProfileAction(formData: FormData) {
   }
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Phase 9C: the compensation detail panel is URL driven (?compensation=<id>), so a
+// save returns to the same instructor's panel (view mode, or edit mode after a
+// validation problem so the person can correct the form).
+function redirectToCompensationPanel(
+  instructorId: string,
+  status: string,
+  options: { edit?: boolean } = {},
+): never {
+  const params = new URLSearchParams();
+  if (UUID_PATTERN.test(instructorId)) params.set("compensation", instructorId);
+  if (options.edit && params.has("compensation")) params.set("mode", "edit");
+  params.set("status", status);
+  redirect(`/app/instructor-pay?${params.toString()}`);
+}
+
+// Phase 9C: the only rule write path is the studio-scoped, atomic
+// save_instructor_compensation_rule RPC (validation + rule upsert + append-only
+// history row in one transaction). There is no direct table write.
 export async function saveInstructorCompensationRuleAction(formData: FormData) {
+  let instructorId = "";
   try {
-    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
-    const instructorId = getString(formData, "instructorId");
+    const { supabase, studioId } = await requirePayrollPrepareAccess();
+    instructorId = getString(formData, "instructorId");
 
     if (!instructorId) redirectWithStatus("missing_instructor");
 
-    const privateLessonPayMode = getString(formData, "privateLessonPayMode") || "none";
-    const groupClassPayMode = getString(formData, "groupClassPayMode") || "none";
+    const parsed = validateCompensationRuleInput({
+      privateLessonPayMode: getString(formData, "privateLessonPayMode"),
+      privateLessonFlatAmount: getString(formData, "privateLessonFlatAmount"),
+      privateLessonPercentage: getString(formData, "privateLessonPercentage"),
+      privateLessonDurationRatesEnabled:
+        getString(formData, "privateLessonDurationRatesEnabled") === "on",
+      privateLesson30MinFlatAmount: getString(formData, "privateLesson30MinFlatAmount"),
+      privateLesson45MinFlatAmount: getString(formData, "privateLesson45MinFlatAmount"),
+      privateLesson60MinFlatAmount: getString(formData, "privateLesson60MinFlatAmount"),
+      groupClassPayMode: getString(formData, "groupClassPayMode"),
+      groupClassFlatAmount: getString(formData, "groupClassFlatAmount"),
+      groupClassPercentage: getString(formData, "groupClassPercentage"),
+      groupClassPerAttendeeAmount: getString(formData, "groupClassPerAttendeeAmount"),
+      notes: getString(formData, "notes"),
+    });
 
-    const { error } = await supabase.from("instructor_compensation_rules").upsert(
-      {
-        studio_id: studioId,
-        instructor_id: instructorId,
-        private_lesson_pay_mode: privateLessonPayMode,
-        private_lesson_flat_amount: getNumber(formData, "privateLessonFlatAmount"),
-        private_lesson_percentage: getNumber(formData, "privateLessonPercentage"),
-        private_lesson_duration_rates_enabled: getString(formData, "privateLessonDurationRatesEnabled") === "on",
-        private_lesson_30_min_flat_amount: getNumber(formData, "privateLesson30MinFlatAmount"),
-        private_lesson_45_min_flat_amount: getNumber(formData, "privateLesson45MinFlatAmount"),
-        private_lesson_60_min_flat_amount: getNumber(formData, "privateLesson60MinFlatAmount"),
-        group_class_pay_mode: groupClassPayMode,
-        group_class_flat_amount: getNumber(formData, "groupClassFlatAmount"),
-        group_class_percentage: getNumber(formData, "groupClassPercentage"),
-        group_class_per_attendee_amount: getNumber(formData, "groupClassPerAttendeeAmount"),
-        active: true,
-        notes: getString(formData, "notes") || null,
-        created_by: user.id,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "studio_id,instructor_id" },
-    );
+    if (!parsed.ok) {
+      redirectToCompensationPanel(instructorId, parsed.status, { edit: true });
+    }
 
-    if (error) redirectWithStatus("rule_save_failed");
+    const { data, error } = await supabase.rpc("save_instructor_compensation_rule", {
+      p_studio_id: studioId,
+      p_instructor_id: instructorId,
+      ...parsed.args,
+    });
+
+    if (error) {
+      const status = mapCompensationRuleSaveError(error);
+      redirectToCompensationPanel(instructorId, status, {
+        edit: status !== "payroll_access_denied" && status !== "rule_instructor_not_found",
+      });
+    }
 
     revalidatePath("/app/instructor-pay");
     revalidatePath(`/app/instructors/${instructorId}`);
-    redirectWithStatus("rule_saved");
+    const changed = (data as { changed?: boolean } | null)?.changed;
+    redirectToCompensationPanel(instructorId, changed === false ? "rule_unchanged" : "rule_saved");
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    redirectWithStatus("rule_save_failed");
+    redirectToCompensationPanel(instructorId, "rule_save_failed", { edit: true });
   }
 }
 

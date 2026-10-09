@@ -247,7 +247,9 @@ begin
   perform public._s9t_expect('V2b update', format('update public.instructor_payroll_profiles set instructor_id = %L where instructor_id = %L', public._s9t_id(4, 6), public._s9t_id(4, 1)), 'instructor_payroll_profiles must reference an instructor of the same studio.');
   v_n := public._s9t_rows(format('update public.instructor_payroll_profiles set worker_classification = ''employee'' where instructor_id = %L', public._s9t_id(4, 1)));
   assert v_n = 1, 'V2c FAILED: normal payroll edit still works';
-  -- compensation rule
+  -- compensation rule (Phase 9C closed direct API writes to this table: the same-studio
+  -- trigger is exercised with the table owner; the API path is covered by the 9C suite)
+  reset role;
   v_n := public._s9t_rows(format('insert into public.instructor_compensation_rules (studio_id, instructor_id) values (%L, %L)', public._s9t_id(0, 1), public._s9t_id(4, 1)));
   assert v_n = 1, 'V3 FAILED: same-studio compensation rule';
   perform public._s9t_expect('V4', format('insert into public.instructor_compensation_rules (studio_id, instructor_id) values (%L, %L)', public._s9t_id(0, 1), public._s9t_id(4, 6)), 'instructor_compensation_rules must reference an instructor of the same studio.');
