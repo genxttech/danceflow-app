@@ -95,7 +95,7 @@ describe("registration catalog and quote (baseline)", () => {
       { clientId: "s", firstName: "Pat", lastName: "Dancer", personType: "student" },
       { clientId: "i", firstName: "Lee", lastName: "Pro", personType: "professional" },
     ],
-    entries: [{ clientId: "e1", programId: "p1", contestId: "c1", divisionId: "d1", participantIds: ["s", "i"], participantRoles: {}, selectedOfferingIds: ["o1"] }],
+    entries: [{ clientId: "e1", programId: "p1", contestId: "c1", divisionId: "d1", participantIds: ["s", "i"], participantRoles: { s: "student", i: "professional" }, selectedOfferingIds: ["o1"] }],
   };
 
   it("prices a per-dance entry from the catalog", () => {

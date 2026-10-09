@@ -34,6 +34,7 @@ import { resolveEventEmailBranding } from "@/lib/notifications/event-email-brand
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
 import { assertMembershipReferencesBelongToStudio } from "@/lib/payments/membershipReferenceOwnership";
 import { handleGroupClassPurchaseCheckout } from "@/lib/payments/groupClassPurchaseWebhook";
+import { applyCompetitionCheckoutEvent, COMPETITION_REGISTRATION_SOURCE } from "@/lib/competition/registrationLifecycle";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -2383,7 +2384,7 @@ async function handleEventRegistrationCheckoutCompleted(
         stripe_account_id: stripeAccountId ?? null,
       });
 
-    if (insertPaymentError) {
+    if (insertPaymentError && insertPaymentError.code !== "23505") {
       throw new Error(insertPaymentError.message);
     }
   }
@@ -2412,6 +2413,37 @@ async function handleEventRegistrationCheckoutCompleted(
     registrationId,
   });
 
+  return true;
+}
+
+/**
+ * Phase 10C: verified Checkout events for competition registrations (Connect events only).
+ * completed / async_payment_succeeded -> finalize (exactly once, database-verified binding and
+ * amount); expired -> release; async_payment_failed -> release as failed. Card-only sessions never
+ * produce a retriable payment_intent.payment_failed that should release the hold.
+ */
+export async function handleCompetitionRegistrationCheckoutEvent(
+  supabase: SupabaseClient,
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+  stripeAccountId: string | null | undefined,
+  stripeEventType: string,
+) {
+  if (getString(session.metadata?.source) !== COMPETITION_REGISTRATION_SOURCE) return false;
+  const result = await applyCompetitionCheckoutEvent(supabase, {
+    eventType: stripeEventType,
+    session,
+    stripeAccountId,
+  });
+  const recordedPayment = ["finalized", "late_payment_after_release", "signing_incomplete_payment_recorded"].includes(result.outcome);
+  if (recordedPayment && result.paymentIntentId) {
+    await syncFeeDetailsForPaymentIntent(supabase, stripe, result.paymentIntentId, stripeAccountId);
+  }
+  if (result.outcome === "finalized") {
+    await safeQueuePaidEventCartOrderConfirmation({ supabase, orderId: result.orderId });
+  } else if (result.outcome === "late_payment_after_release" || result.outcome === "signing_incomplete_payment_recorded") {
+    console.error("comp10c_payment_needs_review", { orderId: result.orderId, outcome: result.outcome });
+  }
   return true;
 }
 
@@ -2523,7 +2555,9 @@ async function handleEventCartOrderCheckoutCompleted(
           stripe_account_id: stripeAccountId ?? null,
         });
 
-      if (paymentInsertError) {
+      // Phase 10C: (registration, session|payment intent) is unique in the database; a concurrent
+      // delivery that lost the insert race converges on the winner's row.
+      if (paymentInsertError && paymentInsertError.code !== "23505") {
         throw new Error(paymentInsertError.message);
       }
     }
@@ -2677,7 +2711,9 @@ async function handleEventCartOrderPaymentIntentSucceeded(
           stripe_account_id: stripeAccountId ?? null,
         });
 
-      if (paymentInsertError) {
+      // Phase 10C: (registration, session|payment intent) is unique in the database; a concurrent
+      // delivery that lost the insert race converges on the winner's row.
+      if (paymentInsertError && paymentInsertError.code !== "23505") {
         throw new Error(paymentInsertError.message);
       }
     }
@@ -3727,6 +3763,19 @@ export async function handleCheckoutSessionCompleted(
     : await handleStudioCheckoutCompleted(supabase, stripe, session);
 
   if (handledStudioSubscription) {
+    return;
+  }
+
+  // Phase 10C: competition registrations are finalized only by finalize_competition_registration.
+  const handledCompetitionRegistration = await handleCompetitionRegistrationCheckoutEvent(
+    supabase,
+    stripe,
+    session,
+    stripeAccountId,
+    stripeEventType ?? "checkout.session.completed",
+  );
+
+  if (handledCompetitionRegistration) {
     return;
   }
 
@@ -4803,13 +4852,33 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "checkout.session.expired": {
+        // Phase 10C: an expired competition Checkout Session releases its pending registration.
+        await handleCompetitionRegistrationCheckoutEvent(
+          supabase,
+          stripe,
+          event.data.object as Stripe.Checkout.Session,
+          event.account,
+          event.type,
+        );
+        break;
+      }
+
       case "checkout.session.async_payment_failed": {
         // PKG-P1: a failure event carries no money -- CAS-guarded
         // 'pending' -> 'failed' only, then the same atomic re-evaluation
         // every payment-state transition that can invalidate entitlement
         // uses. Never a financial mismatch, so never a conflict row.
         const session = event.data.object as Stripe.Checkout.Session;
-        const paymentId = getString(session.metadata?.paymentId);
+        // Phase 10C: a failed delayed payment on a competition session releases that registration.
+        const handledCompetitionFailure = await handleCompetitionRegistrationCheckoutEvent(
+          supabase,
+          stripe,
+          session,
+          event.account,
+          event.type,
+        );
+        const paymentId = handledCompetitionFailure ? null : getString(session.metadata?.paymentId);
         if (
           paymentId &&
           (await asyncPaymentFailureMatchesStoredPayment(supabase, {

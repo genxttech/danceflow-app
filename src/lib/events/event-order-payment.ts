@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/payments/stripe";
+import { calculateApplicationFeeAmount, getOrganizerPlatformFeePercent } from "@/lib/events/platformFee";
 
 type Surface = "web" | "student_app";
 type PaymentMode = "checkout" | "payment_sheet";
@@ -223,42 +224,12 @@ function appBaseUrl(request: NextRequest) {
   ).replace(/\/$/, "");
 }
 
-function calculateApplicationFeeAmount(amount: number, feePercent: number) {
-  return Math.round(Math.max(0, Math.round(amount * 100)) * Math.max(0, feePercent));
-}
-
 function getStripePublishableKey() {
   return (
     process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
     process.env.STRIPE_PUBLISHABLE_KEY ||
     ""
   ).trim();
-}
-
-async function getOrganizerPlatformFeePercent(studioId: string) {
-  const admin = createAdminClient();
-  const { data: subscription } = await admin
-    .from("studio_subscriptions")
-    .select("status, subscription_plans ( code )")
-    .eq("studio_id", studioId)
-    .maybeSingle();
-
-  if (!subscription || !["active", "trialing"].includes(subscription.status ?? "")) return 0;
-  const plan = pickOne(subscription.subscription_plans as { code: string | null } | { code: string | null }[] | null);
-  const code = (plan?.code ?? "").trim().toLowerCase();
-  if (code === "organizer") return 0.035;
-  if (!["starter", "growth", "pro"].includes(code)) return 0;
-
-  const { data: addOns } = await admin
-    .from("usage_addon_entitlements")
-    .select("id")
-    .eq("studio_id", studioId)
-    .eq("feature_key", "organizer_suite")
-    .in("source", ["stripe_subscription_item", "manual_grant"])
-    .eq("status", "active")
-    .limit(1);
-  if (!addOns?.length) return 0;
-  return code === "pro" ? 0.03 : 0.0325;
 }
 
 export type EventOrderPaymentResult = {
@@ -291,6 +262,11 @@ export async function startEventOrderPayment(params: {
     .maybeSingle();
   const order = orderData as unknown as OrderRow | null;
   if (orderError || !order) throw new Error("Event order was not found.");
+  // Phase 10C: competition registrations are priced, signed, paid and finalized only through the
+  // competition lifecycle (start/prepare/attach/finalize_competition_registration), never here.
+  if ((order.metadata as { source?: unknown } | null)?.source === "competition_registration") {
+    throw new Error("Competition registrations use the competition checkout.");
+  }
   if (order.payment_status === "paid" || order.status === "confirmed") {
     const { data: registrations } = await admin.from("event_registrations").select("id").eq("order_id", order.id);
     return { completed: true, orderId: order.id, registrationIds: (registrations ?? []).map((row) => row.id) };
@@ -333,7 +309,7 @@ export async function startEventOrderPayment(params: {
   }
 
   const feePercent = order.organizer_id
-    ? await getOrganizerPlatformFeePercent(order.studio_id)
+    ? await getOrganizerPlatformFeePercent(admin, order.studio_id)
     : 0;
 
   if (order.organizer_id && feePercent <= 0) {

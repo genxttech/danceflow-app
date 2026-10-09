@@ -36,6 +36,7 @@ function input(overrides: Partial<LifecycleInput> = {}): LifecycleInput {
     divisionsWithoutRound: 0,
     divisionsMissingDances: 0,
     registrationOpen: false,
+    registrationEverOpened: false,
     entryCount: 0,
     heatCount: 0,
     ...overrides,
@@ -69,7 +70,7 @@ describe("workspace authorization (shared with the action guard and the database
     for (const page of pages) expect(readFileSync(join(WORKSPACE, page), "utf8"), page).toContain("requireCompetitionWorkspace(");
     const actions = readFileSync(join(WORKSPACE, "simpleActions.ts"), "utf8");
     const exported = [...actions.matchAll(/export async function (\w+)/g)].map((match) => match[1]);
-    expect(exported.sort()).toEqual(["addDivisionAction", "createSimpleCompetitionAction", "publishCompetitionAction", "removeDivisionAction", "updateDivisionAction"]);
+    expect(exported.sort()).toEqual(["addDivisionAction", "createSimpleCompetitionAction", "publishCompetitionAction", "removeDivisionAction", "setCompetitionRegistrationAction", "updateDivisionAction"]);
     expect(actions.match(/requireCompetitionManager\(eventId\)/g)?.length).toBe(exported.length);
     const server = read("src/lib/competition/workspaceServer.ts");
     expect(server).toContain("if (!workspace.canManage) notFound();");
@@ -150,15 +151,36 @@ describe("Overview lifecycle and the one next action", () => {
     expect(lifecycle.stages.find((stage) => stage.state === "current")?.key).toBe("publish");
   });
 
-  it("after publishing, points at the schedule and says registration comes later", () => {
+  it("after publishing, the next step is opening registration (10C)", () => {
     const lifecycle = computeLifecycle(input({ program: publishedProgram }));
     expect(lifecycle.published).toBe(true);
-    expect(lifecycle.primaryAction.kind).toBe("link");
-    expect(lifecycle.primaryAction.label).toBe("Plan schedule & heats");
-    expect(lifecycle.primaryAction.description).toMatch(/registration opens in the next/i);
+    expect(lifecycle.primaryAction).toMatchObject({ kind: "registration", mode: "open", label: "Open registration", programId: "p1" });
     const registration = lifecycle.stages.find((stage) => stage.key === "open_registration")!;
-    expect(registration.actionable).toBe(false);
+    expect(registration.actionable).toBe(true);
     expect(registration.state).toBe("current");
+  });
+
+  it("while registration is open, the next step is closing it; after closing, the schedule (10C)", () => {
+    const open = computeLifecycle(input({ program: { ...publishedProgram, registrationStatus: "open", registrationOpenedAt: "2026-10-09T00:00:00Z" }, registrationOpen: true, registrationEverOpened: true }));
+    expect(open.primaryAction).toMatchObject({ kind: "registration", mode: "close", label: "Close registration" });
+    expect(open.stages.find((stage) => stage.key === "open_registration")?.state).toBe("done");
+    expect(open.stages.find((stage) => stage.key === "close_registration")).toMatchObject({ state: "current", actionable: true });
+    const closed = computeLifecycle(input({ program: { ...publishedProgram, registrationStatus: "closed", registrationOpenedAt: "2026-10-09T00:00:00Z" }, registrationOpen: false, registrationEverOpened: true }));
+    expect(closed.primaryAction).toMatchObject({ kind: "link", label: "Plan schedule & heats" });
+    expect(closed.stages.find((stage) => stage.key === "close_registration")?.state).toBe("done");
+  });
+
+  it("the Overview offers an open/close control for every published competition, including Advanced-mode ones (10C)", () => {
+    const page = read("src/app/app/events/[id]/competition/page.tsx");
+    expect(page).toContain(`{primary && lifecycle.published && action.kind !== "registration" ? (`);
+    expect(page).toContain(`mode={primary.registration_status === "open" ? "close" : "open"}`);
+    expect(computeLifecycle(input({ program: { ...legacyProgram, status: "configured" } })).published).toBe(true);
+  });
+
+  it("an unpublished competition cannot open registration (10C)", () => {
+    const lifecycle = computeLifecycle(input());
+    expect(lifecycle.stages.find((stage) => stage.key === "open_registration")?.actionable).toBe(false);
+    expect(lifecycle.primaryAction.kind).not.toBe("registration");
   });
 
   it("leaves competitions set up with Advanced settings to Advanced settings", () => {
@@ -170,7 +192,8 @@ describe("Overview lifecycle and the one next action", () => {
   it("only the stages that work today are actionable; the rest are upcoming", () => {
     const stages = computeLifecycle(input({ program: publishedProgram })).stages;
     expect(stages.map((stage) => stage.key)).toEqual(["create", "divisions", "publish", "open_registration", "close_registration", "build_heats", "assign_officials", "run", "review_results", "publish_results"]);
-    for (const key of ["open_registration", "close_registration", "assign_officials", "run", "review_results", "publish_results"]) {
+    expect(stages.find((stage) => stage.key === "open_registration")?.actionable).toBe(true);
+    for (const key of ["close_registration", "assign_officials", "run", "review_results", "publish_results"]) {
       expect(stages.find((stage) => stage.key === key)?.actionable, key).toBe(false);
     }
     expect(stages.filter((stage) => stage.state === "current")).toHaveLength(1);
@@ -206,7 +229,10 @@ describe("Overview lifecycle and the one next action", () => {
       entryCount: 2,
       heatCount: 1,
     });
-    expect(built).toMatchObject({ categoryCount: 3, categoriesWithoutDivisions: 1, divisionCount: 3, divisionsWithoutRound: 1, divisionsMissingDances: 1, registrationOpen: true, entryCount: 2, heatCount: 1 });
+    // 10C: a toggled contest rule alone does not mean registration is open; the program lifecycle does.
+    expect(built).toMatchObject({ categoryCount: 3, categoriesWithoutDivisions: 1, divisionCount: 3, divisionsWithoutRound: 1, divisionsMissingDances: 1, registrationOpen: false, registrationEverOpened: false, entryCount: 2, heatCount: 1 });
+    expect(buildLifecycleInput({ eventId: EVENT, program: { ...draftProgram, registrationStatus: "open", registrationOpenedAt: "2026-10-09T00:00:00Z" }, rows: { contests: [], divisions: [], rounds: [], rules: [], offerings: [] }, entryCount: 0, heatCount: 0 }))
+      .toMatchObject({ registrationOpen: true, registrationEverOpened: true });
     expect(structureProblems(built)).toHaveLength(3);
   });
 });
@@ -297,11 +323,14 @@ describe("Simple and Advanced mode share one canonical model", () => {
 describe("public registration stays off in 10B", () => {
   const FLAG = "NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED";
 
-  it("is read in exactly the three reviewed places and only ever compared to the string 'true'", () => {
+  it("is read in exactly the reviewed places and only ever compared to the string 'true'", () => {
     const uses = sourceFiles(join(ROOT, "src")).filter((file) => readFileSync(file, "utf8").includes(FLAG));
     expect(uses.map((file) => file.replaceAll("\\", "/").split("/src/")[1]).sort()).toEqual([
       "app/api/events/[slug]/competition/checkout/route.ts",
+      "app/api/events/[slug]/competition/release/route.ts",
+      "app/api/events/[slug]/competition/resume/route.ts",
       "app/events/[slug]/competition/register/page.tsx",
+      "app/events/[slug]/competition/register/status/page.tsx",
       "app/events/[slug]/page.tsx",
     ]);
     for (const file of uses) {

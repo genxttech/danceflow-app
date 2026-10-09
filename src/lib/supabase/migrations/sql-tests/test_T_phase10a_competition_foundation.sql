@@ -108,6 +108,18 @@ insert into public.event_competition_divisions (id, event_id, program_id, contes
 values ('00000000-0000-0000-0000-0a10a0003011', '00000000-0000-0000-0000-0a10a000e001',
         '00000000-0000-0000-0000-0a10a0001001', '00000000-0000-0000-0000-0a10a0002011', 'Closed Division', 'open');
 
+-- Phase 10C: public catalog visibility additionally requires the program's registration lifecycle
+-- to be open (registration_status, written only by open_competition_registration). Open the fixture
+-- programs so this suite keeps asserting the 10A catalog boundaries on either schema.
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public'
+             and table_name = 'event_competition_programs' and column_name = 'registration_status') then
+    execute $u$update public.event_competition_programs set registration_status = 'open'
+               where id::text like '00000000-0000-0000-0000-0a10a0001%'$u$;
+  end if;
+end $$;
+
 -- Entries and an unscheduled heat in E1.
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status) values
   ('00000000-0000-0000-0000-0a10a0007001', '00000000-0000-0000-0000-0a10a000e001', '00000000-0000-0000-0000-0a10a0001001',

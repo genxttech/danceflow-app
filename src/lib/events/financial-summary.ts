@@ -216,7 +216,7 @@ export function buildEventProfitabilityByEventId(
 
     if (
       sourceTable === "event_payments" &&
-      category === "event_ticket_revenue"
+      (category === "event_ticket_revenue" || category === "competition_entry_revenue")
     ) {
       current.gross_ticket_revenue =
         eventFinancialNumber(current.gross_ticket_revenue) +
