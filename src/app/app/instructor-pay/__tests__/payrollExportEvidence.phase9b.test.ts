@@ -631,3 +631,31 @@ describe("Phase 9B migration shape", () => {
     expect(sql).toMatch(/exported_by_name text/);
   });
 });
+
+describe("Phase 9D: approved-batch CSV uses the shared formula-safe helper", () => {
+  it("neutralizes formula-like snapshot text, quotes CR/CRLF, and keeps columns and numbers unchanged", async () => {
+    seedSnapshotBatch("b9d");
+    const lines = tables.payroll_batch_approval_snapshot_lines;
+    lines[0].notes = "  =HYPERLINK(\"http://x\",\"y\")";
+    lines[0].client_name = "\t+SUM(A1)";
+    lines[0].instructor_name = "@Nina";
+    lines[1].notes = "line1\r\nline2";
+
+    const response = await csvRequest("b9d");
+    expect(response.status).toBe(200);
+    const csv = await response.text();
+    expect(csv).toContain("\"'  =HYPERLINK(\"\"http://x\"\",\"\"y\"\")\"");
+    expect(csv).toContain("'\t+SUM(A1)");
+    expect(csv).toContain("'@Nina");
+    expect(csv).toContain("\"line1\r\nline2\"");
+    // Numbers stay numbers; column order is the unchanged header order.
+    const header = csv.split("\n")[0].split(",");
+    expect(header[0]).toBe("Earning Date");
+    expect(header[5]).toBe("Revenue Basis");
+    expect(csv).toContain("2026-01-05,'@Nina,");
+    expect(csv).toContain(",100,Flat,100,0,0,150,Approved,");
+    // Snapshot remains the source of truth and evidence is still recorded.
+    expect(csv).not.toContain("LIVE NOTE");
+    expect(recordCalls()).toHaveLength(1);
+  });
+});

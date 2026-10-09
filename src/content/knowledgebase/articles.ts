@@ -4557,7 +4557,7 @@ Access tokens are stored in protected form, links expire, canceled deliveries st
 
 ## Safer spreadsheet exports
 
-DanceFlow neutralizes potentially dangerous spreadsheet formulas in accountant-facing CSV exports.
+DanceFlow’s CSV exports (accountant reports, financial and event reports, and instructor pay files) use one shared routine that neutralizes text a spreadsheet could interpret as a formula, including text that begins with spaces or tabs. Cells that could be read as formulas are prefixed with an apostrophe so they open as plain text. Client file imports are not CSV exports and are not covered by this protection.
 
 **What this helps protect against:** Studio-entered text being interpreted as a formula or command when a report is opened in spreadsheet software.
 

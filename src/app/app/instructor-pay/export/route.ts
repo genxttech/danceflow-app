@@ -98,14 +98,6 @@ function labelize(value: string | null | undefined) {
 }
 
 
-function csvSafe(value: unknown) {
-  if (typeof value !== "string") return value;
-  const normalized = value.replace(/\u0000/g, "");
-  return /^[\s]*[=+\-@\t\r]/.test(normalized)
-    ? `'${normalized}`
-    : normalized;
-}
-
 function safeFilenamePart(value: string | null | undefined) {
   return (value || "all").replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
 }
@@ -137,7 +129,7 @@ function liveRow(earning: EarningExportRow, recordSource: string) {
     earning.appointment_id ?? "",
     earning.id,
     recordSource,
-  ].map(csvSafe);
+  ];
 }
 
 // Every figure, name and note comes from the frozen approval snapshot; the
@@ -169,7 +161,7 @@ function snapshotRow(line: ApprovalSnapshotLine, snapshot: ApprovalSnapshot, pay
     line.appointment_id ?? "",
     line.earning_id,
     SOURCE_SNAPSHOT,
-  ].map(csvSafe);
+  ];
 }
 
 function csvResponse(rows: unknown[][], filenamePart: string) {

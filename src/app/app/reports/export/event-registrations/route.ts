@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { toCsv } from "@/lib/utils/csv";
 
 type EventRegistrationExportRow = {
   id: string;
@@ -67,19 +68,6 @@ function getRangeStart(range: string) {
   if (range === "quarter") return startOfQuarterLocal();
   if (range === "year") return startOfYearLocal();
   return startOfMonthLocal();
-}
-
-function csvEscape(value: unknown) {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replaceAll('"', '""')}"`;
-  return text;
-}
-
-function toCsv(headers: string[], rows: Array<Array<unknown>>) {
-  return [headers, ...rows]
-    .map((row) => row.map(csvEscape).join(","))
-    .join("\n");
 }
 
 function csvResponse(csv: string, filename: string) {
