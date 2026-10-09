@@ -17,10 +17,15 @@ import {
   generateInstructorEarningsAction,
   markPayrollBatchPaidAction,
   overrideInstructorEarningAction,
-  saveInstructorCompensationRuleAction,
   saveInstructorPayrollProfileAction,
   updateInstructorEarningStatusAction,
 } from "./actions";
+import CompensationDetailPanel from "./CompensationDetailPanel";
+import CompensationPanelBody from "./CompensationPanelBody";
+import {
+  describeCurrentCompensation,
+  type CompensationHistoryRow,
+} from "@/lib/compensation/compensation-history";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -181,6 +186,15 @@ function stringParam(params: Record<string, string | string[] | undefined>, key:
 function statusMessage(status: string | undefined, params: Record<string, string | string[] | undefined>) {
   if (!status) return null;
   if (status === "rule_saved") return "Instructor compensation rule saved.";
+  if (status === "rule_unchanged") return "No changes to save. The compensation rule is already set that way.";
+  if (status === "rule_invalid_mode") return "Choose a supported pay type for private lessons and group classes.";
+  if (status === "rule_invalid_amount") return "Enter amounts as plain numbers, for example 45 or 45.50.";
+  if (status === "rule_negative_amount") return "Pay amounts cannot be negative.";
+  if (status === "rule_invalid_percentage") return "Percentages must be between 0 and 100.";
+  if (status === "rule_missing_amount") return "Enter an amount for each pay type you selected.";
+  if (status === "rule_notes_too_long") return "The internal note is too long. Shorten it to 1,000 characters or fewer.";
+  if (status === "rule_instructor_not_found") return "That instructor could not be found in this studio. Refresh the page and try again.";
+  if (status === "rule_save_failed") return "The compensation rule could not be saved. No changes were saved. Please try again.";
   if (status === "payroll_profile_saved") return "Instructor payroll profile saved.";
   if (status === "worker_classification_required") return "Set the instructor worker classification before staging compensation.";
   if (status === "payroll_profile_inactive") return "This instructor is not active for payroll.";
@@ -417,7 +431,46 @@ export default async function InstructorPayPage({
     exportParams.set("instructorId", instructorFilter);
   }
   const exportHref = `/app/instructor-pay/export${exportParams.toString() ? `?${exportParams.toString()}` : ""}`;
-  const message = statusMessage(stringParam(params, "status"), params);
+  const statusParam = stringParam(params, "status");
+  const message = statusMessage(statusParam, params);
+  const messageIsError = Boolean(statusParam && /(^rule_(invalid|negative|missing|notes|instructor|save_failed)|failed|denied)/.test(statusParam));
+
+  // Phase 9C: URL-driven compensation detail panel (?compensation=<instructorId>[&mode=edit]).
+  const pageFilterParams = new URLSearchParams();
+  if (statusFilter !== "all") pageFilterParams.set("statusFilter", statusFilter);
+  if (instructorFilter !== "all") pageFilterParams.set("instructorId", instructorFilter);
+  const compensationHref = (instructorId?: string, mode?: "edit") => {
+    const next = new URLSearchParams(pageFilterParams);
+    if (instructorId) next.set("compensation", instructorId);
+    if (instructorId && mode) next.set("mode", mode);
+    const query = next.toString();
+    return `/app/instructor-pay${query ? `?${query}` : ""}`;
+  };
+  const requestedCompensationId = stringParam(params, "compensation");
+  const panelInstructor = requestedCompensationId
+    ? instructors.find((instructor) => instructor.id === requestedCompensationId) ?? null
+    : null;
+  const panelMode: "view" | "edit" = stringParam(params, "mode") === "edit" ? "edit" : "view";
+  let panelHistory: CompensationHistoryRow[] = [];
+  let panelHistoryUnavailable = false;
+  let panelTimeZone: string | null = null;
+  if (panelInstructor) {
+    const [historyResult, studioResult] = await Promise.all([
+      supabase
+        .from("instructor_compensation_rule_history")
+        .select("id, change_type, changed_at, changed_by_name, changed_by_email, changed_by_role, changed_fields, previous_values, new_values")
+        .eq("studio_id", studioId)
+        .eq("instructor_id", panelInstructor.id)
+        .order("changed_at", { ascending: false })
+        .order("change_seq", { ascending: false })
+        .limit(50),
+      supabase.from("studios").select("timezone").eq("id", studioId).maybeSingle(),
+    ]);
+    if (historyResult.error) panelHistoryUnavailable = true;
+    else panelHistory = (historyResult.data ?? []) as CompensationHistoryRow[];
+    const timezone = (studioResult.data as { timezone?: string | null } | null)?.timezone;
+    panelTimeZone = typeof timezone === "string" && timezone.trim() ? timezone.trim() : null;
+  }
 
   return (
     <div className="max-w-7xl space-y-8">
@@ -441,7 +494,10 @@ export default async function InstructorPayPage({
       />
 
       {message ? (
-        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+        <div
+          role={messageIsError ? "alert" : "status"}
+          className={messageIsError ? "rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800" : "rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"}
+        >
           {message}
         </div>
       ) : null}
@@ -657,96 +713,18 @@ export default async function InstructorPayPage({
                   </button>
                 </form>
 
-                <form action={saveInstructorCompensationRuleAction}>
-                <input type="hidden" name="instructorId" value={instructor.id} />
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-950">{instructorName(instructor)}</h3>
-                    <p className="text-sm text-slate-500">{instructor.active ? "Active instructor" : "Inactive instructor"}</p>
-                  </div>
-                  <Link href={`/app/instructors/${instructor.id}`} className="text-sm font-semibold text-violet-700 hover:text-violet-900">
-                    Profile
-                  </Link>
-                </div>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-950">Private lessons</p>
-                    <label className="mt-3 block text-sm font-medium text-slate-700">
-                      Rule
-                      <select name="privateLessonPayMode" defaultValue={rule?.private_lesson_pay_mode ?? "none"} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm">
-                        <option value="none">Not configured</option>
-                        <option value="flat">Flat rate</option>
-                        <option value="percentage">Percentage of lesson value</option>
-                      </select>
-                    </label>
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <label className="text-sm font-medium text-slate-700">
-                        Flat $
-                        <input name="privateLessonFlatAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_flat_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
-                      </label>
-                      <label className="text-sm font-medium text-slate-700">
-                        Percent
-                        <input name="privateLessonPercentage" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_percentage ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
-                      </label>
+                <div className="rounded-2xl bg-slate-50 p-4" data-testid="compensation-summary">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">Compensation</p>
+                      <p className="mt-1 text-sm text-slate-600">Private lessons: {describeCurrentCompensation(rule).privateLesson}</p>
+                      <p className="text-sm text-slate-600">Group classes: {describeCurrentCompensation(rule).groupClass}</p>
                     </div>
-                    <label className="mt-3 flex items-start gap-2 rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                      <input name="privateLessonDurationRatesEnabled" type="checkbox" defaultChecked={Boolean(rule?.private_lesson_duration_rates_enabled)} className="mt-1" />
-                      <span>Use duration rates for flat-rate private lessons</span>
-                    </label>
-                    <div className="mt-3 grid grid-cols-3 gap-3">
-                      <label className="text-sm font-medium text-slate-700">
-                        30 min $
-                        <input name="privateLesson30MinFlatAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_30_min_flat_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
-                      </label>
-                      <label className="text-sm font-medium text-slate-700">
-                        45 min $
-                        <input name="privateLesson45MinFlatAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_45_min_flat_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
-                      </label>
-                      <label className="text-sm font-medium text-slate-700">
-                        60 min $
-                        <input name="privateLesson60MinFlatAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_60_min_flat_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-950">Group classes</p>
-                    <label className="mt-3 block text-sm font-medium text-slate-700">
-                      Rule
-                      <select name="groupClassPayMode" defaultValue={rule?.group_class_pay_mode ?? "none"} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm">
-                        <option value="none">Not configured</option>
-                        <option value="flat">Flat rate</option>
-                        <option value="percentage">Percentage of class value</option>
-                        <option value="per_attendee">Per attended student</option>
-                      </select>
-                    </label>
-                    <div className="mt-3 grid grid-cols-3 gap-3">
-                      <label className="text-sm font-medium text-slate-700">
-                        Flat $
-                        <input name="groupClassFlatAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.group_class_flat_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
-                      </label>
-                      <label className="text-sm font-medium text-slate-700">
-                        Percent
-                        <input name="groupClassPercentage" type="number" step="0.01" min="0" defaultValue={Number(rule?.group_class_percentage ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
-                      </label>
-                      <label className="text-sm font-medium text-slate-700">
-                        Per student $
-                        <input name="groupClassPerAttendeeAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.group_class_per_attendee_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
-                      </label>
-                    </div>
+                    <Link href={compensationHref(instructor.id)} className="inline-flex w-fit rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800">
+                      {ruleIsConfigured(rule) ? "View compensation" : "Set up compensation"}
+                    </Link>
                   </div>
                 </div>
-
-                <label className="mt-4 block text-sm font-medium text-slate-700">
-                  Notes
-                  <input name="notes" defaultValue={rule?.notes ?? ""} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" placeholder="Optional internal note" />
-                </label>
-
-                <button className="mt-4 rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800">
-                  Save rule
-                </button>
-                </form>
               </div>
             );
           })}
@@ -912,6 +890,26 @@ export default async function InstructorPayPage({
           )}
         </div>
       </section>
+
+      {panelInstructor ? (
+        <CompensationDetailPanel
+          title={`${instructorName(panelInstructor)} compensation`}
+          description={panelInstructor.active ? "Active instructor" : "Inactive instructor"}
+          closeHref={compensationHref()}
+        >
+          <CompensationPanelBody
+            instructorId={panelInstructor.id}
+            rule={rulesByInstructor.get(panelInstructor.id) ?? null}
+            workerClassification={payrollProfilesByInstructor.get(panelInstructor.id)?.worker_classification ?? null}
+            history={panelHistory}
+            historyUnavailable={panelHistoryUnavailable}
+            timeZone={panelTimeZone}
+            mode={panelMode}
+            editHref={compensationHref(panelInstructor.id, "edit")}
+            viewHref={compensationHref(panelInstructor.id)}
+          />
+        </CompensationDetailPanel>
+      ) : null}
     </div>
   );
 }
