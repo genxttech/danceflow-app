@@ -1023,10 +1023,17 @@ declare
   v_problems text[] := '{}';
   v_snapshot jsonb;
   v_rec record;
+  v_event_id uuid;
   v_now timestamptz := now();
 begin
+  -- Authorize first (no lock), so a caller who cannot manage the competition never takes its row lock.
+  select p.event_id into v_event_id from public.event_competition_programs p where p.id = target_program_id;
+  if v_actor is null or v_event_id is null or not public.can_manage_event_competition(v_event_id) then
+    raise exception 'Competition was not found or cannot be managed.' using errcode = '42501';
+  end if;
+  -- Serialize concurrent publishes of the same competition; the loser re-reads a locked, non-draft program.
   select * into v_program from public.event_competition_programs where id = target_program_id for update;
-  if v_actor is null or v_program.id is null or not public.can_manage_event_competition(v_program.event_id) then
+  if v_program.id is null then
     raise exception 'Competition was not found or cannot be managed.' using errcode = '42501';
   end if;
   if v_program.rules_profile_key is null then

@@ -5,9 +5,12 @@
 -- profile or uses a studio scoring-engine key: the profile key/version, the frozen snapshot and the
 -- engine keys are the historical configuration of that competition and must not be dropped.
 -- Roll the APPLICATION back first (the 10B app calls the functions removed here).
--- Operators who accept losing that configuration on a development database can run
---   set local phase10b.allow_profile_loss = 'yes';
--- in the same session before this file. Never do that on PROD once a competition is published.
+-- Operators who accept losing that configuration on a DEVELOPMENT database can put
+--   set phase10b.allow_profile_loss = 'yes';
+-- (a session-level SET, before this file's BEGIN) in the same session. A SET LOCAL before BEGIN has no
+-- effect. The override only skips the refusal check below; every other statement and the postflight
+-- still run, and re-adding the narrower scoring checks fails if any row still uses a studio engine key.
+-- Never set it on PROD once a competition is published.
 
 begin;
 

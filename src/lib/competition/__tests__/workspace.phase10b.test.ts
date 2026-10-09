@@ -274,6 +274,15 @@ describe("Simple and Advanced mode share one canonical model", () => {
     }
   });
 
+  it("the wizard is honest about what is not running yet and about the generic rating levels", () => {
+    const wizard = read("src/app/app/events/[id]/competition/new/CreateCompetitionWizard.tsx");
+    expect(wizard).toContain("Judging and results are set up now and run in a later update.");
+    expect(wizard).toContain("own simple rating levels");
+    expect(wizard).toContain("Online registration for dancers opens in a later update; nothing is sold yet.");
+    expect(wizard).toContain("registration window for the whole event, including any tickets");
+    expect(wizard).not.toMatch(/UCWDC|medal/i);
+  });
+
   it("the settings screen states that a rules profile is not a sanction", () => {
     const settings = read("src/app/app/events/[id]/competition/settings/page.tsx");
     expect(settings).toContain("Following a rules profile never means an organization sanctioned the event.");
@@ -288,17 +297,29 @@ describe("Simple and Advanced mode share one canonical model", () => {
 describe("public registration stays off in 10B", () => {
   const FLAG = "NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED";
 
-  it("is read in exactly the two reviewed places and only ever compared to the string 'true'", () => {
+  it("is read in exactly the three reviewed places and only ever compared to the string 'true'", () => {
     const uses = sourceFiles(join(ROOT, "src")).filter((file) => readFileSync(file, "utf8").includes(FLAG));
     expect(uses.map((file) => file.replaceAll("\\", "/").split("/src/")[1]).sort()).toEqual([
       "app/api/events/[slug]/competition/checkout/route.ts",
       "app/events/[slug]/competition/register/page.tsx",
+      "app/events/[slug]/page.tsx",
     ]);
     for (const file of uses) {
       const source = readFileSync(file, "utf8");
       expect(source).toMatch(new RegExp(`process\\.env\\.${FLAG} === "true"`));
       expect(source).not.toMatch(new RegExp(`${FLAG}\\s*=\\s*["']true`));
     }
+  });
+
+  it("the public event page only advertises competition registration while the flag is on", () => {
+    const page = read("src/app/events/[slug]/page.tsx");
+    expect(page).toContain("competitionRegistrationEnabled &&");
+    const link = page.indexOf("/competition/register");
+    expect(link).toBeGreaterThan(-1);
+    const gate = page.lastIndexOf("competitionRegistrationEnabled &&", link);
+    expect(gate).toBeGreaterThan(-1);
+    expect(link - gate).toBeLessThan(1500);
+    expect(page.match(/\/competition\/register/g)?.length).toBe(1);
   });
 
   it("is not enabled by any checked-in environment, config or deployment file", () => {

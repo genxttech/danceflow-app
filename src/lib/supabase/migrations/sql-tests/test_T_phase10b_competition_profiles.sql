@@ -321,6 +321,9 @@ select pg_temp.expect_msg('a missing request key is rejected',
   $q$select public.create_simple_competition('00000000-0000-0000-0000-0b10b000e004', pg_temp.spec('studio_competition', 'placements', 'x',
      '[{"type":"solo","price":5}]'::jsonb, '[{"name":"Open"}]'::jsonb))$q$, 'request key');
 reset role;
+select pg_temp.chk('a refused second setup left exactly one program and two categories on the event',
+  pg_temp.n('event_competition_programs', '00000000-0000-0000-0000-0b10b000e001') = 1
+  and pg_temp.n('event_competition_contests', '00000000-0000-0000-0000-0b10b000e001') = 2);
 select pg_temp.chk('rejected specs created nothing on the validation event',
   pg_temp.n('event_competition_programs', '00000000-0000-0000-0000-0b10b000e004') = 0);
 
@@ -400,7 +403,7 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0b10b0000001","role":"authenticated"}', true);
 -- Panel RPCs are exercised on the main competition before publishing.
 select pg_temp.expect_ok('manager adds a division through the panel RPC (copies Final + dances)',
-  $q$insert into t_ids select 'gold', public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'pro_am'), 'Gold', 'Gold', null)$q$);
+  $q$insert into t_ids select 'gold', public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'pro_am' order by sort_order limit 1), 'Gold', 'Gold', null)$q$);
 reset role;
 select pg_temp.chk('the added division has the category''s Final round and dance offerings',
   (select count(*) = 1 and bool_and(round_type = 'final' and scoring_method = 'ordinal_majority') from public.event_competition_rounds where division_id = (select v from t_ids where k = 'gold'))
@@ -408,7 +411,7 @@ select pg_temp.chk('the added division has the category''s Final round and dance
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0b10b0000001","role":"authenticated"}', true);
 select pg_temp.expect_msg('adding a duplicate division name is refused',
-  $q$select public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'pro_am'), 'gold', null, null)$q$, 'already has a division');
+  $q$select public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'pro_am' order by sort_order limit 1), 'gold', null, null)$q$, 'already has a division');
 select pg_temp.expect_ok('manager removes the added division again',
   $q$select public.remove_competition_division((select v from t_ids where k = 'gold'))$q$);
 reset role;
@@ -445,7 +448,7 @@ where d.event_id = '00000000-0000-0000-0000-0b10b000e001' and c.entry_format = '
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0b10b0000001","role":"authenticated"}', true);
 select pg_temp.expect_ok('manager removes every division of the Solo category',
-  $q$select public.remove_competition_division(id) from public.event_competition_divisions where contest_id = (select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'solo')$q$);
+  $q$select public.remove_competition_division(id) from public.event_competition_divisions where contest_id = (select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'solo' order by sort_order limit 1)$q$);
 select pg_temp.expect_msg('publish refuses a category without divisions',
   $q$select public.publish_competition_program((select v from t_ids where k = 'main'))$q$, 'at least one division');
 reset role;
@@ -472,12 +475,12 @@ select pg_temp.chk('refused publishes changed nothing',
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0b10b0000001","role":"authenticated"}', true);
 select pg_temp.expect_ok('manager re-adds Solo divisions (default Final round when the category is empty)',
-  $q$select public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'solo'), n, null, null)
+  $q$select public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'solo' order by sort_order limit 1), n, null, null)
      from unnest(array['Bronze', 'Silver']) n$q$);
 reset role;
 select pg_temp.chk('re-added Solo divisions have a Final round with the placements engine',
   (select count(*) = 2 and bool_and(scoring_method = 'ordinal_majority')
-   from public.event_competition_rounds where division_id in (select id from public.event_competition_divisions where contest_id = (select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'solo'))));
+   from public.event_competition_rounds where division_id in (select id from public.event_competition_divisions where contest_id = (select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'solo' order by sort_order limit 1))));
 
 -- an advanced-mode edit made before publishing survives and is captured
 insert into public.event_competition_rounds (event_id, program_id, division_id, name, round_type, sequence_number, scoring_method)
@@ -554,7 +557,7 @@ create temp table t_snapshot_before as
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0b10b0000001","role":"authenticated"}', true);
 select pg_temp.expect_ok('divisions can still be added to a published (configured) competition',
-  $q$select public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'pro_am'), 'Platinum', null, null)$q$);
+  $q$select public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'pro_am' order by sort_order limit 1), 'Platinum', null, null)$q$);
 reset role;
 select pg_temp.chk('the published snapshot did not change when a division was added later',
   (select snapshot = (select snap from t_snapshot_before) from public.event_competition_program_locks where program_id = (select v from t_ids where k = 'main')));
@@ -564,7 +567,7 @@ update public.event_competition_programs set status = 'active' where id = (selec
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0b10b0000001","role":"authenticated"}', true);
 select pg_temp.expect_msg('divisions cannot be added once the competition is running',
-  $q$select public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'pro_am'), 'Late', null, null)$q$, 'running');
+  $q$select public.add_competition_division((select id from public.event_competition_contests where event_id = '00000000-0000-0000-0000-0b10b000e001' and entry_format = 'pro_am' order by sort_order limit 1), 'Late', null, null)$q$, 'running');
 reset role;
 update public.event_competition_programs set status = 'configured' where id = (select v from t_ids where k = 'main');
 

@@ -298,7 +298,9 @@ export default function CreateCompetitionWizard({
                 );
               })}
             </div>
-            <p className="mt-3 text-xs text-slate-500">Every division gets a Final round. You can change rounds later in Advanced settings.</p>
+            <p className="mt-3 text-xs text-slate-500">
+              Every division gets a Final round, and you can change rounds later in Advanced settings. Judging and results are set up now and run in a later update. Gold, Silver and Bronze are DanceFlow&apos;s own simple rating levels.
+            </p>
           </section>
         ) : null}
 
@@ -336,7 +338,8 @@ export default function CreateCompetitionWizard({
                 <input type="date" value={state.registrationCloses} onChange={(changeEvent) => setState((current) => ({ ...current, registrationCloses: changeEvent.target.value }))} className={`${fieldClass} mt-1`} />
               </label>
             </div>
-            {event.existingWindow ? <p className="mt-2 text-xs text-slate-500">This event already has a registration window ({event.existingWindow}); dates you enter replace it.</p> : null}
+            <p className="mt-2 text-xs text-slate-500">These dates are the registration window for the whole event, including any tickets.</p>
+            {event.existingWindow ? <p className="mt-1 text-xs text-slate-500">This event already has a registration window ({event.existingWindow}); dates you enter replace it.</p> : null}
             <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
               Next you will review everything and publish. Online registration for dancers opens in a later update; nothing is sold yet.
             </p>
