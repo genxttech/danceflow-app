@@ -152,9 +152,17 @@ export default async function CompetitionOverviewPage({
             ) : action.kind === "registration" ? (
               <RegistrationForm eventId={id} programId={action.programId} mode={action.mode} label={action.label} />
             ) : null}
-            {primary && lifecycle.published && action.kind !== "registration" && primary.registration_opened_at && primary.registration_status === "closed" ? (
+            {/* Registration control for every published competition the primary action does not cover
+                (Advanced-mode competitions, and reopening after close). */}
+            {primary && lifecycle.published && action.kind !== "registration" ? (
               <div className="mt-3">
-                <RegistrationForm eventId={id} programId={primary.id} mode="open" label="Reopen registration" variant="secondary" />
+                <RegistrationForm
+                  eventId={id}
+                  programId={primary.id}
+                  mode={primary.registration_status === "open" ? "close" : "open"}
+                  label={primary.registration_status === "open" ? "Close registration" : primary.registration_opened_at ? "Reopen registration" : "Open registration"}
+                  variant="secondary"
+                />
               </div>
             ) : null}
           </div>

@@ -905,6 +905,11 @@ begin
      or exists (select 1 from unnest(v_person_ids) id where coalesce(id, '') = '') then
     v_errors := array_append(v_errors, 'Each roster person needs a unique id.');
   end if;
+  -- Entry ids key the per-entry price lines, order items and snapshot: they must be unique too.
+  if (select count(distinct coalesce(x->>'clientId', '')) from jsonb_array_elements(v_entries) x) <> jsonb_array_length(v_entries)
+     or exists (select 1 from jsonb_array_elements(v_entries) x where coalesce(x->>'clientId', '') = '') then
+    v_errors := array_append(v_errors, 'Each entry needs a unique id.');
+  end if;
   for v_entry in select x from jsonb_array_elements(v_people) x loop
     if length(btrim(coalesce(v_entry->>'firstName', ''))) not between 1 and 100
        or length(btrim(coalesce(v_entry->>'lastName', ''))) not between 1 and 100 then
@@ -1394,7 +1399,12 @@ begin
     v_primary_role := nullif(v_person->>'primaryRole', '');
 
     if coalesce(v_person->'isSelf' = 'true'::jsonb, false) then
-      -- "This is me": the verified account anchors the competitor (LAUNCH-SEC-1C rules).
+      -- "This is me": the verified account anchors the competitor (LAUNCH-SEC-1C rules). It can never
+      -- be combined with a staff anchor (that would bind the actor's account to someone else).
+      if public._comp10c_uuid(v_person->>'anchorClientId') is not null
+         or public._comp10c_uuid(v_person->>'anchorInstructorId') is not null then
+        raise exception 'COMP10C_INVALID: a roster person cannot be both you and a linked studio record.';
+      end if;
       if p_actor_user_id is null then
         raise exception 'COMP10C_SIGN_IN_REQUIRED: sign in to register yourself to your DanceFlow account.';
       end if;
@@ -1647,10 +1657,13 @@ begin
   if v_order.status <> 'pending' or v_order.payment_status <> 'pending' then
     raise exception 'COMP10C_ORDER_NOT_PAYABLE: this registration is no longer awaiting payment.';
   end if;
-  if v_order.expires_at is not null and v_order.expires_at <= now() then
+  -- A bound Checkout Session decides the outcome (it may have been paid inside the hold with the
+  -- webhook still in flight): never declare such an order expired here; the caller asks Stripe.
+  if v_order.stripe_checkout_session_id is null and v_order.expires_at is not null and v_order.expires_at <= now() then
     raise exception 'COMP10C_EXPIRED: this registration hold has expired.';
   end if;
-  if coalesce((v_order.metadata->>'requires_signing')::boolean, false) and not public._comp10c_signing_complete(v_order.id) then
+  if v_order.stripe_checkout_session_id is null
+     and coalesce((v_order.metadata->>'requires_signing')::boolean, false) and not public._comp10c_signing_complete(v_order.id) then
     raise exception 'COMP10C_SIGNING_INCOMPLETE: required event documents must be signed before payment.';
   end if;
   if v_order.stripe_checkout_session_id is null and (v_order.expires_at is null or v_order.expires_at < now() + interval '31 minutes') then
@@ -1948,8 +1961,10 @@ create unique index event_payments_registration_payment_intent_uidx
 -- ---------------------------------------------------------------------------
 -- An order is homogeneous: either competition entry items (competition_entry, or add_on lines
 -- written with revenue_class = competition_entry) or ordinary event items, never both. The
--- event-payment ledger keeps one row per payment (uq_accounting_entries_event_payment_source),
--- so homogeneity is what makes "classify by order items" exact without double counting.
+-- canonical ledger (accounting_upsert_entry, 20260715) keeps ONE active revenue category per source
+-- row -- an upsert in another category voids the previous one -- so a payment cannot carry two
+-- revenue classes; homogeneity is what makes "classify by order items" exact without double
+-- counting. (DEV additionally carries uq_accounting_entries_event_payment_source, environment drift.)
 create or replace function public._comp10c_order_item_class(p_item_type text, p_metadata jsonb)
 returns text
 language sql

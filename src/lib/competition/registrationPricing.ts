@@ -232,6 +232,8 @@ export function calculateCompetitionRegistrationQuote(
   if (entries.length === 0) errors.push("Add at least one competition entry.");
   if (people.length > 100 || entries.length > 100) errors.push("One registration can include at most 100 people and 100 entries.");
   if (new Set(personIds).size !== personIds.length || personIds.some((id) => !id)) errors.push("Each roster person needs a unique id.");
+  const entryIds = entries.map((entry) => entry.clientId ?? "");
+  if (new Set(entryIds).size !== entryIds.length || entryIds.some((id) => !id)) errors.push("Each entry needs a unique id.");
   let selfCount = 0;
   for (const person of people) {
     const first = (person.firstName ?? "").trim().length;

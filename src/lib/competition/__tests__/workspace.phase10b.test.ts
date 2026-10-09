@@ -170,6 +170,13 @@ describe("Overview lifecycle and the one next action", () => {
     expect(closed.stages.find((stage) => stage.key === "close_registration")?.state).toBe("done");
   });
 
+  it("the Overview offers an open/close control for every published competition, including Advanced-mode ones (10C)", () => {
+    const page = read("src/app/app/events/[id]/competition/page.tsx");
+    expect(page).toContain(`{primary && lifecycle.published && action.kind !== "registration" ? (`);
+    expect(page).toContain(`mode={primary.registration_status === "open" ? "close" : "open"}`);
+    expect(computeLifecycle(input({ program: { ...legacyProgram, status: "configured" } })).published).toBe(true);
+  });
+
   it("an unpublished competition cannot open registration (10C)", () => {
     const lifecycle = computeLifecycle(input());
     expect(lifecycle.stages.find((stage) => stage.key === "open_registration")?.actionable).toBe(false);

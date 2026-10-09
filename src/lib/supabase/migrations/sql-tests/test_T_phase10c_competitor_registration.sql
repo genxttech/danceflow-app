@@ -794,6 +794,32 @@ select pg_temp.expect_msg('signing: free finalize before signing refused',
   $q$select public.finalize_competition_registration(((select v from t_kv where k='s3')->>'order_id')::uuid, null, null, null, null, null)$q$, 'COMP10C_SIGNING_INCOMPLETE');
 
 -- ============================================================================
+-- REVIEW FIXES: duplicate entry ids, self + staff anchor, bound session past the hold
+-- ============================================================================
+select pg_temp.chk('pricing: duplicate entry ids are refused',
+  public._comp10c_quote(pg_temp.ev(1), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Al','A'), pg_temp.person('b','Bo','B')),
+    jsonb_build_array(pg_temp.entry('x', 1, 2, 2, '["a"]', '{"a":"dancer"}'), pg_temp.entry('x', 1, 2, 2, '["b"]', '{"b":"dancer"}'))), now())->'errors' ? 'Each entry needs a unique id.');
+select pg_temp.expect_msg('identity: "this is me" cannot be combined with a staff anchor',
+  $q$select pg_temp.start(pg_temp.ev(1), pg_temp.req(51), pg_temp.draft(
+       jsonb_build_array(pg_temp.person('a', 'Owner', 'A', '{"isSelf": true, "anchorClientId": "00000000-0000-0000-0000-0c10c000c002"}')),
+       jsonb_build_array(pg_temp.entry('x', 1, 2, 2, '["a"]', '{"a":"dancer"}'))), pg_temp.u('0c10c0000001'))$q$,
+  'cannot be both you and a linked studio record');
+select pg_temp.expect_ok('hold: order with a bound session',
+  $q$insert into t_kv values ('h1', pg_temp.start(pg_temp.ev(1), pg_temp.req(52), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Hold','Bound')),
+     jsonb_build_array(pg_temp.entry('x', 1, 2, 2, '["a"]', '{"a":"dancer"}')))))$q$);
+select pg_temp.expect_ok('hold: order without a session',
+  $q$insert into t_kv values ('h2', pg_temp.start(pg_temp.ev(1), pg_temp.req(53), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Hold','Unbound')),
+     jsonb_build_array(pg_temp.entry('x', 1, 2, 2, '["a"]', '{"a":"dancer"}')))))$q$);
+select pg_temp.expect_ok('hold: attach h1', $q$select public.attach_competition_registration_checkout(((select v from t_kv where k='h1')->>'order_id')::uuid, 'acct_p10cStudioA', 'cs_test_p10c_h1', now() + interval '35 minutes')$q$);
+update public.event_orders set expires_at = now() - interval '1 minute'
+where id in (((select v from t_kv where k='h1')->>'order_id')::uuid, ((select v from t_kv where k='h2')->>'order_id')::uuid);
+select pg_temp.chk('hold: past the hold, a bound session is returned (Stripe decides), never declared expired',
+  (select v->>'checkout_session_id' = 'cs_test_p10c_h1' and v->>'state' = 'payable'
+   from (select pg_temp.try_jsonb($w$select public.prepare_competition_registration_payment(((select v from t_kv where k='h1')->>'order_id')::uuid)$w$) v) x));
+select pg_temp.expect_msg('hold: past the hold with no session -> COMP10C_EXPIRED',
+  $q$select public.prepare_competition_registration_payment(((select v from t_kv where k='h2')->>'order_id')::uuid)$q$, 'COMP10C_EXPIRED');
+
+-- ============================================================================
 -- ACCOUNTING: ordinary ticket orders and order homogeneity
 -- ============================================================================
 insert into public.event_orders (id, event_id, studio_id, buyer_name, buyer_email, subtotal_amount, total_amount, status, payment_status)

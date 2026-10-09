@@ -33,6 +33,14 @@ describe("Phase 10C pricing parity: TypeScript display quote == hand-computed ex
     expect(committed).toBe(generateParitySql());
   });
 
+  it("duplicate entry ids are refused (they key per-entry lines and order items), like the database", () => {
+    const { catalog, draft } = materialize(1) as { catalog: CompetitionRegistrationCatalog; draft: CompetitionRegistrationDraft };
+    const duplicated = { ...draft, entries: draft.entries.map((entry) => ({ ...entry, clientId: "same" })) };
+    const quote = calculateCompetitionRegistrationQuote(catalog, duplicated, new Date("2026-06-01T00:00:00Z"));
+    expect(quote.valid).toBe(false);
+    expect(quote.errors).toContain("Each entry needs a unique id.");
+  });
+
   it("integer-cent helpers round half-up exactly like the database", () => {
     expect(toCents(19.99)).toBe(1999);
     expect(toCents(0.29)).toBe(29);

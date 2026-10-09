@@ -145,8 +145,11 @@ signs) are a carry-forward.
 
 `competition_entry_revenue` is a new category on the existing event-payment ledger trigger, derived from the
 order's server-written items. Ordinary event tickets stay `event_ticket_revenue`. Orders are homogeneous
-(a trigger refuses mixing competition and ordinary items) because the ledger keeps one row per event payment;
-so a payment is never mis-split or double counted. Financial summary, reports, accounting map and Wave
+(a trigger refuses mixing competition and ordinary items) because the canonical ledger
+(`accounting_upsert_entry`) keeps one active revenue category per source row — an upsert in another category
+voids the previous one — so one payment cannot carry two revenue classes; a payment is never mis-split or
+double counted. No current checkout builds mixed orders. (DEV also has the non-repo index
+`uq_accounting_entries_event_payment_source`; that drift is not the reason for the rule.) Financial summary, reports, accounting map and Wave
 mapping recognise the new category (Wave refunds map to `event_ticket_refund` until the refund follow-up).
 New category ⇒ organizers with Wave auto-posting must map it once (`blocksAutoPostWhenUnmapped`).
 
@@ -197,8 +200,12 @@ registration still withdraws its entries (10A trigger); full refund still voids 
 - Release order: **SQL first, then app** (the workspace reads the new program columns). Rollback: **app first**,
   then the SQL rollback (refuses once real 10C registrations, competitors, competition revenue or open
   registration exist — forward-fix after launch).
-- PROD preflight must confirm no duplicate `event_payments` (registration, session|payment intent) rows and no
-  mixed orders (the migration refuses otherwise), and re-check the pinned function bodies.
+- PROD preflight (read-only) must confirm: no duplicate `event_payments` (registration, session|payment intent)
+  rows and no mixed orders (the migration refuses otherwise); the four pinned bodies equal the repo definitions
+  (they were pinned from the repo, so a canonical PROD passes); whether `event_payments.event_id` exists (10C does
+  not depend on it — the trigger reads it defensively); whether `uq_accounting_entries_event_payment_source`
+  exists (10C does not depend on it either). DEV is missing all of `20260502000600`; reconcile DEV in the
+  separate drift gate, not here.
 - Stripe Connect webhook endpoint must be subscribed to `checkout.session.expired` and
   `checkout.session.async_payment_failed` (in addition to `checkout.session.completed`) before the flag is on.
 - DEV drift found (not repaired here): `event_payments.event_id` is missing on DEV (the accounting trigger now
