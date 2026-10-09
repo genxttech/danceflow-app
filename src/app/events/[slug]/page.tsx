@@ -12,6 +12,10 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { getBanner } from "./banner";
 
+// Public competition registration stays off until the registration slice ships (see the register route).
+const competitionRegistrationEnabled =
+  process.env.NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED === "true";
+
 type Params = Promise<{
   slug: string;
 }>;
@@ -2646,8 +2650,9 @@ export default async function PublicEventDetailPage({
                     </div>
                   ) : null}
 
-                  {typedEvent.event_type === "competition" ||
-                  typedEvent.event_type === "showcase" ? (
+                  {competitionRegistrationEnabled &&
+                  (typedEvent.event_type === "competition" ||
+                    typedEvent.event_type === "showcase") ? (
                     <div className="mt-6 border border-slate-300 bg-white p-5">
                       <p className="text-sm font-semibold text-slate-950">
                         {typedEvent.event_type === "showcase"
