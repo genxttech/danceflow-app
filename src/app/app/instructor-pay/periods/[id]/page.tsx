@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canDisbursePayroll, canPreparePayroll } from "@/lib/auth/permissions";
 import { GUSTO_INTEGRATION_ENABLED } from "@/lib/integrations/gusto/dormant";
+import { periodLockNote } from "../../payrollStates";
 import {
   approvePeriodEarningAction,
   assignSingleEarningAction,
@@ -397,6 +398,11 @@ export default async function PayrollPeriodPage({
             <p className="mt-2 text-sm text-slate-600">
               Pay date: {dateLabel(period.pay_date)} · Status: {label(period.status)}
             </p>
+            {periodLockNote(period.status) ? (
+              <p className="mt-2 max-w-xl rounded-xl bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-600" data-testid="period-lock-note">
+                {periodLockNote(period.status)}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <Link

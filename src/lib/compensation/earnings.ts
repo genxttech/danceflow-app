@@ -1,4 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  addDaysToDateKey,
+  getStudioTimeZone,
+  getZonedDateKey,
+  zonedDateTimeToUtcDate,
+} from "@/lib/booking/selfServiceAvailability";
 
 type AppointmentRow = {
   id: string;
@@ -59,6 +65,8 @@ type StageInstructorEarningInput = {
   supabase: SupabaseClient;
   studioId: string;
   appointmentId: string;
+  /** Studio IANA zone; read from the studio when omitted. */
+  timeZone?: string | null;
   createdBy?: string | null;
 };
 
@@ -79,8 +87,42 @@ function numberValue(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function earningDateFromIso(value: string) {
-  return value.slice(0, 10);
+/**
+ * earning_date is the studio-local business date of the lesson or class: the
+ * appointment's starts_at (the occurrence timestamp payroll already uses for
+ * appointment earnings) converted with the studio's IANA time zone. Never the
+ * UTC date, the server's zone or a browser zone. Conversion uses Intl, so DST
+ * shifts are handled by the platform rather than fixed offsets.
+ */
+export function earningDateFromIso(value: string, timeZone: string) {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return null;
+  return getZonedDateKey(instant, getStudioTimeZone(timeZone));
+}
+
+/** UTC bounds [from, toExclusive) of a studio-local date range. */
+export function studioLocalRangeBounds(
+  fromDate: string | null,
+  toDate: string | null,
+  timeZone: string,
+) {
+  const zone = getStudioTimeZone(timeZone);
+  return {
+    from: fromDate ? zonedDateTimeToUtcDate(fromDate, "00:00", zone).toISOString() : null,
+    toExclusive: toDate
+      ? zonedDateTimeToUtcDate(addDaysToDateKey(toDate, 1), "00:00", zone).toISOString()
+      : null,
+  };
+}
+
+async function readStudioTimeZone(supabase: SupabaseClient, studioId: string) {
+  const { data, error } = await supabase
+    .from("studios")
+    .select("timezone")
+    .eq("id", studioId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return getStudioTimeZone((data as { timezone?: string | null }).timezone);
 }
 
 function appointmentDurationMinutes(appointment: AppointmentRow) {
@@ -253,8 +295,11 @@ export async function stageInstructorEarningForAppointment({
   supabase,
   studioId,
   appointmentId,
+  timeZone = null,
   createdBy = null,
 }: StageInstructorEarningInput) {
+  const studioTimeZone = timeZone ?? (await readStudioTimeZone(supabase, studioId));
+  if (!studioTimeZone) return { staged: false, reason: "studio_timezone_unavailable" };
   const { data: appointment, error: appointmentError } = await supabase
     .from("appointments")
     .select("id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at, duration_minutes, price_amount, payment_status, billing_type")
@@ -337,12 +382,15 @@ export async function stageInstructorEarningForAppointment({
     return "Auto-staged from the completed lesson or class using the instructor compensation rule.";
   })();
 
+  const earningDate = earningDateFromIso(typedAppointment.starts_at, studioTimeZone);
+  if (!earningDate) return { staged: false, reason: "invalid_appointment_time" };
+
   const payload = {
     studio_id: studioId,
     instructor_id: typedAppointment.instructor_id,
     appointment_id: typedAppointment.id,
     client_id: typedAppointment.client_id,
-    earning_date: earningDateFromIso(typedAppointment.starts_at),
+    earning_date: earningDate,
     source_type: "appointment",
     appointment_type: typedAppointment.appointment_type,
     gross_revenue_basis: calculation.grossRevenueBasis,
@@ -399,6 +447,10 @@ export async function generateInstructorEarningsForCompletedAppointments({
   toDate = null,
   createdBy = null,
 }: GenerateInstructorEarningsInput) {
+  const timeZone = await readStudioTimeZone(supabase, studioId);
+  if (!timeZone) {
+    return { scanned: 0, staged: 0, skipped: 0, attendanceFailed: 0, truncated: false, error: "studio_timezone_unavailable" };
+  }
   let query = supabase
     .from("appointments")
     .select("id")
@@ -415,8 +467,10 @@ export async function generateInstructorEarningsForCompletedAppointments({
     .order("starts_at", { ascending: false })
     .limit(EARNINGS_GENERATION_LIMIT + 1);
 
-  if (fromDate) query = query.gte("starts_at", `${fromDate}T00:00:00`);
-  if (toDate) query = query.lte("starts_at", `${toDate}T23:59:59`);
+  // The date range is in studio-local business days, matching earning_date.
+  const bounds = studioLocalRangeBounds(fromDate, toDate, timeZone);
+  if (bounds.from) query = query.gte("starts_at", bounds.from);
+  if (bounds.toExclusive) query = query.lt("starts_at", bounds.toExclusive);
 
   const { data: appointments, error } = await query;
 
@@ -438,6 +492,7 @@ export async function generateInstructorEarningsForCompletedAppointments({
       supabase,
       studioId,
       appointmentId: appointment.id,
+      timeZone,
       createdBy,
     });
 
