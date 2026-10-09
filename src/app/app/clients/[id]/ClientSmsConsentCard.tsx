@@ -1,11 +1,14 @@
 import {
+  type EffectiveSmsConsent,
   type SmsConsentStatus,
   type SmsPermissionRow,
+  type SmsStudioPhoneConsentRow,
   normalizeSmsPhone,
   buildSmsConsentDisclosure,
+  effectiveSmsConsentLabel,
+  effectiveSmsConsentTip,
   getSmsPlatformReadiness,
-  smsConsentLabel,
-  smsConsentTip,
+  resolveEffectiveSmsConsent,
 } from "@/lib/sms/compliance";
 import { updateClientSmsConsentAction } from "./sms-actions";
 
@@ -14,14 +17,16 @@ type ClientSmsConsentCardProps = {
   studioName?: string | null;
   phone: string | null | undefined;
   permission?: SmsPermissionRow | null;
+  /** TW-2: opted-out rows for the same studio + phone. */
+  phoneOptOuts?: SmsStudioPhoneConsentRow[];
   canManage?: boolean;
   message?: string | null;
   error?: string | null;
 };
 
-function statusClasses(status: SmsConsentStatus) {
-  if (status === "opted_in") return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (status === "opted_out") return "border-red-200 bg-red-50 text-red-700";
+function statusClasses(state: EffectiveSmsConsent) {
+  if (state === "allowed") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (state === "blocked_by_text_stop" || state === "opted_out") return "border-red-200 bg-red-50 text-red-700";
   return "border-amber-200 bg-amber-50 text-amber-800";
 }
 
@@ -30,11 +35,14 @@ export function ClientSmsConsentCard({
   studioName,
   phone,
   permission,
+  phoneOptOuts = [],
   canManage = false,
   message,
   error,
 }: ClientSmsConsentCardProps) {
   const status = (permission?.consent_status ?? "unknown") as SmsConsentStatus;
+  // TW-2: what the studio sees uses the same precedence as sending.
+  const effective = resolveEffectiveSmsConsent(permission, phoneOptOuts);
   const smsReadiness = getSmsPlatformReadiness();
   const normalizedPhone = phone ? normalizeSmsPhone(phone) : null;
   const displayPhone = permission?.phone_e164 ?? normalizedPhone ?? phone ?? "No phone number saved";
@@ -52,8 +60,8 @@ export function ClientSmsConsentCard({
           </p>
         </div>
 
-        <div className={`rounded-2xl border px-3 py-2 text-sm font-bold ${statusClasses(status)}`}>
-          {smsConsentLabel(status)}
+        <div className={`rounded-2xl border px-3 py-2 text-sm font-bold ${statusClasses(effective)}`}>
+          {effectiveSmsConsentLabel(effective)}
         </div>
       </div>
 
@@ -81,7 +89,7 @@ export function ClientSmsConsentCard({
       <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-page-bg)] p-4">
         <p className="text-sm font-semibold text-[var(--brand-text)]">Phone</p>
         <p className="mt-1 text-sm text-[var(--brand-muted)]">{displayPhone}</p>
-        <p className="mt-3 text-sm leading-6 text-[var(--brand-muted)]">{smsConsentTip(status)}</p>
+        <p className="mt-3 text-sm leading-6 text-[var(--brand-muted)]">{effectiveSmsConsentTip(effective)}</p>
       </div>
 
       <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">

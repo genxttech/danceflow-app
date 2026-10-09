@@ -5,9 +5,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveStudioSmsSender } from "@/lib/sms/studioSender";
 import {
   appendSmsOptOutFooter,
-  canSendSms,
+  effectiveSmsConsentTip,
   getSmsPlatformReadiness,
   normalizeSmsPhone,
+  resolveEffectiveSmsConsent,
   sanitizedSmsProviderError,
 } from "@/lib/sms/compliance";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
@@ -125,11 +126,35 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!canSendSms(permission)) {
+    // TW-2: any opt-out for this studio + phone wins over the client's own row, including a
+    // STOP received before this phone belonged to a client (studio+phone-level row).
+    const { data: optOuts, error: optOutError } = await supabase
+      .from("sms_contact_permissions")
+      .select("consent_status, opted_out_source")
+      .eq("studio_id", studioId)
+      .eq("phone_e164", phoneE164)
+      .eq("consent_status", "opted_out");
+
+    if (optOutError) {
+      console.error("SMS opt-out lookup failed", optOutError.code ?? "unknown");
+
       return NextResponse.json(
-        { ok: false, error: "This client must be opted in before you send a text." },
-        { status: 400 },
+        { ok: false, error: "SMS consent could not be verified." },
+        { status: 500 },
       );
+    }
+
+    const consentState = resolveEffectiveSmsConsent(permission, optOuts);
+
+    if (consentState !== "allowed") {
+      const error =
+        consentState === "blocked_by_text_stop"
+          ? effectiveSmsConsentTip(consentState)
+          : consentState === "opted_out"
+            ? "This number has opted out of texts from your studio."
+            : "This client must be opted in before you send a text.";
+
+      return NextResponse.json({ ok: false, error }, { status: 400 });
     }
 
     // SMS-A2P-2: send only through this studio's own approved registration. The

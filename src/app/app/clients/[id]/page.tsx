@@ -41,7 +41,12 @@ import {
   type ClientPackageStatus,
 } from "@/lib/packages/entitlement";
 import ClientSyllabusTab from "./ClientSyllabusTab";
-import type { SmsMessageLogRow, SmsPermissionRow } from "@/lib/sms/compliance";
+import {
+  normalizeSmsPhone,
+  type SmsMessageLogRow,
+  type SmsPermissionRow,
+  type SmsStudioPhoneConsentRow,
+} from "@/lib/sms/compliance";
 import {
   linkPartnerAction,
   linkPortalAccessAction,
@@ -2940,6 +2945,22 @@ export default async function ClientDetailPage({
   const typedAllClientDocumentTemplates = (allClientDocumentTemplates ?? []) as AllClientDocumentTemplateRow[];
   const typedDocumentSignatures = (documentSignatures ?? []) as ClientDocumentSignatureRow[];
   const typedSmsPermission = (smsPermission as SmsPermissionRow | null) ?? null;
+
+  // TW-2: opt-outs for this studio + phone (incl. a STOP recorded before the phone belonged
+  // to this client) decide the displayed SMS state with the same precedence as sending.
+  let smsPhoneOptOuts: SmsStudioPhoneConsentRow[] = [];
+  const clientSmsPhone = activeTab === "marketing" ? normalizeSmsPhone(typedClient.phone ?? "") : null;
+  if (clientSmsPhone) {
+    const { data: optOutRows, error: optOutError } = await supabase
+      .from("sms_contact_permissions")
+      .select("consent_status, opted_out_source")
+      .eq("studio_id", studioId)
+      .eq("phone_e164", clientSmsPhone)
+      .eq("consent_status", "opted_out");
+
+    if (optOutError) throw new Error(`Failed to load SMS opt-outs: ${optOutError.message}`);
+    smsPhoneOptOuts = (optOutRows ?? []) as SmsStudioPhoneConsentRow[];
+  }
   const typedSmsMessages = (smsMessages ?? []) as SmsMessageLogRow[];
   const typedSyllabusTemplates = (syllabusTemplates ?? []) as SyllabusTemplateRow[];
   const typedSyllabusAssignments = (syllabusAssignments ?? []) as ClientSyllabusAssignmentRow[];
@@ -3821,6 +3842,7 @@ export default async function ClientDetailPage({
           studioName={studio?.name ?? null}
           phone={typedClient.phone}
           smsPermission={typedSmsPermission}
+          smsPhoneOptOuts={smsPhoneOptOuts}
           smsMessages={typedSmsMessages}
           leadActivities={typedLeadActivities}
           clientNotes={typedClientActivityNotes}

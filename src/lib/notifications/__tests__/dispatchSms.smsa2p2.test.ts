@@ -204,3 +204,57 @@ describe("automated SMS per-studio gate", () => {
     expect(twilioCalls()).toHaveLength(0);
   });
 });
+
+describe("TW-2: studio+phone opt-out gate on automated sends", () => {
+  it("a studio+phone-level STOP blocks the appointment SMS even though the client row is opted in", async () => {
+    const db = seed({
+      registrations: [registration(STUDIO_A)],
+      permissions: [
+        permission(),
+        { id: "phone-level", studio_id: STUDIO_A, client_id: null, organizer_contact_id: null, phone_e164: PHONE_E164,
+          consent_status: "opted_out", opted_out_at: "2026-10-02T00:00:00.000Z", updated_at: "2026-10-02T00:00:00.000Z" },
+      ],
+    });
+
+    const result = await dispatchQueuedOutboundDeliveries(25);
+
+    expect(result).toMatchObject({ sent: 0, skipped: 1 });
+    expect(twilioCalls()).toHaveLength(0);
+    expect(String(db.rows("outbound_deliveries")[0].error_message)).toContain("sms_opted_out");
+  });
+
+  it("Studio B's studio+phone-level STOP does not block Studio A", async () => {
+    seed({
+      registrations: [registration(STUDIO_A)],
+      permissions: [
+        permission(),
+        { id: "b-phone-level", studio_id: STUDIO_B, client_id: null, organizer_contact_id: null, phone_e164: PHONE_E164,
+          consent_status: "opted_out", opted_out_at: "2026-10-02T00:00:00.000Z", updated_at: "2026-10-02T00:00:00.000Z" },
+      ],
+    });
+
+    const result = await dispatchQueuedOutboundDeliveries(25);
+
+    expect(result).toMatchObject({ sent: 1, skipped: 0 });
+  });
+});
+
+describe("TW-2: consumer STOP precedence on automated sends", () => {
+  it("a studio+phone consumer STOP (twilio_inbound_stop) skips as opted out", async () => {
+    const db = seed({
+      registrations: [registration(STUDIO_A)],
+      permissions: [
+        permission(),
+        { id: "phone-level", studio_id: STUDIO_A, client_id: null, organizer_contact_id: null, phone_e164: PHONE_E164,
+          consent_status: "opted_out", opted_out_at: "2026-10-02T00:00:00.000Z", opted_out_source: "twilio_inbound_stop",
+          updated_at: "2026-10-02T00:00:00.000Z" },
+      ],
+    });
+
+    const result = await dispatchQueuedOutboundDeliveries(25);
+
+    expect(result).toMatchObject({ sent: 0, skipped: 1 });
+    expect(twilioCalls()).toHaveLength(0);
+    expect(String(db.rows("outbound_deliveries")[0].error_message)).toContain("sms_opted_out");
+  });
+});

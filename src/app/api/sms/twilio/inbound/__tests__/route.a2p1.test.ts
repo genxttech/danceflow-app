@@ -221,9 +221,19 @@ describe("STOP", () => {
       message_type: "stop",
       status: "received",
     });
-    expect(
-      fake.current.mutations.filter((m) => m.table === "sms_contact_permissions").flatMap((m) => m.ids),
-    ).toEqual(["p1"]);
+    // TW-2: Studio A's client row is opted out and a Studio A studio+phone opt-out row is stored.
+    const consentMutations = fake.current.mutations.filter((m) => m.table === "sms_contact_permissions");
+    expect(consentMutations.map((m) => m.op)).toEqual(["update", "insert"]);
+    expect(consentMutations[0].ids).toEqual(["p1"]);
+    expect(fake.current.rows("sms_contact_permissions").find((r) => r.client_id === null)).toMatchObject({
+      studio_id: STUDIO_A,
+      phone_e164: PHONE,
+      consent_status: "opted_out",
+      opted_out_source: "twilio_inbound_stop",
+    });
+    expect(fake.current.rpcCalls).toEqual([
+      { name: "record_sms_inbound_opt_event", args: { p_studio_id: STUDIO_A, p_phone_e164: PHONE, p_event: "stop" } },
+    ]);
   });
 
   it.each(["STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"])("%s is treated as STOP", async (keyword) => {

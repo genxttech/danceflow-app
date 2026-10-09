@@ -16,6 +16,7 @@ import {
 import type {
   SmsMessageLogRow,
   SmsPermissionRow,
+  SmsStudioPhoneConsentRow,
 } from "@/lib/sms/compliance";
 import ResponsiveDetailPanel from "@/components/app/workspace/ResponsiveDetailPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
@@ -151,6 +152,7 @@ export default function ClientCommunicationWorkspace({
   studioName,
   phone,
   smsPermission,
+  smsPhoneOptOuts = [],
   smsMessages,
   leadActivities,
   clientNotes,
@@ -173,6 +175,8 @@ export default function ClientCommunicationWorkspace({
   studioName?: string | null;
   phone: string | null;
   smsPermission: SmsPermissionRow | null;
+  /** TW-2: opted-out rows for the same studio + phone (drives the effective SMS state). */
+  smsPhoneOptOuts?: SmsStudioPhoneConsentRow[];
   smsMessages: SmsMessageLogRow[];
   leadActivities: LeadActivityRow[];
   clientNotes: ClientActivityNoteRow[];
@@ -376,6 +380,7 @@ export default function ClientCommunicationWorkspace({
             studioName={studioName}
             phone={phone}
             permission={smsPermission}
+            phoneOptOuts={smsPhoneOptOuts}
             canManage={canManage}
             message={smsConsentMessage}
             error={smsConsentError}
@@ -387,6 +392,7 @@ export default function ClientCommunicationWorkspace({
             clientId={clientId}
             phone={phone}
             permission={smsPermission}
+            phoneOptOuts={smsPhoneOptOuts}
             canManage={canManage}
           />
 

@@ -329,7 +329,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
             </div>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-600">
-            SMS sends remain blocked unless the platform is approved and the contact is opted in. Consent history is stored separately for audit review.
+            SMS sends remain blocked unless the platform is approved, the contact is opted in and no opt-out is recorded for that studio and phone. Every consent change is also written to an append-only consent history (event, source and who made it) that cannot be edited or deleted. A STOP reply can only be reversed by the contact texting START.
           </p>
         </div>
 
