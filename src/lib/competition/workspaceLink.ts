@@ -1,7 +1,6 @@
-export const COMPETITION_EVENT_TYPES = ["competition", "showcase"] as const;
+import { canManageCompetition } from "@/lib/competition/access";
 
-const COMPETITION_STUDIO_ROLES = ["studio_owner", "studio_admin"];
-const COMPETITION_ORGANIZER_ROLES = ["organizer_owner", "organizer_admin", "organizer_staff"];
+export const COMPETITION_EVENT_TYPES = ["competition", "showcase"] as const;
 
 export type CompetitionWorkspaceLinkInput = {
   eventType: string | null | undefined;
@@ -12,9 +11,8 @@ export type CompetitionWorkspaceLinkInput = {
 };
 
 /**
- * Whether the event detail page offers the Competition workspace. Mirrors the
- * workspace's own guard (requireEventManager in /app/events/[id]/competition/actions.ts):
- * platform admin, studio owner/admin, or an active organizer role on the event.
+ * Whether the event detail page offers the Competition workspace. The role rule is shared with the
+ * workspace's own guard (see access.ts).
  */
 export function shouldShowCompetitionWorkspaceLink(input: CompetitionWorkspaceLinkInput) {
   const isCompetitionEvent =
@@ -22,11 +20,7 @@ export function shouldShowCompetitionWorkspaceLink(input: CompetitionWorkspaceLi
     (COMPETITION_EVENT_TYPES as readonly string[]).includes(input.eventType ?? "");
   if (!isCompetitionEvent) return false;
 
-  return (
-    input.isPlatformAdmin ||
-    COMPETITION_STUDIO_ROLES.includes(input.studioRole ?? "") ||
-    COMPETITION_ORGANIZER_ROLES.includes(input.organizerUserRole ?? "")
-  );
+  return canManageCompetition(input);
 }
 
 export function competitionWorkspaceHref(eventId: string) {

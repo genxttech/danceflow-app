@@ -84,7 +84,7 @@ async function requireEventManager(eventId: string) {
 
 function refresh(eventId: string) {
   revalidatePath(`/app/events/${eventId}`);
-  revalidatePath(`/app/events/${eventId}/competition`);
+  revalidatePath(`/app/events/${eventId}/competition`, "layout");
   revalidatePath(`/app/events/${eventId}/registrations`);
 }
 
@@ -338,6 +338,17 @@ export async function updateCompetitionContestRegistrationAction(formData: FormD
   if (maximumParticipants < minimumParticipants) throw new Error("Maximum participants cannot be less than minimum participants.");
 
   const { supabase } = await requireEventManager(eventId);
+  if (registrationOpen) {
+    const { data: program } = await supabase
+      .from("event_competition_programs")
+      .select("rules_profile_key, profile_locked_at")
+      .eq("id", programId)
+      .eq("event_id", eventId)
+      .maybeSingle();
+    if (program?.rules_profile_key && !program.profile_locked_at) {
+      throw new Error("Publish this competition from the Overview before opening registration.");
+    }
+  }
   const { error } = await (supabase as any)
     .from("event_competition_contest_registration_rules")
     .update({
