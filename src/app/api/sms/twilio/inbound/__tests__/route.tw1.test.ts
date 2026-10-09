@@ -22,6 +22,7 @@ import { POST } from "@/app/api/sms/twilio/inbound/route";
 import {
   SMS_UNROUTED_REPLY,
   buildSmsHelpReply,
+  buildSmsStartNoPriorConsentReply,
   buildSmsStartReply,
   buildSmsStopReply,
 } from "@/lib/sms/compliance";
@@ -171,7 +172,11 @@ describe("OptOutType=STOP (Twilio already blocked and replied)", () => {
     });
     expect(rows.a.opted_out_at).toBeTruthy();
     expect(rows.b).toMatchObject({ consent_status: "opted_in", opted_out_at: null });
-    expect(consentMutations().flatMap((mutation) => mutation.ids)).toEqual(["a"]);
+    expect(consentMutations()[0].ids).toEqual(["a"]);
+    expect(consentMutations().map((mutation) => mutation.op)).toEqual(["update", "insert"]);
+    expect(fake.current.rpcCalls.map((call) => call.args)).toEqual([
+      { p_studio_id: STUDIO_A, p_phone_e164: PHONE, p_event: "stop" },
+    ]);
     expect(fake.current.rows("sms_message_logs")).toMatchObject([
       { studio_id: STUDIO_A, direction: "inbound", message_type: "stop", status: "received" },
     ]);
@@ -432,5 +437,119 @@ describe("studio isolation for Twilio-handled keywords", () => {
     expect(consentMutations()).toHaveLength(0);
     expect(byId()).toMatchObject({ a: { consent_status: "opted_in" }, b: { consent_status: "opted_out" } });
     expect(fake.current.rows("sms_message_logs").every((row) => row.studio_id === STUDIO_A)).toBe(true);
+  });
+});
+
+describe("TW-2: inbound consent goes through the canonical consent function", () => {
+  it("fallback STOP from a number with no consent record stores a studio+phone opt-out for that studio only", async () => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [] });
+
+    const response = await POST(inboundRequest("STOP", { to: SENDER_A, serviceSid: SERVICE_A }));
+
+    expect(await response.text()).toContain(xmlEscape(buildSmsStopReply("Harbor Dance Studio")));
+    expect(fake.current.rpcCalls).toEqual([
+      { name: "record_sms_inbound_opt_event", args: { p_studio_id: STUDIO_A, p_phone_e164: PHONE, p_event: "stop" } },
+    ]);
+    expect(fake.current.rows("sms_contact_permissions")).toMatchObject([
+      { studio_id: STUDIO_A, client_id: null, phone_e164: PHONE, consent_status: "opted_out", opted_out_source: "twilio_inbound_stop" },
+    ]);
+    // No identity -> no inbound log row is attributed to a client.
+    expect(fake.current.rows("sms_message_logs")).toHaveLength(0);
+  });
+
+  it("OptOutType=STOP from an unknown number is stored without a second reply", async () => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [] });
+
+    await expectNoSecondMessage(await POST(inboundRequest("REVOKE", { optOutType: "STOP" })));
+
+    expect(fake.current.rows("sms_contact_permissions")).toMatchObject([
+      { studio_id: STUDIO_A, client_id: null, consent_status: "opted_out" },
+    ]);
+  });
+
+  it("STOP to Studio B's sender is recorded for Studio B only", async () => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "a" })] });
+
+    await expectNoSecondMessage(await POST(inboundRequest("STOP", { optOutType: "STOP", to: SENDER_B, serviceSid: SERVICE_B })));
+
+    expect(fake.current.rpcCalls.map((call) => call.args.p_studio_id)).toEqual([STUDIO_B]);
+    expect(byId().a).toMatchObject({ consent_status: "opted_in" });
+  });
+
+  it("STOP then START: block lifted only by the consumer, no consent created for an unknown number", async () => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [] });
+
+    await POST(inboundRequest("STOP"));
+    const response = await POST(inboundRequest("START"));
+
+    expect(await response.text()).toContain(xmlEscape(buildSmsStartNoPriorConsentReply("Harbor Dance Studio")));
+    expect(fake.current.rpcCalls.map((call) => call.args.p_event)).toEqual(["stop", "start"]);
+    expect(fake.current.rows("sms_contact_permissions")).toMatchObject([
+      { client_id: null, consent_status: "unknown", opted_out_at: null },
+    ]);
+  });
+
+  it("START reply reflects the database outcome (restored vs no prior consent)", async () => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [optedOut({ id: "prior" })] });
+
+    const restored = await POST(inboundRequest("START"));
+    expect(await restored.text()).toContain(xmlEscape(buildSmsStartReply("Harbor Dance Studio")));
+
+    fake.current.overrideRpc("record_sms_inbound_opt_event", () => ({ data: { rows_changed: 0 }, error: null }));
+    const none = await POST(inboundRequest("START"));
+    expect(await none.text()).toContain(xmlEscape(buildSmsStartNoPriorConsentReply("Harbor Dance Studio")));
+  });
+
+  it.each([
+    ["HELP", { optOutType: "HELP" }],
+    ["HELP", {}],
+    ["Can I move my lesson?", {}],
+  ])("%s does not touch consent (no consent function call)", async (body, options) => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "a" })] });
+
+    await POST(inboundRequest(body, options));
+
+    expect(fake.current.rpcCalls).toHaveLength(0);
+    expect(consentMutations()).toHaveLength(0);
+  });
+
+  it("inbound logs are written per known client only, never for the studio+phone opt-out row", async () => {
+    fake.current = createFakeSupabase({
+      sms_contact_permissions: [
+        permission({ id: "a" }),
+        permission({ id: "phone-level", client_id: null, consent_status: "opted_out", consent_at: null }),
+      ],
+    });
+
+    await POST(inboundRequest("Running late, sorry!"));
+
+    expect(fake.current.rows("sms_message_logs")).toMatchObject([
+      { studio_id: STUDIO_A, client_id: "33333333-3333-4333-8333-333333333333", message_type: "message" },
+    ]);
+    expect(fake.current.rows("sms_message_logs")).toHaveLength(1);
+  });
+
+  it("an unrouted STOP never reaches the consent function", async () => {
+    fake.current = createFakeSupabase({ sms_contact_permissions: [] });
+
+    await expectNoSecondMessage(await POST(inboundRequest("STOP", { optOutType: "STOP", to: "+15550107777" })));
+
+    expect(fake.current.rpcCalls).toHaveLength(0);
+    expect(fake.current.mutations).toHaveLength(0);
+  });
+
+  it("a consent-function failure still sends no second reply and logs only a code", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "a" })] });
+    fake.current.overrideRpc("record_sms_inbound_opt_event", () => ({
+      data: null,
+      error: { code: "XX001", message: `boom ${PHONE}` },
+    }));
+
+    await expectNoSecondMessage(await POST(inboundRequest("STOP", { optOutType: "STOP" })));
+
+    const logged = errorLog.mock.calls.flat().map(String).join(" ");
+    expect(logged).toContain("sms_inbound_consent_update_failed");
+    expect(logged).not.toContain("555");
   });
 });

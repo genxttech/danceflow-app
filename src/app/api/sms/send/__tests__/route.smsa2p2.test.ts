@@ -166,3 +166,60 @@ describe("manual SMS per-studio gate", () => {
     expect(twilioCalls()).toHaveLength(0);
   });
 });
+
+describe("TW-2: studio+phone opt-out gate on manual sends", () => {
+  it("a STOP recorded before the phone belonged to a client blocks the send", async () => {
+    const db = seed([registration(STUDIO_A)], [
+      permission(),
+      permission({ id: "phone-level", client_id: null, consent_status: "opted_out", opted_out_at: "2026-10-02T00:00:00.000Z" }),
+    ]);
+
+    const response = await POST(sendRequest());
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "This number has opted out of texts from your studio." });
+    expect(twilioCalls()).toHaveLength(0);
+    expect(db.rows("sms_message_logs")).toHaveLength(0);
+  });
+
+  it("another client's opt-out on the same phone in this studio blocks the send", async () => {
+    seed([registration(STUDIO_A)], [
+      permission(),
+      permission({ id: "sibling", client_id: "44444444-4444-4444-8444-444444444444", consent_status: "opted_out" }),
+    ]);
+
+    const response = await POST(sendRequest());
+
+    expect(response.status).toBe(400);
+    expect(twilioCalls()).toHaveLength(0);
+  });
+
+  it("Studio B's opt-out for the same phone does not block Studio A", async () => {
+    seed([registration(STUDIO_A)], [
+      permission(),
+      permission({ id: "b-phone-level", studio_id: STUDIO_B, client_id: null, consent_status: "opted_out" }),
+    ]);
+
+    const response = await POST(sendRequest());
+
+    expect(response.status).toBe(200);
+    expect(twilioCalls()).toHaveLength(1);
+  });
+});
+
+describe("TW-2: consumer STOP message on manual sends", () => {
+  it("a studio+phone consumer STOP returns the START instruction", async () => {
+    seed([registration(STUDIO_A)], [
+      permission(),
+      permission({ id: "phone-level", client_id: null, consent_status: "opted_out", opted_out_source: "twilio_inbound_stop" }),
+    ]);
+
+    const response = await POST(sendRequest());
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "SMS blocked — this number opted out by text. The client must text START to resubscribe.",
+    });
+    expect(twilioCalls()).toHaveLength(0);
+  });
+});

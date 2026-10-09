@@ -162,7 +162,12 @@ export async function POST(request: Request) {
 
   const now = new Date().toISOString();
 
-  for (const permission of permissions ?? []) {
+  // One inbound log per known client/contact; TW-2 phone-level opt-out rows carry no identity.
+  const identifiedPermissions = (permissions ?? []).filter(
+    (permission) => permission.client_id != null || permission.organizer_contact_id != null,
+  );
+
+  for (const permission of identifiedPermissions) {
     await supabase.from("sms_message_logs").insert({
       studio_id: studioId,
       organizer_id: null,
@@ -180,51 +185,32 @@ export async function POST(request: Request) {
     });
   }
 
-  if (keyword === "stop") {
-    // consent_source and consent_at are deliberately left intact so the original
-    // opt-in evidence survives the opt-out.
-    for (const permission of permissions ?? []) {
-      await supabase
-        .from("sms_contact_permissions")
-        .update({
-          consent_status: "opted_out",
-          opted_out_at: now,
-          opted_out_source: "twilio_inbound_stop",
-          updated_at: now,
-        })
-        .eq("id", permission.id);
+  if (keyword === "stop" || keyword === "start") {
+    // TW-2: one canonical database call, scoped to the resolved studio, updates current
+    // consent and appends consumer history atomically.
+    //   STOP  -> every client/contact row for this studio+phone is opted out (original
+    //            opt-in evidence kept) and a studio+phone opt-out is stored even when the
+    //            number matches no client, so a later client with this phone stays blocked.
+    //   START -> restores only rows with recorded prior consent and lifts the studio+phone
+    //            block; it never creates consent, even though Twilio has unblocked the number.
+    const { data: outcome, error: consentError } = await supabase.rpc("record_sms_inbound_opt_event", {
+      p_studio_id: studioId,
+      p_phone_e164: from,
+      p_event: keyword,
+    });
+
+    if (consentError) {
+      // Code only. Twilio Advanced Opt-Out still enforces the carrier-level block.
+      console.error("sms_inbound_consent_update_failed", consentError.code ?? "unknown");
     }
 
-    return reply(buildSmsStopReply(studioName));
-  }
-
-  if (keyword === "start") {
-    // START only restores a subscription that previously existed: an opted-out row with
-    // a recorded prior opt-in. It never creates initial consent for unknown or new numbers,
-    // even when Twilio's OptOutType=START has already unblocked the number at the carrier.
-    const eligible = (permissions ?? []).filter(
-      (permission) => permission.consent_status === "opted_out" && Boolean(permission.consent_at),
-    );
-
-    for (const permission of eligible) {
-      await supabase
-        .from("sms_contact_permissions")
-        .update({
-          consent_status: "opted_in",
-          consent_at: now,
-          opted_out_at: null,
-          opted_out_source: null,
-          consent_source: "twilio_inbound_start",
-          updated_at: now,
-        })
-        .eq("id", permission.id);
+    if (keyword === "stop") {
+      return reply(buildSmsStopReply(studioName));
     }
 
-    return reply(
-      eligible.length > 0
-        ? buildSmsStartReply(studioName)
-        : buildSmsStartNoPriorConsentReply(studioName),
-    );
+    const restored = Number((outcome as { rows_changed?: unknown } | null)?.rows_changed ?? 0) > 0;
+
+    return reply(restored ? buildSmsStartReply(studioName) : buildSmsStartNoPriorConsentReply(studioName));
   }
 
   if (keyword === "help") {

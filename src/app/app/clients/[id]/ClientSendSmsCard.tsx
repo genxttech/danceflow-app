@@ -3,15 +3,19 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   type SmsPermissionRow,
-  canSendSms,
+  type SmsStudioPhoneConsentRow,
+  effectiveSmsConsentLabel,
+  effectiveSmsConsentTip,
   normalizeSmsPhone,
-  smsConsentLabel,
+  resolveEffectiveSmsConsent,
 } from "@/lib/sms/compliance";
 
 type ClientSendSmsCardProps = {
   clientId: string;
   phone: string | null | undefined;
   permission?: SmsPermissionRow | null;
+  /** TW-2: opted-out rows for the same studio + phone. */
+  phoneOptOuts?: SmsStudioPhoneConsentRow[];
   canManage?: boolean;
 };
 
@@ -19,11 +23,16 @@ function sendDisabledReason(args: {
   canManage: boolean;
   phone: string | null;
   permission?: SmsPermissionRow | null;
+  phoneOptOuts?: SmsStudioPhoneConsentRow[];
 }) {
   if (!args.canManage) return "Ask a studio owner, admin, or front desk user to send texts.";
   if (!args.phone) return "Add a valid phone number before sending a text.";
+
+  const state = resolveEffectiveSmsConsent(args.permission, args.phoneOptOuts);
+  if (state === "blocked_by_text_stop") return effectiveSmsConsentTip(state);
+  if (state === "opted_out") return "This number has opted out of texts from your studio.";
   if (!args.permission) return "Save SMS consent before sending a text.";
-  if (!canSendSms(args.permission)) return "This contact must be opted in before you send a text.";
+  if (state !== "allowed") return "This contact must be opted in before you send a text.";
 
   return null;
 }
@@ -32,6 +41,7 @@ export function ClientSendSmsCard({
   clientId,
   phone,
   permission,
+  phoneOptOuts,
   canManage = false,
 }: ClientSendSmsCardProps) {
   const [message, setMessage] = useState("");
@@ -41,8 +51,8 @@ export function ClientSendSmsCard({
 
   const normalizedPhone = phone ? normalizeSmsPhone(phone) : null;
   const disabledReason = useMemo(
-    () => sendDisabledReason({ canManage, phone: normalizedPhone, permission }),
-    [canManage, normalizedPhone, permission],
+    () => sendDisabledReason({ canManage, phone: normalizedPhone, permission, phoneOptOuts }),
+    [canManage, normalizedPhone, permission, phoneOptOuts],
   );
   const canSubmit = !disabledReason && message.trim().length > 0 && !isSending;
 
@@ -99,7 +109,7 @@ export function ClientSendSmsCard({
         </div>
 
         <span className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-page-bg)] px-3 py-2 text-sm font-bold text-[var(--brand-text)]">
-          {smsConsentLabel(permission?.consent_status ?? "unknown")}
+          {effectiveSmsConsentLabel(resolveEffectiveSmsConsent(permission, phoneOptOuts))}
         </span>
       </div>
 

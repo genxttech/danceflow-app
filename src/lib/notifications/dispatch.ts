@@ -7,9 +7,9 @@ import {
 import { Resend } from "resend";
 import {
   appendSmsOptOutFooter,
-  canSendSms,
   isAutomatedSmsTemplatePermitted,
   normalizeSmsPhone,
+  resolveEffectiveSmsConsent,
   sanitizedSmsProviderError,
   type SmsSkipReason,
 } from "@/lib/sms/compliance";
@@ -623,7 +623,7 @@ async function sendSms(
 
   const { data: permissions, error: permissionError } = await supabase
     .from("sms_contact_permissions")
-    .select("client_id, consent_status, opted_out_at, updated_at")
+    .select("client_id, consent_status, opted_out_at, opted_out_source, updated_at")
     .eq("studio_id", row.studio_id)
     .eq("phone_e164", phoneE164)
     .order("updated_at", { ascending: false });
@@ -636,16 +636,21 @@ async function sendSms(
     client_id: string | null;
     consent_status: string | null;
     opted_out_at: string | null;
+    opted_out_source: string | null;
   }>;
-
-  if (permissionRows.some((permission) => permission.consent_status === "opted_out")) {
-    return skipSms("sms_opted_out");
-  }
 
   const clientPermission =
     permissionRows.find((permission) => permission.client_id === recipientClientId) ?? null;
 
-  if (!canSendSms(clientPermission)) {
+  // TW-2: shared precedence -- any studio+phone opt-out (consumer STOP first) beats the
+  // client's own opt-in.
+  const consentState = resolveEffectiveSmsConsent(clientPermission, permissionRows);
+
+  if (consentState === "blocked_by_text_stop" || consentState === "opted_out") {
+    return skipSms("sms_opted_out");
+  }
+
+  if (consentState !== "allowed") {
     return skipSms("sms_no_consent");
   }
 

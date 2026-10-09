@@ -195,33 +195,46 @@ describe("write cases", () => {
 });
 
 describe("idempotency and failure handling", () => {
-  it("23505 unique violation on insert -> idempotent no-op", async () => {
+  it("a concurrent insert reported as duplicate by the database -> idempotent no-op", async () => {
     seed();
-    const base = db.client;
-    fake.current = {
-      from(table: string) {
-        const builder = base.from(table) as Record<string, unknown>;
-        if (table === "sms_contact_permissions") {
-          builder.insert = () => Promise.resolve({ data: null, error: { code: "23505", message: "duplicate" } });
-        }
-        return builder;
-      },
-    };
+    db.overrideRpc("record_sms_public_opt_in", () => ({ data: "duplicate", error: null }));
 
     expect(await recordPublicFormSmsConsent(input())).toEqual({ recorded: false, reason: "duplicate" });
   });
 
-  it("lookup failure -> no consent, code-only warning (no PII)", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    fake.current = {
-      from() {
-        return {
-          select: () => ({
-            eq: () => ({ eq: () => Promise.resolve({ data: null, error: { message: `boom ${PHONE}` } }) }),
-          }),
-        };
+  it("TW-2: consent is written only through the canonical database function", async () => {
+    seed();
+
+    await recordPublicFormSmsConsent(input({ form: "public_booking_form" }));
+
+    expect(db.rpcCalls).toEqual([
+      {
+        name: "record_sms_public_opt_in",
+        args: {
+          p_studio_id: STUDIO,
+          p_client_id: CLIENT,
+          p_phone_e164: PHONE,
+          p_source: "public_booking_form",
+          p_note: `disclosure=${SMS_CONSENT_DISCLOSURE_VERSION};form=public_booking_form`,
+        },
       },
-    };
+    ]);
+  });
+
+  it("an opt-out recorded for the phone before it had a client (STOP from an unknown number) wins", async () => {
+    seed([row({ id: "phone-level", client_id: null, consent_status: "opted_out", consent_at: null, opted_out_source: "twilio_inbound_stop" })]);
+
+    expect(await recordPublicFormSmsConsent(input())).toEqual({ recorded: false, reason: "opted_out" });
+    expect(db.rows("sms_contact_permissions")).toHaveLength(1);
+  });
+
+  it.each([
+    ["database error", () => ({ data: null, error: { code: "42501", message: `boom ${PHONE}` } })],
+    ["unexpected result", () => ({ data: "something_else", error: null })],
+  ])("%s -> no consent, code-only warning (no PII)", async (_name, handler) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    seed();
+    db.overrideRpc("record_sms_public_opt_in", handler);
 
     expect(await recordPublicFormSmsConsent(input())).toEqual({ recorded: false, reason: "write_failed" });
     const logged = warn.mock.calls.flat().map(String).join("\n");

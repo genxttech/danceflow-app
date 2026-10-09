@@ -92,6 +92,58 @@ export function canSendSms(
   return permission.consent_status === "opted_in" && !permission.opted_out_at;
 }
 
+/** The opt-out source written only by an inbound consumer STOP (or a Twilio opt-out equivalent). */
+export const SMS_CONSUMER_OPT_OUT_SOURCE = "twilio_inbound_stop";
+
+/** A consent row for the SAME studio and phone (client-level or studio+phone-level). */
+export type SmsStudioPhoneConsentRow = {
+  consent_status?: string | null;
+  opted_out_source?: string | null;
+};
+
+export type EffectiveSmsConsent = "allowed" | "blocked_by_text_stop" | "opted_out" | "consent_needed";
+
+/**
+ * TW-2: the single SMS send-gating precedence, shared by the send paths and the staff UI.
+ *   1. a consumer STOP for this studio + phone blocks everything (only the contact can lift
+ *      it, by texting START);
+ *   2. any other opt-out for this studio + phone blocks;
+ *   3. otherwise the client's own row must be opted in.
+ * `studioPhoneRows` MUST already be scoped to the same studio and normalized phone.
+ */
+export function resolveEffectiveSmsConsent(
+  permission:
+    | { consent_status?: string | null; opted_out_at?: string | null; opted_out_source?: string | null }
+    | null
+    | undefined,
+  studioPhoneRows: readonly SmsStudioPhoneConsentRow[] | null | undefined,
+): EffectiveSmsConsent {
+  const rows: SmsStudioPhoneConsentRow[] = [...(studioPhoneRows ?? []), ...(permission ? [permission] : [])];
+  const optedOut = rows.filter((row) => row.consent_status === "opted_out");
+
+  if (optedOut.some((row) => row.opted_out_source === SMS_CONSUMER_OPT_OUT_SOURCE)) return "blocked_by_text_stop";
+  if (optedOut.length > 0) return "opted_out";
+  if (canSendSms(permission)) return "allowed";
+
+  return "consent_needed";
+}
+
+export function effectiveSmsConsentLabel(state: EffectiveSmsConsent): string {
+  if (state === "allowed") return "SMS allowed";
+  if (state === "blocked_by_text_stop") return "SMS blocked — opted out by text";
+  if (state === "opted_out") return "SMS opted out";
+  return "SMS consent needed";
+}
+
+export function effectiveSmsConsentTip(state: EffectiveSmsConsent): string {
+  if (state === "blocked_by_text_stop") {
+    return "SMS blocked — this number opted out by text. The client must text START to resubscribe.";
+  }
+  if (state === "allowed") return smsConsentTip("opted_in");
+  if (state === "opted_out") return smsConsentTip("opted_out");
+  return smsConsentTip("unknown");
+}
+
 /** SMS-A2P-2: studio display name used in message footers and keyword replies. */
 export function smsStudioLabel(studioName?: string | null) {
   const name = String(studioName ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
