@@ -14,7 +14,7 @@ import {
 } from "./labor/actions";
 import { updateEventSettlementAction } from "./settlement/actions";
 import CopyEventFollowUpButton from "./CopyEventFollowUpButton";
-import { competitionWorkspaceHref, shouldShowCompetitionWorkspaceLink } from "@/lib/competition/workspaceLink";
+import { competitionSetupHref, competitionWorkspaceHref, shouldShowCompetitionWorkspaceLink } from "@/lib/competition/workspaceLink";
 
 type TicketTypeRow = {
   id: string;
@@ -596,7 +596,7 @@ export default async function EventTicketsPage({
     settlementResult,
     settlementHistoryResult,
   ] = await Promise.all([
-    (supabase as any)
+    supabase
       .from("v_event_profit_loss")
       .select("event_id, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_labor_costs, total_event_costs, event_profit_loss")
       .eq("event_id", typedEvent.id)
@@ -609,19 +609,19 @@ export default async function EventTicketsPage({
       .from("event_registration_attendees")
       .select("id, registration_id, checked_in_at")
       .eq("event_id", typedEvent.id),
-    (supabase as any)
+    supabase
       .from("event_labor_costs")
       .select("id, staff_name, role, pay_type, rate_amount, hours, quantity, total_amount, currency, labor_date, status, notes")
       .eq("event_id", typedEvent.id)
       .neq("status", "cancelled")
       .order("labor_date", { ascending: false })
       .order("created_at", { ascending: false }),
-    (supabase as any)
+    supabase
       .from("event_settlements")
       .select("id, status, notes, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_labor_costs, total_event_costs, event_profit_loss, margin, paid_registrations, tickets_issued, tickets_checked_in, unpaid_registrations, pending_registrations, refunded_registrations, settled_at, settled_by, created_at, updated_at")
       .eq("event_id", typedEvent.id)
       .maybeSingle(),
-    (supabase as any)
+    supabase
       .from("event_settlement_history")
       .select("id, previous_status, new_status, notes, event_profit_loss, margin, total_event_costs, net_ticket_revenue, tickets_checked_in, tickets_issued, changed_by, changed_at")
       .eq("event_id", typedEvent.id)
@@ -1070,10 +1070,10 @@ export default async function EventTicketsPage({
             ) : null}
             {showCompetitionWorkspace ? (
               <Link
-                href={competitionWorkspaceHref(typedEvent.id)}
+                href={Number(competitionProgramCount ?? 0) > 0 ? competitionWorkspaceHref(typedEvent.id) : competitionSetupHref(typedEvent.id)}
                 className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
               >
-                Competition
+                {Number(competitionProgramCount ?? 0) > 0 ? "Competition" : "Set up competition"}
               </Link>
             ) : null}
             {canUseEventOperations && hasPrivateLessonSlots ? (

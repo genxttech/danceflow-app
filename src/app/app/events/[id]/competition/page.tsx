@@ -132,7 +132,7 @@ export default async function CompetitionOverviewPage({
                   ]
                     .filter(Boolean)
                     .join(" · ")
-                : "No competition has been set up for this event yet."}
+                : "This event doesn't have a competition set up yet."}
             </p>
           </div>
           {primary ? <span className={`rounded-full px-3 py-1 text-xs font-semibold ${lifecycle.published ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{lifecycle.published ? "Published" : "Draft"}</span> : null}
@@ -205,6 +205,7 @@ export default async function CompetitionOverviewPage({
         </p>
       ) : null}
 
+      {primary ? (
       <p className="text-sm text-slate-500">
         Need more control?{" "}
         <Link href={`/app/events/${id}/competition/advanced`} className="font-semibold text-slate-700 underline">
@@ -212,6 +213,7 @@ export default async function CompetitionOverviewPage({
         </Link>{" "}
         keeps everything you set up here and adds rounds, dances, rules and registration details.
       </p>
+      ) : null}
     </div>
   );
 }
