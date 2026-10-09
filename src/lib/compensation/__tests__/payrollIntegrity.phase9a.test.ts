@@ -80,11 +80,12 @@ function fakeSupabase(rows: Rows, options: { attendanceError?: boolean } = {}) {
           ? { data: null, count: null, error: { message: "read failed" } }
           : { data: null, count: 3, error: null };
       }
-      const data = rows[table] ?? [];
+      // Every studio has a time zone; the staging path reads it (Phase 9E).
+      const data = rows[table] ?? (table === "studios" ? [{ timezone: "America/New_York" }] : []);
       return { data: limit === null ? data : data.slice(0, limit), error: null };
     };
     const chain: Record<string, unknown> = {};
-    for (const name of ["select", "eq", "is", "not", "in", "or", "order", "gte", "lte"]) {
+    for (const name of ["select", "eq", "is", "not", "in", "or", "order", "gte", "lte", "lt"]) {
       chain[name] = () => chain;
     }
     chain.limit = (value: number) => {

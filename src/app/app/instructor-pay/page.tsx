@@ -20,7 +20,17 @@ import {
   saveInstructorPayrollProfileAction,
   updateInstructorEarningStatusAction,
 } from "./actions";
+import { getStudioTimeZone } from "@/lib/booking/selfServiceAvailability";
 import CompensationDetailPanel from "./CompensationDetailPanel";
+import {
+  EARNINGS_EMPTY,
+  PAY_PERIOD_EMPTY,
+  batchesEmptyMessage,
+  earningLockNote,
+  formatStudioDate,
+  generationMessage,
+  periodLockNote,
+} from "./payrollStates";
 import CompensationPanelBody from "./CompensationPanelBody";
 import {
   describeCurrentCompensation,
@@ -232,26 +242,14 @@ function statusMessage(status: string | undefined, params: Record<string, string
   if (status === "payroll_batch_pay_failed") return "The payroll batch could not be marked paid. No payment status was changed.";
   if (status === "missing_pay_period") return "Choose a valid pay period and try again.";
   if (status === "missing_payroll_batch") return "Choose a valid payroll batch and try again.";
-  if (status === "earnings_generated_partial") {
-    const scanned = stringParam(params, "scanned") ?? "0";
-    const staged = stringParam(params, "staged") ?? "0";
-    const skipped = stringParam(params, "skipped") ?? "0";
-    const attendanceFailed = Number(stringParam(params, "attendanceFailed") ?? "0");
-    const notes = [
-      stringParam(params, "truncated") === "1"
-        ? "Only the most recent 500 eligible lessons and classes were reviewed. Narrow the date range and run it again to cover the rest."
-        : null,
-      attendanceFailed > 0
-        ? `${attendanceFailed} class${attendanceFailed === 1 ? "" : "es"} could not be staged because attendance could not be read. Try again.`
-        : null,
-    ].filter(Boolean).join(" ");
-    return `Earnings review incomplete. Scanned ${scanned}, staged ${staged}, skipped ${skipped}. ${notes}`;
-  }
-  if (status === "earnings_generated") {
-    const scanned = stringParam(params, "scanned") ?? "0";
-    const staged = stringParam(params, "staged") ?? "0";
-    const skipped = stringParam(params, "skipped") ?? "0";
-    return `Earnings review complete. Scanned ${scanned}, staged ${staged}, skipped ${skipped}.`;
+  if (status === "earnings_generated_partial" || status === "earnings_generated") {
+    return generationMessage({
+      scanned: Number(stringParam(params, "scanned") ?? "0"),
+      staged: Number(stringParam(params, "staged") ?? "0"),
+      skipped: Number(stringParam(params, "skipped") ?? "0"),
+      attendanceFailed: Number(stringParam(params, "attendanceFailed") ?? "0"),
+      truncated: stringParam(params, "truncated") === "1",
+    });
   }
   if (status.includes("failed") || status.includes("missing") || status.includes("invalid")) {
     return "That update could not be completed. No changes were saved. Review the information and try again.";
@@ -453,9 +451,12 @@ export default async function InstructorPayPage({
   const panelMode: "view" | "edit" = stringParam(params, "mode") === "edit" ? "edit" : "view";
   let panelHistory: CompensationHistoryRow[] = [];
   let panelHistoryUnavailable = false;
-  let panelTimeZone: string | null = null;
+  // Studio zone (studios.timezone, product default when blank) for studio-local display.
+  const { data: studioZoneRow } = await supabase.from("studios").select("timezone").eq("id", studioId).maybeSingle();
+  const studioTimeZone = getStudioTimeZone((studioZoneRow as { timezone?: string | null } | null)?.timezone);
+  const panelTimeZone: string | null = studioTimeZone;
   if (panelInstructor) {
-    const [historyResult, studioResult] = await Promise.all([
+    const [historyResult] = await Promise.all([
       supabase
         .from("instructor_compensation_rule_history")
         .select("id, change_type, changed_at, changed_by_name, changed_by_email, changed_by_role, changed_fields, previous_values, new_values")
@@ -464,12 +465,9 @@ export default async function InstructorPayPage({
         .order("changed_at", { ascending: false })
         .order("change_seq", { ascending: false })
         .limit(50),
-      supabase.from("studios").select("timezone").eq("id", studioId).maybeSingle(),
     ]);
     if (historyResult.error) panelHistoryUnavailable = true;
     else panelHistory = (historyResult.data ?? []) as CompensationHistoryRow[];
-    const timezone = (studioResult.data as { timezone?: string | null } | null)?.timezone;
-    panelTimeZone = typeof timezone === "string" && timezone.trim() ? timezone.trim() : null;
   }
 
   return (
@@ -595,34 +593,34 @@ export default async function InstructorPayPage({
 
       <section className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
         <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">Payroll workflow</p><h2 className="mt-2 text-xl font-semibold text-slate-950">Pay periods and batches</h2><p className="mt-1 text-sm leading-6 text-slate-600">Group approved earnings into a pay period and locked payroll batch. Only the studio owner can mark an approved batch paid.</p></div>
-        <form action={createPayrollPayPeriodAction} className="mt-5 grid gap-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 md:grid-cols-[160px_160px_160px_auto] md:items-end">
+        <form id="create-pay-period" action={createPayrollPayPeriodAction} className="mt-5 grid gap-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 sm:grid-cols-3 xl:grid-cols-[160px_160px_160px_auto] xl:items-end">
           <label className="text-sm font-medium text-slate-700">Period start<input name="periodStart" type="date" required className="mt-1 w-full rounded-2xl border border-indigo-200 bg-white px-3 py-2 text-sm" /></label>
           <label className="text-sm font-medium text-slate-700">Period end<input name="periodEnd" type="date" required className="mt-1 w-full rounded-2xl border border-indigo-200 bg-white px-3 py-2 text-sm" /></label>
           <label className="text-sm font-medium text-slate-700">Pay date<input name="payDate" type="date" className="mt-1 w-full rounded-2xl border border-indigo-200 bg-white px-3 py-2 text-sm" /></label>
-          <button className="rounded-2xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800">Create pay period</button>
+          <button className="rounded-2xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800 sm:col-span-3 xl:col-span-1">Create pay period</button>
         </form>
         <div className="mt-5 space-y-4">
-          {payPeriods.length === 0 ? <SellWorkspaceEmptyState title="No pay periods yet" description="Create a pay period to organize approved earnings into a payroll batch." compact /> : payPeriods.map((period) => {
+          {payPeriods.length === 0 ? <SellWorkspaceEmptyState title={PAY_PERIOD_EMPTY.title} description={PAY_PERIOD_EMPTY.description} compact action={<a href={PAY_PERIOD_EMPTY.actionHref} className="rounded-2xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800">{PAY_PERIOD_EMPTY.actionLabel}</a>} /> : payPeriods.map((period) => {
             const periodBatches = payrollBatches.filter((batch) => batch.pay_period_id === period.id);
             return <div key={period.id} className="rounded-2xl border border-slate-200 p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-950">{formatDate(period.period_start)} – {formatDate(period.period_end)}</p><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass(period.status)}`}>{period.status.replaceAll("_", " ")}</span></div><p className="mt-1 text-sm text-slate-600">Pay date: {period.pay_date ? formatDate(period.pay_date) : "Not set"}</p>
               <p className="mt-2 text-sm font-semibold text-slate-950">Net payment: {formatCurrency(period.net_payment_total)}</p>
               <p className="mt-1 text-xs text-slate-500">Compensation {formatCurrency(period.compensation_total)} · Reimbursements {formatCurrency(period.reimbursement_total)} · Deductions {formatCurrency(period.deduction_total)}</p></div>
-              <div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/periods/${period.id}`} className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800">Open payroll workspace</Link>{["open", "in_review"].includes(period.status) ? <><form action={assignEarningsToPayPeriodAction}><input type="hidden" name="payPeriodId" value={period.id} /><button className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">Assign eligible earnings</button></form><form action={createPayrollBatchAction} className="flex gap-2"><input type="hidden" name="payPeriodId" value={period.id} /><select name="provider" defaultValue="manual" className="rounded-xl border border-slate-200 px-2 py-2 text-xs"><option value="manual">Provider-neutral CSV</option>{GUSTO_INTEGRATION_ENABLED ? <option value="gusto">Gusto-formatted label</option> : null}<option value="quickbooks_payroll">QuickBooks Payroll label</option><option value="adp">ADP label</option></select><button className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Create batch</button></form></> : null}</div></div>
-              <div className="mt-4 space-y-3">{periodBatches.length === 0 ? <p className="text-sm text-slate-500">No payroll batches for this period yet.</p> : periodBatches.map((batch) => <div key={batch.id} className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><p className="font-semibold text-slate-950">Batch #{batch.batch_number} · {batch.provider.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-slate-500">{batch.earning_count} earnings · Compensation {formatCurrency(batch.compensation_total)} · Reimbursements {formatCurrency(batch.reimbursement_total)} · Deductions {formatCurrency(batch.deduction_total)}</p><p className="mt-1 text-sm font-semibold text-slate-950">Net payment: {formatCurrency(batch.net_payment_total)}</p></div><div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/export?batchId=${batch.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">Export batch CSV</Link>{["draft", "in_review"].includes(batch.status) ? <form action={approvePayrollBatchAction}><input type="hidden" name="payrollBatchId" value={batch.id} /><button className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white">Approve batch</button></form> : null}{canMarkPaid && batch.status === "approved" ? <form action={markPayrollBatchPaidAction} className="flex flex-wrap gap-2"><input type="hidden" name="payrollBatchId" value={batch.id} /><select name="paymentMethod" defaultValue="external_payroll" className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs"><option value="external_payroll">External payroll</option><option value="check">Check</option><option value="ach">ACH</option><option value="cash">Cash</option></select><input name="providerBatchReference" className="w-40 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" placeholder="Provider reference" /><button className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white">Mark batch paid</button></form> : null}<span className={`rounded-full px-2.5 py-2 text-xs font-semibold ring-1 ${statusClass(batch.status)}`}>{batch.status.replaceAll("_", " ")}</span></div></div></div>)}</div>
+              <div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/periods/${period.id}`} className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800">Open payroll workspace</Link>{["open", "in_review"].includes(period.status) ? <><form action={assignEarningsToPayPeriodAction}><input type="hidden" name="payPeriodId" value={period.id} /><button className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">Assign eligible earnings</button></form><form action={createPayrollBatchAction} className="flex flex-wrap gap-2"><input type="hidden" name="payPeriodId" value={period.id} /><select name="provider" defaultValue="manual" className="rounded-xl border border-slate-200 px-2 py-2 text-xs"><option value="manual">Provider-neutral CSV</option>{GUSTO_INTEGRATION_ENABLED ? <option value="gusto">Gusto-formatted label</option> : null}<option value="quickbooks_payroll">QuickBooks Payroll label</option><option value="adp">ADP label</option></select><button className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Create batch</button></form></> : null}{periodLockNote(period.status) ? <p className="max-w-sm text-xs leading-5 text-slate-500" data-testid="period-lock-note">{periodLockNote(period.status)}</p> : null}</div></div>
+              <div className="mt-4 space-y-3">{periodBatches.length === 0 ? <p className="text-sm text-slate-500">{batchesEmptyMessage(period.status)}</p> : periodBatches.map((batch) => <div key={batch.id} className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><p className="font-semibold text-slate-950">Batch #{batch.batch_number} · {batch.provider.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-slate-500">{batch.earning_count} earnings · Compensation {formatCurrency(batch.compensation_total)} · Reimbursements {formatCurrency(batch.reimbursement_total)} · Deductions {formatCurrency(batch.deduction_total)}</p><p className="mt-1 text-sm font-semibold text-slate-950">Net payment: {formatCurrency(batch.net_payment_total)}</p></div><div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/export?batchId=${batch.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">Export batch CSV</Link>{["draft", "in_review"].includes(batch.status) ? <form action={approvePayrollBatchAction}><input type="hidden" name="payrollBatchId" value={batch.id} /><button className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white">Approve batch</button></form> : null}{canMarkPaid && batch.status === "approved" ? <form action={markPayrollBatchPaidAction} className="flex flex-wrap gap-2"><input type="hidden" name="payrollBatchId" value={batch.id} /><select name="paymentMethod" defaultValue="external_payroll" className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs"><option value="external_payroll">External payroll</option><option value="check">Check</option><option value="ach">ACH</option><option value="cash">Cash</option></select><input name="providerBatchReference" className="w-40 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" placeholder="Provider reference" /><button className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white">Mark batch paid</button></form> : null}<span className={`rounded-full px-2.5 py-2 text-xs font-semibold ring-1 ${statusClass(batch.status)}`}>{batch.status.replaceAll("_", " ")}</span></div></div></div>)}</div>
             </div>;
           })}
         </div>
       </section>
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <section id="generate-earnings" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">Stage earnings from completed lessons</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Scan completed lessons and group classes, then create pending earnings using each instructor&apos;s rule. DanceFlow keeps one earning per instructor and lesson to prevent duplicate pay entries.
+              Scan completed lessons and group classes, then create pending earnings using each instructor&apos;s rule. DanceFlow keeps one earning per instructor and lesson to prevent duplicate pay entries. Dates use your studio&apos;s local time, and each run reviews up to the 500 most recent eligible items; if more remain you will be told to narrow the date range.
             </p>
           </div>
-          <form action={generateInstructorEarningsAction} className="grid gap-3 md:grid-cols-[150px_150px_auto] md:items-end">
+          <form action={generateInstructorEarningsAction} className="grid gap-3 sm:grid-cols-[150px_150px_auto] sm:items-end">
             <label className="text-sm font-medium text-slate-700">
               From
               <input name="fromDate" type="date" className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
@@ -813,10 +811,25 @@ export default async function InstructorPayPage({
         <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
           {earnings.length === 0 ? (
             <div className="p-4 sm:p-6">
-              <SellWorkspaceEmptyState
-                title="No instructor earnings yet"
-                description="Set compensation rules, then generate pending earnings from completed lessons or classes. The review action can also backfill activity completed before rules were configured."
-              />
+              {activeInstructors.length === 0 ? (
+                <SellWorkspaceEmptyState
+                  title={EARNINGS_EMPTY.noInstructors.title}
+                  description={EARNINGS_EMPTY.noInstructors.description}
+                  action={<Link href={EARNINGS_EMPTY.noInstructors.actionHref} className="rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800">{EARNINGS_EMPTY.noInstructors.actionLabel}</Link>}
+                />
+              ) : configuredInstructorCount === 0 ? (
+                <SellWorkspaceEmptyState
+                  title={EARNINGS_EMPTY.noRules.title}
+                  description={EARNINGS_EMPTY.noRules.description}
+                  action={<Link href={compensationHref(activeInstructors[0].id, "edit")} className="rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800">{EARNINGS_EMPTY.noRules.actionLabel}</Link>}
+                />
+              ) : (
+                <SellWorkspaceEmptyState
+                  title={EARNINGS_EMPTY.noEligible.title}
+                  description={EARNINGS_EMPTY.noEligible.description}
+                  action={<a href={EARNINGS_EMPTY.noEligible.actionHref} className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">{EARNINGS_EMPTY.noEligible.actionLabel}</a>}
+                />
+              )}
             </div>
           ) : (
             <div className="divide-y divide-slate-200">
@@ -851,11 +864,12 @@ export default async function InstructorPayPage({
                     </div>
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paid</p>
-                      <p className="font-semibold text-slate-950">{earning.paid_at ? formatDate(earning.paid_at) : "—"}</p>
+                      <p className="font-semibold text-slate-950">{formatStudioDate(earning.paid_at, studioTimeZone)}</p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap gap-2 lg:justify-end">
+                    {earningLockNote(earning) ? <p className="w-full text-xs leading-5 text-slate-500 lg:text-right" data-testid="earning-lock-note">{earningLockNote(earning)}</p> : null}
                     {earning.appointment_id ? (
                       <Link href={`/app/schedule/${earning.appointment_id}`} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                         Open lesson
