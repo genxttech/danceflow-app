@@ -175,7 +175,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
     supabase
       .from("studio_sms_registrations")
       .select(
-        "id, studio_id, messaging_service_sid, campaign_sid, sender_e164, registration_status, approved_at, review_note, updated_at",
+        "id, studio_id, customer_profile_sid, brand_sid, brand_status, messaging_service_sid, campaign_sid, campaign_status, campaign_use_case, phone_number_sid, sender_e164, registration_status, approved_at, review_note, updated_at",
       )
       .order("updated_at", { ascending: false })
       .limit(500),

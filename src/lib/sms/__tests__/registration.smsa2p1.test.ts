@@ -117,8 +117,9 @@ describe("admin action", () => {
   });
 
   it("requires every identifier before approving", () => {
-    expect(action).toContain('statusResult.value === "approved"');
-    expect(action).toContain("missingApprovalIdentifiers");
+    // TW-3: approval prerequisites live in registrationContradictions (shared with readiness).
+    expect(action).toContain("registrationContradictions");
+    expect(action).toContain("registrationStatus: statusResult.value");
   });
 
   it("does not create Twilio resources or read credentials", () => {
