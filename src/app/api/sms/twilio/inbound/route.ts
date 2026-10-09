@@ -7,6 +7,7 @@ import {
   buildSmsStopReply,
   normalizeSmsPhone,
 } from "@/lib/sms/compliance";
+import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
 import { twilioFormParams, verifyTwilioWebhook } from "@/lib/sms/twilioWebhook";
 import { cleanTextValue } from "@/lib/validation/forms";
@@ -44,22 +45,18 @@ function twiml(message: string) {
   });
 }
 
-function classifyKeyword(body: string) {
-  const normalized = body.trim().toUpperCase();
-
-  if (["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"].includes(normalized)) {
-    return "stop";
-  }
-
-  if (["START", "YES", "UNSTOP"].includes(normalized)) {
-    return "start";
-  }
-
-  if (["HELP", "INFO"].includes(normalized)) {
-    return "help";
-  }
-
-  return "message";
+/**
+ * TW-1: an empty TwiML response sends no SMS. Used whenever Twilio Advanced Opt-Out has
+ * already handled the keyword and sent the reply configured on the studio's Messaging
+ * Service, so the recipient never receives a second, application-generated message.
+ */
+function emptyTwiml() {
+  return new Response("<Response></Response>", {
+    status: 200,
+    headers: {
+      "Content-Type": "text/xml",
+    },
+  });
 }
 
 // A2P-1A: only requests that fail verification count against the per-IP limiter, so
@@ -97,10 +94,18 @@ export async function POST(request: Request) {
     return rejectUnverified(request, verification.status);
   }
 
+  // TW-1: Twilio Advanced Opt-Out is authoritative. A recognized OptOutType beats the
+  // body, and once Twilio has handled the keyword every response below stays silent.
+  const { keyword, twilioHandled } = resolveInboundKeyword({
+    optOutType: String(formData.get("OptOutType") ?? ""),
+    body: String(formData.get("Body") ?? ""),
+  });
+  const reply = (message: string) => (twilioHandled ? emptyTwiml() : twiml(message));
+
   const supabase = getServiceSupabase();
 
   if (!supabase) {
-    return twiml("Text messaging is temporarily unavailable. Please contact the studio directly.");
+    return reply("Text messaging is temporarily unavailable. Please contact the studio directly.");
   }
 
   const from = normalizeSmsPhone(String(formData.get("From") ?? ""));
@@ -115,17 +120,15 @@ export async function POST(request: Request) {
   });
 
   if (!bodyResult.ok || !sidResult.ok) {
-    return twiml("We could not process that message. Please contact the studio directly.");
+    return reply("We could not process that message. Please contact the studio directly.");
   }
 
   const body = bodyResult.value;
   const messageSid = sidResult.value;
 
   if (!from) {
-    return twiml("We could not recognize your phone number. Please contact the studio directly.");
+    return reply("We could not recognize your phone number. Please contact the studio directly.");
   }
-
-  const keyword = classifyKeyword(body);
 
   // SMS-A2P-2: tie the message to exactly one studio via the receiving sender
   // (MessagingServiceSid and/or To). If it cannot be tied to one studio nothing is
@@ -137,7 +140,7 @@ export async function POST(request: Request) {
 
   if (!routing.ok) {
     console.warn(`sms_inbound_unrouted:${routing.reason}`);
-    return twiml(SMS_UNROUTED_REPLY);
+    return reply(SMS_UNROUTED_REPLY);
   }
 
   const studioId = routing.studioId;
@@ -192,12 +195,13 @@ export async function POST(request: Request) {
         .eq("id", permission.id);
     }
 
-    return twiml(buildSmsStopReply(studioName));
+    return reply(buildSmsStopReply(studioName));
   }
 
   if (keyword === "start") {
     // START only restores a subscription that previously existed: an opted-out row with
-    // a recorded prior opt-in. It never creates initial consent for unknown or new numbers.
+    // a recorded prior opt-in. It never creates initial consent for unknown or new numbers,
+    // even when Twilio's OptOutType=START has already unblocked the number at the carrier.
     const eligible = (permissions ?? []).filter(
       (permission) => permission.consent_status === "opted_out" && Boolean(permission.consent_at),
     );
@@ -216,7 +220,7 @@ export async function POST(request: Request) {
         .eq("id", permission.id);
     }
 
-    return twiml(
+    return reply(
       eligible.length > 0
         ? buildSmsStartReply(studioName)
         : buildSmsStartNoPriorConsentReply(studioName),
@@ -224,8 +228,8 @@ export async function POST(request: Request) {
   }
 
   if (keyword === "help") {
-    return twiml(buildSmsHelpReply(studioName));
+    return reply(buildSmsHelpReply(studioName));
   }
 
-  return twiml("Thanks for your message. Please contact the studio directly if you need help.");
+  return reply("Thanks for your message. Please contact the studio directly if you need help.");
 }
