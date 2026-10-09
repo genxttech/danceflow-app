@@ -118,7 +118,7 @@ function redirectUrl(error: unknown): string {
   return digest.split(";")[2] ?? "";
 }
 
-type TableResponses = Record<string, { select?: unknown; update?: { error: unknown } }>;
+type TableResponses = Record<string, { select?: unknown; update?: { error: unknown }; delete?: { error: unknown } }>;
 
 function makeFakeSupabase(params: {
   tableResponses?: TableResponses;
@@ -138,11 +138,16 @@ function makeFakeSupabase(params: {
       chain.eq = self;
       chain.order = self;
       chain.limit = self;
+      chain.in = self;
       chain.single = () => Promise.resolve(pendingResult);
       chain.maybeSingle = () => Promise.resolve(pendingResult);
       chain.update = (payload: unknown) => {
         updateCalls.push({ table, payload });
         pendingResult = response?.update ?? { error: null };
+        return chain;
+      };
+      chain.delete = () => {
+        pendingResult = response?.delete ?? { error: null };
         return chain;
       };
       chain.insert = (payload: unknown) => {
@@ -460,6 +465,60 @@ describe("deleteAppointmentAction -- appointment_attendees history blocker", () 
     const error = await run(deleteAppointmentAction(formData));
 
     expect(redirectUrl(error)).toContain("error=delete_blocked_history");
+  });
+
+  it("Phase 9A: surfaces the database payroll-history refusal as the same history blocker", async () => {
+    const { supabase } = makeFakeSupabase({
+      tableResponses: {
+        appointments: {
+          select: {
+            data: { id: APPOINTMENT_ID, client_id: CLIENT_ID, appointment_type: "private_lesson", status: "scheduled" },
+            error: null,
+          },
+          delete: { error: { message: "Payroll history must keep its source appointment and client." } },
+        },
+        payments: { select: { count: 0, error: null } },
+        lesson_transactions: { select: { count: 0, error: null } },
+        lesson_recaps: { select: { count: 0, error: null } },
+        appointment_package_deduction_errors: { select: { count: 0, error: null } },
+        appointment_attendees: { select: { count: 0, error: null } },
+      },
+    });
+
+    requireAppointmentDeleteAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+
+    const error = await run(
+      deleteAppointmentAction(formDataFor({ appointmentId: APPOINTMENT_ID, confirmDeleteAppointment: "DELETE" })),
+    );
+
+    expect(redirectUrl(error)).toContain("error=delete_blocked_history");
+  });
+
+  it("keeps the generic failure for other delete errors", async () => {
+    const { supabase } = makeFakeSupabase({
+      tableResponses: {
+        appointments: {
+          select: {
+            data: { id: APPOINTMENT_ID, client_id: null, appointment_type: "private_lesson", status: "scheduled" },
+            error: null,
+          },
+          delete: { error: { message: "connection reset" } },
+        },
+        payments: { select: { count: 0, error: null } },
+        lesson_transactions: { select: { count: 0, error: null } },
+        lesson_recaps: { select: { count: 0, error: null } },
+        appointment_package_deduction_errors: { select: { count: 0, error: null } },
+        appointment_attendees: { select: { count: 0, error: null } },
+      },
+    });
+
+    requireAppointmentDeleteAccessMock.mockResolvedValue({ supabase, studioId: STUDIO_ID });
+
+    const error = await run(
+      deleteAppointmentAction(formDataFor({ appointmentId: APPOINTMENT_ID, confirmDeleteAppointment: "DELETE" })),
+    );
+
+    expect(redirectUrl(error)).toContain("error=delete_failed");
   });
 });
 

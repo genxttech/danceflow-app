@@ -2896,6 +2896,12 @@ export async function deleteAppointmentAction(formData: FormData) {
 
     if (deleteError) {
       console.error("Could not delete appointment:", deleteError.message);
+      // Phase 9A: the database refuses to detach payroll history (an earning
+      // past pending/unassigned) from its source appointment -- surface it as
+      // the same "history exists" outcome as the checks above.
+      if (deleteError.message?.toLowerCase().includes("payroll history")) {
+        redirect(getErrorRedirect(formData, fallback, "delete_blocked_history"));
+      }
       redirect(getErrorRedirect(formData, fallback, "delete_failed"));
     }
 

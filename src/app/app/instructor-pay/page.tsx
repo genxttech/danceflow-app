@@ -186,8 +186,12 @@ function statusMessage(status: string | undefined, params: Record<string, string
   if (status === "payroll_profile_inactive") return "This instructor is not active for payroll.";
   if (status === "adjustment_created") return "Manual adjustment added for review.";
   if (status === "override_saved") return "Instructor earning override saved.";
+  if (status === "override_saved_needs_review") return "Override saved. The earning's amount changed, so it is back in review and needs approval again.";
+  if (status === "earning_paid_through_batch") return "Instructor pay is marked paid through an approved payroll batch, not on individual earnings.";
+  if (status === "batch_earnings_not_approved") return "This payroll batch contains earnings that are not approved. Review the batch before continuing.";
+  if (status === "batch_totals_out_of_date") return "This payroll batch no longer matches its approved earnings. No payment status was changed.";
   if (status === "earning_updated") return "Instructor earning updated.";
-  if (status === "earning_locked") return "This earning is already paid or voided, so it cannot be changed from this page.";
+  if (status === "earning_locked") return "This earning is in a payroll batch, paid or voided, so it cannot be changed from this page.";
   if (status === "earning_unchanged") return "This earning already has that status.";
   if (status === "pay_period_created") return "Pay period created.";
   if (status === "pay_period_voided") return "Pay period voided.";
@@ -214,6 +218,21 @@ function statusMessage(status: string | undefined, params: Record<string, string
   if (status === "payroll_batch_pay_failed") return "The payroll batch could not be marked paid. No payment status was changed.";
   if (status === "missing_pay_period") return "Choose a valid pay period and try again.";
   if (status === "missing_payroll_batch") return "Choose a valid payroll batch and try again.";
+  if (status === "earnings_generated_partial") {
+    const scanned = stringParam(params, "scanned") ?? "0";
+    const staged = stringParam(params, "staged") ?? "0";
+    const skipped = stringParam(params, "skipped") ?? "0";
+    const attendanceFailed = Number(stringParam(params, "attendanceFailed") ?? "0");
+    const notes = [
+      stringParam(params, "truncated") === "1"
+        ? "Only the most recent 500 eligible lessons and classes were reviewed. Narrow the date range and run it again to cover the rest."
+        : null,
+      attendanceFailed > 0
+        ? `${attendanceFailed} class${attendanceFailed === 1 ? "" : "es"} could not be staged because attendance could not be read. Try again.`
+        : null,
+    ].filter(Boolean).join(" ");
+    return `Earnings review incomplete. Scanned ${scanned}, staged ${staged}, skipped ${skipped}. ${notes}`;
+  }
   if (status === "earnings_generated") {
     const scanned = stringParam(params, "scanned") ?? "0";
     const staged = stringParam(params, "staged") ?? "0";
@@ -877,20 +896,6 @@ export default async function InstructorPayPage({
                         <input type="hidden" name="earningId" value={earning.id} />
                         <input type="hidden" name="nextStatus" value="approved" />
                         <button className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">Approve</button>
-                      </form>
-                    ) : null}
-                    {canMarkPaid && !earning.payroll_batch_id && earning.status === "approved" ? (
-                      <form action={updateInstructorEarningStatusAction} className="flex gap-2">
-                        <input type="hidden" name="earningId" value={earning.id} />
-                        <input type="hidden" name="nextStatus" value="paid" />
-                        <select name="paymentMethod" defaultValue="external_payroll" className="rounded-xl border border-slate-200 px-2 py-2 text-xs">
-                          <option value="external_payroll">External payroll</option>
-                          <option value="check">Check</option>
-                          <option value="cash">Cash</option>
-                          <option value="venmo">Venmo</option>
-                          <option value="zelle">Zelle</option>
-                        </select>
-                        <button className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700">Mark paid</button>
                       </form>
                     ) : null}
                     {!earning.payroll_batch_id && earning.status !== "paid" && earning.status !== "void" ? (
