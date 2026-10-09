@@ -5,11 +5,16 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import {
+  SMS_CAMPAIGN_USE_CASES,
+  SMS_PROVIDER_REVIEW_STATUSES,
   SMS_REGISTRATION_STATUSES,
-  missingApprovalIdentifiers,
+  normalizeBrandSid,
   normalizeCampaignSid,
+  normalizeCustomerProfileSid,
   normalizeMessagingServiceSid,
+  normalizePhoneNumberSid,
   normalizeSenderE164,
+  registrationContradictions,
 } from "@/lib/sms/registration";
 import {
   cleanTextValue,
@@ -42,6 +47,23 @@ export async function saveStudioSmsRegistrationAction(formData: FormData) {
     SMS_REGISTRATION_STATUSES,
     "Status",
   );
+  const brandStatusResult = normalizeRequiredEnum(
+    rawFormString(formData, "brandStatus") || "not_started",
+    SMS_PROVIDER_REVIEW_STATUSES,
+    "Brand status",
+  );
+  const campaignStatusResult = normalizeRequiredEnum(
+    rawFormString(formData, "campaignStatus") || "not_started",
+    SMS_PROVIDER_REVIEW_STATUSES,
+    "Campaign status",
+  );
+  const rawUseCase = rawFormString(formData, "campaignUseCase").trim();
+  const useCaseResult = rawUseCase
+    ? normalizeRequiredEnum(rawUseCase, SMS_CAMPAIGN_USE_CASES, "Use case")
+    : ({ ok: true, value: null } as const);
+  const profileResult = normalizeCustomerProfileSid(rawFormString(formData, "customerProfileSid"));
+  const brandResult = normalizeBrandSid(rawFormString(formData, "brandSid"));
+  const phoneSidResult = normalizePhoneNumberSid(rawFormString(formData, "phoneNumberSid"));
   const serviceResult = normalizeMessagingServiceSid(rawFormString(formData, "messagingServiceSid"));
   const campaignResult = normalizeCampaignSid(rawFormString(formData, "campaignSid"));
   const senderResult = normalizeSenderE164(rawFormString(formData, "senderE164"));
@@ -54,22 +76,30 @@ export async function saveStudioSmsRegistrationAction(formData: FormData) {
   if (!studioIdResult.ok) done({ error: studioIdResult.error });
   if (!studioIdResult.value) done({ error: "Choose a studio." });
   if (!statusResult.ok) done({ error: statusResult.error });
+  if (!brandStatusResult.ok) done({ error: brandStatusResult.error });
+  if (!campaignStatusResult.ok) done({ error: campaignStatusResult.error });
+  if (!useCaseResult.ok) done({ error: useCaseResult.error });
+  if (!profileResult.ok) done({ error: profileResult.error });
+  if (!brandResult.ok) done({ error: brandResult.error });
+  if (!phoneSidResult.ok) done({ error: phoneSidResult.error });
   if (!serviceResult.ok) done({ error: serviceResult.error });
   if (!campaignResult.ok) done({ error: campaignResult.error });
   if (!senderResult.ok) done({ error: senderResult.error });
   if (!noteResult.ok) done({ error: noteResult.error });
 
-  if (statusResult.value === "approved") {
-    const missing = missingApprovalIdentifiers({
-      messagingServiceSid: serviceResult.value,
-      campaignSid: campaignResult.value,
-      senderE164: senderResult.value,
-    });
-
-    if (missing.length > 0) {
-      done({ error: `To mark a studio approved, add: ${missing.join(", ")}.` });
-    }
-  }
+  const contradictions = registrationContradictions({
+    registrationStatus: statusResult.value,
+    customerProfileSid: profileResult.value,
+    brandSid: brandResult.value,
+    brandStatus: brandStatusResult.value,
+    messagingServiceSid: serviceResult.value,
+    campaignSid: campaignResult.value,
+    campaignStatus: campaignStatusResult.value,
+    campaignUseCase: useCaseResult.value,
+    phoneNumberSid: phoneSidResult.value,
+    senderE164: senderResult.value,
+  });
+  if (contradictions.length > 0) done({ error: contradictions[0] });
 
   const supabase = await createClient();
 
@@ -77,8 +107,14 @@ export async function saveStudioSmsRegistrationAction(formData: FormData) {
     {
       studio_id: studioIdResult.value,
       registration_status: statusResult.value,
+      customer_profile_sid: profileResult.value,
+      brand_sid: brandResult.value,
+      brand_status: brandStatusResult.value,
       messaging_service_sid: serviceResult.value,
       campaign_sid: campaignResult.value,
+      campaign_status: campaignStatusResult.value,
+      campaign_use_case: useCaseResult.value,
+      phone_number_sid: phoneSidResult.value,
       sender_e164: senderResult.value,
       review_note: noteResult.value || null,
     },
@@ -91,7 +127,7 @@ export async function saveStudioSmsRegistrationAction(formData: FormData) {
     done({
       error:
         error.code === "23505"
-          ? "That Messaging Service SID, Campaign SID or sender number is already assigned to another studio."
+          ? "That Messaging Service SID, Campaign SID, Phone Number SID or sender number is already assigned to another studio."
           : "The registration could not be saved.",
     });
   }

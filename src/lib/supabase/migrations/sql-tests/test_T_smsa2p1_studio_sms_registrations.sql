@@ -94,7 +94,10 @@ select pg_temp.expect_ok('admin can update to in_review with identifiers',
        sender_e164='+15550100001'
      where studio_id='00000000-0000-0000-0000-00005a2000a1'$q$);
 select pg_temp.expect_ok('admin can approve with all identifiers',
-  $q$update public.studio_sms_registrations set registration_status='approved'
+  $q$update public.studio_sms_registrations set registration_status='approved',
+       customer_profile_sid='BU11111111111111111111111111111111', brand_sid='BN22222222222222222222222222222222',
+       phone_number_sid='PN55555555555555555555555555555555', campaign_use_case='mixed',
+       brand_status='approved', campaign_status='approved'
      where studio_id='00000000-0000-0000-0000-00005a2000a1'$q$);
 select pg_temp.expect_ok('admin can create second studio',
   $q$insert into public.studio_sms_registrations (studio_id) values ('00000000-0000-0000-0000-00005a2000b1')$q$);
