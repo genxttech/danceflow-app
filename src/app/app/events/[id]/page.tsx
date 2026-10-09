@@ -14,6 +14,7 @@ import {
 } from "./labor/actions";
 import { updateEventSettlementAction } from "./settlement/actions";
 import CopyEventFollowUpButton from "./CopyEventFollowUpButton";
+import { competitionWorkspaceHref, shouldShowCompetitionWorkspaceLink } from "@/lib/competition/workspaceLink";
 
 type TicketTypeRow = {
   id: string;
@@ -38,6 +39,7 @@ type EventRow = {
   slug: string;
   status: string;
   visibility: string;
+  event_type: string | null;
 };
 
 type EventProfitLossRow = {
@@ -497,7 +499,8 @@ export default async function EventTicketsPage({
       name,
       slug,
       status,
-      visibility
+      visibility,
+      event_type
     `)
     .eq("id", id)
     .eq("studio_id", studioId)
@@ -571,6 +574,19 @@ export default async function EventTicketsPage({
     .eq("studio_id", studioId);
 
   const hasPrivateLessonSlots = Number(privateLessonSlotCount ?? 0) > 0;
+
+  const { count: competitionProgramCount } = await supabase
+    .from("event_competition_programs")
+    .select("id", { count: "exact", head: true })
+    .eq("event_id", typedEvent.id);
+
+  const showCompetitionWorkspace = shouldShowCompetitionWorkspaceLink({
+    eventType: typedEvent.event_type,
+    hasCompetitionProgram: Number(competitionProgramCount ?? 0) > 0,
+    isPlatformAdmin: Boolean(isPlatformAdmin),
+    studioRole: studioRole ?? null,
+    organizerUserRole,
+  });
 
   const [
     profitabilityResult,
@@ -1051,6 +1067,14 @@ export default async function EventTicketsPage({
                   Manage registrations
                 </Link>
               </>
+            ) : null}
+            {showCompetitionWorkspace ? (
+              <Link
+                href={competitionWorkspaceHref(typedEvent.id)}
+                className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+              >
+                Competition
+              </Link>
             ) : null}
             {canUseEventOperations && hasPrivateLessonSlots ? (
               <Link
