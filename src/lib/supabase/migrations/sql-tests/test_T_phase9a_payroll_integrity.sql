@@ -574,16 +574,18 @@ begin
   update t9a set ba2 = v_ba2;
   perform pg_temp.expect_ok('T-9a-platform-approve-batch', pg_temp.run_as(v_platform,
     format('select public.approve_payroll_batch(%L, %L)', v_a, v_ba2)));
-  -- Defence in depth: an earning removed out of band underneath an approved
-  -- batch (simulated by disabling the history delete guard) leaves its frozen
-  -- totals stale, and payment must refuse rather than pay a partial batch.
-  -- The probe (guard disable + delete) is rolled back by the raised marker.
+  -- Defence in depth: an earning changed out of band underneath an approved
+  -- batch (simulated by disabling the earning integrity trigger) leaves its
+  -- frozen totals stale, and payment must refuse rather than pay a different
+  -- batch. (Since 9B the approval snapshot's foreign key also keeps a batched
+  -- earning from being deleted at all.)
+  -- The probe (guard disable + amount change) is rolled back by the raised marker.
   declare
     v_probe text;
   begin
     begin
-      alter table public.instructor_earnings disable trigger trg_prevent_instructor_earning_history_delete;
-      delete from public.instructor_earnings where id = '00000000-0000-0000-0000-0000009a7003';
+      alter table public.instructor_earnings disable trigger trg_enforce_instructor_earning_integrity;
+      update public.instructor_earnings set taxable_compensation_amount = 1 where id = '00000000-0000-0000-0000-0000009a7003';
       v_probe := pg_temp.run_as(v_owner, format('select public.mark_payroll_batch_paid(%L, %L, null, null)', v_a, v_ba2));
       raise exception 'PROBE:%', v_probe;
     exception when others then
