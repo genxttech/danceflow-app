@@ -3,51 +3,51 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { createClient } from "@/lib/supabase/server";
 import { canPreparePayroll } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  LEGACY_EXPORT_NOTICE,
+  exportedTotals,
+  loadBatchExportSource,
+  recordPayrollExport,
+  type BatchExportRow,
+  type LiveEarningRow,
+} from "@/lib/payroll/approved-batch-export";
 
-type BatchRow = {
-  id: string;
-  pay_period_id: string;
-  batch_number: number | string;
-  provider: string;
-  provider_batch_reference: string | null;
-  status: string;
-  compensation_total: number | string | null;
-  reimbursement_total: number | string | null;
-  deduction_total: number | string | null;
-  net_payment_total: number | string | null;
-  earning_count: number;
-  approved_at: string | null;
-  approved_by: string | null;
-  paid_at: string | null;
-  paid_by: string | null;
-  payment_method: string | null;
-  created_at: string;
-};
-
-type PeriodRow = {
-  id: string;
-  period_start: string;
-  period_end: string;
-  pay_date: string | null;
-  status: string;
-};
-
-type EarningRow = {
-  id: string;
-  earning_date: string;
-  source_type: string | null;
-  appointment_type: string | null;
-  status: string;
-  worker_classification_snapshot: string | null;
-  accounting_category_snapshot: string | null;
-  taxable_compensation_amount: number | string | null;
-  reimbursement_amount: number | string | null;
-  deduction_amount: number | string | null;
+// One packet model, filled either from the immutable approval snapshot
+// (approved / paid batches) or from current records (legacy or draft batches).
+type PacketLine = {
+  instructorName: string;
+  classification: string | null;
+  earningDate: string;
+  typeLabel: string | null;
+  compensation: number;
+  reimbursement: number;
+  deduction: number;
   notes: string | null;
-  instructors:
-    | { first_name: string | null; last_name: string | null }
-    | { first_name: string | null; last_name: string | null }[]
-    | null;
+};
+
+type PacketModel = {
+  batchId: string;
+  batchNumber: number | string;
+  provider: string;
+  providerReference: string | null;
+  statusLabel: string;
+  createdAt: string;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  paidAt: string | null;
+  paidBy: string | null;
+  paymentMethod: string | null;
+  earningCount: number;
+  totals: {
+    compensation: number | string | null;
+    reimbursement: number | string | null;
+    deduction: number | string | null;
+    net: number | string | null;
+  };
+  period: { start: string; end: string; payDate: string | null };
+  lines: PacketLine[];
+  sourceNotice: string | null;
+  evidence: "snapshot" | "legacy" | null;
 };
 
 type InstructorSummary = {
@@ -107,8 +107,8 @@ function label(value: string | null | undefined) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function relationName(value: EarningRow["instructors"]) {
-  const row = Array.isArray(value) ? value[0] : value;
+function relationName(value: LiveEarningRow["instructors"]) {
+  const row = value;
   if (!row) return "Instructor";
   return `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Instructor";
 }
@@ -116,10 +116,10 @@ function relationName(value: EarningRow["instructors"]) {
 function normalizePdfText(value: string) {
   return value
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, "-")
     .replace(/[^\x20-\x7E]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -165,85 +165,115 @@ export async function GET(
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const [batchResult, studioResult] = await Promise.all([
-    supabase
-      .from("payroll_batches")
-      .select("id, pay_period_id, batch_number, provider, provider_batch_reference, status, compensation_total, reimbursement_total, deduction_total, net_payment_total, earning_count, approved_at, approved_by, paid_at, paid_by, payment_method, created_at")
-      .eq("id", batchId)
-      .eq("studio_id", studioId)
-      .maybeSingle(),
-    supabase
-      .from("studios")
-      .select("name, public_name, public_logo_url")
-      .eq("id", studioId)
-      .maybeSingle(),
-  ]);
+  const source = await loadBatchExportSource(supabase, studioId, batchId);
 
-  if (batchResult.error) {
-    console.error("Payroll packet batch load failed", {
-      batchId,
-      studioId,
-      code: batchResult.error.code,
-      message: batchResult.error.message,
-    });
+  if (source.kind === "not_found") {
+    return new NextResponse("Payroll batch not found", { status: 404 });
+  }
+  if (source.kind === "forbidden") {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+  if (source.kind === "error") {
+    console.error("Payroll packet load failed", { batchId, studioId, stage: source.stage, message: source.message });
     return new NextResponse("The payroll packet could not be generated.", { status: 500 });
   }
 
-  if (!batchResult.data) {
-    return new NextResponse("Payroll batch not found", { status: 404 });
+  let packet: PacketModel;
+  if (source.kind === "snapshot") {
+    const { snapshot, payment } = source;
+    packet = {
+      batchId: source.batch.id,
+      batchNumber: snapshot.batch_number,
+      provider: snapshot.provider,
+      providerReference: payment?.provider_batch_reference ?? snapshot.provider_batch_reference,
+      statusLabel: payment ? "paid" : "approved",
+      createdAt: source.batch.created_at,
+      approvedAt: snapshot.approved_at,
+      approvedBy: snapshot.approved_by_name || "Recorded user",
+      paidAt: payment?.paid_at ?? null,
+      paidBy: payment ? payment.paid_by_name || "Recorded user" : null,
+      paymentMethod: payment?.payment_method ?? null,
+      earningCount: Number(snapshot.earning_count),
+      totals: {
+        compensation: snapshot.compensation_total,
+        reimbursement: snapshot.reimbursement_total,
+        deduction: snapshot.deduction_total,
+        net: snapshot.net_payment_total,
+      },
+      period: { start: snapshot.period_start, end: snapshot.period_end, payDate: snapshot.pay_date },
+      lines: source.lines.map((line) => ({
+        instructorName: line.instructor_name || "Instructor",
+        classification: line.worker_classification_snapshot,
+        earningDate: line.earning_date,
+        typeLabel: line.appointment_type || line.source_type,
+        compensation: safeNumber(line.taxable_compensation_amount),
+        reimbursement: safeNumber(line.reimbursement_amount),
+        deduction: safeNumber(line.deduction_amount),
+        notes: line.notes,
+      })),
+      sourceNotice: null,
+      evidence: "snapshot",
+    };
+  } else {
+    const batch: BatchExportRow = source.batch;
+    const payment = source.kind === "legacy" ? source.payment : null;
+    const period = source.period;
+    if (!period) {
+      console.error("Payroll packet period load failed", { batchId, studioId });
+      return new NextResponse("The payroll pay period could not be loaded.", { status: 500 });
+    }
+    const earnings = source.earnings.filter((earning) => earning.status !== "void");
+    packet = {
+      batchId: batch.id,
+      batchNumber: batch.batch_number,
+      provider: batch.provider,
+      providerReference: batch.provider_batch_reference,
+      statusLabel: batch.status,
+      createdAt: batch.created_at,
+      approvedAt: batch.approved_at,
+      approvedBy: null,
+      paidAt: payment?.paid_at ?? batch.paid_at,
+      paidBy: payment ? payment.paid_by_name || "Recorded user" : null,
+      paymentMethod: payment?.payment_method ?? batch.payment_method,
+      earningCount: batch.earning_count ?? earnings.length,
+      totals: {
+        compensation: batch.compensation_total,
+        reimbursement: batch.reimbursement_total,
+        deduction: batch.deduction_total,
+        net: batch.net_payment_total,
+      },
+      period: { start: period.period_start, end: period.period_end, payDate: period.pay_date },
+      lines: earnings.map((earning) => ({
+        instructorName: relationName(earning.instructors),
+        classification: earning.worker_classification_snapshot,
+        earningDate: earning.earning_date,
+        typeLabel: earning.appointment_type || earning.source_type,
+        compensation: safeNumber(earning.taxable_compensation_amount),
+        reimbursement: safeNumber(earning.reimbursement_amount),
+        deduction: safeNumber(earning.deduction_amount),
+        notes: earning.notes,
+      })),
+      sourceNotice:
+        source.kind === "legacy"
+          ? LEGACY_EXPORT_NOTICE
+          : "This batch is not approved yet. Its figures are a working copy of the current payroll records.",
+      evidence: source.kind === "legacy" ? "legacy" : null,
+    };
   }
 
-  const batch = batchResult.data as BatchRow;
-
-  const [periodResult, earningsResult] = await Promise.all([
-    supabase
-      .from("payroll_pay_periods")
-      .select("id, period_start, period_end, pay_date, status")
-      .eq("id", batch.pay_period_id)
-      .eq("studio_id", studioId)
-      .maybeSingle(),
-    supabase
-      .from("instructor_earnings")
-      .select("id, earning_date, source_type, appointment_type, status, worker_classification_snapshot, accounting_category_snapshot, taxable_compensation_amount, reimbursement_amount, deduction_amount, notes, instructors(first_name, last_name)")
-      .eq("studio_id", studioId)
-      .eq("payroll_batch_id", batch.id)
-      .neq("status", "void")
-      .order("earning_date", { ascending: true })
-      .limit(5000),
-  ]);
-
-  if (periodResult.error || !periodResult.data) {
-    console.error("Payroll packet period load failed", {
-      batchId,
-      studioId,
-      error: periodResult.error?.message,
-    });
-    return new NextResponse("The payroll pay period could not be loaded.", { status: 500 });
-  }
-
-  if (earningsResult.error) {
-    console.error("Payroll packet earnings load failed", {
-      batchId,
-      studioId,
-      code: earningsResult.error.code,
-      message: earningsResult.error.message,
-    });
-    return new NextResponse("The payroll earnings could not be loaded.", { status: 500 });
-  }
-
-  const period = periodResult.data as PeriodRow;
-  const earnings = (earningsResult.data ?? []) as EarningRow[];
-  const studioName = studioResult.data?.public_name || studioResult.data?.name || "Dance studio";
+  // Studio identity comes from the trusted, studio-scoped export payload.
+  const studioName = source.studio.public_name || source.studio.name;
+  const studioLogoUrl = source.studio.public_logo_url;
 
   const instructorSummaries = new Map<string, InstructorSummary>();
   const classificationTotals = new Map<string, number>();
 
-  for (const earning of earnings) {
-    const instructor = relationName(earning.instructors);
-    const classification = earning.worker_classification_snapshot || "not_set";
-    const compensation = safeNumber(earning.taxable_compensation_amount);
-    const reimbursement = safeNumber(earning.reimbursement_amount);
-    const deduction = safeNumber(earning.deduction_amount);
+  for (const line of packet.lines) {
+    const instructor = line.instructorName;
+    const classification = line.classification || "not_set";
+    const compensation = line.compensation;
+    const reimbursement = line.reimbursement;
+    const deduction = line.deduction;
     const net = compensation + reimbursement - deduction;
     const key = `${instructor}:${classification}`;
     const current = instructorSummaries.get(key) ?? {
@@ -358,9 +388,9 @@ export async function GET(
   };
 
   let brandTextX = MARGIN;
-  if (studioResult.data?.public_logo_url) {
+  if (studioLogoUrl) {
     try {
-      const response = await fetch(studioResult.data.public_logo_url, {
+      const response = await fetch(studioLogoUrl, {
         cache: "no-store",
         signal: AbortSignal.timeout(5000),
       });
@@ -402,7 +432,7 @@ export async function GET(
   });
   y -= 24;
   drawWrapped(
-    `Batch #${batch.batch_number} for ${dateLabel(period.period_start)} through ${dateLabel(period.period_end)}`,
+    `Batch #${packet.batchNumber} for ${dateLabel(packet.period.start)} through ${dateLabel(packet.period.end)}`,
     MARGIN,
     regular,
     11,
@@ -412,25 +442,32 @@ export async function GET(
   );
   y -= 8;
 
+  if (packet.sourceNotice) {
+    drawWrapped(packet.sourceNotice, MARGIN, regular, 9, CONTENT_WIDTH, 13, rgb(0.55, 0.25, 0.1));
+    y -= 6;
+  }
+
   sectionTitle("Batch Summary");
   detailRow("Studio", studioName);
-  detailRow("Pay period", `${dateLabel(period.period_start)} - ${dateLabel(period.period_end)}`);
-  detailRow("Pay date", dateLabel(period.pay_date));
-  detailRow("Batch", `#${batch.batch_number}`);
-  detailRow("Status", label(batch.status));
-  detailRow("Provider workflow", label(batch.provider));
-  detailRow("Provider reference", batch.provider_batch_reference || "Not recorded");
-  detailRow("Created", dateTimeLabel(batch.created_at));
-  detailRow("Approved", dateTimeLabel(batch.approved_at));
-  detailRow("Paid", dateTimeLabel(batch.paid_at));
-  detailRow("Payment method", label(batch.payment_method));
-  detailRow("Earnings", String(batch.earning_count ?? earnings.length));
+  detailRow("Pay period", `${dateLabel(packet.period.start)} - ${dateLabel(packet.period.end)}`);
+  detailRow("Pay date", dateLabel(packet.period.payDate));
+  detailRow("Batch", `#${packet.batchNumber}`);
+  detailRow("Status", label(packet.statusLabel));
+  detailRow("Provider workflow", label(packet.provider));
+  detailRow("Provider reference", packet.providerReference || "Not recorded");
+  detailRow("Created", dateTimeLabel(packet.createdAt));
+  detailRow("Approved", dateTimeLabel(packet.approvedAt));
+  if (packet.approvedBy) detailRow("Approved by", packet.approvedBy);
+  detailRow("Paid", dateTimeLabel(packet.paidAt));
+  if (packet.paidBy) detailRow("Paid by", packet.paidBy);
+  detailRow("Payment method", label(packet.paymentMethod));
+  detailRow("Earnings", String(packet.earningCount));
 
   sectionTitle("Batch Totals");
-  detailRow("Taxable compensation", money(batch.compensation_total));
-  detailRow("Reimbursements", money(batch.reimbursement_total));
-  detailRow("Deductions", money(batch.deduction_total));
-  detailRow("Net payment", money(batch.net_payment_total));
+  detailRow("Taxable compensation", money(packet.totals.compensation));
+  detailRow("Reimbursements", money(packet.totals.reimbursement));
+  detailRow("Deductions", money(packet.totals.deduction));
+  detailRow("Net payment", money(packet.totals.net));
 
   sectionTitle("Worker Classification Totals");
   for (const classification of ["employee", "contractor", "owner", "not_set"]) {
@@ -470,20 +507,20 @@ export async function GET(
   if (!instructorSummaries.size) detailRow("Summary", "No instructor earnings are included in this batch.");
 
   sectionTitle("Detailed Earnings Appendix");
-  for (const earning of earnings) {
-    const compensation = safeNumber(earning.taxable_compensation_amount);
-    const reimbursement = safeNumber(earning.reimbursement_amount);
-    const deduction = safeNumber(earning.deduction_amount);
+  for (const line of packet.lines) {
+    const compensation = line.compensation;
+    const reimbursement = line.reimbursement;
+    const deduction = line.deduction;
     const net = compensation + reimbursement - deduction;
     ensureSpace(72);
-    page.drawText(normalizePdfText(relationName(earning.instructors)), {
+    page.drawText(normalizePdfText(line.instructorName), {
       x: MARGIN,
       y,
       size: 10,
       font: bold,
       color: rgb(0.08, 0.08, 0.12),
     });
-    page.drawText(`${dateLabel(earning.earning_date)} | ${label(earning.appointment_type || earning.source_type)} | ${label(earning.worker_classification_snapshot)}`, {
+    page.drawText(`${dateLabel(line.earningDate)} | ${label(line.typeLabel)} | ${label(line.classification)}`, {
       x: MARGIN,
       y: y - 14,
       size: 8.5,
@@ -497,8 +534,8 @@ export async function GET(
       font: regular,
       color: rgb(0.12, 0.12, 0.16),
     });
-    if (earning.notes) {
-      const noteLines = wrapText(earning.notes, regular, 8, CONTENT_WIDTH);
+    if (line.notes) {
+      const noteLines = wrapText(line.notes, regular, 8, CONTENT_WIDTH);
       page.drawText(noteLines[0] || "", {
         x: MARGIN,
         y: y - 42,
@@ -509,7 +546,7 @@ export async function GET(
     }
     y -= 58;
   }
-  if (!earnings.length) detailRow("Details", "No earnings are included in this batch.");
+  if (!packet.lines.length) detailRow("Details", "No earnings are included in this batch.");
 
   sectionTitle("Important Notice");
   drawWrapped(
@@ -523,7 +560,7 @@ export async function GET(
   );
   y -= 8;
   drawWrapped(
-    `Generated by DanceFlow on ${dateTimeLabel(new Date().toISOString())}. Batch ID: ${batch.id}`,
+    `Generated by DanceFlow on ${dateTimeLabel(new Date().toISOString())}. Batch ID: ${packet.batchId}`,
     MARGIN,
     regular,
     8,
@@ -534,7 +571,22 @@ export async function GET(
 
   drawFooter(page);
   const bytes = await pdf.save();
-  const filename = `danceflow-payroll-${safeFilename(studioName)}-batch-${batch.batch_number}.pdf`;
+  const filename = `danceflow-payroll-${safeFilename(studioName)}-batch-${packet.batchNumber}.pdf`;
+
+  // Approved batches: append the export evidence only once the packet exists;
+  // if it cannot be recorded, the packet is not returned.
+  if (packet.evidence) {
+    const recorded = await recordPayrollExport(supabase, {
+      studioId,
+      batchId: packet.batchId,
+      exportType: "pdf",
+      ...exportedTotals(packet.lines.map((line) => ({ net: line.compensation + line.reimbursement - line.deduction }))),
+    });
+    if (!recorded.ok) {
+      console.error("Payroll packet export evidence failed", { batchId, studioId, message: recorded.message });
+      return new NextResponse("The payroll packet could not be generated.", { status: 500 });
+    }
+  }
 
   return new NextResponse(Buffer.from(bytes), {
     status: 200,
