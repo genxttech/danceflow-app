@@ -6,6 +6,7 @@ import {
   buildEventFinancialSummary,
   buildEventProfitabilityByEventId,
 } from "@/lib/events/financial-summary";
+import { toCsv } from "@/lib/utils/csv";
 
 type EventLookupRow = {
   id: string;
@@ -78,19 +79,6 @@ function getRangeEndExclusive() {
 
 function dateOnly(value: Date) {
   return value.toISOString().slice(0, 10);
-}
-
-function csvEscape(value: unknown) {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replaceAll('"', '""')}"`;
-  return text;
-}
-
-function toCsv(headers: string[], rows: Array<Array<unknown>>) {
-  return [headers, ...rows]
-    .map((row) => row.map(csvEscape).join(","))
-    .join("\n");
 }
 
 function csvResponse(csv: string, filename: string) {

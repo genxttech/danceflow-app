@@ -7,6 +7,7 @@ import {
   eventFinancialNumber,
 } from "@/lib/events/financial-summary";
 import { isEventPast } from "@/lib/events/eventTiming";
+import { toCsv } from "@/lib/utils/csv";
 
 type EventRow = {
   id: string;
@@ -73,19 +74,6 @@ type EventSummaryRow = {
   hasSettlementRecord: boolean;
   isCompletedOrPast: boolean;
 };
-
-function csvEscape(value: unknown) {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replaceAll('"', '""')}"`;
-  return text;
-}
-
-function toCsv(headers: string[], rows: Array<Array<unknown>>) {
-  return [headers, ...rows]
-    .map((row) => row.map(csvEscape).join(","))
-    .join("\n");
-}
 
 function csvResponse(csv: string, filename: string) {
   return new NextResponse(csv, {

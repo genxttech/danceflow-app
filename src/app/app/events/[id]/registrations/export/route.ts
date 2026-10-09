@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canExportWithOverride } from "@/lib/auth/permissions";
+import { csvEscape } from "@/lib/utils/csv";
 
 type RouteContext = {
   params: Promise<{
@@ -56,12 +57,6 @@ type RegistrationRow = {
     | { name: string; ticket_kind: string }[]
     | null;
 };
-
-function csvEscape(value: unknown) {
-  const stringValue = value == null ? "" : String(value);
-  const escaped = stringValue.replace(/"/g, '""');
-  return `"${escaped}"`;
-}
 
 function buildCsv(rows: string[][]) {
   return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
