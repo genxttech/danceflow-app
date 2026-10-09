@@ -220,6 +220,15 @@ describe("Phase 10A migration shape", () => {
     expect(sql).toContain("if to_regprocedure('public.validate_competition_schedule_item()') is null then");
   });
 
+  it("re-asserts the canonical deployed registration sync body (replay authority)", () => {
+    const bridge = readFileSync(join(MIGRATIONS, "20260620_competition_generation_operations_v1.sql"), "utf8");
+    const canonical = bridge.slice(bridge.indexOf("create or replace function public.sync_competition_entries_from_registration()"));
+    const body = canonical.slice(0, canonical.indexOf("$$;") + 3);
+    expect(sql).toContain(body);
+    expect(sql.indexOf(body)).toBeLessThan(sql.lastIndexOf("-- Section B -- NEW 10A HARDENING"));
+    expect(sql).toContain("<> 'fabd4052257f261e300ccc1f191c4cdb' then");
+  });
+
   it("scopes every public catalog policy to its own published, registrable event", () => {
     expect(sql).toContain("where r.contest_id = event_competition_contests.id\n        and r.event_id = event_competition_contests.event_id");
     expect(sql).toContain("where r.contest_id = event_competition_divisions.contest_id\n        and r.event_id = event_competition_divisions.event_id");
@@ -242,6 +251,10 @@ describe("Phase 10A migration shape", () => {
     expect(sql).toContain("and le.transaction_id = txid_current()");
     expect(sql).toContain("and le.from_state = old.lock_state");
     expect(sql).toContain("revoke all on function public.set_competition_heat_lock_state(uuid, text, text) from public, anon;");
+    expect(sql).toContain(
+      "create trigger protect_competition_heat_initial_lock_state\n  before insert on public.event_competition_heats\n  for each row execute function public.protect_locked_competition_heat();",
+    );
+    expect(sql).toContain("raise exception 'Heat lock changes require set_competition_heat_lock_state.';");
   });
 
   it("removes creator-only authority and anonymous execution", () => {
@@ -255,6 +268,7 @@ describe("Phase 10A migration shape", () => {
     expect(rollback).not.toMatch(/drop table[^;]*event_competition_schedule/);
     expect(rollback).not.toMatch(/drop function[^;]*create_competition_schedule_version/);
     expect(rollback).not.toMatch(/drop function[^;]*validate_competition_schedule_item/);
+    expect(rollback).not.toMatch(/(create|drop)[^;]*function public.sync_competition_entries_from_registration/);
     expect(rollback).toContain("Phase 10A rollback refused");
     expect(rollback).toContain("drop table public.event_competition_heat_lock_events;");
   });

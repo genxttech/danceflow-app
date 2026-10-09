@@ -4,9 +4,10 @@
 -- pre-10A definitions, policies, grants and FKs (pins re-checked in the postflight).
 --
 -- Section A "CAPTURED EXISTING OBJECTS" are NOT removed: the five schedule tables, their
--- constraints/indexes/policies/triggers/grants and create_competition_schedule_version
--- existed on DEV and PROD before 10A, so recording them in the repository must never make
--- a rollback drop them (or their data). validate_competition_schedule_item() is restored
+-- constraints/indexes/policies/triggers/grants, create_competition_schedule_version and the
+-- canonical sync_competition_entries_from_registration body existed on DEV and PROD before
+-- 10A, so recording them in the repository must never make a rollback drop them (or their
+-- data). validate_competition_schedule_item() is restored
 -- to its exact deployed (pre-10A) body, not dropped.
 --
 -- Refuses, changing nothing, when:
@@ -161,6 +162,7 @@ grant execute on function public.can_manage_event_competition(uuid) to anon, aut
 -- B3. Pre-10A heat lock (20260620_competition_generation_operations_v1.sql,
 --     20260621_competition_heat_planning_v1.sql)
 -- ---------------------------------------------------------------------------
+drop trigger if exists protect_competition_heat_initial_lock_state on public.event_competition_heats;
 drop function public.set_competition_heat_lock_state(uuid, text, text);
 
 create function public.set_competition_heat_lock_state(
@@ -374,6 +376,7 @@ begin
       ('set_competition_heat_lock_state(selected_heat_id uuid, selected_state text)', '4d6eb01fd4168ec20a7d49b11f2be1c0'),
       ('can_manage_event_competition(target_event_id uuid)', '64c046569d9bbb183ca514643595e3a7'),
       ('validate_competition_schedule_item()', '12e32eea6529b5fef6fceabbf0e0e1cd'),
+      ('sync_competition_entries_from_registration()', 'fabd4052257f261e300ccc1f191c4cdb'),
       ('create_competition_schedule_version(selected_event_id uuid, selected_name text, source_version_id uuid)', 'd8b91e2db9b24119e6b485ed26941c86')
     ) as pins(k, v)
   loop
@@ -401,6 +404,11 @@ begin
       raise exception 'Phase 10A rollback postflight: policy % is %, expected %.', v_key, coalesce(v_actual, 'missing'), v_expected;
     end if;
   end loop;
+
+  if exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_heats'::regclass
+             and tgname = 'protect_competition_heat_initial_lock_state') then
+    raise exception 'Phase 10A rollback postflight: 10A heat insert trigger still present.';
+  end if;
 
   if to_regclass('public.event_competition_schedule_versions') is null
      or to_regclass('public.event_competition_schedule_block_contests') is null then

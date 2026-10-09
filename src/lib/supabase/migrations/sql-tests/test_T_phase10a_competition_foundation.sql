@@ -118,7 +118,11 @@ insert into public.event_competition_entries (id, event_id, program_id, division
    '00000000-0000-0000-0000-0a10a0003001', 'Delete Entry', 'pending', 'unverified');
 insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, name) values
   ('00000000-0000-0000-0000-0a10a0008001', '00000000-0000-0000-0000-0a10a000e001', '00000000-0000-0000-0000-0a10a0003001',
-   '00000000-0000-0000-0000-0a10a0006001', 99, 'Lock Heat');
+   '00000000-0000-0000-0000-0a10a0006001', 99, 'Lock Heat'),
+  ('00000000-0000-0000-0000-0a10a0008002', '00000000-0000-0000-0000-0a10a000e001', '00000000-0000-0000-0000-0a10a0003001',
+   '00000000-0000-0000-0000-0a10a0006001', 98, 'Second Lock Heat'),
+  ('00000000-0000-0000-0000-0a10a0008003', '00000000-0000-0000-0000-0a10a000e001', '00000000-0000-0000-0000-0a10a0003001',
+   '00000000-0000-0000-0000-0a10a0006001', 97, 'Open Heat');
 
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
@@ -369,6 +373,20 @@ select pg_temp.chk('lock recorded with actor',
   (select count(*) from public.event_competition_heat_lock_events
    where heat_id = '00000000-0000-0000-0000-0a10a0008001' and from_state = 'open' and to_state = 'locked'
      and performed_by = '00000000-0000-0000-0000-0a10a0000001') = 1);
+select pg_temp.expect_ok('manager locks a second heat',
+  $q$select public.set_competition_heat_lock_state('00000000-0000-0000-0000-0a10a0008002', 'locked')$q$);
+select pg_temp.expect_fail('manager cannot lock an open heat directly (no ledger row)',
+  $q$update public.event_competition_heats set lock_state = 'locked' where id = '00000000-0000-0000-0000-0a10a0008003'$q$);
+select pg_temp.expect_fail('manager cannot certify an open heat directly',
+  $q$update public.event_competition_heats set lock_state = 'certified', certified_at = now() where id = '00000000-0000-0000-0000-0a10a0008003'$q$);
+select pg_temp.expect_fail('manager cannot stamp certification fields on an open heat',
+  $q$update public.event_competition_heats set certified_by = '00000000-0000-0000-0000-0a10a0000001' where id = '00000000-0000-0000-0000-0a10a0008003'$q$);
+select pg_temp.expect_fail('manager cannot insert a pre-certified heat',
+  $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, lock_state, certified_at)
+     values ('00000000-0000-0000-0000-0a10a000e001', '00000000-0000-0000-0000-0a10a0003001',
+             '00000000-0000-0000-0000-0a10a0006001', 96, 'certified', now())$q$);
+select pg_temp.expect_ok('manager can still edit an open heat',
+  $q$update public.event_competition_heats set name = 'Open Heat (renamed)' where id = '00000000-0000-0000-0000-0a10a0008003'$q$);
 select pg_temp.expect_fail('manager cannot edit a locked heat directly',
   $q$update public.event_competition_heats set name = 'edited' where id = '00000000-0000-0000-0000-0a10a0008001'$q$);
 select pg_temp.expect_fail('manager cannot bypass the lock with the old session GUC',
@@ -431,6 +449,8 @@ select pg_temp.chk('reopen recorded with reason and actor',
   (select count(*) from public.event_competition_heat_lock_events
    where heat_id = '00000000-0000-0000-0000-0a10a0008001' and from_state = 'locked' and to_state = 'open'
      and reason = 'Wrong couple placed' and performed_by = '00000000-0000-0000-0000-0a10a0000002') = 1);
+select pg_temp.expect_fail('a reopen authorization cannot be reused for another heat',
+  $q$update public.event_competition_heats set lock_state = 'open', locked_at = null, locked_by = null where id = '00000000-0000-0000-0000-0a10a0008002'$q$);
 select pg_temp.expect_ok('open heat is editable again',
   $q$update public.event_competition_heats set name = 'Lock Heat' where id = '00000000-0000-0000-0000-0a10a0008001'$q$);
 select pg_temp.expect_ok('studio admin certifies the heat',
@@ -564,6 +584,32 @@ select pg_temp.expect_fail('front desk event creator cannot apply a template',
 select pg_temp.chk('front desk event creator cannot read E1 management rows',
   not exists (select 1 from public.event_competition_entries where event_id = '00000000-0000-0000-0000-0a10a000e001'));
 reset role;
+
+-- ============================================================================
+-- Canonical registration -> entry sync (deployed body; the older same-day body scratched)
+-- ============================================================================
+insert into public.event_registrations (id, event_id, studio_id, attendee_first_name, attendee_last_name, attendee_email,
+                                        status, payment_status)
+values ('00000000-0000-0000-0000-0a10a000f001', '00000000-0000-0000-0000-0a10a000e001', '00000000-0000-0000-0000-0a10a000a001',
+        'Sync', 'Dancer', 't-p10a-sync@example.test', 'confirmed', 'paid');
+insert into public.event_competition_entries (id, event_id, program_id, division_id, registration_id, display_name, status, eligibility_status)
+values ('00000000-0000-0000-0000-0a10a0007004', '00000000-0000-0000-0000-0a10a000e001', '00000000-0000-0000-0000-0a10a0001001',
+        '00000000-0000-0000-0000-0a10a0003001', '00000000-0000-0000-0000-0a10a000f001', 'Sync Entry', 'confirmed', 'eligible');
+select set_config('app.competition_entry_change_type', '', true),
+       set_config('app.competition_entry_change_reason', '', true),
+       set_config('app.competition_entry_fee_handling', '', true);
+set local role service_role;
+select pg_temp.expect_ok('service-role refund of the source registration',
+  $q$update public.event_registrations set payment_status = 'refunded', status = 'refunded'
+     where id = '00000000-0000-0000-0000-0a10a000f001'$q$);
+reset role;
+select pg_temp.chk('refund withdrew the entry (canonical body)',
+  (select status from public.event_competition_entries where id = '00000000-0000-0000-0000-0a10a0007004') = 'withdrawn',
+  (select status from public.event_competition_entries where id = '00000000-0000-0000-0000-0a10a0007004'));
+select pg_temp.chk('refund recorded withdraw/refund history',
+  exists (select 1 from public.event_competition_entry_changes
+          where entry_id = '00000000-0000-0000-0000-0a10a0007004' and change_type = 'withdraw'
+            and fee_handling = 'refund' and reason = 'Source registration was refunded.'));
 
 -- ============================================================================
 -- Event deletion still cascades through append-only evidence

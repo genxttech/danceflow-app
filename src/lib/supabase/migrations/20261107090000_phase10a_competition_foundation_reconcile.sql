@@ -22,6 +22,9 @@
 --             comments)
 --     funcs   create_competition_schedule_version(uuid, text, uuid)
 --             validate_competition_schedule_item()   (replaced by the B6 fix below)
+--             sync_competition_entries_from_registration()  (canonical deployed body
+--             re-asserted: two same-day files define it and filename-order replay would
+--             otherwise install the older body; a no-op on DEV/PROD)
 --
 -- Section B -- NEW 10A HARDENING (reverted by the rollback file).
 --   B1  Public registration catalog policies. competition_contests_public_registration_read
@@ -49,7 +52,9 @@
 --       role-checked SECURITY DEFINER RPC that records an append-only
 --       event_competition_heat_lock_events row (actor, reason, from/to state, transaction);
 --       the heat trigger accepts a locked-heat update only when that row exists for the
---       same heat, from/to state and transaction, and only lock columns change.
+--       same heat, from/to state and transaction, and only lock columns change. Every
+--       lock-column change (including locking or certifying an open heat) needs that row,
+--       and new heats must be inserted open, so no lock state exists outside the ledger.
 --       Reopening a locked heat requires a
 --       reason; certified heats still cannot be reopened. Locked heat entries/dances
 --       cannot be changed at all (no legitimate path used the bypass).
@@ -533,6 +538,61 @@ begin
   end if;
 end $capture$;
 
+-- Canonical deployed body of sync_competition_entries_from_registration(). It is defined in two
+-- same-day files; replaying them in filename order (generation_operations_v1 before
+-- registration_bridge_v1) would install the OLDER bridge body (scratch instead of withdraw, no
+-- locked-heat guard, no audit labels). DEV and PROD run this body (md5 fabd4052...). Re-asserting
+-- it here makes the repository authoritative; on DEV/PROD it is a no-op. Never reverted.
+create or replace function public.sync_competition_entries_from_registration()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.status = 'cancelled' or new.payment_status in ('failed', 'refunded') then
+    perform set_config('app.competition_entry_change_type', 'withdraw', true);
+    perform set_config(
+      'app.competition_entry_change_reason',
+      case when new.payment_status = 'refunded' then 'Source registration was refunded.' else 'Source registration was cancelled or payment failed.' end,
+      true
+    );
+    perform set_config(
+      'app.competition_entry_fee_handling',
+      case when new.payment_status = 'refunded' then 'refund' else 'retain' end,
+      true
+    );
+    update public.event_competition_entries
+    set
+      status = 'withdrawn',
+      withdrawn_at = coalesce(withdrawn_at, now()),
+      withdrawal_reason = coalesce(
+        withdrawal_reason,
+        case when new.payment_status = 'refunded' then 'Source registration was refunded.' else 'Source registration was cancelled or payment failed.' end
+      ),
+      lifecycle_version = lifecycle_version + 1,
+      updated_at = now()
+    where registration_id = new.id
+      and status not in ('withdrawn', 'disqualified', 'complete')
+      and not exists (
+        select 1
+        from public.event_competition_heat_entries he
+        join public.event_competition_heats h on h.id = he.heat_id
+        where he.entry_id = event_competition_entries.id and h.lock_state in ('locked', 'certified')
+      );
+    return new;
+  end if;
+
+  if new.status in ('confirmed', 'registered', 'checked_in', 'attended')
+    and coalesce(new.payment_status, '') in ('paid', 'partial', 'comped', 'free', 'waived') then
+    update public.event_competition_entries
+    set status = 'confirmed', confirmed_at = coalesce(confirmed_at, now()), updated_at = now()
+    where registration_id = new.id and status = 'pending';
+  end if;
+  return new;
+end;
+$$;
+
 comment on table public.event_competition_schedule_versions is
   'Versioned tentative, published, and live schedules. Published versions are immutable.';
 comment on table public.event_competition_schedule_blocks is
@@ -788,7 +848,20 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if old.lock_state in ('locked', 'certified') then
+  -- New heats always start open; locking and certifying go through the audited RPC.
+  if tg_op = 'INSERT' then
+    if new.lock_state is distinct from 'open'
+      or new.locked_at is not null or new.locked_by is not null
+      or new.certified_at is not null or new.certified_by is not null then
+      raise exception 'New heats start open; use set_competition_heat_lock_state to lock or certify a heat.';
+    end if;
+    return new;
+  end if;
+
+  if old.lock_state in ('locked', 'certified')
+    or (tg_op = 'UPDATE'
+        and (new.lock_state, new.locked_at, new.locked_by, new.certified_at, new.certified_by)
+            is distinct from (old.lock_state, old.locked_at, old.locked_by, old.certified_at, old.certified_by)) then
     -- Only the exact recorded transition, in the recording transaction, touching nothing
     -- but the lock columns.
     if tg_op = 'UPDATE'
@@ -805,7 +878,10 @@ begin
       ) then
       return new;
     end if;
-    raise exception 'Locked or certified heats require the authorized correction workflow.';
+    if old.lock_state in ('locked', 'certified') then
+      raise exception 'Locked or certified heats require the authorized correction workflow.';
+    end if;
+    raise exception 'Heat lock changes require set_competition_heat_lock_state.';
   end if;
   if tg_op = 'DELETE' then
     return old;
@@ -815,6 +891,11 @@ end;
 $$;
 
 revoke all on function public.protect_locked_competition_heat() from public, anon, authenticated;
+
+drop trigger if exists protect_competition_heat_initial_lock_state on public.event_competition_heats;
+create trigger protect_competition_heat_initial_lock_state
+  before insert on public.event_competition_heats
+  for each row execute function public.protect_locked_competition_heat();
 
 create or replace function public.protect_locked_competition_heat_children()
 returns trigger
@@ -1047,6 +1128,12 @@ begin
   end if;
   if has_function_privilege('anon', 'public.can_manage_event_competition(uuid)', 'EXECUTE') then
     raise exception 'Phase 10A postflight: anon can still execute can_manage_event_competition.';
+  end if;
+  if (select md5(replace(prosrc, E'
+', E'
+')) from pg_proc
+      where oid = 'public.sync_competition_entries_from_registration()'::regprocedure) <> 'fabd4052257f261e300ccc1f191c4cdb' then
+    raise exception 'Phase 10A postflight: canonical sync_competition_entries_from_registration body mismatch.';
   end if;
   if exists (select 1 from pg_proc where prosrc ilike '%competition_heat_override%') then
     raise exception 'Phase 10A postflight: a function still honours app.competition_heat_override.';
