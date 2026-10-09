@@ -8,6 +8,10 @@ import {
   requirePayrollPrepareAccess,
 } from "@/lib/auth/serverRoleGuard";
 import { generateInstructorEarningsForCompletedAppointments } from "@/lib/compensation/earnings";
+import {
+  isAllowedEarningReviewTransition,
+  overrideEarningAmounts,
+} from "@/lib/compensation/payroll-integrity";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -54,6 +58,9 @@ function payrollErrorStatus(operation: PayrollOperation, error: unknown) {
   if (message.includes("only the studio owner can mark payroll paid")) return "owner_required_to_pay";
   if (message.includes("payroll batch must be approved before payment")) return "batch_not_approved";
   if (message.includes("payroll access denied")) return "payroll_access_denied";
+  if (message.includes("contains earnings that are not approved")) return "batch_earnings_not_approved";
+  if (message.includes("totals do not match")) return "batch_totals_out_of_date";
+  if (message.includes("did not cover every approved earning")) return "batch_totals_out_of_date";
 
   return {
     create_period: "pay_period_create_failed",
@@ -187,8 +194,11 @@ export async function generateInstructorEarningsAction(formData: FormData) {
 
     if (result.error) redirectWithStatus("generate_failed");
 
+    // A capped window or an unreadable attendance count is reported, never
+    // presented as a complete run.
+    const partial = result.truncated || result.attendanceFailed > 0;
     redirect(
-      `/app/instructor-pay?status=earnings_generated&scanned=${result.scanned}&staged=${result.staged}&skipped=${result.skipped}`,
+      `/app/instructor-pay?status=${partial ? "earnings_generated_partial" : "earnings_generated"}&scanned=${result.scanned}&staged=${result.staged}&skipped=${result.skipped}&attendanceFailed=${result.attendanceFailed}&truncated=${result.truncated ? 1 : 0}`,
     );
   } catch (error) {
     if (isRedirectError(error)) throw error;
@@ -196,22 +206,23 @@ export async function generateInstructorEarningsAction(formData: FormData) {
   }
 }
 
+// Review operations only (approve / void). Payroll is paid exclusively through
+// an approved payroll batch (markPayrollBatchPaidAction -> mark_payroll_batch_paid).
 export async function updateInstructorEarningStatusAction(formData: FormData) {
   try {
     const earningId = getString(formData, "earningId");
     const nextStatus = getString(formData, "nextStatus");
-    const paymentMethod = getString(formData, "paymentMethod");
-    const access =
-      nextStatus === "paid"
-        ? await requirePayrollDisbursementAccess()
-        : await requirePayrollPrepareAccess();
-    const { supabase, studioId, user } = access;
+
+    if (nextStatus === "paid") redirectWithStatus("earning_paid_through_batch");
+    if (!["approved", "void"].includes(nextStatus)) redirectWithStatus("invalid_status");
+
+    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
 
     if (!earningId) redirectWithStatus("missing_earning");
 
     const { data: existing, error: existingError } = await supabase
       .from("instructor_earnings")
-      .select("id, status")
+      .select("id, status, payroll_batch_id")
       .eq("id", earningId)
       .eq("studio_id", studioId)
       .maybeSingle();
@@ -220,12 +231,12 @@ export async function updateInstructorEarningStatusAction(formData: FormData) {
 
     const currentStatus = String(existing.status ?? "pending");
 
-    if (["paid", "void"].includes(currentStatus) && currentStatus !== nextStatus) {
-      redirectWithStatus("earning_locked");
-    }
-
     if (currentStatus === nextStatus) {
       redirectWithStatus("earning_unchanged");
+    }
+
+    if (existing.payroll_batch_id || !isAllowedEarningReviewTransition(currentStatus, nextStatus)) {
+      redirectWithStatus("earning_locked");
     }
 
     const now = new Date().toISOString();
@@ -239,27 +250,17 @@ export async function updateInstructorEarningStatusAction(formData: FormData) {
       update.approved_by = user.id;
     }
 
-    if (nextStatus === "paid") {
-      update.paid_at = now;
-      update.paid_by = user.id;
-      update.payment_method = paymentMethod || "external_payroll";
-      update.approved_at = now;
-      update.approved_by = user.id;
-    }
-
     if (nextStatus === "void") {
       update.notes = "Voided from Instructor Pay.";
-    }
-
-    if (!["approved", "paid", "void", "pending"].includes(nextStatus)) {
-      redirectWithStatus("invalid_status");
     }
 
     const { error } = await supabase
       .from("instructor_earnings")
       .update(update)
       .eq("id", earningId)
-      .eq("studio_id", studioId);
+      .eq("studio_id", studioId)
+      .eq("status", currentStatus)
+      .is("payroll_batch_id", null);
 
     if (error) redirectWithStatus("earning_update_failed");
 
@@ -369,7 +370,7 @@ export async function createInstructorAdjustmentAction(formData: FormData) {
 
 export async function overrideInstructorEarningAction(formData: FormData) {
   try {
-    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
+    const { supabase, studioId } = await requirePayrollPrepareAccess();
     const earningId = getString(formData, "earningId");
     const overrideAmount = getNumber(formData, "overrideAmount");
     const overrideReason = getString(formData, "overrideReason");
@@ -380,7 +381,7 @@ export async function overrideInstructorEarningAction(formData: FormData) {
 
     const { data: existing, error: existingError } = await supabase
       .from("instructor_earnings")
-      .select("id, status")
+      .select("id, status, payroll_batch_id, adjustment_type, reimbursement_amount, deduction_amount")
       .eq("id", earningId)
       .eq("studio_id", studioId)
       .maybeSingle();
@@ -388,32 +389,40 @@ export async function overrideInstructorEarningAction(formData: FormData) {
     if (existingError || !existing) redirectWithStatus("override_failed");
 
     const currentStatus = String(existing.status ?? "pending");
-    if (["paid", "void"].includes(currentStatus)) redirectWithStatus("earning_locked");
+    if (!["pending", "approved"].includes(currentStatus) || existing.payroll_batch_id) {
+      redirectWithStatus("earning_locked");
+    }
 
-    const { error } = await supabase
+    const amounts = overrideEarningAmounts(existing, overrideAmount);
+    if ("error" in amounts) redirectWithStatus(amounts.error);
+
+    // The database returns an approved earning to review (pending, approval
+    // cleared) whenever its amount changes; the saved status is read back.
+    const { data: saved, error } = await supabase
       .from("instructor_earnings")
       .update({
-        earning_amount: overrideAmount,
-        taxable_compensation_amount: Math.max(overrideAmount, 0),
-        reimbursement_amount: 0,
-        deduction_amount: overrideAmount < 0 ? Math.abs(overrideAmount) : 0,
+        ...amounts,
         pay_mode: "manual_override",
-        pay_rate_amount: overrideAmount,
+        pay_rate_amount: amounts.earning_amount,
         pay_percentage: 0,
-        adjustment_type: "override",
         override_reason: overrideReason,
         notes: `Manual override: ${overrideReason}`,
         updated_at: new Date().toISOString(),
-        approved_by: currentStatus === "approved" ? user.id : null,
       })
       .eq("id", earningId)
-      .eq("studio_id", studioId);
+      .eq("studio_id", studioId)
+      .eq("status", currentStatus)
+      .is("payroll_batch_id", null)
+      .select("status")
+      .maybeSingle();
 
-    if (error) redirectWithStatus("override_failed");
+    if (error || !saved) redirectWithStatus("override_failed");
 
     revalidatePath("/app/instructor-pay");
     revalidatePath("/app/reports");
-    redirectWithStatus("override_saved");
+    redirectWithStatus(
+      currentStatus === "approved" && saved.status === "pending" ? "override_saved_needs_review" : "override_saved",
+    );
   } catch (error) {
     if (isRedirectError(error)) throw error;
     redirectWithStatus("override_failed");

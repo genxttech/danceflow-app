@@ -429,7 +429,7 @@ describe("assignment UX (searchable picker, one flow)", () => {
 describe("Decision #9 (waivers are Documents; the signing certificate is the evidence receipt)", () => {
   it("no separate waiver engine or Documents receipt object was introduced", () => {
     const migrations = readdirSync(path.join(process.cwd(), "src/lib/supabase/migrations"));
-    const phase8d = migrations.filter((name) => name.startsWith("2026110"));
+    const phase8d = migrations.filter((name) => name.startsWith("20261101"));
     expect(phase8d).toEqual(["20261101090000_client_account_links_signing_default.sql"]);
     const sql = readFileSync(path.join(process.cwd(), "src/lib/supabase/migrations", phase8d[0]), "utf8").toLowerCase();
     expect(sql).not.toMatch(/create table/);

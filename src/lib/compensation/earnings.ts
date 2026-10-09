@@ -159,8 +159,10 @@ async function getAttendanceCount({
     .eq("appointment_id", appointmentId)
     .eq("status", "attended");
 
-  if (error) return 0;
-  return count ?? 0;
+  // A failed read must not be treated as zero attendees: that would stage the
+  // wrong pay (or silently skip it). The caller reports it instead.
+  if (error) return { count: 0, error: true as const };
+  return { count: count ?? 0, error: false as const };
 }
 
 function calculateEarning({
@@ -315,9 +317,12 @@ export async function stageInstructorEarningForAppointment({
     return { staged: false, reason: "earning_locked" };
   }
 
-  const attendanceCount = isGroupClassType(typedAppointment.appointment_type)
-    ? await getAttendanceCount({ supabase, studioId, appointmentId: typedAppointment.id })
-    : 0;
+  let attendanceCount = 0;
+  if (isGroupClassType(typedAppointment.appointment_type)) {
+    const attendance = await getAttendanceCount({ supabase, studioId, appointmentId: typedAppointment.id });
+    if (attendance.error) return { staged: false, reason: "attendance_read_failed" };
+    attendanceCount = attendance.count;
+  }
 
   const calculation = calculateEarning({ appointment: typedAppointment, rule: typedRule, attendanceCount });
 
@@ -384,6 +389,9 @@ export async function stageInstructorEarningForAppointment({
   return { staged: true, action: "created" };
 }
 
+/** Most recent appointments examined per generation run; a larger window is reported as truncated. */
+export const EARNINGS_GENERATION_LIMIT = 500;
+
 export async function generateInstructorEarningsForCompletedAppointments({
   supabase,
   studioId,
@@ -405,7 +413,7 @@ export async function generateInstructorEarningsForCompletedAppointments({
     ])
     .or("status.eq.attended,status.eq.completed,payment_status.eq.paid")
     .order("starts_at", { ascending: false })
-    .limit(500);
+    .limit(EARNINGS_GENERATION_LIMIT + 1);
 
   if (fromDate) query = query.gte("starts_at", `${fromDate}T00:00:00`);
   if (toDate) query = query.lte("starts_at", `${toDate}T23:59:59`);
@@ -413,13 +421,19 @@ export async function generateInstructorEarningsForCompletedAppointments({
   const { data: appointments, error } = await query;
 
   if (error) {
-    return { scanned: 0, staged: 0, skipped: 0, error: error.message };
+    return { scanned: 0, staged: 0, skipped: 0, attendanceFailed: 0, truncated: false, error: error.message };
   }
+
+  // One extra row is fetched only to detect that the window holds more than
+  // the limit; it is never staged. Callers must tell the user the run was partial.
+  const truncated = (appointments?.length ?? 0) > EARNINGS_GENERATION_LIMIT;
+  const window = (appointments ?? []).slice(0, EARNINGS_GENERATION_LIMIT);
 
   let staged = 0;
   let skipped = 0;
+  let attendanceFailed = 0;
 
-  for (const appointment of appointments ?? []) {
+  for (const appointment of window) {
     const result = await stageInstructorEarningForAppointment({
       supabase,
       studioId,
@@ -428,8 +442,9 @@ export async function generateInstructorEarningsForCompletedAppointments({
     });
 
     if (result.staged) staged += 1;
+    else if ("reason" in result && result.reason === "attendance_read_failed") attendanceFailed += 1;
     else skipped += 1;
   }
 
-  return { scanned: appointments?.length ?? 0, staged, skipped, error: null };
+  return { scanned: window.length, staged, skipped, attendanceFailed, truncated, error: null };
 }
