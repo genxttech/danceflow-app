@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v2.19 |
-| **Last reconciled against main** | `ab60dba55b10162bb1f057136c9bdf705bccce91` (Phase 8D, PR #192; tree `7a86ef5b6ba5cfa5d2823fcf475e53d2b3c660af`). Live application `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC` (promoted 2026-10-08). Phase 8A, 8B, 8C and 8D are all RELEASED; Phase 8 — Documents Center is COMPLETE / CLOSED / FULLY RELEASED. Phase 8 migrations `20261029090000`, `20261030090000`, `20261031090000` and `20261101090000_client_account_links_signing_default.sql` are applied to PROD (the last on 2026-10-08) |
+| **Roadmap version** | v2.20 |
+| **Last reconciled against main** | `9c3fd5aec9eb01847980a7f4a0d49272c5298537` (Phase 9E, PR #200; tree `083ab56212a86790078a5355090f0da523f03ce4`). Live application `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u` (promoted 2026-10-09). Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED / FULLY RELEASED (9A–9E). Phase 9 migrations `20261102090000`, `20261103090000` and `20261104090000` are applied to PROD (2026-10-09); 9D and 9E were app-only. Phase 8 — Documents Center remains COMPLETE / CLOSED / FULLY RELEASED |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
-| **Current external dependency** | None blocking. Phase 2 Twilio A2P is an ACTIVE parallel compliance lane (studio-specific ConfiDance pilot campaign: final compliance review and submission); it does not block Phase 9 |
-| **Current recommended next roadmap phase** | Phase 9 — Payroll Prep v1 (Phase 8 — Documents Center is COMPLETE / CLOSED, 2026-10-08). Phase 3 — Branding Relaunch stays PARTIAL: BR-6 — Promotional Media is parked awaiting the professional ARIA voice recording. ENT-1 is RELEASED (PR #138) |
+| **Current external dependency** | None blocking. Phase 2 Twilio A2P is an ACTIVE parallel compliance/engineering lane (studio-specific ConfiDance pilot campaign: final compliance review and submission); it does not block Phase 10 |
+| **Current recommended next roadmap phase** | Phase 10 — Organizer + Competition OS (Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED, 2026-10-09). Phase 3 — Branding Relaunch stays PARTIAL: BR-6 — Promotional Media is parked awaiting the professional ARIA voice recording. ENT-1 is RELEASED (PR #138) |
 
 > **Explicit note:** BR-4 was shaped by Featured Events and Partner Match maturity and was **not blocked** by either; their public-claim restrictions remain in force for BR-5 onward. See [Featured Events](#strategic-module-featured-events), [Partner Match](#strategic-module-partner-match) and Phase 3 §Public-claim restrictions.
 
@@ -63,7 +63,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 ## Governing principles
 
 - Build capability → establish security and permissions → stabilize web workflow → design mobile around the stabilized workflow.
-- Twilio/A2P (Phase 2) is a **parallel compliance/pilot lane** owned by DanceFlow (final compliance and submission work, then production verification); it is not a global roadmap blocker and does not gate Phase 9.
+- Twilio/A2P (Phase 2) is a **parallel compliance/pilot lane** owned by DanceFlow (final compliance and submission work, then production verification); it is not a global roadmap blocker and does not gate Phase 10.
 - The Branding relaunch precedes later public launch materials, mobile store materials and broad public promotion.
 - Do not redesign Business or Student mobile apps around workflows that are still structurally changing.
 - The Mobile App Architecture & Boundary Audit must occur before locking final app count, app names, navigation ownership or store strategy.
@@ -88,8 +88,8 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 | 6 | GC-3.4 — Public discovery and account linking | COMPLETE / CLOSED (GC-3.4A, GC-3.4B and GC-3.4C released) |
 | 7 | GC-3.5 — Direct-payment Group Class enrollment | COMPLETE / CLOSED (GC-3.5-1, GC-3.5-2, REFUND-RECON-1, REFUND-RECON-2 and GC-3.5-3 released) |
 | 8 | Documents Center completion | COMPLETE / CLOSED (8A, 8B, 8C and 8D all released) |
-| 9 | Payroll Prep v1 | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT |
-| 10 | Organizer + Competition OS | PARTIAL — MATERIAL WORK REMAINS |
+| 9 | Payroll Prep v1 | COMPLETE / CLOSED (9A, 9B, 9C, 9D and 9E all released) |
+| 10 | Organizer + Competition OS | PARTIAL — MATERIAL WORK REMAINS — NEXT PRIMARY ENGINEERING PHASE |
 | 11 | Messaging / Notification platform completion | PARTIAL — MATERIAL WORK REMAINS |
 | 12 | Team & Permissions expansion | PARTIAL — MATERIAL WORK REMAINS |
 | 13 | Marketing / Campaigns completion | PARTIAL — MATERIAL WORK REMAINS |
@@ -155,7 +155,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 ## Phase 2 — Twilio A2P / SMS
 
-**STATUS:** ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION (engineering complete; not blocked on Twilio architecture; runs in parallel with Phase 9 and does not block starting Payroll Prep v1)
+**STATUS:** ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION (engineering complete; not blocked on Twilio architecture; runs in parallel with the engineering phases and does not block Phase 10)
 
 **OBJECTIVE:** Compliant SMS under Twilio's ISV model: DanceFlow operates as the ISV (existing GenX TotalTech LLC / DanceFlow Twilio account); each studio receives its own studio-specific A2P campaign and is its own message sender.
 
@@ -175,8 +175,13 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 - Twilio guidance: for transactional appointment messages and one-to-one operational staff messages, the appropriate campaign use case is typically Mixed or Customer Care, provided the campaign description and samples accurately reflect transactional/operational messaging and contain no marketing or promotional content. The final use case has NOT been chosen (see Unresolved product decisions).
 - Twilio reviewed the proposed ConfiDance opt-in flow and supporting materials and said they appear aligned with compliance requirements.
 - The remaining work is not a Twilio architecture blocker; the next actions are on DanceFlow. Nothing is yet recorded as submitted, approved or production-verified.
+- Advanced Opt-Out is the compliance response authority for STOP/START/HELP. Mixed is the intended pilot use-case direction; no marketing or promotional SMS in the pilot campaign.
 
-**REMAINING DELIVERABLES** (DanceFlow-owned compliance/pilot work, parallel to Phase 9)
+**COMPLIANCE-ENGINEERING SLICES (parallel lane)**
+- **TW-1 — Advanced Opt-Out Alignment:** COMPLETE / RELEASED (PR #197, `b3ce238`).
+- **TW-2 — Consent Integrity:** IMPLEMENTED / DEV COMPLETE / OPUS REVIEW COMPLETE. NOT YET MERGED OR RELEASED; its branch needs a fresh re-pin onto the current main before PR and release.
+
+**REMAINING DELIVERABLES** (DanceFlow-owned compliance/pilot work, parallel to the engineering phases)
 1. Finalize the ConfiDance campaign description.
 2. Finalize the supporting evidence/materials.
 3. Send the package back to Twilio for final pre-submission review.
@@ -202,7 +207,7 @@ Supporting operational detail for the above (ConfiDance Twilio setup and app rec
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Campaign use-case type to register: Mixed or Customer Care (Twilio says either is typically appropriate for transactional/operational messaging; not yet chosen).
+**UNRESOLVED PRODUCT DECISIONS:** Campaign use-case type to register: Mixed is the intended pilot direction; Customer Care is the alternative Twilio also describes as typically appropriate for transactional/operational messaging. The final selection is made at submission.
 
 **DEPENDENCIES:** Twilio final pre-submission review and campaign approval (steps in the DanceFlow-owned compliance lane; not a blocker for other phases). Phase 4 (plan gating of SMS is not yet implemented).
 
@@ -753,26 +758,27 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 ## Phase 9 — Payroll Prep v1
 
-**STATUS:** SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS — NEXT (Phase 8 closed 2026-10-08)
+**STATUS:** COMPLETE / CLOSED / FULLY RELEASED (2026-10-09). 9A, 9B, 9C, 9D and 9E are all released.
 
-**OBJECTIVE:** Draft → approved → exported/finalized payroll preparation with immutable snapshots, exports, locking and safe CSV.
+**OBJECTIVE:** Draft → approved → paid payroll preparation with integrity guarantees, immutable evidence, exports, locking and safe CSV.
 
 **PRODUCT INTENT:** Studio owners prepare instructor pay accurately and lock it before payment.
 
-**COMPLETED CAPABILITIES:** Pay periods and batches with create/approve/mark-paid RPCs and a lock trigger on batched earnings; per-earning classification and category snapshots; CSV and PDF exports; instructor compensation and overrides; Gusto readiness/sync tracking; payroll authorization hardened and fail-closed (LAUNCH-SEC-1A, released). Payroll CSV export neutralizes formula-leading cells (verified `csvSafe`).
+**COMPLETED CAPABILITIES**
+- Baseline: pay periods and batches with create/approve/mark-paid RPCs and a lock trigger on batched earnings; per-earning classification and category snapshots; CSV and PDF exports; instructor compensation and overrides; Gusto readiness/sync tracking (dormant); payroll authorization fail-closed (LAUNCH-SEC-1A).
+- **9A — Payroll Integrity Hardening (RELEASED):** same-studio relational integrity with cross-studio identifiers failing closed; the direct per-earning paid bypass removed (paid is reached only through canonical batch payment); explicit state transitions; owner/platform-admin disbursement boundary; approved-earning amount changes return to review; reimbursement integrity and consistent totals; explicit bulk-generation cap and error behavior; protected payroll history cannot be destructively deleted and survives linked-record lifecycle changes where required.
+- **9B — Immutable Payroll Evidence (RELEASED):** an immutable approval snapshot per approved batch with frozen earning lines; immutable approver, disburser and exporter evidence; atomic batch approval and atomic payment/disbursement evidence; approved-batch exports read the snapshot; repeated exports append evidence events; no new exported/finalized status; explicit legacy-live handling for pre-9B batches; a trusted approved-batch export boundary (platform-admin direct table access was not broadly expanded).
+- **9C — Compensation History + Validation + Detail UI (RELEASED):** one current operational compensation rule per instructor; append-only immutable history with frozen actor identity; atomic rule update plus history event; same-studio instructor enforcement; owner/admin-only rule management; percentage (0–100), non-negative amount and mode-specific validation; a right-side compensation detail and history panel. Rule edits do not change existing payroll evidence. No effective-dated compensation engine was added.
+- **9D — Formula-Safe CSV Hardening (RELEASED, app-only):** one shared CSV serializer that neutralizes formulas in user-controlled text (including after leading whitespace, control or invisible characters), quotes CR/CRLF correctly, and keeps plain-decimal money-like text compatible; payroll, accountant-delivery, event and report CSVs migrated. No authorization or tenant-boundary change.
+- **9E — Payroll UX / Timezone Closeout (RELEASED, app-only):** `earning_date` is the studio-local business date; generation date ranges use studio-local day boundaries; DST-safe conversion; historical approved/paid earnings are not rewritten; the visible Paid date uses the studio timezone; the 500-item generation cap is surfaced clearly; empty states give one obvious next action; closed and paid states explain why editing is unavailable; bounded responsive layout improvements.
 
-**REMAINING DELIVERABLES**
-- No "exported/finalized" state beyond `paid`.
-- No standalone immutable calculation snapshot at approval (row-level snapshots and locking exist).
-- Compensation detail/history UI.
-- Responsive/empty/closed-state review.
-- Accountant-delivery CSVs and the shared CSV helper do not neutralize formulas (payroll export does); see register.
+**REMAINING DELIVERABLES:** None for Phase 9. Carry-forwards are listed under Deferred.
 
-**LOCKED DECISIONS:** Payroll disbursement is owner/platform-admin only.
+**LOCKED DECISIONS:** Payroll disbursement is owner/platform-admin only. Compensation rules are managed by studio owner/admin only. Approved-batch evidence is immutable. No distinct "exported/finalized" status was added; export is recorded as evidence events.
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Whether "exported/finalized" is a distinct required state.
+**UNRESOLVED PRODUCT DECISIONS:** None. (The earlier question whether "exported/finalized" is a distinct state was resolved by 9B: no new status.)
 
 **DEPENDENCIES:** Phase 12 (permissions) for broader roles.
 
@@ -780,19 +786,22 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **MOBILE IMPLICATIONS:** Business app (owner-level) may surface payroll later.
 
-**SECURITY / PERMISSIONS CONSIDERATIONS:** Authorization closed (1A). CSV formula hardening for other exports is post-launch.
+**SECURITY / PERMISSIONS CONSIDERATIONS:** Authorization and integrity closed (1A, 9A–9C). CSV formula hardening is complete for payroll, accountant and event/report exports (9D).
 
 **BRANDING / POLISH CONSIDERATIONS:** Payroll PDF branding.
 
-**DEFERRED / POST-LAUNCH ITEMS:** Shared CSV formula-safe helper.
+**DEFERRED / POST-LAUNCH ITEMS** (Phase 9 is not reopened for these)
+- Phase 12: platform-admin non-batch payroll reports, platform-admin direct earning edits, and platform-admin compensation-rule management.
+- Later Gusto phase: the dormant Gusto "Last checked" timestamp still displays in server time.
+- Optional UX follow-up: visually inspect the newer narrow-width Payroll layouts in a browser (covered by source/class tests only).
 
-**EVIDENCE / RELEASE REFERENCES:** Migrations `20260715_payroll_*`, `20261004090000`; `src/app/app/instructor-pay`.
+**EVIDENCE / RELEASE REFERENCES:** 9A PR #194 (`d3fa0af`, migration `20261102090000`); 9B PR #195 (`2cc204e`, migration `20261103090000`); 9C PR #196 (`c991f9c`, migration `20261104090000`); 9D PR #198 (`8cc97f2`, app-only); 9E PR #200 (`9c3fd5a`, app-only; live `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`). Earlier: migrations `20260715_payroll_*`, `20261004090000`; SQL suites `test_T_phase9a_*`, `test_T_phase9b_*`, `test_T_phase9c_*`; `src/app/app/instructor-pay`, `src/lib/compensation`, `src/lib/utils/csv.ts`.
 
 ---
 
 ## Phase 10 — Organizer + Competition OS
 
-**STATUS:** PARTIAL — MATERIAL WORK REMAINS
+**STATUS:** PARTIAL — MATERIAL WORK REMAINS — NEXT PRIMARY ENGINEERING PHASE (Phase 9 closed 2026-10-09)
 
 **OBJECTIVE:** A complete organizer workspace and a full Competition OS. **Ordinary event ticketing does not count as Competition OS.**
 
@@ -918,7 +927,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **BRANDING / POLISH CONSIDERATIONS:** None currently identified.
 
-**DEFERRED / POST-LAUNCH ITEMS:** Event staff-role granularity (#7); platform-admin MFA (#6).
+**DEFERRED / POST-LAUNCH ITEMS:** Event staff-role granularity (#7); platform-admin MFA (#6). Carried from Phase 9: platform-admin non-batch payroll reports, platform-admin direct earning edits and platform-admin compensation-rule management.
 
 **EVIDENCE / RELEASE REFERENCES:** `src/lib/auth/permissions.ts`, `20260423_role_permission_overrides.sql`.
 
@@ -1392,7 +1401,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **PRODUCT INTENT:** Extend DanceFlow for larger and more connected customers.
 
-**COMPLETED CAPABILITIES (baseline):** Google Calendar, Gusto, and Wave integrations.
+**COMPLETED CAPABILITIES (baseline):** Google Calendar, Gusto, and Wave integrations. Carried from Phase 9: the dormant Gusto "Last checked" timestamp still displays in server time.
 
 **REMAINING DELIVERABLES:** Not yet defined.
 
@@ -1528,7 +1537,6 @@ None of these becomes immediate roadmap work without an explicit decision. Do no
 - Add-on GET → POST
 - Raw RPC error text in commerce actions
 - Raw RPC error text stored in `payment_provider_events` by the Stripe webhook (GC-3.5 follow-up)
-- Shared CSV helper does not neutralize formula-leading cells (payroll export does; accountant-delivery CSVs unverified)
 - Redundant PROD deduction-errors index cleanup
 
 **Payments / commerce**
@@ -1585,7 +1593,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 7. Landmark 1A canonical closeout scope (invitation flow, seat UI, audit viewer).
 8. Phase 4 plan placement for SMS, payroll, marketplace, ARIA. **Open; blocks all remaining Phase 4 implementation** (SMS allowance and quantity, payroll/marketplace/ARIA tiers, ARIA gated by plan vs AI credits only, tie to Phase 22 pricing). No speculative `BillingFeature` keys until decided.
 9. **CLOSED (2026-10-08, Phase 8D):** Documents scope: waivers and receipts. A waiver is a Documents template / use type on the canonical envelope lifecycle (no separate waiver engine); the envelope completion (signing) certificate is the canonical evidence receipt for Documents; payment receipts stay in Commerce.
-10. Payroll "exported/finalized" state.
+10. **CLOSED (2026-10-09, Phase 9B):** Payroll "exported/finalized" state. No distinct status was added; approval and export are recorded as immutable evidence.
 11. Competition scoring system(s) and where judging runs.
 12. Pricing cutover timing.
 13. Video cut list (BR-6) and the banner vendor (BR-5 follow-up).
@@ -1605,6 +1613,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-09 | v2.20 | **Docs-only reconciliation (no application, SQL, test, configuration or deployment change).** (1) **Phase 9 — Payroll Prep v1 — COMPLETE / CLOSED / FULLY RELEASED:** 9A integrity (PR #194), 9B immutable evidence (PR #195), 9C compensation history and validation (PR #196), 9D formula-safe CSV (PR #198) and 9E UX/timezone closeout (PR #200) are all released; main `9c3fd5a`, live `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`; Phase 9 migrations `20261102090000`, `20261103090000` and `20261104090000` applied to PROD. (2) Decision #10 (payroll exported/finalized state) closed: no new status; the shared-CSV-helper register item resolved. (3) **Phase 10 — Organizer + Competition OS is the next primary engineering phase;** numbering and the 26-phase order are unchanged. (4) Twilio Phase 2 remains ACTIVE in parallel: TW-1 released (PR #197); TW-2 implemented / DEV complete / Opus review complete, not merged or released. (5) Carry-forwards recorded without reopening Phase 9: platform-admin payroll items (Phase 12), dormant Gusto timestamp display (later Gusto phase), optional narrow-width visual check. |
 | 2026-10-08 | v2.19 | **Docs-only reconciliation (no application, SQL, Twilio-integration or deployment change).** (1) **Phase 2 Twilio A2P status corrected** to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION: DanceFlow is the ISV and each studio gets its own studio-specific A2P campaign (ticket #29647095; Twilio guidance 2026-10-06); the shared campaign is unused; ConfiDance is the pilot and its opt-in materials appear aligned; Mixed vs Customer Care not yet selected; no remaining step recorded as done; Twilio proceeds in parallel with Phase 9. (2) **Phase 8 production baseline reconciled after the final 8D release:** main `ab60dba` (PR #192), live `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`, migration `20261101090000` applied to PROD 2026-10-08; Phase 8 scope unchanged. Phase 9 — Payroll Prep v1 remains next; numbering unchanged. |
 | 2026-10-08 | v2.18 | **Phase 8 — Documents Center completion — COMPLETE / CLOSED.** Cleanup before Phase 8: PR #184 (`6588400`, lesson package eligibility + client form rendering), PR #185 (`c5e9553`, past event lifecycle across Discovery and Events), PRs #186–#188 (`291e9a4`, `a3857cb`, `fd925ff`, ARIA reconciliation, current-state and opportunity truthfulness lifecycle), all released. **8A** signing integrity PR #189 (`3cdff68`); PROD migration `20261029090000` applied 2026-10-08 11:35Z after the application release. **8B** lifecycle correctness + gating PR #190 (`2c55cbd`); application `dpl_898GsDy9i8GPFN5mJHXg8swR522p`; PROD verify-only migration `20261030090000` applied 18:12Z (no-op; canonical fingerprint confirmed). **8C** evidence + portal truth PR #191 (`0e8391a`, tree `2f9c73c0`); application `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` promoted 19:47Z; PROD evidence-read migration `20261031090000` applied 19:49Z. **8D** closeout: fail-safe signing permission (migration `20261101090000`, DEV applied; PROD with its release), staff signing-permission control, guardian / authorized-recipient delivery for clients without email, truthful statuses and actions, searchable assignment picker + Assign document from the client profile, field-layout reuse, decision #9 closed (waivers = Documents template type; signing certificate = Documents evidence receipt). Rollback note: `dpl_898GsDy9…` is not a clean rollback target under the 8C evidence policies. Next phase: Phase 9 — Payroll Prep v1 |
 | 2026-10-07 | v2.17 | GC-3.5 canonical closeout (docs only). **Phase 7 — GC-3.5 Direct-payment Group Class enrollment — COMPLETE / CLOSED and released.** GC-3.5-1 (staff direct-payment policy controls) PR #178 `ee3f3930842535b5421a38b3c604eceee20206ee`, no SQL. GC-3.5-2 (acquisition holds / database authority) PR #179 `c12169f87226fe33333e1c668510d467c4485bcc`, migration `20261026090000` live on PROD. REFUND-RECON-1 (canonical refund reconciliation integrity) PR #180 `0e003530b91af40083785f108965a94fad3bbeaf`, migration `20261027090000` live on PROD. REFUND-RECON-2 (refund timestamp / accounting integrity) PR #181 `e7590dfb54eec7d37b0442e7dc391b0cdcc5a057`, migration `20261028090000` live on PROD (refund RPC `6867f57dca8ae457c04cf557c21420e7`). GC-3.5-3 (public paid registration application) PR #182 `1434bb8be4f2d893cc4ce93d1c9e3b09c18a8854` (tree `5b470d4644c761ee7688e24008c775ef12e12209`), production `dpl_CnFtr8gGHahDnj6smNvFtk12Arcw`, promoted 2026-10-07, application rollback `dpl_6cHFofHxhDX7AHuMKqRhz7FUU9Bh`. 4417 / 4417 tests. Public smoke clean; authenticated production smoke omitted under the established policy; class-specific `/register` not exercisable in production (no upcoming public Group Classes; none fabricated). Released: verified, unlinked self-registration and payment for public Group Classes (no email auto-link; linked students stay on the portal/credit path), database seat holds, studio-connected Stripe Checkout, webhook-authoritative settlement creating client + self link + attendee, dancer and studio notifications after settlement, safe conflict refunds, canonical refund reconciliation for every refund path (full, partial and post-attendance handling) and refund timestamp/accounting integrity. Follow-ups tracked in the deferred register: PKG-REFUND-2 `refund.created` timing, raw RPC error text in `payment_provider_events`, non-atomic event dedupe, DEV `accounting_upsert_entry` drift, DEV-only floor-rental index, portal-only/member-only classes, "This and following" direct-payment propagation, seven legacy SQL-suite failures. Decision #10 open. **Next: Phase 8 — Documents Center completion.** Twilio and BR-6 unchanged. |

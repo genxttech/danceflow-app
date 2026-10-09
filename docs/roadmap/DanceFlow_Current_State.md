@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-08 (roadmap v2.19: Phase 2 Twilio A2P status corrected to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION (studio-specific ISV campaigns; ConfiDance pilot); roadmap v2.18: Phase 8 — Documents Center COMPLETE / CLOSED (8A, 8B, 8C and 8D all released); Phase 9 — Payroll Prep v1 next; Phase 7, Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
+**Last updated:** 2026-10-09 (roadmap v2.20: Phase 9 — Payroll Prep v1 COMPLETE / CLOSED (9A–9E all released); Phase 10 — Organizer + Competition OS is the next primary engineering phase; Twilio Phase 2 active in parallel — TW-1 released, TW-2 not yet released; roadmap v2.19: Phase 2 Twilio A2P status corrected to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION; roadmap v2.18: Phase 8 — Documents Center COMPLETE / CLOSED; Phase 7, Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,13 +10,13 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `ab60dba55b10162bb1f057136c9bdf705bccce91` (Phase 8D, PR #192; tree `7a86ef5b6ba5cfa5d2823fcf475e53d2b3c660af`). Live application: `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`. Phase 8 — Documents Center is fully released |
-| **CURRENT PROD DEPLOYMENT** | `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC` (source `ab60dba55b10162bb1f057136c9bdf705bccce91`; Phase 8D live on `www.idanceflow.com`; promoted 2026-10-08). Rollback caution: the previous 8C deployment `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` is NOT a clean automatic rollback target, because it explicitly grants `can_sign_documents` on new non-self links (including guardians and billing contacts), which would reopen the fail-open behavior even though the database default is now FALSE; any rollback must be reviewed |
+| **CURRENT MAIN** | `9c3fd5aec9eb01847980a7f4a0d49272c5298537` (Phase 9E, PR #200; tree `083ab56212a86790078a5355090f0da523f03ce4`). Live application: `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`. Phase 9 — Payroll Prep v1 and Phase 8 — Documents Center are fully released |
+| **CURRENT PROD DEPLOYMENT** | `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u` (source `9c3fd5aec9eb01847980a7f4a0d49272c5298537`; Phase 9E live on `www.idanceflow.com`; promoted 2026-10-09). App-only rollback target: the 9D deployment `dpl_EoraccsLgajB7m1VLTzxomhR59wQ` (includes TW-1 and Phase 9A–9D, not 9E). Arbitrary older deployments are not assumed safe against the current database. Rollback cautions: do not roll the app back below the 9C release (the pre-9C app cannot save compensation rules against the 9C database), and do not roll back to the Phase 8C deployment (it grants `can_sign_documents` on new non-self links); any deeper rollback must be reviewed |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
 | **PRIMARY REPO LINK** | DEV |
 | **NON-TWILIO LAUNCH STATUS** | READY / CLOSED; no new launch blocker from BR-4, BR-5 or ENT-1 |
-| **PENDING PROD MIGRATIONS** | None. `20261101090000_client_account_links_signing_default.sql` (SHA-256 `76e9c6a8c5aebbaf7b807d834d3ddc4b67f8bbf34634745e5ca43835c1767f13`) is APPLIED to PROD (2026-10-08): the `can_sign_documents` database default is fail-safe FALSE, self links are set TRUE by the INSERT-only self-link trigger, and existing relationships were not backfilled. Earlier Phase 8 migrations applied: `20261029090000` (8A, 11:35Z), `20261030090000` (8B verify-only, 18:12Z), `20261031090000` (8C evidence read boundary, 19:49Z), each from an isolated workdir after a clean read-only preflight |
+| **PENDING PROD MIGRATIONS** | None. Phase 9 migrations `20261102090000` (9A), `20261103090000` (9B) and `20261104090000` (9C) are APPLIED to PROD (2026-10-09); 9D and 9E were app-only. The Phase 8 migrations, including `20261101090000_client_account_links_signing_default.sql`, are applied |
 | **PACKAGE REFUND HOLD** | Released / `false` |
 | **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified. Twilio compliance/submission (Phase 2) is a parallel DanceFlow-owned lane, not an engineering blocker |
 | **KNOWN HYGIENE DEBT** | pre-existing lint errors in some public pages (not introduced by BR-4, BR-5 or ENT-1); they keep the changed-file lint step in CI red when those files are touched. Bounded UI polish bug: New Client page shows a literal newline marker (`/n`, from literal `\n` text in the JSX around the "Personal details" and "Client photo" sections of `src/app/app/clients/new/page.tsx`) where a line break / layout break was intended. Fix: replace the visible marker with the intended newline, spacing or layout and verify the New Client page renders cleanly. Small UI/polish bug, not a redesign; not a launch blocker. |
@@ -47,18 +47,21 @@ The BR-6 branch is not main. Do not treat BR-6 as merged until its pull request 
 
 ## Twilio status
 
-**Phase 2 — Twilio A2P / SMS: ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION** (not blocked; runs in parallel with Phase 9 and does not block starting Payroll Prep v1). Reference: Twilio support ticket #29647095; latest controlling guidance from Sachin Singh, Twilio A2P 10DLC Appeals Team, 2026-10-06.
+**Phase 2 — Twilio A2P / SMS: ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION** (not blocked; runs in parallel with the engineering phases and does not block Phase 10). Reference: Twilio support ticket #29647095; latest controlling guidance from Sachin Singh, Twilio A2P 10DLC Appeals Team, 2026-10-06.
 
 - DanceFlow operates as the ISV. Each studio receives its own studio-specific A2P campaign under the existing GenX TotalTech LLC / DanceFlow Twilio account (studio legal entity for Brand/Customer registration; studio as customer-facing brand; DanceFlow described as the ISV providing software and messaging infrastructure).
 - The previous shared DanceFlow campaign is intentionally left unused; it is not being repaired or resubmitted.
 - ConfiDance Studio is the pilot and first studio-specific campaign. Twilio reviewed the proposed ConfiDance opt-in flow and supporting materials and said they appear aligned with compliance requirements.
-- Twilio says Mixed or Customer Care is typically appropriate for transactional appointment and one-to-one operational staff messages (no marketing/promotional content). The final choice has not been made.
+- Twilio says Mixed or Customer Care is typically appropriate for transactional appointment and one-to-one operational staff messages (no marketing/promotional content). Mixed is the intended pilot direction; the final selection is made at submission.
 - Not a Twilio architecture blocker. Next actions are on DanceFlow: (1) finalize the ConfiDance campaign description; (2) finalize supporting evidence/materials; (3) send the package to Twilio for final pre-submission review; (4) submit the studio-specific campaign; (5) obtain approval; (6) perform production SMS verification; (7) use the approved ConfiDance implementation as the repeatable studio onboarding model.
+- Compliance-engineering slices: **TW-1 (Advanced Opt-Out alignment) is COMPLETE / RELEASED** (PR #197). **TW-2 (consent integrity) is implemented, DEV complete and Opus-reviewed but NOT merged or released**; it needs a fresh re-pin onto the current main before PR and release.
 - Engineering for the per-studio A2P model is live (SMS-A2P-1 through 3C). No `studio_sms_registrations` row exists in PROD, the global SMS status has not been changed, and every studio is fail-closed until individually approved. The ConfiDance campaign is not yet submitted, approved or production-verified.
 
 ## Current roadmap position
 
-**ACTIVE PHASE:** Phase 9 — Payroll Prep v1 (next canonical phase; Phase 8 — Documents Center is COMPLETE / CLOSED, 2026-10-08). Phase 3 — Branding Relaunch stays PARTIAL with BR-6 parked.
+**ACTIVE PHASE:** Phase 10 — Organizer + Competition OS (next primary engineering phase; Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED, 2026-10-09). Phase 2 Twilio continues in parallel. Phase 3 — Branding Relaunch stays PARTIAL with BR-6 parked.
+
+**PHASE 9 — PAYROLL PREP V1:** COMPLETE / CLOSED / FULLY RELEASED. 9A integrity, 9B immutable evidence, 9C compensation history and validation, 9D formula-safe CSV and 9E UX/timezone closeout are all released (main `9c3fd5a`, live `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`). Carry-forwards, without reopening Phase 9: platform-admin payroll items (Phase 12), the dormant Gusto "Last checked" timestamp display (later Gusto phase), and an optional visual check of the narrow-width Payroll layouts.
 
 **PHASE 8 — DOCUMENTS CENTER:** COMPLETE / CLOSED. 8A signing integrity, 8B lifecycle correctness + gating, 8C evidence + portal truth and 8D are all RELEASED (FULLY RELEASED; main `ab60dba`, live `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`); 8D closed the product decisions (signing permission, guardian delivery for clients without email, decision #9 — waivers are Documents template types and the signing certificate is the Documents evidence receipt) and the status / assignment UX.
 
@@ -275,4 +278,4 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 
 ## NEXT GATE
 
-Phase 8 — Documents Center is complete and fully released. The next engineering phase is Phase 9 — Payroll Prep v1; Phase 2 Twilio continues in parallel as compliance / pilot submission work. BR-6 resumes when the professional ARIA voice recording arrives. Phases 5, 6, 7 and 8 are COMPLETE / CLOSED. Remaining Phase 4 work waits on open decision #8.
+Phase 9 — Payroll Prep v1 is complete and fully released (as is Phase 8 — Documents Center). The next engineering phase is Phase 10 — Organizer + Competition OS; Phase 2 Twilio continues in parallel as compliance / pilot submission work (TW-1 released; TW-2 awaiting re-pin, PR and release). BR-6 resumes when the professional ARIA voice recording arrives. Phases 5, 6, 7, 8 and 9 are COMPLETE / CLOSED. Remaining Phase 4 work waits on open decision #8.
