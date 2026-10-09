@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v2.20 |
-| **Last reconciled against main** | `9c3fd5aec9eb01847980a7f4a0d49272c5298537` (Phase 9E, PR #200; tree `083ab56212a86790078a5355090f0da523f03ce4`). Live application `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u` (promoted 2026-10-09). Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED / FULLY RELEASED (9A–9E). Phase 9 migrations `20261102090000`, `20261103090000` and `20261104090000` are applied to PROD (2026-10-09); 9D and 9E were app-only. Phase 8 — Documents Center remains COMPLETE / CLOSED / FULLY RELEASED |
+| **Roadmap version** | v2.21 |
+| **Last reconciled against main** | `67e735ca81e79886ddd616c0f01f28d5b29cee50` (Twilio TW-3, PR #202). Live application `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` (2026-10-09; rollback: application first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA`, then the TW-3 SQL rollback). TW-3 migration `20261106090000` applied to PROD 2026-10-09 12:34Z. Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED / FULLY RELEASED (9A–9E). Phase 9 migrations `20261102090000`, `20261103090000` and `20261104090000` are applied to PROD (2026-10-09); 9D and 9E were app-only. Phase 8 — Documents Center remains COMPLETE / CLOSED / FULLY RELEASED |
 | **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
 | **Current external dependency** | None blocking. Phase 2 Twilio A2P is an ACTIVE parallel compliance/engineering lane (studio-specific ConfiDance pilot campaign: final compliance review and submission); it does not block Phase 10 |
-| **Current recommended next roadmap phase** | Phase 10 — Organizer + Competition OS (Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED, 2026-10-09). Phase 3 — Branding Relaunch stays PARTIAL: BR-6 — Promotional Media is parked awaiting the professional ARIA voice recording. ENT-1 is RELEASED (PR #138) |
+| **Current recommended next roadmap phase** | Phase 10 — Organizer + Competition OS; next slice 10A — Competition Foundation Reconciliation (Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED, 2026-10-09). Phase 3 — Branding Relaunch stays PARTIAL: BR-6 — Promotional Media is parked awaiting the professional ARIA voice recording. ENT-1 is RELEASED (PR #138) |
 
 > **Explicit note:** BR-4 was shaped by Featured Events and Partner Match maturity and was **not blocked** by either; their public-claim restrictions remain in force for BR-5 onward. See [Featured Events](#strategic-module-featured-events), [Partner Match](#strategic-module-partner-match) and Phase 3 §Public-claim restrictions.
 
@@ -179,7 +179,9 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 **COMPLIANCE-ENGINEERING SLICES (parallel lane)**
 - **TW-1 — Advanced Opt-Out Alignment:** COMPLETE / RELEASED (PR #197, `b3ce238`).
-- **TW-2 — Consent Integrity:** IMPLEMENTED / DEV COMPLETE / OPUS REVIEW COMPLETE. NOT YET MERGED OR RELEASED; its branch needs a fresh re-pin onto the current main before PR and release.
+- **TW-2 — Consent Integrity:** COMPLETE / RELEASED (PR #199, `6cb7a39`).
+- **TW-3 — Registration Metadata & Readiness:** COMPLETE / RELEASED 2026-10-09 (PR #202 → main `67e735c`; PROD SQL `20261106090000` applied 12:34Z; production deployment `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` live; rollback: application first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA`, then the SQL rollback).
+- TW-1/TW-2/TW-3 engineering is complete; no TW-4 is planned. The next Twilio work is **TW-OPS** (ConfiDance setup, pre-submission review, campaign submission, production SMS verification), a separate parallel track.
 
 **REMAINING DELIVERABLES** (DanceFlow-owned compliance/pilot work, parallel to the engineering phases)
 1. Finalize the ConfiDance campaign description.
@@ -801,11 +803,24 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 ## Phase 10 — Organizer + Competition OS
 
-**STATUS:** PARTIAL — MATERIAL WORK REMAINS — NEXT PRIMARY ENGINEERING PHASE (Phase 9 closed 2026-10-09)
+**STATUS:** PARTIAL — MATERIAL WORK REMAINS — NEXT PRIMARY ENGINEERING PHASE (Phase 9 closed 2026-10-09). **Next slice: 10A — Competition Foundation Reconciliation.** Phase 10 is NOT greenfield: a partial Competition OS foundation already exists (see below). The Competition OS architecture and slice plan were approved in v2.21 (docs only; no code, SQL or deployment change).
 
 **OBJECTIVE:** A complete organizer workspace and a full Competition OS. **Ordinary event ticketing does not count as Competition OS.**
 
 **PRODUCT INTENT:** Organizers run events and competitions end to end, from setup and registration through live operation, scoring, results and settlement.
+
+**GOVERNING PRINCIPLE:** Simple competitions must remain simple even though Competition OS can support complex competitions. Complexity is introduced by the selected format and the actual needs of the event, not exposed by default.
+
+**ORGANIZER EXPERIENCE LAYERS**
+- **Simple Mode** — the default for studio competitions and showcases. It creates a sensible competition structure automatically and never requires the organizer to understand advanced internals.
+- **Advanced Mode** — progressively exposes the rules profile, complex divisions, rounds, heat strategy, judge panels, scoring configuration, eligibility and organization reporting. Advanced Mode is never required for basic use.
+
+**ARCHITECTURE** (approved v2.21; engineering docs and code own the schema detail)
+- **Competition Core + versioned Rules/Format Profile + versioned Scoring Engine + Organizer UX.** Profile examples: `studio_simple@1`, `wsdc@2026.1C`, `ucwdc@2026-SF16.9b`, `ndca@2026-06`. The initial target profile is `studio_simple@1`.
+- **Rules/version lock:** at publish a competition locks its rules profile key and version, its scoring engine version and a configuration snapshot. Future rule updates must not silently change existing or historical competitions. Human-readable rule sources are kept separate from the normalized executable configuration.
+- **Rules profile and sanction status are separate.** Selecting a rules profile never implies official sanction. Sanction is not required for studio v1. DanceFlow does not claim organization authorization or endorsement until it has been independently obtained.
+- **Roadmap-level model:** Event → Competition → Category → Division → Round → scoring heat; plus event-level competitors, entries, entry participants, floor heats, schedule, officials, panels, ballots, advancement decisions, adjudication actions, immutable result calculations, result publication, corrections and awards.
+- **Integrity:** submitted ballots are immutable and corrections create new versions; scoring engines are deterministic and versioned; result calculation preserves its trace/evidence; finalized results are never silently overwritten; publication is versioned; corrections retain prior history. High-integrity ballot and scoring slices require Opus review and their own Security Review.
 
 **COMPLETED CAPABILITIES — EVENT side**
 - Organizer workspace, organizer public page/ICS/embeds; event CRUD and public pages; ticketing (tickets, sell-tickets, digital tickets, multi-ticket cart, capacity holds, schedule items/sessions); registrations with exports and signed documents; check-in with scanner and recap; settlement/closeout (actions, export, PDF); financial summary and event order payments; organizer contacts and campaigns; event reminders and push; event-level ARIA actions; organizer roles/RLS.
@@ -814,38 +829,73 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 **COMPLETED CAPABILITIES — COMPETITION side** (routes under `events/[id]/competition/*`; library `src/lib/competition`)
 - Competition/showcase setup; divisions, contests, dances, WSDC rules; competitor registration (public builder, cart, fee rules, checkout, organizer registrations page); entries, entry dances and entry changes (table); heat planning with generation runs, review and apply; scheduling (schedule page, publications, constraints, conflicts, rounds); check-in (sessions, participants, credentials, participant waivers); readiness page; West Coast Swing foundation (tier rules, petitions, program profiles).
 
+**EXISTING FOUNDATION (June 2026, partial; not complete):** roughly 40 `event_competition_*` tables covering programs, contests, divisions, rounds, heats and heat entries; configuration templates; entry structures; generation/proposal infrastructure and the heat planner; scheduling structures; check-in including competitor numbers and credentials; the WSDC profile foundation; and a public competition registration builder behind a feature flag. Material work remains on top of it.
+
+**KNOWN FOUNDATION DEFECTS / DRIFT (to be fixed in 10A; not yet fixed)**
+- The schedule tables and the schedule-version RPC exist in the deployed databases but are not captured in repository migrations.
+- Public competition read RLS defects (contest and division policies).
+- `event_competition_entry_changes` is not append-only or hardened.
+- Heat lock override relies on an unsafe session override rather than role checks.
+- No tests exist around the foundation.
+- The Competition workspace has no obvious entry from event detail.
+
 **REMAINING DELIVERABLES — COMPETITION (highly visible; drives the Phase 18 app-count decision)**
-- **Officials/judges:** model, assignments, and judge access (none found).
-- **Scoring:** engine, sheets, scoring-system choice (none found).
-- **Placements/results:** calculation, tabulation, publishing (none found).
+- **Canonical event-level competitor identity** (none found; see Locked Decisions).
+- **Officials, panels and judge access:** model, assignments and web ballot entry (none found).
+- **Ballots and marks:** immutable ballots, marks and paper-ballot entry (none found).
+- **Scoring engines and result calculations:** deterministic, versioned engines with a preserved trace (none found).
+- **Approvals, publication and corrections:** review, approve, versioned publication and correction history (none found).
 - **Awards** (none found).
+- **Public participant result and heat views** (none found).
 - **Feedback** (judge or competitor) (none found).
 - **Live heat management** (call, advance, delay, live status to competitors) (none found).
 - **Scratches/changes workflow UI** with fees and re-heat (table exists; no UI).
 - **Partnerships/couples management** (partial: entry participants and partner search only).
-- Competition **test coverage** (none found for lib or routes).
+- Competition **test coverage** (none found for lib or routes; 10A adds foundation tests).
 
 **REMAINING DELIVERABLES — EVENT side:** volunteer/staff UI (labor actions exist without a page); a profitability view (only financial summary and settlement); organizer-specific notification center; organizer ARIA page; event-promotion/Featured management (see module).
 
+**SLICE PLAN** (approved v2.21; engineering sequencing, not a delivery commitment)
+- **10A — Competition Foundation Reconciliation (NEXT; recommended model Opus):** read-only DEV/PROD introspection; capture the deployed schedule tables and RPC into repository migrations; repair the public competition RLS defects; harden `event_competition_entry_changes`; replace the unsafe heat override with role-checked behavior; tests around the existing foundation; an obvious Competition workspace entry from event detail.
+- **10B — Simple Creation + Competition Workspace:** `studio_simple@1`, profile/version lock, Simple Mode wizard, workspace shell with readiness, separate rules-profile and sanction fields.
+- **10C — Competitors + Transactional Registration:** event-level competitors and entries; competition checkout hardening on the existing event commerce stack (transactional, idempotent, server price snapshot, signing via the Phase 8 workflow).
+- **10D — Heats + Floor Schedule v1:** floor heats, single floor, heat sheets, scratches/no-show, check-in tie-in, participant heat lookup.
+- **10E — Officials + Immutable Ballots (Opus; own Security Review).**
+- **10F — Scoring Engines + Results + Publication:** calculate, review, approve, publish, corrections, awards, public results, participant history (Opus for engines and finalization).
+- **10G — Live Competition Run + Polish:** may immediately follow or overlap as bounded polish once the core loop exists.
+- **10H — Ballroom / Multi-Dance Expansion.**
+- **10I — WSDC Profile.**
+- **10J+ — UCWDC / NDCA / Sanctioned Advanced Competition.**
+- **Studio v1 milestone = 10A through 10F.** 10H–10J are not v1 requirements.
+- **V1 success loop:** CREATE → PUBLISH → REGISTER → PAY → CHECK-IN → BUILD HEATS → JUDGES SCORE → CALCULATE → REVIEW → APPROVE → PUBLISH RESULTS.
+- **After studio v1 (profile scope):** WSDC — Relative Placement, Jack & Jill random pairing, WSDC profile/tier/reporting. UCWDC — Majority Rules, Group-and-Rank, UCWDC callbacks, modular/singular heating, championship formulas. NDCA — multi-dance Skating, penalties/invigilation/credential enforcement, required exports/reporting. The proposed engineering order is WSDC, then UCWDC, then NDCA; this is an engineering dependency order (the WSDC foundation already exists), **not** a product-market priority statement.
+- **Outside studio v1:** multiple floors; championship-scale optimization; every sanctioning eligibility rule; automatic sanction submission; external points-registry sync; all organization-specific report formats; UCWDC advanced championship logic; NDCA full sanctioning/penalty administration; complex teams/choreography edge cases; a separate judging application.
+
 **LOCKED DECISIONS:** Event and Competition are tracked separately. Competition routes live under the event.
+- **Competitor identity (CLOSED / LOCKED, v2.21):** no second platform person-identity system; existing DanceFlow identity remains canonical. Competition OS adds an event-level competitor abstraction: one human is one competitor per event, with many competition entries. A competitor may optionally anchor to an account/dancer profile, a client or an instructor; guest competitors without accounts are allowed; linking follows the verified-identity rules. PERSON ≠ COMPETITOR ≠ ENTRY (example: one competitor with ProAm Two Step, ProAm Waltz, Solo and Jack & Jill entries). Partnership/team structure belongs to entries and entry participants, not duplicate person rows.
+- **Floor heat (v1):** a scoring heat is one round/division scoring unit; a floor heat is the numbered on-floor/schedule unit visible to organizers and competitors. A floor heat may contain several scoring heats/divisions. Floor heats are in scope for studio v1.
+- **Judge access (studio v1):** judges use authenticated DanceFlow accounts for web ballot entry; a scorer may enter paper ballots; no anonymous judge or tablet links in v1. Competition-specific event roles are implemented inside Phase 10 as needed; Phase 12 remains the generic platform Team & Permissions expansion.
+- **Studio v1 scoring defaults:** final-only structure unless entry volume requires a preliminary; `ordinal_majority` for placement contests; Gold / Silver / Bronze simple rating bands for studio showcase/rating use (explicitly not UCWDC's formal medal scoring vocabulary). Engines in studio v1: `ordinal_majority`, `proficiency_rating`, `callback_tally`. Organization sanction is not required; guest competitors are supported; one physical floor initially; multiple divisions may share one numbered floor heat.
+- **Payment reuse (LOCKED):** Competition OS reuses the existing event commerce stack and has no independent competition payment stack: event orders, competition-entry order items, event registrations, Stripe Connect direct charges, the existing payment webhook and ownership controls, and the studio/organizer workspace Stripe payout account. Competition checkout hardening belongs in 10C.
+- **Public copy:** the existing restriction on Competition OS claims (Phase 3 public-claim restrictions) is unchanged by this architecture approval.
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Scoring system(s) to support; whether judging is web, mobile or a separate app (Phase 18); Featured Events model.
+**UNRESOLVED PRODUCT DECISIONS:** Whether a separate judging application exists (v1 is web with authenticated accounts; the separate-app question remains Phase 18); Featured Events model. (Scoring systems to support is resolved by the locked studio v1 defaults and the post-v1 profile order above.)
 
-**DEPENDENCIES:** Phase 12 (competition-operational permissions); Phase 11 (notification integration); Phase 13/Featured module.
+**DEPENDENCIES:** Competition-specific event roles are implemented inside Phase 10 as needed; Phase 12 (generic Team & Permissions expansion) later folds them into its permission catalog. Phase 8 (signing workflow) for competition checkout; Phase 11 (notification integration); Phase 13/Featured module.
 
 **WEB IMPLICATIONS:** Organizer and Competition are named workspaces in Phase 17.
 
-**MOBILE IMPLICATIONS:** Judging, live heats and competitor surfaces drive the 2-app vs 3-app decision. Today `mobile/` contains only the student app; its competition screen is a discovery category.
+**MOBILE IMPLICATIONS:** Studio v1 judging is web-based with authenticated accounts. Judging, live heats and competitor surfaces still drive the 2-app vs 3-app decision (Phase 18). Today `mobile/` contains only the student app; its competition screen is a discovery category.
 
-**SECURITY / PERMISSIONS CONSIDERATIONS:** Judge/scoring access and result integrity are new high-risk surfaces; require their own Security Review. Event staff-role granularity is deferred (see register).
+**SECURITY / PERMISSIONS CONSIDERATIONS:** Judge/scoring access and result integrity are new high-risk surfaces; require their own Security Review (10E and 10F require Opus review). 10A also repairs existing public-read RLS and append-only/override defects in the foundation. Event staff-role granularity is deferred (see register).
 
 **BRANDING / POLISH CONSIDERATIONS:** Organizer/competition surface branding unverified; vocabulary sweep ("Organizer Workspace").
 
 **DEFERRED / POST-LAUNCH ITEMS:** Event staff-role hardening; floor-rental pricing redesign (unrelated sibling item).
 
-**EVIDENCE / RELEASE REFERENCES:** `src/app/app/events/[id]/competition/*`, `src/lib/competition/*`, `20260622_west_coast_swing_foundation_v1`.
+**EVIDENCE / RELEASE REFERENCES:** `src/app/app/events/[id]/competition/*`, `src/lib/competition/*`, `20260622_west_coast_swing_foundation_v1`. v2.21 architecture approval is docs only (no application, SQL or deployment change).
 
 ---
 
@@ -908,7 +958,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 - Per-user overrides beyond exports (navigation, modules, finance, clients, competition operations).
 - Inherited-vs-overridden visibility and an effective-permissions view.
 - Navigation gated by permission keys (today hard-coded role checks).
-- Competition-operational boundaries beyond `organizer_staff`.
+- Competition-operational boundaries beyond `organizer_staff` (competition-specific event roles needed by Phase 10 are delivered inside Phase 10 and folded into this phase's permission catalog later).
 - Event staff-role granularity (#7, deferred).
 
 **LOCKED DECISIONS:** Owner-only administration and owner-access safeguards remain.
@@ -1594,7 +1644,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 8. Phase 4 plan placement for SMS, payroll, marketplace, ARIA. **Open; blocks all remaining Phase 4 implementation** (SMS allowance and quantity, payroll/marketplace/ARIA tiers, ARIA gated by plan vs AI credits only, tie to Phase 22 pricing). No speculative `BillingFeature` keys until decided.
 9. **CLOSED (2026-10-08, Phase 8D):** Documents scope: waivers and receipts. A waiver is a Documents template / use type on the canonical envelope lifecycle (no separate waiver engine); the envelope completion (signing) certificate is the canonical evidence receipt for Documents; payment receipts stay in Commerce.
 10. **CLOSED (2026-10-09, Phase 9B):** Payroll "exported/finalized" state. No distinct status was added; approval and export are recorded as immutable evidence.
-11. Competition scoring system(s) and where judging runs.
+11. **PARTLY CLOSED (2026-10-09, v2.21):** Competition scoring systems for studio v1 are approved (Phase 10), and v1 judging is web with authenticated accounts. Whether a separate judging app exists remains open (Phase 18).
 12. Pricing cutover timing.
 13. Video cut list (BR-6) and the banner vendor (BR-5 follow-up).
 
@@ -1613,6 +1663,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-09 | v2.21 | **Docs-only reconciliation (no application, SQL, test, configuration or deployment change).** (1) **Phase 10 — Organizer + Competition OS: Competition OS architecture approved.** Phase 10 is not greenfield: a partial June-2026 foundation exists (about 40 competition tables, heat planner, scheduling, check-in, WSDC profile foundation, flagged public registration builder). Governing principle: simple competitions stay simple; complexity comes from the selected format. Two organizer layers (Simple Mode default; Advanced Mode progressive). Architecture: Competition Core + versioned Rules/Format Profile + versioned Scoring Engine + Organizer UX, initial profile `studio_simple@1`; rules/scoring version and configuration snapshot locked at publish; rules profile and sanction status are separate and no organization authorization is claimed. (2) **Locked:** event-level competitor identity (one human, one competitor per event, many entries; no second person-identity system; guests allowed); scoring heat vs floor heat; authenticated-account web judging with paper-ballot entry and no anonymous judge links in v1; competition roles implemented in Phase 10 and folded into Phase 12 later; integrity rules (immutable ballots, versioned deterministic engines, versioned publication, corrections keep history); studio v1 scoring defaults (`ordinal_majority`, `proficiency_rating`, `callback_tally`; Gold/Silver/Bronze rating bands); payment reuse of the existing event commerce stack. (3) **Slice plan:** 10A Competition Foundation Reconciliation (NEXT), 10B–10G, 10H–10J+; studio v1 = 10A–10F; post-v1 engineering order WSDC, UCWDC, NDCA (dependency order, not market priority). Known foundation defects recorded for 10A (undeclared schedule tables/RPC, public-read RLS defects, non-hardened entry-changes table, unsafe heat override, no tests, no workspace entry). Open decision #11 partly closed; separate judging app stays a Phase 18 question; public Competition OS claim restriction unchanged. (4) **Twilio TW-3 (registration metadata and readiness) RELEASED 2026-10-09:** PR #202 → main `67e735c`; PROD SQL `20261106090000` applied 12:34Z; production deployment `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` live (rollback: app first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA`, then the SQL rollback). TW-1/TW-2/TW-3 engineering complete; Phase 2 stays ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION; next Twilio work is TW-OPS; no TW-4 planned; Twilio remains a separate parallel track. |
 | 2026-10-09 | v2.20 | **Docs-only reconciliation (no application, SQL, test, configuration or deployment change).** (1) **Phase 9 — Payroll Prep v1 — COMPLETE / CLOSED / FULLY RELEASED:** 9A integrity (PR #194), 9B immutable evidence (PR #195), 9C compensation history and validation (PR #196), 9D formula-safe CSV (PR #198) and 9E UX/timezone closeout (PR #200) are all released; main `9c3fd5a`, live `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`; Phase 9 migrations `20261102090000`, `20261103090000` and `20261104090000` applied to PROD. (2) Decision #10 (payroll exported/finalized state) closed: no new status; the shared-CSV-helper register item resolved. (3) **Phase 10 — Organizer + Competition OS is the next primary engineering phase;** numbering and the 26-phase order are unchanged. (4) Twilio Phase 2 remains ACTIVE in parallel: TW-1 released (PR #197); TW-2 implemented / DEV complete / Opus review complete, not merged or released. (5) Carry-forwards recorded without reopening Phase 9: platform-admin payroll items (Phase 12), dormant Gusto timestamp display (later Gusto phase), optional narrow-width visual check. |
 | 2026-10-08 | v2.19 | **Docs-only reconciliation (no application, SQL, Twilio-integration or deployment change).** (1) **Phase 2 Twilio A2P status corrected** to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION: DanceFlow is the ISV and each studio gets its own studio-specific A2P campaign (ticket #29647095; Twilio guidance 2026-10-06); the shared campaign is unused; ConfiDance is the pilot and its opt-in materials appear aligned; Mixed vs Customer Care not yet selected; no remaining step recorded as done; Twilio proceeds in parallel with Phase 9. (2) **Phase 8 production baseline reconciled after the final 8D release:** main `ab60dba` (PR #192), live `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`, migration `20261101090000` applied to PROD 2026-10-08; Phase 8 scope unchanged. Phase 9 — Payroll Prep v1 remains next; numbering unchanged. |
 | 2026-10-08 | v2.18 | **Phase 8 — Documents Center completion — COMPLETE / CLOSED.** Cleanup before Phase 8: PR #184 (`6588400`, lesson package eligibility + client form rendering), PR #185 (`c5e9553`, past event lifecycle across Discovery and Events), PRs #186–#188 (`291e9a4`, `a3857cb`, `fd925ff`, ARIA reconciliation, current-state and opportunity truthfulness lifecycle), all released. **8A** signing integrity PR #189 (`3cdff68`); PROD migration `20261029090000` applied 2026-10-08 11:35Z after the application release. **8B** lifecycle correctness + gating PR #190 (`2c55cbd`); application `dpl_898GsDy9i8GPFN5mJHXg8swR522p`; PROD verify-only migration `20261030090000` applied 18:12Z (no-op; canonical fingerprint confirmed). **8C** evidence + portal truth PR #191 (`0e8391a`, tree `2f9c73c0`); application `dpl_7sxSQDWYn2bBzmPPhZXMCcA5SDD6` promoted 19:47Z; PROD evidence-read migration `20261031090000` applied 19:49Z. **8D** closeout: fail-safe signing permission (migration `20261101090000`, DEV applied; PROD with its release), staff signing-permission control, guardian / authorized-recipient delivery for clients without email, truthful statuses and actions, searchable assignment picker + Assign document from the client profile, field-layout reuse, decision #9 closed (waivers = Documents template type; signing certificate = Documents evidence receipt). Rollback note: `dpl_898GsDy9…` is not a clean rollback target under the 8C evidence policies. Next phase: Phase 9 — Payroll Prep v1 |
