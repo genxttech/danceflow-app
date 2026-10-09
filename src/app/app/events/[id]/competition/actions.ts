@@ -97,7 +97,7 @@ export async function restartCompetitionSetupAction(formData: FormData): Promise
   }
 
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).rpc("restart_event_competition_setup", {
+  const { error } = await supabase.rpc("restart_event_competition_setup", {
     target_event_id: eventId,
     confirmation_text: confirmation,
   });
@@ -112,7 +112,7 @@ export async function applyCompetitionTemplateAction(formData: FormData): Promis
   if (!eventId || !templateKey) throw new Error("Event and template are required.");
 
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).rpc("apply_competition_configuration_template", {
+  const { error } = await supabase.rpc("apply_competition_configuration_template", {
     target_event_id: eventId,
     selected_template_key: templateKey,
   });
@@ -127,7 +127,7 @@ export async function createCompetitionProgramAction(formData: FormData): Promis
   if (!eventId || !name) throw new Error("Event and program name are required.");
 
   const { supabase, context, event } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_programs").insert({
+  const { error } = await supabase.from("event_competition_programs").insert({
     event_id: eventId,
     studio_id: event.studio_id,
     organizer_id: event.organizer_id,
@@ -156,7 +156,7 @@ export async function updateWsdcProgramProfileAction(formData: FormData): Promis
   const resultsReportingRequired = text(formData, "resultsReportingRequired") === "on";
   const { supabase } = await requireEventManager(eventId);
 
-  const { data: program } = await (supabase as any)
+  const { data: program } = await supabase
     .from("event_competition_programs")
     .select("id")
     .eq("id", programId)
@@ -165,7 +165,7 @@ export async function updateWsdcProgramProfileAction(formData: FormData): Promis
     .maybeSingle();
   if (!program) throw new Error("West Coast Swing program was not found.");
 
-  const { error: profileError } = await (supabase as any)
+  const { error: profileError } = await supabase
     .from("event_competition_wsdc_program_profiles")
     .update({
       registry_status: registryStatus,
@@ -178,7 +178,7 @@ export async function updateWsdcProgramProfileAction(formData: FormData): Promis
     .eq("program_id", programId);
   if (profileError) throw new Error(`Could not update WSDC settings: ${profileError.message}`);
 
-  const { data: registryContests, error: contestError } = await (supabase as any)
+  const { data: registryContests, error: contestError } = await supabase
     .from("event_competition_contests")
     .select("id")
     .eq("event_id", eventId)
@@ -187,7 +187,7 @@ export async function updateWsdcProgramProfileAction(formData: FormData): Promis
   if (contestError) throw new Error(`Could not load WSDC contests: ${contestError.message}`);
 
   for (const contest of registryContests ?? []) {
-    const { data: existingFee, error: feeLookupError } = await (supabase as any)
+    const { data: existingFee, error: feeLookupError } = await supabase
       .from("event_competition_fee_rules")
       .select("id")
       .eq("event_id", eventId)
@@ -206,8 +206,8 @@ export async function updateWsdcProgramProfileAction(formData: FormData): Promis
       configuration: { source: "wsdc_competitor_surcharge", rules_edition: "2026.1C" },
     };
     const feeResult = existingFee
-      ? await (supabase as any).from("event_competition_fee_rules").update(feeValues).eq("id", existingFee.id).eq("event_id", eventId)
-      : await (supabase as any).from("event_competition_fee_rules").insert({ ...feeValues, event_id: eventId, program_id: programId, contest_id: contest.id });
+      ? await supabase.from("event_competition_fee_rules").update(feeValues).eq("id", existingFee.id).eq("event_id", eventId)
+      : await supabase.from("event_competition_fee_rules").insert({ ...feeValues, event_id: eventId, program_id: programId, contest_id: contest.id });
     if (feeResult.error) throw new Error(`Could not save WSDC surcharge: ${feeResult.error.message}`);
   }
 
@@ -221,7 +221,7 @@ export async function createCompetitionDanceAction(formData: FormData): Promise<
   if (!eventId || !programId || !name) throw new Error("Program and dance/style name are required.");
 
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_dances").insert({
+  const { error } = await supabase.from("event_competition_dances").insert({
     event_id: eventId,
     program_id: programId,
     dance_key: slugify(text(formData, "danceKey") || name),
@@ -241,7 +241,7 @@ export async function createCompetitionDivisionAction(formData: FormData): Promi
   if (!eventId || !programId || !contestId || !name) throw new Error("Competition event and division name are required.");
 
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_divisions").insert({
+  const { error } = await supabase.from("event_competition_divisions").insert({
     event_id: eventId,
     program_id: programId,
     contest_id: contestId,
@@ -263,7 +263,7 @@ export async function createCompetitionContestAction(formData: FormData): Promis
   if (!eventId || !programId || !name) throw new Error("Program and competition event name are required.");
 
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_contests").insert({
+  const { error } = await supabase.from("event_competition_contests").insert({
     event_id: eventId,
     program_id: programId,
     name,
@@ -284,7 +284,7 @@ export async function addCompetitionDivisionDanceAction(formData: FormData): Pro
   if (!eventId || !programId || !divisionId || !danceId) throw new Error("Division and dance/style are required.");
 
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_division_dances").insert({
+  const { error } = await supabase.from("event_competition_division_dances").insert({
     event_id: eventId,
     program_id: programId,
     division_id: divisionId,
@@ -306,7 +306,7 @@ export async function createCompetitionRoundAction(formData: FormData): Promise<
   if (!eventId || !programId || !divisionId || !name) throw new Error("Division and round name are required.");
 
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_rounds").insert({
+  const { error } = await supabase.from("event_competition_rounds").insert({
     event_id: eventId,
     program_id: programId,
     division_id: divisionId,
@@ -349,7 +349,7 @@ export async function updateCompetitionContestRegistrationAction(formData: FormD
       throw new Error("Publish this competition from the Overview before opening registration.");
     }
   }
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("event_competition_contest_registration_rules")
     .update({
       registration_open: registrationOpen,
@@ -371,7 +371,7 @@ export async function updateCompetitionContestRegistrationAction(formData: FormD
     .eq("contest_id", contestId);
   if (error) throw new Error(`Could not update registration settings: ${error.message}`);
 
-  const { error: contestError } = await (supabase as any)
+  const { error: contestError } = await supabase
     .from("event_competition_contests")
     .update({ status: registrationOpen ? "open" : "closed" })
     .eq("id", contestId)
@@ -379,7 +379,7 @@ export async function updateCompetitionContestRegistrationAction(formData: FormD
   if (contestError) throw new Error(`Could not update competition event status: ${contestError.message}`);
 
   if (registrationOpen) {
-    const { error: programError } = await (supabase as any)
+    const { error: programError } = await supabase
       .from("event_competition_programs")
       .update({ status: "configured" })
       .eq("id", programId)
@@ -396,7 +396,7 @@ export async function setCompetitionDivisionRegistrationStatusAction(formData: F
   const status = text(formData, "status") === "open" ? "open" : "closed";
   if (!eventId || !divisionId) throw new Error("Division is required.");
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_divisions").update({ status }).eq("id", divisionId).eq("event_id", eventId);
+  const { error } = await supabase.from("event_competition_divisions").update({ status }).eq("id", divisionId).eq("event_id", eventId);
   if (error) throw new Error(`Could not update division registration: ${error.message}`);
   refresh(eventId);
 }
@@ -406,7 +406,7 @@ export async function updateCompetitionDivisionDanceAction(formData: FormData): 
   const offeringId = text(formData, "offeringId");
   if (!eventId || !offeringId) throw new Error("Dance offering is required.");
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("event_competition_division_dances")
     .update({
       entry_fee: nonnegativeAmount(text(formData, "entryFee")),

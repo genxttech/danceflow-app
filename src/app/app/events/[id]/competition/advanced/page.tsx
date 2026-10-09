@@ -50,17 +50,17 @@ export default async function CompetitionPage({ params }: { params: Promise<{ id
   if (eventError || !event) notFound();
 
   const [templateResult, programResult, contestResult, danceResult, divisionResult, offeringResult, roundResult, registrationRuleResult, wsdcProfileResult, entryCountResult, heatCountResult] = await Promise.all([
-    (supabase as any).from("competition_configuration_templates").select("template_key, name, discipline_family, version, description").eq("status", "active").order("discipline_family"),
-    (supabase as any).from("event_competition_programs").select("id, name, discipline_family, competition_mode, scoring_method, advancement_method, feedback_policy, rules_edition, status, rules_profile_key, rules_profile_version, profile_locked_at").eq("event_id", id).order("sort_order").order("created_at"),
-    (supabase as any).from("event_competition_contests").select("id, program_id, name, contest_type, entry_format, status").eq("event_id", id).order("sort_order").order("created_at"),
-    (supabase as any).from("event_competition_dances").select("id, program_id, dance_key, name, category_label").eq("event_id", id).eq("active", true).order("sort_order").order("name"),
-    (supabase as any).from("event_competition_divisions").select("id, program_id, contest_id, name, age_label, skill_label, role_label, status").eq("event_id", id).order("sort_order").order("created_at"),
-    (supabase as any).from("event_competition_division_dances").select("id, division_id, dance_id, entry_fee, currency, required").eq("event_id", id).eq("active", true).order("sort_order"),
-    (supabase as any).from("event_competition_rounds").select("id, division_id, name, round_type, sequence_number, target_advancement_count, scoring_method, pairing_mode").eq("event_id", id).order("sequence_number"),
-    (supabase as any).from("event_competition_contest_registration_rules").select("id, contest_id, registration_open, dance_selection_mode, pricing_method, base_entry_fee, currency, minimum_dances, maximum_dances, minimum_participants, maximum_participants, requires_routine_title, requires_music, requires_duration, public_description").eq("event_id", id),
-    (supabase as any).from("event_competition_wsdc_program_profiles").select("program_id, rules_edition, registry_status, registry_event_name, competitor_surcharge, surcharge_currency, results_reporting_required").eq("event_id", id),
-    (supabase as any).from("event_competition_entries").select("id", { count: "exact", head: true }).eq("event_id", id),
-    (supabase as any).from("event_competition_heats").select("id", { count: "exact", head: true }).eq("event_id", id),
+    supabase.from("competition_configuration_templates").select("template_key, name, discipline_family, version, description").eq("status", "active").order("discipline_family"),
+    supabase.from("event_competition_programs").select("id, name, discipline_family, competition_mode, scoring_method, advancement_method, feedback_policy, rules_edition, status, rules_profile_key, rules_profile_version, profile_locked_at").eq("event_id", id).order("sort_order").order("created_at"),
+    supabase.from("event_competition_contests").select("id, program_id, name, contest_type, entry_format, status").eq("event_id", id).order("sort_order").order("created_at"),
+    supabase.from("event_competition_dances").select("id, program_id, dance_key, name, category_label").eq("event_id", id).eq("active", true).order("sort_order").order("name"),
+    supabase.from("event_competition_divisions").select("id, program_id, contest_id, name, age_label, skill_label, role_label, status").eq("event_id", id).order("sort_order").order("created_at"),
+    supabase.from("event_competition_division_dances").select("id, division_id, dance_id, entry_fee, currency, required").eq("event_id", id).eq("active", true).order("sort_order"),
+    supabase.from("event_competition_rounds").select("id, division_id, name, round_type, sequence_number, target_advancement_count, scoring_method, pairing_mode").eq("event_id", id).order("sequence_number"),
+    supabase.from("event_competition_contest_registration_rules").select("id, contest_id, registration_open, dance_selection_mode, pricing_method, base_entry_fee, currency, minimum_dances, maximum_dances, minimum_participants, maximum_participants, requires_routine_title, requires_music, requires_duration, public_description").eq("event_id", id),
+    supabase.from("event_competition_wsdc_program_profiles").select("program_id, rules_edition, registry_status, registry_event_name, competitor_surcharge, surcharge_currency, results_reporting_required").eq("event_id", id),
+    supabase.from("event_competition_entries").select("id", { count: "exact", head: true }).eq("event_id", id),
+    supabase.from("event_competition_heats").select("id", { count: "exact", head: true }).eq("event_id", id),
   ]);
 
   const loadError = templateResult.error || programResult.error || contestResult.error || danceResult.error || divisionResult.error || offeringResult.error || roundResult.error || registrationRuleResult.error || wsdcProfileResult.error || entryCountResult.error || heatCountResult.error;
