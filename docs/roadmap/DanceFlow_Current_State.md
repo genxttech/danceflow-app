@@ -2,7 +2,7 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
-**Last updated:** 2026-10-09 (roadmap v2.20: Phase 9 — Payroll Prep v1 COMPLETE / CLOSED (9A–9E all released); Phase 10 — Organizer + Competition OS is the next primary engineering phase; Twilio Phase 2 active in parallel — TW-1 released, TW-2 not yet released; roadmap v2.19: Phase 2 Twilio A2P status corrected to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION; roadmap v2.18: Phase 8 — Documents Center COMPLETE / CLOSED; Phase 7, Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
+**Last updated:** 2026-10-09 (roadmap v2.21: Phase 10 — Organizer + Competition OS architecture approved, next slice 10A — Competition Foundation Reconciliation; Twilio TW-3 released (PR #202, `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy`), TW-OPS next; roadmap v2.20: Phase 9 — Payroll Prep v1 COMPLETE / CLOSED (9A–9E all released); roadmap v2.19: Phase 2 Twilio A2P status corrected to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION; roadmap v2.18: Phase 8 — Documents Center COMPLETE / CLOSED; Phase 7, Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -10,13 +10,13 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 | | |
 |---|---|
-| **CURRENT MAIN** | `9c3fd5aec9eb01847980a7f4a0d49272c5298537` (Phase 9E, PR #200; tree `083ab56212a86790078a5355090f0da523f03ce4`). Live application: `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`. Phase 9 — Payroll Prep v1 and Phase 8 — Documents Center are fully released |
-| **CURRENT PROD DEPLOYMENT** | `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u` (source `9c3fd5aec9eb01847980a7f4a0d49272c5298537`; Phase 9E live on `www.idanceflow.com`; promoted 2026-10-09). App-only rollback target: the 9D deployment `dpl_EoraccsLgajB7m1VLTzxomhR59wQ` (includes TW-1 and Phase 9A–9D, not 9E). Arbitrary older deployments are not assumed safe against the current database. Rollback cautions: do not roll the app back below the 9C release (the pre-9C app cannot save compensation rules against the 9C database), and do not roll back to the Phase 8C deployment (it grants `can_sign_documents` on new non-self links); any deeper rollback must be reviewed |
+| **CURRENT MAIN** | `67e735ca81e79886ddd616c0f01f28d5b29cee50` (Twilio TW-3, PR #202). Live application: `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy`. Phase 9 — Payroll Prep v1 and Phase 8 — Documents Center are fully released |
+| **CURRENT PROD DEPLOYMENT** | `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` (source `67e735ca81e79886ddd616c0f01f28d5b29cee50`; Twilio TW-3 live on `www.idanceflow.com`; 2026-10-09). Rollback: application first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA` (TW-2), then the TW-3 SQL rollback (`20261106090000`) if required. Earlier app-only references: the Phase 9E deployment `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u` and the 9D deployment `dpl_EoraccsLgajB7m1VLTzxomhR59wQ`. Arbitrary older deployments are not assumed safe against the current database. Rollback cautions: do not roll the app back below the 9C release (the pre-9C app cannot save compensation rules against the 9C database), and do not roll back to the Phase 8C deployment (it grants `can_sign_documents` on new non-self links); any deeper rollback must be reviewed |
 | **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
 | **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
 | **PRIMARY REPO LINK** | DEV |
 | **NON-TWILIO LAUNCH STATUS** | READY / CLOSED; no new launch blocker from BR-4, BR-5 or ENT-1 |
-| **PENDING PROD MIGRATIONS** | None. Phase 9 migrations `20261102090000` (9A), `20261103090000` (9B) and `20261104090000` (9C) are APPLIED to PROD (2026-10-09); 9D and 9E were app-only. The Phase 8 migrations, including `20261101090000_client_account_links_signing_default.sql`, are applied |
+| **PENDING PROD MIGRATIONS** | None. TW-3 migration `20261106090000` is APPLIED to PROD (2026-10-09 12:34Z). Phase 9 migrations `20261102090000` (9A), `20261103090000` (9B) and `20261104090000` (9C) are APPLIED to PROD (2026-10-09); 9D and 9E were app-only. The Phase 8 migrations, including `20261101090000_client_account_links_signing_default.sql`, are applied |
 | **PACKAGE REFUND HOLD** | Released / `false` |
 | **ACTIVE ENGINEERING LAUNCH BLOCKERS** | None identified. Twilio compliance/submission (Phase 2) is a parallel DanceFlow-owned lane, not an engineering blocker |
 | **KNOWN HYGIENE DEBT** | pre-existing lint errors in some public pages (not introduced by BR-4, BR-5 or ENT-1); they keep the changed-file lint step in CI red when those files are touched. Bounded UI polish bug: New Client page shows a literal newline marker (`/n`, from literal `\n` text in the JSX around the "Personal details" and "Client photo" sections of `src/app/app/clients/new/page.tsx`) where a line break / layout break was intended. Fix: replace the visible marker with the intended newline, spacing or layout and verify the New Client page renders cleanly. Small UI/polish bug, not a redesign; not a launch blocker. |
@@ -54,14 +54,22 @@ The BR-6 branch is not main. Do not treat BR-6 as merged until its pull request 
 - ConfiDance Studio is the pilot and first studio-specific campaign. Twilio reviewed the proposed ConfiDance opt-in flow and supporting materials and said they appear aligned with compliance requirements.
 - Twilio says Mixed or Customer Care is typically appropriate for transactional appointment and one-to-one operational staff messages (no marketing/promotional content). Mixed is the intended pilot direction; the final selection is made at submission.
 - Not a Twilio architecture blocker. Next actions are on DanceFlow: (1) finalize the ConfiDance campaign description; (2) finalize supporting evidence/materials; (3) send the package to Twilio for final pre-submission review; (4) submit the studio-specific campaign; (5) obtain approval; (6) perform production SMS verification; (7) use the approved ConfiDance implementation as the repeatable studio onboarding model.
-- Compliance-engineering slices: **TW-1 (Advanced Opt-Out alignment) is COMPLETE / RELEASED** (PR #197). **TW-2 (consent integrity) is implemented, DEV complete and Opus-reviewed but NOT merged or released**; it needs a fresh re-pin onto the current main before PR and release.
+- Compliance-engineering slices: **TW-1 (Advanced Opt-Out alignment) is COMPLETE / RELEASED** (PR #197). **TW-2 (consent integrity) is COMPLETE / RELEASED** (PR #199). **TW-3 (registration metadata and readiness) is COMPLETE / RELEASED 2026-10-09** (PR #202 → main `67e735c`; PROD SQL `20261106090000` applied 12:34Z; `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` live; rollback: app first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA`, then the SQL rollback). TW-1/TW-2/TW-3 engineering is complete and no TW-4 is planned; the next Twilio work is **TW-OPS** (ConfiDance setup, pre-submission review, campaign submission, production SMS verification). Twilio is a separate parallel track.
 - Engineering for the per-studio A2P model is live (SMS-A2P-1 through 3C). No `studio_sms_registrations` row exists in PROD, the global SMS status has not been changed, and every studio is fail-closed until individually approved. The ConfiDance campaign is not yet submitted, approved or production-verified.
 
 ## Current roadmap position
 
-**ACTIVE PHASE:** Phase 10 — Organizer + Competition OS (next primary engineering phase; Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED, 2026-10-09). Phase 2 Twilio continues in parallel. Phase 3 — Branding Relaunch stays PARTIAL with BR-6 parked.
+**ACTIVE PHASE:** Phase 10 — Organizer + Competition OS (next primary engineering phase; Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED, 2026-10-09). **Primary engineering phase: Phase 10 — Organizer + Competition OS. Next engineering slice: 10A — Competition Foundation Reconciliation.** Phase 2 Twilio continues as a separate parallel track (TW-3 released; TW-OPS next). Phase 3 — Branding Relaunch stays PARTIAL with BR-6 parked.
 
-**PHASE 9 — PAYROLL PREP V1:** COMPLETE / CLOSED / FULLY RELEASED. 9A integrity, 9B immutable evidence, 9C compensation history and validation, 9D formula-safe CSV and 9E UX/timezone closeout are all released (main `9c3fd5a`, live `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`). Carry-forwards, without reopening Phase 9: platform-admin payroll items (Phase 12), the dormant Gusto "Last checked" timestamp display (later Gusto phase), and an optional visual check of the narrow-width Payroll layouts.
+**PHASE 10 — COMPETITION OS ARCHITECTURE (approved v2.21; docs only, nothing built yet beyond the pre-existing partial foundation):**
+- Not greenfield: a partial June-2026 foundation exists (about 40 competition tables, heat planner, scheduling, check-in, WSDC profile foundation, flagged public registration builder). Known defects to fix first in 10A: undeclared schedule tables/RPC in repository migrations, public-read RLS defects, non-hardened `event_competition_entry_changes`, unsafe heat lock override, no tests, no workspace entry from event detail.
+- Principle: simple competitions stay simple; complexity comes from the selected format. Simple Mode is the default; Advanced Mode is progressive and never required.
+- Architecture: Competition Core + versioned Rules/Format Profile + versioned Scoring Engine + Organizer UX; initial profile `studio_simple@1`; rules/scoring versions and configuration locked at publish; rules profile is separate from sanction status and no organization authorization is claimed.
+- Competitor identity: one human is one event-level competitor with many entries; existing DanceFlow identity stays canonical; guests allowed. Scoring heat vs floor heat are distinct; floor heats are in studio v1.
+- Judge access (v1): authenticated DanceFlow accounts on the web, paper-ballot entry by a scorer, no anonymous judge links. Competition roles live in Phase 10 and fold into Phase 12 later. Payments reuse the existing event commerce stack (hardening in 10C).
+- Studio v1 = slices 10A–10F; loop: CREATE → PUBLISH → REGISTER → PAY → CHECK-IN → BUILD HEATS → JUDGES SCORE → CALCULATE → REVIEW → APPROVE → PUBLISH RESULTS. 10G polish; 10H–10J+ (ballroom, WSDC, UCWDC/NDCA) are not v1. Post-v1 engineering order WSDC, UCWDC, NDCA (dependency order, not market priority).
+
+**PHASE 9 — PAYROLL PREP V1:** COMPLETE / CLOSED / FULLY RELEASED. 9A integrity, 9B immutable evidence, 9C compensation history and validation, 9D formula-safe CSV and 9E UX/timezone closeout are all released (main `9c3fd5a`, released as `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`; since superseded in production by TW-3 `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy`). Carry-forwards, without reopening Phase 9: platform-admin payroll items (Phase 12), the dormant Gusto "Last checked" timestamp display (later Gusto phase), and an optional visual check of the narrow-width Payroll layouts.
 
 **PHASE 8 — DOCUMENTS CENTER:** COMPLETE / CLOSED. 8A signing integrity, 8B lifecycle correctness + gating, 8C evidence + portal truth and 8D are all RELEASED (FULLY RELEASED; main `ab60dba`, live `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`); 8D closed the product decisions (signing permission, guardian delivery for clients without email, decision #9 — waivers are Documents template types and the signing certificate is the Documents evidence receipt) and the status / assignment UX.
 
@@ -270,7 +278,7 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 - Final mobile app boundary (Phase 18)
 - Landmark 1A canonical closeout scope (invitation flow, seat UI, audit viewer)
 - Whether to pull Partner Match moderation and the web request path forward
-- Competition scoring system(s) and where judging runs
+- Whether a separate judging application exists (studio v1 judging is web with authenticated accounts; Phase 18)
 - Plan placement of SMS, payroll, marketplace and ARIA features
 - Video cut list (BR-6)
 - Demo-request / interest-capture storage (deferred; needs a storage decision)
@@ -278,4 +286,4 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 
 ## NEXT GATE
 
-Phase 9 — Payroll Prep v1 is complete and fully released (as is Phase 8 — Documents Center). The next engineering phase is Phase 10 — Organizer + Competition OS; Phase 2 Twilio continues in parallel as compliance / pilot submission work (TW-1 released; TW-2 awaiting re-pin, PR and release). BR-6 resumes when the professional ARIA voice recording arrives. Phases 5, 6, 7, 8 and 9 are COMPLETE / CLOSED. Remaining Phase 4 work waits on open decision #8.
+Phase 9 — Payroll Prep v1 is complete and fully released (as is Phase 8 — Documents Center). The next engineering phase is Phase 10 — Organizer + Competition OS, starting with slice 10A — Competition Foundation Reconciliation; Phase 2 Twilio continues in parallel as compliance / pilot submission work (TW-1, TW-2 and TW-3 released; TW-OPS next). BR-6 resumes when the professional ARIA voice recording arrives. Phases 5, 6, 7, 8 and 9 are COMPLETE / CLOSED. Remaining Phase 4 work waits on open decision #8.
