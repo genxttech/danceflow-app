@@ -4,7 +4,17 @@ import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { createEventAction, updateEventAction } from "./actions";
 import EventDescriptionAIAssistant from "./EventDescriptionAIAssistant";
-import { continuesToCompetitionSetup, createEventSubmitLabel as createSubmitLabel } from "@/lib/competition/workspaceLink";
+import {
+  EVENT_TYPE_CATEGORIES,
+  EVENT_TYPE_OPTIONS,
+  categoryForEventType,
+  defaultTypeForCategory,
+  fieldForEventError,
+  intentFromFields,
+  resolveVisibilityFields,
+  type EventAudience,
+} from "@/lib/events/createEventModel";
+import { COMPETITIONS_HREF, continuesToCompetitionSetup, createEventSubmitLabel as createSubmitLabel } from "@/lib/competition/workspaceLink";
 
 type OrganizerOption = {
   id: string;
@@ -123,17 +133,7 @@ function RequiredAsterisk() {
   return <span className="ml-1 text-red-500">*</span>;
 }
 
-const EVENT_TYPE_OPTIONS = [
-  { value: "group_class", label: "Group Class" },
-  { value: "social_dance", label: "Social Dance" },
-  { value: "workshop", label: "Workshop" },
-  { value: "party", label: "Party" },
-  { value: "competition", label: "Competition" },
-  { value: "showcase", label: "Showcase" },
-  { value: "festival", label: "Festival" },
-  { value: "special_event", label: "Special Event" },
-  { value: "other", label: "Other" },
-] as const;
+
 
 const EVENT_STATUS_OPTIONS = [
   { value: "draft", label: "Not live / draft" },
@@ -353,6 +353,38 @@ const US_STATE_OPTIONS = [
   { value: "WV", label: "West Virginia" },
   { value: "WI", label: "Wisconsin" },
   { value: "WY", label: "Wyoming" },
+];
+
+const AUDIENCE_OPTIONS: ReadonlyArray<{ value: EventAudience; label: string; helper: string }> = [
+  {
+    value: "public",
+    label: "Public",
+    helper: "Anyone can see it on your public studio page.",
+  },
+  {
+    value: "link",
+    label: "Anyone with the link",
+    helper: "Not listed anywhere. Only people you share the link with can open it.",
+  },
+  {
+    value: "studio",
+    label: "Studio only",
+    helper: "Kept inside your workspace. No public page.",
+  },
+];
+
+const PUBLISH_OPTIONS: ReadonlyArray<{ publishNow: boolean; label: string; helper: string }> = [
+  { publishNow: false, label: "Save as draft", helper: "Not visible to anyone yet. Publish when you're ready." },
+  { publishNow: true, label: "Publish now", helper: "Goes live as soon as it's created." },
+];
+
+const ATTENDANCE_OPTIONS: ReadonlyArray<{ registrationRequired: boolean; label: string; helper: string }> = [
+  {
+    registrationRequired: true,
+    label: "Registration required",
+    helper: "People sign up through DanceFlow. You get a roster and check-in.",
+  },
+  { registrationRequired: false, label: "No registration needed", helper: "People can just show up." },
 ];
 
 const initialState: EventFormState = {
@@ -742,6 +774,19 @@ export default function EventForm({
     eventCommerceEnabled ? buildInitialGuestCoaches(initialValues) : [],
   );
 
+  const initialIntent = intentFromFields({
+    status: initialValues?.status ?? "draft",
+    visibility: initialValues?.visibility ?? "private",
+    publicDirectoryEnabled: initialValues?.publicDirectoryEnabled ?? false,
+  });
+  const [audience, setAudience] = useState<EventAudience>(initialIntent.audience);
+  const [discovery, setDiscovery] = useState(initialIntent.discovery);
+  const [publishNow, setPublishNow] = useState(initialIntent.publishNow);
+  const [multiDay, setMultiDay] = useState(
+    Boolean(initialValues?.endDate && initialValues.endDate !== initialValues.startDate),
+  );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   const primaryLocation = eventLocations[0] ?? makeBlankLocation();
   const primarySession = primaryLocation.sessions[0] ?? makeBlankSession();
   const fallbackStartDate =
@@ -1047,6 +1092,1937 @@ export default function EventForm({
           ),
         };
       }),
+    );
+  }
+
+  const multiLocationBuilder = (
+    <>
+              {scheduleMode === "multi" ? (
+                <div className="md:col-span-2 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h4 className="text-base font-semibold text-indigo-950">
+                        Multi-location Schedule Builder
+                      </h4>
+                      <p className="mt-1 text-sm leading-6 text-indigo-800">
+                        Add each real location, then add the dates and times for
+                        that location. Location 1 is the first event location;
+                        it is not separate from the old venue fields.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={addEventLocation}
+                      className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-indigo-900 shadow-sm ring-1 ring-indigo-200 hover:bg-indigo-100"
+                    >
+                      Add Location
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    {eventLocations.map((location, locationIndex) => (
+                      <div
+                        key={`event-location-${locationIndex}`}
+                        className="rounded-2xl border border-indigo-200 bg-white p-4"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">
+                              Location {locationIndex + 1}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Use names like Dublin January Series or Sunbury
+                              April Series if that helps your staff.
+                            </p>
+                          </div>
+
+                          {eventLocations.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => removeEventLocation(locationIndex)}
+                              className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                            >
+                              Remove Location
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <input
+                          type="hidden"
+                          name={`location_${locationIndex}_sortOrder`}
+                          value={locationIndex}
+                        />
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Location Label
+                              <RequiredAsterisk />
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_locationName`}
+                              required
+                              value={location.locationName}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "locationName",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Dublin series / Sunbury series"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Venue Name
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_venueName`}
+                              value={location.venueName}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "venueName",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Studio / ballroom / venue"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Address Line 1
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_addressLine1`}
+                              value={location.addressLine1}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "addressLine1",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Address Line 2
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_addressLine2`}
+                              value={location.addressLine2}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "addressLine2",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              City
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_city`}
+                              value={location.city}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "city",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              State
+                            </label>
+                            <select
+                              name={`location_${locationIndex}_state`}
+                              value={location.state}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "state",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            >
+                              <option value="">Select state</option>
+                              {US_STATE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Postal Code
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_postalCode`}
+                              value={location.postalCode}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "postalCode",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Location Capacity
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_capacity`}
+                              type="number"
+                              min="0"
+                              value={location.capacity}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "capacity",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Optional"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-5 space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-slate-950">
+                              Dates & Times
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => addLocationSession(locationIndex)}
+                              className="rounded-xl border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-50"
+                            >
+                              Add Date/Time
+                            </button>
+                          </div>
+
+                          {location.sessions.map((session, sessionIndex) => (
+                            <div
+                              key={`event-location-${locationIndex}-session-${sessionIndex}`}
+                              className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                            >
+                              <input
+                                type="hidden"
+                                name={`location_${locationIndex}_session_${sessionIndex}_sortOrder`}
+                                value={sessionIndex}
+                              />
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Date
+                                    <RequiredAsterisk />
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_date`}
+                                    type="date"
+                                    required
+                                    value={session.sessionDate}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "sessionDate",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Series Label
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_seriesLabel`}
+                                    value={session.seriesLabel}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "seriesLabel",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    placeholder="January series / April series"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Start Time
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_startTime`}
+                                    type="time"
+                                    value={session.startTime}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "startTime",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    End Time
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_endTime`}
+                                    type="time"
+                                    value={session.endTime}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "endTime",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Session Label
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_label`}
+                                    value={session.sessionLabel}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "sessionLabel",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    placeholder="Week 1 / Day 1 / Optional"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Session Capacity
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_capacity`}
+                                    type="number"
+                                    min="0"
+                                    value={session.capacity}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "capacity",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    placeholder="Optional"
+                                  />
+                                </div>
+                              </div>
+
+                              {location.sessions.length > 1 ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    removeLocationSession(
+                                      locationIndex,
+                                      sessionIndex,
+                                    )
+                                  }
+                                  className="mt-3 rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                                >
+                                  Remove Date/Time
+                                </button>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+    </>
+  );
+
+  const scheduleItemsBlock = (
+    <>
+              <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h4 className="text-base font-semibold text-slate-950">
+                      Optional Event Schedule
+                    </h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      Add a public agenda for workshops, socials, competitions,
+                      showcases, festivals, or multi-day events. Items are
+                      grouped by date on the public event page.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addEventScheduleItem}
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
+                  >
+                    Add Schedule Item
+                  </button>
+                </div>
+
+                {eventScheduleItems.length === 0 ? (
+                  <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500">
+                    No schedule items added. The public Event Schedule card will
+                    stay hidden.
+                  </p>
+                ) : (
+                  <div className="mt-4 space-y-4">
+                    {eventScheduleItems.map((item, itemIndex) => (
+                      <div
+                        key={`event-schedule-item-${itemIndex}`}
+                        className="rounded-2xl border border-slate-200 bg-white p-4"
+                      >
+                        <input
+                          type="hidden"
+                          name={`scheduleItem_${itemIndex}_sortOrder`}
+                          value={itemIndex}
+                        />
+
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">
+                              Schedule Item {itemIndex + 1}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Date, start time, and title are required when an
+                              item is added.
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => removeEventScheduleItem(itemIndex)}
+                            className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                          >
+                            Remove Item
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Schedule Date
+                              <RequiredAsterisk />
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_date`}
+                              type="date"
+                              required
+                              value={item.scheduleDate}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "scheduleDate",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Title
+                              <RequiredAsterisk />
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_title`}
+                              required
+                              value={item.title}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "title",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Beginner Salsa Class"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Start Time
+                              <RequiredAsterisk />
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_startTime`}
+                              type="time"
+                              required
+                              value={item.startTime}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "startTime",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              End Time
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_endTime`}
+                              type="time"
+                              value={item.endTime}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "endTime",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Presenter / Instructor
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_presenterName`}
+                              value={item.presenterName}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "presenterName",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Optional"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Room / Location Label
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_locationLabel`}
+                              value={item.locationLabel}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "locationLabel",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Main Ballroom / Studio B / Optional"
+                            />
+                          </div>
+
+                          <div className="md:col-span-2">
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Description
+                            </label>
+                            <textarea
+                              name={`scheduleItem_${itemIndex}_description`}
+                              rows={3}
+                              value={item.description}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "description",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Optional details for this block."
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+    </>
+  );
+
+  const guestCoachesBlock = (
+    <>
+              {eventCommerceEnabled ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h4 className="text-base font-semibold text-slate-950">
+                        Guest Coach Private Lessons
+                      </h4>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        Optional. Add guest coaches and availability blocks.
+                        Slots are generated from each block when the event is
+                        saved.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addGuestCoach}
+                      className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
+                    >
+                      Add Guest Coach
+                    </button>
+                  </div>
+
+                  {guestCoaches.length === 0 ? (
+                    <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+                      No guest coach lesson slots added.
+                    </p>
+                  ) : (
+                    <div className="mt-5 space-y-5">
+                      {guestCoaches.map((coach, coachIndex) => (
+                        <div
+                          key={`guest-coach-${coachIndex}`}
+                          className="rounded-2xl border border-slate-200 bg-white p-4"
+                        >
+                          <input
+                            type="hidden"
+                            name={`guestCoach_${coachIndex}_id`}
+                            value={coach.id ?? ""}
+                          />
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                Guest Coach {coachIndex + 1}
+                              </p>
+                              <h5 className="mt-1 text-base font-semibold text-slate-950">
+                                {coach.name || "New Guest Coach"}
+                              </h5>
+                              {mode === "edit" && coach.scheduleToken ? (
+                                <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-sm text-indigo-950">
+                                  <p className="font-semibold">
+                                    Private coach schedule link
+                                  </p>
+                                  <p className="mt-1 text-xs leading-5 text-indigo-800">
+                                    Send this read-only link to the coach so
+                                    they can see booked lessons for this event.
+                                  </p>
+                                  <Link
+                                    href={`/coach-schedule/${coach.scheduleToken}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-2 inline-flex rounded-lg bg-white px-3 py-2 text-xs font-semibold text-indigo-800 shadow-sm ring-1 ring-indigo-100 hover:bg-indigo-100"
+                                  >
+                                    Open coach schedule
+                                  </Link>
+                                </div>
+                              ) : null}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeGuestCoach(coachIndex)}
+                              className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                            >
+                              Remove Coach
+                            </button>
+                          </div>
+
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div>
+                              <label className="mb-1.5 block text-sm font-medium">
+                                Coach Name
+                              </label>
+                              <input
+                                name={`guestCoach_${coachIndex}_name`}
+                                value={coach.name}
+                                onChange={(e) =>
+                                  updateGuestCoach(
+                                    coachIndex,
+                                    "name",
+                                    e.target.value,
+                                  )
+                                }
+                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                placeholder="Guest coach name"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1.5 block text-sm font-medium">
+                                Photo URL, optional
+                              </label>
+                              <input
+                                name={`guestCoach_${coachIndex}_photoUrl`}
+                                value={coach.photoUrl}
+                                onChange={(e) =>
+                                  updateGuestCoach(
+                                    coachIndex,
+                                    "photoUrl",
+                                    e.target.value,
+                                  )
+                                }
+                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                placeholder="https://..."
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="mb-1.5 block text-sm font-medium">
+                                Coach Bio, optional
+                              </label>
+                              <textarea
+                                name={`guestCoach_${coachIndex}_bio`}
+                                value={coach.bio}
+                                onChange={(e) =>
+                                  updateGuestCoach(
+                                    coachIndex,
+                                    "bio",
+                                    e.target.value,
+                                  )
+                                }
+                                rows={3}
+                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              />
+                            </div>
+                            <label className="flex items-center gap-3 rounded-xl border bg-slate-50 p-3 text-sm">
+                              <input
+                                type="checkbox"
+                                name={`guestCoach_${coachIndex}_active`}
+                                checked={coach.active}
+                                onChange={(e) =>
+                                  updateGuestCoach(
+                                    coachIndex,
+                                    "active",
+                                    e.target.checked,
+                                  )
+                                }
+                              />
+                              Active / visible
+                            </label>
+                          </div>
+
+                          <div className="mt-5 space-y-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">
+                                  Availability Blocks
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  Each block creates fixed purchasable lesson
+                                  slots.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => addGuestCoachBlock(coachIndex)}
+                                className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                Add Block
+                              </button>
+                            </div>
+
+                            {coach.blocks.map((block, blockIndex) => (
+                              <div
+                                key={`guest-coach-${coachIndex}-block-${blockIndex}`}
+                                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-semibold text-slate-900">
+                                    Block {blockIndex + 1}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeGuestCoachBlock(
+                                        coachIndex,
+                                        blockIndex,
+                                      )
+                                    }
+                                    className="text-sm font-medium text-red-600 hover:text-red-700"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+
+                                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Date
+                                    </label>
+                                    <input
+                                      type="date"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_lessonDate`}
+                                      value={block.lessonDate}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "lessonDate",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Start Time
+                                    </label>
+                                    <input
+                                      type="time"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_startTime`}
+                                      value={block.startTime}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "startTime",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      End Time
+                                    </label>
+                                    <input
+                                      type="time"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_endTime`}
+                                      value={block.endTime}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "endTime",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Lesson Length
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="5"
+                                      step="5"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_durationMinutes`}
+                                      value={block.durationMinutes}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "durationMinutes",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Buffer Minutes
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="5"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_bufferMinutes`}
+                                      value={block.bufferMinutes}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "bufferMinutes",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Price
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_price`}
+                                      value={block.price}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "price",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                      placeholder="150.00"
+                                    />
+                                  </div>
+                                  <div className="md:col-span-3">
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Room / Location Label, optional
+                                    </label>
+                                    <input
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_locationLabel`}
+                                      value={block.locationLabel}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "locationLabel",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                      placeholder="Main Ballroom, Studio B, etc."
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-purple-200 bg-purple-50 p-4 text-sm leading-6 text-purple-900">
+                  <p className="font-semibold">
+                    Organizer Suite unlocks guest coach lesson sales.
+                  </p>
+                  <p className="mt-1">
+                    Basic event listings can publish event details to discovery.
+                    Ticket sales, QR check-in, settlement, and guest coach
+                    lesson slots require Organizer Suite.
+                  </p>
+                </div>
+              )}
+    </>
+  );
+
+  const danceFocusFields = (
+    <>
+            <div className="mt-5 space-y-5">
+              <div>
+                <p className="text-sm font-semibold text-sky-950">
+                  Dance Category <RequiredAsterisk />
+                </p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {DANCE_CATEGORY_OPTIONS.map((category) => {
+                    const selected = danceCategory === category.key;
+
+                    return (
+                      <label
+                        key={category.key}
+                        className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
+                          selected
+                            ? "border-sky-500 bg-white shadow-sm"
+                            : "border-sky-200 bg-white/80 hover:bg-white"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="danceCategory"
+                          value={category.key}
+                          checked={selected}
+                          onChange={() =>
+                            handleDanceCategoryChange(category.key)
+                          }
+                          className="mt-1 h-4 w-4"
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold text-slate-900">
+                            {category.label}
+                          </span>
+                          <span className="mt-1 block text-xs leading-5 text-slate-600">
+                            {category.helper}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-sky-950">
+                      Dance Focus
+                      <RequiredAsterisk />
+                    </p>
+                    <p className="mt-1 text-xs text-sky-800">
+                      Showing options for {selectedDanceCategory.label}. Switch
+                      the category above to choose a different dance family.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleDanceFocusOptions.map((style) => {
+                    const checked = selectedStyleKeys.includes(style.key);
+
+                    return (
+                      <label
+                        key={style.key}
+                        className="flex items-center gap-3 rounded-xl border border-sky-200 bg-white p-3"
+                      >
+                        <input
+                          type="checkbox"
+                          value={style.key}
+                          checked={checked}
+                          onChange={(e) =>
+                            toggleStyleKey(style.key, e.target.checked)
+                          }
+                          className="h-4 w-4"
+                        />
+                        <span className="text-sm font-medium text-slate-800">
+                          {style.label}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {selectedStyleKeys.length === 0 ? (
+                  <p className="mt-3 rounded-xl border border-sky-200 bg-white/80 px-3 py-2 text-xs text-sky-800">
+                    Pick at least one dance focus if you want this event to show
+                    in style-based public discovery filters.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+    </>
+  );
+
+  if (mode === "create") {
+    const fields = resolveVisibilityFields(
+      { audience, discovery, publishNow },
+      eventCommerceEnabled && registrationRequired,
+    );
+    const category = categoryForEventType(eventType);
+    const isCompetition = continuesToCompetitionSetup(eventType);
+    const startedAsCompetition = initialValues?.eventType === "competition";
+    const createEndDate = multiDay ? endDate : startDate;
+    const errorField = fieldForEventError(state.error);
+    const bannerError = state.error && !errorField ? state.error : null;
+    const datesMoved = scheduleMode === "multi";
+    const advancedIsOpen = advancedOpen || errorField === "slug";
+    const showRegistrationChoice = eventCommerceEnabled && !isCompetition;
+    const capacityVisible = showRegistrationChoice && registrationRequired;
+    const fieldClass = "w-full rounded-xl border border-slate-300 px-3 py-3 text-sm";
+    const optionClass = (selected: boolean) =>
+      `flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-slate-900 ${
+        selected ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white hover:bg-slate-50"
+      }`;
+
+    return (
+      <form action={formAction} className="mx-auto w-full max-w-3xl space-y-10">
+        <input type="hidden" name="eventType" value={eventType} />
+        <input type="hidden" name="status" value={fields.status} />
+        <input type="hidden" name="visibility" value={fields.visibility} />
+        <input
+          type="hidden"
+          name="publicDirectoryEnabled"
+          value={fields.publicDirectoryEnabled ? "true" : "false"}
+        />
+        <input
+          type="hidden"
+          name="waitlistEnabled"
+          value={eventCommerceEnabled && waitlistEnabled && hasCapacity ? "true" : "false"}
+        />
+        {eventCommerceEnabled && (isCompetition || registrationRequired) ? (
+          <input type="hidden" name="registrationRequired" value={registrationRequired ? "on" : "off"} />
+        ) : null}
+        {!capacityVisible ? <input type="hidden" name="capacity" value={capacity} /> : null}
+        <input
+          type="hidden"
+          name="locationCount"
+          value={scheduleMode === "multi" ? eventLocations.length : 0}
+        />
+        <input type="hidden" name="scheduleItemCount" value={eventScheduleItems.length} />
+        {eventLocations.map((location, locationIndex) => (
+          <input
+            key={`location-hidden-${locationIndex}`}
+            type="hidden"
+            name={`location_${locationIndex}_sessionCount`}
+            value={location.sessions.length}
+          />
+        ))}
+        <input
+          type="hidden"
+          name="guestCoachCount"
+          value={eventCommerceEnabled ? guestCoaches.length : 0}
+        />
+        {eventCommerceEnabled &&
+          guestCoaches.map((coach, coachIndex) => (
+            <input
+              key={`guest-coach-${coachIndex}-block-count`}
+              type="hidden"
+              name={`guestCoach_${coachIndex}_blockCount`}
+              value={coach.blocks.length}
+            />
+          ))}
+        {selectedStyleKeys.map((styleKey) => (
+          <input key={styleKey} type="hidden" name="styleKeys" value={styleKey} />
+        ))}
+        {organizerSelectionLocked && singleOrganizer ? (
+          <input type="hidden" name="organizerId" value={singleOrganizer.id} />
+        ) : isStudioHostedEvent ? (
+          <input type="hidden" name="organizerId" value="" />
+        ) : null}
+        {datesMoved ? (
+          <>
+            <input type="hidden" name="startDate" value={fallbackStartDate} />
+            <input type="hidden" name="endDate" value={fallbackEndDate} />
+            <input type="hidden" name="startTime" value={fallbackStartTime} />
+            <input type="hidden" name="endTime" value={fallbackEndTime} />
+            <input type="hidden" name="venueName" value={primaryLocation.venueName} />
+            <input type="hidden" name="addressLine1" value={primaryLocation.addressLine1} />
+            <input type="hidden" name="addressLine2" value={primaryLocation.addressLine2} />
+            <input type="hidden" name="city" value={primaryLocation.city} />
+            <input type="hidden" name="state" value={primaryLocation.state} />
+            <input type="hidden" name="postalCode" value={primaryLocation.postalCode} />
+          </>
+        ) : !isGroupClass ? (
+          <input type="hidden" name="endDate" value={createEndDate} />
+        ) : null}
+
+        {bannerError ? (
+          <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {bannerError}
+          </div>
+        ) : null}
+
+        {/* 1. What are you creating? */}
+        <fieldset className="space-y-3">
+          <legend className="text-lg font-semibold text-slate-950">What are you creating?</legend>
+          <div className="grid gap-2">
+            {EVENT_TYPE_CATEGORIES.map((option) => {
+              const selected = option.key === category.key;
+              return (
+                <label key={option.key} className={`${optionClass(selected)} items-center`}>
+                  <input
+                    type="radio"
+                    name="eventTypeCategory"
+                    value={option.key}
+                    checked={selected}
+                    onChange={() => setEventType(defaultTypeForCategory(option.key))}
+                    className="sr-only"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${
+                      selected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-transparent"
+                    }`}
+                  >
+                    ✓
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-slate-950">{option.label}</span>
+                    <span className="block text-xs text-slate-600">{option.description}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          {category.types.length > 1 ? (
+            <div role="radiogroup" aria-label={`${category.label} type`} className="flex flex-wrap gap-2 pt-1">
+              {category.types.map((type) => (
+                <label
+                  key={type.value}
+                  className={`cursor-pointer rounded-full border px-4 py-1.5 text-sm font-medium has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-slate-900 ${
+                    eventType === type.value
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="eventSubtype"
+                    value={type.value}
+                    checked={eventType === type.value}
+                    onChange={() => setEventType(type.value)}
+                    className="sr-only"
+                  />
+                  {type.label}
+                </label>
+              ))}
+            </div>
+          ) : null}
+        </fieldset>
+
+        {/* 2. Event details */}
+        <section className="space-y-5" aria-labelledby="create-details-heading">
+          <h2 id="create-details-heading" className="text-lg font-semibold text-slate-950">
+            Event details
+          </h2>
+
+          <div>
+            <label htmlFor="name" className="mb-1.5 block text-sm font-medium">
+              Event name
+              <RequiredAsterisk />
+            </label>
+            <input
+              id="name"
+              name="name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              aria-invalid={errorField === "name" || errorField === "slug" ? true : undefined}
+              aria-describedby={errorField === "name" || errorField === "slug" ? "name-error" : undefined}
+              className={fieldClass}
+              placeholder={
+                isGroupClass ? "Beginner Two Step Class" : isCompetition ? "Spring Dance Competition" : "Event name"
+              }
+            />
+            {errorField === "name" || errorField === "slug" ? (
+              <p id="name-error" role="alert" className="mt-1.5 text-sm text-red-700">
+                {state.error}
+                {errorField === "slug" ? (
+                  <>
+                    {" "}
+                    <button type="button" onClick={() => setAdvancedOpen(true)} className="font-semibold underline">
+                      Change the web address
+                    </button>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+
+          {organizerSelectionLocked && singleOrganizer ? (
+            <p className="text-sm text-slate-600">
+              Hosted by <span className="font-semibold text-slate-900">{singleOrganizer.name}</span>
+            </p>
+          ) : isStudioHostedEvent ? null : (
+            <div>
+              <label htmlFor="organizerId" className="mb-1.5 block text-sm font-medium">
+                Event host
+                {organizers.length > 0 ? <RequiredAsterisk /> : null}
+              </label>
+              <select
+                id="organizerId"
+                name="organizerId"
+                required={organizers.length > 0}
+                defaultValue={organizerDefaultValue}
+                aria-invalid={errorField === "host" ? true : undefined}
+                aria-describedby={errorField === "host" ? "host-error" : undefined}
+                className={fieldClass}
+              >
+                <option value="">Select organizer</option>
+                {organizers.map((organizer) => (
+                  <option key={organizer.id} value={organizer.id}>
+                    {organizer.name}
+                  </option>
+                ))}
+              </select>
+              {errorField === "host" ? (
+                <p id="host-error" role="alert" className="mt-1.5 text-sm text-red-700">
+                  {state.error}
+                </p>
+              ) : null}
+            </div>
+          )}
+
+          {datesMoved ? (
+            <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              Dates and venues are set in the multi-location schedule under Advanced settings.{" "}
+              <button type="button" onClick={() => setAdvancedOpen(true)} className="font-semibold underline">
+                Open it
+              </button>
+            </p>
+          ) : (
+            <>
+              <fieldset className="space-y-3">
+                <legend className="mb-1.5 text-sm font-medium">When</legend>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label htmlFor="startDate" className="mb-1 block text-xs font-medium text-slate-600">
+                      {isGroupClass ? "First class date" : "Date"}
+                      <RequiredAsterisk />
+                    </label>
+                    <input
+                      id="startDate"
+                      name="startDate"
+                      type="date"
+                      required
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      aria-invalid={errorField === "dates" ? true : undefined}
+                      aria-describedby={errorField === "dates" ? "dates-error" : undefined}
+                      className={fieldClass}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="startTime" className="mb-1 block text-xs font-medium text-slate-600">
+                      Start time
+                    </label>
+                    <input
+                      id="startTime"
+                      name="startTime"
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className={fieldClass}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="endTime" className="mb-1 block text-xs font-medium text-slate-600">
+                      End time
+                    </label>
+                    <input
+                      id="endTime"
+                      name="endTime"
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className={fieldClass}
+                    />
+                  </div>
+                </div>
+
+                {isGroupClass ? (
+                  <div className="sm:max-w-xs">
+                    <label htmlFor="endDate" className="mb-1 block text-xs font-medium text-slate-600">
+                      Final class date (optional)
+                    </label>
+                    <input
+                      id="endDate"
+                      name="endDate"
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className={fieldClass}
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      {startDate ? `${groupClassDatePreview}. ` : ""}Leave blank for an ongoing weekly class.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={multiDay}
+                        onChange={(e) => setMultiDay(e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      Runs more than one day
+                    </label>
+                    {multiDay ? (
+                      <div className="sm:max-w-xs">
+                        <label htmlFor="endDateInput" className="mb-1 block text-xs font-medium text-slate-600">
+                          Last day
+                          <RequiredAsterisk />
+                        </label>
+                        <input
+                          id="endDateInput"
+                          type="date"
+                          required
+                          min={startDate || undefined}
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          className={fieldClass}
+                        />
+                      </div>
+                    ) : null}
+                  </>
+                )}
+
+                <div className="sm:max-w-xs">
+                  <label htmlFor="timezone" className="mb-1 block text-xs font-medium text-slate-600">
+                    Time zone
+                  </label>
+                  <select
+                    id="timezone"
+                    name="timezone"
+                    defaultValue={initialValues?.timezone ?? "America/New_York"}
+                    className={fieldClass}
+                  >
+                    {TIMEZONE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {errorField === "dates" ? (
+                  <p id="dates-error" role="alert" className="text-sm text-red-700">
+                    {state.error}
+                  </p>
+                ) : null}
+              </fieldset>
+
+              <fieldset className="space-y-3">
+                <legend className="mb-1.5 text-sm font-medium">Where</legend>
+                <div>
+                  <label htmlFor="venueName" className="mb-1 block text-xs font-medium text-slate-600">
+                    Venue name
+                  </label>
+                  <input
+                    id="venueName"
+                    name="venueName"
+                    defaultValue={initialValues?.venueName ?? ""}
+                    className={fieldClass}
+                    placeholder={isGroupClass ? "Main Studio" : "Studio / Hotel / Ballroom"}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="addressLine1" className="mb-1 block text-xs font-medium text-slate-600">
+                    Street address
+                  </label>
+                  <input
+                    id="addressLine1"
+                    name="addressLine1"
+                    defaultValue={initialValues?.addressLine1 ?? ""}
+                    className={fieldClass}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-[2fr_1fr_1fr]">
+                  <div>
+                    <label htmlFor="city" className="mb-1 block text-xs font-medium text-slate-600">
+                      City
+                    </label>
+                    <input id="city" name="city" defaultValue={initialValues?.city ?? ""} className={fieldClass} />
+                  </div>
+                  <div>
+                    <label htmlFor="state" className="mb-1 block text-xs font-medium text-slate-600">
+                      State
+                    </label>
+                    <select
+                      id="state"
+                      name="state"
+                      defaultValue={initialValues?.state ?? ""}
+                      aria-invalid={errorField === "location" ? true : undefined}
+                      className={fieldClass}
+                    >
+                      <option value="">Select</option>
+                      {US_STATE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="postalCode" className="mb-1 block text-xs font-medium text-slate-600">
+                      ZIP
+                    </label>
+                    <input
+                      id="postalCode"
+                      name="postalCode"
+                      defaultValue={initialValues?.postalCode ?? ""}
+                      className={fieldClass}
+                    />
+                  </div>
+                </div>
+                {errorField === "location" ? (
+                  <p role="alert" className="text-sm text-red-700">
+                    {state.error}
+                  </p>
+                ) : null}
+              </fieldset>
+            </>
+          )}
+
+          <div>
+            <label htmlFor="shortDescription" className="mb-1.5 block text-sm font-medium">
+              Short description
+            </label>
+            <textarea
+              id="shortDescription"
+              name="shortDescription"
+              rows={3}
+              value={shortDescription}
+              onChange={(event) => setShortDescription(event.target.value)}
+              className={fieldClass}
+              placeholder="One or two sentences people will see first."
+            />
+          </div>
+        </section>
+
+        {/* 3. How will people attend? */}
+        {showRegistrationChoice ? (
+          <fieldset className="space-y-3">
+            <legend className="text-lg font-semibold text-slate-950">How will people attend?</legend>
+            {ATTENDANCE_OPTIONS.map((option) => (
+              <label key={String(option.registrationRequired)} className={optionClass(registrationRequired === option.registrationRequired)}>
+                <input
+                  type="radio"
+                  name="registrationChoice"
+                  checked={registrationRequired === option.registrationRequired}
+                  onChange={() => setRegistrationRequired(option.registrationRequired)}
+                  className="mt-1 h-4 w-4"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-950">{option.label}</span>
+                  <span className="block text-xs text-slate-600">{option.helper}</span>
+                </span>
+              </label>
+            ))}
+            {registrationRequired ? (
+              <div className="space-y-3 border-l-2 border-slate-200 pl-4">
+                <div className="sm:max-w-xs">
+                  <label htmlFor="capacity" className="mb-1 block text-xs font-medium text-slate-600">
+                    Attendance limit (optional)
+                  </label>
+                  <input
+                    id="capacity"
+                    name="capacity"
+                    type="number"
+                    min="0"
+                    defaultValue={capacity}
+                    onChange={(e) => setCapacity(e.target.value)}
+                    aria-invalid={errorField === "capacity" ? true : undefined}
+                    className={fieldClass}
+                    placeholder={isGroupClass ? "20" : "No limit"}
+                  />
+                  {errorField === "capacity" ? (
+                    <p role="alert" className="mt-1.5 text-sm text-red-700">
+                      {state.error}
+                    </p>
+                  ) : null}
+                </div>
+                {hasCapacity ? (
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={waitlistEnabled}
+                      onChange={(e) => setWaitlistEnabled(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Offer a waitlist when it fills up
+                  </label>
+                ) : null}
+                <p className="text-xs text-slate-500">
+                  Registration dates and account requirements are under Advanced settings.
+                </p>
+              </div>
+            ) : null}
+          </fieldset>
+        ) : isCompetition ? (
+          <section className="space-y-1">
+            <h2 className="text-lg font-semibold text-slate-950">How will people attend?</h2>
+            <p className="text-sm text-slate-600">
+              Competition entries, divisions and prices are set up in the next step. You open registration when you are
+              ready.
+            </p>
+          </section>
+        ) : (
+          <section className="space-y-2">
+            <h2 className="text-lg font-semibold text-slate-950">How will people attend?</h2>
+            <p className="text-sm text-slate-600">
+              This is a basic event listing. Registration, ticketing and check-in need Organizer Suite.{" "}
+              <Link
+                href="/app/settings/billing?reason=feature_required&feature=ticketing&requiredPlan=organizer&account=organizer"
+                className="font-semibold text-slate-900 underline"
+              >
+                Start Organizer Suite
+              </Link>
+            </p>
+          </section>
+        )}
+
+        {/* 4. Who can find it? */}
+        <fieldset className="space-y-3">
+          <legend className="text-lg font-semibold text-slate-950">Who can find it?</legend>
+          {AUDIENCE_OPTIONS.map((option) => (
+            <label key={option.value} className={optionClass(audience === option.value)}>
+              <input
+                type="radio"
+                name="audience"
+                value={option.value}
+                checked={audience === option.value}
+                onChange={() => setAudience(option.value)}
+                className="mt-1 h-4 w-4"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-950">{option.label}</span>
+                <span className="block text-xs text-slate-600">{option.helper}</span>
+              </span>
+            </label>
+          ))}
+          {audience === "public" ? (
+            <div className="border-l-2 border-slate-200 pl-4">
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={discovery}
+                  onChange={(e) => setDiscovery(e.target.checked)}
+                  className="mt-0.5 h-4 w-4"
+                />
+                <span>
+                  Also show in DanceFlow Discovery
+                  <span className="block text-xs text-slate-500">
+                    Lets dancers outside your studio find it.
+                    {discovery && selectedStyleKeys.length === 0
+                      ? " Add a dance style in Advanced settings so it shows up in style filters."
+                      : ""}
+                  </span>
+                </span>
+              </label>
+            </div>
+          ) : null}
+          <div className="pt-2">
+            <p className="mb-2 text-sm font-medium text-slate-900">When should it go live?</p>
+            <div role="radiogroup" aria-label="When should it go live" className="grid gap-2 sm:grid-cols-2">
+              {PUBLISH_OPTIONS.map((option) => (
+                <label key={option.label} className={optionClass(publishNow === option.publishNow)}>
+                  <input
+                    type="radio"
+                    name="publishChoice"
+                    checked={publishNow === option.publishNow}
+                    onChange={() => setPublishNow(option.publishNow)}
+                    className="mt-1 h-4 w-4"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-950">{option.label}</span>
+                    <span className="block text-xs text-slate-600">{option.helper}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </fieldset>
+
+        {/* 5. Advanced settings */}
+        <details
+          open={advancedIsOpen}
+          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+          className="group rounded-xl border border-slate-200"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-900 [&::-webkit-details-marker]:hidden">
+            <span>
+              Advanced settings
+              <span className="block text-xs font-normal text-slate-500">
+                Web address, photo, full description, dance style, registration options, schedules
+              </span>
+            </span>
+            <span className="flex shrink-0 items-center gap-2 text-xs font-medium text-slate-600">
+              {advancedIsOpen ? "Hide" : "Show"}
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 20 20"
+                className="h-4 w-4 transition-transform group-open:rotate-180"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="m5 8 5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          </summary>
+
+          <div className="space-y-8 border-t border-slate-200 px-4 py-5">
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-slate-900">Event page</h3>
+              <div>
+                <label htmlFor="slug" className="mb-1.5 block text-sm font-medium">
+                  Web address
+                </label>
+                <input
+                  id="slug"
+                  name="slug"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                  aria-invalid={errorField === "slug" ? true : undefined}
+                  className={fieldClass}
+                  placeholder={suggestedSlug || "generated-from-name"}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Leave blank to use: {suggestedSlug || "generated-from-name"}
+                </p>
+              </div>
+              <div>
+                <label htmlFor="description" className="mb-1.5 block text-sm font-medium">
+                  Full description
+                </label>
+                <textarea
+                  id="description"
+                  name="description"
+                  rows={6}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  className={fieldClass}
+                  placeholder="What to expect, schedule notes and important details."
+                />
+              </div>
+              <EventDescriptionAIAssistant
+                eventName={name}
+                eventType={eventType}
+                danceCategory={selectedDanceCategory.label}
+                danceStyles={selectedDanceStyleLabels}
+                startDate={fallbackStartDate}
+                startTime={fallbackStartTime}
+                venueName={primaryLocation.venueName || initialValues?.venueName || ""}
+                city={primaryLocation.city || initialValues?.city || ""}
+                state={primaryLocation.state || initialValues?.state || ""}
+                beginnerFriendly={beginnerFriendly}
+                currentSummary={shortDescription}
+                currentDescription={description}
+                onUseSummary={setShortDescription}
+                onUseDescription={setDescription}
+              />
+              <div>
+                <label htmlFor="coverImageFile" className="mb-1.5 block text-sm font-medium">
+                  Cover image
+                </label>
+                <input
+                  id="coverImageFile"
+                  name="coverImageFile"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className={fieldClass}
+                />
+                <p className="mt-1 text-xs text-slate-500">JPG, PNG or WEBP.</p>
+              </div>
+              <div>
+                <label htmlFor="coverImageUrl" className="mb-1.5 block text-sm font-medium">
+                  Cover image URL (optional)
+                </label>
+                <input
+                  id="coverImageUrl"
+                  name="coverImageUrl"
+                  defaultValue={initialValues?.coverImageUrl ?? ""}
+                  className={fieldClass}
+                  placeholder="Used only if you do not upload a file"
+                />
+              </div>
+              <div>
+                <label htmlFor="refundPolicy" className="mb-1.5 block text-sm font-medium">
+                  Refund policy
+                </label>
+                <textarea
+                  id="refundPolicy"
+                  name="refundPolicy"
+                  rows={3}
+                  defaultValue={initialValues?.refundPolicy ?? ""}
+                  className={fieldClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="faq" className="mb-1.5 block text-sm font-medium">
+                  FAQ
+                </label>
+                <textarea id="faq" name="faq" rows={4} defaultValue={initialValues?.faq ?? ""} className={fieldClass} />
+              </div>
+              {!datesMoved ? (
+                <div>
+                  <label htmlFor="addressLine2" className="mb-1.5 block text-sm font-medium">
+                    Address line 2
+                  </label>
+                  <input
+                    id="addressLine2"
+                    name="addressLine2"
+                    defaultValue={initialValues?.addressLine2 ?? ""}
+                    className={fieldClass}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-slate-900">Dance style</h3>
+              {danceFocusFields}
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  name="beginnerFriendly"
+                  checked={beginnerFriendly}
+                  onChange={(e) => setBeginnerFriendly(e.target.checked)}
+                  className="mt-0.5 h-4 w-4"
+                />
+                Beginner friendly
+              </label>
+              <div>
+                <label htmlFor="tags" className="mb-1.5 block text-sm font-medium">
+                  Tags
+                </label>
+                <input
+                  id="tags"
+                  name="tags"
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  className={fieldClass}
+                  placeholder="beginner, country, ballroom, members"
+                />
+                <p className="mt-1 text-xs text-slate-500">Comma-separated, for discovery and filtering.</p>
+              </div>
+            </div>
+
+            {eventCommerceEnabled ? (
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-slate-900">Registration options</h3>
+                <label className="flex items-start gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    name="accountRequiredForRegistration"
+                    checked={accountRequiredForRegistration}
+                    onChange={(e) => setAccountRequiredForRegistration(e.target.checked)}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  <span>
+                    Require a dancer account to register
+                    <span className="block text-xs text-slate-500">People must sign in before registering.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    name="featured"
+                    defaultChecked={initialValues?.featured ?? false}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  <span>
+                    Featured event
+                    <span className="block text-xs text-slate-500">Mark for higher-priority promotion later.</span>
+                  </span>
+                </label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="registrationOpensAt" className="mb-1.5 block text-sm font-medium">
+                      Registration opens
+                    </label>
+                    <input
+                      id="registrationOpensAt"
+                      name="registrationOpensAt"
+                      type="datetime-local"
+                      defaultValue={initialValues?.registrationOpensAt ?? getLocalDateTimeInputValue()}
+                      className={fieldClass}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="registrationClosesAt" className="mb-1.5 block text-sm font-medium">
+                      Registration closes
+                    </label>
+                    <input
+                      id="registrationClosesAt"
+                      name="registrationClosesAt"
+                      type="datetime-local"
+                      defaultValue={initialValues?.registrationClosesAt ?? ""}
+                      className={fieldClass}
+                    />
+                  </div>
+                </div>
+                {errorField === "registration" ? (
+                  <p role="alert" className="text-sm text-red-700">
+                    {state.error}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-slate-900">Schedule and locations</h3>
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={scheduleMode === "multi"}
+                  onChange={(e) => setScheduleMode(e.target.checked ? "multi" : "single")}
+                  className="mt-0.5 h-4 w-4"
+                />
+                <span>
+                  This event runs at multiple locations or on separate dates
+                  <span className="block text-xs text-slate-500">
+                    Replaces the single date and venue above with a schedule builder.
+                  </span>
+                </span>
+              </label>
+              {multiLocationBuilder}
+              {scheduleItemsBlock}
+              {guestCoachesBlock}
+            </div>
+          </div>
+        </details>
+
+        {/* Primary action */}
+        <div className="space-y-3 border-t border-slate-200 pt-6">
+          {state.error && errorField ? (
+            <p role="alert" className="text-sm text-red-700">
+              Please fix the highlighted field and try again.
+            </p>
+          ) : null}
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Link
+              href={startedAsCompetition ? COMPETITIONS_HREF : "/app/events"}
+              className="inline-flex justify-center rounded-xl px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              disabled={pending}
+              className="inline-flex justify-center rounded-xl bg-[var(--brand-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {pending ? "Creating event..." : createSubmitLabel(eventType)}
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">
+            {isCompetition
+              ? "Next, you'll set up the competition: categories, divisions and entry prices."
+              : "You can change everything later from the event page."}
+          </p>
+        </div>
+      </form>
     );
   }
 
@@ -1751,956 +3727,11 @@ export default function EventForm({
                 </select>
               </div>
 
-              {scheduleMode === "multi" ? (
-                <div className="md:col-span-2 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h4 className="text-base font-semibold text-indigo-950">
-                        Multi-location Schedule Builder
-                      </h4>
-                      <p className="mt-1 text-sm leading-6 text-indigo-800">
-                        Add each real location, then add the dates and times for
-                        that location. Location 1 is the first event location;
-                        it is not separate from the old venue fields.
-                      </p>
-                    </div>
+            {multiLocationBuilder}
 
-                    <button
-                      type="button"
-                      onClick={addEventLocation}
-                      className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-indigo-900 shadow-sm ring-1 ring-indigo-200 hover:bg-indigo-100"
-                    >
-                      Add Location
-                    </button>
-                  </div>
+            {scheduleItemsBlock}
 
-                  <div className="mt-4 space-y-4">
-                    {eventLocations.map((location, locationIndex) => (
-                      <div
-                        key={`event-location-${locationIndex}`}
-                        className="rounded-2xl border border-indigo-200 bg-white p-4"
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-950">
-                              Location {locationIndex + 1}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              Use names like Dublin January Series or Sunbury
-                              April Series if that helps your staff.
-                            </p>
-                          </div>
-
-                          {eventLocations.length > 1 ? (
-                            <button
-                              type="button"
-                              onClick={() => removeEventLocation(locationIndex)}
-                              className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                            >
-                              Remove Location
-                            </button>
-                          ) : null}
-                        </div>
-
-                        <input
-                          type="hidden"
-                          name={`location_${locationIndex}_sortOrder`}
-                          value={locationIndex}
-                        />
-
-                        <div className="mt-4 grid gap-4 md:grid-cols-2">
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Location Label
-                              <RequiredAsterisk />
-                            </label>
-                            <input
-                              name={`location_${locationIndex}_locationName`}
-                              required
-                              value={location.locationName}
-                              onChange={(e) =>
-                                updateLocationField(
-                                  locationIndex,
-                                  "locationName",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="Dublin series / Sunbury series"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Venue Name
-                            </label>
-                            <input
-                              name={`location_${locationIndex}_venueName`}
-                              value={location.venueName}
-                              onChange={(e) =>
-                                updateLocationField(
-                                  locationIndex,
-                                  "venueName",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="Studio / ballroom / venue"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Address Line 1
-                            </label>
-                            <input
-                              name={`location_${locationIndex}_addressLine1`}
-                              value={location.addressLine1}
-                              onChange={(e) =>
-                                updateLocationField(
-                                  locationIndex,
-                                  "addressLine1",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Address Line 2
-                            </label>
-                            <input
-                              name={`location_${locationIndex}_addressLine2`}
-                              value={location.addressLine2}
-                              onChange={(e) =>
-                                updateLocationField(
-                                  locationIndex,
-                                  "addressLine2",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              City
-                            </label>
-                            <input
-                              name={`location_${locationIndex}_city`}
-                              value={location.city}
-                              onChange={(e) =>
-                                updateLocationField(
-                                  locationIndex,
-                                  "city",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              State
-                            </label>
-                            <select
-                              name={`location_${locationIndex}_state`}
-                              value={location.state}
-                              onChange={(e) =>
-                                updateLocationField(
-                                  locationIndex,
-                                  "state",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            >
-                              <option value="">Select state</option>
-                              {US_STATE_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Postal Code
-                            </label>
-                            <input
-                              name={`location_${locationIndex}_postalCode`}
-                              value={location.postalCode}
-                              onChange={(e) =>
-                                updateLocationField(
-                                  locationIndex,
-                                  "postalCode",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Location Capacity
-                            </label>
-                            <input
-                              name={`location_${locationIndex}_capacity`}
-                              type="number"
-                              min="0"
-                              value={location.capacity}
-                              onChange={(e) =>
-                                updateLocationField(
-                                  locationIndex,
-                                  "capacity",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="Optional"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="mt-5 space-y-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-sm font-semibold text-slate-950">
-                              Dates & Times
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => addLocationSession(locationIndex)}
-                              className="rounded-xl border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-50"
-                            >
-                              Add Date/Time
-                            </button>
-                          </div>
-
-                          {location.sessions.map((session, sessionIndex) => (
-                            <div
-                              key={`event-location-${locationIndex}-session-${sessionIndex}`}
-                              className="rounded-xl border border-slate-200 bg-slate-50 p-3"
-                            >
-                              <input
-                                type="hidden"
-                                name={`location_${locationIndex}_session_${sessionIndex}_sortOrder`}
-                                value={sessionIndex}
-                              />
-
-                              <div className="grid gap-3 md:grid-cols-2">
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">
-                                    Date
-                                    <RequiredAsterisk />
-                                  </label>
-                                  <input
-                                    name={`location_${locationIndex}_session_${sessionIndex}_date`}
-                                    type="date"
-                                    required
-                                    value={session.sessionDate}
-                                    onChange={(e) =>
-                                      updateSessionField(
-                                        locationIndex,
-                                        sessionIndex,
-                                        "sessionDate",
-                                        e.target.value,
-                                      )
-                                    }
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">
-                                    Series Label
-                                  </label>
-                                  <input
-                                    name={`location_${locationIndex}_session_${sessionIndex}_seriesLabel`}
-                                    value={session.seriesLabel}
-                                    onChange={(e) =>
-                                      updateSessionField(
-                                        locationIndex,
-                                        sessionIndex,
-                                        "seriesLabel",
-                                        e.target.value,
-                                      )
-                                    }
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    placeholder="January series / April series"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">
-                                    Start Time
-                                  </label>
-                                  <input
-                                    name={`location_${locationIndex}_session_${sessionIndex}_startTime`}
-                                    type="time"
-                                    value={session.startTime}
-                                    onChange={(e) =>
-                                      updateSessionField(
-                                        locationIndex,
-                                        sessionIndex,
-                                        "startTime",
-                                        e.target.value,
-                                      )
-                                    }
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">
-                                    End Time
-                                  </label>
-                                  <input
-                                    name={`location_${locationIndex}_session_${sessionIndex}_endTime`}
-                                    type="time"
-                                    value={session.endTime}
-                                    onChange={(e) =>
-                                      updateSessionField(
-                                        locationIndex,
-                                        sessionIndex,
-                                        "endTime",
-                                        e.target.value,
-                                      )
-                                    }
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">
-                                    Session Label
-                                  </label>
-                                  <input
-                                    name={`location_${locationIndex}_session_${sessionIndex}_label`}
-                                    value={session.sessionLabel}
-                                    onChange={(e) =>
-                                      updateSessionField(
-                                        locationIndex,
-                                        sessionIndex,
-                                        "sessionLabel",
-                                        e.target.value,
-                                      )
-                                    }
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    placeholder="Week 1 / Day 1 / Optional"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">
-                                    Session Capacity
-                                  </label>
-                                  <input
-                                    name={`location_${locationIndex}_session_${sessionIndex}_capacity`}
-                                    type="number"
-                                    min="0"
-                                    value={session.capacity}
-                                    onChange={(e) =>
-                                      updateSessionField(
-                                        locationIndex,
-                                        sessionIndex,
-                                        "capacity",
-                                        e.target.value,
-                                      )
-                                    }
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    placeholder="Optional"
-                                  />
-                                </div>
-                              </div>
-
-                              {location.sessions.length > 1 ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    removeLocationSession(
-                                      locationIndex,
-                                      sessionIndex,
-                                    )
-                                  }
-                                  className="mt-3 rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                                >
-                                  Remove Date/Time
-                                </button>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h4 className="text-base font-semibold text-slate-950">
-                      Optional Event Schedule
-                    </h4>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                      Add a public agenda for workshops, socials, competitions,
-                      showcases, festivals, or multi-day events. Items are
-                      grouped by date on the public event page.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={addEventScheduleItem}
-                    className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
-                  >
-                    Add Schedule Item
-                  </button>
-                </div>
-
-                {eventScheduleItems.length === 0 ? (
-                  <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500">
-                    No schedule items added. The public Event Schedule card will
-                    stay hidden.
-                  </p>
-                ) : (
-                  <div className="mt-4 space-y-4">
-                    {eventScheduleItems.map((item, itemIndex) => (
-                      <div
-                        key={`event-schedule-item-${itemIndex}`}
-                        className="rounded-2xl border border-slate-200 bg-white p-4"
-                      >
-                        <input
-                          type="hidden"
-                          name={`scheduleItem_${itemIndex}_sortOrder`}
-                          value={itemIndex}
-                        />
-
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-950">
-                              Schedule Item {itemIndex + 1}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              Date, start time, and title are required when an
-                              item is added.
-                            </p>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => removeEventScheduleItem(itemIndex)}
-                            className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                          >
-                            Remove Item
-                          </button>
-                        </div>
-
-                        <div className="mt-4 grid gap-4 md:grid-cols-2">
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Schedule Date
-                              <RequiredAsterisk />
-                            </label>
-                            <input
-                              name={`scheduleItem_${itemIndex}_date`}
-                              type="date"
-                              required
-                              value={item.scheduleDate}
-                              onChange={(e) =>
-                                updateEventScheduleItem(
-                                  itemIndex,
-                                  "scheduleDate",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Title
-                              <RequiredAsterisk />
-                            </label>
-                            <input
-                              name={`scheduleItem_${itemIndex}_title`}
-                              required
-                              value={item.title}
-                              onChange={(e) =>
-                                updateEventScheduleItem(
-                                  itemIndex,
-                                  "title",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="Beginner Salsa Class"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Start Time
-                              <RequiredAsterisk />
-                            </label>
-                            <input
-                              name={`scheduleItem_${itemIndex}_startTime`}
-                              type="time"
-                              required
-                              value={item.startTime}
-                              onChange={(e) =>
-                                updateEventScheduleItem(
-                                  itemIndex,
-                                  "startTime",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              End Time
-                            </label>
-                            <input
-                              name={`scheduleItem_${itemIndex}_endTime`}
-                              type="time"
-                              value={item.endTime}
-                              onChange={(e) =>
-                                updateEventScheduleItem(
-                                  itemIndex,
-                                  "endTime",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Presenter / Instructor
-                            </label>
-                            <input
-                              name={`scheduleItem_${itemIndex}_presenterName`}
-                              value={item.presenterName}
-                              onChange={(e) =>
-                                updateEventScheduleItem(
-                                  itemIndex,
-                                  "presenterName",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="Optional"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Room / Location Label
-                            </label>
-                            <input
-                              name={`scheduleItem_${itemIndex}_locationLabel`}
-                              value={item.locationLabel}
-                              onChange={(e) =>
-                                updateEventScheduleItem(
-                                  itemIndex,
-                                  "locationLabel",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="Main Ballroom / Studio B / Optional"
-                            />
-                          </div>
-
-                          <div className="md:col-span-2">
-                            <label className="mb-1.5 block text-sm font-medium">
-                              Description
-                            </label>
-                            <textarea
-                              name={`scheduleItem_${itemIndex}_description`}
-                              rows={3}
-                              value={item.description}
-                              onChange={(e) =>
-                                updateEventScheduleItem(
-                                  itemIndex,
-                                  "description",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="Optional details for this block."
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {eventCommerceEnabled ? (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h4 className="text-base font-semibold text-slate-950">
-                        Guest Coach Private Lessons
-                      </h4>
-                      <p className="mt-1 text-sm leading-6 text-slate-600">
-                        Optional. Add guest coaches and availability blocks.
-                        Slots are generated from each block when the event is
-                        saved.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addGuestCoach}
-                      className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
-                    >
-                      Add Guest Coach
-                    </button>
-                  </div>
-
-                  {guestCoaches.length === 0 ? (
-                    <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                      No guest coach lesson slots added.
-                    </p>
-                  ) : (
-                    <div className="mt-5 space-y-5">
-                      {guestCoaches.map((coach, coachIndex) => (
-                        <div
-                          key={`guest-coach-${coachIndex}`}
-                          className="rounded-2xl border border-slate-200 bg-white p-4"
-                        >
-                          <input
-                            type="hidden"
-                            name={`guestCoach_${coachIndex}_id`}
-                            value={coach.id ?? ""}
-                          />
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                Guest Coach {coachIndex + 1}
-                              </p>
-                              <h5 className="mt-1 text-base font-semibold text-slate-950">
-                                {coach.name || "New Guest Coach"}
-                              </h5>
-                              {mode === "edit" && coach.scheduleToken ? (
-                                <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-sm text-indigo-950">
-                                  <p className="font-semibold">
-                                    Private coach schedule link
-                                  </p>
-                                  <p className="mt-1 text-xs leading-5 text-indigo-800">
-                                    Send this read-only link to the coach so
-                                    they can see booked lessons for this event.
-                                  </p>
-                                  <Link
-                                    href={`/coach-schedule/${coach.scheduleToken}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="mt-2 inline-flex rounded-lg bg-white px-3 py-2 text-xs font-semibold text-indigo-800 shadow-sm ring-1 ring-indigo-100 hover:bg-indigo-100"
-                                  >
-                                    Open coach schedule
-                                  </Link>
-                                </div>
-                              ) : null}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeGuestCoach(coachIndex)}
-                              className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                            >
-                              Remove Coach
-                            </button>
-                          </div>
-
-                          <div className="mt-4 grid gap-4 md:grid-cols-2">
-                            <div>
-                              <label className="mb-1.5 block text-sm font-medium">
-                                Coach Name
-                              </label>
-                              <input
-                                name={`guestCoach_${coachIndex}_name`}
-                                value={coach.name}
-                                onChange={(e) =>
-                                  updateGuestCoach(
-                                    coachIndex,
-                                    "name",
-                                    e.target.value,
-                                  )
-                                }
-                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                placeholder="Guest coach name"
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1.5 block text-sm font-medium">
-                                Photo URL, optional
-                              </label>
-                              <input
-                                name={`guestCoach_${coachIndex}_photoUrl`}
-                                value={coach.photoUrl}
-                                onChange={(e) =>
-                                  updateGuestCoach(
-                                    coachIndex,
-                                    "photoUrl",
-                                    e.target.value,
-                                  )
-                                }
-                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                placeholder="https://..."
-                              />
-                            </div>
-                            <div className="md:col-span-2">
-                              <label className="mb-1.5 block text-sm font-medium">
-                                Coach Bio, optional
-                              </label>
-                              <textarea
-                                name={`guestCoach_${coachIndex}_bio`}
-                                value={coach.bio}
-                                onChange={(e) =>
-                                  updateGuestCoach(
-                                    coachIndex,
-                                    "bio",
-                                    e.target.value,
-                                  )
-                                }
-                                rows={3}
-                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              />
-                            </div>
-                            <label className="flex items-center gap-3 rounded-xl border bg-slate-50 p-3 text-sm">
-                              <input
-                                type="checkbox"
-                                name={`guestCoach_${coachIndex}_active`}
-                                checked={coach.active}
-                                onChange={(e) =>
-                                  updateGuestCoach(
-                                    coachIndex,
-                                    "active",
-                                    e.target.checked,
-                                  )
-                                }
-                              />
-                              Active / visible
-                            </label>
-                          </div>
-
-                          <div className="mt-5 space-y-4">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-900">
-                                  Availability Blocks
-                                </p>
-                                <p className="text-xs text-slate-500">
-                                  Each block creates fixed purchasable lesson
-                                  slots.
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => addGuestCoachBlock(coachIndex)}
-                                className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                Add Block
-                              </button>
-                            </div>
-
-                            {coach.blocks.map((block, blockIndex) => (
-                              <div
-                                key={`guest-coach-${coachIndex}-block-${blockIndex}`}
-                                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <p className="text-sm font-semibold text-slate-900">
-                                    Block {blockIndex + 1}
-                                  </p>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      removeGuestCoachBlock(
-                                        coachIndex,
-                                        blockIndex,
-                                      )
-                                    }
-                                    className="text-sm font-medium text-red-600 hover:text-red-700"
-                                  >
-                                    Remove
-                                  </button>
-                                </div>
-
-                                <div className="mt-4 grid gap-4 md:grid-cols-3">
-                                  <div>
-                                    <label className="mb-1.5 block text-sm font-medium">
-                                      Date
-                                    </label>
-                                    <input
-                                      type="date"
-                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_lessonDate`}
-                                      value={block.lessonDate}
-                                      onChange={(e) =>
-                                        updateGuestCoachBlock(
-                                          coachIndex,
-                                          blockIndex,
-                                          "lessonDate",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="mb-1.5 block text-sm font-medium">
-                                      Start Time
-                                    </label>
-                                    <input
-                                      type="time"
-                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_startTime`}
-                                      value={block.startTime}
-                                      onChange={(e) =>
-                                        updateGuestCoachBlock(
-                                          coachIndex,
-                                          blockIndex,
-                                          "startTime",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="mb-1.5 block text-sm font-medium">
-                                      End Time
-                                    </label>
-                                    <input
-                                      type="time"
-                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_endTime`}
-                                      value={block.endTime}
-                                      onChange={(e) =>
-                                        updateGuestCoachBlock(
-                                          coachIndex,
-                                          blockIndex,
-                                          "endTime",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="mb-1.5 block text-sm font-medium">
-                                      Lesson Length
-                                    </label>
-                                    <input
-                                      type="number"
-                                      min="5"
-                                      step="5"
-                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_durationMinutes`}
-                                      value={block.durationMinutes}
-                                      onChange={(e) =>
-                                        updateGuestCoachBlock(
-                                          coachIndex,
-                                          blockIndex,
-                                          "durationMinutes",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="mb-1.5 block text-sm font-medium">
-                                      Buffer Minutes
-                                    </label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="5"
-                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_bufferMinutes`}
-                                      value={block.bufferMinutes}
-                                      onChange={(e) =>
-                                        updateGuestCoachBlock(
-                                          coachIndex,
-                                          blockIndex,
-                                          "bufferMinutes",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="mb-1.5 block text-sm font-medium">
-                                      Price
-                                    </label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="0.01"
-                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_price`}
-                                      value={block.price}
-                                      onChange={(e) =>
-                                        updateGuestCoachBlock(
-                                          coachIndex,
-                                          blockIndex,
-                                          "price",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                      placeholder="150.00"
-                                    />
-                                  </div>
-                                  <div className="md:col-span-3">
-                                    <label className="mb-1.5 block text-sm font-medium">
-                                      Room / Location Label, optional
-                                    </label>
-                                    <input
-                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_locationLabel`}
-                                      value={block.locationLabel}
-                                      onChange={(e) =>
-                                        updateGuestCoachBlock(
-                                          coachIndex,
-                                          blockIndex,
-                                          "locationLabel",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                      placeholder="Main Ballroom, Studio B, etc."
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-purple-200 bg-purple-50 p-4 text-sm leading-6 text-purple-900">
-                  <p className="font-semibold">
-                    Organizer Suite unlocks guest coach lesson sales.
-                  </p>
-                  <p className="mt-1">
-                    Basic event listings can publish event details to discovery.
-                    Ticket sales, QR check-in, settlement, and guest coach
-                    lesson slots require Organizer Suite.
-                  </p>
-                </div>
-              )}
+            {guestCoachesBlock}
 
               <div>
                 <label
@@ -2964,96 +3995,7 @@ export default function EventForm({
               class from accidentally being tagged as Country Two Step.
             </p>
 
-            <div className="mt-5 space-y-5">
-              <div>
-                <p className="text-sm font-semibold text-sky-950">
-                  Dance Category <RequiredAsterisk />
-                </p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {DANCE_CATEGORY_OPTIONS.map((category) => {
-                    const selected = danceCategory === category.key;
-
-                    return (
-                      <label
-                        key={category.key}
-                        className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
-                          selected
-                            ? "border-sky-500 bg-white shadow-sm"
-                            : "border-sky-200 bg-white/80 hover:bg-white"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="danceCategory"
-                          value={category.key}
-                          checked={selected}
-                          onChange={() =>
-                            handleDanceCategoryChange(category.key)
-                          }
-                          className="mt-1 h-4 w-4"
-                        />
-                        <span>
-                          <span className="block text-sm font-semibold text-slate-900">
-                            {category.label}
-                          </span>
-                          <span className="mt-1 block text-xs leading-5 text-slate-600">
-                            {category.helper}
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-sky-950">
-                      Dance Focus
-                      <RequiredAsterisk />
-                    </p>
-                    <p className="mt-1 text-xs text-sky-800">
-                      Showing options for {selectedDanceCategory.label}. Switch
-                      the category above to choose a different dance family.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {visibleDanceFocusOptions.map((style) => {
-                    const checked = selectedStyleKeys.includes(style.key);
-
-                    return (
-                      <label
-                        key={style.key}
-                        className="flex items-center gap-3 rounded-xl border border-sky-200 bg-white p-3"
-                      >
-                        <input
-                          type="checkbox"
-                          value={style.key}
-                          checked={checked}
-                          onChange={(e) =>
-                            toggleStyleKey(style.key, e.target.checked)
-                          }
-                          className="h-4 w-4"
-                        />
-                        <span className="text-sm font-medium text-slate-800">
-                          {style.label}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                {selectedStyleKeys.length === 0 ? (
-                  <p className="mt-3 rounded-xl border border-sky-200 bg-white/80 px-3 py-2 text-xs text-sky-800">
-                    Pick at least one dance focus if you want this event to show
-                    in style-based public discovery filters.
-                  </p>
-                ) : null}
-              </div>
-            </div>
+            {danceFocusFields}
           </section>
 
           {eventCommerceEnabled ? (
@@ -3256,19 +4198,12 @@ export default function EventForm({
               disabled={pending}
               className="w-full rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {pending
-                ? mode === "edit"
-                  ? "Saving event..."
-                  : "Creating event..."
-                : mode === "edit"
-                  ? "Save Event Changes"
-                  : createSubmitLabel(eventType)}
+              {pending ? "Saving event..." : "Save Event Changes"}
             </button>
 
             <p className="mt-3 text-center text-xs leading-5 text-slate-500">
-              {mode === "create" && continuesToCompetitionSetup(eventType)
-                ? "Next, you'll set up the competition. You can save the event as a draft and publish when you're ready."
-                : "You can save as a draft first, then publish when the event details are ready."}
+              You can save as a draft first, then publish when the event details
+              are ready.
             </p>
           </section>
         </div>
