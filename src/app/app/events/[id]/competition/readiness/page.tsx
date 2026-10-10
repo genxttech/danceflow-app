@@ -61,7 +61,7 @@ export default async function CompetitionReadinessPage({
     .maybeSingle();
   if (eventError || !event) notFound();
 
-  const { data: versionData, error: versionError } = await (supabase as any)
+  const { data: versionData, error: versionError } = await supabase
     .from("event_competition_schedule_versions")
     .select("id, version_number, name, status")
     .eq("event_id", id)
@@ -71,12 +71,12 @@ export default async function CompetitionReadinessPage({
   const selectedVersion = versions.find((item) => item.id === query.version) ?? versions.find((item) => item.status === "draft") ?? versions[0] ?? null;
 
   const [programResult, contestResult, divisionResult, roundResult, entryResult, floorResult] = await Promise.all([
-    (supabase as any).from("event_competition_programs").select("id", { count: "exact", head: true }).eq("event_id", id),
-    (supabase as any).from("event_competition_contests").select("id").eq("event_id", id).neq("status", "cancelled"),
-    (supabase as any).from("event_competition_divisions").select("id, contest_id").eq("event_id", id).neq("status", "cancelled"),
-    (supabase as any).from("event_competition_rounds").select("id, division_id").eq("event_id", id).neq("status", "cancelled"),
-    (supabase as any).from("event_competition_entries").select("id, status, eligibility_status").eq("event_id", id),
-    (supabase as any).from("event_competition_schedule_floors").select("id", { count: "exact", head: true }).eq("event_id", id).eq("active", true),
+    supabase.from("event_competition_programs").select("id", { count: "exact", head: true }).eq("event_id", id),
+    supabase.from("event_competition_contests").select("id").eq("event_id", id).neq("status", "cancelled"),
+    supabase.from("event_competition_divisions").select("id, contest_id").eq("event_id", id).neq("status", "cancelled"),
+    supabase.from("event_competition_rounds").select("id, division_id").eq("event_id", id).neq("status", "cancelled"),
+    supabase.from("event_competition_entries").select("id, status, eligibility_status").eq("event_id", id),
+    supabase.from("event_competition_schedule_floors").select("id", { count: "exact", head: true }).eq("event_id", id).eq("active", true),
   ]);
   const baseError = programResult.error || contestResult.error || divisionResult.error || roundResult.error || entryResult.error || floorResult.error;
   if (baseError) throw new Error(`Could not calculate schedule readiness: ${baseError.message}`);
@@ -88,11 +88,11 @@ export default async function CompetitionReadinessPage({
   let runs: Run[] = [];
   if (selectedVersion) {
     const [sessionResult, blockResult, assignmentResult, constraintResult, runResult] = await Promise.all([
-      (supabase as any).from("event_competition_schedule_sessions").select("id", { count: "exact", head: true }).eq("schedule_version_id", selectedVersion.id),
-      (supabase as any).from("event_competition_schedule_blocks").select("id, block_type").eq("schedule_version_id", selectedVersion.id),
-      (supabase as any).from("event_competition_schedule_block_contests").select("id, block_id").eq("schedule_version_id", selectedVersion.id),
-      (supabase as any).from("event_competition_generation_constraints").select("id, name, constraint_type, enforcement, configuration").eq("event_id", id).eq("schedule_version_id", selectedVersion.id).eq("active", true).order("created_at"),
-      (supabase as any).from("event_competition_generation_runs").select("id, run_number, status, engine_version, initiated_at").eq("schedule_version_id", selectedVersion.id).order("run_number", { ascending: false }).limit(5),
+      supabase.from("event_competition_schedule_sessions").select("id", { count: "exact", head: true }).eq("schedule_version_id", selectedVersion.id),
+      supabase.from("event_competition_schedule_blocks").select("id, block_type").eq("schedule_version_id", selectedVersion.id),
+      supabase.from("event_competition_schedule_block_contests").select("id, block_id").eq("schedule_version_id", selectedVersion.id),
+      supabase.from("event_competition_generation_constraints").select("id, name, constraint_type, enforcement, configuration").eq("event_id", id).eq("schedule_version_id", selectedVersion.id).eq("active", true).order("created_at"),
+      supabase.from("event_competition_generation_runs").select("id, run_number, status, engine_version, initiated_at").eq("schedule_version_id", selectedVersion.id).order("run_number", { ascending: false }).limit(5),
     ]);
     const detailError = sessionResult.error || blockResult.error || assignmentResult.error || constraintResult.error || runResult.error;
     if (detailError) throw new Error(`Could not load readiness details: ${detailError.message}`);
@@ -130,7 +130,7 @@ export default async function CompetitionReadinessPage({
   const editable = selectedVersion?.status === "draft";
 
   return <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
-    <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5"><div><Link href={`/app/events/${id}/competition/schedule`} className="text-sm font-medium text-slate-600 hover:text-slate-950">Back to Schedule of Events</Link><h1 className="mt-2 text-2xl font-semibold text-slate-950">Schedule Readiness</h1><p className="mt-1 text-sm text-slate-600">{event.name}</p></div><span className={`rounded px-3 py-2 text-sm font-semibold ${readyCount === checks.length ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{readyCount} of {checks.length} ready</span></header>
+    <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5"><div><Link href={`/app/events/${id}/competition/advanced/schedule`} className="text-sm font-medium text-slate-600 hover:text-slate-950">Back to Schedule of Events</Link><h1 className="mt-2 text-2xl font-semibold text-slate-950">Schedule Readiness</h1><p className="mt-1 text-sm text-slate-600">{event.name}</p></div><span className={`rounded px-3 py-2 text-sm font-semibold ${readyCount === checks.length ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{readyCount} of {checks.length} ready</span></header>
 
     <section className="border-b border-slate-200 py-5"><div className="flex flex-wrap gap-2">{versions.map((version) => <Link key={version.id} href={`?version=${version.id}`} className={`rounded border px-3 py-2 text-sm ${selectedVersion?.id === version.id ? "border-slate-950 bg-slate-950 text-white" : "border-slate-300 text-slate-700"}`}>v{version.version_number} · {version.name} · {label(version.status)}</Link>)}</div></section>
 

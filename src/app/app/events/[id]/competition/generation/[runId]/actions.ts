@@ -30,7 +30,7 @@ async function requireEventManager(eventId: string) {
 
 function refresh(eventId: string, runId: string) {
   revalidatePath(`/app/events/${eventId}/competition/readiness`);
-  revalidatePath(`/app/events/${eventId}/competition/schedule`);
+  revalidatePath(`/app/events/${eventId}/competition/advanced/schedule`);
   revalidatePath(`/app/events/${eventId}/competition/generation/${runId}`);
 }
 
@@ -40,7 +40,7 @@ export async function acknowledgeHeatPlanConflictAction(formData: FormData): Pro
   const conflictId = text(formData, "conflictId");
   if (!eventId || !runId || !conflictId) throw new Error("Conflict is required.");
   const supabase = await requireEventManager(eventId);
-  const { error } = await (supabase as any).rpc("acknowledge_competition_heat_plan_conflict", {
+  const { error } = await supabase.rpc("acknowledge_competition_heat_plan_conflict", {
     selected_conflict_id: conflictId,
     selected_note: text(formData, "note") || null,
   });
@@ -54,7 +54,7 @@ export async function reviewHeatPlanAction(formData: FormData): Promise<void> {
   const decision = text(formData, "decision");
   if (!eventId || !runId || !["reviewed", "rejected"].includes(decision)) throw new Error("A valid review decision is required.");
   const supabase = await requireEventManager(eventId);
-  const { error } = await (supabase as any).rpc("review_competition_heat_plan", {
+  const { error } = await supabase.rpc("review_competition_heat_plan", {
     selected_run_id: runId,
     selected_decision: decision,
   });
@@ -67,7 +67,7 @@ export async function applyHeatPlanAction(formData: FormData): Promise<void> {
   const runId = text(formData, "runId");
   if (!eventId || !runId) throw new Error("Approved heat plan is required.");
   const supabase = await requireEventManager(eventId);
-  const { error } = await (supabase as any).rpc("apply_competition_heat_plan", { selected_run_id: runId });
+  const { error } = await supabase.rpc("apply_competition_heat_plan", { selected_run_id: runId });
   if (error) throw new Error(`Could not apply heat plan: ${error.message}`);
   refresh(eventId, runId);
 }

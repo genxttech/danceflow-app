@@ -66,7 +66,7 @@ async function requireEventManager(eventId: string) {
 
 function refresh(eventId: string) {
   revalidatePath(`/app/events/${eventId}/competition`);
-  revalidatePath(`/app/events/${eventId}/competition/schedule`);
+  revalidatePath(`/app/events/${eventId}/competition/advanced/schedule`);
   revalidatePath(`/app/events/${eventId}/competition/readiness`);
 }
 

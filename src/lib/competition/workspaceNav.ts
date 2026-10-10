@@ -48,7 +48,7 @@ export function activeNavKey(eventId: string, pathname: string): CompetitionNavK
   if (rest.startsWith("/registrations")) return "entries";
   if (rest.startsWith("/checkin")) return "check_in";
   if (rest.startsWith("/divisions")) return "divisions";
-  if (rest.startsWith("/schedule") || rest.startsWith("/readiness") || rest.startsWith("/generation")) return "schedule";
+  if (rest.startsWith("/schedule") || rest.startsWith("/readiness") || rest.startsWith("/generation") || rest.startsWith("/advanced/schedule")) return "schedule";
   if (rest.startsWith("/settings") || rest.startsWith("/advanced")) return "settings";
   return "overview";
 }
