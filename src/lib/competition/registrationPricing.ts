@@ -12,6 +12,8 @@
   All money is integer cents internally (JS floats are only used to read numeric(10,2) values).
 */
 
+import { allowedRolesForFormat, participantShapeErrors } from "@/lib/competition/participantRoles";
+
 export type CompetitionRegistrationProgram = {
   id: string;
   name: string;
@@ -116,7 +118,10 @@ export type CompetitionDraftEntry = {
   contestId: string;
   divisionId: string;
   participantIds: string[];
+  /** Relationship role per participant (student, professional, instructor, dancer, team_member ...). */
   participantRoles: Record<string, string>;
+  /** 10C.4: lead/follow per participant for THIS entry (absent = none). */
+  participantDanceRoles?: Record<string, string>;
   selectedOfferingIds: string[];
   teamName?: string;
   routineTitle?: string;
@@ -166,15 +171,7 @@ export type CompetitionQuote = {
 
 export const PERSON_TYPES = ["dancer", "student", "professional", "instructor", "team_member", "alternate", "other"] as const;
 
-/** Roles each entry format accepts (mirrors public._comp10c_allowed_roles). */
-export function allowedRolesForFormat(entryFormat: string): string[] {
-  if (entryFormat === "pro_am") return ["student", "professional"];
-  if (entryFormat === "pro_pro") return ["professional"];
-  if (["couple", "mixed_amateur", "professional"].includes(entryFormat)) return ["leader", "follower"];
-  if (entryFormat === "random_partner") return ["leader", "follower"];
-  if (entryFormat === "team") return ["team_member"];
-  return ["dancer", "leader", "follower", "student", "professional", "instructor", "alternate", "other"];
-}
+export { allowedRolesForFormat } from "@/lib/competition/participantRoles";
 
 /** numeric(10,2) dollars -> integer cents, never negative (mirrors greatest(0, round(x * 100))). */
 export function toCents(value: number | string | null | undefined) {
@@ -262,14 +259,20 @@ export function calculateCompetitionRegistrationQuote(
     if (uniqueParticipantIds.length < rule.minimum_participants || uniqueParticipantIds.length > rule.maximum_participants) {
       errors.push(`${division.name}: select ${rule.minimum_participants === rule.maximum_participants ? rule.minimum_participants : `${rule.minimum_participants}-${rule.maximum_participants}`} participants.`);
     }
+    // 10C.4: relationship role per participant, then the combination (mirrors _comp10c_quote).
     const roles = entry.participantRoles ?? {};
-    if (contest.entry_format === "random_partner") {
-      const selectedRole = uniqueParticipantIds.length === 1 ? roles[uniqueParticipantIds[0]] ?? "" : "";
-      if (!["leader", "follower"].includes(selectedRole)) errors.push(`${division.name}: select Leader or Follower for this entry.`);
-    }
+    const danceRoles = entry.participantDanceRoles ?? {};
     const allowedRoles = allowedRolesForFormat(contest.entry_format);
     if (uniqueParticipantIds.some((id) => !allowedRoles.includes(roles[id] ?? "dancer"))) {
       errors.push(`${division.name}: choose a valid role for each participant.`);
+    }
+    for (const shapeError of participantShapeErrors(
+      contest.entry_format,
+      contest.contest_type,
+      uniqueParticipantIds.map((id) => roles[id] ?? "dancer"),
+      uniqueParticipantIds.map((id) => danceRoles[id] ?? ""),
+    )) {
+      errors.push(`${division.name}: ${shapeError}`);
     }
     if (contest.entry_format === "team" && !entry.teamName?.trim()) errors.push(`${division.name}: team name is required.`);
     if (rule.requires_routine_title && !entry.routineTitle?.trim()) errors.push(`${division.name}: routine title is required.`);

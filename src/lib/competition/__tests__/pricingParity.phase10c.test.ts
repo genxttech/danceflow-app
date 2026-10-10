@@ -12,7 +12,7 @@ import { generateParitySql, materialize, SCENARIOS } from "./fixtures/pricingPar
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
 
-type Scenario = { name: string; now: string; expected: { valid: boolean; subtotalCents?: number; discountCents?: number; totalCents?: number; lines?: string[] } };
+type Scenario = { name: string; now: string; expected: { valid: boolean; error?: string; subtotalCents?: number; discountCents?: number; totalCents?: number; lines?: string[] } };
 
 describe("Phase 10C pricing parity: TypeScript display quote == hand-computed expectations == SQL suite", () => {
   (SCENARIOS as Scenario[]).forEach((scenario, index) => {
@@ -20,7 +20,11 @@ describe("Phase 10C pricing parity: TypeScript display quote == hand-computed ex
       const { catalog, draft } = materialize(index) as { catalog: CompetitionRegistrationCatalog; draft: CompetitionRegistrationDraft };
       const quote = calculateCompetitionRegistrationQuote(catalog, draft, new Date(scenario.now));
       expect(quote.valid, quote.errors.join("; ")).toBe(scenario.expected.valid);
-      if (!scenario.expected.valid) return;
+      if (!scenario.expected.valid) {
+        // 10C.4: the refusal is the specific one the database gives, not just any error.
+        if (scenario.expected.error) expect(quote.errors).toContain(scenario.expected.error);
+        return;
+      }
       expect(quote.subtotalCents).toBe(scenario.expected.subtotalCents);
       expect(quote.discountCents).toBe(scenario.expected.discountCents);
       expect(quote.totalCents).toBe(scenario.expected.totalCents);

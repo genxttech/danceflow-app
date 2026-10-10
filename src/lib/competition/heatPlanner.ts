@@ -11,7 +11,7 @@ export type HeatPlannerInput = {
   offerings: Array<{ division_id: string; dance_id: string; required: boolean; sort_order: number }>;
   entries: Array<{ id: string; division_id: string; display_name: string; entry_number: string | null }>;
   entryDances: Array<{ entry_id: string; dance_key: string; status: string }>;
-  participants: Array<{ entry_id: string; client_id: string | null; instructor_id: string | null; registration_attendee_id: string | null; participant_role: string; display_name: string }>;
+  participants: Array<{ entry_id: string; client_id: string | null; instructor_id: string | null; registration_attendee_id: string | null; participant_role: string; dance_role?: string | null; display_name: string }>;
   blocks: Array<{ id: string; name: string; starts_at: string; ends_at: string; floor_id: string | null; floor_name_snapshot: string | null; floor_capacity_snapshot: number | null }>;
   assignments: Array<{ block_id: string; contest_id: string; planned_round_type: string | null; sort_order: number }>;
   constraints: Array<{ constraint_type: string; enforcement: string; configuration: Record<string, unknown> }>;
@@ -123,7 +123,8 @@ function participantKeys(input: HeatPlannerInput, entryId: string) {
   for (const row of rows) {
     const identity = row.client_id ? `client:${row.client_id}` : row.instructor_id ? `instructor:${row.instructor_id}` : row.registration_attendee_id ? `attendee:${row.registration_attendee_id}` : `name:${row.display_name.toLowerCase()}`;
     if (["professional", "instructor"].includes(row.participant_role) || row.instructor_id) instructors.add(identity);
-    else if (["leader", "follower"].includes(row.participant_role)) partners.add(identity);
+    // Couple-style partners: pre-10C.4 rows stored lead/follow in participant_role; now dancer + dance_role.
+    else if (["leader", "follower"].includes(row.participant_role) || (row.participant_role === "dancer" && row.dance_role)) partners.add(identity);
     else dancers.add(identity);
   }
   return { dancers, instructors, partners };

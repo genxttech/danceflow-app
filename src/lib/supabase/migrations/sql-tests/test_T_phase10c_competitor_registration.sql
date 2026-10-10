@@ -337,9 +337,9 @@ insert into t_kv values ('main_draft', pg_temp.draft(
                     pg_temp.person('jane', 'Jane', 'Doe', '{"email": "jane.doe@example.test"}')),
   jsonb_build_array(
     pg_temp.entry('proam', 1, 1, 1, '["me","pro"]', '{"me":"student","pro":"professional"}',
-                  jsonb_build_array(pg_temp.cid(5, 1, 1), pg_temp.cid(5, 1, 2))),
+                  jsonb_build_array(pg_temp.cid(5, 1, 1), pg_temp.cid(5, 1, 2)), '{"participantDanceRoles":{"me":"follower","pro":"leader"}}'),
     pg_temp.entry('solo', 1, 2, 2, '["me"]', '{"me":"dancer"}'),
-    pg_temp.entry('jj', 1, 3, 3, '["me"]', '{"me":"leader"}')),
+    pg_temp.entry('jj', 1, 3, 3, '["me"]', '{"me":"dancer"}', '[]', '{"participantDanceRoles":{"me":"leader"}}')),
   't-p10c-verified@example.test'));
 
 select pg_temp.chk('pricing: per-dance + per-entry + 3% fee - early bird = 103.30 now',
@@ -357,11 +357,11 @@ select pg_temp.chk('pricing: client-submitted totals/lines/prices are ignored',
      || '{"total": 1, "quote": {"total": 0.01}, "lines": [{"lineCents": 1}]}'::jsonb, now())->>'total_cents')::bigint = 10330);
 select pg_temp.chk('pricing: offering from a closed division is not accepted',
   not (public._comp10c_quote(pg_temp.ev(1), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Al','A'), pg_temp.person('b','Bo','B')),
-       jsonb_build_array(pg_temp.entry('x', 1, 1, 1, '["a","b"]', '{"a":"student","b":"professional"}', jsonb_build_array(pg_temp.cid(5, 1, 3))))), now())->>'valid')::boolean);
+       jsonb_build_array(pg_temp.entry('x', 1, 1, 1, '["a","b"]', '{"a":"student","b":"professional"}', jsonb_build_array(pg_temp.cid(5, 1, 3)), '{"participantDanceRoles":{"a":"follower","b":"leader"}}'))), now())->>'valid')::boolean);
 select pg_temp.chk('pricing: inactive offering is not priced',
   (public._comp10c_quote(pg_temp.ev(1), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Al','A'), pg_temp.person('b','Bo','B')),
        jsonb_build_array(pg_temp.entry('x', 1, 1, 1, '["a","b"]', '{"a":"student","b":"professional"}',
-         jsonb_build_array(pg_temp.cid(5, 1, 1), pg_temp.cid(5, 1, 4))))), now())->>'subtotal_cents')::bigint = 2575);
+         jsonb_build_array(pg_temp.cid(5, 1, 1), pg_temp.cid(5, 1, 4)), '{"participantDanceRoles":{"a":"follower","b":"leader"}}'))), now())->>'subtotal_cents')::bigint = 2575);
 select pg_temp.chk('pricing: other event''s division is rejected',
   public._comp10c_quote(pg_temp.ev(1), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Al','A')),
     jsonb_build_array(pg_temp.entry('x', 2, 2, 2, '["a"]', '{"a":"dancer"}'))), now())->'errors' ? 'One entry references a competition option that is no longer available.');
@@ -417,9 +417,14 @@ select pg_temp.chk('competitor: one competitor for "me" across ProAm + Solo + J&
 select pg_temp.chk('participants: participant client_id mirrors the competitor anchor',
   not exists (select 1 from public.event_competition_entry_participants p join public.event_competition_competitors c on c.id = p.competitor_id
               where p.event_id = pg_temp.ev(1) and p.client_id is distinct from c.client_id));
-select pg_temp.chk('roles: ProAm student/professional, J&J leader preserved',
+select pg_temp.chk('roles: ProAm student/professional, J&J lead stored as dance_role (10C.4)',
   exists (select 1 from public.event_competition_entry_participants where event_id = pg_temp.ev(1) and participant_role = 'professional')
-  and exists (select 1 from public.event_competition_entry_participants where event_id = pg_temp.ev(1) and participant_role = 'leader'));
+  and exists (select 1 from public.event_competition_entry_participants where event_id = pg_temp.ev(1) and participant_role = 'dancer' and dance_role = 'leader'));
+select pg_temp.chk('roles: ProAm student follows / pro leads stored as dance_role; cart rows carry the same split (10C.4)',
+  exists (select 1 from public.event_competition_entry_participants where event_id = pg_temp.ev(1) and participant_role = 'student' and dance_role = 'follower')
+  and exists (select 1 from public.event_competition_entry_participants where event_id = pg_temp.ev(1) and participant_role = 'professional' and dance_role = 'leader')
+  and exists (select 1 from public.event_competition_registration_cart_entry_people where event_id = pg_temp.ev(1) and participant_role = 'dancer' and dance_role = 'leader')
+  and not exists (select 1 from public.event_competition_entry_participants where event_id = pg_temp.ev(1) and participant_role in ('leader', 'follower')));
 select pg_temp.chk('dances: entry dances carry the real offering key/label/fee (no placeholders)',
   not exists (select 1 from public.event_competition_entry_dances d join public.event_competition_entries e on e.id = d.entry_id
               where e.event_id = pg_temp.ev(1) and (d.dance_key in ('offering', 'pending') or d.dance_label in ('Offering', 'Pending')))
@@ -502,14 +507,14 @@ select pg_temp.expect_ok('proam: manager registers two students with the studio 
                          pg_temp.person('s1', 'Stu', 'One', '{"anchorClientId": "00000000-0000-0000-0000-0c10c000c002", "personType": "student"}'),
                          pg_temp.person('s2', 'Stu', 'Two', '{"personType": "student"}')),
        jsonb_build_array(
-         pg_temp.entry('e1', 1, 1, 1, '["s1","pro"]', '{"s1":"student","pro":"professional"}', jsonb_build_array(pg_temp.cid(5, 1, 1))),
-         pg_temp.entry('e2', 1, 1, 1, '["s2","pro"]', '{"s2":"student","pro":"professional"}', jsonb_build_array(pg_temp.cid(5, 1, 2)))),
+         pg_temp.entry('e1', 1, 1, 1, '["s1","pro"]', '{"s1":"student","pro":"professional"}', jsonb_build_array(pg_temp.cid(5, 1, 1)), '{"participantDanceRoles":{"s1":"follower","pro":"leader"}}'),
+         pg_temp.entry('e2', 1, 1, 1, '["s2","pro"]', '{"s2":"student","pro":"professional"}', jsonb_build_array(pg_temp.cid(5, 1, 2)), '{"participantDanceRoles":{"s2":"follower","pro":"leader"}}')),
        'owner-a@example.test', '{"registrationMode": "studio", "registeringStudioName": "P10C Studio A"}'), pg_temp.u('0c10c0000001')))$q$);
 select pg_temp.expect_ok('proam: a later order with the same professional',
   $q$insert into t_kv values ('r6', pg_temp.start(pg_temp.ev(1), pg_temp.req(6), pg_temp.draft(
        jsonb_build_array(pg_temp.person('pro', 'Pat', 'Pro', '{"anchorInstructorId": "00000000-0000-0000-0000-0c10c000d001"}'),
                          pg_temp.person('s3', 'Stu', 'Three')),
-       jsonb_build_array(pg_temp.entry('e1', 1, 1, 1, '["s3","pro"]', '{"s3":"student","pro":"professional"}', jsonb_build_array(pg_temp.cid(5, 1, 1))))),
+       jsonb_build_array(pg_temp.entry('e1', 1, 1, 1, '["s3","pro"]', '{"s3":"student","pro":"professional"}', jsonb_build_array(pg_temp.cid(5, 1, 1)), '{"participantDanceRoles":{"s3":"follower","pro":"leader"}}'))),
        pg_temp.u('0c10c0000001')))$q$);
 select pg_temp.chk('proam: the professional is ONE competitor referenced by 3 entries across 2 orders',
   pg_temp.n($q$select count(*) from public.event_competition_competitors where event_id = pg_temp.ev(1) and instructor_id = '00000000-0000-0000-0000-0c10c000d001'$q$) = 1
@@ -723,10 +728,10 @@ insert into public.event_document_requirements (id, event_id, template_id, studi
   (pg_temp.u('0c10c0008101'), pg_temp.ev(2), pg_temp.u('0c10c0008001'), pg_temp.u('0c10c000a001'), true, true);
 select pg_temp.expect_ok('signing: start on an event with a required waiver',
   $q$insert into t_kv values ('s1', pg_temp.start(pg_temp.ev(2), pg_temp.req(22), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Wai','Ver')),
-     jsonb_build_array(pg_temp.entry('x', 2, 3, 3, '["a"]', '{"a":"follower"}')))))$q$);
+     jsonb_build_array(pg_temp.entry('x', 2, 3, 3, '["a"]', '{"a":"dancer"}', '[]', '{"participantDanceRoles":{"a":"follower"}}')))))$q$);
 select pg_temp.expect_ok('signing: second order on the same event',
   $q$insert into t_kv values ('s2', pg_temp.start(pg_temp.ev(2), pg_temp.req(23), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Oth','Er')),
-     jsonb_build_array(pg_temp.entry('x', 2, 3, 3, '["a"]', '{"a":"leader"}')))))$q$);
+     jsonb_build_array(pg_temp.entry('x', 2, 3, 3, '["a"]', '{"a":"dancer"}', '[]', '{"participantDanceRoles":{"a":"leader"}}')))))$q$);
 select pg_temp.chk('signing: START marks requires_signing, stays pending, writes NO signatures/assignments',
   (select (v->>'requires_signing')::boolean and v->>'order_status' = 'pending' from t_kv where k = 's1')
   and pg_temp.n($q$select count(*) from public.document_signatures where event_id = pg_temp.ev(2)$q$) = 0
@@ -788,7 +793,7 @@ reset role;
 update public.event_competition_contest_registration_rules set base_entry_fee = 0 where contest_id = pg_temp.cid(2, 2, 3);
 select pg_temp.expect_ok('signing: free order with documents',
   $q$insert into t_kv values ('s3', pg_temp.start(pg_temp.ev(2), pg_temp.req(24), pg_temp.draft(jsonb_build_array(pg_temp.person('a','Free','Signer')),
-     jsonb_build_array(pg_temp.entry('x', 2, 3, 3, '["a"]', '{"a":"leader"}')))))$q$);
+     jsonb_build_array(pg_temp.entry('x', 2, 3, 3, '["a"]', '{"a":"dancer"}', '[]', '{"participantDanceRoles":{"a":"leader"}}')))))$q$);
 select pg_temp.chk('signing: free order with documents stays pending until signed', (select v->>'order_status' from t_kv where k = 's3') = 'pending');
 select pg_temp.expect_msg('signing: free finalize before signing refused',
   $q$select public.finalize_competition_registration(((select v from t_kv where k='s3')->>'order_id')::uuid, null, null, null, null, null)$q$, 'COMP10C_SIGNING_INCOMPLETE');
