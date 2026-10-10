@@ -180,7 +180,7 @@ function primaryAction(
       kind: "link",
       label: "Create competition",
       href: `${context.base}/new`,
-      description: "Answer a few questions and DanceFlow builds the categories, divisions and final rounds for you.",
+      description: "Answer a few questions about the kind of competition, its categories, divisions and entry prices, and DanceFlow builds the structure for you. Nothing is public until you open registration.",
     };
   }
   if (!context.profiled) {

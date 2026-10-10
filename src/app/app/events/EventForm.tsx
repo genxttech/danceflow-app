@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { createEventAction, updateEventAction } from "./actions";
 import EventDescriptionAIAssistant from "./EventDescriptionAIAssistant";
+import { continuesToCompetitionSetup, createEventSubmitLabel as createSubmitLabel } from "@/lib/competition/workspaceLink";
 
 type OrganizerOption = {
   id: string;
@@ -435,7 +436,7 @@ function getEventTypeHelpText(eventType: string) {
     case "workshop":
       return "Best for educational intensives, seminars, and focused training blocks.";
     case "competition":
-      return "Best for competitive events, heats, and judged formats.";
+      return "Best for competitive events, heats, and judged formats. After you create the event, you'll go straight to competition setup: categories, divisions and entry prices.";
     default:
       return "Choose the closest event category for search and reporting.";
   }
@@ -3261,12 +3262,13 @@ export default function EventForm({
                   : "Creating event..."
                 : mode === "edit"
                   ? "Save Event Changes"
-                  : "Create Event"}
+                  : createSubmitLabel(eventType)}
             </button>
 
             <p className="mt-3 text-center text-xs leading-5 text-slate-500">
-              You can save as a draft first, then publish when the event details
-              are ready.
+              {mode === "create" && continuesToCompetitionSetup(eventType)
+                ? "Next, you'll set up the competition. You can save the event as a draft and publish when you're ready."
+                : "You can save as a draft first, then publish when the event details are ready."}
             </p>
           </section>
         </div>

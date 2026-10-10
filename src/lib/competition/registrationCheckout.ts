@@ -387,12 +387,24 @@ export async function loadCompetitionRegistrationStatus(params: {
     params.admin.from("event_orders")
       .select("id, status, payment_status, total_amount, currency, expires_at, stripe_checkout_session_id, metadata")
       .eq("id", cart.order_id).maybeSingle(),
+    // Divisions are joined in a second read: entries reference them by a composite FK, which
+    // PostgREST cannot embed by the single division_id column (the embed errors and drops the list).
     params.admin.from("event_competition_entries")
-      .select("display_name, status, sort_order, event_competition_divisions:division_id(name)")
+      .select("display_name, status, sort_order, division_id")
       .eq("order_id", cart.order_id).order("sort_order"),
     params.admin.from("event_signing_checkpoints").select("status").eq("order_id", cart.order_id).maybeSingle(),
   ]);
   if (!order) return null;
+  const entryRows = (entries ?? []) as Array<{ display_name: string; status: string; division_id: string }>;
+  const divisionNames = new Map<string, string>();
+  if (entryRows.length > 0) {
+    const { data: divisions } = await params.admin
+      .from("event_competition_divisions")
+      .select("id, name")
+      .eq("event_id", cart.event_id)
+      .in("id", [...new Set(entryRows.map((entry) => entry.division_id))]);
+    for (const division of (divisions ?? []) as Array<{ id: string; name: string }>) divisionNames.set(division.id, division.name);
+  }
   const metadata = (order.metadata ?? {}) as Record<string, unknown>;
   let checkoutComplete = false;
   const accountId = String(metadata.stripe_account_id ?? "");
@@ -428,9 +440,9 @@ export async function loadCompetitionRegistrationStatus(params: {
     eventName: event.name,
     totalCents: Math.round(Number(order.total_amount ?? 0) * 100),
     currency: String(order.currency ?? "USD"),
-    entries: (entries ?? []).map((entry) => {
-      const division = Array.isArray(entry.event_competition_divisions) ? entry.event_competition_divisions[0] : entry.event_competition_divisions;
-      return { label: [division?.name, entry.display_name].filter(Boolean).join(" · "), status: entry.status };
-    }),
+    entries: entryRows.map((entry) => ({
+      label: [divisionNames.get(entry.division_id), entry.display_name].filter(Boolean).join(" · "),
+      status: entry.status,
+    })),
   };
 }

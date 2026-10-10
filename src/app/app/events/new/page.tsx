@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import EventForm from "../EventForm";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
+import { COMPETITIONS_HREF } from "@/lib/competition/workspaceLink";
 
 type OrganizerOption = {
   id: string;
@@ -43,7 +44,13 @@ function canManageOrganizers(
   return role === "organizer_owner" || role === "organizer_admin";
 }
 
-export default async function NewEventPage() {
+export default async function NewEventPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ type?: string }>;
+}) {
+  // 10C.1: Competitions -> New Competition opens this same form preselected to Competition.
+  const startAsCompetition = (await searchParams)?.type === "competition";
   const supabase = await createClient();
 
   const {
@@ -120,10 +127,12 @@ export default async function NewEventPage() {
                   : "DanceFlow Events"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                New Event
+                {startAsCompetition ? "New Competition" : "New Event"}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                {organizerWorkspace
+                {startAsCompetition
+                  ? "Start with the event basics: name, dates, place and visibility. Competition setup comes next."
+                  : organizerWorkspace
                   ? "Create an organizer-linked event for public discovery, registrations, and event operations."
                   : studioHostedEvents
                     ? "Create a basic public event listing. Your studio name will be used as the event host; ticketing, QR check-in, and settlement are available when Organizer Suite is active."
@@ -133,10 +142,10 @@ export default async function NewEventPage() {
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/app/events"
+                href={startAsCompetition ? COMPETITIONS_HREF : "/app/events"}
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
-                Back to Events
+                {startAsCompetition ? "Back to Competitions" : "Back to Events"}
               </Link>
             </div>
           </div>
@@ -220,6 +229,7 @@ export default async function NewEventPage() {
                   ? singleOrganizer.id
                   : undefined,
               visibility: "public",
+              ...(startAsCompetition ? { eventType: "competition" } : {}),
               publicDirectoryEnabled: false,
               beginnerFriendly: false,
               waitlistEnabled: false,

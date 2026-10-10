@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
+import { competitionSetupHref, continuesToCompetitionSetup } from "@/lib/competition/workspaceLink";
 import {
   planHasBasicEventListings,
   planHasOrganizerSuite,
@@ -2255,10 +2256,50 @@ export async function setGuestCoachScheduleLinkEnabledAction(
   );
 }
 
+// Rows read back from the source event when duplicating it (the server client is untyped).
+type DuplicateSourceSessionRow = {
+  status: string | null;
+  session_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  session_label: string | null;
+  series_label: string | null;
+  capacity: number | null;
+  sort_order: number | null;
+};
+
+type DuplicateSourceLocationRow = {
+  location_name: string | null;
+  venue_name: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  capacity: number | null;
+  sort_order: number | null;
+  event_location_sessions: DuplicateSourceSessionRow[] | null;
+};
+
+type DuplicateSourceScheduleItemRow = {
+  active: boolean | null;
+  schedule_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  title: string;
+  description: string | null;
+  presenter_name: string | null;
+  location_label: string | null;
+  sort_order: number | null;
+};
+
 export async function createEventAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  // 10C.1: a new Competition event continues straight into competition setup.
+  let competitionSetupEventId: string | null = null;
   try {
     const {
       supabase,
@@ -2419,12 +2460,19 @@ export async function createEventAction(
       eventId: event.id,
       studioId,
     });
+
+    if (continuesToCompetitionSetup(normalizeDbEventType(effectivePayload.eventType))) {
+      competitionSetupEventId = event.id;
+    }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
     };
   }
 
+  if (competitionSetupEventId) {
+    redirect(competitionSetupHref(competitionSetupEventId));
+  }
   redirect("/app/events");
 }
 
@@ -2969,7 +3017,7 @@ export async function duplicateEventAction(formData: FormData) {
     if ((sourceLocations ?? []).length > 0) {
       const normalizedLocations: EventLocationPayload[] = (
         sourceLocations ?? []
-      ).map((location: any, locationIndex: number) => ({
+      ).map((location: DuplicateSourceLocationRow, locationIndex: number) => ({
         locationName: location.location_name || `Location ${locationIndex + 1}`,
         venueName: location.venue_name || "",
         addressLine1: location.address_line_1 || "",
@@ -2981,8 +3029,8 @@ export async function duplicateEventAction(formData: FormData) {
         capacity: location.capacity ?? null,
         sortOrder: location.sort_order ?? locationIndex,
         sessions: (location.event_location_sessions ?? [])
-          .filter((session: any) => session.status !== "cancelled")
-          .map((session: any, sessionIndex: number) => ({
+          .filter((session: DuplicateSourceSessionRow) => session.status !== "cancelled")
+          .map((session: DuplicateSourceSessionRow, sessionIndex: number) => ({
             sessionDate: session.session_date,
             startTime: session.start_time ?? null,
             endTime: session.end_time ?? null,
@@ -3006,8 +3054,8 @@ export async function duplicateEventAction(formData: FormData) {
         .from("event_schedule_items")
         .insert(
           (sourceScheduleItems ?? [])
-            .filter((item: any) => item.active !== false)
-            .map((item: any, itemIndex: number) => ({
+            .filter((item: DuplicateSourceScheduleItemRow) => item.active !== false)
+            .map((item: DuplicateSourceScheduleItemRow, itemIndex: number) => ({
               event_id: duplicatedEvent.id,
               studio_id: studioId,
               organizer_id: sourceEvent.organizer_id || null,

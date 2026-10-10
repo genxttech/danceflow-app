@@ -60,7 +60,8 @@ describe("competition workspace entry point", () => {
   it("is wired into the event detail page without redesigning it", () => {
     const page = readFileSync(join(ROOT, "src/app/app/events/[id]/page.tsx"), "utf8");
     expect(page).toContain("shouldShowCompetitionWorkspaceLink({");
-    expect(page).toContain("href={competitionWorkspaceHref(typedEvent.id)}");
+    // 10C.1: the same workspace link, or straight into setup when no competition exists yet.
+    expect(page).toContain("href={Number(competitionProgramCount ?? 0) > 0 ? competitionWorkspaceHref(typedEvent.id) : competitionSetupHref(typedEvent.id)}");
     expect(page.match(/competitionWorkspaceHref\(/g)?.length).toBe(1);
   });
 

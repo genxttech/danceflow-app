@@ -19,13 +19,22 @@ const competitionRegistrationEnabled =
 
 const COPY: Record<CompetitionRegistrationDisplayState, { title: string; body: string; tone: string }> = {
   confirmed: { title: "Registration confirmed", body: "Your entries are confirmed. A confirmation will be sent to the registration contact.", tone: "border-emerald-200 bg-emerald-50 text-emerald-900" },
-  processing: { title: "Payment processing", body: "Stripe has your payment and we are confirming it. This page updates when the payment is confirmed; refresh in a moment.", tone: "border-sky-200 bg-sky-50 text-sky-900" },
+  processing: { title: "Payment received — confirming your entries", body: "We have your payment and are confirming your entries. This usually takes under a minute; refresh this page to see the confirmation.", tone: "border-sky-200 bg-sky-50 text-sky-900" },
   awaiting_payment: { title: "Payment not completed", body: "Your entries are held while you finish payment. They are not confirmed until payment completes.", tone: "border-amber-200 bg-amber-50 text-amber-900" },
   awaiting_signature: { title: "Documents still need signing", body: "Sign the required event documents from the secure link to continue to payment.", tone: "border-amber-200 bg-amber-50 text-amber-900" },
   expired: { title: "Registration hold expired", body: "Payment was not completed in time, so these entries were released. Start a new registration to enter.", tone: "border-slate-200 bg-slate-50 text-slate-800" },
   cancelled: { title: "Registration cancelled", body: "Checkout was cancelled and these entries were released. You were not charged.", tone: "border-slate-200 bg-slate-50 text-slate-800" },
   payment_failed: { title: "Payment failed", body: "The payment did not go through and these entries were released. Start a new registration to try again.", tone: "border-rose-200 bg-rose-50 text-rose-900" },
   needs_review: { title: "We received your payment", body: "Your payment arrived but the registration needs review by the organizer. They will contact you.", tone: "border-amber-200 bg-amber-50 text-amber-900" },
+};
+
+const ENTRY_STATUS: Record<string, string> = {
+  pending: "Not confirmed yet",
+  confirmed: "Confirmed",
+  waitlisted: "Waitlisted",
+  withdrawn: "Released",
+  disqualified: "Not eligible",
+  complete: "Complete",
 };
 
 function money(cents: number, currency: string) {
@@ -68,7 +77,7 @@ export default async function CompetitionRegistrationStatusPage({
       <ul className="divide-y divide-slate-200">
         {status.entries.map((entry, index) => <li key={`${entry.label}-${index}`} className="flex items-start justify-between gap-4 py-3 text-sm">
           <span className="min-w-0 break-words text-slate-800">{entry.label}</span>
-          <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">{entry.status}</span>
+          <span className="shrink-0 text-xs font-semibold text-slate-500">{ENTRY_STATUS[entry.status] ?? "Pending"}</span>
         </li>)}
       </ul>
       <div className="flex justify-between border-t border-slate-200 py-3 text-sm font-semibold text-slate-900">

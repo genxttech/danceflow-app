@@ -59,6 +59,11 @@ export function isActivePath(pathname: string, href: string) {
       /^\/app\/events\/[^/]+\/private-lessons(?:\/.*)?$/,
     ],
     "/app/events/new": [/^\/app\/events\/new$/],
+    // Competition OS: the top-level list and every event's competition workspace.
+    "/app/competitions": [
+      /^\/app\/competitions(?:\/.*)?$/,
+      /^\/app\/events\/[^/]+\/competition(?:\/.*)?$/,
+    ],
     "/app/events/tickets": [
       /^\/app\/events\/tickets$/,
       /^\/app\/events\/[^/]+\/tickets(?:\/.*)?$/,
@@ -645,6 +650,11 @@ function injectEventWorkflowLinks(
         href: "/app/events/new",
         icon: "events",
       },
+      {
+        label: "Competitions",
+        href: "/app/competitions",
+        icon: "events",
+      },
       ...(canUseOrganizerEnhancements(options)
         ? [
             {
@@ -679,6 +689,7 @@ function injectEventWorkflowLinks(
         (item) =>
           item.href !== "/app/events" &&
           item.href !== "/app/events/new" &&
+          item.href !== "/app/competitions" &&
           item.href !== "/app/events/tickets" &&
           item.href !== "/app/events/sell-tickets" &&
           item.href !== "/app/events/registrations" &&
@@ -1744,6 +1755,7 @@ function workspaceForItem(item: NavItem) {
 
   if (
     href.startsWith("/app/events") ||
+    href.startsWith("/app/competitions") ||
     href.startsWith("/app/organizers")
   ) {
     return "Events";
@@ -1850,6 +1862,7 @@ function itemPriority(section: (typeof WORKSPACE_ORDER)[number], href: string) {
     Events: [
       "/app/events",
       "/app/events/new",
+      "/app/competitions",
       "/app/events/sell-tickets",
       "/app/events/tickets",
       "/app/events/registrations",
