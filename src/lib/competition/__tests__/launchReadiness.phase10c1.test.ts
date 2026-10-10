@@ -129,12 +129,14 @@ describe("10C.1 Competition workspace", () => {
     const overview = read("src/app/app/events/[id]/competition/page.tsx");
     expect(overview).toContain("This event doesn't have a competition set up yet.");
     const advanced = overview.lastIndexOf("Need more control?");
-    expect(overview.lastIndexOf("{primary ? (", advanced)).toBeGreaterThan(-1);
-    expect(advanced - overview.lastIndexOf("{primary ? (", advanced)).toBeLessThan(200);
+    expect(overview.lastIndexOf("{programs.length > 0 ? (", advanced)).toBeGreaterThan(-1);
+    expect(advanced - overview.lastIndexOf("{programs.length > 0 ? (", advanced)).toBeLessThan(200);
   });
 
   it("finishing the wizard lands on the Overview, and the workspace links back to Competitions and the event", () => {
-    expect(read("src/app/app/events/[id]/competition/simpleActions.ts")).toContain("redirect(`${competitionWorkspaceHref(eventId)}?created=1${notice}`);");
+    // 10C.5: the draft action returns the Overview link; the wizard clears its unsent draft and navigates there.
+    expect(read("src/app/app/events/[id]/competition/simpleActions.ts")).toContain("return { ok: true, href: `${competitionWorkspaceHref(eventId)}?created=1` };");
+    expect(read("src/app/app/events/[id]/competition/new/CompetitionSetupWizard.tsx")).toContain("router.replace(action.href);");
     expect(read("src/app/app/events/[id]/competition/new/page.tsx")).toContain("competitionWorkspaceHref(id)");
     const layout = read("src/app/app/events/[id]/competition/layout.tsx");
     expect(layout).toContain("requireCompetitionWorkspace(id)");

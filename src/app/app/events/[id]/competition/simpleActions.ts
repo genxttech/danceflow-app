@@ -1,19 +1,20 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { zonedDateTimeToUtcDate } from "@/lib/booking/selfServiceAvailability";
 import { getEventTimeZone } from "@/lib/events/eventTiming";
 import { competitionWorkspaceHref } from "@/lib/competition/workspaceLink";
 import type { createClient as createServerClient } from "@/lib/supabase/server";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
-import type { ProfileDefaults, SimpleCompetitionSpec } from "@/lib/competition/simple/types";
-import { validateSpec } from "@/lib/competition/simple/wizard";
+import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
+import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV2";
+import { SETUP_STEPS, deriveDraft, parsePrice, restoreAnswers } from "@/lib/competition/setup/draft";
 
-export type ActionState = { ok: boolean; error?: string };
+export type ActionState = { ok: boolean; error?: string; href?: string };
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const REQUEST_KEY_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+const PRICING_COMPLETION_MODELS = ["per_dance", "per_entry", "free"];
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -35,53 +36,88 @@ function refreshWorkspace(eventId: string) {
   revalidatePath(competitionWorkspaceHref(eventId), "layout");
 }
 
-export async function createSimpleCompetitionAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
+/**
+ * 10C.5: creates the whole competition draft in one database transaction (create_competition_draft).
+ * The client sends only its answers; they are re-derived here against the stored profile with the same
+ * deriveDraft() the Review step used, so the payload is never taken from the browser. The registration
+ * window belongs to the event and is written by the same transaction (dates are whole days in the event
+ * time zone). Registration stays closed and nothing is published.
+ */
+export async function createCompetitionDraftAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
   const eventId = text(formData, "eventId");
   if (!eventId) return { ok: false, error: "Event is required." };
   const { supabase, event } = await requireCompetitionManager(eventId);
 
-  let spec: SimpleCompetitionSpec;
-  try {
-    spec = JSON.parse(text(formData, "spec")) as SimpleCompetitionSpec;
-  } catch {
-    return { ok: false, error: "The competition details could not be read. Please start again." };
-  }
+  const requestKey = text(formData, "requestKey");
+  if (!REQUEST_KEY_PATTERN.test(requestKey)) return { ok: false, error: "The setup could not be read. Please start again." };
 
   const { data: profile } = await supabase
     .from("competition_rules_profiles")
     .select("defaults, status")
-    .eq("profile_key", spec.profile_key)
-    .eq("version", spec.profile_version)
+    .eq("profile_key", STUDIO_CUSTOM_PROFILE.key)
+    .eq("version", STUDIO_CUSTOM_PROFILE.version)
     .maybeSingle();
-  if (!profile || profile.status !== "active") return { ok: false, error: "This competition type is no longer available." };
+  if (!profile || profile.status !== "active") return { ok: false, error: "Studio / Custom Rules are not available right now." };
+  const defaults = profile.defaults as SetupProfileDefaults;
 
-  const errors = validateSpec(spec, profile.defaults as ProfileDefaults);
-  if (errors.length > 0) return { ok: false, error: errors[0] };
-
-  const opens = text(formData, "registrationOpens");
-  const closes = text(formData, "registrationCloses");
-  for (const value of [opens, closes]) {
-    if (value && !DATE_PATTERN.test(value)) return { ok: false, error: "Registration dates must be valid dates." };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text(formData, "answers"));
+  } catch {
+    return { ok: false, error: "The setup could not be read. Please start again." };
   }
-  if (opens && closes && closes < opens) return { ok: false, error: "Registration cannot close before it opens." };
+  const answers = restoreAnswers(parsed, defaults);
+  if (!answers) return { ok: false, error: "The setup could not be read. Please start again." };
 
-  const { error } = await supabase.rpc("create_simple_competition", { target_event_id: eventId, spec });
+  const draft = deriveDraft(answers, defaults, {
+    eventName: event.name,
+    profileKey: STUDIO_CUSTOM_PROFILE.key,
+    profileVersion: STUDIO_CUSTOM_PROFILE.version,
+    requestKey,
+  });
+  if (!draft.payload) {
+    const step = SETUP_STEPS.find((item) => draft.errors[item.key]?.length);
+    return { ok: false, error: step ? `${step.label}: ${draft.errors[step.key]?.[0]}` : "Finish every step before creating the draft." };
+  }
+
+  const zone = getEventTimeZone(event);
+  const { opens, closes } = answers.registration;
+  const spec = {
+    ...draft.payload,
+    registration: {
+      ...draft.payload.registration,
+      opens_at: opens ? zonedDateTimeToUtcDate(opens, "00:00", zone).toISOString() : null,
+      closes_at: closes ? zonedDateTimeToUtcDate(closes, "23:59", zone).toISOString() : null,
+    },
+  };
+
+  const { error } = await supabase.rpc("create_competition_draft", { p_event_id: eventId, p_spec: spec });
   if (error) return { ok: false, error: friendly(error) };
 
-  // The registration window belongs to the event itself, so it is saved on the event (and honored by
-  // the existing public event flow); it is not a competition-only setting.
-  let notice = "";
-  if (opens || closes) {
-    const zone = getEventTimeZone(event);
-    const update: Record<string, string | null> = {};
-    if (opens) update.registration_opens_at = zonedDateTimeToUtcDate(opens, "00:00", zone).toISOString();
-    if (closes) update.registration_closes_at = zonedDateTimeToUtcDate(closes, "23:59", zone).toISOString();
-    const { error: dateError } = await supabase.from("events").update(update).eq("id", eventId);
-    if (dateError) notice = "&notice=dates";
+  refreshWorkspace(eventId);
+  return { ok: true, href: `${competitionWorkspaceHref(eventId)}?created=1` };
+}
+
+/** 10C.5: completes "Configure later" pricing for one category (set_competition_category_pricing). */
+export async function completeCategoryPricingAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
+  const eventId = text(formData, "eventId");
+  const contestId = text(formData, "contestId");
+  const model = text(formData, "model");
+  if (!eventId || !contestId) return { ok: false, error: "Category is required." };
+  if (!PRICING_COMPLETION_MODELS.includes(model)) return { ok: false, error: "Choose how this category is priced." };
+  const { supabase } = await requireCompetitionManager(eventId);
+
+  let amount: number | null = null;
+  if (model !== "free") {
+    amount = parsePrice(text(formData, "amount"));
+    if (amount === null || amount <= 0) return { ok: false, error: "Enter a price, or choose Free." };
   }
 
+  const { error } = await supabase.rpc("set_competition_category_pricing", { p_contest_id: contestId, p_model: model, p_amount: amount });
+  if (error) return { ok: false, error: friendly(error) };
+
   refreshWorkspace(eventId);
-  redirect(`${competitionWorkspaceHref(eventId)}?created=1${notice}`);
+  return { ok: true };
 }
 
 export async function publishCompetitionAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
@@ -112,7 +148,7 @@ export async function setCompetitionRegistrationAction(_previous: ActionState, f
 
   const { error } = await supabase.rpc(mode === "open" ? "open_competition_registration" : "close_competition_registration", { p_program_id: programId });
   if (error) {
-    const message = friendly(error).replace(/^COMP10C_[A-Z_]+:s*/, "");
+    const message = friendly(error).replace(/^COMP10C_[A-Z_]+:\s*/, "");
     return { ok: false, error: message.charAt(0).toUpperCase() + message.slice(1) };
   }
 

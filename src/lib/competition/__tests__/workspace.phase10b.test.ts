@@ -70,7 +70,10 @@ describe("workspace authorization (shared with the action guard and the database
     for (const page of pages) expect(readFileSync(join(WORKSPACE, page), "utf8"), page).toContain("requireCompetitionWorkspace(");
     const actions = readFileSync(join(WORKSPACE, "simpleActions.ts"), "utf8");
     const exported = [...actions.matchAll(/export async function (\w+)/g)].map((match) => match[1]);
-    expect(exported.sort()).toEqual(["addDivisionAction", "createSimpleCompetitionAction", "publishCompetitionAction", "removeDivisionAction", "setCompetitionRegistrationAction", "updateDivisionAction"]);
+    expect(exported.sort()).toEqual([
+      "addDivisionAction", "completeCategoryPricingAction", "createCompetitionDraftAction", "publishCompetitionAction",
+      "removeDivisionAction", "setCompetitionRegistrationAction", "updateDivisionAction",
+    ]);
     expect(actions.match(/requireCompetitionManager\(eventId\)/g)?.length).toBe(exported.length);
     const server = read("src/lib/competition/workspaceServer.ts");
     expect(server).toContain("if (!workspace.canManage) notFound();");
@@ -172,8 +175,11 @@ describe("Overview lifecycle and the one next action", () => {
 
   it("the Overview offers an open/close control for every published competition, including Advanced-mode ones (10C)", () => {
     const page = read("src/app/app/events/[id]/competition/page.tsx");
-    expect(page).toContain(`{primary && lifecycle.published && action.kind !== "registration" ? (`);
-    expect(page).toContain(`mode={primary.registration_status === "open" ? "close" : "open"}`);
+    expect(page).toContain(`{lifecycle.published && action.kind !== "registration" ? (`);
+    expect(page).toContain(`mode={program.registration_status === "open" ? "close" : "open"}`);
+    // 10C.5: every competition setup on the event gets its own card (one per style plus the showcase).
+    expect(page).toContain("cards.map(({ program, lifecycle");
+    expect(page).not.toContain("programs[0]");
     expect(computeLifecycle(input({ program: { ...legacyProgram, status: "configured" } })).published).toBe(true);
   });
 
@@ -240,7 +246,8 @@ describe("Overview lifecycle and the one next action", () => {
 describe("Simple and Advanced mode share one canonical model", () => {
   it("Simple Mode writes only through the database functions, never directly into the competition tables", () => {
     const actions = read("src/app/app/events/[id]/competition/simpleActions.ts");
-    expect(actions).toContain("rpc(\"create_simple_competition\"");
+    expect(actions).toContain("rpc(\"create_competition_draft\"");
+    expect(actions).toContain("rpc(\"set_competition_category_pricing\"");
     expect(actions).toContain("rpc(\"publish_competition_program\"");
     expect(actions).toContain("rpc(\"add_competition_division\"");
     expect(actions).toContain("rpc(\"remove_competition_division\"");
@@ -251,10 +258,15 @@ describe("Simple and Advanced mode share one canonical model", () => {
   });
 
   it("the wizard and boards keep their state in React/props only, with no browser storage as a data model", () => {
-    for (const file of ["new/CreateCompetitionWizard.tsx", "divisions/DivisionsBoard.tsx", "PublishForm.tsx"]) {
+    for (const file of ["new/CompetitionSetupWizard.tsx", "divisions/DivisionsBoard.tsx", "PublishForm.tsx"]) {
       const source = readFileSync(join(WORKSPACE, file), "utf8");
       expect(source, file).not.toMatch(/localStorage|sessionStorage|indexedDB/);
     }
+    // 10C.5: the only storage is the unsent setup draft for this tab (sessionStorage, guarded, cleared on create).
+    const persistence = read("src/lib/competition/setup/persistence.ts");
+    expect(persistence).toContain("window.sessionStorage");
+    expect(persistence).not.toMatch(/localStorage|indexedDB/);
+    expect(read("src/app/app/events/[id]/competition/new/CompetitionSetupWizard.tsx")).toContain("clearStoredSetup(eventId);");
   });
 
   it("Advanced settings still exposes every original setup action (switching modes removes nothing)", () => {
@@ -271,7 +283,7 @@ describe("Simple and Advanced mode share one canonical model", () => {
   });
 
   it("no Simple Mode screen can restart, delete or recreate the setup", () => {
-    for (const file of ["page.tsx", "new/CreateCompetitionWizard.tsx", "divisions/DivisionsBoard.tsx", "settings/page.tsx", "simpleActions.ts"]) {
+    for (const file of ["page.tsx", "new/CompetitionSetupWizard.tsx", "divisions/DivisionsBoard.tsx", "settings/page.tsx", "simpleActions.ts"]) {
       const source = readFileSync(join(WORKSPACE, file), "utf8");
       expect(source, file).not.toContain("restartCompetitionSetupAction");
       expect(source, file).not.toContain("restart_event_competition_setup");
@@ -286,11 +298,11 @@ describe("Simple and Advanced mode share one canonical model", () => {
   it("the Overview and Settings keep Advanced settings one click away", () => {
     expect(read("src/app/app/events/[id]/competition/page.tsx")).toContain("/competition/advanced");
     expect(read("src/app/app/events/[id]/competition/settings/page.tsx")).toContain("/competition/advanced");
-    expect(read("src/app/app/events/[id]/competition/new/CreateCompetitionWizard.tsx")).toContain("/competition/advanced");
+    expect(read("src/app/app/events/[id]/competition/new/CompetitionSetupWizard.tsx")).toContain("/competition/advanced");
   });
 
   it("organizer-facing screens avoid database and engine vocabulary", () => {
-    const files = ["page.tsx", "new/CreateCompetitionWizard.tsx", "divisions/DivisionsBoard.tsx", "divisions/page.tsx", "settings/page.tsx", "PublishForm.tsx"];
+    const files = ["page.tsx", "new/CompetitionSetupWizard.tsx", "divisions/DivisionsBoard.tsx", "divisions/page.tsx", "settings/page.tsx", "PublishForm.tsx"];
     for (const file of files) {
       const source = readFileSync(join(WORKSPACE, file), "utf8");
       const visible = [...source.matchAll(/>([^<>{}\n]{3,})</g)].map((match) => match[1]).concat([...source.matchAll(/"([A-Z][^"\n]{12,})"/g)].map((match) => match[1]));
@@ -301,7 +313,7 @@ describe("Simple and Advanced mode share one canonical model", () => {
   });
 
   it("the wizard is honest about what is not running yet and about the generic rating levels", () => {
-    const wizard = read("src/app/app/events/[id]/competition/new/CreateCompetitionWizard.tsx");
+    const wizard = read("src/app/app/events/[id]/competition/new/CompetitionSetupWizard.tsx");
     expect(wizard).toContain("Judging and results are set up now and run in a later update.");
     expect(wizard).toContain("own simple rating levels");
     expect(wizard).toContain("Online registration for dancers opens in a later update; nothing is sold yet.");
@@ -309,10 +321,18 @@ describe("Simple and Advanced mode share one canonical model", () => {
     expect(wizard).not.toMatch(/UCWDC|medal/i);
   });
 
+  it("governing-body rules are shown only as unavailable (10C.5)", () => {
+    const draft = read("src/lib/competition/setup/draft.ts");
+    for (const body of ["UCWDC", "WSDC", "NDCA"]) {
+      expect(draft).toMatch(new RegExp(`label: "${body}", description: "Not available yet", available: false`));
+    }
+    expect(read("src/app/app/events/[id]/competition/new/CompetitionSetupWizard.tsx")).toContain("disabled={!option.available}");
+  });
+
   it("the settings screen states that a rules profile is not a sanction", () => {
     const settings = read("src/app/app/events/[id]/competition/settings/page.tsx");
     expect(settings).toContain("Following a rules profile never means an organization sanctioned the event.");
-    const wizard = read("src/app/app/events/[id]/competition/new/CreateCompetitionWizard.tsx");
+    const wizard = read("src/app/app/events/[id]/competition/new/CompetitionSetupWizard.tsx");
     expect(wizard).toContain("sanctioning organization");
     for (const file of sourceFiles(join(ROOT, "src/app/app/events/[id]/competition")).filter((path) => !path.includes("advanced"))) {
       expect(readFileSync(file, "utf8"), file).not.toMatch(/NDCA sanctioned|UCWDC sanctioned|WSDC sanctioned/i);

@@ -1,0 +1,1278 @@
+-- Phase 10C.5: Competition Setup Wizard + Draft Generator
+--
+--   1. studio_simple@2 "Studio / Custom Rules" (schema 2): append-only new profile version carrying the
+--      wizard metadata (programs per discipline + showcase, profile-derived entry formats, participant /
+--      lead-follow rules, division presets, adjudication, pricing models). studio_simple@1 is untouched
+--      and create_simple_competition (10B) is unchanged for existing callers.
+--   2. create_competition_draft(event, spec): ONE transaction, manager-authorized, per-event advisory lock
+--      (shared with create_simple_competition), schema-2 profile only. Creates one draft program per
+--      discipline (+ a separate showcase program), their categories (entry formats), divisions, Final /
+--      Performance rounds, dances and offerings, the registration fee rule when entries are included in a
+--      registration fee, and the event registration basics. Registration stays CLOSED and every program
+--      stays an unpublished draft. Idempotent: one request key identifies the full set; replaying the
+--      same request returns the same programs, a different request with that key fails safely.
+--   3. set_competition_category_pricing(contest, model, amount): completes deferred pricing.
+--   4. open_competition_registration: refuses while any category has pricing_pending (Configure later).
+--
+-- Rollback: rollback/20261113090000_phase10c5_competition_draft_rollback.sql (refuses while pricing is
+-- pending; restores open_competition_registration byte-for-byte; retires -- never deletes -- v2).
+
+-- ---------------------------------------------------------------------------
+-- 0. Preflight
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 1 and status = 'active') then
+    raise exception 'Phase 10C.5 preflight: studio_simple@1 must exist and be active.';
+  end if;
+  if md5(pg_get_functiondef('public.open_competition_registration(uuid)'::regprocedure)) <> '3ebe965489271f0c53d7caeba96c8525' then
+    raise exception 'Phase 10C.5 preflight: open_competition_registration is not the reviewed 10C definition.';
+  end if;
+  if to_regprocedure('public.create_competition_draft(uuid, jsonb)') is not null
+    or to_regprocedure('public.set_competition_category_pricing(uuid, text, numeric)') is not null then
+    raise exception 'Phase 10C.5 preflight: 10C.5 functions already exist.';
+  end if;
+  if to_regprocedure('public.can_manage_event_competition(uuid)') is null then
+    raise exception 'Phase 10C.5 preflight: can_manage_event_competition is missing.';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 1. studio_simple@2 -- Studio / Custom Rules (schema 2)
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_defaults constant jsonb := $profile${
+  "schema": 2,
+  "label": "Studio / Custom Rules",
+  "sanction": {
+    "status": "none",
+    "claimable": false
+  },
+  "roundsDefault": "final_only",
+  "roundsNote": "Every division starts with a Final. DanceFlow can add preliminary rounds later if entry volume requires them.",
+  "currency": "USD",
+  "terminology": {
+    "division_label": "Division",
+    "skill_label": "Level",
+    "age_label": "Age group",
+    "partner_label": "Partner",
+    "dance_label": "Dance"
+  },
+  "adjudication": {
+    "adjudicated": {
+      "label": "Adjudicated",
+      "description": "Judges give formal results: placements, ratings or medals.",
+      "judging_options": [
+        "placements",
+        "ratings"
+      ],
+      "default_judging": "placements"
+    },
+    "non_adjudicated": {
+      "label": "Non-Adjudicated",
+      "description": "An exhibition, showcase or participation event. Dancers perform; there is no formal competitive result.",
+      "judging": "non_adjudicated"
+    }
+  },
+  "judging": {
+    "placements": {
+      "label": "Placements",
+      "description": "Judges rank the dancers in each division and the best-ranked dancer places first.",
+      "engine": {
+        "key": "ordinal_majority",
+        "version": 1
+      },
+      "competition_mode": "relative",
+      "advancement_method": "none",
+      "rounds": [
+        {
+          "round_type": "final",
+          "name": "Final",
+          "scoring_method": "ordinal_majority"
+        }
+      ]
+    },
+    "ratings": {
+      "label": "Ratings",
+      "description": "Judges rate each performance, so every dancer can earn a rating instead of a place.",
+      "engine": {
+        "key": "proficiency_rating",
+        "version": 1
+      },
+      "competition_mode": "proficiency",
+      "advancement_method": "none",
+      "bands": [
+        "Gold",
+        "Silver",
+        "Bronze"
+      ],
+      "rounds": [
+        {
+          "round_type": "final",
+          "name": "Final",
+          "scoring_method": "proficiency_rating"
+        }
+      ]
+    },
+    "non_adjudicated": {
+      "label": "Non-Adjudicated",
+      "description": "Dancers perform without formal judging or results.",
+      "engine": {
+        "key": "none",
+        "version": 1
+      },
+      "competition_mode": "exhibition",
+      "advancement_method": "none",
+      "rounds": [
+        {
+          "round_type": "exhibition",
+          "name": "Performance",
+          "scoring_method": "none"
+        }
+      ]
+    }
+  },
+  "programs": {
+    "country": {
+      "label": "Country",
+      "description": "Country partner dancing.",
+      "purpose": "competition",
+      "discipline_family": "country",
+      "dance_pool": "country",
+      "formats": [
+        "pro_am",
+        "pro_pro",
+        "couples",
+        "solo",
+        "team"
+      ],
+      "recommended_formats": [
+        "pro_am",
+        "pro_pro",
+        "couples"
+      ],
+      "recommended_dances": [
+        "two_step",
+        "waltz",
+        "triple_two",
+        "polka",
+        "east_coast_swing",
+        "nightclub",
+        "cha_cha"
+      ],
+      "custom_dances": true
+    },
+    "west_coast_swing": {
+      "label": "West Coast Swing",
+      "description": "West Coast Swing contests.",
+      "purpose": "competition",
+      "discipline_family": "west_coast_swing",
+      "dance_pool": "west_coast_swing",
+      "formats": [
+        "jack_and_jill",
+        "couples",
+        "pro_am",
+        "showcase"
+      ],
+      "recommended_formats": [
+        "jack_and_jill",
+        "couples"
+      ],
+      "recommended_dances": [
+        "west_coast_swing"
+      ],
+      "custom_dances": false
+    },
+    "ballroom": {
+      "label": "Ballroom",
+      "description": "Ballroom partner dancing.",
+      "purpose": "competition",
+      "discipline_family": "ballroom",
+      "dance_pool": "ballroom",
+      "formats": [
+        "pro_am",
+        "couples",
+        "professional",
+        "solo",
+        "showcase"
+      ],
+      "recommended_formats": [
+        "pro_am",
+        "couples"
+      ],
+      "recommended_dances": [
+        "smooth_waltz",
+        "smooth_tango",
+        "smooth_foxtrot",
+        "rhythm_cha_cha",
+        "rhythm_rumba",
+        "rhythm_swing"
+      ],
+      "custom_dances": true
+    },
+    "custom": {
+      "label": "Other / Studio-defined",
+      "description": "A style you define.",
+      "purpose": "competition",
+      "discipline_family": "custom",
+      "dance_pool": "general",
+      "formats": [
+        "pro_am",
+        "pro_pro",
+        "couples",
+        "professional",
+        "solo",
+        "jack_and_jill",
+        "team",
+        "showcase"
+      ],
+      "recommended_formats": [
+        "pro_am",
+        "couples"
+      ],
+      "recommended_dances": [
+        "waltz",
+        "foxtrot",
+        "cha_cha",
+        "rumba",
+        "swing",
+        "two_step"
+      ],
+      "custom_dances": true
+    },
+    "showcase": {
+      "label": "Showcase / Performance",
+      "description": "Routines performed for an audience.",
+      "purpose": "showcase",
+      "discipline_family": "showcase",
+      "dance_pool": "general",
+      "formats": [
+        "showcase",
+        "solo",
+        "team"
+      ],
+      "recommended_formats": [
+        "showcase",
+        "solo"
+      ],
+      "recommended_dances": [],
+      "custom_dances": false,
+      "adjudication": "non_adjudicated"
+    }
+  },
+  "categoryTypes": {
+    "pro_am": {
+      "label": "ProAm",
+      "description": "A student dances with a professional.",
+      "contest_type": "single_dance",
+      "entry_format": "pro_am",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "division_preset": "levels_newcomer_gold"
+    },
+    "pro_pro": {
+      "label": "ProPro",
+      "description": "A competing professional dances with an instructing professional.",
+      "contest_type": "single_dance",
+      "entry_format": "pro_pro",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "instructor",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "division_preset": "open"
+    },
+    "couples": {
+      "label": "Couples",
+      "description": "Two dancers compete as a couple.",
+      "contest_type": "single_dance",
+      "entry_format": "couple",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "division_preset": "levels_newcomer_gold"
+    },
+    "professional": {
+      "label": "Professional",
+      "description": "Two professionals compete as a couple.",
+      "contest_type": "single_dance",
+      "entry_format": "professional",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "division_preset": "open"
+    },
+    "solo": {
+      "label": "Solo",
+      "description": "One dancer performs a routine.",
+      "contest_type": "showdance",
+      "entry_format": "solo",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 1,
+      "maximum_participants": 1,
+      "pairing_mode": "individual",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "none",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "open"
+    },
+    "showcase": {
+      "label": "Showcase routine",
+      "description": "A routine performed alone or as a duo, with its own music.",
+      "contest_type": "showdance",
+      "entry_format": "custom",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 1,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer",
+        "student",
+        "professional",
+        "instructor"
+      ],
+      "dance_roles": "optional",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "open"
+    },
+    "jack_and_jill": {
+      "label": "Jack & Jill",
+      "description": "Dancers enter alone and are paired with a random partner.",
+      "contest_type": "jack_and_jill",
+      "entry_format": "random_partner",
+      "uses_dances": true,
+      "dance_selection_mode": "prescribed_set",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 1,
+      "maximum_participants": 1,
+      "pairing_mode": "random_final_pair",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "single",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "skill_levels"
+    },
+    "team": {
+      "label": "Team",
+      "description": "A group performs a routine together.",
+      "contest_type": "team",
+      "entry_format": "team",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 100,
+      "pairing_mode": "team",
+      "participant_roles": [
+        "team_member"
+      ],
+      "dance_roles": "none",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "open"
+    }
+  },
+  "dancePools": {
+    "general": [
+      {
+        "key": "waltz",
+        "name": "Waltz",
+        "category": "Ballroom"
+      },
+      {
+        "key": "foxtrot",
+        "name": "Foxtrot",
+        "category": "Ballroom"
+      },
+      {
+        "key": "tango",
+        "name": "Tango",
+        "category": "Ballroom"
+      },
+      {
+        "key": "viennese_waltz",
+        "name": "Viennese Waltz",
+        "category": "Ballroom"
+      },
+      {
+        "key": "cha_cha",
+        "name": "Cha Cha",
+        "category": "Latin and Rhythm"
+      },
+      {
+        "key": "rumba",
+        "name": "Rumba",
+        "category": "Latin and Rhythm"
+      },
+      {
+        "key": "swing",
+        "name": "Swing",
+        "category": "Latin and Rhythm"
+      },
+      {
+        "key": "bolero",
+        "name": "Bolero",
+        "category": "Latin and Rhythm"
+      },
+      {
+        "key": "mambo",
+        "name": "Mambo",
+        "category": "Latin and Rhythm"
+      },
+      {
+        "key": "salsa",
+        "name": "Salsa",
+        "category": "Social"
+      },
+      {
+        "key": "hustle",
+        "name": "Hustle",
+        "category": "Social"
+      },
+      {
+        "key": "two_step",
+        "name": "Two Step",
+        "category": "Social"
+      }
+    ],
+    "ballroom": [
+      {
+        "key": "smooth_waltz",
+        "name": "Waltz",
+        "category": "American Smooth"
+      },
+      {
+        "key": "smooth_tango",
+        "name": "Tango",
+        "category": "American Smooth"
+      },
+      {
+        "key": "smooth_foxtrot",
+        "name": "Foxtrot",
+        "category": "American Smooth"
+      },
+      {
+        "key": "smooth_viennese_waltz",
+        "name": "Viennese Waltz",
+        "category": "American Smooth"
+      },
+      {
+        "key": "rhythm_cha_cha",
+        "name": "Cha Cha",
+        "category": "American Rhythm"
+      },
+      {
+        "key": "rhythm_rumba",
+        "name": "Rumba",
+        "category": "American Rhythm"
+      },
+      {
+        "key": "rhythm_swing",
+        "name": "Swing",
+        "category": "American Rhythm"
+      },
+      {
+        "key": "rhythm_bolero",
+        "name": "Bolero",
+        "category": "American Rhythm"
+      },
+      {
+        "key": "rhythm_mambo",
+        "name": "Mambo",
+        "category": "American Rhythm"
+      }
+    ],
+    "country": [
+      {
+        "key": "two_step",
+        "name": "Two Step",
+        "category": "Partner"
+      },
+      {
+        "key": "waltz",
+        "name": "Waltz",
+        "category": "Partner"
+      },
+      {
+        "key": "triple_two",
+        "name": "Triple Two",
+        "category": "Partner"
+      },
+      {
+        "key": "polka",
+        "name": "Polka",
+        "category": "Partner"
+      },
+      {
+        "key": "east_coast_swing",
+        "name": "East Coast Swing",
+        "category": "Partner"
+      },
+      {
+        "key": "west_coast_swing",
+        "name": "West Coast Swing",
+        "category": "Partner"
+      },
+      {
+        "key": "nightclub",
+        "name": "Nightclub",
+        "category": "Partner"
+      },
+      {
+        "key": "cha_cha",
+        "name": "Cha Cha",
+        "category": "Partner"
+      }
+    ],
+    "west_coast_swing": [
+      {
+        "key": "west_coast_swing",
+        "name": "West Coast Swing",
+        "category": "Swing"
+      }
+    ]
+  },
+  "divisionPresets": {
+    "levels_newcomer_gold": {
+      "label": "Newcomer, Bronze, Silver, Gold",
+      "levels": [
+        "Newcomer",
+        "Bronze",
+        "Silver",
+        "Gold"
+      ]
+    },
+    "levels_basic": {
+      "label": "Beginner, Intermediate, Advanced",
+      "levels": [
+        "Beginner",
+        "Intermediate",
+        "Advanced"
+      ]
+    },
+    "open": {
+      "label": "One open division",
+      "levels": [
+        "Open"
+      ]
+    },
+    "skill_levels": {
+      "label": "Newcomer, Novice, Intermediate, Advanced",
+      "levels": [
+        "Newcomer",
+        "Novice",
+        "Intermediate",
+        "Advanced"
+      ]
+    }
+  },
+  "ageBands": [
+    "Youth",
+    "Adult",
+    "Senior"
+  ],
+  "limits": {
+    "programs": 5,
+    "categories": 8,
+    "divisions": 30,
+    "totalDivisions": 200,
+    "dances": 20,
+    "nameLength": 200,
+    "maxPrice": 100000
+  }
+}$profile$::jsonb;
+  v_existing record;
+begin
+  select * into v_existing from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2;
+  if v_existing.profile_key is null then
+    insert into public.competition_rules_profiles (profile_key, version, name, description, status, defaults)
+    values ('studio_simple', 2, 'Studio / Custom Rules',
+            'DanceFlow generic studio rules for the Competition Setup Wizard. Not a sanctioning organization.',
+            'active', v_defaults);
+  elsif v_existing.defaults = v_defaults and v_existing.name = 'Studio / Custom Rules' and v_existing.status = 'retired' then
+    -- Re-apply after the 10C.5 rollback: the identical, immutable version is reactivated (status only).
+    alter table public.competition_rules_profiles disable trigger protect_competition_rules_profile;
+    update public.competition_rules_profiles set status = 'active' where profile_key = 'studio_simple' and version = 2;
+    alter table public.competition_rules_profiles enable trigger protect_competition_rules_profile;
+  else
+    raise exception 'Phase 10C.5: studio_simple@2 already exists with different content.';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 2. create_competition_draft
+-- ---------------------------------------------------------------------------
+create or replace function public.create_competition_draft(p_event_id uuid, p_spec jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_event record;
+  v_profile record;
+  v_defaults jsonb;
+  v_limits jsonb;
+  v_request text;
+  v_hash text;
+  v_ids uuid[];
+  v_mismatch integer;
+  v_purpose text;
+  v_adjudication text;
+  v_programs jsonb;
+  v_prog jsonb;
+  v_prog_ix integer;
+  v_prog_key text;
+  v_prog_keys text[] := '{}';
+  v_template jsonb;
+  v_competition_count integer := 0;
+  v_showcase_count integer := 0;
+  v_prog_adjudication text;
+  v_allowed jsonb;
+  v_judging_key text;
+  v_judging jsonb;
+  v_name text;
+  v_names text[] := '{}';
+  v_pool jsonb;
+  v_dance jsonb;
+  v_dance_ix integer;
+  v_dance_key text;
+  v_dance_name text;
+  v_dance_keys text[];
+  v_used text[];
+  v_cat jsonb;
+  v_cat_ix integer;
+  v_cat_key text;
+  v_cat_def jsonb;
+  v_cat_seen text[];
+  v_div jsonb;
+  v_div_ix integer;
+  v_div_seen text[];
+  v_div_name text;
+  v_total_divisions integer := 0;
+  v_model text;
+  v_amount numeric;
+  v_needs_fee boolean;
+  v_fee numeric;
+  v_max_price numeric;
+  v_opens timestamptz;
+  v_closes timestamptz;
+  v_account boolean;
+  v_program_id uuid;
+  v_contest_id uuid;
+  v_division_id uuid;
+  v_dance_id uuid;
+  v_dance_ids jsonb;
+  v_round jsonb;
+  v_round_ix integer;
+  v_pending boolean;
+  v_any_pending boolean := false;
+  v_created uuid[] := '{}';
+begin
+  if v_actor is null or not public.can_manage_event_competition(p_event_id) then
+    raise exception 'Event was not found or cannot be managed.' using errcode = '42501';
+  end if;
+  select e.id, e.name, e.studio_id, e.organizer_id into v_event from public.events e where e.id = p_event_id;
+  if v_event.id is null then
+    raise exception 'Event was not found or cannot be managed.' using errcode = '42501';
+  end if;
+  if p_spec is null or jsonb_typeof(p_spec) <> 'object' then
+    raise exception 'A competition setup is required.';
+  end if;
+
+  select p.profile_key, p.version, p.defaults, p.status into v_profile
+  from public.competition_rules_profiles p
+  where p.profile_key = p_spec->>'profile_key'
+    and p.version = case when p_spec->>'profile_version' ~ '^[0-9]{1,6}$' then (p_spec->>'profile_version')::integer end;
+  if v_profile.profile_key is null or v_profile.status <> 'active' or v_profile.defaults->>'schema' is distinct from '2' then
+    raise exception 'Unsupported competition profile.';
+  end if;
+  v_defaults := v_profile.defaults;
+  v_limits := v_defaults->'limits';
+  v_max_price := (v_limits->>'maxPrice')::numeric;
+
+  v_request := p_spec->>'request_key';
+  if v_request is null or v_request !~ '^[A-Za-z0-9_-]{8,64}$' then
+    raise exception 'A request key is required.';
+  end if;
+  -- jsonb text is canonical (sorted keys, normalized spacing), so equal requests hash equally.
+  v_hash := md5(p_spec::text);
+
+  perform pg_advisory_xact_lock(hashtext(p_event_id::text || ':simple_competition'));
+
+  select array_agg(p.id order by p.sort_order, p.created_at),
+         count(*) filter (where p.configuration #>> '{setup,request_hash}' is distinct from v_hash)
+    into v_ids, v_mismatch
+  from public.event_competition_programs p
+  where p.event_id = p_event_id and p.configuration #>> '{simple,request_key}' = v_request;
+  if v_ids is not null then
+    if v_mismatch > 0 then
+      raise exception 'This setup was already submitted with different choices. Reload the page to see the competition that was created.';
+    end if;
+    return jsonb_build_object('program_ids', to_jsonb(v_ids), 'replayed', true);
+  end if;
+  if exists (select 1 from public.event_competition_programs p where p.event_id = p_event_id) then
+    raise exception 'This event already has competition setup. Use Advanced settings or restart the setup first.';
+  end if;
+
+  v_purpose := p_spec->>'purpose';
+  if v_purpose is null or v_purpose not in ('competition', 'showcase', 'competition_showcase') then
+    raise exception 'Choose what you are creating.';
+  end if;
+  v_adjudication := p_spec->>'adjudication';
+  if v_adjudication is null or not (v_defaults->'adjudication' ? v_adjudication) then
+    raise exception 'Choose Adjudicated or Non-Adjudicated.';
+  end if;
+
+  -- Registration basics (timestamps are computed by the server from the event time zone).
+  if jsonb_typeof(p_spec->'registration') is distinct from 'object'
+    or jsonb_typeof(p_spec #> '{registration,account_required}') is distinct from 'boolean' then
+    raise exception 'Registration details are required.';
+  end if;
+  begin
+    v_opens := case when jsonb_typeof(p_spec #> '{registration,opens_at}') = 'string' then (p_spec #>> '{registration,opens_at}')::timestamptz end;
+    v_closes := case when jsonb_typeof(p_spec #> '{registration,closes_at}') = 'string' then (p_spec #>> '{registration,closes_at}')::timestamptz end;
+  exception when others then
+    raise exception 'Registration dates must be valid dates.';
+  end;
+  if coalesce(jsonb_typeof(p_spec #> '{registration,opens_at}'), 'null') not in ('string', 'null')
+    or coalesce(jsonb_typeof(p_spec #> '{registration,closes_at}'), 'null') not in ('string', 'null') then
+    raise exception 'Registration dates must be valid dates.';
+  end if;
+  if v_opens is not null and v_closes is not null and v_closes <= v_opens then
+    raise exception 'Registration cannot close before it opens.';
+  end if;
+  v_account := (p_spec #>> '{registration,account_required}')::boolean;
+
+  v_programs := p_spec->'programs';
+  if jsonb_typeof(v_programs) is distinct from 'array'
+    or jsonb_array_length(v_programs) < 1 or jsonb_array_length(v_programs) > (v_limits->>'programs')::integer then
+    raise exception 'Choose between 1 and % programs.', v_limits->>'programs';
+  end if;
+
+  -- ---- validation pass: nothing is written until the whole request is valid ----
+  for v_prog in select value from jsonb_array_elements(v_programs) loop
+    if jsonb_typeof(v_prog) <> 'object' then raise exception 'Each program must be an object.'; end if;
+    v_prog_key := v_prog->>'key';
+    v_template := v_defaults->'programs'->v_prog_key;
+    if v_prog_key is null or v_template is null then
+      raise exception 'Program % is not available.', coalesce(v_prog_key, '(none)');
+    end if;
+    if v_prog_key = any (v_prog_keys) then raise exception 'Each program can be added once.'; end if;
+    v_prog_keys := v_prog_keys || v_prog_key;
+    if v_template->>'purpose' = 'showcase' then v_showcase_count := v_showcase_count + 1;
+    else v_competition_count := v_competition_count + 1; end if;
+
+    v_prog_adjudication := coalesce(v_template->>'adjudication', v_adjudication);
+    v_allowed := case when v_prog_adjudication = 'adjudicated'
+                      then v_defaults #> '{adjudication,adjudicated,judging_options}'
+                      else jsonb_build_array(v_defaults->'adjudication'->v_prog_adjudication->>'judging') end;
+    v_judging_key := v_prog->>'judging';
+    if v_judging_key is null or not coalesce(v_allowed ? v_judging_key, false) or v_defaults->'judging'->v_judging_key is null then
+      raise exception 'Choose how % is judged.', v_template->>'label';
+    end if;
+
+    v_name := btrim(coalesce(v_prog->>'name', ''));
+    if length(v_name) < 1 or length(v_name) > 160 then
+      raise exception 'Each program name must be 1 to 160 characters.';
+    end if;
+    if lower(v_name) = any (v_names) then raise exception 'Program names must be unique (%).', v_name; end if;
+    v_names := v_names || lower(v_name);
+
+    -- Program dances: from the profile pool, or organizer-defined when the program allows it.
+    v_pool := v_defaults->'dancePools'->(v_template->>'dance_pool');
+    if jsonb_typeof(v_prog->'dances') is distinct from 'array' or jsonb_array_length(v_prog->'dances') > (v_limits->>'dances')::integer then
+      raise exception 'Choose % dances or fewer for %.', v_limits->>'dances', v_template->>'label';
+    end if;
+    v_dance_keys := '{}';
+    for v_dance in select value from jsonb_array_elements(v_prog->'dances') loop
+      v_dance_key := v_dance->>'key';
+      if jsonb_typeof(v_dance) <> 'object' or v_dance_key is null then raise exception 'Each dance needs a key.'; end if;
+      if not exists (select 1 from jsonb_array_elements(v_pool) pd(value) where pd.value->>'key' = v_dance_key) then
+        v_dance_name := btrim(coalesce(v_dance->>'name', ''));
+        if not (v_template->>'custom_dances')::boolean or v_dance_key !~ '^custom_[a-z0-9_]{1,40}$'
+          or length(v_dance_name) < 1 or length(v_dance_name) > 80 then
+          raise exception 'Dance % is not available for %.', v_dance_key, v_template->>'label';
+        end if;
+      end if;
+      if v_dance_key = any (v_dance_keys) then raise exception 'Each dance can be listed once per program.'; end if;
+      v_dance_keys := v_dance_keys || v_dance_key;
+    end loop;
+
+    if jsonb_typeof(v_prog->'categories') is distinct from 'array'
+      or jsonb_array_length(v_prog->'categories') < 1 or jsonb_array_length(v_prog->'categories') > (v_limits->>'categories')::integer then
+      raise exception 'Choose between 1 and % entry formats for %.', v_limits->>'categories', v_template->>'label';
+    end if;
+    v_cat_seen := '{}';
+    v_used := '{}';
+    v_needs_fee := false;
+    for v_cat in select value from jsonb_array_elements(v_prog->'categories') loop
+      if jsonb_typeof(v_cat) <> 'object' then raise exception 'Each entry format must be an object.'; end if;
+      v_cat_key := v_cat->>'type';
+      v_cat_def := v_defaults->'categoryTypes'->v_cat_key;
+      if v_cat_key is null or v_cat_def is null or not (v_template->'formats' ? v_cat_key) then
+        raise exception 'Entry format % is not available for %.', coalesce(v_cat_key, '(none)'), v_template->>'label';
+      end if;
+      if v_cat_key = any (v_cat_seen) then raise exception 'Each entry format can be added once per program.'; end if;
+      v_cat_seen := v_cat_seen || v_cat_key;
+
+      if jsonb_typeof(v_cat->'divisions') is distinct from 'array'
+        or jsonb_array_length(v_cat->'divisions') < 1 or jsonb_array_length(v_cat->'divisions') > (v_limits->>'divisions')::integer then
+        raise exception 'Add between 1 and % divisions for %.', v_limits->>'divisions', v_cat_def->>'label';
+      end if;
+      v_div_seen := '{}';
+      for v_div in select value from jsonb_array_elements(v_cat->'divisions') loop
+        if jsonb_typeof(v_div) <> 'object' then raise exception 'Each division must be an object.'; end if;
+        v_div_name := btrim(coalesce(v_div->>'name', ''));
+        if length(v_div_name) < 1 or length(v_div_name) > (v_limits->>'nameLength')::integer then
+          raise exception 'Each division needs a name of 1 to % characters.', v_limits->>'nameLength';
+        end if;
+        if lower(v_div_name) = any (v_div_seen) then raise exception 'Division names must be unique (%).', v_div_name; end if;
+        v_div_seen := v_div_seen || lower(v_div_name);
+      end loop;
+      v_total_divisions := v_total_divisions + jsonb_array_length(v_cat->'divisions');
+
+      if (v_cat_def->>'uses_dances')::boolean then
+        if jsonb_typeof(v_cat->'dances') is distinct from 'array'
+          or jsonb_array_length(v_cat->'dances') < 1 or jsonb_array_length(v_cat->'dances') > (v_limits->>'dances')::integer then
+          raise exception 'Choose at least one dance for %.', v_cat_def->>'label';
+        end if;
+        v_dance_keys := '{}';
+        for v_dance_key in select value from jsonb_array_elements_text(v_cat->'dances') loop
+          if not exists (select 1 from jsonb_array_elements(v_prog->'dances') d(value) where d.value->>'key' = v_dance_key) then
+            raise exception 'Dance % is not part of %.', v_dance_key, v_template->>'label';
+          end if;
+          if v_dance_key = any (v_dance_keys) then raise exception 'Dances can be chosen once per entry format.'; end if;
+          v_dance_keys := v_dance_keys || v_dance_key;
+          if not (v_dance_key = any (v_used)) then v_used := v_used || v_dance_key; end if;
+        end loop;
+      elsif coalesce(v_cat->'dances', '[]'::jsonb) not in ('[]'::jsonb, 'null'::jsonb) then
+        raise exception '% does not use individual dances.', v_cat_def->>'label';
+      end if;
+
+      v_model := v_cat #>> '{pricing,model}';
+      if v_model is null or not coalesce(v_cat_def->'pricing_models' ? v_model, false) then
+        raise exception 'Choose how % is priced.', v_cat_def->>'label';
+      end if;
+      if v_model in ('per_dance', 'per_entry') then
+        if jsonb_typeof(v_cat #> '{pricing,amount}') is distinct from 'number' then
+          raise exception 'Enter a price for %.', v_cat_def->>'label';
+        end if;
+        v_amount := (v_cat #>> '{pricing,amount}')::numeric;
+        if v_amount <= 0 or v_amount > v_max_price or v_amount <> round(v_amount, 2) then
+          raise exception 'Enter a valid price for %.', v_cat_def->>'label';
+        end if;
+      elsif coalesce(jsonb_typeof(v_cat #> '{pricing,amount}'), 'null') <> 'null' then
+        raise exception 'A price is only entered for per-dance or per-entry pricing (%).', v_cat_def->>'label';
+      end if;
+      if v_model = 'included' then v_needs_fee := true; end if;
+    end loop;
+
+    if exists (select 1 from jsonb_array_elements(v_prog->'dances') d(value) where not (d.value->>'key' = any (v_used))) then
+      raise exception 'Remove dances that no entry format in % uses.', v_template->>'label';
+    end if;
+    if v_needs_fee then
+      if jsonb_typeof(v_prog->'registration_fee') is distinct from 'number' then
+        raise exception 'Enter the % registration fee.', v_template->>'label';
+      end if;
+      v_fee := (v_prog->>'registration_fee')::numeric;
+      if v_fee <= 0 or v_fee > v_max_price or v_fee <> round(v_fee, 2) then
+        raise exception 'Enter a valid % registration fee.', v_template->>'label';
+      end if;
+    elsif coalesce(jsonb_typeof(v_prog->'registration_fee'), 'null') <> 'null' then
+      raise exception 'A registration fee is only used when entries are included in it (%).', v_template->>'label';
+    end if;
+  end loop;
+
+  if v_total_divisions > (v_limits->>'totalDivisions')::integer then
+    raise exception 'This setup has % divisions; use % or fewer.', v_total_divisions, v_limits->>'totalDivisions';
+  end if;
+  if (v_purpose = 'competition' and (v_competition_count < 1 or v_showcase_count > 0))
+    or (v_purpose = 'showcase' and (v_competition_count > 0 or v_showcase_count <> 1))
+    or (v_purpose = 'competition_showcase' and (v_competition_count < 1 or v_showcase_count <> 1)) then
+    raise exception 'The programs do not match what you are creating.';
+  end if;
+
+  -- ---- writes ----
+  update public.events
+  set registration_required = true, account_required_for_registration = v_account,
+      registration_opens_at = v_opens, registration_closes_at = v_closes
+  where id = p_event_id;
+
+  for v_prog, v_prog_ix in select value, ordinality from jsonb_array_elements(v_programs) with ordinality loop
+    v_prog_key := v_prog->>'key';
+    v_template := v_defaults->'programs'->v_prog_key;
+    v_prog_adjudication := coalesce(v_template->>'adjudication', v_adjudication);
+    v_judging_key := v_prog->>'judging';
+    v_judging := v_defaults->'judging'->v_judging_key;
+    v_pool := v_defaults->'dancePools'->(v_template->>'dance_pool');
+    v_fee := case when jsonb_typeof(v_prog->'registration_fee') = 'number' then (v_prog->>'registration_fee')::numeric end;
+
+    insert into public.event_competition_programs (
+      event_id, studio_id, organizer_id, name, discipline_family, competition_mode, scoring_method,
+      advancement_method, feedback_policy, status, sort_order, rules_profile_key, rules_profile_version, configuration, created_by
+    ) values (
+      p_event_id, v_event.studio_id, v_event.organizer_id, btrim(v_prog->>'name'), v_template->>'discipline_family',
+      v_judging->>'competition_mode', v_judging #>> '{engine,key}', v_judging->>'advancement_method', 'none', 'draft',
+      v_prog_ix * 10, v_profile.profile_key, v_profile.version,
+      jsonb_build_object(
+        'simple', jsonb_build_object('request_key', v_request, 'judging', v_judging_key, 'created_with', 'setup_wizard'),
+        'setup', jsonb_build_object('request_hash', v_hash, 'program_key', v_prog_key, 'purpose', v_purpose,
+                                    'adjudication', v_prog_adjudication, 'registration_fee', v_fee,
+                                    'answers', coalesce(p_spec->'answers', '{}'::jsonb))),
+      v_actor
+    ) returning id into v_program_id;
+    v_created := v_created || v_program_id;
+
+    v_dance_ids := '{}'::jsonb;
+    for v_dance, v_dance_ix in select value, ordinality from jsonb_array_elements(v_prog->'dances') with ordinality loop
+      v_dance_key := v_dance->>'key';
+      select pd.value into v_dance from jsonb_array_elements(v_pool) pd(value) where pd.value->>'key' = v_dance_key;
+      if v_dance is null then
+        select d.value into v_dance from jsonb_array_elements(v_prog->'dances') d(value) where d.value->>'key' = v_dance_key;
+        v_dance := jsonb_build_object('name', btrim(v_dance->>'name'), 'category', 'Custom');
+      end if;
+      insert into public.event_competition_dances (event_id, program_id, dance_key, name, category_label, sort_order)
+      values (p_event_id, v_program_id, v_dance_key, v_dance->>'name', v_dance->>'category', v_dance_ix * 10)
+      returning id into v_dance_id;
+      v_dance_ids := v_dance_ids || jsonb_build_object(v_dance_key, v_dance_id);
+    end loop;
+
+    for v_cat, v_cat_ix in select value, ordinality from jsonb_array_elements(v_prog->'categories') with ordinality loop
+      v_cat_key := v_cat->>'type';
+      v_cat_def := v_defaults->'categoryTypes'->v_cat_key;
+      v_model := v_cat #>> '{pricing,model}';
+      v_amount := case when v_model in ('per_dance', 'per_entry') then (v_cat #>> '{pricing,amount}')::numeric else 0 end;
+      v_pending := v_model = 'later';
+      v_any_pending := v_any_pending or v_pending;
+
+      insert into public.event_competition_contests (event_id, program_id, name, contest_type, entry_format, sort_order, configuration)
+      values (p_event_id, v_program_id, v_cat_def->>'label', v_cat_def->>'contest_type', v_cat_def->>'entry_format', v_cat_ix * 10,
+              jsonb_build_object(
+                'simple', jsonb_build_object('category_type', v_cat_key),
+                'setup', jsonb_build_object('pricing_model', v_model, 'pricing_pending', v_pending,
+                                            'participant_roles', v_cat_def->'participant_roles', 'dance_roles', v_cat_def->'dance_roles')))
+      returning id into v_contest_id;
+
+      update public.event_competition_contest_registration_rules set
+        dance_selection_mode = v_cat_def->>'dance_selection_mode',
+        pricing_method = case when v_model = 'per_dance' then 'per_dance' else 'flat_entry' end,
+        base_entry_fee = case when v_model = 'per_entry' then v_amount else 0 end,
+        currency = v_defaults->>'currency',
+        minimum_dances = case when v_cat_def->>'dance_selection_mode' = 'individual' then 1 else null end,
+        maximum_dances = null,
+        minimum_participants = (v_cat_def->>'minimum_participants')::integer,
+        maximum_participants = (v_cat_def->>'maximum_participants')::integer,
+        terminology = v_defaults->'terminology',
+        registration_open = false
+      where contest_id = v_contest_id and event_id = p_event_id;
+      if not found then
+        raise exception 'Category registration rules were not created.';
+      end if;
+
+      for v_div, v_div_ix in select value, ordinality from jsonb_array_elements(v_cat->'divisions') with ordinality loop
+        insert into public.event_competition_divisions (event_id, program_id, contest_id, name, skill_label, age_label, sort_order)
+        values (p_event_id, v_program_id, v_contest_id, btrim(v_div->>'name'),
+                nullif(btrim(coalesce(v_div->>'skill_label', '')), ''), nullif(btrim(coalesce(v_div->>'age_label', '')), ''),
+                v_div_ix * 10)
+        returning id into v_division_id;
+
+        for v_round, v_round_ix in select value, ordinality from jsonb_array_elements(v_judging->'rounds') with ordinality loop
+          insert into public.event_competition_rounds (event_id, program_id, division_id, name, round_type, sequence_number, scoring_method, pairing_mode)
+          values (p_event_id, v_program_id, v_division_id, v_round->>'name', v_round->>'round_type', v_round_ix,
+                  v_round->>'scoring_method', v_cat_def->>'pairing_mode');
+        end loop;
+
+        if (v_cat_def->>'uses_dances')::boolean then
+          for v_dance_key, v_dance_ix in select value, ordinality from jsonb_array_elements_text(v_cat->'dances') with ordinality loop
+            insert into public.event_competition_division_dances (event_id, program_id, division_id, dance_id, entry_fee, currency, required, sort_order)
+            values (p_event_id, v_program_id, v_division_id, (v_dance_ids->>v_dance_key)::uuid,
+                    case when v_model = 'per_dance' then v_amount else 0 end, v_defaults->>'currency',
+                    v_cat_def->>'dance_selection_mode' <> 'individual', v_dance_ix * 10);
+          end loop;
+        end if;
+      end loop;
+    end loop;
+
+    if v_fee is not null then
+      insert into public.event_competition_fee_rules (event_id, program_id, name, calculation_type, amount, currency, configuration)
+      values (p_event_id, v_program_id, left(btrim(v_prog->>'name'), 160) || ' registration fee', 'flat_per_person', v_fee,
+              v_defaults->>'currency', jsonb_build_object('setup', jsonb_build_object('kind', 'registration_fee', 'request_key', v_request)));
+    end if;
+  end loop;
+
+  return jsonb_build_object('program_ids', to_jsonb(v_created), 'replayed', false, 'pricing_pending', v_any_pending);
+end;
+$$;
+
+revoke all on function public.create_competition_draft(uuid, jsonb) from public, anon;
+grant execute on function public.create_competition_draft(uuid, jsonb) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 3. set_competition_category_pricing -- completes "Configure later" pricing
+-- ---------------------------------------------------------------------------
+create or replace function public.set_competition_category_pricing(p_contest_id uuid, p_model text, p_amount numeric)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_contest record;
+  v_program record;
+  v_definition jsonb;
+  v_max_price numeric;
+  v_amount numeric;
+begin
+  select c.id, c.event_id, c.program_id, c.name, c.configuration into v_contest
+  from public.event_competition_contests c where c.id = p_contest_id;
+  if v_actor is null or v_contest.id is null or not public.can_manage_event_competition(v_contest.event_id) then
+    raise exception 'Category was not found or cannot be managed.' using errcode = '42501';
+  end if;
+  select * into v_program from public.event_competition_programs p where p.id = v_contest.program_id for update;
+  if v_contest.configuration->'setup' is null or v_program.rules_profile_key is null then
+    raise exception 'Pricing for this category is managed in Advanced settings.';
+  end if;
+  if v_program.status not in ('draft', 'configured') or v_program.registration_status <> 'closed' then
+    raise exception 'Close registration before changing pricing.';
+  end if;
+
+  select p.defaults->'categoryTypes'->(v_contest.configuration #>> '{simple,category_type}'), (p.defaults #>> '{limits,maxPrice}')::numeric
+    into v_definition, v_max_price
+  from public.competition_rules_profiles p
+  where p.profile_key = v_program.rules_profile_key and p.version = v_program.rules_profile_version;
+  if v_definition is null or p_model is null or p_model not in ('per_dance', 'per_entry', 'free')
+    or not coalesce(v_definition->'pricing_models' ? p_model, false) then
+    raise exception 'Choose a pricing option available for %.', v_contest.name;
+  end if;
+  if p_model = 'free' then
+    if p_amount is not null and p_amount <> 0 then raise exception 'A free category has no price.'; end if;
+    v_amount := 0;
+  else
+    if p_amount is null or p_amount <= 0 or p_amount > v_max_price or p_amount <> round(p_amount, 2) then
+      raise exception 'Enter a valid price for %.', v_contest.name;
+    end if;
+    v_amount := p_amount;
+  end if;
+
+  update public.event_competition_contest_registration_rules set
+    pricing_method = case when p_model = 'per_dance' then 'per_dance' else 'flat_entry' end,
+    base_entry_fee = case when p_model = 'per_entry' then v_amount else 0 end,
+    updated_at = now()
+  where contest_id = v_contest.id and event_id = v_contest.event_id;
+
+  update public.event_competition_division_dances dd set
+    entry_fee = case when p_model = 'per_dance' then v_amount else 0 end,
+    updated_at = now()
+  where dd.event_id = v_contest.event_id
+    and dd.division_id in (select d.id from public.event_competition_divisions d where d.contest_id = v_contest.id);
+
+  update public.event_competition_contests set
+    configuration = jsonb_set(jsonb_set(configuration, '{setup,pricing_model}', to_jsonb(p_model)), '{setup,pricing_pending}', 'false'::jsonb),
+    updated_at = now()
+  where id = v_contest.id;
+
+  return jsonb_build_object('contest_id', v_contest.id, 'pricing_model', p_model, 'amount', v_amount,
+    'pricing_pending', exists (select 1 from public.event_competition_contests c
+                               where c.program_id = v_contest.program_id
+                                 and coalesce(c.configuration #>> '{setup,pricing_pending}', 'false') = 'true'));
+end;
+$$;
+
+revoke all on function public.set_competition_category_pricing(uuid, text, numeric) from public, anon;
+grant execute on function public.set_competition_category_pricing(uuid, text, numeric) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4. open_competition_registration: pricing-pending guard (10C body + one check)
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.open_competition_registration(p_program_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_program record;
+  v_event record;
+  v_contests int;
+  v_divisions int;
+begin
+  select p.* into v_program from public.event_competition_programs p where p.id = p_program_id for update;
+  if v_program.id is null or not public.can_manage_event_competition(v_program.event_id) then
+    raise exception 'COMP10C_FORBIDDEN: competition was not found or cannot be managed.' using errcode = '42501';
+  end if;
+  select e.* into v_event from public.events e where e.id = v_program.event_id;
+  if v_program.status not in ('configured', 'active') then
+    raise exception 'COMP10C_NOT_PUBLISHED: publish the competition before opening registration.';
+  end if;
+  if v_program.rules_profile_key is not null and v_program.profile_locked_at is null then
+    raise exception 'COMP10C_NOT_PUBLISHED: publish the competition before opening registration.';
+  end if;
+  if not v_event.registration_required then
+    raise exception 'COMP10C_EVENT_REGISTRATION_OFF: turn on event registration before opening competition registration.';
+  end if;
+  -- 10C.5: a category whose pricing was deferred ("Configure later") blocks opening until it is priced.
+  if exists (select 1 from public.event_competition_contests c
+             where c.program_id = v_program.id and c.event_id = v_program.event_id and c.status in ('draft', 'open')
+               and coalesce(c.configuration #>> '{setup,pricing_pending}', 'false') = 'true') then
+    raise exception 'COMP10C_PRICING_PENDING: Pricing requires completion before registration can open.';
+  end if;
+
+  -- Open every category that has at least one division, its draft divisions, and its rule.
+  with ready as (
+    select c.id from public.event_competition_contests c
+    where c.program_id = v_program.id and c.event_id = v_program.event_id
+      and c.status in ('draft', 'open')
+      and exists (select 1 from public.event_competition_divisions d
+                  where d.contest_id = c.id and d.event_id = c.event_id and d.status in ('draft', 'open'))
+      and exists (select 1 from public.event_competition_contest_registration_rules r
+                  where r.contest_id = c.id and r.event_id = c.event_id)
+  ), opened as (
+    update public.event_competition_contests c set status = 'open', updated_at = now()
+    from ready where c.id = ready.id and c.status = 'draft' returning c.id
+  )
+  select (select count(*) from ready) into v_contests;
+  if v_contests = 0 then
+    raise exception 'COMP10C_NOTHING_REGISTRABLE: add a category with at least one division before opening registration.';
+  end if;
+
+  update public.event_competition_divisions d set status = 'open', updated_at = now()
+  where d.program_id = v_program.id and d.event_id = v_program.event_id and d.status = 'draft'
+    and exists (select 1 from public.event_competition_contests c where c.id = d.contest_id and c.status = 'open');
+  select count(*) into v_divisions from public.event_competition_divisions d
+  where d.program_id = v_program.id and d.status = 'open';
+
+  update public.event_competition_contest_registration_rules r set registration_open = true, updated_at = now()
+  where r.program_id = v_program.id and r.event_id = v_program.event_id and not r.registration_open
+    and exists (select 1 from public.event_competition_contests c where c.id = r.contest_id and c.status = 'open');
+
+  update public.event_competition_programs
+  set registration_status = 'open', registration_opened_at = now(), updated_at = now()
+  where id = v_program.id;
+
+  return jsonb_build_object('program_id', v_program.id, 'registration_status', 'open',
+    'open_categories', v_contests, 'open_divisions', v_divisions);
+end;
+$function$
+;
+
+-- ---------------------------------------------------------------------------
+-- 5. Postflight
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if md5(pg_get_functiondef('public.open_competition_registration(uuid)'::regprocedure)) <> 'abe6b1940de5b96fd931cdddebfd9bed' then
+    raise exception 'Phase 10C.5 postflight: open_competition_registration is not the generated definition.';
+  end if;
+  if has_function_privilege('anon', 'public.create_competition_draft(uuid, jsonb)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.set_competition_category_pricing(uuid, text, numeric)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.open_competition_registration(uuid)', 'EXECUTE') then
+    raise exception 'Phase 10C.5 postflight: anon must not execute 10C.5 functions.';
+  end if;
+  if not exists (select 1 from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2 and status = 'active')
+    or not exists (select 1 from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 1 and status = 'active') then
+    raise exception 'Phase 10C.5 postflight: studio_simple@1 and @2 must both be active.';
+  end if;
+end $$;

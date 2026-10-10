@@ -3,8 +3,17 @@ import { redirect } from "next/navigation";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import { competitionWorkspaceHref } from "@/lib/competition/workspaceLink";
 import { getEventTimeZone } from "@/lib/events/eventTiming";
-import type { ProfileDefaults } from "@/lib/competition/simple/types";
-import CreateCompetitionWizard, { type EventSummary } from "./CreateCompetitionWizard";
+import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
+import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV2";
+import CompetitionSetupWizard, { type EventSummary } from "./CompetitionSetupWizard";
+
+/** An existing registration timestamp as a YYYY-MM-DD date in the event time zone (for the date inputs). */
+function localDate(value: string | null, event: { timezone: string | null }) {
+  if (!value) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: getEventTimeZone(event), year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 
 function formatDate(value: string | null, endValue: string | null) {
   if (!value) return null;
@@ -36,14 +45,18 @@ export default async function NewCompetitionPage({ params }: { params: Promise<{
   const { count } = await supabase.from("event_competition_programs").select("id", { count: "exact", head: true }).eq("event_id", id);
   if ((count ?? 0) > 0) redirect(competitionWorkspaceHref(id));
 
-  const { data: profile } = await supabase
-    .from("competition_rules_profiles")
-    .select("profile_key, version, defaults")
-    .eq("profile_key", "studio_simple")
-    .eq("status", "active")
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // 10C.5: the setup wizard runs on the Studio / Custom Rules profile (schema 2). Governing-body rules are
+  // shown in the wizard but are not available yet, so no other profile is loaded here.
+  const [{ data: profile }, { data: eventRegistration }] = await Promise.all([
+    supabase
+      .from("competition_rules_profiles")
+      .select("profile_key, version, defaults")
+      .eq("profile_key", STUDIO_CUSTOM_PROFILE.key)
+      .eq("version", STUDIO_CUSTOM_PROFILE.version)
+      .eq("status", "active")
+      .maybeSingle(),
+    supabase.from("events").select("account_required_for_registration").eq("id", id).maybeSingle(),
+  ]);
   if (!profile) throw new Error("No active competition profile is available.");
 
   const summary: EventSummary = {
@@ -55,11 +68,16 @@ export default async function NewCompetitionPage({ params }: { params: Promise<{
   };
 
   return (
-    <CreateCompetitionWizard
+    <CompetitionSetupWizard
       eventId={id}
       event={summary}
       profile={{ key: profile.profile_key, version: profile.version }}
-      defaults={profile.defaults as ProfileDefaults}
+      defaults={profile.defaults as SetupProfileDefaults}
+      initialRegistration={{
+        opens: localDate(event.registration_opens_at, event),
+        closes: localDate(event.registration_closes_at, event),
+        accountRequired: eventRegistration?.account_required_for_registration ?? true,
+      }}
       requestKey={randomUUID()}
     />
   );

@@ -2,22 +2,27 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/app/events/e1/competition/divisions", redirect: vi.fn(), notFound: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/app/events/e1/competition/divisions",
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  redirect: vi.fn(),
+  notFound: vi.fn(),
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown } & Record<string, unknown>) => createElement("a", { href, ...rest }, children as never),
 }));
 vi.mock("@/app/app/events/[id]/competition/simpleActions", () => ({
-  createSimpleCompetitionAction: vi.fn(),
+  createCompetitionDraftAction: vi.fn(),
   publishCompetitionAction: vi.fn(),
   updateDivisionAction: vi.fn(),
   addDivisionAction: vi.fn(),
   removeDivisionAction: vi.fn(),
 }));
 
-import { STUDIO_SIMPLE_V1_DEFAULTS } from "@/lib/competition/simple/studioSimpleV1";
+import { STUDIO_CUSTOM_V2_DEFAULTS } from "@/lib/competition/setup/studioCustomV2";
 import CompetitionNav from "@/app/app/events/[id]/competition/CompetitionNav";
 import PublishForm from "@/app/app/events/[id]/competition/PublishForm";
-import CreateCompetitionWizard from "@/app/app/events/[id]/competition/new/CreateCompetitionWizard";
+import CompetitionSetupWizard from "@/app/app/events/[id]/competition/new/CompetitionSetupWizard";
 import DivisionsBoard from "@/app/app/events/[id]/competition/divisions/DivisionsBoard";
 
 /** Server-render smoke tests: the client components mount without runtime errors and show the right first screen. */
@@ -33,13 +38,14 @@ describe("workspace components render", () => {
     expect(html).toContain('href="/app/events/e1/competition/divisions"');
   });
 
-  it("renders the first wizard step: the event basics, the six starting points and no engine words", () => {
+  it("renders the first setup step: the event basics, the three purposes and no engine words (10C.5)", () => {
     const html = renderToStaticMarkup(
-      createElement(CreateCompetitionWizard, {
+      createElement(CompetitionSetupWizard, {
         eventId: "e1",
         event: { name: "Spring Showcase", dates: "Mar 6, 2027", times: "6:00 PM", venue: "Main Studio", existingWindow: null },
-        profile: { key: "studio_simple", version: 1 },
-        defaults: STUDIO_SIMPLE_V1_DEFAULTS,
+        profile: { key: "studio_simple", version: 2 },
+        defaults: STUDIO_CUSTOM_V2_DEFAULTS,
+        initialRegistration: { opens: "", closes: "", accountRequired: true },
         requestKey: "request-key-0001",
       }),
     );
@@ -47,12 +53,13 @@ describe("workspace components render", () => {
     expect(html).toContain("Spring Showcase");
     expect(html).toContain("Mar 6, 2027");
     expect(html).toContain("Edit event details");
-    for (const label of ["Studio Competition", "Showcase", "Ballroom", "Country", "West Coast Swing", "Custom"]) expect(html).toContain(label);
+    for (const label of ["Competition", "Showcase / Performance", "Competition + Showcase"]) expect(html).toContain(label);
     expect(html).toContain("Advanced settings");
-    expect(html).toContain("1. What are you creating?");
-    expect(html).toContain("5. Registration");
+    expect(html).toContain("1. Purpose");
+    expect(html).toContain("Review");
+    expect(html).not.toContain("Sanction</button>");
     expect(html).toContain("Continue");
-    expect(html).not.toContain("Create competition</button>");
+    expect(html).not.toContain("Create Competition Draft");
     expect(html).not.toMatch(/ordinal_majority|proficiency_rating|callback_tally/);
   });
 
