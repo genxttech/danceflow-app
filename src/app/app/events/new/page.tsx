@@ -69,7 +69,7 @@ export default async function NewEventPage({
   }
 
   const [
-    { data: workspace, error: workspaceError },
+    { error: workspaceError },
     { data: organizers, error: organizersError },
     capabilities,
   ] = await Promise.all([
@@ -116,70 +116,27 @@ export default async function NewEventPage({
   const singleOrganizer = typedOrganizers[0] ?? null;
 
   return (
-    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace
-                  ? "Organizer Suite"
-                  : "DanceFlow Events"}
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                {startAsCompetition ? "New Competition" : "New Event"}
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                {startAsCompetition
-                  ? "Start with the event basics: name, dates, place and visibility. Competition setup comes next."
-                  : organizerWorkspace
-                  ? "Create an organizer-linked event for public discovery, registrations, and event operations."
-                  : studioHostedEvents
-                    ? "Create a basic public event listing. Your studio name will be used as the event host; ticketing, QR check-in, and settlement are available when Organizer Suite is active."
-                    : "Create an organizer-linked event and optionally publish it into the public dance directory."}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href={startAsCompetition ? COMPETITIONS_HREF : "/app/events"}
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-              >
-                {startAsCompetition ? "Back to Competitions" : "Back to Events"}
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        {organizerWorkspace ? (
-          <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-              <h2 className="text-lg font-semibold text-sky-950">
-                One organizer profile is expected for this workspace
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-sky-900">
-                Organizer accounts should create events under their single
-                organizer profile so public listings and registrations stay tied
-                to the correct brand.
-              </p>
-            </div>
-          </div>
-        ) : studioHostedEvents ? (
-          <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-              <h2 className="text-lg font-semibold text-emerald-950">
-                This will be a studio-hosted event
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-emerald-900">
-                Active studio plans can publish basic public event listings
-                without creating a separate organizer. Your studio name will be
-                used as the public event host. Ticketing, QR check-in,
-                settlements, and organizer ARIA require Organizer Suite.
-              </p>
-            </div>
-          </div>
-        ) : null}
-      </section>
+    <div className="mx-auto w-full max-w-3xl space-y-8 px-1 pb-10">
+      <header className="space-y-2">
+        <Link
+          href={startAsCompetition ? COMPETITIONS_HREF : "/app/events"}
+          className="text-sm font-medium text-slate-600 hover:text-slate-950"
+        >
+          {startAsCompetition ? "Back to Competitions" : "Back to Events"}
+        </Link>
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
+          {startAsCompetition ? "New Competition" : "New Event"}
+        </h1>
+        <p className="text-sm leading-6 text-slate-600">
+          {startAsCompetition
+            ? "Start with the basics. Competition setup comes next."
+            : organizerWorkspace
+              ? "Create an Organizer Suite event under your organizer profile."
+              : studioHostedEvents
+                ? "Create an event hosted by your studio."
+                : "Create an event and choose who can find it."}
+        </p>
+      </header>
 
       {typedOrganizers.length === 0 && !studioHostedEvents ? (
         <div className="rounded-[32px] border border-slate-200 bg-white p-8 text-center shadow-sm">
@@ -203,21 +160,6 @@ export default async function NewEventPage({
         </div>
       ) : (
         <div className="space-y-6">
-          {organizerWorkspace && singleOrganizer ? (
-            <div className="rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                Organizer Assignment
-              </p>
-              <h2 className="mt-2 text-xl font-semibold text-emerald-950">
-                This event will be created under {singleOrganizer.name}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-emerald-900">
-                The form should use this organizer by default for this organizer
-                workspace.
-              </p>
-            </div>
-          ) : null}
-
           <EventForm
             mode="create"
             organizers={typedOrganizers}
