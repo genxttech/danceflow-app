@@ -8,7 +8,7 @@ import type { createClient as createServerClient } from "@/lib/supabase/server";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
 import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
 import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV2";
-import { SETUP_STEPS, deriveDraft, parsePrice, restoreAnswers } from "@/lib/competition/setup/draft";
+import { SETUP_STEPS, deriveDraft, parsePrice, restoreAnswers, setupProfileProblems } from "@/lib/competition/setup/draft";
 
 export type ActionState = { ok: boolean; error?: string; href?: string };
 
@@ -58,6 +58,7 @@ export async function createCompetitionDraftAction(_previous: ActionState, formD
     .eq("version", STUDIO_CUSTOM_PROFILE.version)
     .maybeSingle();
   if (!profile || profile.status !== "active") return { ok: false, error: "Studio / Custom Rules are not available right now." };
+  if (setupProfileProblems(profile.defaults).length > 0) return { ok: false, error: "The competition setup rules do not match this version of DanceFlow. Reload the page." };
   const defaults = profile.defaults as SetupProfileDefaults;
 
   let parsed: unknown;

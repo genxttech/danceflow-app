@@ -5,6 +5,7 @@ import { competitionWorkspaceHref } from "@/lib/competition/workspaceLink";
 import { getEventTimeZone } from "@/lib/events/eventTiming";
 import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
 import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV2";
+import { setupProfileProblems } from "@/lib/competition/setup/draft";
 import CompetitionSetupWizard, { type EventSummary } from "./CompetitionSetupWizard";
 
 /** An existing registration timestamp as a YYYY-MM-DD date in the event time zone (for the date inputs). */
@@ -58,6 +59,8 @@ export default async function NewCompetitionPage({ params }: { params: Promise<{
     supabase.from("events").select("account_required_for_registration").eq("id", id).maybeSingle(),
   ]);
   if (!profile) throw new Error("No active competition profile is available.");
+  // Fail loudly on a profile/code mismatch instead of rendering empty steps.
+  if (setupProfileProblems(profile.defaults).length > 0) throw new Error("The competition setup rules do not match this version of DanceFlow.");
 
   const summary: EventSummary = {
     name: event.name,

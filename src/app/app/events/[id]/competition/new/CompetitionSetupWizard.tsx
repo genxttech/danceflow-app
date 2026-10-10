@@ -114,6 +114,37 @@ function Choice({
   );
 }
 
+/** The Styles step's choices: every style the profile offers, plus Multiple styles. */
+export function StyleChoices({
+  answers,
+  defaults,
+  update,
+}: {
+  answers: SetupAnswers;
+  defaults: SetupProfileDefaults;
+  update: (change: (current: SetupAnswers) => SetupAnswers) => void;
+}) {
+  return (
+    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      {styleOptions(defaults).map((key) => (
+        <Choice
+          key={key}
+          selected={answers.styles.includes(key)}
+          onClick={() => update((current) => chooseStyle(current, defaults, key))}
+          title={defaults.programs[key].label}
+          description={defaults.programs[key].description}
+        />
+      ))}
+      <Choice
+        selected={answers.styleMode === "multiple"}
+        onClick={() => update((current) => (current.styleMode === "multiple" ? chooseSingleStyleMode(current, defaults) : chooseStyle(current, defaults, "multiple")))}
+        title="Multiple styles"
+        description={answers.styleMode === "multiple" ? "Selected. Tap again to pick just one style." : "Run more than one style at this event."}
+      />
+    </div>
+  );
+}
+
 export default function CompetitionSetupWizard({
   eventId,
   event,
@@ -256,23 +287,7 @@ export default function CompetitionSetupWizard({
             <p className="mt-1 text-sm text-slate-600">
               {answers.styleMode === "multiple" ? "Choose every style you will run. Each style gets its own divisions and pricing." : "Choose the style you will run."}
             </p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {styleOptions(defaults).map((key) => (
-                <Choice
-                  key={key}
-                  selected={answers.styles.includes(key)}
-                  onClick={() => update((current) => chooseStyle(current, defaults, key))}
-                  title={tpl(key).label}
-                  description={tpl(key).description}
-                />
-              ))}
-              <Choice
-                selected={answers.styleMode === "multiple"}
-                onClick={() => update((current) => (current.styleMode === "multiple" ? chooseSingleStyleMode(current, defaults) : chooseStyle(current, defaults, "multiple")))}
-                title="Multiple styles"
-                description={answers.styleMode === "multiple" ? "Selected. Tap again to pick just one style." : "Run more than one style at this event."}
-              />
-            </div>
+            <StyleChoices answers={answers} defaults={defaults} update={update} />
             {answers.purpose !== "competition" ? (
               <p className="mt-3 text-sm text-slate-600">Showcase and performance offerings stay inside their style, so a Country Showcase is part of Country.</p>
             ) : null}

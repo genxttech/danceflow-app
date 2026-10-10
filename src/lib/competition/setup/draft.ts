@@ -127,9 +127,36 @@ export function initialAnswers(registration?: Partial<SetupAnswers["registration
   };
 }
 
-/** Styles (disciplines) the profile offers, in profile order. */
+/**
+ * Styles (disciplines) the profile offers. The profile is stored as jsonb, which does not keep object key
+ * order, so the order is set here: by label, with the organizer-defined style last.
+ */
 export function styleOptions(profile: SetupProfileDefaults): ProgramKey[] {
-  return Object.keys(profile.programs);
+  const last = (key: ProgramKey) => (profile.programs[key]?.discipline_family === "custom" ? 1 : 0);
+  return Object.keys(profile.programs).sort((a, b) => last(a) - last(b) || profile.programs[a].label.localeCompare(profile.programs[b].label));
+}
+
+/**
+ * The wizard only works with the schema-2 shape it was built for. A profile/code mismatch (e.g. an older
+ * deployment reading a newer profile, or the reverse) must fail loudly rather than render empty steps.
+ */
+export function setupProfileProblems(profile: unknown): string[] {
+  const problems: string[] = [];
+  const value = profile as Partial<SetupProfileDefaults> | null;
+  if (!value || typeof value !== "object" || value.schema !== 2) return ["The profile is not schema 2."];
+  const programs = value.programs && typeof value.programs === "object" ? Object.entries(value.programs) : [];
+  if (programs.length === 0) problems.push("The profile offers no styles.");
+  for (const [key, program] of programs) {
+    if (!program || typeof program.label !== "string") problems.push(`Style ${key} has no label.`);
+    if (!Array.isArray(program?.formats) || program.formats.length === 0 || program.formats.some((format) => !value.categoryTypes?.[format])) {
+      problems.push(`Style ${key} has no valid entry formats.`);
+    }
+    if (!Array.isArray(program?.judging_options) || program.judging_options.length === 0 || program.judging_options.some((option) => !value.judging?.[option])) {
+      problems.push(`Style ${key} has no valid result options.`);
+    }
+    if (!program?.programming || typeof program.programming !== "object") problems.push(`Style ${key} has no programming metadata.`);
+  }
+  return problems;
 }
 
 /** One program per chosen style, whatever the purpose: a Country Showcase stays in the Country program. */
