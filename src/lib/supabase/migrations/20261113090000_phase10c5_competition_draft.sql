@@ -63,11 +63,11 @@ declare
   "adjudication": {
     "adjudicated": {
       "label": "Adjudicated",
-      "description": "Judges give formal results."
+      "description": "Produces an official competitive result."
     },
     "non_adjudicated": {
       "label": "Non-Adjudicated",
-      "description": "An exhibition or participation event. Dancers perform; there is no formal competitive result.",
+      "description": "No official competitive placement or result. Dancers can still receive feedback from an evaluator.",
       "judging": "non_adjudicated"
     }
   },
@@ -77,6 +77,13 @@ declare
       "description": "Judges give Medal Marks. The marks are processed under the scoring rules to produce placements.",
       "input_label": "Medal Marks",
       "result_label": "Placement",
+      "official_result": true,
+      "feedback_modes": [
+        "none",
+        "written",
+        "written_plus_grade",
+        "written_plus_score"
+      ],
       "scoring": {
         "basis": "studio_custom",
         "stages": [
@@ -133,6 +140,13 @@ declare
       "description": "Judges rank the dancers in each division and the best-ranked dancer places first.",
       "input_label": "Placement marks",
       "result_label": "Placement",
+      "official_result": true,
+      "feedback_modes": [
+        "none",
+        "written",
+        "written_plus_grade",
+        "written_plus_score"
+      ],
       "scoring": {
         "basis": "studio_custom",
         "stages": [
@@ -187,6 +201,13 @@ declare
       "description": "Judges rate each performance, so every dancer can earn a Gold, Silver or Bronze rating instead of a place.",
       "input_label": "Ratings",
       "result_label": "Rating",
+      "official_result": true,
+      "feedback_modes": [
+        "none",
+        "written",
+        "written_plus_grade",
+        "written_plus_score"
+      ],
       "scoring": {
         "basis": "studio_custom",
         "stages": [
@@ -248,9 +269,16 @@ declare
     },
     "non_adjudicated": {
       "label": "Non-Adjudicated",
-      "description": "Dancers perform without formal judging or results.",
+      "description": "No official competitive result. Dancers may still receive evaluator feedback.",
       "input_label": null,
-      "result_label": "No competitive result",
+      "result_label": "No official competitive result",
+      "official_result": false,
+      "feedback_modes": [
+        "none",
+        "written",
+        "written_plus_grade",
+        "written_plus_score"
+      ],
       "scoring": {
         "basis": "studio_custom",
         "stages": [
@@ -296,6 +324,40 @@ declare
         }
       ]
     }
+  },
+  "feedback": {
+    "options": [
+      {
+        "key": "none",
+        "label": "No feedback",
+        "outputs": []
+      },
+      {
+        "key": "written",
+        "label": "Written feedback",
+        "outputs": [
+          "critique_text"
+        ]
+      },
+      {
+        "key": "written_plus_grade",
+        "label": "Written feedback + grade",
+        "outputs": [
+          "critique_text",
+          "grade"
+        ]
+      },
+      {
+        "key": "written_plus_score",
+        "label": "Written feedback + score",
+        "outputs": [
+          "critique_text",
+          "numeric_score"
+        ]
+      }
+    ],
+    "default": "none",
+    "note": "Feedback is evaluation only. A grade or score given as feedback never becomes a placement, ranking, advancement, medal threshold or official result."
   },
   "programs": {
     "country": {

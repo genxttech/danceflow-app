@@ -297,8 +297,8 @@ export default function CompetitionSetupWizard({
         {step === "adjudication" ? (
           <section aria-labelledby="step-adjudication" className="space-y-4">
             <div>
-              <h3 id="step-adjudication" className={headingClass}>Is it adjudicated?</h3>
-              <p className="mt-1 text-sm text-slate-600">This applies to every entry format in the style. Showcase-type offerings can be set differently later.</p>
+              <h3 id="step-adjudication" className={headingClass}>Will this produce an official competitive result?</h3>
+              <p className="mt-1 text-sm text-slate-600">Adjudicated offerings produce official results such as placements. Non-Adjudicated offerings do not, but dancers can still receive evaluator feedback. This applies to every entry format in the style; Showcase-type offerings can be set differently later.</p>
             </div>
             {programs.map((key) => {
               const program = answers.programs[key];
@@ -313,7 +313,7 @@ export default function CompetitionSetupWizard({
                         selected={program?.adjudication === choice}
                         onClick={() => update((current) => chooseAdjudication(current, key, choice))}
                         title={defaults.adjudication[choice].label}
-                        description={choice === "adjudicated" ? judgingSummary(defaults.judging[options[0]]).replace(/^Adjudicated · /, "Judges give formal results · ") : defaults.adjudication[choice].description}
+                        description={choice === "adjudicated" ? judgingSummary(defaults.judging[options[0]]).replace(/^Adjudicated · /, "Official result · ") : defaults.adjudication[choice].description}
                       />
                     ))}
                   </div>
@@ -337,7 +337,7 @@ export default function CompetitionSetupWizard({
                 </div>
               );
             })}
-            <p className="text-xs text-slate-500">Judging and results are set up now and run in a later update.</p>
+            <p className="text-xs text-slate-500">Judging and results are set up now and run in a later update. Evaluator feedback (written, with an optional grade or score) is set up in a later update and never becomes an official result.</p>
           </section>
         ) : null}
 

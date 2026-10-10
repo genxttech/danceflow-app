@@ -144,6 +144,20 @@ export type ScoringModel = {
   note?: string;
 };
 
+// -----------------------------------------------------------------------------------------------------
+// Feedback / evaluation (independent of competitive adjudication)
+// -----------------------------------------------------------------------------------------------------
+
+/**
+ * Evaluator feedback is separate from adjudication: a Non-Adjudicated offering may still be evaluated,
+ * and an Adjudicated one may add feedback. A grade or numeric score given as feedback is evaluation
+ * only -- it never becomes a placement, ranking, advancement, medal threshold or official result.
+ */
+export type FeedbackOutputType = "critique_text" | "grade" | "numeric_score";
+export type FeedbackMode = "none" | "written" | "written_plus_grade" | "written_plus_score";
+export type FeedbackOption = { key: FeedbackMode; label: string; outputs: FeedbackOutputType[] };
+export type FeedbackPolicy = { options: FeedbackOption[]; default: FeedbackMode; note: string };
+
 export type JudgingDefinition = {
   /** Organizer-facing name of the adjudication option (e.g. Medal Marks, Placements). */
   label: string;
@@ -151,6 +165,10 @@ export type JudgingDefinition = {
   /** Organizer-facing names for the judge input and the final result (Review). */
   input_label: string | null;
   result_label: string;
+  /** Whether this produces an official competitive result. Only then do its stage outputs count. */
+  official_result: boolean;
+  /** Evaluator feedback that may accompany it (independent of official_result). */
+  feedback_modes: FeedbackMode[];
   scoring: ScoringModel;
   /**
    * Storage binding for the current Competition OS columns only -- not the scoring semantics. Medal Marks,
@@ -254,6 +272,7 @@ export type SetupProfileDefaults = {
   terminology: Record<string, string>;
   adjudication: Record<AdjudicationKey, AdjudicationOption>;
   judging: Record<string, JudgingDefinition>;
+  feedback: FeedbackPolicy;
   programs: Record<ProgramKey, ProgramTemplate>;
   categoryTypes: Record<FormatKey, EntryFormatDefinition>;
   dancePools: Record<string, ProfileDance[]>;

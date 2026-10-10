@@ -65,6 +65,17 @@ Studio / Custom uses `studio_placeholder` engines. Medal Marks bind to the gener
 
 `src/lib/competition/setup/scoringReference.ts` holds source-cited reference descriptions of UCWDC, WSDC and NDCA scoring. They are not profiles, they cannot be selected, and no engine in them is implemented. They prove the contract can represent each body. The recorded NDCA Formation conflict (III.D.11 vs XII.N.3) is unresolved.
 
+## Adjudication, feedback and the official result are separate
+
+Non-Adjudicated means **no official competitive result**. It does not mean no judge or no feedback.
+
+- **Adjudicated?** asks "Will this produce an official competitive result?".
+- **Judging metadata.** Each judging definition records `official_result` (true for Medal Marks, Placements and ratings; false for Non-Adjudicated). It also records `feedback_modes`, which are all of `none`, `written`, `written_plus_grade` and `written_plus_score`.
+- **Profile-level feedback policy.** `feedback` lists the feedback options and their outputs (critique text, grade, numeric score). The default is `none`.
+- **Separate outputs.** `evaluation.ts` keeps official result outputs (only from an Adjudicated judging definition's stages) apart from feedback outputs (always `official: false`).
+- **Feedback stays feedback.** A grade or score given as feedback never becomes a placement, ranking, advancement, medal threshold or official result.
+- **Deferred.** Feedback entry (critique UI) and choosing a feedback mode per offering are a carry-forward. 10C.5 stores no feedback selection.
+
 ## Programming order metadata (metadata only; the floor planner does not read it yet)
 
 Every value records its basis:

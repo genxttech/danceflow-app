@@ -164,6 +164,14 @@ select pg_temp.chk('adjudicated result options are per style (Country Medal Mark
       and defaults #>> '{judging,medal_marks,input_label}' = 'Medal Marks' and defaults #>> '{judging,medal_marks,result_label}' = 'Placement'
       and defaults #>> '{judging,medal_marks,engine,key}' = 'custom'
    from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
+select pg_temp.chk('feedback is independent of adjudication: Non-Adjudicated has no official result but may carry feedback',
+  (select defaults #>> '{judging,non_adjudicated,official_result}' = 'false'
+      and defaults #> '{judging,non_adjudicated,feedback_modes}' = '["none","written","written_plus_grade","written_plus_score"]'::jsonb
+      and defaults #>> '{judging,medal_marks,official_result}' = 'true'
+      and defaults #> '{judging,placements,feedback_modes}' ? 'written'
+      and defaults #>> '{feedback,default}' = 'none'
+      and (select string_agg(o->>'key', ',') from jsonb_array_elements(defaults #> '{feedback,options}') o) = 'none,written,written_plus_grade,written_plus_score'
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
 select pg_temp.expect_msg('v2 is append-only (defaults cannot change)',
   $q$update public.competition_rules_profiles set defaults = defaults || '{"x": 1}' where profile_key = 'studio_simple' and version = 2$q$,
   'append-only');

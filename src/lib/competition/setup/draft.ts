@@ -418,7 +418,7 @@ export function finalStage(judging: JudgingDefinition | undefined) {
 export function judgingSummary(judging: JudgingDefinition | undefined): string {
   if (!judging) return "Not chosen";
   const { stage, primary } = finalStage(judging);
-  if (!primary || primary.type === "none") return "Non-Adjudicated · Performance / exhibition · No competitive result";
+  if (!primary || primary.type === "none") return "Non-Adjudicated · Performance / exhibition · No official competitive result";
   if (stage?.ballot.input === "medal_marks") return `Adjudicated · Judge input: ${judging.input_label} · Final result: ${judging.result_label}`;
   if (primary.type === "rating") return `Adjudicated · ${judging.label} ratings`;
   return `Adjudicated · ${judging.label}`;

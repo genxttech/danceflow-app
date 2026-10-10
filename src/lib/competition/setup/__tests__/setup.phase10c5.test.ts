@@ -344,7 +344,7 @@ describe("deriveDraft: the single derivation authority", () => {
     const country = deriveDraft(fullAnswers(), P, CONTEXT).programs[0];
     const byLabel = Object.fromEntries(country.categories.map((category) => [category.label, category]));
     expect(byLabel.ProAm.judging).toBe("Adjudicated · Judge input: Medal Marks · Final result: Placement");
-    expect(byLabel.Showcase.judging).toBe("Non-Adjudicated · Performance / exhibition · No competitive result");
+    expect(byLabel.Showcase.judging).toBe("Non-Adjudicated · Performance / exhibition · No official competitive result");
     expect(byLabel.Showcase.rounds).toEqual(["Performance"]);
     expect(byLabel.Showcase.runNote).toBe("Set music for each dance · runs after each age group's dances");
     expect(byLabel.Spotlight.runNote).toBe("Music chosen by the dancers · 2.5–4 minutes · runs after each age group's dances");
