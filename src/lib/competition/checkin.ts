@@ -1,7 +1,7 @@
 export type CheckinEntry = { id: string; division_id: string; display_name: string };
 export type CheckinDivision = { id: string; contest_id: string | null };
 export type CheckinRule = { contest_id: string; number_assignment_mode: string; number_holder_role: string | null };
-export type CheckinEntryParticipant = { entry_id: string; registration_attendee_id: string | null; participant_role: string; display_name: string };
+export type CheckinEntryParticipant = { entry_id: string; registration_attendee_id: string | null; participant_role: string; dance_role?: string | null; display_name: string };
 
 export type CredentialTarget = {
   key: string;
@@ -31,7 +31,8 @@ export function buildCompetitionCredentialTargets(input: {
     }
     const holders = rule.number_assignment_mode === "per_participant"
       ? participants
-      : [participants.find((item) => item.participant_role === rule.number_holder_role) ?? participants[0]].filter(Boolean) as CheckinEntryParticipant[];
+      : [// 10C.4: number_holder_role 'leader' (couple formats) is a dance role.
+        participants.find((item) => item.participant_role === rule.number_holder_role || (item.dance_role != null && item.dance_role === rule.number_holder_role)) ?? participants[0]].filter(Boolean) as CheckinEntryParticipant[];
     for (const holder of holders) {
       if (!holder.registration_attendee_id) continue;
       const key = `participant:${holder.registration_attendee_id}`;

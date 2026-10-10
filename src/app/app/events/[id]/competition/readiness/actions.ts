@@ -83,7 +83,7 @@ export async function addRecommendedConstraintsAction(formData: FormData): Promi
     { name: "Prevent partner conflicts", constraint_type: "partner_conflict", enforcement: "hard" },
   ];
 
-  const { data: existing, error: existingError } = await (supabase as any)
+  const { data: existing, error: existingError } = await supabase
     .from("event_competition_generation_constraints")
     .select("constraint_type")
     .eq("event_id", eventId)
@@ -104,7 +104,7 @@ export async function addRecommendedConstraintsAction(formData: FormData): Promi
       configuration: {},
     }));
   if (rows.length > 0) {
-    const { error } = await (supabase as any).from("event_competition_generation_constraints").insert(rows);
+    const { error } = await supabase.from("event_competition_generation_constraints").insert(rows);
     if (error) throw new Error(`Could not add recommended rules: ${error.message}`);
   }
   refresh(eventId);
@@ -136,7 +136,7 @@ export async function createGenerationConstraintAction(formData: FormData): Prom
     configuration = { note };
   }
 
-  const { error } = await (supabase as any).from("event_competition_generation_constraints").insert({
+  const { error } = await supabase.from("event_competition_generation_constraints").insert({
     event_id: eventId,
     schedule_version_id: scheduleVersionId,
     name,
@@ -154,7 +154,7 @@ export async function disableGenerationConstraintAction(formData: FormData): Pro
   const constraintId = text(formData, "constraintId");
   if (!eventId || !constraintId) throw new Error("Schedule rule is required.");
   const supabase = await requireEventManager(eventId);
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("event_competition_generation_constraints")
     .update({ active: false })
     .eq("id", constraintId)
@@ -170,17 +170,17 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
   const supabase = await requireEventManager(eventId);
 
   const [contestResult, divisionResult, roundResult, danceResult, offeringResult, entryResult, entryDanceResult, participantResult, blockResult, assignmentResult, constraintResult] = await Promise.all([
-    (supabase as any).from("event_competition_contests").select("id, name, contest_type").eq("event_id", eventId).neq("status", "cancelled").order("sort_order"),
-    (supabase as any).from("event_competition_divisions").select("id, contest_id, name").eq("event_id", eventId).neq("status", "cancelled").order("sort_order"),
-    (supabase as any).from("event_competition_rounds").select("id, division_id, name, round_type, sequence_number, target_advancement_count").eq("event_id", eventId).neq("status", "cancelled").order("sequence_number"),
-    (supabase as any).from("event_competition_dances").select("id, dance_key, name").eq("event_id", eventId).eq("active", true).order("sort_order"),
-    (supabase as any).from("event_competition_division_dances").select("division_id, dance_id, required, sort_order").eq("event_id", eventId).eq("active", true).order("sort_order"),
-    (supabase as any).from("event_competition_entries").select("id, division_id, display_name, entry_number").eq("event_id", eventId).eq("status", "confirmed").in("eligibility_status", ["eligible", "waived"]).order("sort_order"),
-    (supabase as any).from("event_competition_entry_dances").select("entry_id, dance_key, status").eq("event_id", eventId),
-    (supabase as any).from("event_competition_entry_participants").select("entry_id, client_id, instructor_id, registration_attendee_id, participant_role, display_name").eq("event_id", eventId),
-    (supabase as any).from("event_competition_schedule_blocks").select("id, name, starts_at, ends_at, floor_id, floor_name_snapshot, floor_capacity_snapshot").eq("schedule_version_id", scheduleVersionId).eq("block_type", "competition").order("starts_at"),
-    (supabase as any).from("event_competition_schedule_block_contests").select("block_id, contest_id, planned_round_type, sort_order").eq("schedule_version_id", scheduleVersionId).order("sort_order"),
-    (supabase as any).from("event_competition_generation_constraints").select("constraint_type, enforcement, configuration").eq("event_id", eventId).eq("schedule_version_id", scheduleVersionId).eq("active", true).order("created_at"),
+    supabase.from("event_competition_contests").select("id, name, contest_type").eq("event_id", eventId).neq("status", "cancelled").order("sort_order"),
+    supabase.from("event_competition_divisions").select("id, contest_id, name").eq("event_id", eventId).neq("status", "cancelled").order("sort_order"),
+    supabase.from("event_competition_rounds").select("id, division_id, name, round_type, sequence_number, target_advancement_count").eq("event_id", eventId).neq("status", "cancelled").order("sequence_number"),
+    supabase.from("event_competition_dances").select("id, dance_key, name").eq("event_id", eventId).eq("active", true).order("sort_order"),
+    supabase.from("event_competition_division_dances").select("division_id, dance_id, required, sort_order").eq("event_id", eventId).eq("active", true).order("sort_order"),
+    supabase.from("event_competition_entries").select("id, division_id, display_name, entry_number").eq("event_id", eventId).eq("status", "confirmed").in("eligibility_status", ["eligible", "waived"]).order("sort_order"),
+    supabase.from("event_competition_entry_dances").select("entry_id, dance_key, status").eq("event_id", eventId),
+    supabase.from("event_competition_entry_participants").select("entry_id, client_id, instructor_id, registration_attendee_id, participant_role, dance_role, display_name").eq("event_id", eventId),
+    supabase.from("event_competition_schedule_blocks").select("id, name, starts_at, ends_at, floor_id, floor_name_snapshot, floor_capacity_snapshot").eq("schedule_version_id", scheduleVersionId).eq("block_type", "competition").order("starts_at"),
+    supabase.from("event_competition_schedule_block_contests").select("block_id, contest_id, planned_round_type, sort_order").eq("schedule_version_id", scheduleVersionId).order("sort_order"),
+    supabase.from("event_competition_generation_constraints").select("constraint_type, enforcement, configuration").eq("event_id", eventId).eq("schedule_version_id", scheduleVersionId).eq("active", true).order("created_at"),
   ]);
   const loadError = contestResult.error || divisionResult.error || roundResult.error || danceResult.error || offeringResult.error || entryResult.error || entryDanceResult.error || participantResult.error || blockResult.error || assignmentResult.error || constraintResult.error;
   if (loadError) throw new Error(`Could not load heat-planning inputs: ${loadError.message}`);
@@ -203,7 +203,7 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
     constraints: constraintResult.data ?? [],
   };
   const snapshot = { captured_at: new Date().toISOString(), engine_version: HEAT_PLANNER_VERSION, ...input };
-  const { data: runId, error: runError } = await (supabase as any).rpc("create_competition_heat_plan_run", {
+  const { data: runId, error: runError } = await supabase.rpc("create_competition_heat_plan_run", {
     selected_event_id: eventId,
     selected_schedule_version_id: scheduleVersionId,
     selected_engine_version: HEAT_PLANNER_VERSION,
@@ -214,7 +214,7 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
 
   try {
     const plan = buildHeatPlan(input);
-    const { error: saveError } = await (supabase as any).rpc("save_competition_heat_plan", {
+    const { error: saveError } = await supabase.rpc("save_competition_heat_plan", {
       selected_run_id: runId,
       selected_proposals: plan.proposals,
       selected_conflicts: plan.conflicts,
@@ -222,7 +222,7 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
     });
     if (saveError) throw new Error(saveError.message);
   } catch (error) {
-    await (supabase as any).rpc("fail_competition_heat_plan_run", {
+    await supabase.rpc("fail_competition_heat_plan_run", {
       selected_run_id: runId,
       selected_failure_message: error instanceof Error ? error.message : "Heat planning failed.",
     });

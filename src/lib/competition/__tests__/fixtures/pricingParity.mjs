@@ -9,12 +9,28 @@ const BASE = {
     { key: "cB", name: "Solo", contest_type: "single_dance", entry_format: "solo", rule: { dance_selection_mode: "none", pricing_method: "flat_entry", base_entry_fee: 40, minimum_dances: null, maximum_dances: null, minimum_participants: 1, maximum_participants: 1 } },
     { key: "cC", name: "Couples", contest_type: "multi_dance", entry_format: "couple", rule: { dance_selection_mode: "individual", pricing_method: "base_plus_dance", base_entry_fee: 10, minimum_dances: 1, maximum_dances: null, minimum_participants: 2, maximum_participants: 2 } },
     { key: "cD", name: "Team", contest_type: "team", entry_format: "team", rule: { dance_selection_mode: "prescribed_set", pricing_method: "included_set", base_entry_fee: 99.99, minimum_dances: null, maximum_dances: null, minimum_participants: 2, maximum_participants: 6 } },
+    // 10C.4 role-integrity contests. Registration rules deliberately allow 1-3 people so the participant
+    // COUNT is enforced by the per-format shape rules, not by the organizer's participant limits.
+    { key: "cE", name: "ProPro", contest_type: "multi_dance", entry_format: "pro_pro", rule: { dance_selection_mode: "none", pricing_method: "flat_entry", base_entry_fee: 30, minimum_dances: null, maximum_dances: null, minimum_participants: 1, maximum_participants: 3 } },
+    { key: "cF", name: "Jack and Jill", contest_type: "jack_and_jill", entry_format: "random_partner", rule: { dance_selection_mode: "none", pricing_method: "flat_entry", base_entry_fee: 20, minimum_dances: null, maximum_dances: null, minimum_participants: 1, maximum_participants: 2 } },
+    { key: "cG", name: "Mixed Amateur", contest_type: "multi_dance", entry_format: "mixed_amateur", rule: { dance_selection_mode: "none", pricing_method: "flat_entry", base_entry_fee: 10, minimum_dances: null, maximum_dances: null, minimum_participants: 1, maximum_participants: 3 } },
+    { key: "cH", name: "Professional", contest_type: "multi_dance", entry_format: "professional", rule: { dance_selection_mode: "none", pricing_method: "flat_entry", base_entry_fee: 10, minimum_dances: null, maximum_dances: null, minimum_participants: 1, maximum_participants: 3 } },
+    { key: "cI", name: "ProAm Line", contest_type: "line_dance", entry_format: "pro_am", rule: { dance_selection_mode: "none", pricing_method: "flat_entry", base_entry_fee: 15, minimum_dances: null, maximum_dances: null, minimum_participants: 1, maximum_participants: 3 } },
+    { key: "cJ", name: "ProAm Flat", contest_type: "single_dance", entry_format: "pro_am", rule: { dance_selection_mode: "none", pricing_method: "flat_entry", base_entry_fee: 25, minimum_dances: null, maximum_dances: null, minimum_participants: 1, maximum_participants: 3 } },
+    { key: "cK", name: "Couples Flat", contest_type: "single_dance", entry_format: "couple", rule: { dance_selection_mode: "none", pricing_method: "flat_entry", base_entry_fee: 12, minimum_dances: null, maximum_dances: null, minimum_participants: 1, maximum_participants: 3 } },
   ],
   divisions: [
     { key: "dA", contest: "cA", name: "Bronze" },
     { key: "dB", contest: "cB", name: "Open" },
     { key: "dC", contest: "cC", name: "Open Couples" },
     { key: "dD", contest: "cD", name: "Formation" },
+    { key: "dE", contest: "cE", name: "ProPro I" },
+    { key: "dF", contest: "cF", name: "J&J Novice" },
+    { key: "dG", contest: "cG", name: "Mixed Open" },
+    { key: "dH", contest: "cH", name: "Rising Star" },
+    { key: "dI", contest: "cI", name: "ProAm Line Novice" },
+    { key: "dJ", contest: "cJ", name: "ProAm Gold" },
+    { key: "dK", contest: "cK", name: "Couples Open" },
   ],
   dances: [
     { key: "nW", dance_key: "waltz", name: "Waltz" },
@@ -44,8 +60,55 @@ const PEOPLE_SP = [
   { clientId: "s", firstName: "Sam", lastName: "Student", personType: "student" },
   { clientId: "p", firstName: "Pat", lastName: "Pro", personType: "professional" },
 ];
-const ENTRY_A = (offerings, roles = { s: "student", p: "professional" }) => ({ clientId: "eA", contest: "cA", division: "dA", participantIds: ["s", "p"], participantRoles: roles, selectedOfferingIds: offerings });
+const ENTRY_A = (offerings, roles = { s: "student", p: "professional" }, danceRoles = { s: "follower", p: "leader" }) => ({ clientId: "eA", contest: "cA", division: "dA", participantIds: ["s", "p"], participantRoles: roles, participantDanceRoles: danceRoles, selectedOfferingIds: offerings });
 const ENTRY_B = { clientId: "eB", contest: "cB", division: "dB", participantIds: ["s"], participantRoles: { s: "dancer" }, selectedOfferingIds: [] };
+
+// 10C.4 participant role integrity: valid and invalid combinations for every entry format.
+const ROSTER = ["a", "b", "c"].map((id, index) => ({ clientId: id, firstName: ["Ann", "Ben", "Cal"][index], lastName: "Roster", personType: "dancer" }));
+const role = (name, contest, division, ids, roles, danceRoles, expected) => ({
+  name: `roles: ${name}`, now: "2026-06-01T00:00:00Z", fees: [], mode: "individual", people: ROSTER,
+  entries: [{ clientId: "eR", contest, division, participantIds: ids, participantRoles: roles, ...(danceRoles ? { participantDanceRoles: danceRoles } : {}), selectedOfferingIds: [] }],
+  expected,
+});
+const ok = (cents) => ({ valid: true, subtotalCents: cents, discountCents: 0, totalCents: cents, lines: [`base_entry:${cents}:1:${cents}`] });
+const bad = (error) => ({ valid: false, error });
+const ROLE_SCENARIOS = [
+  role("ProAm student leads", "cJ", "dJ", ["a", "b"], { a: "student", b: "professional" }, { a: "leader", b: "follower" }, ok(2500)),
+  role("ProAm professional leads", "cJ", "dJ", ["a", "b"], { a: "student", b: "professional" }, { a: "follower", b: "leader" }, ok(2500)),
+  role("ProAm two students", "cJ", "dJ", ["a", "b"], { a: "student", b: "student" }, { a: "leader", b: "follower" }, bad("ProAm Gold: a ProAm entry needs one student and one professional.")),
+  role("ProAm two professionals", "cJ", "dJ", ["a", "b"], { a: "professional", b: "professional" }, { a: "leader", b: "follower" }, bad("ProAm Gold: a ProAm entry needs one student and one professional.")),
+  role("ProAm same dance role", "cJ", "dJ", ["a", "b"], { a: "student", b: "professional" }, { a: "leader", b: "leader" }, bad("ProAm Gold: choose one leader and one follower.")),
+  role("ProAm missing dance role", "cJ", "dJ", ["a", "b"], { a: "student", b: "professional" }, null, bad("ProAm Gold: choose one leader and one follower.")),
+  role("ProAm extra participant", "cJ", "dJ", ["a", "b", "c"], { a: "student", b: "professional", c: "student" }, { a: "leader", b: "follower" }, bad("ProAm Gold: this entry needs exactly two people.")),
+  role("ProPro instructor leads", "cE", "dE", ["a", "b"], { a: "instructor", b: "professional" }, { a: "leader", b: "follower" }, ok(3000)),
+  role("ProPro competing professional leads", "cE", "dE", ["a", "b"], { a: "instructor", b: "professional" }, { a: "follower", b: "leader" }, ok(3000)),
+  role("ProPro two professionals, no instructor", "cE", "dE", ["a", "b"], { a: "professional", b: "professional" }, { a: "leader", b: "follower" }, bad("ProPro I: a ProPro entry needs one instructing professional and one competing professional.")),
+  role("ProPro two instructors", "cE", "dE", ["a", "b"], { a: "instructor", b: "instructor" }, { a: "leader", b: "follower" }, bad("ProPro I: a ProPro entry needs one instructing professional and one competing professional.")),
+  role("ProPro same dance role", "cE", "dE", ["a", "b"], { a: "instructor", b: "professional" }, { a: "follower", b: "follower" }, bad("ProPro I: choose one leader and one follower.")),
+  role("ProPro missing dance role", "cE", "dE", ["a", "b"], { a: "instructor", b: "professional" }, { a: "leader" }, bad("ProPro I: choose one leader and one follower.")),
+  role("ProPro extra participant", "cE", "dE", ["a", "b", "c"], { a: "instructor", b: "professional", c: "professional" }, { a: "leader", b: "follower" }, bad("ProPro I: this entry needs exactly two people.")),
+  role("Couples one leader + one follower", "cK", "dK", ["a", "b"], { a: "dancer", b: "dancer" }, { a: "leader", b: "follower" }, ok(1200)),
+  role("Couples two leaders", "cK", "dK", ["a", "b"], { a: "dancer", b: "dancer" }, { a: "leader", b: "leader" }, bad("Couples Open: choose one leader and one follower.")),
+  role("Couples two followers", "cK", "dK", ["a", "b"], { a: "dancer", b: "dancer" }, { a: "follower", b: "follower" }, bad("Couples Open: choose one leader and one follower.")),
+  role("Couples one participant", "cK", "dK", ["a"], { a: "dancer" }, { a: "leader" }, bad("Couples Open: this entry needs exactly two people.")),
+  role("Couples three participants", "cK", "dK", ["a", "b", "c"], { a: "dancer", b: "dancer", c: "dancer" }, { a: "leader", b: "follower" }, bad("Couples Open: this entry needs exactly two people.")),
+  role("Couples legacy leader/follower relationship refused", "cK", "dK", ["a", "b"], { a: "leader", b: "follower" }, null, bad("Couples Open: choose a valid role for each participant.")),
+  role("Couples invalid lead value", "cK", "dK", ["a", "b"], { a: "dancer", b: "dancer" }, { a: "lead", b: "follower" }, bad("Couples Open: choose Lead or Follow for each participant.")),
+  role("Mixed amateur pair", "cG", "dG", ["a", "b"], { a: "dancer", b: "dancer" }, { a: "follower", b: "leader" }, ok(1000)),
+  role("Mixed amateur two leaders", "cG", "dG", ["a", "b"], { a: "dancer", b: "dancer" }, { a: "leader", b: "leader" }, bad("Mixed Open: choose one leader and one follower.")),
+  role("Professional couple", "cH", "dH", ["a", "b"], { a: "professional", b: "professional" }, { a: "leader", b: "follower" }, ok(1000)),
+  role("Professional couple with amateur relationship", "cH", "dH", ["a", "b"], { a: "dancer", b: "dancer" }, { a: "leader", b: "follower" }, bad("Rising Star: choose a valid role for each participant.")),
+  role("J&J leader", "cF", "dF", ["a"], { a: "dancer" }, { a: "leader" }, ok(2000)),
+  role("J&J follower", "cF", "dF", ["a"], { a: "dancer" }, { a: "follower" }, ok(2000)),
+  role("J&J two participants", "cF", "dF", ["a", "b"], { a: "dancer", b: "dancer" }, { a: "leader", b: "follower" }, bad("J&J Novice: enter exactly one person; partners are paired during the competition.")),
+  role("J&J missing dance role", "cF", "dF", ["a"], { a: "dancer" }, null, bad("J&J Novice: select Leader or Follower for this entry.")),
+  role("Solo without lead/follow", "cB", "dB", ["a"], { a: "dancer" }, null, ok(4000)),
+  role("Solo with optional lead/follow", "cB", "dB", ["a"], { a: "dancer" }, { a: "follower" }, ok(4000)),
+  role("Team with lead/follow refused", "cD", "dD", ["a", "b"], { a: "team_member", b: "team_member" }, { a: "leader" }, bad("Formation: team entries do not use lead or follow.")),
+  role("ProAm Line without lead/follow", "cI", "dI", ["a", "b"], { a: "student", b: "professional" }, null, ok(1500)),
+  role("ProAm Line with a full pair", "cI", "dI", ["a", "b"], { a: "student", b: "professional" }, { a: "follower", b: "leader" }, ok(1500)),
+  role("ProAm Line with half a pair", "cI", "dI", ["a", "b"], { a: "student", b: "professional" }, { a: "leader" }, bad("ProAm Line Novice: choose one leader and one follower.")),
+];
 
 export const SCENARIOS = [
   {
@@ -61,7 +124,7 @@ export const SCENARIOS = [
     people: [{ clientId: "x", firstName: "Xi", lastName: "Lead", personType: "dancer" }, { clientId: "y", firstName: "Yo", lastName: "Follow", personType: "dancer" }],
     entries: [
       { clientId: "eB", contest: "cB", division: "dB", participantIds: ["x"], participantRoles: { x: "dancer" }, selectedOfferingIds: [] },
-      { clientId: "eC", contest: "cC", division: "dC", participantIds: ["x", "y"], participantRoles: { x: "leader", y: "follower" }, selectedOfferingIds: ["oC1"] },
+      { clientId: "eC", contest: "cC", division: "dC", participantIds: ["x", "y"], participantRoles: { x: "dancer", y: "dancer" }, participantDanceRoles: { x: "leader", y: "follower" }, selectedOfferingIds: ["oC1"] },
     ],
     expected: { valid: true, subtotalCents: 6234, discountCents: 0, totalCents: 6234, lines: ["base_entry:4000:1:4000", "base_entry:1000:1:1000", "dance:1234:1:1234"] },
   },
@@ -131,8 +194,9 @@ export const SCENARIOS = [
     // ProAm entries need student/professional roles
     name: "invalid roles are refused by both",
     now: "2026-06-01T00:00:00Z", fees: [], mode: "individual", people: PEOPLE_SP, entries: [ENTRY_A(["oA1"], { s: "leader", p: "follower" })],
-    expected: { valid: false },
+    expected: { valid: false, error: "Bronze: choose a valid role for each participant." },
   },
+  ...ROLE_SCENARIOS,
 ];
 
 const KIND = { program: "1", contest: "2", division: "3", dance: "4", offering: "5", fee: "7", event: "e" };
@@ -188,6 +252,7 @@ export function materialize(index) {
     entries: scenario.entries.map((entry) => ({
       clientId: entry.clientId, programId, contestId: id("contest", entry.contest), divisionId: id("division", entry.division),
       participantIds: entry.participantIds, participantRoles: entry.participantRoles,
+      ...(entry.participantDanceRoles ? { participantDanceRoles: entry.participantDanceRoles } : {}),
       selectedOfferingIds: entry.selectedOfferingIds.map((key) => id("offering", key)),
       ...(entry.teamName ? { teamName: entry.teamName } : {}),
     })),
@@ -243,7 +308,8 @@ export function generateParitySql() {
       out.push(`  (q->>'valid')::boolean and (q->>'subtotal_cents')::bigint = ${expected.subtotalCents} and (q->>'discount_cents')::bigint = ${expected.discountCents} and (q->>'total_cents')::bigint = ${expected.totalCents} and ${lines} = ${sqlString(expected.lines.join(","))},`);
       out.push(`  q::text from (select ${quote} as q) s;`);
     } else {
-      out.push(`insert into t_results select ${sqlString(`parity ${index}: ${SCENARIOS[index].name}`)}, not (q->>'valid')::boolean, q::text from (select ${quote} as q) s;`);
+      const errorCheck = expected.error ? ` and q->'errors' ? ${sqlString(expected.error)}` : "";
+      out.push(`insert into t_results select ${sqlString(`parity ${index}: ${SCENARIOS[index].name}`)}, not (q->>'valid')::boolean${errorCheck}, q::text from (select ${quote} as q) s;`);
     }
   });
   out.push("do $$");

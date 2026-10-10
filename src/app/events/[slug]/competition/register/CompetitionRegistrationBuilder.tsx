@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { buildEntryParticipants, defaultLeadChoice, leadChoicesFor, participantSlotsFor } from "@/lib/competition/participantRoles";
 import {
   calculateCompetitionRegistrationQuote,
   type CompetitionDraftEntry,
@@ -28,12 +29,8 @@ function money(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value);
 }
 
-function participantSlots(entryFormat: string) {
-  if (entryFormat === "pro_am") return [{ key: "student", label: "Student", role: "student" }, { key: "professional", label: "Professional", role: "professional" }];
-  if (entryFormat === "pro_pro") return [{ key: "professional_1", label: "Professional 1", role: "professional" }, { key: "professional_2", label: "Professional 2", role: "professional" }];
-  if (["couple", "mixed_amateur", "professional", "strictly"].includes(entryFormat)) return [{ key: "leader", label: "Leader", role: "leader" }, { key: "follower", label: "Follower", role: "follower" }];
-  return [{ key: "dancer", label: "Dancer", role: "dancer" }];
-}
+// 10C.4: slots, lead/follow choices and the draft participant maps come from participantRoles.ts.
+const participantSlots = participantSlotsFor;
 
 export default function CompetitionRegistrationBuilder({
   eventSlug,
@@ -81,6 +78,8 @@ export default function CompetitionRegistrationBuilder({
   const [durationMinutes, setDurationMinutes] = useState("");
   const [durationSeconds, setDurationSeconds] = useState("");
   const [randomPartnerRole, setRandomPartnerRole] = useState<"leader" | "follower">("leader");
+  const [leadSlot, setLeadSlot] = useState(() => (contest ? defaultLeadChoice(contest.entry_format, contest.contest_type) : ""));
+  const leadChoices = contest ? leadChoicesFor(contest.entry_format, contest.contest_type) : [];
   const [teamName, setTeamName] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
   const [checkoutErrors, setCheckoutErrors] = useState<string[]>([]);
@@ -113,6 +112,8 @@ export default function CompetitionRegistrationBuilder({
     setDurationMinutes("");
     setDurationSeconds("");
     setRandomPartnerRole("leader");
+    const nextContest = catalog.contests.find((item) => item.id === resolvedContestId);
+    setLeadSlot(nextContest ? defaultLeadChoice(nextContest.entry_format, nextContest.contest_type) : "");
     setTeamName("");
   }
 
@@ -130,13 +131,11 @@ export default function CompetitionRegistrationBuilder({
 
   function addEntry() {
     if (!contest || !division || !rule) return;
-    const slots = participantSlots(contest.entry_format);
-    const participantIds = contest.entry_format === "team" ? teamPeople : slots.map((slot) => slotPeople[slot.key]).filter(Boolean);
-    const participantRoles: Record<string, string> = {};
-    if (contest.entry_format === "team") for (const personId of participantIds) participantRoles[personId] = "team_member";
-    else for (const slot of slots) if (slotPeople[slot.key]) participantRoles[slotPeople[slot.key]] = contest.entry_format === "random_partner" ? randomPartnerRole : slot.role;
+    const { participantIds, participantRoles, participantDanceRoles } = buildEntryParticipants({
+      entryFormat: contest.entry_format, slotPeople, teamPeople, leadSlot, randomPartnerRole,
+    });
     setEntries((current) => [...current, {
-      clientId: newId(), programId, contestId, divisionId, participantIds, participantRoles,
+      clientId: newId(), programId, contestId, divisionId, participantIds, participantRoles, participantDanceRoles,
       selectedOfferingIds, routineTitle, musicTitle, musicArtist,
       ...(contest.entry_format === "team" ? { teamName: teamName.trim() } : {}),
       routineDurationSeconds: Math.max(0, Number(durationMinutes || 0) * 60 + Number(durationSeconds || 0)),
@@ -186,7 +185,8 @@ export default function CompetitionRegistrationBuilder({
 
       <section className="border-b border-slate-200 pb-7"><h2 className="text-lg font-semibold text-slate-950">Add competition entry</h2><div className="mt-4 flex flex-wrap gap-2">{catalog.programs.map((program) => <button key={program.id} type="button" onClick={() => { setProgramId(program.id); resetEntrySelections(program.id); }} className={`rounded border px-4 py-2 text-sm font-semibold ${programId === program.id ? "border-slate-950 bg-slate-950 text-white" : "border-slate-300 text-slate-700"}`}>{program.name}</button>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><select value={contestId} onChange={(event) => resetEntrySelections(programId, event.target.value)} className={inputClass}>{programContests.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={divisionId} onChange={(event) => { setDivisionId(event.target.value); setSelectedOfferingIds([]); }} className={inputClass}>{contestDivisions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>{rule?.public_description ? <p className="mt-3 text-sm text-slate-600">{rule.public_description}</p> : null}
 
-      {contest?.entry_format === "random_partner" ? <label className="mt-5 block max-w-sm text-sm font-semibold text-slate-800">Competition role<select value={randomPartnerRole} onChange={(event) => setRandomPartnerRole(event.target.value as "leader" | "follower")} className={`${inputClass} mt-1 w-full`}><option value="leader">Leader</option><option value="follower">Follower</option></select></label> : null}
+      {leadChoices.length > 0 ? <label className="mt-5 block max-w-sm text-sm font-semibold text-slate-800">Who leads?<select value={leadSlot} onChange={(event) => setLeadSlot(event.target.value)} className={`${inputClass} mt-1 w-full`}>{leadChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select></label> : null}
+      {contest?.entry_format === "random_partner" ? <label className="mt-5 block max-w-sm text-sm font-semibold text-slate-800">Lead or follow<select value={randomPartnerRole} onChange={(event) => setRandomPartnerRole(event.target.value as "leader" | "follower")} className={`${inputClass} mt-1 w-full`}><option value="leader">Leader</option><option value="follower">Follower</option></select></label> : null}
 
       {contest?.entry_format === "team" ? <div className="mt-5"><label className="block max-w-sm text-sm font-semibold text-slate-800">Team name<input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Team name" className={`${inputClass} mt-1 w-full`} /></label><p className="mt-4 text-sm font-semibold text-slate-900">Team members</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{people.map((person) => <label key={person.clientId} className="flex items-center gap-2 border border-slate-200 px-3 py-2 text-sm"><input type="checkbox" checked={teamPeople.includes(person.clientId)} onChange={(event) => setTeamPeople((current) => event.target.checked ? [...current, person.clientId] : current.filter((id) => id !== person.clientId))} />{person.firstName} {person.lastName}</label>)}</div></div> : <div className="mt-5 grid gap-3 sm:grid-cols-2">{contest ? participantSlots(contest.entry_format).map((slot) => <label key={slot.key} className="text-sm font-semibold text-slate-800">{slot.label}<select value={slotPeople[slot.key] ?? ""} onChange={(event) => setSlotPeople((current) => ({ ...current, [slot.key]: event.target.value }))} className={`${inputClass} mt-1 w-full`}><option value="">Select participant</option>{people.map((person) => <option key={person.clientId} value={person.clientId}>{person.firstName} {person.lastName}</option>)}</select></label>) : null}</div>}
 
