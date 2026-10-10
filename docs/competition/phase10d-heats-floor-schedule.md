@@ -38,6 +38,10 @@ Hard (database):
 - all scoring heats in a floor heat share one music key;
 - only `confirmed` entries that are not `ineligible` can be scheduled; per-dance divisions require the
   entry's registration for that dance; scoring-heat capacity per round.
+- 10D.1: entry eligibility is enforced by the same deferred integrity function for every placement (insert or
+  change of entry/heat), however it is written -- planner apply, organizer RPCs or a direct authenticated write.
+  Status-only placement updates (checked_in, scratched, danced) are not re-checked, so withdrawing an entry can
+  still scratch its placements (`20261112090000_phase10d1_heat_entry_eligibility.sql`).
 
 Soft (app only): floor size above the recommendation (8 entries) is a warning.
 
