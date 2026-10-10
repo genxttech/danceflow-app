@@ -7,6 +7,12 @@ import { createCompetitionDraftAction, type ActionState } from "../simpleActions
 import type { FormatKey, ProgramKey, SetupProfileDefaults } from "@/lib/competition/setup/types";
 import { clearStoredSetup, loadStoredSetup, saveStoredSetup } from "@/lib/competition/setup/persistence";
 import {
+  ADJUDICATION_OVERRIDE_LABELS,
+  availableFormats,
+  formatRunNote,
+  judgingSummary,
+  recommendedFormats,
+  setFormatAdjudication,
   PRICING_LABELS,
   PRICING_PENDING_TEXT,
   PURPOSE_OPTIONS,
@@ -25,11 +31,9 @@ import {
   deriveDraft,
   divisionsFor,
   initialAnswers,
-  needsStyles,
   nextStep,
   previousStep,
   programDances,
-  programJudging,
   removeCustomDance,
   removeLevel,
   restoreAnswers,
@@ -269,46 +273,56 @@ export default function CompetitionSetupWizard({
                 description={answers.styleMode === "multiple" ? "Selected. Tap again to pick just one style." : "Run more than one style at this event."}
               />
             </div>
-            {answers.purpose === "competition_showcase" ? (
-              <p className="mt-3 text-sm text-slate-600">Your showcase is set up separately, so it never mixes with competitive divisions.</p>
+            {answers.purpose !== "competition" ? (
+              <p className="mt-3 text-sm text-slate-600">Showcase and performance offerings stay inside their style, so a Country Showcase is part of Country.</p>
             ) : null}
           </section>
         ) : null}
 
         {step === "adjudication" ? (
-          <section aria-labelledby="step-adjudication">
-            <h3 id="step-adjudication" className={headingClass}>Is it adjudicated?</h3>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {(["adjudicated", "non_adjudicated"] as const).map((key) => (
-                <Choice
-                  key={key}
-                  selected={answers.adjudication === key}
-                  onClick={() => update((current) => chooseAdjudication(current, defaults, key))}
-                  title={defaults.adjudication[key].label}
-                  description={defaults.adjudication[key].description}
-                />
-              ))}
+          <section aria-labelledby="step-adjudication" className="space-y-4">
+            <div>
+              <h3 id="step-adjudication" className={headingClass}>Is it adjudicated?</h3>
+              <p className="mt-1 text-sm text-slate-600">This applies to every entry format in the style. Showcase-type offerings can be set differently later.</p>
             </div>
-            {answers.adjudication === "adjudicated" ? (
-              <div className="mt-5">
-                <p className="text-sm font-semibold text-slate-900">How are results given?</p>
-                <div className="mt-2 space-y-2">
-                  {(defaults.adjudication.adjudicated.judging_options ?? []).map((key) => (
-                    <Choice
-                      key={key}
-                      selected={answers.judging === key}
-                      onClick={() => update((current) => chooseJudging(current, defaults, key))}
-                      title={defaults.judging[key].label}
-                      description={`${defaults.judging[key].description}${defaults.judging[key].bands ? ` (${defaults.judging[key].bands?.join(", ")})` : ""}`}
-                    />
-                  ))}
+            {programs.map((key) => {
+              const program = answers.programs[key];
+              const options = tpl(key).judging_options;
+              return (
+                <div key={key} className={groupClass}>
+                  {programs.length > 1 ? <p className="text-sm font-semibold text-slate-950">{tpl(key).label}</p> : null}
+                  <div className={`${programs.length > 1 ? "mt-3 " : ""}grid gap-3 sm:grid-cols-2`}>
+                    {(["adjudicated", "non_adjudicated"] as const).map((choice) => (
+                      <Choice
+                        key={choice}
+                        selected={program?.adjudication === choice}
+                        onClick={() => update((current) => chooseAdjudication(current, key, choice))}
+                        title={defaults.adjudication[choice].label}
+                        description={choice === "adjudicated" ? judgingSummary(defaults.judging[options[0]]).replace(/^Adjudicated · /, "Judges give formal results · ") : defaults.adjudication[choice].description}
+                      />
+                    ))}
+                  </div>
+                  {program?.adjudication === "adjudicated" && options.length > 1 ? (
+                    <div className="mt-4">
+                      <p className="text-sm font-semibold text-slate-900">How are results given?</p>
+                      <div className="mt-2 space-y-2">
+                        {options.map((option) => (
+                          <Choice
+                            key={option}
+                            selected={program.judging === option}
+                            onClick={() => update((current) => chooseJudging(current, defaults, key, option))}
+                            title={defaults.judging[option].label}
+                            description={defaults.judging[option].description}
+                          />
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">Gold, Silver and Bronze are DanceFlow&apos;s own simple rating levels.</p>
+                    </div>
+                  ) : null}
                 </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  Judging and results are set up now and run in a later update. Gold, Silver and Bronze are DanceFlow&apos;s own simple rating levels.
-                </p>
-              </div>
-            ) : null}
-            {answers.purpose === "competition_showcase" ? <p className="mt-3 text-sm text-slate-600">Your showcase is always Non-Adjudicated.</p> : null}
+              );
+            })}
+            <p className="text-xs text-slate-500">Judging and results are set up now and run in a later update.</p>
           </section>
         ) : null}
 
@@ -347,28 +361,43 @@ export default function CompetitionSetupWizard({
               <h3 id="step-offerings" className={headingClass}>What will you offer?</h3>
               <p className="mt-1 text-sm text-slate-600">Choose the entry formats for each style. The list comes from the rules you chose.</p>
             </div>
-            {programs.map((key) => (
-              <div key={key} className={groupClass}>
-                <p className="text-sm font-semibold text-slate-950">{tpl(key).label}</p>
-                <div className="mt-3 space-y-2">
-                  {tpl(key).formats.map((format) => (
-                    <label key={format} className="flex cursor-pointer items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(answers.programs[key]?.formats[format])}
-                        onChange={() => update((current) => toggleFormat(current, defaults, key, format))}
-                        className="mt-1 h-4 w-4"
-                      />
-                      <span>
-                        <span className="text-sm font-semibold text-slate-950">{fmt(format).label}</span>
-                        {tpl(key).recommended_formats.includes(format) ? <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">Recommended</span> : null}
-                        <span className="block text-sm text-slate-600">{fmt(format).description}</span>
-                      </span>
-                    </label>
-                  ))}
+            {programs.map((key) => {
+              const recommended = recommendedFormats(defaults, key, answers.purpose);
+              return (
+                <div key={key} className={groupClass}>
+                  <p className="text-sm font-semibold text-slate-950">{tpl(key).label}</p>
+                  <div className="mt-3 space-y-3">
+                    {availableFormats(defaults, key, answers.purpose).map((format) => {
+                      const value = answers.programs[key]?.formats[format];
+                      const note = formatRunNote(defaults, key, format);
+                      return (
+                        <div key={format}>
+                          <label className="flex cursor-pointer items-start gap-3">
+                            <input type="checkbox" checked={Boolean(value)} onChange={() => update((current) => toggleFormat(current, defaults, key, format))} className="mt-1 h-4 w-4" />
+                            <span>
+                              <span className="text-sm font-semibold text-slate-950">{fmt(format).label}</span>
+                              {recommended.includes(format) ? <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">Recommended</span> : null}
+                              <span className="block text-sm text-slate-600">{fmt(format).description}</span>
+                              {note ? <span className="block text-xs text-slate-500">{note}</span> : null}
+                            </span>
+                          </label>
+                          {value && fmt(format).adjudication_override ? (
+                            <div className="ml-7 mt-2 flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Judged</span>
+                              {(["inherit", "adjudicated", "non_adjudicated"] as const).map((choice) => (
+                                <Chip key={choice} selected={value.adjudication === choice} onClick={() => update((current) => setFormatAdjudication(current, defaults, key, format, choice))}>
+                                  {choice === "inherit" ? `Same as ${tpl(key).label}` : ADJUDICATION_OVERRIDE_LABELS[choice]}
+                                </Chip>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         ) : null}
 
@@ -522,15 +551,16 @@ export default function CompetitionSetupWizard({
           <section aria-labelledby="step-rounds">
             <h3 id="step-rounds" className={headingClass}>Rounds</h3>
             <ul className="mt-3 space-y-2 text-sm text-slate-700">
-              {programs.map((key) => {
-                const judging = defaults.judging[programJudging(answers, defaults, key)];
-                return (
-                  <li key={key} className={groupClass}>
-                    <span className="font-semibold text-slate-950">{tpl(key).label}:</span> every division starts with a single{" "}
-                    {judging?.rounds.map((round) => round.name).join(", ") || "Final"}.
-                  </li>
-                );
-              })}
+              {draft.programs.map((program) => (
+                <li key={program.key} className={groupClass}>
+                  <p className="font-semibold text-slate-950">{program.styleLabel}</p>
+                  {program.categories.map((category) => (
+                    <p key={category.label}>
+                      {category.label}: every division starts with a single {category.rounds.join(", ") || "Final"}.
+                    </p>
+                  ))}
+                </li>
+              ))}
             </ul>
             <p className="mt-3 text-sm text-slate-600">{defaults.roundsNote}</p>
           </section>
@@ -665,13 +695,17 @@ export default function CompetitionSetupWizard({
               <div key={program.key} className={groupClass}>
                 <p className="text-sm font-semibold text-slate-950">{program.name}</p>
                 <p className="text-xs text-slate-500">
-                  {program.styleLabel} · {program.judgingLabel}
+                  {program.styleLabel} · {program.judging}
                   {program.registrationFee ? ` · Registration fee ${program.registrationFee}` : ""}
                 </p>
                 <ul className="mt-3 space-y-3">
                   {program.categories.map((category) => (
                     <li key={category.label} className="text-sm text-slate-700">
-                      <p className="font-medium text-slate-950">{category.label}</p>
+                      <p className="font-medium text-slate-950">
+                        {program.styleLabel} {category.label}
+                      </p>
+                      <p>{category.judging}</p>
+                      {category.runNote ? <p className="text-slate-500">{category.runNote}</p> : null}
                       <p>Divisions: {category.divisions.join(", ")}</p>
                       {category.dances.length > 0 ? <p>Dances: {category.dances.join(", ")}</p> : null}
                       <p>Rounds: {category.rounds.join(", ")}</p>
@@ -728,9 +762,6 @@ export default function CompetitionSetupWizard({
             </button>
           )}
         </div>
-        {!needsStyles(answers) && answers.purpose === "showcase" && step === "offerings" ? (
-          <p className="mt-3 text-xs text-slate-500">A showcase is always Non-Adjudicated: dancers perform without formal results.</p>
-        ) : null}
       </form>
     </div>
   );

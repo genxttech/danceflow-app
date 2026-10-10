@@ -1,13 +1,14 @@
 -- Phase 10C.5: Competition Setup Wizard + Draft Generator
 --
 --   1. studio_simple@2 "Studio / Custom Rules" (schema 2): append-only new profile version carrying the
---      wizard metadata (programs per discipline + showcase, profile-derived entry formats, participant /
---      lead-follow rules, division presets, adjudication, pricing models). studio_simple@1 is untouched
+--      wizard metadata (styles, profile-derived entry formats incl. Showcase / Spotlight / routines,
+--      participant / lead-follow rules, division presets, per-style adjudication and result terminology,
+--      staged scoring metadata with source references, programming order, pricing models). studio_simple@1 is untouched
 --      and create_simple_competition (10B) is unchanged for existing callers.
 --   2. create_competition_draft(event, spec): ONE transaction, manager-authorized, per-event advisory lock
 --      (shared with create_simple_competition), schema-2 profile only. Creates one draft program per
---      discipline (+ a separate showcase program), their categories (entry formats), divisions, Final /
---      Performance rounds, dances and offerings, the registration fee rule when entries are included in a
+--      style (showcase / performance offerings stay inside their style), their categories (entry formats,
+--      each adjudicated per its style or a Showcase-type override), divisions, Final / Performance rounds, dances and offerings, the registration fee rule when entries are included in a
 --      registration fee, and the event registration basics. Registration stays CLOSED and every program
 --      stays an unpublished draft. Idempotent: one request key identifies the full set; replaying the
 --      same request returns the same programs, a different request with that key fails safely.
@@ -50,7 +51,7 @@ declare
     "claimable": false
   },
   "roundsDefault": "final_only",
-  "roundsNote": "Every division starts with a Final. DanceFlow can add preliminary rounds later if entry volume requires them.",
+  "roundsNote": "Every division starts with a Final. Preliminary rounds can be added later if entry volume or the rules require them.",
   "currency": "USD",
   "terminology": {
     "division_label": "Division",
@@ -62,23 +63,111 @@ declare
   "adjudication": {
     "adjudicated": {
       "label": "Adjudicated",
-      "description": "Judges give formal results: placements, ratings or medals.",
-      "judging_options": [
-        "placements",
-        "ratings"
-      ],
-      "default_judging": "placements"
+      "description": "Judges give formal results."
     },
     "non_adjudicated": {
       "label": "Non-Adjudicated",
-      "description": "An exhibition, showcase or participation event. Dancers perform; there is no formal competitive result.",
+      "description": "An exhibition or participation event. Dancers perform; there is no formal competitive result.",
       "judging": "non_adjudicated"
     }
   },
   "judging": {
+    "medal_marks": {
+      "label": "Medal Marks",
+      "description": "Judges give Medal Marks. The marks are processed under the scoring rules to produce placements.",
+      "input_label": "Medal Marks",
+      "result_label": "Placement",
+      "scoring": {
+        "basis": "studio_custom",
+        "stages": [
+          {
+            "key": "final",
+            "family": "final",
+            "round_types": [
+              "final"
+            ],
+            "ballot": {
+              "input": "medal_marks",
+              "scored_by": "entry"
+            },
+            "engine": {
+              "key": "studio_placeholder",
+              "status": "placeholder",
+              "params": {
+                "semantic": "medal marks are the judge input; placement is the result"
+              }
+            },
+            "tie_break": {
+              "chain": [],
+              "note": "Studio / Custom placeholder; no tie-break rules are implemented yet."
+            },
+            "outputs": [
+              {
+                "type": "placement",
+                "primary": true
+              }
+            ],
+            "sources": []
+          }
+        ],
+        "adjudication_stages": [],
+        "source_conflicts": [],
+        "note": "Studio / Custom placeholder. It does not implement UCWDC Majority Rules."
+      },
+      "engine": {
+        "key": "custom",
+        "version": 1
+      },
+      "competition_mode": "relative",
+      "advancement_method": "none",
+      "rounds": [
+        {
+          "round_type": "final",
+          "name": "Final",
+          "scoring_method": "custom"
+        }
+      ]
+    },
     "placements": {
       "label": "Placements",
       "description": "Judges rank the dancers in each division and the best-ranked dancer places first.",
+      "input_label": "Placement marks",
+      "result_label": "Placement",
+      "scoring": {
+        "basis": "studio_custom",
+        "stages": [
+          {
+            "key": "final",
+            "family": "final",
+            "round_types": [
+              "final"
+            ],
+            "ballot": {
+              "input": "placement_marks",
+              "scored_by": "entry"
+            },
+            "engine": {
+              "key": "studio_placeholder",
+              "status": "placeholder",
+              "params": {}
+            },
+            "tie_break": {
+              "chain": [],
+              "note": "Studio / Custom placeholder; no tie-break rules are implemented yet."
+            },
+            "outputs": [
+              {
+                "type": "placement",
+                "primary": true
+              }
+            ],
+            "sources": []
+          }
+        ],
+        "adjudication_stages": [],
+        "source_conflicts": [],
+        "note": "Studio / Custom placeholder. It is not NDCA Skating or WSDC Relative Placement."
+      },
       "engine": {
         "key": "ordinal_majority",
         "version": 1
@@ -94,8 +183,50 @@ declare
       ]
     },
     "ratings": {
-      "label": "Ratings",
-      "description": "Judges rate each performance, so every dancer can earn a rating instead of a place.",
+      "label": "Gold / Silver / Bronze",
+      "description": "Judges rate each performance, so every dancer can earn a Gold, Silver or Bronze rating instead of a place.",
+      "input_label": "Ratings",
+      "result_label": "Rating",
+      "scoring": {
+        "basis": "studio_custom",
+        "stages": [
+          {
+            "key": "final",
+            "family": "final",
+            "round_types": [
+              "final"
+            ],
+            "ballot": {
+              "input": "rating",
+              "scored_by": "entry",
+              "scale": [
+                "Bronze",
+                "Silver",
+                "Gold"
+              ]
+            },
+            "engine": {
+              "key": "studio_placeholder",
+              "status": "placeholder",
+              "params": {}
+            },
+            "tie_break": {
+              "chain": [],
+              "note": "Studio / Custom placeholder; no tie-break rules are implemented yet."
+            },
+            "outputs": [
+              {
+                "type": "rating",
+                "primary": true
+              }
+            ],
+            "sources": []
+          }
+        ],
+        "adjudication_stages": [],
+        "source_conflicts": [],
+        "note": "Studio / Custom ratings."
+      },
       "engine": {
         "key": "proficiency_rating",
         "version": 1
@@ -118,6 +249,39 @@ declare
     "non_adjudicated": {
       "label": "Non-Adjudicated",
       "description": "Dancers perform without formal judging or results.",
+      "input_label": null,
+      "result_label": "No competitive result",
+      "scoring": {
+        "basis": "studio_custom",
+        "stages": [
+          {
+            "key": "performance",
+            "family": "final",
+            "round_types": [
+              "exhibition"
+            ],
+            "ballot": {
+              "input": "none"
+            },
+            "engine": {
+              "key": "none",
+              "status": "not_applicable"
+            },
+            "tie_break": {
+              "chain": []
+            },
+            "outputs": [
+              {
+                "type": "none",
+                "primary": true
+              }
+            ],
+            "sources": []
+          }
+        ],
+        "adjudication_stages": [],
+        "source_conflicts": []
+      },
       "engine": {
         "key": "none",
         "version": 1
@@ -137,13 +301,14 @@ declare
     "country": {
       "label": "Country",
       "description": "Country partner dancing.",
-      "purpose": "competition",
       "discipline_family": "country",
       "dance_pool": "country",
       "formats": [
         "pro_am",
         "pro_pro",
         "couples",
+        "showcase",
+        "spotlight",
         "solo",
         "team"
       ],
@@ -152,54 +317,129 @@ declare
         "pro_pro",
         "couples"
       ],
-      "recommended_dances": [
-        "two_step",
-        "waltz",
-        "triple_two",
-        "polka",
-        "east_coast_swing",
-        "nightclub",
-        "cha_cha"
+      "recommended_special": [
+        "showcase",
+        "spotlight"
       ],
-      "custom_dances": true
+      "recommended_dances": [
+        "triple_two",
+        "nightclub",
+        "waltz",
+        "polka",
+        "cha_cha",
+        "east_coast_swing",
+        "two_step"
+      ],
+      "custom_dances": true,
+      "judging_options": [
+        "medal_marks"
+      ],
+      "programming": {
+        "hierarchy": {
+          "value": [
+            "level",
+            "age",
+            "dance"
+          ],
+          "basis": "owner_operational",
+          "note": "Country events usually complete a level together: each age group dances the sequence. Not stated in the supplied UCWDC rules."
+        },
+        "dance_sequence": {
+          "value": [
+            "triple_two",
+            "nightclub",
+            "waltz",
+            "polka",
+            "cha_cha",
+            "east_coast_swing",
+            "two_step",
+            "west_coast_swing"
+          ],
+          "basis": "source_grounded",
+          "sources": [
+            {
+              "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+              "edition": "2026 (v1-26-2026)",
+              "section": "II.M.1.a-b",
+              "page": "11",
+              "quote": "These categories will be danced in this order at all UCWDC events"
+            }
+          ],
+          "note": "Masters and Crown Classic dance two flights instead (II.M.1.b.i-ii)."
+        },
+        "special_boundary": {
+          "value": "age",
+          "basis": "owner_operational",
+          "note": "Showcases and Spotlights run after an age group's dance sequence, before the next block."
+        }
+      }
     },
     "west_coast_swing": {
       "label": "West Coast Swing",
       "description": "West Coast Swing contests.",
-      "purpose": "competition",
       "discipline_family": "west_coast_swing",
       "dance_pool": "west_coast_swing",
       "formats": [
         "jack_and_jill",
         "couples",
         "pro_am",
-        "showcase"
+        "routine"
       ],
       "recommended_formats": [
         "jack_and_jill",
         "couples"
       ],
+      "recommended_special": [
+        "routine"
+      ],
       "recommended_dances": [
         "west_coast_swing"
       ],
-      "custom_dances": false
+      "custom_dances": false,
+      "judging_options": [
+        "placements"
+      ],
+      "programming": {
+        "hierarchy": {
+          "value": [
+            "contest_format",
+            "division",
+            "round"
+          ],
+          "basis": "owner_operational",
+          "note": "WCS events run by contest format, then division, then round."
+        },
+        "dance_sequence": {
+          "value": [
+            "west_coast_swing"
+          ],
+          "basis": "studio_recommendation"
+        },
+        "special_boundary": {
+          "value": "contest_format",
+          "basis": "owner_operational",
+          "note": "Routines run as their own contest block."
+        }
+      }
     },
     "ballroom": {
       "label": "Ballroom",
       "description": "Ballroom partner dancing.",
-      "purpose": "competition",
       "discipline_family": "ballroom",
       "dance_pool": "ballroom",
       "formats": [
         "pro_am",
         "couples",
         "professional",
-        "solo",
-        "showcase"
+        "showdance",
+        "solo"
       ],
       "recommended_formats": [
         "pro_am",
         "couples"
+      ],
+      "recommended_special": [
+        "showdance"
       ],
       "recommended_dances": [
         "smooth_waltz",
@@ -209,12 +449,93 @@ declare
         "rhythm_rumba",
         "rhythm_swing"
       ],
-      "custom_dances": true
+      "custom_dances": true,
+      "judging_options": [
+        "placements"
+      ],
+      "programming": {
+        "hierarchy": {
+          "value": [
+            "style",
+            "level",
+            "age",
+            "event"
+          ],
+          "basis": "owner_operational",
+          "note": "Ballroom events run by style block (e.g. American Rhythm), then level, then age. Not mandated by the supplied NDCA rules."
+        },
+        "dance_sequence": {
+          "value": [
+            "smooth_waltz",
+            "smooth_tango",
+            "smooth_foxtrot",
+            "smooth_viennese_waltz",
+            "rhythm_cha_cha",
+            "rhythm_rumba",
+            "rhythm_swing",
+            "rhythm_bolero",
+            "rhythm_mambo"
+          ],
+          "basis": "source_grounded",
+          "sources": [
+            {
+              "document": "NDCA Rule Book",
+              "edition": "June 2026 (compiled)",
+              "section": "IX.A.1.c-d",
+              "page": "38-39",
+              "quote": "American Style Smooth. Waltz, Tango, Foxtrot, Viennese Waltz"
+            }
+          ],
+          "note": "NDCA also recommends ProAm single dances finish one level's sequence before the next level (IX.A.1.h)."
+        },
+        "style_blocks": {
+          "value": [
+            {
+              "key": "american_smooth",
+              "label": "American Smooth",
+              "dance_category": "American Smooth",
+              "dances": [
+                "smooth_waltz",
+                "smooth_tango",
+                "smooth_foxtrot",
+                "smooth_viennese_waltz"
+              ]
+            },
+            {
+              "key": "american_rhythm",
+              "label": "American Rhythm",
+              "dance_category": "American Rhythm",
+              "dances": [
+                "rhythm_cha_cha",
+                "rhythm_rumba",
+                "rhythm_swing",
+                "rhythm_bolero",
+                "rhythm_mambo"
+              ]
+            },
+            {
+              "key": "international_standard",
+              "label": "International Standard",
+              "dance_category": null
+            },
+            {
+              "key": "international_latin",
+              "label": "International Latin",
+              "dance_category": null
+            }
+          ],
+          "basis": "owner_operational"
+        },
+        "special_boundary": {
+          "value": "style",
+          "basis": "owner_operational",
+          "note": "Showcase / Showdance numbers run after a style block, before the next major block."
+        }
+      }
     },
     "custom": {
       "label": "Other / Studio-defined",
       "description": "A style you define.",
-      "purpose": "competition",
       "discipline_family": "custom",
       "dance_pool": "general",
       "formats": [
@@ -222,14 +543,17 @@ declare
         "pro_pro",
         "couples",
         "professional",
-        "solo",
         "jack_and_jill",
-        "team",
-        "showcase"
+        "custom_routine",
+        "solo",
+        "team"
       ],
       "recommended_formats": [
         "pro_am",
         "couples"
+      ],
+      "recommended_special": [
+        "custom_routine"
       ],
       "recommended_dances": [
         "waltz",
@@ -239,26 +563,42 @@ declare
         "swing",
         "two_step"
       ],
-      "custom_dances": true
-    },
-    "showcase": {
-      "label": "Showcase / Performance",
-      "description": "Routines performed for an audience.",
-      "purpose": "showcase",
-      "discipline_family": "showcase",
-      "dance_pool": "general",
-      "formats": [
-        "showcase",
-        "solo",
-        "team"
+      "custom_dances": true,
+      "judging_options": [
+        "placements",
+        "ratings"
       ],
-      "recommended_formats": [
-        "showcase",
-        "solo"
-      ],
-      "recommended_dances": [],
-      "custom_dances": false,
-      "adjudication": "non_adjudicated"
+      "programming": {
+        "hierarchy": {
+          "value": [
+            "level",
+            "age",
+            "dance"
+          ],
+          "basis": "studio_recommendation"
+        },
+        "dance_sequence": {
+          "value": [
+            "waltz",
+            "foxtrot",
+            "tango",
+            "viennese_waltz",
+            "cha_cha",
+            "rumba",
+            "swing",
+            "bolero",
+            "mambo",
+            "salsa",
+            "hustle",
+            "two_step"
+          ],
+          "basis": "studio_recommendation"
+        },
+        "special_boundary": {
+          "value": "age",
+          "basis": "studio_recommendation"
+        }
+      }
     }
   },
   "categoryTypes": {
@@ -287,7 +627,22 @@ declare
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "levels_newcomer_gold"
+      "division_preset": "levels_newcomer_gold",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false
     },
     "pro_pro": {
       "label": "ProPro",
@@ -314,7 +669,22 @@ declare
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "open"
+      "division_preset": "open",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false
     },
     "couples": {
       "label": "Couples",
@@ -340,7 +710,22 @@ declare
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "levels_newcomer_gold"
+      "division_preset": "levels_newcomer_gold",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false
     },
     "professional": {
       "label": "Professional",
@@ -366,60 +751,22 @@ declare
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "open"
-    },
-    "solo": {
-      "label": "Solo",
-      "description": "One dancer performs a routine.",
-      "contest_type": "showdance",
-      "entry_format": "solo",
-      "uses_dances": false,
-      "dance_selection_mode": "routine",
-      "pricing_method": "flat_entry",
-      "price_unit": "per entry",
-      "minimum_participants": 1,
-      "maximum_participants": 1,
-      "pairing_mode": "individual",
-      "participant_roles": [
-        "dancer"
-      ],
-      "dance_roles": "none",
-      "pricing_models": [
-        "per_entry",
-        "included",
-        "free",
-        "later"
-      ],
-      "default_pricing": "per_entry",
-      "division_preset": "open"
-    },
-    "showcase": {
-      "label": "Showcase routine",
-      "description": "A routine performed alone or as a duo, with its own music.",
-      "contest_type": "showdance",
-      "entry_format": "custom",
-      "uses_dances": false,
-      "dance_selection_mode": "routine",
-      "pricing_method": "flat_entry",
-      "price_unit": "per entry",
-      "minimum_participants": 1,
-      "maximum_participants": 2,
-      "pairing_mode": "fixed",
-      "participant_roles": [
-        "dancer",
-        "student",
-        "professional",
-        "instructor"
-      ],
-      "dance_roles": "optional",
-      "pricing_models": [
-        "per_entry",
-        "included",
-        "free",
-        "later"
-      ],
-      "default_pricing": "per_entry",
-      "division_preset": "open"
+      "division_preset": "open",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false
     },
     "jack_and_jill": {
       "label": "Jack & Jill",
@@ -444,7 +791,356 @@ declare
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "skill_levels"
+      "division_preset": "skill_levels",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false
+    },
+    "showcase": {
+      "label": "Showcase",
+      "description": "Choreography to set music for each dance; how the dancers interpret that music is judged.",
+      "contest_type": "custom",
+      "entry_format": "custom",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer",
+        "student",
+        "professional",
+        "instructor"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "division_preset": "open",
+      "kind": "special",
+      "music_source": {
+        "value": "profile_defined",
+        "basis": "source_grounded",
+        "sources": [
+          {
+            "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+            "edition": "2026 (v1-26-2026)",
+            "section": "II.G.2.a",
+            "page": "6",
+            "quote": "music which is pre-selected for each dance on a rotating schedule"
+          },
+          {
+            "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+            "edition": "2026 (v1-26-2026)",
+            "section": "II.G.2.a",
+            "page": "7"
+          }
+        ],
+        "note": "UCWDC publishes the set music; under Studio / Custom the organizer supplies it."
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true,
+      "sources": [
+        {
+          "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+          "edition": "2026 (v1-26-2026)",
+          "section": "II.G.2.a",
+          "page": "6",
+          "quote": "Choreographic interpretation of the music is one of the most important factors being judged."
+        }
+      ]
+    },
+    "spotlight": {
+      "label": "Spotlight",
+      "description": "A choreographed dance or medley to music the competitors choose (ProAm and ProPro), 2½ to 4 minutes.",
+      "contest_type": "spotlight",
+      "entry_format": "custom",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "student",
+        "professional",
+        "instructor"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "open",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "source_grounded",
+        "sources": [
+          {
+            "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+            "edition": "2026 (v1-26-2026)",
+            "section": "II.A.20",
+            "page": "3",
+            "quote": "choreographed to music of the competitor's choice"
+          },
+          {
+            "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+            "edition": "2026 (v1-26-2026)",
+            "section": "II.K.8",
+            "page": "10"
+          }
+        ]
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "duration": {
+        "value": {
+          "min_seconds": 150,
+          "max_seconds": 240
+        },
+        "basis": "source_grounded",
+        "sources": [
+          {
+            "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+            "edition": "2026 (v1-26-2026)",
+            "section": "II.K.4.d; II.M.1.h.i",
+            "page": "9, 13",
+            "quote": "Spotlight (ProAm & ProPro) 2½ to 4 minutes"
+          }
+        ]
+      },
+      "adjudication_override": true,
+      "sources": [
+        {
+          "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+          "edition": "2026 (v1-26-2026)",
+          "section": "II.M.1.h.i",
+          "page": "13",
+          "quote": "Solo Performances: Spotlight"
+        }
+      ]
+    },
+    "showdance": {
+      "label": "Showcase / Showdance",
+      "description": "A choreographed routine to music the dancers choose.",
+      "contest_type": "showdance",
+      "entry_format": "custom",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer",
+        "student",
+        "professional",
+        "instructor"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "open",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true
+    },
+    "routine": {
+      "label": "Routine / Showcase",
+      "description": "A choreographed couple's routine to music the dancers choose.",
+      "contest_type": "showdance",
+      "entry_format": "custom",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer",
+        "student",
+        "professional",
+        "instructor"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "open",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true
+    },
+    "custom_routine": {
+      "label": "Choreographed Routine",
+      "description": "A routine you define, for studios whose terms differ from governing-body names.",
+      "contest_type": "custom",
+      "entry_format": "custom",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 1,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer",
+        "student",
+        "professional",
+        "instructor"
+      ],
+      "dance_roles": "optional",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "open",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true,
+      "organizer_configurable": [
+        "label",
+        "music_source",
+        "duration",
+        "adjudication",
+        "floor_mode",
+        "program_placement"
+      ]
+    },
+    "solo": {
+      "label": "Solo",
+      "description": "One dancer performs a routine.",
+      "contest_type": "showdance",
+      "entry_format": "solo",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 1,
+      "maximum_participants": 1,
+      "pairing_mode": "individual",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "none",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "division_preset": "open",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": false
     },
     "team": {
       "label": "Team",
@@ -469,7 +1165,23 @@ declare
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "open"
+      "division_preset": "open",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": false
     }
   },
   "dancePools": {
@@ -672,7 +1384,7 @@ declare
     "Senior"
   ],
   "limits": {
-    "programs": 5,
+    "programs": 4,
     "categories": 8,
     "divisions": 30,
     "totalDivisions": 200,
@@ -719,16 +1431,19 @@ declare
   v_ids uuid[];
   v_mismatch integer;
   v_purpose text;
-  v_adjudication text;
   v_programs jsonb;
   v_prog jsonb;
   v_prog_ix integer;
   v_prog_key text;
   v_prog_keys text[] := '{}';
   v_template jsonb;
-  v_competition_count integer := 0;
-  v_showcase_count integer := 0;
+  v_regular_count integer := 0;
+  v_special_count integer := 0;
   v_prog_adjudication text;
+  v_cat_adjudication text;
+  v_cat_judging_key text;
+  v_cat_judging jsonb;
+  v_cat_label text;
   v_allowed jsonb;
   v_judging_key text;
   v_judging jsonb;
@@ -820,11 +1535,6 @@ begin
   if v_purpose is null or v_purpose not in ('competition', 'showcase', 'competition_showcase') then
     raise exception 'Choose what you are creating.';
   end if;
-  v_adjudication := p_spec->>'adjudication';
-  if v_adjudication is null or not (v_defaults->'adjudication' ? v_adjudication) then
-    raise exception 'Choose Adjudicated or Non-Adjudicated.';
-  end if;
-
   -- Registration basics (timestamps are computed by the server from the event time zone).
   if jsonb_typeof(p_spec->'registration') is distinct from 'object'
     or jsonb_typeof(p_spec #> '{registration,account_required}') is distinct from 'boolean' then
@@ -861,13 +1571,14 @@ begin
     end if;
     if v_prog_key = any (v_prog_keys) then raise exception 'Each program can be added once.'; end if;
     v_prog_keys := v_prog_keys || v_prog_key;
-    if v_template->>'purpose' = 'showcase' then v_showcase_count := v_showcase_count + 1;
-    else v_competition_count := v_competition_count + 1; end if;
-
-    v_prog_adjudication := coalesce(v_template->>'adjudication', v_adjudication);
+    -- Style-level adjudication: the default every ordinary entry format inherits.
+    v_prog_adjudication := v_prog->>'adjudication';
+    if v_prog_adjudication is null or v_prog_adjudication not in ('adjudicated', 'non_adjudicated') then
+      raise exception 'Choose Adjudicated or Non-Adjudicated for %.', v_template->>'label';
+    end if;
     v_allowed := case when v_prog_adjudication = 'adjudicated'
-                      then v_defaults #> '{adjudication,adjudicated,judging_options}'
-                      else jsonb_build_array(v_defaults->'adjudication'->v_prog_adjudication->>'judging') end;
+                      then v_template->'judging_options'
+                      else jsonb_build_array(v_defaults #>> '{adjudication,non_adjudicated,judging}') end;
     v_judging_key := v_prog->>'judging';
     if v_judging_key is null or not coalesce(v_allowed ? v_judging_key, false) or v_defaults->'judging'->v_judging_key is null then
       raise exception 'Choose how % is judged.', v_template->>'label';
@@ -916,6 +1627,18 @@ begin
       end if;
       if v_cat_key = any (v_cat_seen) then raise exception 'Each entry format can be added once per program.'; end if;
       v_cat_seen := v_cat_seen || v_cat_key;
+      -- Showcase / Performance offers only special (routine / performance) formats.
+      if v_purpose = 'showcase' and v_cat_def->>'kind' is distinct from 'special' then
+        raise exception '% is not a Showcase / Performance offering.', v_cat_def->>'label';
+      end if;
+      if v_cat_def->>'kind' = 'special' then v_special_count := v_special_count + 1;
+      else v_regular_count := v_regular_count + 1; end if;
+      -- A format may differ from its style's adjudication only where the profile allows it.
+      v_cat_adjudication := coalesce(v_cat->>'adjudication', 'inherit');
+      if v_cat_adjudication not in ('inherit', 'adjudicated', 'non_adjudicated')
+        or (v_cat_adjudication <> 'inherit' and not coalesce((v_cat_def->>'adjudication_override')::boolean, false)) then
+        raise exception '% follows the style''s adjudication.', v_cat_def->>'label';
+      end if;
 
       if jsonb_typeof(v_cat->'divisions') is distinct from 'array'
         or jsonb_array_length(v_cat->'divisions') < 1 or jsonb_array_length(v_cat->'divisions') > (v_limits->>'divisions')::integer then
@@ -988,10 +1711,8 @@ begin
   if v_total_divisions > (v_limits->>'totalDivisions')::integer then
     raise exception 'This setup has % divisions; use % or fewer.', v_total_divisions, v_limits->>'totalDivisions';
   end if;
-  if (v_purpose = 'competition' and (v_competition_count < 1 or v_showcase_count > 0))
-    or (v_purpose = 'showcase' and (v_competition_count > 0 or v_showcase_count <> 1))
-    or (v_purpose = 'competition_showcase' and (v_competition_count < 1 or v_showcase_count <> 1)) then
-    raise exception 'The programs do not match what you are creating.';
+  if v_purpose = 'competition_showcase' and (v_regular_count < 1 or v_special_count < 1) then
+    raise exception 'Competition + Showcase / Performance needs a competition entry format and a Showcase or Spotlight offering.';
   end if;
 
   -- ---- writes ----
@@ -1003,7 +1724,7 @@ begin
   for v_prog, v_prog_ix in select value, ordinality from jsonb_array_elements(v_programs) with ordinality loop
     v_prog_key := v_prog->>'key';
     v_template := v_defaults->'programs'->v_prog_key;
-    v_prog_adjudication := coalesce(v_template->>'adjudication', v_adjudication);
+    v_prog_adjudication := v_prog->>'adjudication';
     v_judging_key := v_prog->>'judging';
     v_judging := v_defaults->'judging'->v_judging_key;
     v_pool := v_defaults->'dancePools'->(v_template->>'dance_pool');
@@ -1019,7 +1740,8 @@ begin
       jsonb_build_object(
         'simple', jsonb_build_object('request_key', v_request, 'judging', v_judging_key, 'created_with', 'setup_wizard'),
         'setup', jsonb_build_object('request_hash', v_hash, 'program_key', v_prog_key, 'purpose', v_purpose,
-                                    'adjudication', v_prog_adjudication, 'registration_fee', v_fee,
+                                    'adjudication', v_prog_adjudication, 'judging', v_judging_key, 'registration_fee', v_fee,
+                                    'programming', v_template->'programming',
                                     'answers', coalesce(p_spec->'answers', '{}'::jsonb))),
       v_actor
     ) returning id into v_program_id;
@@ -1046,12 +1768,27 @@ begin
       v_amount := case when v_model in ('per_dance', 'per_entry') then (v_cat #>> '{pricing,amount}')::numeric else 0 end;
       v_pending := v_model = 'later';
       v_any_pending := v_any_pending or v_pending;
+      -- Inherit the style's judging, or apply the Showcase / Spotlight override.
+      v_cat_adjudication := coalesce(v_cat->>'adjudication', 'inherit');
+      v_cat_judging_key := case
+        when v_cat_adjudication = 'inherit' then v_judging_key
+        when v_cat_adjudication = 'non_adjudicated' then v_defaults #>> '{adjudication,non_adjudicated,judging}'
+        when v_prog_adjudication = 'adjudicated' then v_judging_key
+        else v_template #>> '{judging_options,0}'
+      end;
+      v_cat_judging := v_defaults->'judging'->v_cat_judging_key;
+      v_cat_label := coalesce(v_template #>> array['format_labels', v_cat_key], v_cat_def->>'label');
 
       insert into public.event_competition_contests (event_id, program_id, name, contest_type, entry_format, sort_order, configuration)
-      values (p_event_id, v_program_id, v_cat_def->>'label', v_cat_def->>'contest_type', v_cat_def->>'entry_format', v_cat_ix * 10,
+      values (p_event_id, v_program_id, v_cat_label, v_cat_def->>'contest_type', v_cat_def->>'entry_format', v_cat_ix * 10,
               jsonb_build_object(
                 'simple', jsonb_build_object('category_type', v_cat_key),
                 'setup', jsonb_build_object('pricing_model', v_model, 'pricing_pending', v_pending,
+                                            'adjudication', case when v_cat_adjudication = 'inherit' then v_prog_adjudication else v_cat_adjudication end,
+                                            'adjudication_source', case when v_cat_adjudication = 'inherit' then 'style' else 'override' end,
+                                            'judging', v_cat_judging_key,
+                                            'kind', v_cat_def->'kind', 'music_source', v_cat_def->'music_source',
+                                            'floor_mode', v_cat_def->'floor_mode', 'program_placement', v_cat_def->'program_placement',
                                             'participant_roles', v_cat_def->'participant_roles', 'dance_roles', v_cat_def->'dance_roles')))
       returning id into v_contest_id;
 
@@ -1078,7 +1815,7 @@ begin
                 v_div_ix * 10)
         returning id into v_division_id;
 
-        for v_round, v_round_ix in select value, ordinality from jsonb_array_elements(v_judging->'rounds') with ordinality loop
+        for v_round, v_round_ix in select value, ordinality from jsonb_array_elements(v_cat_judging->'rounds') with ordinality loop
           insert into public.event_competition_rounds (event_id, program_id, division_id, name, round_type, sequence_number, scoring_method, pairing_mode)
           values (p_event_id, v_program_id, v_division_id, v_round->>'name', v_round->>'round_type', v_round_ix,
                   v_round->>'scoring_method', v_cat_def->>'pairing_mode');

@@ -1,7 +1,9 @@
 import type {
   AdjudicationKey,
   EntryFormatDefinition,
+  FormatAdjudication,
   FormatKey,
+  JudgingDefinition,
   PricingModel,
   ProfileDance,
   ProgramKey,
@@ -13,9 +15,12 @@ import type {
  *
  * The organizer's answers are the only state. Every option the wizard offers is read from the rules
  * profile (never a hard-coded universal list), and deriveDraft() is the single derivation authority:
- * the Review step, the counts, the pricing summary and the create_competition_draft payload all come
- * from the same call. The server action re-derives from the stored profile, so a client payload is
- * never trusted.
+ * the Review step, the counts, the pricing summary, the special-format semantics and the
+ * create_competition_draft payload all come from the same call. The server action re-derives from the
+ * stored profile, so a client payload is never trusted.
+ *
+ * Every purpose works through the organizer's styles: a Country Showcase stays a Country offering.
+ * Adjudication is answered per style; Showcase and Spotlight may override it where the profile allows.
  */
 
 export type Purpose = "competition" | "showcase" | "competition_showcase";
@@ -28,21 +33,24 @@ export type FormatAnswer = {
   dances: string[];
   pricing: PricingModel;
   amount: string;
+  /** Only meaningful for formats whose profile allows an override (Showcase, Spotlight). */
+  adjudication: FormatAdjudication;
 };
 
 export type ProgramAnswer = {
+  adjudication: AdjudicationKey | null;
+  /** Adjudicated result option for this style (from the profile's judging_options). */
+  judging: string;
   formats: Partial<Record<FormatKey, FormatAnswer>>;
   customDances: ProfileDance[];
   registrationFee: string;
 };
 
 export type SetupAnswers = {
-  version: 1;
+  version: 2;
   purpose: Purpose | null;
   styleMode: "single" | "multiple";
   styles: ProgramKey[];
-  adjudication: AdjudicationKey | null;
-  judging: string;
   rules: RulesChoice;
   programs: Record<ProgramKey, ProgramAnswer>;
   registration: { opens: string; closes: string; accountRequired: boolean };
@@ -50,8 +58,8 @@ export type SetupAnswers = {
 
 export const PURPOSE_OPTIONS: Array<{ key: Purpose; label: string; description: string }> = [
   { key: "competition", label: "Competition", description: "Dancers compete in divisions." },
-  { key: "showcase", label: "Showcase / Performance", description: "Routines performed for an audience." },
-  { key: "competition_showcase", label: "Competition + Showcase", description: "A competition with a separate showcase." },
+  { key: "showcase", label: "Showcase / Performance", description: "Showcase, Spotlight and routine performances." },
+  { key: "competition_showcase", label: "Competition + Showcase / Performance", description: "Competition divisions plus showcase performances." },
 ];
 
 /** Governing-body rules appear so organizers know they are coming; only Studio / Custom generates anything. */
@@ -68,6 +76,12 @@ export const PRICING_LABELS: Record<PricingModel, string> = {
   included: "Included with registration fee",
   free: "Free",
   later: "Configure later",
+};
+
+export const ADJUDICATION_OVERRIDE_LABELS: Record<FormatAdjudication, string> = {
+  inherit: "Same as the style",
+  adjudicated: "Adjudicated",
+  non_adjudicated: "Non-Adjudicated",
 };
 
 export const PRICING_PENDING_TEXT = "Pricing requires completion before registration can open.";
@@ -92,47 +106,55 @@ export type StepKey = (typeof SETUP_STEPS)[number]["key"];
 const PRICE_PATTERN = /^\d{1,6}(\.\d{1,2})?$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CUSTOM_DANCE_PATTERN = /^custom_[a-z0-9_]{1,40}$/;
+const ADJUDICATION_KEYS: AdjudicationKey[] = ["adjudicated", "non_adjudicated"];
+const FORMAT_ADJUDICATION: FormatAdjudication[] = ["inherit", "adjudicated", "non_adjudicated"];
 
 export function parsePrice(value: string): number | null {
+  if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return PRICE_PATTERN.test(trimmed) ? Number(trimmed) : null;
 }
 
 export function initialAnswers(registration?: Partial<SetupAnswers["registration"]>): SetupAnswers {
   return {
-    version: 1,
+    version: 2,
     purpose: null,
     styleMode: "single",
     styles: [],
-    adjudication: null,
-    judging: "",
     rules: "studio_custom",
     programs: {},
     registration: { opens: "", closes: "", accountRequired: false, ...registration },
   };
 }
 
-/** Competition (discipline) programs the profile offers, in profile order. */
+/** Styles (disciplines) the profile offers, in profile order. */
 export function styleOptions(profile: SetupProfileDefaults): ProgramKey[] {
-  return Object.keys(profile.programs).filter((key) => profile.programs[key].purpose === "competition");
+  return Object.keys(profile.programs);
 }
 
-function showcaseProgramKey(profile: SetupProfileDefaults): ProgramKey | null {
-  return Object.keys(profile.programs).find((key) => profile.programs[key].purpose === "showcase") ?? null;
-}
-
-/** One program per chosen discipline, plus a separate showcase program when the purpose includes one. */
+/** One program per chosen style, whatever the purpose: a Country Showcase stays in the Country program. */
 export function activeProgramKeys(answers: SetupAnswers, profile: SetupProfileDefaults): ProgramKey[] {
-  const showcase = showcaseProgramKey(profile);
-  const styles = answers.styles.filter((key) => profile.programs[key]?.purpose === "competition");
-  if (answers.purpose === "competition") return styles;
-  if (answers.purpose === "showcase") return showcase ? [showcase] : [];
-  if (answers.purpose === "competition_showcase") return showcase ? [...styles, showcase] : styles;
-  return [];
+  if (!answers.purpose) return [];
+  return answers.styles.filter((key) => Boolean(profile.programs[key]));
 }
 
-export function needsStyles(answers: SetupAnswers) {
-  return answers.purpose === "competition" || answers.purpose === "competition_showcase";
+export function formatLabel(profile: SetupProfileDefaults, _key: ProgramKey, format: FormatKey) {
+  return profile.categoryTypes[format]?.label ?? format;
+}
+
+/** Formats the organizer may pick for this style and purpose (Showcase / Performance offers only special formats). */
+export function availableFormats(profile: SetupProfileDefaults, key: ProgramKey, purpose: Purpose | null): FormatKey[] {
+  const template = profile.programs[key];
+  if (!template) return [];
+  return purpose === "showcase" ? template.formats.filter((format) => profile.categoryTypes[format]?.kind === "special") : [...template.formats];
+}
+
+export function recommendedFormats(profile: SetupProfileDefaults, key: ProgramKey, purpose: Purpose | null): FormatKey[] {
+  const template = profile.programs[key];
+  if (!template) return [];
+  if (purpose === "showcase") return [...template.recommended_special];
+  if (purpose === "competition_showcase") return [...template.recommended_formats, ...template.recommended_special];
+  return [...template.recommended_formats];
 }
 
 /** Steps that apply to these answers. Sanction is only asked for rules that can be sanctioned. */
@@ -142,8 +164,6 @@ export function visibleSteps(answers: SetupAnswers, profile: SetupProfileDefault
     Object.keys(answers.programs[key]?.formats ?? {}).some((format) => profile.categoryTypes[format]?.uses_dances),
   );
   return SETUP_STEPS.map((step) => step.key).filter((key) => {
-    if (key === "styles") return needsStyles(answers) || answers.purpose === null;
-    if (key === "adjudication") return needsStyles(answers) || answers.purpose === null;
     if (key === "sanction") return profile.sanction.claimable;
     if (key === "dances") return usesDances;
     return true;
@@ -173,26 +193,43 @@ function defaultFormatAnswer(profile: SetupProfileDefaults, key: ProgramKey, for
     dances,
     pricing: definition.default_pricing,
     amount: "",
+    adjudication: "inherit",
   };
 }
 
-function defaultProgramAnswer(profile: SetupProfileDefaults, key: ProgramKey): ProgramAnswer {
+function defaultProgramAnswer(profile: SetupProfileDefaults, key: ProgramKey, purpose: Purpose | null): ProgramAnswer {
   const formats: ProgramAnswer["formats"] = {};
-  for (const format of profile.programs[key].recommended_formats) formats[format] = defaultFormatAnswer(profile, key, format);
-  return { formats, customDances: [], registrationFee: "" };
+  for (const format of recommendedFormats(profile, key, purpose)) formats[format] = defaultFormatAnswer(profile, key, format);
+  return { adjudication: null, judging: profile.programs[key].judging_options[0] ?? "", formats, customDances: [], registrationFee: "" };
 }
 
-/** Keeps answers for programs that are still chosen and seeds newly chosen programs with profile recommendations. */
+/** Keeps a style's answers when the purpose changes, dropping formats the new purpose does not offer. */
+function fitProgramToPurpose(profile: SetupProfileDefaults, key: ProgramKey, program: ProgramAnswer, purpose: Purpose | null): ProgramAnswer {
+  const available = new Set(availableFormats(profile, key, purpose));
+  const formats: ProgramAnswer["formats"] = {};
+  for (const [format, value] of Object.entries(program.formats)) if (value && available.has(format)) formats[format] = value;
+  if (purpose === "competition_showcase" && !Object.keys(formats).some((format) => profile.categoryTypes[format]?.kind === "special")) {
+    for (const format of profile.programs[key].recommended_special) formats[format] = defaultFormatAnswer(profile, key, format);
+  }
+  if (Object.keys(formats).length === 0) {
+    for (const format of recommendedFormats(profile, key, purpose)) formats[format] = defaultFormatAnswer(profile, key, format);
+  }
+  return { ...program, formats };
+}
+
+/** Keeps answers for styles that are still chosen and seeds newly chosen styles with profile recommendations. */
 export function syncPrograms(answers: SetupAnswers, profile: SetupProfileDefaults): SetupAnswers {
   const programs: SetupAnswers["programs"] = {};
   for (const key of activeProgramKeys(answers, profile)) {
-    programs[key] = answers.programs[key] ?? defaultProgramAnswer(profile, key);
+    programs[key] = answers.programs[key] ?? defaultProgramAnswer(profile, key, answers.purpose);
   }
   return { ...answers, programs };
 }
 
 export function choosePurpose(answers: SetupAnswers, profile: SetupProfileDefaults, purpose: Purpose): SetupAnswers {
-  return syncPrograms({ ...answers, purpose }, profile);
+  const programs: SetupAnswers["programs"] = {};
+  for (const [key, program] of Object.entries(answers.programs)) programs[key] = fitProgramToPurpose(profile, key, program, purpose);
+  return syncPrograms({ ...answers, purpose, programs }, profile);
 }
 
 export function chooseStyle(answers: SetupAnswers, profile: SetupProfileDefaults, style: ProgramKey | "multiple"): SetupAnswers {
@@ -209,26 +246,31 @@ export function chooseSingleStyleMode(answers: SetupAnswers, profile: SetupProfi
   return syncPrograms({ ...answers, styleMode: "single", styles: answers.styles.slice(0, 1) }, profile);
 }
 
-export function chooseAdjudication(answers: SetupAnswers, profile: SetupProfileDefaults, adjudication: AdjudicationKey): SetupAnswers {
-  const option = profile.adjudication[adjudication];
-  if (!option) return answers;
-  const judging = adjudication === "adjudicated" ? option.default_judging ?? "" : option.judging ?? "";
-  return { ...answers, adjudication, judging };
-}
-
-export function chooseJudging(answers: SetupAnswers, profile: SetupProfileDefaults, judging: string): SetupAnswers {
-  if (answers.adjudication !== "adjudicated" || !profile.adjudication.adjudicated.judging_options?.includes(judging)) return answers;
-  return { ...answers, judging };
-}
-
 function updateProgram(answers: SetupAnswers, key: ProgramKey, change: (program: ProgramAnswer) => ProgramAnswer): SetupAnswers {
   const program = answers.programs[key];
   if (!program) return answers;
   return { ...answers, programs: { ...answers.programs, [key]: change(program) } };
 }
 
+/** The style-level default every ordinary entry format inherits. */
+export function chooseAdjudication(answers: SetupAnswers, key: ProgramKey, adjudication: AdjudicationKey): SetupAnswers {
+  if (!ADJUDICATION_KEYS.includes(adjudication)) return answers;
+  return updateProgram(answers, key, (program) => ({ ...program, adjudication }));
+}
+
+export function chooseJudging(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, judging: string): SetupAnswers {
+  if (!profile.programs[key]?.judging_options.includes(judging)) return answers;
+  return updateProgram(answers, key, (program) => ({ ...program, judging }));
+}
+
+/** Showcase / Spotlight may be judged differently from their style where the profile allows it. */
+export function setFormatAdjudication(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, value: FormatAdjudication) {
+  if (!profile.categoryTypes[format]?.adjudication_override || !FORMAT_ADJUDICATION.includes(value)) return answers;
+  return updateFormat(answers, key, format, { adjudication: value });
+}
+
 export function toggleFormat(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey): SetupAnswers {
-  if (!profile.programs[key]?.formats.includes(format)) return answers;
+  if (!availableFormats(profile, key, answers.purpose).includes(format)) return answers;
   return updateProgram(answers, key, (program) => {
     const formats = { ...program.formats };
     if (formats[format]) delete formats[format];
@@ -317,6 +359,57 @@ export function setRegistration(answers: SetupAnswers, change: Partial<SetupAnsw
 }
 
 // ---------------------------------------------------------------------------------------------------
+// Adjudication
+// ---------------------------------------------------------------------------------------------------
+
+/** Judging used by a style's ordinary formats. Empty until the style's adjudication is answered. */
+export function programJudging(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey): string {
+  const program = answers.programs[key];
+  const template = profile.programs[key];
+  if (!program || !template || !program.adjudication) return "";
+  if (program.adjudication === "non_adjudicated") return profile.adjudication.non_adjudicated.judging ?? "";
+  return template.judging_options.includes(program.judging) ? program.judging : "";
+}
+
+/** Judging for one format: the style default, or the Showcase / Spotlight override. */
+export function formatJudging(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey): string {
+  const value = answers.programs[key]?.formats[format];
+  const base = programJudging(answers, profile, key);
+  if (!value || !profile.categoryTypes[format]?.adjudication_override || value.adjudication === "inherit") return base;
+  if (value.adjudication === "non_adjudicated") return profile.adjudication.non_adjudicated.judging ?? "";
+  const program = answers.programs[key];
+  return program?.adjudication === "adjudicated" && base ? base : profile.programs[key]?.judging_options[0] ?? "";
+}
+
+/** The final stage of a scoring model and its primary result output. */
+export function finalStage(judging: JudgingDefinition | undefined) {
+  const stage = judging?.scoring.stages.find((item) => item.family === "final");
+  return { stage, primary: stage?.outputs.find((output) => output.primary) };
+}
+
+/** Organizer-facing summary: Medal Marks are the judge input, Placement is the result -- never the same thing. */
+export function judgingSummary(judging: JudgingDefinition | undefined): string {
+  if (!judging) return "Not chosen";
+  const { stage, primary } = finalStage(judging);
+  if (!primary || primary.type === "none") return "Non-Adjudicated · Performance / exhibition · No competitive result";
+  if (stage?.ballot.input === "medal_marks") return `Adjudicated · Judge input: ${judging.input_label} · Final result: ${judging.result_label}`;
+  if (primary.type === "rating") return `Adjudicated · ${judging.label} ratings`;
+  return `Adjudicated · ${judging.label}`;
+}
+
+/** How a special format runs, from its profile metadata (music source and placement in the running order). */
+export function formatRunNote(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey): string | null {
+  const definition = profile.categoryTypes[format];
+  if (!definition || definition.kind !== "special") return null;
+  const music = definition.music_source.value === "profile_defined" ? "Set music for each dance" : definition.music_source.value === "entry_selected" ? "Music chosen by the dancers" : "Event music";
+  const boundary = profile.programs[key]?.programming.special_boundary.value;
+  const where = boundary === "style" ? "runs after its style block" : boundary === "contest_format" ? "runs as its own contest block" : "runs after each age group's dances";
+  const duration = definition.duration?.value;
+  const length = duration ? `${duration.min_seconds / 60}–${duration.max_seconds / 60} minutes` : null;
+  return [music, length, where].filter(Boolean).join(" · ");
+}
+
+// ---------------------------------------------------------------------------------------------------
 // Derivation
 // ---------------------------------------------------------------------------------------------------
 
@@ -324,6 +417,7 @@ export type DraftDivision = { name: string; skill_label: string; age_label?: str
 
 export type DraftCategoryPayload = {
   type: FormatKey;
+  adjudication: FormatAdjudication;
   divisions: DraftDivision[];
   dances: string[];
   pricing: { model: PricingModel; amount: number | null };
@@ -332,6 +426,7 @@ export type DraftCategoryPayload = {
 export type DraftProgramPayload = {
   key: ProgramKey;
   name: string;
+  adjudication: AdjudicationKey;
   judging: string;
   registration_fee: number | null;
   dances: ProfileDance[];
@@ -344,7 +439,6 @@ export type CompetitionDraftSpec = {
   profile_key: string;
   profile_version: number;
   purpose: Purpose;
-  adjudication: AdjudicationKey;
   answers: SetupAnswers;
   registration: { opens_at: string | null; closes_at: string | null; account_required: boolean };
   programs: DraftProgramPayload[];
@@ -352,6 +446,9 @@ export type CompetitionDraftSpec = {
 
 export type DraftCategorySummary = {
   label: string;
+  special: boolean;
+  judging: string;
+  runNote: string | null;
   divisions: string[];
   dances: string[];
   rounds: string[];
@@ -363,7 +460,7 @@ export type DraftProgramSummary = {
   key: ProgramKey;
   name: string;
   styleLabel: string;
-  judgingLabel: string;
+  judging: string;
   registrationFee: string | null;
   categories: DraftCategorySummary[];
 };
@@ -387,14 +484,6 @@ export function divisionsFor(format: Pick<FormatAnswer, "levels" | "ageBands">):
     }
   }
   return divisions;
-}
-
-/** Judging used by a program: showcase programs are fixed Non-Adjudicated; the rest follow the organizer's answer. */
-export function programJudging(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey): string {
-  const fixed = profile.programs[key]?.adjudication;
-  if (fixed) return profile.adjudication[fixed]?.judging ?? "";
-  if (answers.adjudication === "non_adjudicated") return profile.adjudication.non_adjudicated.judging ?? "";
-  return answers.judging;
 }
 
 function money(amount: number, currency: string) {
@@ -423,16 +512,17 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
   const programs = activeProgramKeys(answers, profile);
   const limits = profile.limits;
   if (step === "purpose" && !answers.purpose) errors.push("Choose what you are creating.");
-  if (step === "styles" && needsStyles(answers)) {
-    const styles = programs.filter((key) => profile.programs[key].purpose === "competition");
-    if (styles.length < 1) errors.push("Choose at least one style.");
-    if (answers.styleMode === "multiple" && styles.length < 2) errors.push("Choose two or more styles, or pick a single style.");
-    if (programs.length > limits.programs) errors.push(`Choose ${limits.programs} programs or fewer.`);
+  if (step === "styles") {
+    if (programs.length < 1) errors.push("Choose at least one style.");
+    if (answers.styleMode === "multiple" && programs.length < 2) errors.push("Choose two or more styles, or pick a single style.");
+    if (programs.length > limits.programs) errors.push(`Choose ${limits.programs} styles or fewer.`);
   }
-  if (step === "adjudication" && needsStyles(answers)) {
-    if (!answers.adjudication || !profile.adjudication[answers.adjudication]) errors.push("Choose Adjudicated or Non-Adjudicated.");
-    else if (!profile.judging[programJudging(answers, profile, programs.find((key) => !profile.programs[key].adjudication) ?? "")]) {
-      errors.push("Choose how results are given.");
+  if (step === "adjudication") {
+    for (const key of programs) {
+      const program = answers.programs[key];
+      const label = profile.programs[key].label;
+      if (!program?.adjudication) errors.push(`Choose Adjudicated or Non-Adjudicated for ${label}.`);
+      else if (!programJudging(answers, profile, key)) errors.push(`Choose how ${label} results are given.`);
     }
   }
   if (step === "rules" && !RULE_OPTIONS.some((option) => option.key === answers.rules && option.available)) {
@@ -440,10 +530,23 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
   }
   if (step === "offerings") {
     if (programs.length < 1) errors.push("Choose what you are creating first.");
+    let regular = 0;
+    let special = 0;
     for (const key of programs) {
-      const count = Object.keys(answers.programs[key]?.formats ?? {}).length;
-      if (count < 1) errors.push(`Choose at least one entry format for ${profile.programs[key].label}.`);
-      if (count > limits.categories) errors.push(`Choose ${limits.categories} entry formats or fewer for ${profile.programs[key].label}.`);
+      const chosen = Object.keys(answers.programs[key]?.formats ?? {});
+      const label = profile.programs[key].label;
+      if (chosen.length < 1) errors.push(`Choose at least one offering for ${label}.`);
+      if (chosen.length > limits.categories) errors.push(`Choose ${limits.categories} offerings or fewer for ${label}.`);
+      const available = availableFormats(profile, key, answers.purpose);
+      for (const format of chosen) {
+        if (!available.includes(format)) errors.push(`${formatLabel(profile, key, format)} is not offered for this purpose.`);
+        if (profile.categoryTypes[format]?.kind === "special") special += 1;
+        else regular += 1;
+      }
+    }
+    if (answers.purpose === "competition_showcase" && programs.length > 0) {
+      if (special < 1) errors.push("Add a Showcase or Spotlight offering, or choose Competition as the purpose.");
+      if (regular < 1) errors.push("Add a competition entry format, or choose Showcase / Performance as the purpose.");
     }
   }
   if (step === "divisions") {
@@ -451,7 +554,7 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
     for (const key of programs) {
       for (const [format, value] of Object.entries(answers.programs[key]?.formats ?? {})) {
         if (!value) continue;
-        const label = `${profile.programs[key].label} ${profile.categoryTypes[format]?.label ?? format}`;
+        const label = `${profile.programs[key].label} ${formatLabel(profile, key, format)}`;
         const divisions = divisionsFor(value);
         total += divisions.length;
         if (divisions.length < 1) errors.push(`Add at least one division for ${label}.`);
@@ -473,7 +576,7 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
       for (const [format, value] of Object.entries(answers.programs[key]?.formats ?? {})) {
         const definition = profile.categoryTypes[format];
         if (!value || !definition?.uses_dances) continue;
-        const label = `${profile.programs[key].label} ${definition.label}`;
+        const label = `${profile.programs[key].label} ${formatLabel(profile, key, format)}`;
         if (value.dances.length < 1) errors.push(`Choose at least one dance for ${label}.`);
         if (value.dances.length > limits.dances) errors.push(`Choose ${limits.dances} dances or fewer for ${label}.`);
         for (const dance of value.dances) {
@@ -486,7 +589,7 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
   }
   if (step === "registration") {
     const { opens, closes } = answers.registration;
-    for (const value of [opens, closes]) if (value && !DATE_PATTERN.test(value)) errors.push("Registration dates must be valid dates.");
+    for (const value of [opens, closes]) if (value && (typeof value !== "string" || !DATE_PATTERN.test(value))) errors.push("Registration dates must be valid dates.");
     if (opens && closes && closes < opens) errors.push("Registration cannot close before it opens.");
   }
   if (step === "pricing") {
@@ -496,7 +599,7 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
       for (const [format, value] of Object.entries(program?.formats ?? {})) {
         const definition = profile.categoryTypes[format];
         if (!value || !definition) continue;
-        const label = `${profile.programs[key].label} ${definition.label}`;
+        const label = `${profile.programs[key].label} ${formatLabel(profile, key, format)}`;
         if (!definition.pricing_models.includes(value.pricing)) errors.push(`Choose how ${label} is priced.`);
         if (value.pricing === "per_dance" || value.pricing === "per_entry") {
           const amount = parsePrice(value.amount);
@@ -534,9 +637,6 @@ export function deriveDraft(
   for (const key of keys) {
     const template = profile.programs[key];
     const program = answers.programs[key];
-    const judgingKey = programJudging(answers, profile, key);
-    const judging = profile.judging[judgingKey];
-    const roundNames = (judging?.rounds ?? []).map((round) => round.name);
     const dancesByKey = new Map(programDances(profile, key, program).map((dance) => [dance.key, dance]));
     const usedDances: string[] = [];
     const categories: DraftCategorySummary[] = [];
@@ -547,6 +647,9 @@ export function deriveDraft(
       const value = program?.formats[format];
       const definition = profile.categoryTypes[format];
       if (!value || !definition) continue;
+      const label = formatLabel(profile, key, format);
+      const judging = profile.judging[formatJudging(answers, profile, key, format)];
+      const roundNames = (judging?.rounds ?? []).map((round) => round.name);
       const divisions = divisionsFor(value);
       const dances = definition.uses_dances ? value.dances.filter((dance) => dancesByKey.has(dance)) : [];
       for (const dance of dances) if (!usedDances.includes(dance)) usedDances.push(dance);
@@ -554,13 +657,16 @@ export function deriveDraft(
       if (value.pricing === "included") included = true;
       pricingPending ||= pending;
       const pricing = pricingText(definition, value, program?.registrationFee ?? "", profile.currency);
-      pricingLines.push(`${template.label} ${definition.label}: ${pricing}`);
+      pricingLines.push(`${template.label} ${label}: ${pricing}`);
       counts.categories += 1;
       counts.divisions += divisions.length;
       counts.rounds += divisions.length * roundNames.length;
       counts.offerings += divisions.length * dances.length;
       categories.push({
-        label: definition.label,
+        label,
+        special: definition.kind === "special",
+        judging: judgingSummary(judging),
+        runNote: formatRunNote(profile, key, format),
         divisions: divisions.map((division) => division.name),
         dances: dances.map((dance) => dancesByKey.get(dance)?.name ?? dance),
         rounds: roundNames,
@@ -568,24 +674,32 @@ export function deriveDraft(
         pricingPending: pending,
       });
       const amount = value.pricing === "per_dance" || value.pricing === "per_entry" ? parsePrice(value.amount) : null;
-      payloadCategories.push({ type: format, divisions, dances, pricing: { model: value.pricing, amount } });
+      payloadCategories.push({
+        type: format,
+        adjudication: definition.adjudication_override ? value.adjudication : "inherit",
+        divisions,
+        dances,
+        pricing: { model: value.pricing, amount },
+      });
     }
 
     counts.dances += usedDances.length;
     const name = programName(context.eventName, template.label, keys.length > 1);
     const fee = included ? parsePrice(program?.registrationFee ?? "") : null;
+    const styleJudging = programJudging(answers, profile, key);
     programs.push({
       key,
       name,
       styleLabel: template.label,
-      judgingLabel: judging?.label ?? "Not chosen",
+      judging: judgingSummary(profile.judging[styleJudging]),
       registrationFee: included ? (fee === null ? "Fee needed" : `${money(fee, profile.currency)} per competitor`) : null,
       categories,
     });
     payloadPrograms.push({
       key,
       name,
-      judging: judgingKey,
+      adjudication: (program?.adjudication ?? "adjudicated") as AdjudicationKey,
+      judging: styleJudging,
       registration_fee: fee,
       dances: usedDances.map((dance) => {
         const found = dancesByKey.get(dance) as ProfileDance;
@@ -598,14 +712,12 @@ export function deriveDraft(
   if (pricingPending) pricingLines.push(PRICING_PENDING_TEXT);
 
   const valid = Object.keys(errors).length === 0 && answers.purpose !== null && keys.length > 0;
-  const adjudication: AdjudicationKey = needsStyles(answers) ? (answers.adjudication as AdjudicationKey) : "non_adjudicated";
   const payload: CompetitionDraftSpec | null = valid
     ? {
         request_key: context.requestKey,
         profile_key: context.profileKey,
         profile_version: context.profileVersion,
         purpose: answers.purpose as Purpose,
-        adjudication,
         answers,
         registration: {
           opens_at: answers.registration.opens || null,
@@ -662,13 +774,28 @@ export function resumeStep(answers: SetupAnswers, profile: SetupProfileDefaults,
 export function restoreAnswers(raw: unknown, profile: SetupProfileDefaults): SetupAnswers | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Partial<SetupAnswers>;
-  if (value.version !== 1 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
+  if (value.version !== 2 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
   if (!value.registration || typeof value.registration !== "object") return null;
-  const answers: SetupAnswers = { ...initialAnswers(), ...value, rules: "studio_custom" } as SetupAnswers;
+  if (value.purpose !== null && !PURPOSE_OPTIONS.some((option) => option.key === value.purpose)) return null;
+  const answers: SetupAnswers = {
+    version: 2,
+    purpose: value.purpose ?? null,
+    styleMode: value.styleMode === "multiple" ? "multiple" : "single",
+    styles: value.styles.filter((key): key is string => typeof key === "string"),
+    rules: "studio_custom",
+    programs: value.programs as SetupAnswers["programs"],
+    registration: {
+      opens: typeof value.registration.opens === "string" ? value.registration.opens : "",
+      closes: typeof value.registration.closes === "string" ? value.registration.closes : "",
+      accountRequired: value.registration.accountRequired === true,
+    },
+  };
   for (const [key, program] of Object.entries(answers.programs)) {
     if (!profile.programs[key] || !program || typeof program.formats !== "object" || !Array.isArray(program.customDances)) return null;
+    if (program.adjudication !== null && !ADJUDICATION_KEYS.includes(program.adjudication)) return null;
     for (const [format, entry] of Object.entries(program.formats)) {
       if (!profile.programs[key].formats.includes(format) || !entry || !Array.isArray(entry.levels) || !Array.isArray(entry.dances) || !Array.isArray(entry.ageBands)) return null;
+      if (!FORMAT_ADJUDICATION.includes(entry.adjudication)) return null;
     }
   }
   return syncPrograms(answers, profile);

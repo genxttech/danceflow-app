@@ -7,7 +7,7 @@
 
 export type StoredSetup = { answers: unknown; step: string; requestKey: string };
 
-const PREFIX = "danceflow.competition-setup.v1:";
+const PREFIX = "danceflow.competition-setup.v2:";
 
 function storage(): Storage | null {
   try {
