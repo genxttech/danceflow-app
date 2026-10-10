@@ -67,7 +67,7 @@ describe("simplified Create Event form", () => {
     const html = renderCreate();
     expect(html).toMatch(/<details(?![^>]*\bopen\b)[^>]*>/);
     expect(html).toContain("Show");
-    expect(html).toContain("group-open:rotate-180");
+    expect(html).toContain("transform:rotate(0deg)");
     // collapsed content stays in the DOM so defaults (registration opens now, slug, dance style) still submit
     expect(html).toContain('name="registrationOpensAt"');
     expect(html).toContain('name="slug"');
@@ -110,6 +110,15 @@ describe("simplified Create Event form", () => {
     expect(basic).not.toContain("Attendance limit");
     expect(basic).not.toContain('name="registrationOpensAt"');
     expect(basic).toContain("Start Organizer Suite");
+  });
+
+  it("never submits a stale capacity or waitlist when the attendance section is not in use", () => {
+    for (const html of [renderCreate({ eventType: "competition" }), renderCreate({ commerce: false })]) {
+      expect(html).toContain('name="capacity" value=""');
+      expect(html).toContain('name="waitlistEnabled" value="false"');
+    }
+    const source = read("src/app/app/events/EventForm.tsx");
+    expect(source).toContain('{!capacityVisible ? <input type="hidden" name="capacity" value="" /> : null}');
   });
 
   it("offers the audience as intent choices with Discovery as a secondary option", () => {

@@ -2154,10 +2154,7 @@ export default function EventForm({
   );
 
   if (mode === "create") {
-    const fields = resolveVisibilityFields(
-      { audience, discovery, publishNow },
-      eventCommerceEnabled && registrationRequired,
-    );
+    const fields = resolveVisibilityFields({ audience, discovery, publishNow });
     const category = categoryForEventType(eventType);
     const isCompetition = continuesToCompetitionSetup(eventType);
     const startedAsCompetition = initialValues?.eventType === "competition";
@@ -2187,12 +2184,12 @@ export default function EventForm({
         <input
           type="hidden"
           name="waitlistEnabled"
-          value={eventCommerceEnabled && waitlistEnabled && hasCapacity ? "true" : "false"}
+          value={capacityVisible && waitlistEnabled && hasCapacity ? "true" : "false"}
         />
         {eventCommerceEnabled && (isCompetition || registrationRequired) ? (
           <input type="hidden" name="registrationRequired" value={registrationRequired ? "on" : "off"} />
         ) : null}
-        {!capacityVisible ? <input type="hidden" name="capacity" value={capacity} /> : null}
+        {!capacityVisible ? <input type="hidden" name="capacity" value="" /> : null}
         <input
           type="hidden"
           name="locationCount"
@@ -2686,7 +2683,8 @@ export default function EventForm({
         <fieldset className="space-y-3">
           <legend className="text-lg font-semibold text-slate-950">Who can find it?</legend>
           {AUDIENCE_OPTIONS.map((option) => (
-            <label key={option.value} className={optionClass(audience === option.value)}>
+            <div key={option.value} className="space-y-2">
+            <label className={optionClass(audience === option.value)}>
               <input
                 type="radio"
                 name="audience"
@@ -2700,8 +2698,8 @@ export default function EventForm({
                 <span className="block text-xs text-slate-600">{option.helper}</span>
               </span>
             </label>
-          ))}
-          {audience === "public" ? (
+
+          {option.value === "public" && audience === "public" ? (
             <div className="border-l-2 border-slate-200 pl-4">
               <label className="flex items-start gap-2 text-sm text-slate-700">
                 <input
@@ -2722,6 +2720,8 @@ export default function EventForm({
               </label>
             </div>
           ) : null}
+            </div>
+          ))}
           <div className="pt-2">
             <p className="mb-2 text-sm font-medium text-slate-900">When should it go live?</p>
             <div role="radiogroup" aria-label="When should it go live" className="grid gap-2 sm:grid-cols-2">
@@ -2762,7 +2762,8 @@ export default function EventForm({
               <svg
                 aria-hidden="true"
                 viewBox="0 0 20 20"
-                className="h-4 w-4 transition-transform group-open:rotate-180"
+                className="h-4 w-4 transition-transform"
+                style={{ transform: advancedIsOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"

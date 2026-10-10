@@ -114,18 +114,16 @@ export type EventVisibilityFields = {
  *  - link    -> visibility "unlisted"
  *  - studio  -> visibility "private"
  *  - draft   -> status "draft" (lifecycle, independent of the audience)
- *  - publish -> status "open" when registration is on (so it accepts registration inside its window),
- *               otherwise "published"
+ *  - publish -> status "published". The public event page and cart checkout only serve status
+ *               "published"; registration is gated by the registration window and registration_required,
+ *               so "open" would hide a registration-required event from its own page.
  * Discovery is stored only with the public audience, exactly as the server already enforces
  * (public_directory_enabled forces visibility public).
  */
-export function resolveVisibilityFields(
-  intent: EventVisibilityIntent,
-  registrationRequired: boolean,
-): EventVisibilityFields {
+export function resolveVisibilityFields(intent: EventVisibilityIntent): EventVisibilityFields {
   const publicAudience = intent.audience === "public";
   return {
-    status: intent.publishNow ? (registrationRequired ? "open" : "published") : "draft",
+    status: intent.publishNow ? "published" : "draft",
     visibility: publicAudience ? "public" : intent.audience === "link" ? "unlisted" : "private",
     publicDirectoryEnabled: publicAudience && intent.discovery,
   };

@@ -53,8 +53,8 @@ describe("event type grouping", () => {
 });
 
 describe("visibility intent -> stored fields", () => {
-  const resolve = (audience: EventAudience, discovery: boolean, publishNow: boolean, registration = false) =>
-    resolveVisibilityFields({ audience, discovery, publishNow }, registration);
+  const resolve = (audience: EventAudience, discovery: boolean, publishNow: boolean) =>
+    resolveVisibilityFields({ audience, discovery, publishNow });
 
   it("maps the audience to the stored visibility values the server validates", () => {
     expect(resolve("public", false, true).visibility).toBe("public");
@@ -75,13 +75,12 @@ describe("visibility intent -> stored fields", () => {
     }
   });
 
-  it("publishing sets open when registration is on, otherwise published", () => {
-    expect(resolve("public", true, true, true).status).toBe("open");
-    expect(resolve("link", false, true, false).status).toBe("published");
+  it("publishing always stores published, because the public event page and checkout only serve published", () => {
+    for (const audience of ["public", "link", "studio"] as const) expect(resolve(audience, false, true).status).toBe("published");
   });
 
-  it("matches the legacy publishing modes", () => {
-    expect(resolve("public", true, true, true)).toEqual({ status: "open", visibility: "public", publicDirectoryEnabled: true });
+  it("matches the legacy publishing modes (Discovery now stores published, not open)", () => {
+    expect(resolve("public", true, true)).toEqual({ status: "published", visibility: "public", publicDirectoryEnabled: true });
     expect(resolve("link", false, true)).toEqual({ status: "published", visibility: "unlisted", publicDirectoryEnabled: false });
     expect(resolve("studio", false, false)).toEqual({ status: "draft", visibility: "private", publicDirectoryEnabled: false });
   });
@@ -91,7 +90,7 @@ describe("visibility intent -> stored fields", () => {
       for (const discovery of [true, false]) {
         for (const publishNow of [true, false]) {
           const intent = { audience, discovery: audience === "public" && discovery, publishNow };
-          expect(intentFromFields(resolveVisibilityFields(intent, true))).toEqual(intent);
+          expect(intentFromFields(resolveVisibilityFields(intent))).toEqual(intent);
         }
       }
     }

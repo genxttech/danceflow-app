@@ -28,7 +28,7 @@ Previously the form wrote `status`, `visibility` and `public_directory_enabled` 
 | Anyone with the link | `visibility = unlisted` |
 | Studio only | `visibility = private` |
 | Save as draft | `status = draft` |
-| Publish now | `status = open` if registration is required, otherwise `published` |
+| Publish now | `status = published` (the public event page and cart checkout only serve `published`; registration is gated by `registration_required` and the registration window) |
 
 Draft is a lifecycle status, independent of the audience. Discovery is stored only for the public audience (the server already forces `visibility = public` when Discovery is on). The `/app/events/new` seed (public, draft, Discovery off) is preserved.
 
