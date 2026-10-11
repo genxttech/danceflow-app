@@ -1765,7 +1765,7 @@ declare
     "country_propro": {
       "label": "Country ProPro",
       "combination": "cross",
-      "note": "UCWDC ProPro levels. Age divisions for ProPro are NOT SPECIFIED IN PROVIDED SOURCE.",
+      "note": "ProPro has its own levels (II.E.2) and the shared ProPro/ProAm age divisions (II.D), e.g. ProPro I · Crystal.",
       "axes": [
         {
           "key": "skill_level",
@@ -1816,6 +1816,189 @@ declare
             "propro_i"
           ],
           "allow_custom": true
+        },
+        {
+          "key": "age_group",
+          "label": "Age divisions",
+          "values": [
+            {
+              "key": "junior_primary",
+              "label": "Junior Primary",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "under_age": 10
+              }
+            },
+            {
+              "key": "junior_youth",
+              "label": "Junior Youth",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 10,
+                "under_age": 14
+              }
+            },
+            {
+              "key": "junior_teen",
+              "label": "Junior Teen",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 14,
+                "under_age": 18
+              }
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 18,
+                "note": "Open age division competitors must be Adults."
+              }
+            },
+            {
+              "key": "crystal",
+              "label": "Crystal",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 30
+              }
+            },
+            {
+              "key": "diamond",
+              "label": "Diamond",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 40
+              }
+            },
+            {
+              "key": "silver",
+              "label": "Silver",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 50
+              }
+            },
+            {
+              "key": "gold",
+              "label": "Gold",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 60
+              }
+            },
+            {
+              "key": "platinum",
+              "label": "Platinum",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 70
+              }
+            },
+            {
+              "key": "pearl",
+              "label": "Pearl",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 80
+              }
+            }
+          ],
+          "recommended": [
+            "open",
+            "crystal",
+            "diamond",
+            "silver",
+            "gold",
+            "platinum",
+            "pearl"
+          ],
+          "defaults": [
+            "open"
+          ],
+          "allow_custom": true,
+          "note": "Age on the last day of the dance season (UCWDC). Pick every age division you will offer."
         }
       ]
     },

@@ -90,7 +90,7 @@ Divisions are event configuration (what the event offers), not competitor classi
 | Style / format | Levels (default selected) | Ages (default) | Basis |
 |---|---|---|---|
 | Country ProAm | Newcomer, Novice, Intermediate, Advanced, Open Level. More options: Newcomer IV–I, AllStars | Open. Recommended: Crystal 30+, Diamond 40+, Silver 50+, Gold 60+, Platinum 70+, Pearl 80+. More: Junior Primary / Youth / Teen | UCWDC ProAm 2026 II.D, II.E.1. Studio Newcomer and Open Level are Studio values. |
-| Country ProPro | ProPro II, ProPro I | none (NOT SPECIFIED IN PROVIDED SOURCE) | UCWDC II.E.2 |
+| Country ProPro | ProPro II, ProPro I | Open (recommended Crystal–Pearl; Juniors under More options) — the shared ProPro/ProAm age divisions | UCWDC ProPro/ProAm II.E.2 (levels), II.D (ages: general section of the combined booklet, no ProPro exclusion) |
 | Country Couples | Studio Newcomer–Advanced, Open Level. More: Newcomer IV–I, Classic III, II, II/I, I | Open. Recommended: Crystal to Platinum (no Pearl). More: Juniors (older partner), Masters, Masters Plus 45+, Crown 40+, Crown Plus 55+ (ascension) | UCWDC Couples 2026 II.D, II.E |
 | Country Showcase / Spotlight / Solo | — | UCWDC ProAm ages, Open default | UCWDC II.D |
 | WCS (all contest formats) | Newcomer, Novice, Intermediate, Advanced. Also All Star, Champion | Optional separate contests: Juniors <18, Sophisticated 35+, Masters 50+ | WSDC 2026.1C |

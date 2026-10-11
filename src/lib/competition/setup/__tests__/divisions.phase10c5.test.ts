@@ -89,7 +89,7 @@ describe("Country Studio / Custom divisions", () => {
   it("ProAm, ProPro and Couples have different division options", () => {
     expect(P.programs.country.division_schemes).toMatchObject({ pro_am: "country_proam", pro_pro: "country_propro", couples: "country_couples" });
     expect(labels("country_propro", "skill_level")).toEqual(["ProPro II", "ProPro I", "Open"]);
-    expect(P.divisionSchemes.country_propro.axes.map((item) => item.key)).toEqual(["skill_level"]);
+    expect(P.divisionSchemes.country_propro.axes.map((item) => item.key)).toEqual(["skill_level", "age_group"]);
     expect(labels("country_couples", "skill_level")).toEqual(expect.arrayContaining(["Classic III", "Classic II", "Classic II/I", "Classic I"]));
     expect(labels("country_proam", "skill_level")).not.toContain("Classic III");
     expect(labels("country_couples", "age_group")).not.toContain("Pearl");
@@ -168,6 +168,38 @@ describe("source contracts", () => {
     for (const scheme of ["country_proam", "country_propro", "country_couples"]) expect(value(scheme, "skill_level", "Open").basis).toBe("studio_recommendation");
   });
 
+  it("Country ProPro: its own ProPro II / I levels plus the shared ProPro/ProAm II.D age divisions", () => {
+    expect(labels("country_propro", "skill_level")).toEqual(["ProPro II", "ProPro I", "Open"]);
+    expect(labels("country_propro", "skill_level")).not.toEqual(expect.arrayContaining(["Novice", "Newcomer IV", "AllStars"]));
+    expect(labels("country_propro", "age_group")).toEqual(labels("country_proam", "age_group"));
+    expect(axis("country_propro", "age_group").recommended).toEqual(["open", "crystal", "diamond", "silver", "gold", "platinum", "pearl"]);
+    expect(axis("country_propro", "age_group").defaults).toEqual(["open"]);
+    for (const label of labels("country_propro", "age_group")) {
+      expect(value("country_propro", "age_group", label).sources?.[0]).toMatchObject({
+        document: "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+        section: "II.D",
+      });
+    }
+    expect(value("country_propro", "age_group", "Pearl").eligibility).toEqual({ min_age: 80 });
+    expect(P.divisionSchemes.country_propro.note).not.toMatch(/NOT SPECIFIED/);
+  });
+
+  it("ProPro age selections drive the divisions and survive persistence and Review", () => {
+    let answers = toggleDivisionValue(country(), P, "country", "pro_pro", "age_group", "Crystal");
+    answers = toggleDivisionValue(answers, P, "country", "pro_pro", "age_group", "Diamond");
+    expect(formatDivisions(P, "country", "pro_pro", answers.programs.country.formats.pro_pro!).map((division) => division.name)).toEqual([
+      "ProPro II · Open", "ProPro II · Crystal", "ProPro II · Diamond", "ProPro I · Open", "ProPro I · Crystal", "ProPro I · Diamond",
+    ]);
+    const restored = restoreAnswers(JSON.parse(JSON.stringify(answers)), P);
+    expect(restored?.programs.country.formats.pro_pro?.divisions).toEqual({ skill_level: ["ProPro II", "ProPro I"], age_group: ["Open", "Crystal", "Diamond"] });
+    const draft = deriveDraft(restored!, P, CONTEXT);
+    expect(draft.programs[0].categories.find((category) => category.label === "ProPro")?.divisions).toContain("ProPro I · Crystal");
+    const payload = draft.payload!.programs[0].categories.find((category) => category.type === "pro_pro")!;
+    expect(payload.divisions.find((division) => division.name === "ProPro I · Crystal")).toEqual({
+      name: "ProPro I · Crystal", skill_label: "ProPro I", age_label: "Crystal", axes: { skill_level: "ProPro I", age_group: "Crystal" },
+    });
+  });
+
   it("UCWDC Couples differs: its own ladder, no Pearl, ascension divisions with age floors", () => {
     expect(value("country_couples", "skill_level", "Classic II/I")).toMatchObject({ basis: "source_grounded" });
     expect(value("country_couples", "age_group", "Masters Plus").eligibility).toMatchObject({ min_age: 45 });
@@ -206,7 +238,7 @@ describe("source contracts", () => {
 
 describe("regressions", () => {
   it("Divisions step errors are per format and a cleared format must offer something", () => {
-    let answers = clearAxis(country(), P, "country", "pro_pro", "skill_level");
+    let answers = clearAxis(clearAxis(country(), P, "country", "pro_pro", "skill_level"), P, "country", "pro_pro", "age_group");
     expect(stepErrors(answers, P, "divisions")).toEqual(["Add at least one division for Country ProPro."]);
     answers = toggleDivisionValue(answers, P, "country", "pro_pro", "skill_level", "ProPro I");
     expect(stepErrors(answers, P, "divisions")).toEqual([]);
