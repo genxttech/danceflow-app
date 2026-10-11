@@ -625,7 +625,24 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         {
           "key": "american_additional",
           "label": "Additional American Style Dances",
-          "dances": [],
+          "dances": [
+            "addl_bachata",
+            "addl_cumbia",
+            "addl_hustle",
+            "addl_jitterbug",
+            "addl_lindy_hop",
+            "addl_merengue",
+            "addl_night_club_two_step",
+            "addl_paso_doble",
+            "addl_peabody",
+            "addl_polka",
+            "addl_salsa",
+            "addl_samba",
+            "addl_west_coast_swing",
+            "addl_argentine_tango",
+            "addl_argentine_vals",
+            "addl_milonga"
+          ],
           "allow_custom_dances": true,
           "basis": "source_grounded",
           "sources": [
@@ -633,10 +650,25 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
               "document": "NDCA Rule Book",
               "edition": "June 2026 (compiled)",
               "section": "IX.A.1.e",
-              "page": "38-39"
+              "page": "39",
+              "quote": "These dances could include but not be limited to"
             }
           ],
-          "note": "Add the additional American style dances you will offer; NDCA does not list them."
+          "note": "NDCA lists these dances as examples, not a closed list, so you can add others. Country Western versions of these dances also count as American style (IX.A.1.e).",
+          "presentation": {
+            "label": "Nightclub / Specialty Dances",
+            "basis": "owner_operational",
+            "note": "Many events run these dances as a Nightclub or specialty session. That is how events are commonly scheduled, not an NDCA classification; offering or scheduling them is optional.",
+            "sources": [
+              {
+                "document": "NDCA Rule Book",
+                "edition": "June 2026 (compiled)",
+                "section": "IX.B.5.c",
+                "page": "41",
+                "quote": "NIGHTCLUB"
+              }
+            ]
+          }
         }
       ],
       "offering_groups": [
@@ -2754,6 +2786,86 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "key": "rhythm_mambo",
         "name": "Mambo",
         "category": "American Rhythm"
+      },
+      {
+        "key": "addl_bachata",
+        "name": "Bachata",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_cumbia",
+        "name": "Cumbia",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_hustle",
+        "name": "Hustle",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_jitterbug",
+        "name": "Jitterbug",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_lindy_hop",
+        "name": "Lindy Hop",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_merengue",
+        "name": "Merengue",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_night_club_two_step",
+        "name": "Night Club Two-Step",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_paso_doble",
+        "name": "Paso Doble",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_peabody",
+        "name": "Peabody",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_polka",
+        "name": "Polka",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_salsa",
+        "name": "Salsa",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_samba",
+        "name": "Samba",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_west_coast_swing",
+        "name": "West Coast Swing",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_argentine_tango",
+        "name": "Argentine Tango",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_argentine_vals",
+        "name": "Argentine Vals",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_milonga",
+        "name": "Milonga",
+        "category": "Additional American Style Dances"
       }
     ],
     "country": [
@@ -5123,6 +5235,7 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
     "divisions": 80,
     "totalDivisions": 300,
     "dances": 20,
+    "programDances": 60,
     "nameLength": 200,
     "maxPrice": 100000
   }

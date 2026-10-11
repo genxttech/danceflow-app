@@ -4,6 +4,7 @@
 -- program open registration at $0). Restores the reviewed 10C open_competition_registration byte-for-byte,
 -- drops the two 10C.5 functions and RETIRES (never deletes) studio_simple@2: programs created from it keep
 -- their profile reference, and v2 can only be reactivated with identical content by re-applying 10C.5.
+-- The two event page columns are dropped only while no event uses them (never silently losing content).
 
 do $$
 begin
@@ -12,6 +13,9 @@ begin
   end if;
   if exists (select 1 from public.event_competition_contests c where coalesce(c.configuration #>> '{setup,pricing_pending}', 'false') = 'true') then
     raise exception 'Phase 10C.5 rollback: complete or remove categories with pending pricing first.';
+  end if;
+  if exists (select 1 from public.events where cardinality(public_highlights) > 0 or public_registration_info is not null) then
+    raise exception 'Phase 10C.5 rollback: events have highlights or registration information; export or clear them first.';
   end if;
 end $$;
 
@@ -82,6 +86,8 @@ $function$
 
 drop function public.set_competition_category_pricing(uuid, text, numeric);
 drop function public.create_competition_draft(uuid, jsonb);
+
+alter table public.events drop column public_registration_info, drop column public_highlights;
 
 update public.competition_rules_profiles set status = 'retired'
 where profile_key = 'studio_simple' and version = 2 and status = 'active';

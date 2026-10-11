@@ -247,6 +247,11 @@ export type DanceStyleDefinition = {
   basis: Basis;
   sources?: SourceReference[];
   note?: string;
+  /**
+   * An organizer-friendly heading shown next to the official label (e.g. "Nightclub / Specialty Dances" for NDCA
+   * Additional American Style Dances). Presentation only: it is never a governing-body classification.
+   */
+  presentation?: { label: string; basis: Basis; note: string; sources?: SourceReference[] };
 };
 
 // -----------------------------------------------------------------------------------------------------
@@ -341,6 +346,9 @@ export type SetupProfileDefaults = {
   dancePools: Record<string, ProfileDance[]>;
   /** Division schemes (axes, values, provenance), referenced per style and entry format. */
   divisionSchemes: Record<string, DivisionScheme>;
-  /** categories is per program (an offering entered in several dance styles counts once per style); divisions is per category. */
-  limits: { programs: number; categories: number; divisions: number; totalDivisions: number; dances: number; nameLength: number; maxPrice: number };
+  /**
+   * categories is per program (an offering entered in several dance styles counts once per style); divisions and
+   * dances are per category; programDances caps the distinct dances one program uses.
+   */
+  limits: { programs: number; categories: number; divisions: number; totalDivisions: number; dances: number; programDances: number; nameLength: number; maxPrice: number };
 };

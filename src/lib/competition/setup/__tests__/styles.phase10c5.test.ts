@@ -12,6 +12,7 @@ vi.mock("@/app/app/events/[id]/competition/simpleActions", () => ({ createCompet
 
 import { StyleChoices } from "@/app/app/events/[id]/competition/new/CompetitionSetupWizard";
 import { chooseStyle, choosePurpose, initialAnswers, nextStep, setupProfileProblems, stepErrors, styleOptions, visibleSteps, type Purpose } from "../draft";
+import { TEST_EVENT } from "./divisionTestHelpers";
 import { loadStoredSetup } from "../persistence";
 import type { SetupProfileDefaults } from "../types";
 
@@ -44,7 +45,7 @@ describe("Styles step (walkthrough regression)", () => {
   });
 
   it.each(PURPOSES)("Purpose %s -> Continue reaches Styles, which offers every supported style plus Multiple styles", (purpose) => {
-    const answers = choosePurpose(initialAnswers(), DB_PROFILE, purpose);
+    const answers = choosePurpose(initialAnswers(undefined, TEST_EVENT), DB_PROFILE, purpose);
     expect(stepErrors(answers, DB_PROFILE, "purpose")).toEqual([]);
     expect(nextStep(answers, DB_PROFILE, "purpose")).toBe("styles");
     expect(visibleSteps(answers, DB_PROFILE)).toContain("adjudication");
@@ -98,7 +99,7 @@ describe("stale wizard state from the earlier candidate", () => {
     });
     expect(loadStoredSetup("e1")).toBeNull();
     expect([...store.keys()]).toEqual(["danceflow.competition-setup.v1:e2", "unrelated.app.state"]);
-    const fresh = choosePurpose(initialAnswers(), DB_PROFILE, "showcase");
+    const fresh = choosePurpose(initialAnswers(undefined, TEST_EVENT), DB_PROFILE, "showcase");
     expect(styleOptions(DB_PROFILE)).toHaveLength(4);
     expect(nextStep(fresh, DB_PROFILE, "purpose")).toBe("styles");
   });

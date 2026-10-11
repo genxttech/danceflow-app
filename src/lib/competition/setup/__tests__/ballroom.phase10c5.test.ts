@@ -22,7 +22,7 @@ import {
   updateFormat,
   type SetupAnswers,
 } from "../draft";
-import { withDivisions, withOfferings } from "./divisionTestHelpers";
+import { withDivisions, withOfferings, TEST_EVENT } from "./divisionTestHelpers";
 
 /**
  * 10C.5 Ballroom correction (NDCA June 2026): offerings are NDCA competition classifications, a couple is a
@@ -35,7 +35,7 @@ const labels = (scheme: string, axis: string) => P.divisionSchemes[scheme].axes.
 const YOUTH = ["Pre-Teen I", "Pre-Teen II", "Junior I", "Junior II", "Youth"];
 
 function ballroom(purpose: "competition" | "showcase" | "competition_showcase" = "competition"): SetupAnswers {
-  return chooseAdjudication(chooseStyle(choosePurpose(initialAnswers(), P, purpose), P, "ballroom"), "ballroom", "adjudicated");
+  return chooseAdjudication(chooseStyle(choosePurpose(initialAnswers(undefined, TEST_EVENT), P, purpose), P, "ballroom"), "ballroom", "adjudicated");
 }
 
 describe("Ballroom offerings are NDCA competition classifications", () => {
@@ -105,7 +105,12 @@ describe("dance style is a category dimension that constrains dances", () => {
     expect(names("international_latin")).toEqual(["Cha Cha", "Samba", "Rumba", "Paso Doble", "Jive"]);
     expect(names("american_smooth")).toEqual(["Waltz", "Tango", "Foxtrot", "Viennese Waltz"]);
     expect(names("american_rhythm")).toEqual(["Cha Cha", "Rumba", "Swing", "Bolero", "Mambo"]);
-    expect(styles.american_additional).toMatchObject({ dances: [], allow_custom_dances: true });
+    expect(names("american_additional")).toEqual([
+      "Bachata", "Cumbia", "Hustle", "Jitterbug", "Lindy Hop", "Merengue", "Night Club Two-Step", "Paso Doble", "Peabody", "Polka",
+      "Salsa", "Samba", "West Coast Swing", "Argentine Tango", "Argentine Vals", "Milonga",
+    ]);
+    expect(styles.american_additional).toMatchObject({ allow_custom_dances: true, basis: "source_grounded" });
+    expect(styles.american_additional.sources?.[0]).toMatchObject({ section: "IX.A.1.e", page: "39", quote: "These dances could include but not be limited to" });
     for (const style of Object.values(styles)) expect(style.sources?.[0]?.section).toMatch(/^IX\.A\.1\.[a-e]$/);
     const all = Object.values(styles).flatMap((style) => style.dances);
     expect(new Set(all).size).toBe(all.length);
@@ -168,14 +173,14 @@ describe("dance style is a category dimension that constrains dances", () => {
 
   it("organizer-added Ballroom dances belong only to Additional American Style Dances", () => {
     let answers = withOfferings(ballroom(), P, "ballroom", ["ndca_pro_am"], ["american_smooth"]);
-    answers = addCustomDance(answers, P, "ballroom", "Peabody");
-    expect(danceStyleOf(P, "ballroom", "custom_peabody")?.key).toBe("american_additional");
-    expect(toggleFormatDance(answers, P, "ballroom", "ndca_pro_am", "custom_peabody")).toBe(answers);
+    answers = addCustomDance(answers, P, "ballroom", "Carolina Shag");
+    expect(danceStyleOf(P, "ballroom", "custom_carolina_shag")?.key).toBe("american_additional");
+    expect(toggleFormatDance(answers, P, "ballroom", "ndca_pro_am", "custom_carolina_shag")).toBe(answers);
     answers = toggleFormatStyle(answers, P, "ballroom", "ndca_pro_am", "american_additional");
-    answers = toggleFormatDance(answers, P, "ballroom", "ndca_pro_am", "custom_peabody");
+    answers = toggleFormatDance(answers, P, "ballroom", "ndca_pro_am", "custom_carolina_shag");
     answers = updateFormat(withDivisions(answers, P), "ballroom", "ndca_pro_am", { pricing: "free" });
     const payload = deriveDraft(answers, P, CONTEXT).payload!;
-    expect(payload.programs[0].categories.find((category) => category.style === "american_additional")?.dances).toEqual(["custom_peabody"]);
+    expect(payload.programs[0].categories.find((category) => category.style === "american_additional")?.dances).toEqual(["custom_carolina_shag"]);
   });
 
   it("restore keeps valid dance styles and rejects unknown or missing ones", () => {
@@ -207,7 +212,7 @@ describe("dance style is a category dimension that constrains dances", () => {
 
   it("selecting every Ballroom offering in every style stays within the category limit", () => {
     let answers = withOfferings(ballroom(), P, "ballroom", P.programs.ballroom.formats, (P.programs.ballroom.styles ?? []).map((style) => style.key));
-    answers = addCustomDance(answers, P, "ballroom", "Peabody");
+    answers = addCustomDance(answers, P, "ballroom", "Carolina Shag");
     const categories = P.programs.ballroom.formats.reduce((sum, format) => sum + Math.max(1, formatCategories(P, "ballroom", format, answers.programs.ballroom.formats[format]!).length), 0);
     expect(categories).toBe(7 * 5 + 4 + 6);
     expect(categories).toBeLessThanOrEqual(P.limits.categories);

@@ -42,7 +42,14 @@ Each offering is a competition classification (profile keys `ndca_*`). Partnersh
 - International Latin: Cha Cha, Samba, Rumba, Paso Doble, Jive.
 - American Smooth: Waltz, Tango, Foxtrot, Viennese Waltz.
 - American Rhythm: Cha Cha, Rumba, Swing, Bolero, Mambo.
-- Additional American Style Dances (IX.A.1.e): only organizer-added dances.
+- Additional American Style Dances (IX.A.1.e, p39): the rule book's examples, "could include but not be limited to": Bachata, Cumbia, Hustle, Jitterbug, Lindy Hop, Merengue, Night Club Two-Step, Paso Doble, Peabody, Polka, Salsa, Samba, West Coast Swing, and the Tangos Argentine Tango, Argentine Vals and Milonga. Country Western versions also count as American style. Organizers may add other dances (Studio / Custom).
+
+**Nightclub / Specialty Dances (presentation, OWNER).** The wizard shows "Nightclub / Specialty Dances" next to the official label "Additional American Style Dances", because many events run these dances as a Nightclub or specialty session. That label is presentation only:
+
+- "Nightclub" in the NDCA rule book is a tempo group: IX.B.5.c "NIGHTCLUB", page 41, which sets tempi for Merengue, Paso Doble, Samba, West Coast Swing, Polka, Hustle, Bachata, Salsa and Nightclub 2-Step. It is not a competition classification and not a style.
+- Offering or scheduling these dances is optional; nothing is pre-selected.
+
+**Dance identities.** Each dance belongs to exactly one style. The American Paso Doble and Samba (IX.A.1.e) are separate dances from the International Latin ones of the same name, as the rule book lists them separately. A dance already listed in the program (by name) cannot be added again as a custom dance. Organizer-added dances are marked Studio / Custom and belong to Additional American Style Dances.
 
 **Not modelled (recorded, not offered):** Mixed Proficiency Amateur Couples (II.B.9: only one partner judged; needs scoring support); Studio Showcase (I.G: unplaced, proficiency %); separate gender categories; Pro/Am event type (single- vs multi-dance).
 

@@ -1,5 +1,9 @@
 import { divisionScheme, formatDanceOptions, toggleDivisionValue, toggleFormat, toggleFormatStyle, updateFormat, type SetupAnswers } from "../draft";
 import type { FormatKey, ProgramKey, SetupProfileDefaults } from "../types";
+import type { EventPresentation } from "../draft";
+
+/** The event page as stored for test events (the wizard starts from it; the title is required). */
+export const TEST_EVENT: EventPresentation = { name: "Spring Classic", summary: "", description: "", coverImageUrl: "", highlights: [], registrationInfo: "" };
 
 /**
  * Test helper: nothing is pre-selected on the Divisions step, so tests that need a complete draft choose

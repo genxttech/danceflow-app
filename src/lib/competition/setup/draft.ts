@@ -59,14 +59,32 @@ export type ProgramAnswer = {
   registrationFee: string;
 };
 
+/**
+ * The event page content the wizard edits. It starts from the event's current values; only fields the
+ * organizer changes are written (the event keeps its identity, venue and dates, which stay in Edit event).
+ */
+export type EventPresentation = {
+  name: string;
+  summary: string;
+  description: string;
+  coverImageUrl: string;
+  highlights: string[];
+  registrationInfo: string;
+};
+
+export const PRESENTATION_LIMITS = { name: 160, summary: 300, description: 10000, highlights: 6, highlight: 120, registrationInfo: 2000, coverImageUrl: 2048 } as const;
+
+export const EMPTY_PRESENTATION: EventPresentation = { name: "", summary: "", description: "", coverImageUrl: "", highlights: [], registrationInfo: "" };
+
 export type SetupAnswers = {
-  version: 4;
+  version: 5;
   purpose: Purpose | null;
   styleMode: "single" | "multiple";
   styles: ProgramKey[];
   rules: RulesChoice;
   programs: Record<ProgramKey, ProgramAnswer>;
   registration: { opens: string; closes: string; accountRequired: boolean };
+  presentation: EventPresentation;
 };
 
 export const PURPOSE_OPTIONS: Array<{ key: Purpose; label: string; description: string }> = [
@@ -111,6 +129,7 @@ export const SETUP_STEPS = [
   { key: "rounds", label: "Rounds" },
   { key: "registration", label: "Registration" },
   { key: "pricing", label: "Pricing" },
+  { key: "event", label: "Event page" },
   { key: "review", label: "Review" },
 ] as const;
 
@@ -128,15 +147,16 @@ export function parsePrice(value: string): number | null {
   return PRICE_PATTERN.test(trimmed) ? Number(trimmed) : null;
 }
 
-export function initialAnswers(registration?: Partial<SetupAnswers["registration"]>): SetupAnswers {
+export function initialAnswers(registration?: Partial<SetupAnswers["registration"]>, presentation?: EventPresentation): SetupAnswers {
   return {
-    version: 4,
+    version: 5,
     purpose: null,
     styleMode: "single",
     styles: [],
     rules: "studio_custom",
     programs: {},
     registration: { opens: "", closes: "", accountRequired: false, ...registration },
+    presentation: { ...EMPTY_PRESENTATION, ...presentation, highlights: [...(presentation?.highlights ?? [])] },
   };
 }
 
@@ -421,6 +441,39 @@ export function formatDanceOptions(profile: SetupProfileDefaults, key: ProgramKe
   return dances.filter((dance) => chosen.includes(danceStyleOf(profile, key, dance.key)?.key ?? ""));
 }
 
+/**
+ * The dances one category offers: the offering's dances, limited to one dance style for a styled offering
+ * (style null for an unstyled offering). Empty when that style is not chosen.
+ */
+export function categoryDanceOptions(profile: SetupProfileDefaults, key: ProgramKey, program: ProgramAnswer | undefined, format: FormatKey, style: string | null): ProfileDance[] {
+  const options = formatDanceOptions(profile, key, program, format);
+  if (!profile.categoryTypes[format]?.uses_styles) return options;
+  return options.filter((dance) => danceStyleOf(profile, key, dance.key)?.key === style);
+}
+
+/** Selected dances of one category, in the order offered. */
+export function categorySelectedDances(profile: SetupProfileDefaults, key: ProgramKey, program: ProgramAnswer | undefined, format: FormatKey, style: string | null): string[] {
+  const chosen = program?.formats[format]?.dances ?? [];
+  return categoryDanceOptions(profile, key, program, format, style).map((dance) => dance.key).filter((dance) => chosen.includes(dance));
+}
+
+/** Check all: select every dance of one category. Other categories, including the offering's other styles, are untouched. */
+export function selectAllCategoryDances(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, style: string | null) {
+  const current = answers.programs[key]?.formats[format];
+  if (!current) return answers;
+  const add = categoryDanceOptions(profile, key, answers.programs[key], format, style).map((dance) => dance.key).filter((dance) => !current.dances.includes(dance));
+  return add.length > 0 ? updateFormat(answers, key, format, { dances: [...current.dances, ...add] }) : answers;
+}
+
+/** Clear all: unselect every dance of one category only. */
+export function clearCategoryDances(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, style: string | null) {
+  const current = answers.programs[key]?.formats[format];
+  if (!current) return answers;
+  const remove = new Set(categoryDanceOptions(profile, key, answers.programs[key], format, style).map((dance) => dance.key));
+  const dances = current.dances.filter((dance) => !remove.has(dance));
+  return dances.length !== current.dances.length ? updateFormat(answers, key, format, { dances }) : answers;
+}
+
 export function toggleFormatDance(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, dance: string) {
   const current = answers.programs[key]?.formats[format];
   if (!current) return answers;
@@ -463,6 +516,56 @@ export function setPricing(answers: SetupAnswers, profile: SetupProfileDefaults,
 
 export function setRegistrationFee(answers: SetupAnswers, key: ProgramKey, fee: string) {
   return updateProgram(answers, key, (program) => ({ ...program, registrationFee: fee }));
+}
+
+export function setPresentation(answers: SetupAnswers, change: Partial<Omit<EventPresentation, "highlights">>): SetupAnswers {
+  return { ...answers, presentation: { ...answers.presentation, ...change } };
+}
+
+export function addHighlight(answers: SetupAnswers): SetupAnswers {
+  if (answers.presentation.highlights.length >= PRESENTATION_LIMITS.highlights) return answers;
+  return { ...answers, presentation: { ...answers.presentation, highlights: [...answers.presentation.highlights, ""] } };
+}
+
+export function setHighlight(answers: SetupAnswers, index: number, value: string): SetupAnswers {
+  if (index < 0 || index >= answers.presentation.highlights.length) return answers;
+  const highlights = answers.presentation.highlights.map((item, position) => (position === index ? value : item));
+  return { ...answers, presentation: { ...answers.presentation, highlights } };
+}
+
+export function removeHighlight(answers: SetupAnswers, index: number): SetupAnswers {
+  const highlights = answers.presentation.highlights.filter((_, position) => position !== index);
+  return { ...answers, presentation: { ...answers.presentation, highlights } };
+}
+
+const clean = (value: string) => value.replace(/\r\n/g, "\n").trim();
+const cleanHighlights = (items: string[]) => items.map((item) => item.trim().replace(/\s+/g, " ")).filter(Boolean);
+
+/** The event page fields to write: only those that differ from the event's current values (database keys). */
+export type EventPresentationChanges = Partial<{
+  name: string;
+  summary: string | null;
+  description: string | null;
+  cover_image_url: string | null;
+  highlights: string[];
+  registration_info: string | null;
+}>;
+
+export function presentationChanges(current: EventPresentation, baseline: EventPresentation): EventPresentationChanges {
+  const changes: EventPresentationChanges = {};
+  if (clean(current.name) !== clean(baseline.name)) changes.name = clean(current.name);
+  if (clean(current.summary) !== clean(baseline.summary)) changes.summary = clean(current.summary) || null;
+  if (clean(current.description) !== clean(baseline.description)) changes.description = clean(current.description) || null;
+  if (current.coverImageUrl.trim() !== baseline.coverImageUrl.trim()) changes.cover_image_url = current.coverImageUrl.trim() || null;
+  const highlights = cleanHighlights(current.highlights);
+  if (JSON.stringify(highlights) !== JSON.stringify(cleanHighlights(baseline.highlights))) changes.highlights = highlights;
+  if (clean(current.registrationInfo) !== clean(baseline.registrationInfo)) changes.registration_info = clean(current.registrationInfo) || null;
+  return changes;
+}
+
+/** The title programs are named after: the edited event title, or the event's current one. */
+export function presentationTitle(answers: SetupAnswers, eventName: string) {
+  return clean(answers.presentation.name) || eventName;
 }
 
 export function setRegistration(answers: SetupAnswers, change: Partial<SetupAnswers["registration"]>): SetupAnswers {
@@ -557,6 +660,8 @@ export type CompetitionDraftSpec = {
   purpose: Purpose;
   answers: SetupAnswers;
   registration: { opens_at: string | null; closes_at: string | null; account_required: boolean };
+  /** Event page fields the organizer changed (empty when nothing changed). */
+  event: EventPresentationChanges;
   programs: DraftProgramPayload[];
 };
 
@@ -749,29 +854,43 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
         const definition = profile.categoryTypes[format];
         if (!value || !definition?.uses_dances) continue;
         const label = `${profile.programs[key].label} ${formatLabel(profile, key, format)}`;
-        if (value.dances.length > limits.dances) errors.push(`Choose ${limits.dances} dances or fewer for ${label}.`);
         for (const dance of value.dances) {
           if (!available.has(dance)) errors.push(`A dance chosen for ${label} is no longer available.`);
           used.add(dance);
         }
         if (!definition.uses_styles) {
           if (value.dances.length < 1) errors.push(`Choose at least one dance for ${label}.`);
+          if (value.dances.length > limits.dances) errors.push(`Choose ${limits.dances} dances or fewer for ${label}.`);
           continue;
         }
         // A styled offering: each chosen style needs its own dances, and no dance may sit outside its styles.
         for (const category of formatCategories(profile, key, format, value)) {
           if (category.dances.length < 1) errors.push(`Choose at least one dance for ${profile.programs[key].label} ${category.label}.`);
+          if (category.dances.length > limits.dances) errors.push(`Choose ${limits.dances} dances or fewer for ${profile.programs[key].label} ${category.label}.`);
         }
         const allowed = new Set(formatDanceOptions(profile, key, answers.programs[key], format).map((dance) => dance.key));
         if (value.dances.some((dance) => available.has(dance) && !allowed.has(dance))) errors.push(`A dance chosen for ${label} is not part of its chosen styles.`);
       }
-      if (used.size > limits.dances) errors.push(`${profile.programs[key].label} uses ${used.size} dances; use ${limits.dances} or fewer.`);
+      if (used.size > limits.programDances) errors.push(`${profile.programs[key].label} uses ${used.size} dances; use ${limits.programDances} or fewer.`);
     }
   }
   if (step === "registration") {
     const { opens, closes } = answers.registration;
     for (const value of [opens, closes]) if (value && (typeof value !== "string" || !DATE_PATTERN.test(value))) errors.push("Registration dates must be valid dates.");
     if (opens && closes && closes < opens) errors.push("Registration cannot close before it opens.");
+  }
+  if (step === "event") {
+    const p = answers.presentation;
+    const limits = PRESENTATION_LIMITS;
+    if (!clean(p.name)) errors.push("Enter the event title.");
+    if (clean(p.name).length > limits.name) errors.push(`Use ${limits.name} characters or fewer for the event title.`);
+    if (clean(p.summary).length > limits.summary) errors.push(`Use ${limits.summary} characters or fewer for the short summary.`);
+    if (clean(p.description).length > limits.description) errors.push(`Use ${limits.description} characters or fewer for the description.`);
+    if (p.highlights.length > limits.highlights) errors.push(`Use ${limits.highlights} highlights or fewer.`);
+    if (p.highlights.some((item) => !item.trim())) errors.push("Fill in or remove empty highlights.");
+    if (p.highlights.some((item) => item.trim().length > limits.highlight)) errors.push(`Keep each highlight to ${limits.highlight} characters or fewer.`);
+    if (clean(p.registrationInfo).length > limits.registrationInfo) errors.push(`Use ${limits.registrationInfo} characters or fewer for the registration information.`);
+    if (p.coverImageUrl && (!/^https:\/\/\S+$/.test(p.coverImageUrl) || p.coverImageUrl.length > limits.coverImageUrl)) errors.push("Upload the cover image again.");
   }
   if (step === "pricing") {
     for (const key of programs) {
@@ -800,7 +919,7 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
 export function deriveDraft(
   answers: SetupAnswers,
   profile: SetupProfileDefaults,
-  context: { eventName: string; profileKey: string; profileVersion: number; requestKey: string },
+  context: { eventName: string; profileKey: string; profileVersion: number; requestKey: string; event?: EventPresentation },
 ): DerivedDraft {
   const keys = activeProgramKeys(answers, profile);
   const errors: DerivedDraft["errors"] = {};
@@ -867,7 +986,7 @@ export function deriveDraft(
     }
 
     counts.dances += usedDances.length;
-    const name = programName(context.eventName, template.label, keys.length > 1);
+    const name = programName(presentationTitle(answers, context.eventName), template.label, keys.length > 1);
     const fee = included ? parsePrice(program?.registrationFee ?? "") : null;
     const styleJudging = programJudging(answers, profile, key);
     programs.push({
@@ -907,6 +1026,8 @@ export function deriveDraft(
           closes_at: answers.registration.closes || null,
           account_required: answers.registration.accountRequired,
         },
+        // Without the event's current values nothing is written (never a blind overwrite).
+        event: context.event ? presentationChanges(answers.presentation, context.event) : {},
         programs: payloadPrograms,
       }
     : null;
@@ -953,6 +1074,13 @@ export function resumeStep(answers: SetupAnswers, profile: SetupProfileDefaults,
   return firstInvalidStep(answers, profile) ?? steps[steps.length - 1];
 }
 
+function validPresentation(value: unknown): value is EventPresentation {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return ["name", "summary", "description", "coverImageUrl", "registrationInfo"].every((key) => typeof item[key] === "string")
+    && Array.isArray(item.highlights) && item.highlights.every((entry) => typeof entry === "string");
+}
+
 function validSelection(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   return Object.values(value).every((labels) => Array.isArray(labels) && labels.every((label) => typeof label === "string"));
@@ -962,11 +1090,12 @@ function validSelection(value: unknown): boolean {
 export function restoreAnswers(raw: unknown, profile: SetupProfileDefaults): SetupAnswers | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Partial<SetupAnswers>;
-  if (value.version !== 4 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
+  if (value.version !== 5 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
   if (!value.registration || typeof value.registration !== "object") return null;
   if (value.purpose !== null && !PURPOSE_OPTIONS.some((option) => option.key === value.purpose)) return null;
+  if (!validPresentation(value.presentation)) return null;
   const answers: SetupAnswers = {
-    version: 4,
+    version: 5,
     purpose: value.purpose ?? null,
     styleMode: value.styleMode === "multiple" ? "multiple" : "single",
     styles: value.styles.filter((key): key is string => typeof key === "string"),
@@ -977,6 +1106,7 @@ export function restoreAnswers(raw: unknown, profile: SetupProfileDefaults): Set
       closes: typeof value.registration.closes === "string" ? value.registration.closes : "",
       accountRequired: value.registration.accountRequired === true,
     },
+    presentation: { ...value.presentation, highlights: [...value.presentation.highlights] },
   };
   for (const [key, program] of Object.entries(answers.programs)) {
     if (!profile.programs[key] || !program || typeof program.formats !== "object" || !Array.isArray(program.customDances)) return null;

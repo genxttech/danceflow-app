@@ -72,7 +72,7 @@ describe("workspace authorization (shared with the action guard and the database
     const exported = [...actions.matchAll(/export async function (\w+)/g)].map((match) => match[1]);
     expect(exported.sort()).toEqual([
       "addDivisionAction", "completeCategoryPricingAction", "createCompetitionDraftAction", "publishCompetitionAction",
-      "removeDivisionAction", "setCompetitionRegistrationAction", "updateDivisionAction",
+      "removeDivisionAction", "setCompetitionRegistrationAction", "updateDivisionAction", "uploadCompetitionCoverImageAction",
     ]);
     expect(actions.match(/requireCompetitionManager\(eventId\)/g)?.length).toBe(exported.length);
     const server = read("src/lib/competition/workspaceServer.ts");

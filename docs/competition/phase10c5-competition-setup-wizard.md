@@ -22,11 +22,12 @@ The wizard ends with **Create Competition Draft**. Its steps are:
    - Who may enter, as stated by the source, is shown under the offering. 10C.5 does not enforce eligibility.
    - Showcase-type formats (Showcase, Spotlight, the Ballroom performances, Routine / Showcase, Choreographed Routine) can be judged "Same as the style", Adjudicated or Non-Adjudicated.
 7. **Divisions.** Chosen per entry format, and shared by every dance style it is entered in.
-8. **Dances.** Chosen per category. A styled offering shows one group per chosen style, with only that style's dances.
+8. **Dances.** Chosen per category. A styled offering shows one group per chosen style, with only that style's dances. Each group has **Check all** and **Clear all**, which act on that group only, and a count ("3 of 5 selected"). Selections survive Back, Continue and refresh. The 20-dance cap is per category; a program may use up to 60 dances.
 9. **Rounds.** A Final per division, or a Performance round when Non-Adjudicated.
 10. **Registration basics.**
 11. **Pricing.** Per dance, per entry, included with registration fee, free, or configure later.
-12. **Review.**
+12. **Event page** (Event details & presentation). See below.
+13. **Review.** Includes the event page preview.
 
 ## Country Showcase and Spotlight (UCWDC terminology, not reversed)
 
@@ -58,7 +59,7 @@ Dance style is a category dimension. The profile lists the styles with their dan
 - International Latin: Cha Cha, Samba, Rumba, Paso Doble, Jive.
 - American Smooth: Waltz, Tango, Foxtrot, Viennese Waltz.
 - American Rhythm: Cha Cha, Rumba, Swing, Bolero, Mambo.
-- Additional American Style Dances (IX.A.1.e): only dances the organizer adds.
+- Additional American Style Dances (IX.A.1.e, p39): the rule book's examples, "could include but not be limited to": Bachata, Cumbia, Hustle, Jitterbug, Lindy Hop, Merengue, Night Club Two-Step, Paso Doble, Peabody, Polka, Salsa, Samba, West Coast Swing, and the Tangos Argentine Tango, Argentine Vals and Milonga. Country Western versions also count as American style. Organizers may add other dances (Studio / Custom). The wizard also shows the organizer-friendly heading "Nightclub / Specialty Dances" (presentation only; "Nightclub" is an NDCA tempo group, IX.B.5.c, not a classification).
 
 An offering entered in two styles becomes two categories, for example "Pro/Am — American Smooth" and "Pro/Am — International Latin". Each category accepts only its style's dances; organizer-added dances belong only to Additional American Style Dances. Showdance is entered in the four primary styles (NDCA XI.B). Withdrawing a style removes its dances.
 
@@ -70,6 +71,18 @@ The profile records `source_conflicts`:
 - `ndca_formation_scoring` (III.D.11 vs XII.N.3). Studio Formation uses Studio placements.
 
 Pro/Am Theatrical and Pro/Am Exhibition are Pro/Am performance divisions (II.B.7.c), not levels. Their music is NOT SPECIFIED IN PROVIDED SOURCE and is recorded as such.
+
+## Event details & presentation
+
+The competition runs on an existing event, so this step edits that event's page rather than creating a second one.
+
+- **Starts from the event.** Title, short summary, description and cover image start from the event's current values (the same columns the public event page reads). Highlights and important registration information are new, optional fields.
+- **Only changes are written.** `create_competition_draft` receives only the fields that differ from the event as stored when the draft is created (the server re-reads the event and re-derives the change set). Unchanged fields are never written. The ordinary event form's `updateEventAction` was not reused: it rewrites every event column and replaces tags, styles, locations, schedule and coaches.
+- **Venue and dates stay with the event.** They are shown read-only with a link to Edit event. The wizard never writes the venue, dates, slug, visibility or status.
+- **Rich content.** DanceFlow event descriptions are plain text with line breaks (no rich-text editor or HTML exists); the step keeps that.
+- **Cover image.** Uploaded with the organizer's own session to the existing `event-media` bucket (5 MB, JPG/PNG/WebP), under the studio's folder, using the ordinary event form's path convention. The storage policy requires studio access; organizer staff without it get a clear message to use Edit event. A new cover URL is accepted only under that studio's `event-media` prefix (checked by the server action and again by the database function).
+- **Preview.** The step and the Review show the page built from the same components the public event page now uses (`src/components/public/EventPresentation.tsx`). Creating the draft does not publish the event or open registration.
+- **Public page.** `/events/[slug]` renders highlights and registration information when present. No new route, no public competition registration.
 
 ## Scoring metadata: stages, not one method
 
@@ -184,6 +197,8 @@ The migration is `20261113090000_phase10c5_competition_draft.sql`, with a rollba
 
 The incorrect pre-correction v2 existed only on DEV and was never referenced. It was removed by a one-off DEV-only script that is not part of the migration, before the corrected v2 was seeded.
 
+**Event page columns (additive schema change).** `public.events` gains `public_highlights text[] not null default '{}'` (at most 6) and `public_registration_info text` (at most 2,000 characters). The migration refuses to run if they already exist. The rollback drops them only while no event uses them (it refuses otherwise). Release order: the PROD migration must be applied before the app is promoted, because the public event page selects these columns.
+
 **Ballroom correction (no schema change).** Dance styles, origins, source conflicts and the NDCA classifications are profile data inside the unreleased `studio_simple@2`. The existing `contest_type` and `entry_format` values already cover them (Student/Student uses `custom`). The only function change is in `create_competition_draft` (style validation, per-style uniqueness, contest naming, `configuration.setup.style`). No table, constraint or index changes. The per-program category limit is now 60, because one offering entered in several styles counts once per style.
 
 ## Carry-forwards
@@ -194,4 +209,6 @@ The incorrect pre-correction v2 existed only on DEV and was never referenced. It
 - Event Operations Schedule (`event-operations-schedule.md`).
 - Not modelled yet (recorded in the matrix): UCWDC Solo Medley; NDCA Mixed Proficiency Amateur Couples (II.B.9); NDCA Studio Showcase (I.G); gender-separated categories; Pro/Am single- vs multi-dance event types.
 - Eligibility enforcement at registration (the notes are shown, not enforced).
+- Edit event (EventForm) does not edit highlights or registration information yet; it leaves them unchanged.
+- Pre-existing, not changed here: Edit event allows 10 MB covers while the `event-media` bucket allows 5 MB; the `public.events` RLS policies exist in the databases but not in repo migrations.
 - Owner walkthrough.

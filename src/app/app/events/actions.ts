@@ -112,7 +112,7 @@ type GuestCoachPayload = {
   blocks: GuestCoachBlockPayload[];
 };
 
-const EVENT_IMAGE_BUCKET = "event-media";
+import { EVENT_IMAGE_BUCKET } from "@/lib/events/media";
 
 const EVENT_SLUG_TAKEN_MESSAGE =
   "That event URL is already taken. Please choose a different event slug.";

@@ -15,9 +15,14 @@
 --      same request returns the same programs, a different request with that key fails safely.
 --   3. set_competition_category_pricing(contest, model, amount): completes deferred pricing.
 --   4. open_competition_registration: refuses while any category has pricing_pending (Configure later).
+--   5. public.events gains public_highlights and public_registration_info (additive; the public event page
+--      shows them). create_competition_draft may update the event page fields the organizer changed in the
+--      wizard (title, summary, description, cover image, highlights, registration information) -- never the
+--      venue, dates or slug.
 --
 -- Rollback: rollback/20261113090000_phase10c5_competition_draft_rollback.sql (refuses while pricing is
--- pending; restores open_competition_registration byte-for-byte; retires -- never deletes -- v2).
+-- pending; restores open_competition_registration byte-for-byte; retires -- never deletes -- v2; drops the two
+-- event page columns only while they are empty).
 
 -- ---------------------------------------------------------------------------
 -- 0. Preflight
@@ -37,7 +42,23 @@ begin
   if to_regprocedure('public.can_manage_event_competition(uuid)') is null then
     raise exception 'Phase 10C.5 preflight: can_manage_event_competition is missing.';
   end if;
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'events'
+             and column_name in ('public_highlights', 'public_registration_info')) then
+    raise exception 'Phase 10C.5 preflight: the event page columns already exist.';
+  end if;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- 0b. Event page content shown on the public event page (additive)
+-- ---------------------------------------------------------------------------
+alter table public.events
+  add column public_highlights text[] not null default '{}'::text[],
+  add column public_registration_info text;
+alter table public.events
+  add constraint events_public_highlights_check check (cardinality(public_highlights) <= 6),
+  add constraint events_public_registration_info_check check (public_registration_info is null or length(public_registration_info) <= 2000);
+comment on column public.events.public_highlights is 'Event page highlights (up to 6 short lines), shown on the public event page.';
+comment on column public.events.public_registration_info is 'Important registration information shown on the public event page (plain text).';
 
 -- ---------------------------------------------------------------------------
 -- 1. studio_simple@2 -- Studio / Custom Rules (schema 2)
@@ -664,7 +685,24 @@ declare
         {
           "key": "american_additional",
           "label": "Additional American Style Dances",
-          "dances": [],
+          "dances": [
+            "addl_bachata",
+            "addl_cumbia",
+            "addl_hustle",
+            "addl_jitterbug",
+            "addl_lindy_hop",
+            "addl_merengue",
+            "addl_night_club_two_step",
+            "addl_paso_doble",
+            "addl_peabody",
+            "addl_polka",
+            "addl_salsa",
+            "addl_samba",
+            "addl_west_coast_swing",
+            "addl_argentine_tango",
+            "addl_argentine_vals",
+            "addl_milonga"
+          ],
           "allow_custom_dances": true,
           "basis": "source_grounded",
           "sources": [
@@ -672,10 +710,25 @@ declare
               "document": "NDCA Rule Book",
               "edition": "June 2026 (compiled)",
               "section": "IX.A.1.e",
-              "page": "38-39"
+              "page": "39",
+              "quote": "These dances could include but not be limited to"
             }
           ],
-          "note": "Add the additional American style dances you will offer; NDCA does not list them."
+          "note": "NDCA lists these dances as examples, not a closed list, so you can add others. Country Western versions of these dances also count as American style (IX.A.1.e).",
+          "presentation": {
+            "label": "Nightclub / Specialty Dances",
+            "basis": "owner_operational",
+            "note": "Many events run these dances as a Nightclub or specialty session. That is how events are commonly scheduled, not an NDCA classification; offering or scheduling them is optional.",
+            "sources": [
+              {
+                "document": "NDCA Rule Book",
+                "edition": "June 2026 (compiled)",
+                "section": "IX.B.5.c",
+                "page": "41",
+                "quote": "NIGHTCLUB"
+              }
+            ]
+          }
         }
       ],
       "offering_groups": [
@@ -2793,6 +2846,86 @@ declare
         "key": "rhythm_mambo",
         "name": "Mambo",
         "category": "American Rhythm"
+      },
+      {
+        "key": "addl_bachata",
+        "name": "Bachata",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_cumbia",
+        "name": "Cumbia",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_hustle",
+        "name": "Hustle",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_jitterbug",
+        "name": "Jitterbug",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_lindy_hop",
+        "name": "Lindy Hop",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_merengue",
+        "name": "Merengue",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_night_club_two_step",
+        "name": "Night Club Two-Step",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_paso_doble",
+        "name": "Paso Doble",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_peabody",
+        "name": "Peabody",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_polka",
+        "name": "Polka",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_salsa",
+        "name": "Salsa",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_samba",
+        "name": "Samba",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_west_coast_swing",
+        "name": "West Coast Swing",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_argentine_tango",
+        "name": "Argentine Tango",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_argentine_vals",
+        "name": "Argentine Vals",
+        "category": "Additional American Style Dances"
+      },
+      {
+        "key": "addl_milonga",
+        "name": "Milonga",
+        "category": "Additional American Style Dances"
       }
     ],
     "country": [
@@ -5162,6 +5295,7 @@ declare
     "divisions": 80,
     "totalDivisions": 300,
     "dances": 20,
+    "programDances": 60,
     "nameLength": 200,
     "maxPrice": 100000
   }
@@ -5249,6 +5383,7 @@ declare
   v_opens timestamptz;
   v_closes timestamptz;
   v_account boolean;
+  v_page jsonb;
   v_program_id uuid;
   v_contest_id uuid;
   v_division_id uuid;
@@ -5330,6 +5465,32 @@ begin
   end if;
   v_account := (p_spec #>> '{registration,account_required}')::boolean;
 
+  -- Event page (optional): only the fields the organizer changed. Venue, dates and slug stay with the event.
+  v_page := coalesce(p_spec->'event', '{}'::jsonb);
+  if jsonb_typeof(v_page) <> 'object'
+    or exists (select 1 from jsonb_object_keys(v_page) k
+               where k not in ('name', 'summary', 'description', 'cover_image_url', 'highlights', 'registration_info')) then
+    raise exception 'The event page details are not valid.';
+  end if;
+  if v_page ? 'name' and (jsonb_typeof(v_page->'name') <> 'string' or length(btrim(v_page->>'name')) not between 1 and 160) then
+    raise exception 'Enter an event title of 1 to 160 characters.';
+  end if;
+  if exists (select 1 from (values ('summary', 300), ('description', 10000), ('registration_info', 2000)) f(k, max_length)
+             where v_page ? f.k and (jsonb_typeof(v_page->f.k) not in ('string', 'null') or length(coalesce(v_page->>f.k, '')) > f.max_length)) then
+    raise exception 'The event page text is too long.';
+  end if;
+  if v_page ? 'cover_image_url' and jsonb_typeof(v_page->'cover_image_url') <> 'null'
+    and (jsonb_typeof(v_page->'cover_image_url') <> 'string' or length(v_page->>'cover_image_url') > 2048
+         or v_page->>'cover_image_url' !~ ('^https://[^[:space:]/]+/storage/v1/object/public/event-media/' || v_event.studio_id::text || '/[^[:space:]]+$')) then
+    raise exception 'Upload the cover image again.';
+  end if;
+  if v_page ? 'highlights'
+    and (jsonb_typeof(v_page->'highlights') <> 'array' or jsonb_array_length(v_page->'highlights') > 6
+         or exists (select 1 from jsonb_array_elements(v_page->'highlights') h(value)
+                    where jsonb_typeof(h.value) <> 'string' or length(btrim(h.value #>> '{}')) not between 1 and 120)) then
+    raise exception 'Use up to 6 highlights of 1 to 120 characters each.';
+  end if;
+
   v_programs := p_spec->'programs';
   if jsonb_typeof(v_programs) is distinct from 'array'
     or jsonb_array_length(v_programs) < 1 or jsonb_array_length(v_programs) > (v_limits->>'programs')::integer then
@@ -5368,8 +5529,8 @@ begin
 
     -- Program dances: from the profile pool, or organizer-defined when the program allows it.
     v_pool := v_defaults->'dancePools'->(v_template->>'dance_pool');
-    if jsonb_typeof(v_prog->'dances') is distinct from 'array' or jsonb_array_length(v_prog->'dances') > (v_limits->>'dances')::integer then
-      raise exception 'Choose % dances or fewer for %.', v_limits->>'dances', v_template->>'label';
+    if jsonb_typeof(v_prog->'dances') is distinct from 'array' or jsonb_array_length(v_prog->'dances') > (v_limits->>'programDances')::integer then
+      raise exception 'Choose % dances or fewer for %.', v_limits->>'programDances', v_template->>'label';
     end if;
     v_dance_keys := '{}';
     for v_dance in select value from jsonb_array_elements(v_prog->'dances') loop
@@ -5520,7 +5681,18 @@ begin
   -- ---- writes ----
   update public.events
   set registration_required = true, account_required_for_registration = v_account,
-      registration_opens_at = v_opens, registration_closes_at = v_closes
+      registration_opens_at = v_opens, registration_closes_at = v_closes,
+      name = case when v_page ? 'name' then btrim(v_page->>'name') else name end,
+      short_description = case when v_page ? 'summary' then nullif(btrim(coalesce(v_page->>'summary', '')), '') else short_description end,
+      public_summary = case when v_page ? 'summary' then nullif(btrim(coalesce(v_page->>'summary', '')), '') else public_summary end,
+      description = case when v_page ? 'description' then nullif(btrim(coalesce(v_page->>'description', '')), '') else description end,
+      public_description = case when v_page ? 'description' then nullif(btrim(coalesce(v_page->>'description', '')), '') else public_description end,
+      cover_image_url = case when v_page ? 'cover_image_url' then v_page->>'cover_image_url' else cover_image_url end,
+      public_cover_image_url = case when v_page ? 'cover_image_url' then v_page->>'cover_image_url' else public_cover_image_url end,
+      public_highlights = case when v_page ? 'highlights'
+                               then array(select btrim(h.value) from jsonb_array_elements_text(v_page->'highlights') with ordinality h(value, n) order by h.n)
+                               else public_highlights end,
+      public_registration_info = case when v_page ? 'registration_info' then nullif(btrim(coalesce(v_page->>'registration_info', '')), '') else public_registration_info end
   where id = p_event_id;
 
   for v_prog, v_prog_ix in select value, ordinality from jsonb_array_elements(v_programs) with ordinality loop
@@ -5820,5 +5992,9 @@ begin
   if not exists (select 1 from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2 and status = 'active')
     or not exists (select 1 from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 1 and status = 'active') then
     raise exception 'Phase 10C.5 postflight: studio_simple@1 and @2 must both be active.';
+  end if;
+  if (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'events'
+      and column_name in ('public_highlights', 'public_registration_info')) <> 2 then
+    raise exception 'Phase 10C.5 postflight: the event page columns are missing.';
   end if;
 end $$;

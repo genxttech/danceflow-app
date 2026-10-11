@@ -76,6 +76,11 @@ language sql immutable as $$
     'request_key', p_key, 'profile_key', 'studio_simple', 'profile_version', 2, 'purpose', 'competition_showcase',
     'answers', '{"version": 4, "purpose": "competition_showcase", "styles": ["country", "ballroom"]}'::jsonb,
     'registration', '{"opens_at": "2026-01-01T00:00:00Z", "closes_at": "2030-01-01T00:00:00Z", "account_required": false}'::jsonb,
+    'event', jsonb_build_object(
+      'summary', 'A friendly studio competition.',
+      'cover_image_url', 'https://dev.example.supabase.co/storage/v1/object/public/event-media/' || pg_temp.u('00a001') || '/p10c5/cover.jpg',
+      'highlights', '["Live band", "  Pro/Am scholarship "]'::jsonb,
+      'registration_info', 'Entries close two weeks before the event.'),
     'programs', $j$[
       {"key": "country", "name": "P10C5 Comp — Country", "adjudication": "adjudicated", "judging": "medal_marks", "registration_fee": 40,
        "dances": [{"key": "two_step", "name": "Two Step", "category": "Country"},
@@ -133,7 +138,7 @@ insert into public.events (id, studio_id, name, slug, event_type, start_date, en
                            registration_required, account_required_for_registration)
 select pg_temp.u('00e00' || n), pg_temp.u('00a001'), 'P10C5 Event ' || n, 't-p10c5-e' || n, 'competition',
        current_date + 30, current_date + 30, 'published', 'public', false, true
-from generate_series(1, 8) n;
+from generate_series(1, 9) n;
 
 -- ============================================================================
 -- Profile v2
@@ -160,6 +165,20 @@ select pg_temp.chk('Ballroom offers NDCA classifications (no generic Couples) in
       and (select string_agg(c->>'key' || ':' || (c->>'status'), ',') from jsonb_array_elements(defaults->'source_conflicts') c)
           = 'ndca_student_student_youth:unresolved,ndca_formation_scoring:unresolved'
    from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
+select pg_temp.chk('Additional American Style Dances carry the NDCA IX.A.1.e examples; Nightclub is presentation only',
+  (select st->'dances' = '["addl_bachata","addl_cumbia","addl_hustle","addl_jitterbug","addl_lindy_hop","addl_merengue","addl_night_club_two_step","addl_paso_doble","addl_peabody","addl_polka","addl_salsa","addl_samba","addl_west_coast_swing","addl_argentine_tango","addl_argentine_vals","addl_milonga"]'::jsonb
+          and st->>'label' = 'Additional American Style Dances' and st #>> '{presentation,label}' = 'Nightclub / Specialty Dances'
+          and st #>> '{presentation,basis}' = 'owner_operational' and (st->>'allow_custom_dances')::boolean
+          and defaults #>> '{limits,programDances}' = '60' and defaults #>> '{limits,dances}' = '20'
+   from public.competition_rules_profiles, jsonb_array_elements(defaults #> '{programs,ballroom,styles}') st
+   where profile_key = 'studio_simple' and version = 2 and st->>'key' = 'american_additional'));
+select pg_temp.chk('the event page columns exist with their limits and are readable wherever event names are',
+  (select count(*) = 2 from information_schema.columns where table_schema = 'public' and table_name = 'events'
+     and column_name in ('public_highlights', 'public_registration_info'))
+  and has_column_privilege('anon', 'public.events', 'public_highlights', 'SELECT') = has_column_privilege('anon', 'public.events', 'name', 'SELECT')
+  and has_column_privilege('authenticated', 'public.events', 'public_registration_info', 'SELECT') = has_column_privilege('authenticated', 'public.events', 'name', 'SELECT'));
+select pg_temp.expect_msg('the highlights column refuses more than six items',
+  $q$update public.events set public_highlights = array['1','2','3','4','5','6','7'] where id = pg_temp.u('00e002')$q$, 'events_public_highlights_check');
 select pg_temp.chk('Country Showcase = set music per dance; Spotlight = competitor-selected music (UCWDC-grounded); floor count not asserted',
   (select defaults #>> '{categoryTypes,showcase,music_source,value}' = 'profile_defined'
       and defaults #>> '{categoryTypes,showcase,music_source,basis}' = 'source_grounded'
@@ -294,6 +313,24 @@ select pg_temp.expect_msg('custom dances are refused where the style does not al
       "dances": [{"key": "custom_slow_swing", "name": "Slow Swing"}],
       "categories": [{"type": "jack_and_jill", "divisions": [{"name": "Novice"}], "dances": ["custom_slow_swing"],
                       "pricing": {"model": "per_entry", "amount": 15}}]}'::jsonb)), 'not available for West Coast Swing');
+select pg_temp.expect_msg('the event page refuses fields outside the presentation (venue, dates, slug)',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-venue', '{event,venue_name}', '"Elsewhere"')), 'event page details are not valid');
+select pg_temp.expect_msg('the event page must be an object',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-shape', '{event}', '"x"')), 'event page details are not valid');
+select pg_temp.expect_msg('an empty event title is refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-name', '{event,name}', '"   "')), 'Enter an event title');
+select pg_temp.expect_msg('an over-long summary is refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-summary', '{event,summary}', to_jsonb(repeat('x', 301)))), 'too long');
+select pg_temp.expect_msg('a cover image from another studio is refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-cover-studio', '{event,cover_image_url}',
+    to_jsonb('https://dev.example.supabase.co/storage/v1/object/public/event-media/' || gen_random_uuid() || '/x/cover.jpg'))), 'Upload the cover image again');
+select pg_temp.expect_msg('an external cover image URL is refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-cover-external', '{event,cover_image_url}',
+    to_jsonb('https://evil.example/storage/v1/object/public/event-media/' || pg_temp.u('00a001') || '/../x.jpg?' || ' x'))), 'Upload the cover image again');
+select pg_temp.expect_msg('more than six highlights are refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-many', '{event,highlights}', '["1","2","3","4","5","6","7"]')), 'up to 6 highlights');
+select pg_temp.expect_msg('an empty highlight is refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-blank', '{event,highlights}', '["Live band", "   "]')), 'up to 6 highlights');
 select pg_temp.expect_msg('registration cannot close before it opens',
   pg_temp.draft('00e002', pg_temp.bad('reject-window', '{registration,closes_at}', '"2025-01-01T00:00:00Z"')), 'close before it opens');
 select pg_temp.expect_msg('invalid registration dates are refused',
@@ -410,6 +447,14 @@ select pg_temp.chk('included pricing creates one program-scoped per-person regis
 select pg_temp.chk('Configure later marks only that category pricing-pending',
   (select string_agg(configuration #>> '{simple,category_type}', ',') from public.event_competition_contests
    where event_id = pg_temp.u('00e001') and configuration #>> '{setup,pricing_pending}' = 'true') = 'team');
+select pg_temp.chk('the event page changes are saved; title, venue, dates and slug are untouched',
+  (select name = 'P10C5 Event 1' and slug = 't-p10c5-e1' and start_date = current_date + 30 and end_date = current_date + 30
+          and short_description = 'A friendly studio competition.' and public_summary = short_description
+          and public_highlights = array['Live band', 'Pro/Am scholarship'] and public_registration_info = 'Entries close two weeks before the event.'
+          and cover_image_url = 'https://dev.example.supabase.co/storage/v1/object/public/event-media/' || pg_temp.u('00a001') || '/p10c5/cover.jpg'
+          and public_cover_image_url = cover_image_url
+   from public.events where id = pg_temp.u('00e001')),
+  (select row_to_json(e)::text from (select name, slug, short_description, public_highlights, public_registration_info, cover_image_url from public.events where id = pg_temp.u('00e001')) e));
 select pg_temp.chk('registration basics are saved on the event',
   (select registration_required and not account_required_for_registration
           and registration_opens_at = '2026-01-01T00:00:00Z' and registration_closes_at = '2030-01-01T00:00:00Z'
@@ -526,6 +571,9 @@ select pg_temp.chk('adjudicated Showcase / Performance: Country program, Medal M
   and (select string_agg(r.name || ':' || r.round_type || ':' || r.scoring_method, ',') from public.event_competition_rounds r where r.event_id = pg_temp.u('00e003'))
       = 'Final:final:custom,Final:final:custom'
   and (select account_required_for_registration and registration_opens_at is null from public.events where id = pg_temp.u('00e003')));
+select pg_temp.chk('a request without event page changes leaves the event page alone',
+  (select short_description is null and cardinality(public_highlights) = 0 and public_registration_info is null and cover_image_url is null
+   from public.events where id = pg_temp.u('00e003')));
 select pg_temp.expect_ok('a Non-Adjudicated style can still adjudicate its Showcase (override)',
   pg_temp.draft('00e008', pg_temp.one('p10c5-nonadj-adj-showcase', 'competition_showcase',
     '{"key": "country", "name": "Country Social", "adjudication": "non_adjudicated", "judging": "non_adjudicated", "registration_fee": null,
@@ -570,6 +618,19 @@ select pg_temp.chk('Ballroom Professional shape: per-style contest, contest-type
    where p.event_id = pg_temp.u('00e005') and c.entry_format = 'professional')
   and (select name = 'Pro/Am — Additional American Style Dances' from public.event_competition_contests
        where event_id = pg_temp.u('00e005') and configuration #>> '{setup,style}' = 'american_additional'));
+select pg_temp.expect_ok('a program may use more than 20 dances across its categories (the 20 cap is per category)',
+  pg_temp.draft('00e009', pg_temp.one('p10c5-many-dances', 'competition', jsonb_build_object(
+    'key', 'ballroom', 'name', 'Ballroom', 'adjudication', 'adjudicated', 'judging', 'placements', 'registration_fee', null,
+    'dances', (select jsonb_agg(jsonb_build_object('key', d)) from jsonb_array_elements_text('["std_waltz","std_tango","std_viennese_waltz","std_slow_foxtrot","std_quickstep","latin_cha_cha","latin_samba","latin_rumba","latin_paso_doble","latin_jive","smooth_waltz","smooth_tango","smooth_foxtrot","smooth_viennese_waltz","rhythm_cha_cha","rhythm_rumba","rhythm_swing","rhythm_bolero","rhythm_mambo","addl_salsa","addl_hustle"]'::jsonb) d),
+    'categories', (select jsonb_agg(jsonb_build_object('type', 'ndca_pro_am', 'style', st, 'divisions', '[{"name": "Bronze"}]'::jsonb,
+                         'dances', (select jsonb_agg(d) from jsonb_array_elements_text('["std_waltz","std_tango","std_viennese_waltz","std_slow_foxtrot","std_quickstep","latin_cha_cha","latin_samba","latin_rumba","latin_paso_doble","latin_jive","smooth_waltz","smooth_tango","smooth_foxtrot","smooth_viennese_waltz","rhythm_cha_cha","rhythm_rumba","rhythm_swing","rhythm_bolero","rhythm_mambo","addl_salsa","addl_hustle"]'::jsonb) d
+                                    where d like (case st when 'international_standard' then 'std_%' when 'international_latin' then 'latin_%'
+                                                          when 'american_smooth' then 'smooth_%' when 'american_rhythm' then 'rhythm_%' else 'addl_%' end)),
+                         'pricing', '{"model": "free", "amount": null}'::jsonb))
+                    from unnest(array['international_standard', 'international_latin', 'american_smooth', 'american_rhythm', 'american_additional']) st)))));
+select pg_temp.chk('the 21-dance Ballroom program has five style categories',
+  pg_temp.n($q$select count(*) from public.event_competition_dances where event_id = pg_temp.u('00e009')$q$) = 21
+  and pg_temp.n($q$select count(*) from public.event_competition_contests where event_id = pg_temp.u('00e009')$q$) = 5);
 select pg_temp.expect_ok('multiple styles create one program each; Other may use Gold / Silver / Bronze',
   pg_temp.draft('00e006', jsonb_build_object('request_key', 'p10c5-multi-style', 'profile_key', 'studio_simple', 'profile_version', 2,
     'purpose', 'competition', 'answers', '{}'::jsonb,

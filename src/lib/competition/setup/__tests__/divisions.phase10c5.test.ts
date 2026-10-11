@@ -28,7 +28,7 @@ import {
   type SetupAnswers,
 } from "../draft";
 import type { DivisionAxis, DivisionAxisKey } from "../types";
-import { withOfferings } from "./divisionTestHelpers";
+import { withOfferings, TEST_EVENT } from "./divisionTestHelpers";
 
 /**
  * 10C.5 Divisions: which divisions are OFFERED, per entry format, multi-select per axis, with provenance.
@@ -42,7 +42,7 @@ const value = (scheme: string, key: string, label: string) => axis(scheme, key).
 const labels = (scheme: string, key: string) => axis(scheme, key).values.map((item) => item.label);
 
 function country(): SetupAnswers {
-  let answers = chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, "country");
+  let answers = chooseStyle(choosePurpose(initialAnswers(undefined, TEST_EVENT), P, "competition"), P, "country");
   answers = chooseAdjudication(answers, "country", "adjudicated");
   answers = withOfferings(answers, P, "country", ["pro_am", "pro_pro", "couples"]);
   for (const format of ["pro_am", "pro_pro", "couples"]) answers = { ...answers, programs: { ...answers.programs, country: { ...answers.programs.country, formats: { ...answers.programs.country.formats, [format]: { ...answers.programs.country.formats[format]!, pricing: "free" } } } } };

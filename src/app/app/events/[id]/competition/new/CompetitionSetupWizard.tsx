@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createCompetitionDraftAction, type ActionState } from "../simpleActions";
+import { EventPagePreview, EventPageStep } from "./EventPageStep";
 import type { FormatKey, ProgramKey, SetupProfileDefaults } from "@/lib/competition/setup/types";
+import type { EventPresentation } from "@/lib/competition/setup/draft";
 import { clearStoredSetup, loadStoredSetup, saveStoredSetup } from "@/lib/competition/setup/persistence";
 import {
   ADJUDICATION_OVERRIDE_LABELS,
@@ -19,10 +21,13 @@ import {
   formatRunNote,
   judgingSummary,
   offeringGroups,
+  categoryDanceOptions,
+  categorySelectedDances,
+  selectAllCategoryDances,
+  clearCategoryDances,
+  isCustomDanceKey,
   formatStyleOptions,
   formatCategories,
-  formatDanceOptions,
-  danceStyleOf,
   toggleFormatStyle,
   setFormatAdjudication,
   PRICING_LABELS,
@@ -242,12 +247,82 @@ export function DivisionChoices({
   );
 }
 
+/**
+ * The Dances choices for one category (an offering, or one dance style of a styled offering): every dance it
+ * offers as a chip, with Check all / Clear all and a count that act on this category only.
+ */
+export function DanceCategoryChoices({
+  answers,
+  defaults,
+  styleKey,
+  format,
+  danceStyle,
+  label,
+  update,
+}: {
+  answers: SetupAnswers;
+  defaults: SetupProfileDefaults;
+  styleKey: ProgramKey;
+  format: FormatKey;
+  /** The dance style key for a styled offering; null for an unstyled offering. */
+  danceStyle: string | null;
+  label: string;
+  update: (change: (current: SetupAnswers) => SetupAnswers) => void;
+}) {
+  const program = answers.programs[styleKey];
+  const value = program?.formats[format];
+  if (!value) return null;
+  const options = categoryDanceOptions(defaults, styleKey, program, format, danceStyle);
+  const selected = categorySelectedDances(defaults, styleKey, program, format, danceStyle);
+  const style = danceStyle ? defaults.programs[styleKey]?.styles?.find((item) => item.key === danceStyle) : undefined;
+  return (
+    <div className="mt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+          {style?.presentation ? <span className="ml-1 font-normal normal-case text-slate-400">· {style.presentation.label}</span> : null}
+        </p>
+        {options.length > 0 ? (
+          <span className="flex items-center gap-3 text-xs font-semibold text-slate-600">
+            <span className="font-normal text-slate-500" aria-live="polite">
+              {selected.length} of {options.length} selected
+            </span>
+            <button type="button" className="underline disabled:no-underline disabled:opacity-40" disabled={selected.length === options.length}
+              aria-label={`Check all dances for ${label}`} onClick={() => update((current) => selectAllCategoryDances(current, defaults, styleKey, format, danceStyle))}>
+              Check all
+            </button>
+            <button type="button" className="underline disabled:no-underline disabled:opacity-40" disabled={selected.length === 0}
+              aria-label={`Clear all dances for ${label}`} onClick={() => update((current) => clearCategoryDances(current, defaults, styleKey, format, danceStyle))}>
+              Clear all
+            </button>
+          </span>
+        ) : null}
+      </div>
+      {style?.presentation ? <p className="mt-1 text-xs text-slate-500">{style.presentation.note}</p> : null}
+      {style?.note ? <p className="mt-1 text-xs text-slate-500">{style.note}</p> : null}
+      {options.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {options.map((dance) => (
+            <Chip key={dance.key} selected={value.dances.includes(dance.key)} onClick={() => update((current) => toggleFormatDance(current, defaults, styleKey, format, dance.key))}>
+              {dance.name}
+              {isCustomDanceKey(dance.key) ? <span className="ml-1 text-xs opacity-70">(added · Studio / Custom)</span> : null}
+            </Chip>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-slate-500">No dances are listed for this style.</p>
+      )}
+    </div>
+  );
+}
+
 export default function CompetitionSetupWizard({
   eventId,
   event,
   profile,
   defaults,
   initialRegistration,
+  initialPresentation,
   requestKey: initialRequestKey,
 }: {
   eventId: string;
@@ -255,10 +330,12 @@ export default function CompetitionSetupWizard({
   profile: { key: string; version: number };
   defaults: SetupProfileDefaults;
   initialRegistration: SetupAnswers["registration"];
+  /** The event page as stored now: the starting point and the baseline only changes are written against. */
+  initialPresentation: EventPresentation;
   requestKey: string;
 }) {
   const router = useRouter();
-  const [answers, setAnswers] = useState<SetupAnswers>(() => initialAnswers(initialRegistration));
+  const [answers, setAnswers] = useState<SetupAnswers>(() => initialAnswers(initialRegistration, initialPresentation));
   const [step, setStep] = useState<StepKey>("purpose");
   const [requestKey, setRequestKey] = useState(initialRequestKey);
   const [restored, setRestored] = useState(false);
@@ -292,8 +369,8 @@ export default function CompetitionSetupWizard({
   }, [action.ok, action.href, eventId, router]);
 
   const draft = useMemo(
-    () => deriveDraft(answers, defaults, { eventName: event.name, profileKey: profile.key, profileVersion: profile.version, requestKey }),
-    [answers, defaults, event.name, profile.key, profile.version, requestKey],
+    () => deriveDraft(answers, defaults, { eventName: event.name, profileKey: profile.key, profileVersion: profile.version, requestKey, event: initialPresentation }),
+    [answers, defaults, event.name, profile.key, profile.version, requestKey, initialPresentation],
   );
   const steps = visibleSteps(answers, defaults);
   const errors = stepErrors(answers, defaults, step);
@@ -562,48 +639,29 @@ export default function CompetitionSetupWizard({
               if (formats.length === 0) return null;
               const program = answers.programs[key];
               const customStyle = tpl(key).styles?.find((style) => style.allow_custom_dances);
-              const danceChips = (format: FormatKey, dances: Array<{ key: string; name: string }>) => (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {dances.map((dance) => (
-                    <Chip
-                      key={dance.key}
-                      selected={program.formats[format]!.dances.includes(dance.key)}
-                      onClick={() => update((current) => toggleFormatDance(current, defaults, key, format, dance.key))}
-                    >
-                      {dance.name}
-                    </Chip>
-                  ))}
-                </div>
-              );
               return (
                 <div key={key} className={groupClass}>
                   <p className="text-sm font-semibold text-slate-950">{tpl(key).label}</p>
-                  {formats.map((format) => {
-                    const options = formatDanceOptions(defaults, key, program, format);
-                    if (!fmt(format).uses_styles) {
-                      return (
-                        <div key={format} className="mt-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fmt(format).label}</p>
-                          {danceChips(format, options)}
-                        </div>
-                      );
-                    }
-                    // A styled offering: one group per chosen dance style, showing only that style's dances.
-                    return formatCategories(defaults, key, format, program.formats[format]!).map((category) => {
-                      const dances = options.filter((dance) => danceStyleOf(defaults, key, dance.key)?.key === category.style?.key);
-                      return (
-                        <div key={`${format}:${category.style?.key}`} className="mt-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{category.label}</p>
-                          {dances.length > 0 ? danceChips(format, dances) : (
-                            <p className="mt-1 text-xs text-slate-500">{category.style?.allow_custom_dances ? "Add the dances you will offer below." : "No dances are listed for this style."}</p>
-                          )}
-                        </div>
-                      );
-                    });
-                  })}
+                  {formats.flatMap((format) =>
+                    // One group per category: a styled offering shows each chosen dance style separately.
+                    formatCategories(defaults, key, format, program.formats[format]!).map((category) => (
+                      <DanceCategoryChoices
+                        key={`${format}:${category.style?.key ?? ""}`}
+                        answers={answers}
+                        defaults={defaults}
+                        styleKey={key}
+                        format={format}
+                        danceStyle={category.style?.key ?? null}
+                        label={category.label}
+                        update={update}
+                      />
+                    )),
+                  )}
                   {tpl(key).custom_dances ? (
                     <div className="mt-4 border-t border-slate-100 pt-3">
-                      {customStyle ? <p className="mb-2 text-xs text-slate-500">Dances you add belong to {customStyle.label}.</p> : null}
+                      <p className="mb-2 text-xs text-slate-500">
+                        Dances you add are your own (Studio / Custom), not governing-body dances.{customStyle ? ` They belong to ${customStyle.label}.` : ""}
+                      </p>
                       <div className="flex flex-wrap gap-2">
                         {program.customDances.map((dance) => (
                           <span key={dance.key} className="inline-flex items-center gap-2 rounded-full bg-slate-100 py-1.5 pl-3 pr-2 text-sm text-slate-800">
@@ -769,12 +827,22 @@ export default function CompetitionSetupWizard({
           </section>
         ) : null}
 
+        {step === "event" ? (
+          <section aria-labelledby="step-event" className="space-y-4">
+            <div>
+              <h3 id="step-event" className={headingClass}>Event details &amp; presentation</h3>
+              <p className="mt-1 text-sm text-slate-600">The public event page for this competition. It starts from what the event already has.</p>
+            </div>
+            <EventPageStep eventId={eventId} answers={answers} baseline={initialPresentation} summary={event} update={update} />
+          </section>
+        ) : null}
+
         {isReview ? (
           <section aria-labelledby="step-review" className="space-y-4">
             <div>
               <h3 id="step-review" className={headingClass}>Review</h3>
               <p className="mt-1 text-sm text-slate-600">
-                {draft.counts.categories} entry {draft.counts.categories === 1 ? "format" : "formats"} · {draft.counts.divisions}{" "}
+                {draft.counts.categories} {draft.counts.categories === 1 ? "category" : "categories"} · {draft.counts.divisions}{" "}
                 {draft.counts.divisions === 1 ? "division" : "divisions"} · {draft.counts.rounds} {draft.counts.rounds === 1 ? "round" : "rounds"} · {draft.counts.dances}{" "}
                 {draft.counts.dances === 1 ? "dance" : "dances"}
               </p>
@@ -800,6 +868,20 @@ export default function CompetitionSetupWizard({
                 <dd className="text-slate-900">Draft · registration closed</dd>
               </div>
             </dl>
+            <div className={groupClass}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-950">Event page</p>
+                <button type="button" className="text-xs font-semibold underline" onClick={() => go("event")}>
+                  Edit
+                </button>
+              </div>
+              <p className="text-xs text-slate-500">
+                {Object.keys(draft.payload?.event ?? {}).length > 0 ? `${Object.keys(draft.payload?.event ?? {}).length} change(s) will be saved to the event page.` : "The event page is unchanged."}
+              </p>
+              <div className="mt-3">
+                <EventPagePreview presentation={answers.presentation} summary={event} />
+              </div>
+            </div>
             {draft.programs.map((program) => (
               <div key={program.key} className={groupClass}>
                 <p className="text-sm font-semibold text-slate-950">{program.name}</p>

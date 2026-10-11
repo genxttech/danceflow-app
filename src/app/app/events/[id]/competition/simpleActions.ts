@@ -9,6 +9,9 @@ import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
 import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
 import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV2";
 import { SETUP_STEPS, deriveDraft, parsePrice, restoreAnswers, setupProfileProblems } from "@/lib/competition/setup/draft";
+import { readEventPresentation } from "@/lib/competition/setup/eventPresentationServer";
+import { EVENT_IMAGE_BUCKET, EVENT_IMAGE_MAX_BYTES, eventImagePublicPrefix } from "@/lib/events/media";
+import { IMAGE_UPLOAD_MIME_TYPES, safeStorageSegment, validateUploadFile } from "@/lib/security/uploads";
 
 export type ActionState = { ok: boolean; error?: string; href?: string };
 
@@ -70,8 +73,12 @@ export async function createCompetitionDraftAction(_previous: ActionState, formD
   const answers = restoreAnswers(parsed, defaults);
   if (!answers) return { ok: false, error: "The setup could not be read. Please start again." };
 
+  // The event page fields are diffed against the event as stored now, so only real changes are written.
+  const baseline = await readEventPresentation(supabase, eventId);
+  if (!baseline) return { ok: false, error: "Event was not found." };
   const draft = deriveDraft(answers, defaults, {
-    eventName: event.name,
+    eventName: baseline.name || event.name,
+    event: baseline,
     profileKey: STUDIO_CUSTOM_PROFILE.key,
     profileVersion: STUDIO_CUSTOM_PROFILE.version,
     requestKey,
@@ -79,6 +86,13 @@ export async function createCompetitionDraftAction(_previous: ActionState, formD
   if (!draft.payload) {
     const step = SETUP_STEPS.find((item) => draft.errors[item.key]?.length);
     return { ok: false, error: step ? `${step.label}: ${draft.errors[step.key]?.[0]}` : "Finish every step before creating the draft." };
+  }
+
+  // A new cover image must be one uploaded for this studio (never an arbitrary external URL).
+  const cover = draft.payload.event.cover_image_url;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  if (cover && (!supabaseUrl || !cover.startsWith(eventImagePublicPrefix(supabaseUrl, event.studio_id)))) {
+    return { ok: false, error: "Event page: Upload the cover image again." };
   }
 
   const zone = getEventTimeZone(event);
@@ -97,6 +111,35 @@ export async function createCompetitionDraftAction(_previous: ActionState, formD
 
   refreshWorkspace(eventId);
   return { ok: true, href: `${competitionWorkspaceHref(eventId)}?created=1` };
+}
+
+export type CoverUploadState = { ok: boolean; url?: string; error?: string };
+
+/**
+ * 10C.5 Event page step: uploads a cover image to the existing event-media bucket with the organizer's own
+ * session (the storage policy requires studio access) and returns its public URL. Nothing on the event changes
+ * until the competition draft is created; the path follows the ordinary event form's convention.
+ */
+export async function uploadCompetitionCoverImageAction(formData: FormData): Promise<CoverUploadState> {
+  const eventId = text(formData, "eventId");
+  if (!eventId) return { ok: false, error: "Event is required." };
+  const { supabase, event } = await requireCompetitionManager(eventId);
+  const file = formData.get("coverImage");
+  const upload = file instanceof File ? file : null;
+  const validation = await validateUploadFile(upload, {
+    fieldLabel: "Cover image",
+    maxBytes: EVENT_IMAGE_MAX_BYTES,
+    allowedMimeTypes: IMAGE_UPLOAD_MIME_TYPES,
+    allowedExtensions: ["jpg", "jpeg", "png", "webp"],
+    kind: "image",
+  });
+  if (!validation.ok || !upload) return { ok: false, error: validation.ok ? "Choose an image." : validation.error };
+  const folder = safeStorageSegment(event.slug ?? eventId, "event");
+  const path = `${event.studio_id}/${folder}/competition-cover-${Date.now()}-${crypto.randomUUID()}.${validation.extension}`;
+  const { error } = await supabase.storage.from(EVENT_IMAGE_BUCKET).upload(path, upload, { contentType: validation.mimeType, upsert: false });
+  if (error) return { ok: false, error: "The image could not be uploaded. If your account cannot add images for this studio, use Edit event instead." };
+  const { data } = supabase.storage.from(EVENT_IMAGE_BUCKET).getPublicUrl(path);
+  return { ok: true, url: data.publicUrl };
 }
 
 /** 10C.5: completes "Configure later" pricing for one category (set_competition_category_pricing). */

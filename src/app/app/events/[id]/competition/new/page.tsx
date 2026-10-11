@@ -6,6 +6,7 @@ import { getEventTimeZone } from "@/lib/events/eventTiming";
 import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
 import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV2";
 import { setupProfileProblems } from "@/lib/competition/setup/draft";
+import { readEventPresentation } from "@/lib/competition/setup/eventPresentationServer";
 import CompetitionSetupWizard, { type EventSummary } from "./CompetitionSetupWizard";
 
 /** An existing registration timestamp as a YYYY-MM-DD date in the event time zone (for the date inputs). */
@@ -48,7 +49,7 @@ export default async function NewCompetitionPage({ params }: { params: Promise<{
 
   // 10C.5: the setup wizard runs on the Studio / Custom Rules profile (schema 2). Governing-body rules are
   // shown in the wizard but are not available yet, so no other profile is loaded here.
-  const [{ data: profile }, { data: eventRegistration }] = await Promise.all([
+  const [{ data: profile }, { data: eventRegistration }, presentation] = await Promise.all([
     supabase
       .from("competition_rules_profiles")
       .select("profile_key, version, defaults")
@@ -57,7 +58,9 @@ export default async function NewCompetitionPage({ params }: { params: Promise<{
       .eq("status", "active")
       .maybeSingle(),
     supabase.from("events").select("account_required_for_registration").eq("id", id).maybeSingle(),
+    readEventPresentation(supabase, id),
   ]);
+  if (!presentation) throw new Error("The event could not be loaded.");
   if (!profile) throw new Error("No active competition profile is available.");
   // Fail loudly on a profile/code mismatch instead of rendering empty steps.
   if (setupProfileProblems(profile.defaults).length > 0) throw new Error("The competition setup rules do not match this version of DanceFlow.");
@@ -81,6 +84,7 @@ export default async function NewCompetitionPage({ params }: { params: Promise<{
         closes: localDate(event.registration_closes_at, event),
         accountRequired: eventRegistration?.account_required_for_registration ?? true,
       }}
+      initialPresentation={presentation}
       requestKey={randomUUID()}
     />
   );

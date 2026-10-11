@@ -46,6 +46,7 @@ describe("workspace components render", () => {
         profile: { key: "studio_simple", version: 2 },
         defaults: STUDIO_CUSTOM_V2_DEFAULTS,
         initialRegistration: { opens: "", closes: "", accountRequired: true },
+        initialPresentation: { name: "Spring Showcase", summary: "", description: "", coverImageUrl: "", highlights: [], registrationInfo: "" },
         requestKey: "request-key-0001",
       }),
     );

@@ -10,6 +10,7 @@ import { retryEventRegistrationCheckoutAction } from "./register/actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
+import { EventCoverImage, EventDescriptionBody, EventHeroText, EventHighlights, EventRegistrationInfo } from "@/components/public/EventPresentation";
 import { getBanner } from "./banner";
 
 // Public competition registration stays off until the registration slice ships (see the register route).
@@ -45,6 +46,8 @@ type EventRow = {
   start_time: string | null;
   end_time: string | null;
   cover_image_url: string | null;
+  public_highlights: string[] | null;
+  public_registration_info: string | null;
   visibility: string;
   featured: boolean;
   status: string;
@@ -1142,6 +1145,8 @@ export default async function PublicEventDetailPage({
       start_time,
       end_time,
       cover_image_url,
+      public_highlights,
+      public_registration_info,
       visibility,
       featured,
       status,
@@ -1684,19 +1689,7 @@ export default async function PublicEventDetailPage({
 
             <section className="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
               <div className="relative">
-                <div className="aspect-[16/7] w-full bg-slate-100">
-                  {typedEvent.cover_image_url ? (
-                    <img
-                      src={typedEvent.cover_image_url}
-                      alt={typedEvent.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_40%,#fff7ed_100%)] text-sm text-slate-500">
-                      Event image coming soon
-                    </div>
-                  )}
-                </div>
+                <EventCoverImage url={typedEvent.cover_image_url} alt={typedEvent.name} />
 
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/20 to-transparent" />
 
@@ -1729,16 +1722,7 @@ export default async function PublicEventDetailPage({
                         )}
                       </div>
 
-                      <div>
-                        <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">
-                          {typedEvent.name}
-                        </h1>
-                        <p className="mt-3 max-w-3xl text-sm leading-6 text-white/90 sm:text-base">
-                          {typedEvent.short_description ||
-                            typedEvent.description ||
-                            "Public event details coming soon."}
-                        </p>
-                      </div>
+                      <EventHeroText name={typedEvent.name} summary={typedEvent.short_description} description={typedEvent.description} />
 
                       <div className="flex flex-wrap gap-3">
                         {hasDanceFlowRegistration ? (
@@ -1884,15 +1868,9 @@ export default async function PublicEventDetailPage({
                       ))}
                     </div>
 
-                    <div className="mt-5 rounded-2xl border border-fuchsia-100 bg-white p-5 text-base leading-8 text-slate-700 shadow-sm">
-                      {typedEvent.description ? (
-                        <p className="whitespace-pre-wrap">
-                          {typedEvent.description}
-                        </p>
-                      ) : (
-                        <p>Full public event details are coming soon.</p>
-                      )}
-                    </div>
+                    <EventDescriptionBody description={typedEvent.description} />
+                    <EventHighlights highlights={typedEvent.public_highlights} />
+                    <EventRegistrationInfo info={typedEvent.public_registration_info} />
                   </div>
                 </section>
 

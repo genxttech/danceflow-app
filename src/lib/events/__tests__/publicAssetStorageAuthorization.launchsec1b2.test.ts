@@ -165,8 +165,8 @@ describe("LAUNCH-SEC-1B2 DEV regression suite", () => {
 });
 
 describe("application compatibility (no app change required)", () => {
-  const appFiles = () => {
-    const hits: Record<string, string[]> = { "event-media": [], "studio-public-assets": [] };
+  const appFiles = (needles: string[] = ['"event-media"', '"studio-public-assets"']) => {
+    const hits: Record<string, string[]> = Object.fromEntries(needles.map((needle) => [needle.replace(/"/g, ""), []]));
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir)) {
         const path = join(dir, entry);
@@ -175,8 +175,8 @@ describe("application compatibility (no app change required)", () => {
           walk(path);
         } else if (/\.(ts|tsx)$/.test(entry)) {
           const source = readFileSync(path, "utf8");
-          for (const bucket of Object.keys(hits)) {
-            if (source.includes(`"${bucket}"`)) hits[bucket].push(relative(ROOT, path).replace(/\\/g, "/"));
+          for (const needle of needles) {
+            if (source.includes(needle)) hits[needle.replace(/"/g, "")].push(relative(ROOT, path).replace(/\\/g, "/"));
           }
         }
       }
@@ -185,11 +185,33 @@ describe("application compatibility (no app change required)", () => {
     return hits;
   };
 
-  it("only the two reviewed server actions name these buckets", () => {
+  it("only the reviewed modules name these buckets", () => {
     expect(appFiles()).toEqual({
-      "event-media": ["src/app/app/events/actions.ts"],
+      // 10C.5: the event-media name lives in one shared constant (EVENT_IMAGE_BUCKET).
+      "event-media": ["src/lib/events/media.ts"],
       "studio-public-assets": ["src/app/app/settings/public-profile/actions.ts"],
     });
+  });
+
+  it("only the two reviewed server actions use the event-media bucket constant", () => {
+    expect(appFiles(["EVENT_IMAGE_BUCKET"]).EVENT_IMAGE_BUCKET.sort()).toEqual([
+      "src/app/app/events/[id]/competition/simpleActions.ts",
+      "src/app/app/events/actions.ts",
+      "src/lib/events/media.ts",
+    ]);
+  });
+
+  it("competition covers (10C.5) are uploaded under {studioId}/ with upsert:false, after the competition manager guard", () => {
+    const source = readFileSync(join(ROOT, "src/app/app/events/[id]/competition/simpleActions.ts"), "utf8").replace(/\r\n/g, "\n");
+    expect(source).toContain(
+      "const path = `${event.studio_id}/${folder}/competition-cover-${Date.now()}-${crypto.randomUUID()}.${validation.extension}`;",
+    );
+    expect(source).toContain(".upload(path, upload, { contentType: validation.mimeType, upsert: false });");
+    expect(source).not.toMatch(/\.from\(EVENT_IMAGE_BUCKET\)\s*\.(remove|update|move|list)\(/);
+    expect(source).not.toMatch(/createAdminClient|service_role/);
+    const action = source.slice(source.indexOf("export async function uploadCompetitionCoverImageAction"));
+    expect(action.indexOf("requireCompetitionManager(eventId)")).toBeGreaterThan(0);
+    expect(action.indexOf("requireCompetitionManager(eventId)")).toBeLessThan(action.indexOf(".upload("));
   });
 
   it("event covers are uploaded under {studioId}/ with upsert:false (matches the scoped INSERT)", () => {
