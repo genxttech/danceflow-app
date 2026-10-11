@@ -163,7 +163,7 @@ select pg_temp.expect_fail('profile table cannot be truncated',
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0b10b0000001","role":"authenticated"}', true);
-select pg_temp.chk('authenticated users can read the profile', (select count(*) from public.competition_rules_profiles where profile_key = 'studio_simple') = 1);
+select pg_temp.chk('authenticated users can read the profile', (select count(*) from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 1) = 1);
 select pg_temp.expect_fail('authenticated cannot insert a profile',
   $q$insert into public.competition_rules_profiles (profile_key, version, name, defaults) values ('rogue', 1, 'Rogue', '{}'::jsonb)$q$, '42501');
 reset role;
@@ -663,9 +663,11 @@ select pg_temp.chk('restart left no program, category, division or round on that
 -- ============================================================================
 -- PROFILE VERSIONS (run last: retiring v1 stops new v1 competitions)
 -- ============================================================================
--- later changes to the profile never reach a published competition
+-- later changes to the profile never reach a published competition. The hypothetical next version is the
+-- next free one (studio_simple@2 is the real 10C.5 Studio / Custom profile).
+select set_config('p10b.next_version', (select (max(version) + 1)::text from public.competition_rules_profiles where profile_key = 'studio_simple'), true);
 insert into public.competition_rules_profiles (profile_key, version, name, status, defaults)
-select profile_key, 2, 'Studio Competition v2', 'active',
+select profile_key, current_setting('p10b.next_version')::integer, 'Studio Competition v2', 'active',
        jsonb_set(jsonb_set(defaults, '{judging,ratings,bands}', '["Platinum","Gold"]'::jsonb), '{label}', '"Studio Competition v2"'::jsonb)
 from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 1;
 update public.competition_rules_profiles set status = 'retired' where profile_key = 'studio_simple' and version = 1;
@@ -685,10 +687,10 @@ select pg_temp.expect_msg('new competitions can no longer be created on a retire
      '[{"type":"solo","price":5}]'::jsonb, '[{"name":"Open"}]'::jsonb, 1))$q$, 'unsupported competition profile');
 select pg_temp.expect_ok('new competitions record the new version explicitly',
   $q$insert into t_ids select 'v2', public.create_simple_competition('00000000-0000-0000-0000-0b10b000e008', pg_temp.spec('studio_competition', 'placements', 'req-v2-active',
-     '[{"type":"solo","price":5}]'::jsonb, '[{"name":"Open"}]'::jsonb, 2))$q$);
+     '[{"type":"solo","price":5}]'::jsonb, '[{"name":"Open"}]'::jsonb, current_setting('p10b.next_version')::integer))$q$);
 reset role;
-select pg_temp.chk('the new competition carries studio_simple@2 while the published one stays @1',
-  (select rules_profile_version from public.event_competition_programs where id = (select v from t_ids where k = 'v2')) = 2
+select pg_temp.chk('the new competition carries the new version while the published one stays @1',
+  (select rules_profile_version from public.event_competition_programs where id = (select v from t_ids where k = 'v2')) = current_setting('p10b.next_version')::integer
   and (select rules_profile_version from public.event_competition_programs where id = (select v from t_ids where k = 'main')) = 1);
 
 -- ============================================================================
