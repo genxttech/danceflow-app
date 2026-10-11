@@ -15,8 +15,9 @@ function one<T>(value: T | T[] | null | undefined) {
 
 /**
  * The public registration catalog, read on the CALLER's session so row-level security decides what is
- * registrable (Phase 10C: event published + public/unlisted + registration required + inside the event
- * window + program published and registration_status open + category/division/offering open; fee rules
+ * registrable (Phase 10C: event published + public/unlisted + inside the competition registration window -- the
+ * program's own window for 10C.5 setups, otherwise the event's registration flag and window -- + program
+ * published and registration_status open + category/division/offering open; fee rules
  * only inside their window). The authoritative checkout never uses this: start_competition_registration
  * evaluates the same registrability predicates inside the database. Display / preview only.
  */

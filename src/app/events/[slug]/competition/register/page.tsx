@@ -15,10 +15,6 @@ type RequirementRow = {
   document_templates: { title: string; description: string | null; body: string; requires_signature: boolean | null } | Array<{ title: string; description: string | null; body: string; requires_signature: boolean | null }> | null;
 };
 
-function withinRegistrationWindow(opensAt: string | null, closesAt: string | null, now = Date.now()) {
-  return (!opensAt || new Date(opensAt).getTime() <= now) && (!closesAt || new Date(closesAt).getTime() >= now);
-}
-
 export default async function CompetitionRegisterPage({
   params,
   searchParams,
@@ -36,17 +32,24 @@ export default async function CompetitionRegisterPage({
   const { data: { user } } = await supabase.auth.getUser();
   const { data: event, error } = await supabase
     .from("events")
-    .select("id, slug, name, event_type, status, visibility, registration_required, registration_opens_at, registration_closes_at, account_required_for_registration")
+    .select("id, slug, name, event_type, status, visibility")
     .eq("slug", slug)
     .maybeSingle();
   if (error || !event || event.status !== "published" || !["public", "unlisted"].includes(event.visibility)) notFound();
-  if (!event.registration_required) redirect(`/events/${encodeURIComponent(slug)}`);
-  if (event.account_required_for_registration && !user) redirect(`/login?next=${encodeURIComponent(`/events/${slug}/competition/register`)}`);
 
-  // Phase 10C: the catalog is read under RLS, so it is empty unless registration is actually open
-  // (program registration_status, event window, published state). Payment results are shown only
-  // on the server-rendered status page, never from a query parameter.
-  const registrationOpen = withinRegistrationWindow(event.registration_opens_at, event.registration_closes_at);
+  // 10C.5: competition registration follows the competition's own state (program registration status, its
+  // registration window and account setting -- or, for earlier setups, the event's), never the event's ticket
+  // registration settings. Both checks are the database gate the catalog policies and checkout use.
+  const [{ data: openResult, error: openError }, { data: accountResult, error: accountError }] = await Promise.all([
+    supabase.rpc("competition_registration_event_open", { p_event_id: event.id }),
+    supabase.rpc("competition_registration_account_required", { p_event_id: event.id }),
+  ]);
+  if (openError || accountError) throw new Error("Could not load competition registration.");
+  const registrationOpen = openResult === true;
+  if (registrationOpen && accountResult !== false && !user) redirect(`/login?next=${encodeURIComponent(`/events/${slug}/competition/register`)}`);
+
+  // Phase 10C: the catalog is read under RLS, so it is empty unless registration is actually open.
+  // Payment results are shown only on the server-rendered status page, never from a query parameter.
   const catalog = await loadCompetitionRegistrationCatalog(supabase, event.id);
   const { data: requirements, error: requirementError } = await supabase
     .from("event_document_requirements")

@@ -216,7 +216,7 @@ function primaryAction(
       mode: "open",
       label: "Open registration",
       programId: program.id,
-      description: "Opening registration makes your published categories and divisions available to entrants during the event's registration window.",
+      description: "Opening registration makes your published categories and divisions available to entrants during the competition registration window. Ticket sales are not affected.",
     };
   }
   if (input.registrationOpen) {

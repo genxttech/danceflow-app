@@ -97,7 +97,8 @@ export async function createCompetitionDraftAction(_previous: ActionState, formD
     return { ok: false, error: "Event page: Upload the cover image again." };
   }
 
-  // Registration dates are whole days in the event time zone: the new one when this setup changes it.
+  // Competition registration dates are whole days in the event time zone (the new one when this setup changes it).
+  // They are stored on the competition only; the event's ticket registration settings are never changed here.
   const zone = getEventTimeZone({ timezone: draft.payload.event.timezone ?? event.timezone });
   const { opens, closes } = answers.registration;
   const spec = {
@@ -183,8 +184,9 @@ export async function publishCompetitionAction(_previous: ActionState, formData:
 /**
  * Phase 10C: OPEN / CLOSE registration through the canonical database lifecycle
  * (open_/close_competition_registration). Opening moves the published categories, their draft
- * divisions and registration rules to open; public visibility also needs the event to be published,
- * public/unlisted, registration-required and inside its registration window.
+ * divisions and registration rules to open; public visibility also needs the event to be published and
+ * public/unlisted, inside the competition's registration window (10C.5 setup) or, for earlier setups, the event's
+ * registration flag and window. Neither action changes the event's ticket registration.
  */
 export async function setCompetitionRegistrationAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
   const eventId = text(formData, "eventId");

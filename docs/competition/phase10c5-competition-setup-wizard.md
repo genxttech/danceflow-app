@@ -24,7 +24,7 @@ The wizard ends with **Create Competition Draft**. Its steps are:
 7. **Divisions.** Chosen per entry format, and shared by every dance style it is entered in.
 8. **Dances.** Chosen per category. A styled offering shows one group per chosen style, with only that style's dances. Each group has **Check all** and **Clear all**, which act on that group only, and a count ("3 of 5 selected"). Selections survive Back, Continue and refresh. The 20-dance cap is per category; a program may use up to 60 dances.
 9. **Rounds.** A Final per division, or a Performance round when Non-Adjudicated.
-10. **Registration basics.**
+10. **Competition registration.** An optional competition registration window and whether competitors need a DanceFlow account. These settings belong to the competition only: they start blank (account required), are stored on each program it creates (`configuration.setup.registration`) and never read or change the event's ticket registration. See "Registration isolation" below.
 11. **Pricing.** Per dance, per entry, included with registration fee, free, or configure later.
 12. **Event page** (Event details & presentation). See below.
 13. **Review.** Includes the event page preview.
@@ -87,7 +87,7 @@ The competition runs on an existing event, so this step edits that event rather 
 - **Owner decision: owners and admins only.** Only studio owners/admins and organizer owners/admins may change them. Organizer staff, instructors and platform support keep their existing access to everything else. Enforced three times: the wizard (read-only fields with the reason), the server action (`deriveDraft` refuses), and the database (`can_edit_competition_event_operations` in `create_competition_draft`, plus a guard trigger on `public.events`).
 - **Database drift found.** The `public.events` update policies exist in DEV but not in repository migrations, and they let any active studio role (instructors included) and organizer staff update any column, venue and dates included. For competition events (type `competition`, or any event with a competition program) the new `protect_competition_event_operations` trigger limits changes to venue, address, dates, times, time zone and event type to the roles above, whatever path writes them (Edit event, direct table updates). Writes without a user session (service role) are unaffected; ordinary events are unaffected.
 - **Dependent records.** Venue, dates and time zone are not changed here (the database refuses, and the wizard explains) while the event has active registrations (Edit event notifies registrants), additional locations (venue), or dated schedule items, location sessions, group-class sessions or competition schedule sessions (dates and time zone). Competition heats cannot exist yet, because the wizard runs only before any competition program exists.
-- **Never changed:** slug, publication status, visibility, registration-required and account-required flags (except the registration basics this step already sets).
+- **Never changed:** slug, publication status, visibility, and the event's ticket registration settings (`registration_required`, `account_required_for_registration`, `registration_opens_at`, `registration_closes_at`). The event row is only written when this step changes one of its own fields.
 
 - **Starts from the event.** Title, short summary, description and cover image start from the event's current values (the same columns the public event page reads). Highlights and important registration information are new, optional fields.
 - **Only changes are written.** `create_competition_draft` receives only the fields that differ from the event as stored when the draft is created (the server re-reads the event and re-derives the change set). Unchanged fields are never written. The ordinary event form's `updateEventAction` was not reused: it rewrites every event column and replaces tags, styles, locations, schedule and coaches.
@@ -201,10 +201,30 @@ The current values:
 
 ## Database
 
-Two migrations, applied in order:
+Three migrations, applied in order:
 
 1. **`20261113090000_phase10c5_competition_draft.sql`** (unchanged since candidate `3bd9b9c4`; applied on DEV). It seeds `studio_simple@2`, creates `create_competition_draft` and `set_competition_category_pricing`, adds the event page columns and the pricing-pending guard. Its rollback refuses while pricing is pending, restores `open_competition_registration` exactly, drops the functions and the columns (only while unused) and retires v2.
 2. **`20261114090000_phase10c5_profile_v3.sql`** (forward only). It seeds `studio_simple@3`, adds the event operations guard, replaces `create_competition_draft` and adds the registration-hold guard to `open_competition_registration`. Its rollback refuses while any category has a registration hold, restores both 20261113090000 functions byte-for-byte, drops the guard and retires (never deletes) v3. It never reads, changes or retires v2.
+3. **`20261115090000_phase10c5_registration_isolation.sql`** (forward only; both earlier files stay byte-identical). It checks the exact 20261114090000 definitions first (md5 preflight), then replaces `create_competition_draft`, `competition_registration_program_open`, `open_competition_registration` and `start_competition_registration`, and adds `competition_registration_account_required` and the `protect_competition_program_registration_settings` trigger. Postflight checks the generated definitions and the function privileges. Its rollback refuses while a wizard program has competition registration open, restores the four 20261114090000 definitions byte-for-byte (md5-checked) and drops the helper and the trigger. It changes no event, program or profile row.
+
+## Registration isolation
+
+Competition draft creation, ordinary event ticket registration and competition registration are separate operations, each with its own authorization and state.
+
+| Operation | Event ticket registration (`registration_required`, account flag, window) | Competition registration |
+|---|---|---|
+| Create or Edit event (EventForm) | Set here only | Not affected |
+| Competition draft (wizard) | Unchanged; the event row is written only for page, venue or date changes | Program stored with its own window and account setting; status closed |
+| Publish competition | Unchanged | Still closed |
+| Open competition registration (managers) | Unchanged; not a prerequisite for wizard programs | Opens; pricing-pending and Multi-Dance holds still refuse |
+| Close competition registration (managers) | Unchanged (ticket sales keep going) | Closes |
+| Spectator ticket sales on a competition event | Follow `registration_required` and the event window, exactly as before | Not affected |
+
+- **Gate.** `competition_registration_program_open` (used by the public catalog policies, `competition_registration_event_open` and checkout) uses the program's own window for programs with `configuration.setup.registration`. Programs without it (10B / Advanced / earlier setups) keep the exact 10C rule: the event's `registration_required` and window.
+- **Account.** `start_competition_registration` asks `competition_registration_account_required(event)`: the competition setting for wizard programs, the event setting for earlier ones, and "required" when nothing is open.
+- **Forgery.** Competition managers keep column-level writes on `event_competition_programs`, so the trigger refuses any client-session (anon / authenticated) insert, change or removal of `configuration.setup.registration`; only `create_competition_draft` writes it. Registration status still changes only through open / close.
+- **Public pages.** The competition CTA on the event page follows the feature flag and `competition_registration_event_open`, and is shown whether or not ticket checkout is on. Tickets, the Tickets tab and the "Basic Event Listing" state still follow `registration_required`. The competition register page uses the same gate and account helper; it stays behind the feature flag.
+- **Existing events.** Events touched by earlier drafts (for example the DEV walkthrough event, whose `registration_required` the previous generator set) keep their current values; nothing is reset. Changing them is an Edit event decision.
 
 **Profile versions are immutable once referenced.** On DEV, `studio_simple@2` is referenced by an owner walkthrough draft, so the corrected profile is published as `studio_simple@3` instead of replacing v2:
 

@@ -71,7 +71,6 @@ export type EventSummary = {
   dates: string | null;
   times: string | null;
   venue: string | null;
-  existingWindow: string | null;
 };
 
 const INITIAL_ACTION: ActionState = { ok: false };
@@ -735,19 +734,20 @@ export default function CompetitionSetupWizard({
 
         {step === "registration" ? (
           <section aria-labelledby="step-registration">
-            <h3 id="step-registration" className={headingClass}>Registration basics</h3>
+            <h3 id="step-registration" className={headingClass}>Competition registration</h3>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="text-sm font-medium text-slate-800">
-                Registration opens (optional)
+                Competition registration opens (optional)
                 <input type="date" value={answers.registration.opens} onChange={(changeEvent) => update((current) => setRegistration(current, { opens: changeEvent.target.value }))} className={`${fieldClass} mt-1`} />
               </label>
               <label className="text-sm font-medium text-slate-800">
-                Registration closes (optional)
+                Competition registration closes (optional)
                 <input type="date" value={answers.registration.closes} onChange={(changeEvent) => update((current) => setRegistration(current, { closes: changeEvent.target.value }))} className={`${fieldClass} mt-1`} />
               </label>
             </div>
-            <p className="mt-2 text-xs text-slate-500">These dates are the registration window for the whole event, including any tickets.</p>
-            {event.existingWindow ? <p className="mt-1 text-xs text-slate-500">This event already has a registration window ({event.existingWindow}); the dates here replace it.</p> : null}
+            <p className="mt-2 text-xs text-slate-500">
+              These dates apply only to competition entries. Ticket sales and the event&apos;s own registration settings are not changed, and competition registration stays closed until you open it from the competition workspace.
+            </p>
             <label className="mt-4 flex items-start gap-3 text-sm text-slate-800">
               <input
                 type="checkbox"
@@ -755,7 +755,7 @@ export default function CompetitionSetupWizard({
                 onChange={(changeEvent) => update((current) => setRegistration(current, { accountRequired: changeEvent.target.checked }))}
                 className="mt-0.5 h-4 w-4"
               />
-              <span>Registrants need a DanceFlow account to register</span>
+              <span>Competitors need a DanceFlow account to enter the competition</span>
             </label>
             <div className="mt-3 rounded-lg border border-slate-200 p-3 text-sm text-slate-700">
               <p className="font-semibold text-slate-900">Why a DanceFlow account helps</p>
@@ -878,10 +878,11 @@ export default function CompetitionSetupWizard({
                 <dd className="text-slate-900">Not sanctioned</dd>
               </div>
               <div>
-                <dt className="text-slate-500">Registration</dt>
+                <dt className="text-slate-500">Competition registration</dt>
                 <dd className="text-slate-900">
                   {[answers.registration.opens ? `opens ${answers.registration.opens}` : null, answers.registration.closes ? `closes ${answers.registration.closes}` : null].filter(Boolean).join(", ") || "No window set"}
                   {answers.registration.accountRequired ? " · account required" : ""}
+                  {" · ticket sales unchanged"}
                 </dd>
               </div>
               <div>

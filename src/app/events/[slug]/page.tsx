@@ -1626,6 +1626,12 @@ export default async function PublicEventDetailPage({
   const hasSchedule = groupedScheduleItems.length > 0;
   const ticketPriceLabel = lowestVisibleTicketPriceLabel(visibleTicketTypes);
   const hasDanceFlowRegistration = typedEvent.registration_required;
+  // 10C.5: the competition entry CTA follows competition registration (the feature flag and the database gate the
+  // catalog and checkout use), not the event's ticket registration, so it shows whether or not ticket checkout is on.
+  const competitionRegistrationOpen =
+    competitionRegistrationEnabled &&
+    (typedEvent.event_type === "competition" || typedEvent.event_type === "showcase") &&
+    (await supabase.rpc("competition_registration_event_open", { p_event_id: typedEvent.id })).data === true;
   const basicEventListingCta = basicListingCta({
     websiteUrl: eventHost.websiteUrl,
     contactEmail: eventHost.contactEmail,
@@ -2628,29 +2634,6 @@ export default async function PublicEventDetailPage({
                     </div>
                   ) : null}
 
-                  {competitionRegistrationEnabled &&
-                  (typedEvent.event_type === "competition" ||
-                    typedEvent.event_type === "showcase") ? (
-                    <div className="mt-6 border border-slate-300 bg-white p-5">
-                      <p className="text-sm font-semibold text-slate-950">
-                        {typedEvent.event_type === "showcase"
-                          ? "Enter the showcase"
-                          : "Register to compete"}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        Build individual or studio entries using the competition-specific registration form.
-                      </p>
-                      <Link
-                        href={`/events/${encodeURIComponent(typedEvent.slug)}/competition/register`}
-                        className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                      >
-                        {typedEvent.event_type === "showcase"
-                          ? "Open Showcase Registration"
-                          : "Open Competition Registration"}
-                      </Link>
-                    </div>
-                  ) : null}
-
                   <div className="mt-6">
                     {visibleTicketTypes.length > 0 || allowWaitlistJoin ? (
                       <details
@@ -2711,6 +2694,27 @@ export default async function PublicEventDetailPage({
                   </div>
                   </>
                   )}
+
+                  {competitionRegistrationOpen ? (
+                    <div className="mt-6 border border-slate-300 bg-white p-5">
+                      <p className="text-sm font-semibold text-slate-950">
+                        {typedEvent.event_type === "showcase"
+                          ? "Enter the showcase"
+                          : "Register to compete"}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Build individual or studio entries using the competition-specific registration form.
+                      </p>
+                      <Link
+                        href={`/events/${encodeURIComponent(typedEvent.slug)}/competition/register`}
+                        className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        {typedEvent.event_type === "showcase"
+                          ? "Open Showcase Registration"
+                          : "Open Competition Registration"}
+                      </Link>
+                    </div>
+                  ) : null}
                 </section>
 
                 <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">

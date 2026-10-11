@@ -317,7 +317,7 @@ describe("Simple and Advanced mode share one canonical model", () => {
     expect(wizard).toContain("Judging and results are set up now and run in a later update.");
     expect(wizard).toContain("own simple rating levels");
     expect(wizard).toContain("Online registration for dancers opens in a later update; nothing is sold yet.");
-    expect(wizard).toContain("registration window for the whole event, including any tickets");
+    expect(wizard).toContain("These dates apply only to competition entries. Ticket sales and the event&apos;s own registration settings are not changed");
     expect(wizard).not.toMatch(/UCWDC|medal/i);
   });
 
@@ -362,13 +362,15 @@ describe("public registration stays off in 10B", () => {
 
   it("the public event page only advertises competition registration while the flag is on", () => {
     const page = read("src/app/events/[slug]/page.tsx");
-    expect(page).toContain("competitionRegistrationEnabled &&");
+    // 10C.5: the link is gated by competitionRegistrationOpen, which requires the flag (and the competition gate).
+    expect(page).toContain("const competitionRegistrationOpen =\n    competitionRegistrationEnabled &&");
     const link = page.indexOf("/competition/register");
     expect(link).toBeGreaterThan(-1);
-    const gate = page.lastIndexOf("competitionRegistrationEnabled &&", link);
+    const gate = page.lastIndexOf("{competitionRegistrationOpen ? (", link);
     expect(gate).toBeGreaterThan(-1);
     expect(link - gate).toBeLessThan(1500);
     expect(page.match(/\/competition\/register/g)?.length).toBe(1);
+    expect(page.match(/competitionRegistrationOpen/g)?.length).toBe(2);
   });
 
   it("is not enabled by any checked-in environment, config or deployment file", () => {

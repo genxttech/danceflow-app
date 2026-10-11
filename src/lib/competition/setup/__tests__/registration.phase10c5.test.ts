@@ -33,7 +33,8 @@ describe("Registration step guidance", () => {
   it("keeps the account requirement organizer-configurable", () => {
     expect(WIZARD).toContain("checked={answers.registration.accountRequired}");
     expect(WIZARD).toContain("setRegistration(current, { accountRequired: changeEvent.target.checked })");
-    expect(read("src/app/events/[slug]/competition/register/page.tsx")).toContain("event.account_required_for_registration && !user");
+    // The requirement is the competition's own setting (registration isolation), checked by the database gate.
+    expect(read("src/app/events/[slug]/competition/register/page.tsx")).toContain("if (registrationOpen && accountResult !== false && !user) redirect(");
   });
 
   it("names the registrant types and never presents registration as lead/client conversion", () => {

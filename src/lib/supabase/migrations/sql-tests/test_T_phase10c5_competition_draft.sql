@@ -1,7 +1,9 @@
 -- Phase 10C.5 -- Competition Setup Wizard draft generator regression suite.
 --
--- Covers 20261113090000_phase10c5_competition_draft.sql and 20261114090000_phase10c5_profile_v3.sql: studio_simple@3, create_competition_draft,
--- set_competition_category_pricing and the pricing-pending guard in open_competition_registration.
+-- Covers 20261113090000_phase10c5_competition_draft.sql, 20261114090000_phase10c5_profile_v3.sql and
+-- 20261115090000_phase10c5_registration_isolation.sql: studio_simple@3, create_competition_draft,
+-- set_competition_category_pricing, the pricing-pending guard in open_competition_registration, and the isolation of
+-- competition registration from the event's ordinary ticket registration.
 -- Calls run as the authenticated studio owner (or an outsider) through the real RPCs. One transaction;
 -- the final block ALWAYS raises, so nothing persists:
 --   "PHASE 10C.5 SQL SUITE PASS (<n> checks)"  or  "PHASE 10C.5 SQL SUITE FAIL: <failures>".
@@ -517,10 +519,13 @@ select pg_temp.chk('the event page changes are saved; title, venue, dates and sl
           and public_cover_image_url = cover_image_url
    from public.events where id = pg_temp.u('00e001')),
   (select row_to_json(e)::text from (select name, slug, short_description, public_highlights, public_registration_info, cover_image_url from public.events where id = pg_temp.u('00e001')) e));
-select pg_temp.chk('registration basics are saved on the event',
-  (select registration_required and not account_required_for_registration
-          and registration_opens_at = '2026-01-01T00:00:00Z' and registration_closes_at = '2030-01-01T00:00:00Z'
-   from public.events where id = pg_temp.u('00e001')));
+select pg_temp.chk('registration basics are saved on each program, not on the event (ordinary registration untouched)',
+  (select count(*) = 2 and bool_and(configuration #> '{setup,registration}' = jsonb_build_object(
+            'opens_at', '2026-01-01T00:00:00Z'::timestamptz, 'closes_at', '2030-01-01T00:00:00Z'::timestamptz, 'account_required', false))
+   from public.event_competition_programs where event_id = pg_temp.u('00e001'))
+  and (select not registration_required and account_required_for_registration
+              and registration_opens_at is null and registration_closes_at is null
+       from public.events where id = pg_temp.u('00e001')));
 
 -- ============================================================================
 -- Idempotency and the per-event setup lock
@@ -864,6 +869,241 @@ select pg_temp.expect_msg('create_simple_competition cannot use the schema-2 pro
 select pg_temp.expect_msg('pricing completion is not offered for legacy categories',
   format('select public.set_competition_category_pricing(%L, %L, 10)',
     (select c.id from public.event_competition_contests c where c.event_id = pg_temp.u('00e007') limit 1), 'per_dance'), 'Advanced settings');
+
+-- ============================================================================
+-- Registration isolation (20261115090000): competition setup, publish, open and close never change the event's
+-- ordinary ticket registration (registration_required, account requirement, registration window), and
+-- competition registration follows the program's own settings.
+-- ============================================================================
+reset role;
+select set_config('request.jwt.claims', '', true);
+-- Studio events (00e101 ordinary registration ON with a window, 00e102 OFF) and organizer events (00f101 ON, 00f102
+-- OFF), each with a spectator ticket type; 00e103 is a studio event whose ordinary registration is ON and open.
+insert into public.events (id, studio_id, organizer_id, name, slug, event_type, start_date, end_date, status, visibility,
+                           registration_required, account_required_for_registration, registration_opens_at, registration_closes_at)
+values
+  (pg_temp.u('00e101'), pg_temp.u('00a001'), null, 'P10C5 Iso Studio On', 't-p10c5-iso-e101', 'competition', current_date + 40, current_date + 41,
+   'published', 'public', true, false, '2026-01-01T00:00:00Z', '2031-01-01T00:00:00Z'),
+  (pg_temp.u('00e102'), pg_temp.u('00a001'), null, 'P10C5 Iso Studio Off', 't-p10c5-iso-e102', 'competition', current_date + 40, current_date + 41,
+   'published', 'public', false, true, null, null),
+  (pg_temp.u('00e103'), pg_temp.u('00a001'), null, 'P10C5 Iso Studio Window', 't-p10c5-iso-e103', 'competition', current_date + 40, current_date + 41,
+   'published', 'public', true, false, '2026-01-01T00:00:00Z', '2031-01-01T00:00:00Z'),
+  (pg_temp.u('00f101'), pg_temp.u('00a001'), pg_temp.u('00b001'), 'P10C5 Iso Org On', 't-p10c5-iso-f101', 'competition', current_date + 40, current_date + 41,
+   'published', 'public', true, true, '2026-02-01T00:00:00Z', '2031-02-01T00:00:00Z'),
+  (pg_temp.u('00f102'), pg_temp.u('00a001'), pg_temp.u('00b001'), 'P10C5 Iso Org Off', 't-p10c5-iso-f102', 'competition', current_date + 40, current_date + 41,
+   'published', 'public', false, false, null, null);
+insert into public.event_ticket_types (event_id, name, price, capacity, sale_starts_at, sale_ends_at)
+select e, 'Spectator', 25, 100, '2026-01-01T00:00:00Z', '2031-01-01T00:00:00Z'
+from unnest(array[pg_temp.u('00e101'), pg_temp.u('00e102'), pg_temp.u('00e103'), pg_temp.u('00f101'), pg_temp.u('00f102')]) e;
+insert into t_out
+select 'iso_before', jsonb_object_agg(e.id::text, jsonb_build_object(
+  'row', md5((to_jsonb(e) - 'updated_at')::text), 'updated_at', e.updated_at, 'ctid', e.ctid::text,
+  'tickets', (select md5(string_agg(row_to_json(t)::text, ',' order by t.id)) from public.event_ticket_types t where t.event_id = e.id)))
+from public.events e where e.id in (pg_temp.u('00e101'), pg_temp.u('00e102'), pg_temp.u('00e103'), pg_temp.u('00f101'), pg_temp.u('00f102'));
+insert into t_out select 'iso_people', jsonb_build_object(
+  'clients', (select count(*) from public.clients where studio_id = pg_temp.u('00a001')),
+  'leads', (select count(*) from public.lead_activities where studio_id = pg_temp.u('00a001')));
+-- Whether an event's row and ticket types are exactly as captured before the section, and the row was never
+-- updated at all (its physical row version is unchanged; updated_at alone cannot show this inside one transaction).
+create or replace function pg_temp.iso_same(p_event text) returns boolean
+language sql stable as $$
+  select (select md5((to_jsonb(e) - 'updated_at')::text) from public.events e where e.id = pg_temp.u(p_event))
+           = (select v #>> array[pg_temp.u(p_event)::text, 'row'] from t_out where k = 'iso_before')
+     and (select e.ctid::text from public.events e where e.id = pg_temp.u(p_event))
+           = (select v #>> array[pg_temp.u(p_event)::text, 'ctid'] from t_out where k = 'iso_before')
+     and (select (v #>> array[pg_temp.u(p_event)::text, 'updated_at'])::timestamptz from t_out where k = 'iso_before')
+           = (select updated_at from public.events where id = pg_temp.u(p_event))
+     and (select md5(string_agg(row_to_json(t)::text, ',' order by t.id)) from public.event_ticket_types t where t.event_id = pg_temp.u(p_event))
+           = (select v #>> array[pg_temp.u(p_event)::text, 'tickets'] from t_out where k = 'iso_before')
+$$;
+-- A one-category Country request with its own competition registration settings.
+create or replace function pg_temp.iso(p_key text, p_registration jsonb) returns jsonb
+language sql immutable as $$
+  select pg_temp.one(p_key, 'competition',
+    '{"key": "country", "name": "Iso", "adjudication": "adjudicated", "judging": "medal_marks", "registration_fee": null, "dances": [{"key": "two_step"}],
+      "categories": [{"type": "couples", "divisions": [{"name": "Open"}], "dances": ["two_step"], "pricing": {"model": "per_entry", "amount": 30}}]}'::jsonb)
+    || jsonb_build_object('registration', p_registration);
+$$;
+create or replace function pg_temp.prog(p_event text) returns uuid
+language sql stable as $$ select id from public.event_competition_programs where event_id = pg_temp.u(p_event) $$;
+grant execute on all functions in schema pg_temp to authenticated, anon, service_role;
+
+-- Draft creation (studio owner on studio events; organizer admin on organizer events).
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('studio: draft on an event with ordinary registration ON',
+  pg_temp.draft('00e101', pg_temp.iso('p10c5-iso-e101', '{"opens_at": "2026-03-01T00:00:00Z", "closes_at": "2029-03-01T00:00:00Z", "account_required": true}')));
+select pg_temp.expect_ok('studio: draft on an event with ordinary registration OFF',
+  pg_temp.draft('00e102', pg_temp.iso('p10c5-iso-e102', '{"opens_at": null, "closes_at": null, "account_required": false}')));
+select pg_temp.expect_ok('studio: draft with a competition window that has not opened yet',
+  pg_temp.draft('00e103', pg_temp.iso('p10c5-iso-e103', '{"opens_at": "2035-01-01T00:00:00Z", "closes_at": "2036-01-01T00:00:00Z", "account_required": false}')));
+select pg_temp.as_user(pg_temp.u('000005'));
+select pg_temp.expect_ok('organizer: draft on an event with ordinary registration ON',
+  pg_temp.draft('00f101', pg_temp.iso('p10c5-iso-f101', '{"opens_at": null, "closes_at": null, "account_required": false}')));
+select pg_temp.expect_ok('organizer: draft on an event with ordinary registration OFF',
+  pg_temp.draft('00f102', pg_temp.iso('p10c5-iso-f102', '{"opens_at": "2026-03-01T00:00:00Z", "closes_at": null, "account_required": true}')));
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('studio draft preserves registration_required = true, its account setting, window and tickets', pg_temp.iso_same('00e101'));
+select pg_temp.chk('studio draft preserves registration_required = false (ordinary ticketing stays off)', pg_temp.iso_same('00e102')
+  and (select not registration_required from public.events where id = pg_temp.u('00e102')));
+select pg_temp.chk('organizer draft preserves registration_required = true', pg_temp.iso_same('00f101'));
+select pg_temp.chk('organizer draft preserves registration_required = false', pg_temp.iso_same('00f102')
+  and (select not registration_required from public.events where id = pg_temp.u('00f102')));
+select pg_temp.chk('the competition registration settings are stored on the program',
+  (select configuration #> '{setup,registration}' = jsonb_build_object('opens_at', '2026-03-01T00:00:00+00:00'::timestamptz,
+            'closes_at', '2029-03-01T00:00:00+00:00'::timestamptz, 'account_required', true)
+   from public.event_competition_programs where id = pg_temp.prog('00e101'))
+  and (select configuration #> '{setup,registration}' = '{"opens_at": null, "closes_at": null, "account_required": false}'::jsonb
+       from public.event_competition_programs where id = pg_temp.prog('00e102')),
+  (select (configuration #> '{setup,registration}')::text from public.event_competition_programs where id = pg_temp.prog('00e101')));
+select pg_temp.chk('an earlier draft (reviewed request) left the ordinary registration fields as they were',
+  (select not registration_required and account_required_for_registration and registration_opens_at is null and registration_closes_at is null
+   from public.events where id = pg_temp.u('00e001')));
+select pg_temp.chk('a draft with an event page change updates only that page field',
+  (select short_description = 'Staff summary' and not registration_required and account_required_for_registration
+          and registration_opens_at is null and registration_closes_at is null
+   from public.events where id = pg_temp.u('00f002')));
+
+-- Publish: competition drafts are not public and ordinary registration is unchanged.
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('studio: publish (ordinary ON)', format('select public.publish_competition_program(%L)', pg_temp.prog('00e101')));
+select pg_temp.expect_ok('studio: publish (ordinary OFF)', format('select public.publish_competition_program(%L)', pg_temp.prog('00e102')));
+select pg_temp.expect_ok('studio: publish (future window)', format('select public.publish_competition_program(%L)', pg_temp.prog('00e103')));
+select pg_temp.as_user(pg_temp.u('000005'));
+select pg_temp.expect_ok('organizer: publish (ordinary ON)', format('select public.publish_competition_program(%L)', pg_temp.prog('00f101')));
+select pg_temp.expect_ok('organizer: publish (ordinary OFF)', format('select public.publish_competition_program(%L)', pg_temp.prog('00f102')));
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('publish does not change ordinary registration on any event',
+  pg_temp.iso_same('00e101') and pg_temp.iso_same('00e102') and pg_temp.iso_same('00e103') and pg_temp.iso_same('00f101') and pg_temp.iso_same('00f102'));
+select pg_temp.chk('published but unopened competitions are not public',
+  not public.competition_registration_event_open(pg_temp.u('00e101')) and not public.competition_registration_event_open(pg_temp.u('00e102'))
+  and not public.competition_registration_event_open(pg_temp.u('00f101')) and not public.competition_registration_event_open(pg_temp.u('00f102')));
+
+-- Explicit open: authorization, competition-only prerequisites, ordinary registration untouched.
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_msg('an outsider cannot open competition registration',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00e102')), 'COMP10C_FORBIDDEN');
+select pg_temp.as_user(pg_temp.u('000003'));
+select pg_temp.expect_msg('a studio instructor cannot open competition registration',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00e102')), 'COMP10C_FORBIDDEN');
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('studio: open succeeds while ordinary ticket registration is OFF',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00e102')));
+select pg_temp.expect_ok('studio: open on the event with ordinary registration ON',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00e101')));
+select pg_temp.expect_ok('studio: open with a competition window that has not started',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00e103')));
+select pg_temp.as_user(pg_temp.u('000005'));
+select pg_temp.expect_ok('organizer: open while ordinary registration is OFF',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00f102')));
+select pg_temp.expect_ok('organizer: open while ordinary registration is ON',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00f101')));
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('open does not turn on, extend or otherwise change ordinary registration or tickets',
+  pg_temp.iso_same('00e101') and pg_temp.iso_same('00e102') and pg_temp.iso_same('00e103') and pg_temp.iso_same('00f101') and pg_temp.iso_same('00f102')
+  and (select bool_and(not registration_required) from public.events where id in (pg_temp.u('00e102'), pg_temp.u('00f102'))));
+select pg_temp.chk('competition registration follows the competition state, not the ordinary flag',
+  public.competition_registration_event_open(pg_temp.u('00e102')) and public.competition_registration_event_open(pg_temp.u('00f102'))
+  and public.competition_registration_event_open(pg_temp.u('00e101')) and public.competition_registration_event_open(pg_temp.u('00f101')));
+select pg_temp.chk('the competition window is enforced: a window that has not started stays closed although the ordinary window is open',
+  not public.competition_registration_event_open(pg_temp.u('00e103'))
+  and (select registration_required and registration_opens_at <= now() and registration_closes_at >= now() from public.events where id = pg_temp.u('00e103')));
+select pg_temp.chk('the account requirement comes from the competition settings',
+  public.competition_registration_account_required(pg_temp.u('00e101'))       -- competition: required; event: not required
+  and not public.competition_registration_account_required(pg_temp.u('00f101'))  -- competition: not required; event: required
+  and not public.competition_registration_account_required(pg_temp.u('00e102'))
+  and public.competition_registration_account_required(pg_temp.u('00e103')));    -- nothing open (its own setting is "not required"): defaults to required
+select pg_temp.expect_msg('a guest cannot start a registration where the competition requires an account (event does not)',
+  format('select public.start_competition_registration(%L, %L, %L::jsonb, null)', pg_temp.u('00e101'), gen_random_uuid(), '{}'), 'COMP10C_SIGN_IN_REQUIRED');
+select pg_temp.expect_msg('a closed competition window refuses registration although ordinary registration is open',
+  format('select public.start_competition_registration(%L, %L, %L::jsonb, null)', pg_temp.u('00e103'), gen_random_uuid(), '{}'), 'COMP10C_CLOSED');
+set local role anon;
+select pg_temp.chk('anon sees the open competition catalog on an event without ordinary registration',
+  pg_temp.n(format('select count(*) from public.event_competition_programs where event_id = %L', pg_temp.u('00e102'))) = 1
+  and pg_temp.n(format('select count(*) from public.event_competition_programs where event_id = %L', pg_temp.u('00e103'))) = 0);
+reset role;
+
+-- Forged requests and direct writes.
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('a manager cannot rewrite the competition window directly',
+  format($q$update public.event_competition_programs set configuration = jsonb_set(configuration, '{setup,registration,opens_at}', '"2020-01-01T00:00:00Z"') where id = %L$q$, pg_temp.prog('00e103')),
+  'set only by competition setup');
+select pg_temp.expect_msg('a manager cannot drop the competition settings to fall back to the event settings',
+  format($q$update public.event_competition_programs set configuration = configuration #- '{setup,registration}' where id = %L$q$, pg_temp.prog('00e103')),
+  'set only by competition setup');
+select pg_temp.expect_msg('a manager cannot insert a program carrying competition settings',
+  format($q$insert into public.event_competition_programs (event_id, name, configuration) values (%L, 'Forged', '{"setup": {"registration": {"opens_at": null, "closes_at": null, "account_required": false}}}')$q$, pg_temp.u('00e102')),
+  'set only by competition setup');
+select pg_temp.expect_ok('other program fields stay editable by managers',
+  format($q$update public.event_competition_programs set name = 'Iso renamed' where id = %L$q$, pg_temp.prog('00e103')));
+select pg_temp.expect_msg('registration status cannot be written directly',
+  format($q$update public.event_competition_programs set registration_status = 'open' where id = %L$q$, pg_temp.prog('00e103')), 'permission denied');
+select pg_temp.as_user(pg_temp.u('000004'));
+select pg_temp.expect_msg('organizer staff cannot rewrite the competition window directly',
+  format($q$update public.event_competition_programs set configuration = jsonb_set(configuration, '{setup,registration,account_required}', 'false') where id = %L$q$, pg_temp.prog('00f102')),
+  'set only by competition setup');
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_msg('an outsider cannot close competition registration',
+  format('select public.close_competition_registration(%L)', pg_temp.prog('00e102')), 'COMP10C_FORBIDDEN');
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('forged writes changed nothing',
+  (select configuration #>> '{setup,registration,opens_at}' = '2035-01-01T00:00:00+00:00' from public.event_competition_programs where id = pg_temp.prog('00e103'))
+  and (select configuration #>> '{setup,registration,account_required}' = 'true' from public.event_competition_programs where id = pg_temp.prog('00f102'))
+  and pg_temp.n(format($q$select count(*) from public.event_competition_programs where event_id = %L$q$, pg_temp.u('00e102'))) = 1
+  and (select registration_status = 'open' from public.event_competition_programs where id = pg_temp.prog('00e102')),
+  (select (configuration #> '{setup,registration}')::text from public.event_competition_programs where id = pg_temp.prog('00e103')));
+select pg_temp.chk('anon cannot call the draft generator or open/close registration',
+  not has_function_privilege('anon', 'public.create_competition_draft(uuid, jsonb)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.open_competition_registration(uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.close_competition_registration(uuid)', 'EXECUTE'));
+
+-- Explicit close: ordinary registration stays as it was (ON stays ON, OFF stays OFF).
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('studio: close (ordinary ON)', format('select public.close_competition_registration(%L)', pg_temp.prog('00e101')));
+select pg_temp.expect_ok('studio: close (ordinary OFF)', format('select public.close_competition_registration(%L)', pg_temp.prog('00e102')));
+select pg_temp.as_user(pg_temp.u('000005'));
+select pg_temp.expect_ok('organizer: close (ordinary ON)', format('select public.close_competition_registration(%L)', pg_temp.prog('00f101')));
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('close leaves ordinary registration, its window and tickets unchanged',
+  pg_temp.iso_same('00e101') and pg_temp.iso_same('00e102') and pg_temp.iso_same('00f101') and pg_temp.iso_same('00f102')
+  and (select bool_and(registration_required) from public.events where id in (pg_temp.u('00e101'), pg_temp.u('00f101'))));
+select pg_temp.chk('closed competitions are no longer public; the other open one still is',
+  not public.competition_registration_event_open(pg_temp.u('00e101')) and not public.competition_registration_event_open(pg_temp.u('00e102'))
+  and not public.competition_registration_event_open(pg_temp.u('00f101')) and public.competition_registration_event_open(pg_temp.u('00f102')));
+select pg_temp.chk('no clients or leads were created for the host studio',
+  (select v = jsonb_build_object(
+     'clients', (select count(*) from public.clients where studio_id = pg_temp.u('00a001')),
+     'leads', (select count(*) from public.lead_activities where studio_id = pg_temp.u('00a001')))
+   from t_out where k = 'iso_people'));
+
+-- Legacy programs (no setup registration settings) keep the exact 10C rule.
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('the legacy program publishes', format('select public.publish_competition_program(%L)', pg_temp.prog('00e007')));
+select pg_temp.expect_msg('a legacy program still needs the event registration flag to open',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00e007')), 'COMP10C_EVENT_REGISTRATION_OFF');
+reset role;
+update public.events set registration_required = true where id = pg_temp.u('00e007');
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('the legacy program opens once the event flag is on',
+  format('select public.open_competition_registration(%L)', pg_temp.prog('00e007')));
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('legacy gate: open while the event flag is on', public.competition_registration_event_open(pg_temp.u('00e007'))
+  and public.competition_registration_account_required(pg_temp.u('00e007')) = (select account_required_for_registration from public.events where id = pg_temp.u('00e007')));
+update public.events set registration_required = false where id = pg_temp.u('00e007');
+select pg_temp.chk('legacy gate: closed when the event flag is off (unchanged 10C behaviour)', not public.competition_registration_event_open(pg_temp.u('00e007')));
+select pg_temp.chk('the gate keeps its legacy predicate and the setup-program branch',
+  position('e.registration_required' in pg_get_functiondef('public.competition_registration_program_open(uuid,uuid)'::regprocedure)) > 0
+  and position($s$p.configuration #> '{setup,registration}' is not null$s$ in pg_get_functiondef('public.competition_registration_program_open(uuid,uuid)'::regprocedure)) > 0
+  and pg_get_functiondef('public.create_competition_draft(uuid,jsonb)'::regprocedure)
+        !~ '(registration_required|account_required_for_registration|registration_opens_at|registration_closes_at)\s*=');
+select pg_temp.chk('Multi-Dance stays held without any event registration prerequisite',
+  (select registration_status = 'closed' from public.event_competition_programs where event_id = pg_temp.u('00f008'))
+  and (select not registration_required from public.events where id = pg_temp.u('00f008')));
 
 -- ============================================================================
 -- Verdict

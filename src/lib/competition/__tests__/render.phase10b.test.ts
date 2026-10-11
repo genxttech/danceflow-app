@@ -43,7 +43,7 @@ describe("workspace components render", () => {
     const html = renderToStaticMarkup(
       createElement(CompetitionSetupWizard, {
         eventId: "e1",
-        event: { name: "Spring Showcase", dates: "Mar 6, 2027", times: "6:00 PM", venue: "Main Studio", existingWindow: null },
+        event: { name: "Spring Showcase", dates: "Mar 6, 2027", times: "6:00 PM", venue: "Main Studio" },
         profile: { key: "studio_simple", version: 3 },
         defaults: STUDIO_CUSTOM_V3_DEFAULTS,
         initialRegistration: { opens: "", closes: "", accountRequired: true },
