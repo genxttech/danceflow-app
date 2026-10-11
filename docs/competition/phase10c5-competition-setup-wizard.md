@@ -76,6 +76,33 @@ Non-Adjudicated means **no official competitive result**. It does not mean no ju
 - **Feedback stays feedback.** A grade or score given as feedback never becomes a placement, ranking, advancement, medal threshold or official result.
 - **Deferred.** Feedback entry (critique UI) and choosing a feedback mode per offering are a carry-forward. 10C.5 stores no feedback selection.
 
+## Divisions: what is offered, per entry format
+
+Divisions are event configuration (what the event offers), not competitor classification.
+
+- **Schemes.** Each style maps each entry format to a division scheme (`division_schemes`). A scheme has one or more **axes**, each with values, recommended and default selections, `allow_custom`, provenance and optional eligibility. The axis keys are `skill_level`, `age_group`, `style`, `proficiency`, `contest_type` and `custom`.
+- **Selection.** The organizer multi-selects values on every axis. The page shows the recommended values first, with "More options", Select all / Clear, and their own values where allowed.
+- **Combination.**
+  - `cross`: one division per level × age, e.g. "Novice · Diamond" (UCWDC II.A.7: "ProAm Female Diamond Novice is a division"). An axis left empty does not split.
+  - `separate`: each value is its own contest. WSDC skill contests and age-based contests (Juniors / Sophisticated / Masters) are separate, because "age-based … contests must be open to competitors of all skill levels" (WSDC 3.1.3.a).
+- **Storage.** `skill_label` and `age_label` as before; every division also records its axis values in `configuration.setup.axes`. No table change.
+
+| Style / format | Levels (default selected) | Ages (default) | Basis |
+|---|---|---|---|
+| Country ProAm | Newcomer, Novice, Intermediate, Advanced, Open Level. More options: Newcomer IV–I, AllStars | Open. Recommended: Crystal 30+, Diamond 40+, Silver 50+, Gold 60+, Platinum 70+, Pearl 80+. More: Junior Primary / Youth / Teen | UCWDC ProAm 2026 II.D, II.E.1. Studio Newcomer and Open Level are Studio values. |
+| Country ProPro | ProPro II, ProPro I | none (NOT SPECIFIED IN PROVIDED SOURCE) | UCWDC II.E.2 |
+| Country Couples | Studio Newcomer–Advanced, Open Level. More: Newcomer IV–I, Classic III, II, II/I, I | Open. Recommended: Crystal to Platinum (no Pearl). More: Juniors (older partner), Masters, Masters Plus 45+, Crown 40+, Crown Plus 55+ (ascension) | UCWDC Couples 2026 II.D, II.E |
+| Country Showcase / Spotlight / Solo | — | UCWDC ProAm ages, Open default | UCWDC II.D |
+| WCS (all contest formats) | Newcomer, Novice, Intermediate, Advanced. Also All Star, Champion | Optional separate contests: Juniors <18, Sophisticated 35+, Masters 50+ | WSDC 2026.1C |
+| Ballroom ProAm | Bronze, Silver, Gold. Also Newcomer, Open Level; more NDCA levels | Optional A 19+, B 36+, C 51+, S1–S4 | NDCA II.B.7.c / II.B.7.f ("may offer"; no universal list) |
+| Ballroom Couples | Bronze, Silver, Gold. Also Novice, Pre-Championship, Open Amateur, Open Level | Optional Adult, Senior I–IV. More: Pre-Teen, Junior, Youth, Under 21 | NDCA X.A / X.B |
+| Other | Studio Newcomer, Novice, Intermediate, Advanced. Also Open Level, Bronze/Silver/Gold | Optional Studio Youth / Adult / Senior | Studio |
+
+Open is two different things:
+
+- **Open (age)** is the UCWDC adult age division (source-grounded).
+- **Open Level** is a Studio / Custom skill level. It is never presented as a UCWDC ProAm level.
+
 ## Programming order metadata (metadata only; the floor planner does not read it yet)
 
 Every value records its basis:

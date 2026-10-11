@@ -7,9 +7,9 @@
 
 export type StoredSetup = { answers: unknown; step: string; requestKey: string };
 
-const PREFIX = "danceflow.competition-setup.v2:";
-/** Answers saved by the first 10C.5 candidate (different shape). Only this event's legacy key is removed. */
-const LEGACY_PREFIX = "danceflow.competition-setup.v1:";
+const PREFIX = "danceflow.competition-setup.v3:";
+/** Answers saved by earlier 10C.5 candidates (different shapes). Only this event's legacy keys are removed. */
+const LEGACY_PREFIXES = ["danceflow.competition-setup.v1:", "danceflow.competition-setup.v2:"];
 
 function storage(): Storage | null {
   try {
@@ -21,7 +21,7 @@ function storage(): Storage | null {
 
 export function loadStoredSetup(eventId: string): StoredSetup | null {
   try {
-    storage()?.removeItem(LEGACY_PREFIX + eventId);
+    for (const prefix of LEGACY_PREFIXES) storage()?.removeItem(prefix + eventId);
     const raw = storage()?.getItem(PREFIX + eventId);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<StoredSetup>;

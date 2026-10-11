@@ -1,5 +1,8 @@
 import type {
   AdjudicationKey,
+  DivisionAxis,
+  DivisionAxisKey,
+  DivisionScheme,
   EntryFormatDefinition,
   FormatAdjudication,
   FormatKey,
@@ -26,10 +29,12 @@ import type {
 export type Purpose = "competition" | "showcase" | "competition_showcase";
 export type RulesChoice = "studio_custom" | "ucwdc" | "wsdc" | "ndca";
 
+/** Selected values per division axis (labels, in the order chosen; derivation reorders by the profile). */
+export type DivisionSelection = Partial<Record<DivisionAxisKey, string[]>>;
+
 export type FormatAnswer = {
-  levelPreset: string;
-  levels: string[];
-  ageBands: string[];
+  /** Which divisions are offered for this entry format: multiple values per axis. */
+  divisions: DivisionSelection;
   dances: string[];
   pricing: PricingModel;
   amount: string;
@@ -47,7 +52,7 @@ export type ProgramAnswer = {
 };
 
 export type SetupAnswers = {
-  version: 2;
+  version: 3;
   purpose: Purpose | null;
   styleMode: "single" | "multiple";
   styles: ProgramKey[];
@@ -117,7 +122,7 @@ export function parsePrice(value: string): number | null {
 
 export function initialAnswers(registration?: Partial<SetupAnswers["registration"]>): SetupAnswers {
   return {
-    version: 2,
+    version: 3,
     purpose: null,
     styleMode: "single",
     styles: [],
@@ -155,6 +160,10 @@ export function setupProfileProblems(profile: unknown): string[] {
       problems.push(`Style ${key} has no valid result options.`);
     }
     if (!program?.programming || typeof program.programming !== "object") problems.push(`Style ${key} has no programming metadata.`);
+    if (!program?.division_schemes || typeof program.division_schemes !== "object"
+      || Object.values(program.division_schemes).some((scheme) => !value.divisionSchemes?.[scheme]?.axes?.length)) {
+      problems.push(`Style ${key} has no valid division schemes.`);
+    }
   }
   return problems;
 }
@@ -214,9 +223,7 @@ function defaultFormatAnswer(profile: SetupProfileDefaults, key: ProgramKey, for
     if (definition.dance_selection_mode === "prescribed_set") dances = dances.slice(0, 1);
   }
   return {
-    levelPreset: definition.division_preset,
-    levels: [...(profile.divisionPresets[definition.division_preset]?.levels ?? [])],
-    ageBands: [],
+    divisions: defaultDivisionSelection(divisionScheme(profile, key, format)),
     dances,
     pricing: definition.default_pricing,
     amount: "",
@@ -313,29 +320,78 @@ export function updateFormat(answers: SetupAnswers, key: ProgramKey, format: For
   });
 }
 
-export function applyLevelPreset(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, preset: string) {
-  const levels = profile.divisionPresets[preset]?.levels;
-  return levels ? updateFormat(answers, key, format, { levelPreset: preset, levels: [...levels] }) : answers;
+// ---------------------------------------------------------------------------------------------------
+// Divisions: which divisions are offered, per entry format (multi-select per axis)
+// ---------------------------------------------------------------------------------------------------
+
+const OPEN_ONLY: DivisionScheme = {
+  label: "One open division",
+  combination: "cross",
+  axes: [{ key: "skill_level", label: "Level", values: [{ key: "open", label: "Open", basis: "studio_recommendation" }], recommended: ["open"], defaults: ["open"], allow_custom: true }],
+};
+
+/** The division scheme for a style's entry format (profile-driven, never a universal list). */
+export function divisionScheme(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey): DivisionScheme {
+  return profile.divisionSchemes[profile.programs[key]?.division_schemes[format] ?? ""] ?? OPEN_ONLY;
 }
 
-export function addLevel(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, name: string) {
-  const trimmed = name.trim();
-  const current = answers.programs[key]?.formats[format];
-  if (!current || !trimmed || trimmed.length > profile.limits.nameLength) return answers;
-  if (current.levels.some((level) => level.toLowerCase() === trimmed.toLowerCase())) return answers;
-  return updateFormat(answers, key, format, { levels: [...current.levels, trimmed] });
+function axisOf(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, axisKey: DivisionAxisKey): DivisionAxis | undefined {
+  return divisionScheme(profile, key, format).axes.find((axis) => axis.key === axisKey);
 }
 
-export function removeLevel(answers: SetupAnswers, key: ProgramKey, format: FormatKey, name: string) {
-  const current = answers.programs[key]?.formats[format];
-  return current ? updateFormat(answers, key, format, { levels: current.levels.filter((level) => level !== name) }) : answers;
+function labelOf(axis: DivisionAxis, valueKey: string) {
+  return axis.values.find((value) => value.key === valueKey)?.label ?? valueKey;
 }
 
-export function toggleAgeBand(answers: SetupAnswers, key: ProgramKey, format: FormatKey, band: string) {
+function defaultDivisionSelection(scheme: DivisionScheme): DivisionSelection {
+  const selection: DivisionSelection = {};
+  for (const axis of scheme.axes) selection[axis.key] = axis.defaults.map((valueKey) => labelOf(axis, valueKey));
+  return selection;
+}
+
+function setAxisSelection(answers: SetupAnswers, key: ProgramKey, format: FormatKey, axisKey: DivisionAxisKey, labels: string[]) {
   const current = answers.programs[key]?.formats[format];
-  if (!current) return answers;
-  const ageBands = current.ageBands.includes(band) ? current.ageBands.filter((item) => item !== band) : [...current.ageBands, band];
-  return updateFormat(answers, key, format, { ageBands });
+  return current ? updateFormat(answers, key, format, { divisions: { ...current.divisions, [axisKey]: labels } }) : answers;
+}
+
+/** Select or unselect one offered value (e.g. add Intermediate to the levels offered). */
+export function toggleDivisionValue(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, axisKey: DivisionAxisKey, label: string) {
+  const axis = axisOf(profile, key, format, axisKey);
+  const selected = answers.programs[key]?.formats[format]?.divisions[axisKey] ?? [];
+  if (!axis) return answers;
+  if (selected.includes(label)) return setAxisSelection(answers, key, format, axisKey, selected.filter((item) => item !== label));
+  if (!axis.values.some((value) => value.label === label)) return answers;
+  return setAxisSelection(answers, key, format, axisKey, [...selected, label]);
+}
+
+/** Select every recommended value on an axis (keeps any extra values already chosen). */
+export function selectRecommended(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, axisKey: DivisionAxisKey) {
+  const axis = axisOf(profile, key, format, axisKey);
+  const selected = answers.programs[key]?.formats[format]?.divisions[axisKey] ?? [];
+  if (!axis) return answers;
+  const add = axis.recommended.map((valueKey) => labelOf(axis, valueKey)).filter((label) => !selected.includes(label));
+  return setAxisSelection(answers, key, format, axisKey, [...selected, ...add]);
+}
+
+export function clearAxis(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, axisKey: DivisionAxisKey) {
+  return axisOf(profile, key, format, axisKey) ? setAxisSelection(answers, key, format, axisKey, []) : answers;
+}
+
+/** Studio / Custom: add an organizer-defined value where the axis allows it (it is selected immediately). */
+export function addCustomDivisionValue(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, axisKey: DivisionAxisKey, name: string) {
+  const axis = axisOf(profile, key, format, axisKey);
+  const trimmed = name.trim().replace(/\s+/g, " ");
+  const selected = answers.programs[key]?.formats[format]?.divisions[axisKey] ?? [];
+  if (!axis?.allow_custom || !trimmed || trimmed.length > 80) return answers;
+  const taken = [...axis.values.map((value) => value.label), ...selected].some((label) => label.toLowerCase() === trimmed.toLowerCase());
+  return taken ? answers : setAxisSelection(answers, key, format, axisKey, [...selected, trimmed]);
+}
+
+/** Selected labels in profile running order; organizer-defined values follow in the order added. */
+export function orderedSelection(axis: DivisionAxis, selected: string[] | undefined): string[] {
+  const chosen = selected ?? [];
+  const known = axis.values.map((value) => value.label).filter((label) => chosen.includes(label));
+  return [...known, ...chosen.filter((label) => !axis.values.some((value) => value.label === label))];
 }
 
 export function toggleFormatDance(answers: SetupAnswers, key: ProgramKey, format: FormatKey, dance: string) {
@@ -440,7 +496,7 @@ export function formatRunNote(profile: SetupProfileDefaults, key: ProgramKey, fo
 // Derivation
 // ---------------------------------------------------------------------------------------------------
 
-export type DraftDivision = { name: string; skill_label: string; age_label?: string };
+export type DraftDivision = { name: string; skill_label?: string; age_label?: string; axes: Partial<Record<DivisionAxisKey, string>> };
 
 export type DraftCategoryPayload = {
   type: FormatKey;
@@ -502,15 +558,37 @@ export type DerivedDraft = {
   payload: CompetitionDraftSpec | null;
 };
 
-export function divisionsFor(format: Pick<FormatAnswer, "levels" | "ageBands">): DraftDivision[] {
-  const ages: Array<string | null> = format.ageBands.length > 0 ? format.ageBands : [null];
-  const divisions: DraftDivision[] = [];
-  for (const level of format.levels) {
-    for (const age of ages) {
-      divisions.push({ name: age ? `${level} · ${age}` : level, skill_label: level, ...(age ? { age_label: age } : {}) });
-    }
+function toDivision(parts: Array<[DivisionAxis, string]>): DraftDivision {
+  const axes = Object.fromEntries(parts.map(([axis, label]) => [axis.key, label])) as Partial<Record<DivisionAxisKey, string>>;
+  const nameOf = ([axis, label]: [DivisionAxis, string]) => axis.values.find((value) => value.label === label)?.name_label ?? label;
+  return {
+    name: parts.map(nameOf).join(" · "),
+    ...(axes.skill_level ? { skill_label: axes.skill_level } : {}),
+    ...(axes.age_group ? { age_label: axes.age_group } : {}),
+    axes,
+  };
+}
+
+/**
+ * The divisions an entry format offers, derived from its scheme and the selected values:
+ * - cross: one division per combination of the axes that have selections (an axis left empty does not split);
+ * - separate: one division per selected value, axis by axis (no combinations).
+ */
+export function divisionsFor(scheme: DivisionScheme, selection: DivisionSelection): DraftDivision[] {
+  const chosen = scheme.axes.map((axis) => ({ axis, labels: orderedSelection(axis, selection[axis.key]) })).filter((item) => item.labels.length > 0);
+  if (scheme.combination === "separate") {
+    return chosen.flatMap(({ axis, labels }) => labels.map((label) => toDivision([[axis, label]])));
   }
-  return divisions;
+  if (chosen.length === 0) return [];
+  let combinations: Array<Array<[DivisionAxis, string]>> = [[]];
+  for (const { axis, labels } of chosen) {
+    combinations = combinations.flatMap((parts) => labels.map((label) => [...parts, [axis, label] as [DivisionAxis, string]]));
+  }
+  return combinations.map(toDivision);
+}
+
+export function formatDivisions(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, value: Pick<FormatAnswer, "divisions">) {
+  return divisionsFor(divisionScheme(profile, key, format), value.divisions);
 }
 
 function money(amount: number, currency: string) {
@@ -582,7 +660,7 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
       for (const [format, value] of Object.entries(answers.programs[key]?.formats ?? {})) {
         if (!value) continue;
         const label = `${profile.programs[key].label} ${formatLabel(profile, key, format)}`;
-        const divisions = divisionsFor(value);
+        const divisions = formatDivisions(profile, key, format, value);
         total += divisions.length;
         if (divisions.length < 1) errors.push(`Add at least one division for ${label}.`);
         if (divisions.length > limits.divisions) errors.push(`Use ${limits.divisions} divisions or fewer for ${label}.`);
@@ -677,7 +755,7 @@ export function deriveDraft(
       const label = formatLabel(profile, key, format);
       const judging = profile.judging[formatJudging(answers, profile, key, format)];
       const roundNames = (judging?.rounds ?? []).map((round) => round.name);
-      const divisions = divisionsFor(value);
+      const divisions = formatDivisions(profile, key, format, value);
       const dances = definition.uses_dances ? value.dances.filter((dance) => dancesByKey.has(dance)) : [];
       for (const dance of dances) if (!usedDances.includes(dance)) usedDances.push(dance);
       const pending = value.pricing === "later";
@@ -797,15 +875,20 @@ export function resumeStep(answers: SetupAnswers, profile: SetupProfileDefaults,
   return firstInvalidStep(answers, profile) ?? steps[steps.length - 1];
 }
 
+function validSelection(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.values(value).every((labels) => Array.isArray(labels) && labels.every((label) => typeof label === "string"));
+}
+
 /** Parses persisted answers; anything malformed starts over rather than producing a partial draft. */
 export function restoreAnswers(raw: unknown, profile: SetupProfileDefaults): SetupAnswers | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Partial<SetupAnswers>;
-  if (value.version !== 2 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
+  if (value.version !== 3 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
   if (!value.registration || typeof value.registration !== "object") return null;
   if (value.purpose !== null && !PURPOSE_OPTIONS.some((option) => option.key === value.purpose)) return null;
   const answers: SetupAnswers = {
-    version: 2,
+    version: 3,
     purpose: value.purpose ?? null,
     styleMode: value.styleMode === "multiple" ? "multiple" : "single",
     styles: value.styles.filter((key): key is string => typeof key === "string"),
@@ -821,7 +904,7 @@ export function restoreAnswers(raw: unknown, profile: SetupProfileDefaults): Set
     if (!profile.programs[key] || !program || typeof program.formats !== "object" || !Array.isArray(program.customDances)) return null;
     if (program.adjudication !== null && !ADJUDICATION_KEYS.includes(program.adjudication)) return null;
     for (const [format, entry] of Object.entries(program.formats)) {
-      if (!profile.programs[key].formats.includes(format) || !entry || !Array.isArray(entry.levels) || !Array.isArray(entry.dances) || !Array.isArray(entry.ageBands)) return null;
+      if (!profile.programs[key].formats.includes(format) || !entry || !Array.isArray(entry.dances) || !validSelection(entry.divisions)) return null;
       if (!FORMAT_ADJUDICATION.includes(entry.adjudication)) return null;
     }
   }

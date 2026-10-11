@@ -396,6 +396,15 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
           "basis": "owner_operational",
           "note": "Showcases and Spotlights run after an age group's dance sequence, before the next block."
         }
+      },
+      "division_schemes": {
+        "pro_am": "country_proam",
+        "pro_pro": "country_propro",
+        "couples": "country_couples",
+        "showcase": "country_routine",
+        "spotlight": "country_routine",
+        "solo": "country_routine",
+        "team": "open_only"
       }
     },
     "west_coast_swing": {
@@ -444,6 +453,12 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
           "basis": "owner_operational",
           "note": "Routines run as their own contest block."
         }
+      },
+      "division_schemes": {
+        "jack_and_jill": "wcs_contests",
+        "couples": "wcs_contests",
+        "pro_am": "wcs_contests",
+        "routine": "open_only"
       }
     },
     "ballroom": {
@@ -555,6 +570,13 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
           "basis": "owner_operational",
           "note": "Showcase / Showdance numbers run after a style block, before the next major block."
         }
+      },
+      "division_schemes": {
+        "pro_am": "ballroom_proam",
+        "couples": "ballroom_amateur",
+        "professional": "open_only",
+        "showdance": "open_only",
+        "solo": "open_only"
       }
     },
     "custom": {
@@ -622,6 +644,16 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
           "value": "age",
           "basis": "studio_recommendation"
         }
+      },
+      "division_schemes": {
+        "pro_am": "studio_generic",
+        "pro_pro": "studio_generic",
+        "couples": "studio_generic",
+        "professional": "studio_generic",
+        "jack_and_jill": "studio_generic",
+        "custom_routine": "open_only",
+        "solo": "open_only",
+        "team": "open_only"
       }
     }
   },
@@ -651,7 +683,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "levels_newcomer_gold",
       "kind": "regular",
       "music_source": {
         "value": "event_music",
@@ -693,7 +724,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "open",
       "kind": "regular",
       "music_source": {
         "value": "event_music",
@@ -734,7 +764,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "levels_newcomer_gold",
       "kind": "regular",
       "music_source": {
         "value": "event_music",
@@ -775,7 +804,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "open",
       "kind": "regular",
       "music_source": {
         "value": "event_music",
@@ -815,7 +843,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "skill_levels",
       "kind": "regular",
       "music_source": {
         "value": "event_music",
@@ -859,7 +886,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_dance",
-      "division_preset": "open",
       "kind": "special",
       "music_source": {
         "value": "profile_defined",
@@ -927,7 +953,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "open",
       "kind": "special",
       "music_source": {
         "value": "entry_selected",
@@ -1011,7 +1036,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "open",
       "kind": "special",
       "music_source": {
         "value": "entry_selected",
@@ -1055,7 +1079,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "open",
       "kind": "special",
       "music_source": {
         "value": "entry_selected",
@@ -1099,7 +1122,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "open",
       "kind": "special",
       "music_source": {
         "value": "entry_selected",
@@ -1148,7 +1170,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "open",
       "kind": "special",
       "music_source": {
         "value": "entry_selected",
@@ -1189,7 +1210,6 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
         "later"
       ],
       "default_pricing": "per_entry",
-      "division_preset": "open",
       "kind": "special",
       "music_source": {
         "value": "entry_selected",
@@ -1368,50 +1388,1894 @@ export const STUDIO_CUSTOM_V2_DEFAULTS: SetupProfileDefaults = {
       }
     ]
   },
-  "divisionPresets": {
-    "levels_newcomer_gold": {
-      "label": "Newcomer, Bronze, Silver, Gold",
-      "levels": [
-        "Newcomer",
-        "Bronze",
-        "Silver",
-        "Gold"
+  "divisionSchemes": {
+    "country_proam": {
+      "label": "Country ProAm",
+      "combination": "cross",
+      "note": "A division is a level in an age division, e.g. Novice · Diamond (UCWDC II.A.7).",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Levels",
+          "values": [
+            {
+              "key": "newcomer",
+              "label": "Newcomer",
+              "basis": "studio_recommendation",
+              "eligibility": {
+                "note": "Studio / Custom single Newcomer level; UCWDC splits Newcomer into IV, III, II and I."
+              }
+            },
+            {
+              "key": "newcomer_iv",
+              "label": "Newcomer IV",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.1",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "newcomer_iii",
+              "label": "Newcomer III",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.1",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "newcomer_ii",
+              "label": "Newcomer II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.1",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "newcomer_i",
+              "label": "Newcomer I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.1",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "novice",
+              "label": "Novice",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.1",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "intermediate",
+              "label": "Intermediate",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.1",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "advanced",
+              "label": "Advanced",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.1",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "allstars",
+              "label": "AllStars",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.1",
+                  "page": "4"
+                }
+              ],
+              "eligibility": {
+                "note": "Ascension division (earned)."
+              }
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "studio_recommendation",
+              "name_label": "Open Level",
+              "eligibility": {
+                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
+              }
+            }
+          ],
+          "recommended": [
+            "newcomer",
+            "novice",
+            "intermediate",
+            "advanced",
+            "open"
+          ],
+          "defaults": [
+            "newcomer",
+            "novice",
+            "intermediate",
+            "advanced",
+            "open"
+          ],
+          "allow_custom": true
+        },
+        {
+          "key": "age_group",
+          "label": "Age divisions",
+          "values": [
+            {
+              "key": "junior_primary",
+              "label": "Junior Primary",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "under_age": 10
+              }
+            },
+            {
+              "key": "junior_youth",
+              "label": "Junior Youth",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 10,
+                "under_age": 14
+              }
+            },
+            {
+              "key": "junior_teen",
+              "label": "Junior Teen",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 14,
+                "under_age": 18
+              }
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 18,
+                "note": "Open age division competitors must be Adults."
+              }
+            },
+            {
+              "key": "crystal",
+              "label": "Crystal",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 30
+              }
+            },
+            {
+              "key": "diamond",
+              "label": "Diamond",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 40
+              }
+            },
+            {
+              "key": "silver",
+              "label": "Silver",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 50
+              }
+            },
+            {
+              "key": "gold",
+              "label": "Gold",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 60
+              }
+            },
+            {
+              "key": "platinum",
+              "label": "Platinum",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 70
+              }
+            },
+            {
+              "key": "pearl",
+              "label": "Pearl",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 80
+              }
+            }
+          ],
+          "recommended": [
+            "open",
+            "crystal",
+            "diamond",
+            "silver",
+            "gold",
+            "platinum",
+            "pearl"
+          ],
+          "defaults": [
+            "open"
+          ],
+          "allow_custom": true,
+          "note": "Age on the last day of the dance season (UCWDC). Pick every age division you will offer."
+        }
       ]
     },
-    "levels_basic": {
-      "label": "Beginner, Intermediate, Advanced",
-      "levels": [
-        "Beginner",
-        "Intermediate",
-        "Advanced"
+    "country_propro": {
+      "label": "Country ProPro",
+      "combination": "cross",
+      "note": "UCWDC ProPro levels. Age divisions for ProPro are NOT SPECIFIED IN PROVIDED SOURCE.",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Levels",
+          "values": [
+            {
+              "key": "propro_ii",
+              "label": "ProPro II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.2",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "propro_i",
+              "label": "ProPro I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E.2",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "studio_recommendation",
+              "name_label": "Open Level",
+              "eligibility": {
+                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
+              }
+            }
+          ],
+          "recommended": [
+            "propro_ii",
+            "propro_i"
+          ],
+          "defaults": [
+            "propro_ii",
+            "propro_i"
+          ],
+          "allow_custom": true
+        }
       ]
     },
-    "open": {
+    "country_couples": {
+      "label": "Country Couples",
+      "combination": "cross",
+      "note": "Couples use their own ladder and age list (no Pearl). Junior couples dance in the older partner's age group.",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Levels",
+          "values": [
+            {
+              "key": "newcomer",
+              "label": "Newcomer",
+              "basis": "studio_recommendation",
+              "eligibility": {
+                "note": "Studio / Custom single Newcomer level; UCWDC splits Newcomer into IV, III, II and I."
+              }
+            },
+            {
+              "key": "newcomer_iv",
+              "label": "Newcomer IV",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "newcomer_iii",
+              "label": "Newcomer III",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "newcomer_ii",
+              "label": "Newcomer II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "newcomer_i",
+              "label": "Newcomer I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "novice",
+              "label": "Novice",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "intermediate",
+              "label": "Intermediate",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "advanced",
+              "label": "Advanced",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "classic_iii",
+              "label": "Classic III",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "classic_ii",
+              "label": "Classic II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "classic_ii_i",
+              "label": "Classic II/I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "classic_i",
+              "label": "Classic I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.E",
+                  "page": "4"
+                }
+              ]
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "studio_recommendation",
+              "name_label": "Open Level",
+              "eligibility": {
+                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
+              }
+            }
+          ],
+          "recommended": [
+            "newcomer",
+            "novice",
+            "intermediate",
+            "advanced",
+            "open"
+          ],
+          "defaults": [
+            "newcomer",
+            "novice",
+            "intermediate",
+            "advanced",
+            "open"
+          ],
+          "allow_custom": true,
+          "note": "Studio levels by default; the UCWDC Couples ladder (Newcomer IV–I, Classic III–I) is under More options."
+        },
+        {
+          "key": "age_group",
+          "label": "Age divisions",
+          "values": [
+            {
+              "key": "junior_primary",
+              "label": "Junior Primary",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "under_age": 10,
+                "note": "Older partner's age."
+              }
+            },
+            {
+              "key": "junior_youth",
+              "label": "Junior Youth",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 10,
+                "under_age": 14,
+                "note": "Older partner's age."
+              }
+            },
+            {
+              "key": "junior_teen",
+              "label": "Junior Teen",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 14,
+                "under_age": 18,
+                "note": "Older partner's age."
+              }
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 18,
+                "note": "Adults; an Adult may dance with a partner who is 16 or older."
+              }
+            },
+            {
+              "key": "crystal",
+              "label": "Crystal",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 30
+              }
+            },
+            {
+              "key": "diamond",
+              "label": "Diamond",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 40
+              }
+            },
+            {
+              "key": "silver",
+              "label": "Silver",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 50
+              }
+            },
+            {
+              "key": "gold",
+              "label": "Gold",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 60
+              }
+            },
+            {
+              "key": "platinum",
+              "label": "Platinum",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 70
+              }
+            },
+            {
+              "key": "masters",
+              "label": "Masters",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 18,
+                "note": "Adults. Ascension division: competitors must earn ascension (UCWDC Couples II.E.3)."
+              }
+            },
+            {
+              "key": "masters_plus",
+              "label": "Masters Plus",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 45,
+                "note": "Ascension division: competitors must earn ascension (UCWDC Couples II.E.3)."
+              }
+            },
+            {
+              "key": "crown",
+              "label": "Crown",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 40,
+                "note": "Ascension division: competitors must earn ascension (UCWDC Couples II.E.3)."
+              }
+            },
+            {
+              "key": "crown_plus",
+              "label": "Crown Plus",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3"
+                }
+              ],
+              "eligibility": {
+                "min_age": 55,
+                "note": "Ascension division: competitors must earn ascension (UCWDC Couples II.E.3)."
+              }
+            }
+          ],
+          "recommended": [
+            "open",
+            "crystal",
+            "diamond",
+            "silver",
+            "gold",
+            "platinum"
+          ],
+          "defaults": [
+            "open"
+          ],
+          "allow_custom": true,
+          "note": "Age on the last day of the dance season (UCWDC). Pick every age division you will offer."
+        }
+      ]
+    },
+    "country_routine": {
+      "label": "Country routine",
+      "combination": "cross",
+      "note": "Showcase / Spotlight / routine offerings by age division.",
+      "axes": [
+        {
+          "key": "age_group",
+          "label": "Age divisions",
+          "values": [
+            {
+              "key": "junior_primary",
+              "label": "Junior Primary",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "under_age": 10
+              }
+            },
+            {
+              "key": "junior_youth",
+              "label": "Junior Youth",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 10,
+                "under_age": 14
+              }
+            },
+            {
+              "key": "junior_teen",
+              "label": "Junior Teen",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 14,
+                "under_age": 18
+              }
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 18,
+                "note": "Open age division competitors must be Adults."
+              }
+            },
+            {
+              "key": "crystal",
+              "label": "Crystal",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 30
+              }
+            },
+            {
+              "key": "diamond",
+              "label": "Diamond",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 40
+              }
+            },
+            {
+              "key": "silver",
+              "label": "Silver",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 50
+              }
+            },
+            {
+              "key": "gold",
+              "label": "Gold",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 60
+              }
+            },
+            {
+              "key": "platinum",
+              "label": "Platinum",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 70
+              }
+            },
+            {
+              "key": "pearl",
+              "label": "Pearl",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+                  "edition": "2026 (v1-26-2026)",
+                  "section": "II.D",
+                  "page": "3-4"
+                }
+              ],
+              "eligibility": {
+                "min_age": 80
+              }
+            }
+          ],
+          "recommended": [
+            "open",
+            "crystal",
+            "diamond",
+            "silver",
+            "gold",
+            "platinum",
+            "pearl"
+          ],
+          "defaults": [
+            "open"
+          ],
+          "allow_custom": true,
+          "note": "Age on the last day of the dance season (UCWDC). Pick every age division you will offer."
+        }
+      ]
+    },
+    "wcs_contests": {
+      "label": "West Coast Swing contests",
+      "combination": "separate",
+      "note": "Skill-level contests and age-based contests are separate contests. Age contests are open to every skill level (WSDC 3.1.3.a); they are not age splits of each level.",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Skill levels",
+          "values": [
+            {
+              "key": "newcomer",
+              "label": "Newcomer",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Purpose/Definitions",
+                  "page": "1"
+                }
+              ]
+            },
+            {
+              "key": "novice",
+              "label": "Novice",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Purpose/Definitions",
+                  "page": "1"
+                }
+              ]
+            },
+            {
+              "key": "intermediate",
+              "label": "Intermediate",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Purpose/Definitions",
+                  "page": "1"
+                }
+              ]
+            },
+            {
+              "key": "advanced",
+              "label": "Advanced",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Purpose/Definitions",
+                  "page": "1"
+                }
+              ]
+            },
+            {
+              "key": "all_star",
+              "label": "All Star",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Purpose/Definitions",
+                  "page": "1"
+                }
+              ]
+            },
+            {
+              "key": "champion",
+              "label": "Champion",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Purpose/Definitions",
+                  "page": "1"
+                }
+              ]
+            }
+          ],
+          "recommended": [
+            "newcomer",
+            "novice",
+            "intermediate",
+            "advanced",
+            "all_star",
+            "champion"
+          ],
+          "defaults": [
+            "newcomer",
+            "novice",
+            "intermediate",
+            "advanced"
+          ],
+          "allow_custom": true
+        },
+        {
+          "key": "age_group",
+          "label": "Age-based contests",
+          "values": [
+            {
+              "key": "juniors",
+              "label": "Juniors",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Definitions; 3.1.3.a",
+                  "page": "3, 10"
+                }
+              ],
+              "eligibility": {
+                "under_age": 18
+              }
+            },
+            {
+              "key": "sophisticated",
+              "label": "Sophisticated",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Definitions; 3.1.3.a",
+                  "page": "3, 10"
+                }
+              ],
+              "eligibility": {
+                "min_age": 35
+              }
+            },
+            {
+              "key": "masters",
+              "label": "Masters",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "WSDC Registry Event Rules",
+                  "edition": "Version 2026.1C",
+                  "section": "Definitions; 3.1.3.a",
+                  "page": "3, 10"
+                }
+              ],
+              "eligibility": {
+                "min_age": 50
+              }
+            }
+          ],
+          "recommended": [
+            "juniors",
+            "sophisticated",
+            "masters"
+          ],
+          "defaults": [],
+          "allow_custom": true,
+          "note": "Optional age-based contests, open to all skill levels."
+        }
+      ]
+    },
+    "ballroom_proam": {
+      "label": "Ballroom ProAm",
+      "combination": "cross",
+      "note": "NDCA lets organizers offer any or all of its Pro/Am levels and age categories; it defines no universal division list.",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Levels",
+          "values": [
+            {
+              "key": "newcomer",
+              "label": "Newcomer",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "pre_bronze",
+              "label": "Pre-Bronze",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "bronze",
+              "label": "Bronze",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "silver",
+              "label": "Silver",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "gold",
+              "label": "Gold",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "gold_star",
+              "label": "Gold Star",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "supreme_gold",
+              "label": "Supreme Gold",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "beginner",
+              "label": "Beginner",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "intermediate",
+              "label": "Intermediate",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "advanced",
+              "label": "Advanced",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "studio_recommendation",
+              "name_label": "Open Level",
+              "eligibility": {
+                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
+              }
+            }
+          ],
+          "recommended": [
+            "newcomer",
+            "bronze",
+            "silver",
+            "gold",
+            "open"
+          ],
+          "defaults": [
+            "bronze",
+            "silver",
+            "gold"
+          ],
+          "allow_custom": true
+        },
+        {
+          "key": "age_group",
+          "label": "Age divisions",
+          "values": [
+            {
+              "key": "a",
+              "label": "A",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.f",
+                  "page": "7-8"
+                }
+              ],
+              "eligibility": {
+                "min_age": 19
+              }
+            },
+            {
+              "key": "b",
+              "label": "B",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.f",
+                  "page": "7-8"
+                }
+              ],
+              "eligibility": {
+                "min_age": 36
+              }
+            },
+            {
+              "key": "c",
+              "label": "C",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.f",
+                  "page": "7-8"
+                }
+              ],
+              "eligibility": {
+                "min_age": 51
+              }
+            },
+            {
+              "key": "s1",
+              "label": "S1",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.f",
+                  "page": "7-8"
+                }
+              ],
+              "eligibility": {
+                "min_age": 61
+              }
+            },
+            {
+              "key": "s2",
+              "label": "S2",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.f",
+                  "page": "7-8"
+                }
+              ],
+              "eligibility": {
+                "min_age": 71
+              }
+            },
+            {
+              "key": "s3",
+              "label": "S3",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.f",
+                  "page": "7-8"
+                }
+              ],
+              "eligibility": {
+                "min_age": 76
+              }
+            },
+            {
+              "key": "s4",
+              "label": "S4",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.f",
+                  "page": "7-8"
+                }
+              ],
+              "eligibility": {
+                "min_age": 81
+              }
+            }
+          ],
+          "recommended": [
+            "a",
+            "b",
+            "c",
+            "s1",
+            "s2",
+            "s3",
+            "s4"
+          ],
+          "defaults": [],
+          "allow_custom": true,
+          "note": "Optional; whose age counts is NOT SPECIFIED IN PROVIDED SOURCE."
+        }
+      ]
+    },
+    "ballroom_amateur": {
+      "label": "Ballroom amateur couples",
+      "combination": "cross",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Levels",
+          "values": [
+            {
+              "key": "bronze",
+              "label": "Bronze",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.B",
+                  "page": "43"
+                }
+              ]
+            },
+            {
+              "key": "silver",
+              "label": "Silver",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.B",
+                  "page": "43"
+                }
+              ]
+            },
+            {
+              "key": "gold",
+              "label": "Gold",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.B",
+                  "page": "43"
+                }
+              ]
+            },
+            {
+              "key": "novice",
+              "label": "Novice",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.B",
+                  "page": "43"
+                }
+              ]
+            },
+            {
+              "key": "pre_championship",
+              "label": "Pre-Championship",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.B",
+                  "page": "43"
+                }
+              ]
+            },
+            {
+              "key": "open_amateur",
+              "label": "Open Amateur",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.B",
+                  "page": "43"
+                }
+              ]
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "studio_recommendation",
+              "name_label": "Open Level",
+              "eligibility": {
+                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
+              }
+            }
+          ],
+          "recommended": [
+            "bronze",
+            "silver",
+            "gold",
+            "open"
+          ],
+          "defaults": [
+            "bronze",
+            "silver",
+            "gold"
+          ],
+          "allow_custom": true
+        },
+        {
+          "key": "age_group",
+          "label": "Age divisions",
+          "values": [
+            {
+              "key": "pre_teen_i",
+              "label": "Pre-Teen I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "under_age": 10
+              }
+            },
+            {
+              "key": "pre_teen_ii",
+              "label": "Pre-Teen II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 10,
+                "under_age": 12
+              }
+            },
+            {
+              "key": "junior_i",
+              "label": "Junior I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 12,
+                "under_age": 14
+              }
+            },
+            {
+              "key": "junior_ii",
+              "label": "Junior II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 14,
+                "under_age": 16
+              }
+            },
+            {
+              "key": "youth",
+              "label": "Youth",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 16,
+                "under_age": 19
+              }
+            },
+            {
+              "key": "under_21",
+              "label": "Under 21",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "note": "At least one partner 16+, neither 21."
+              }
+            },
+            {
+              "key": "adult",
+              "label": "Adult",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 19
+              }
+            },
+            {
+              "key": "senior_i",
+              "label": "Senior I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 35,
+                "note": "One partner 35+, the other 30+."
+              }
+            },
+            {
+              "key": "senior_ii",
+              "label": "Senior II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 45,
+                "note": "One partner 45+, the other 40+."
+              }
+            },
+            {
+              "key": "senior_iii",
+              "label": "Senior III",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 55,
+                "note": "One partner 55+, the other 50+."
+              }
+            },
+            {
+              "key": "senior_iv",
+              "label": "Senior IV",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A",
+                  "page": "42-43"
+                }
+              ],
+              "eligibility": {
+                "min_age": 65,
+                "note": "One partner 65+, the other 60+."
+              }
+            }
+          ],
+          "recommended": [
+            "adult",
+            "senior_i",
+            "senior_ii",
+            "senior_iii",
+            "senior_iv"
+          ],
+          "defaults": [],
+          "allow_custom": true,
+          "note": "Optional."
+        }
+      ]
+    },
+    "studio_generic": {
+      "label": "Studio levels",
+      "combination": "cross",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Levels",
+          "values": [
+            {
+              "key": "newcomer",
+              "label": "Newcomer",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "bronze",
+              "label": "Bronze",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "silver",
+              "label": "Silver",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "gold",
+              "label": "Gold",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "novice",
+              "label": "Novice",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "intermediate",
+              "label": "Intermediate",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "advanced",
+              "label": "Advanced",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "studio_recommendation",
+              "name_label": "Open Level",
+              "eligibility": {
+                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
+              }
+            }
+          ],
+          "recommended": [
+            "newcomer",
+            "novice",
+            "intermediate",
+            "advanced",
+            "open"
+          ],
+          "defaults": [
+            "newcomer",
+            "novice",
+            "intermediate",
+            "advanced"
+          ],
+          "allow_custom": true
+        },
+        {
+          "key": "age_group",
+          "label": "Age divisions",
+          "values": [
+            {
+              "key": "youth",
+              "label": "Youth",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "adult",
+              "label": "Adult",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "senior",
+              "label": "Senior",
+              "basis": "studio_recommendation"
+            }
+          ],
+          "recommended": [
+            "youth",
+            "adult",
+            "senior"
+          ],
+          "defaults": [],
+          "allow_custom": true,
+          "note": "Studio / Custom age groups; define your own if you prefer."
+        }
+      ]
+    },
+    "open_only": {
       "label": "One open division",
-      "levels": [
-        "Open"
-      ]
-    },
-    "skill_levels": {
-      "label": "Newcomer, Novice, Intermediate, Advanced",
-      "levels": [
-        "Newcomer",
-        "Novice",
-        "Intermediate",
-        "Advanced"
+      "combination": "cross",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Divisions",
+          "values": [
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "studio_recommendation"
+            }
+          ],
+          "recommended": [
+            "open"
+          ],
+          "defaults": [
+            "open"
+          ],
+          "allow_custom": true
+        }
       ]
     }
   },
-  "ageBands": [
-    "Youth",
-    "Adult",
-    "Senior"
-  ],
   "limits": {
     "programs": 4,
     "categories": 8,
-    "divisions": 30,
-    "totalDivisions": 200,
+    "divisions": 80,
+    "totalDivisions": 300,
     "dances": 20,
     "nameLength": 200,
     "maxPrice": 100000

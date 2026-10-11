@@ -68,7 +68,11 @@ describe("Styles step (walkthrough regression)", () => {
 
   it("a profile/code mismatch is refused loudly instead of rendering an empty step", () => {
     const oldShape = { schema: 2, programs: { country: { label: "Country", purpose: "competition", formats: ["pro_am"] } }, categoryTypes: { pro_am: {} }, judging: {} };
-    expect(setupProfileProblems(oldShape)).toEqual(["Style country has no valid result options.", "Style country has no programming metadata."]);
+    expect(setupProfileProblems(oldShape)).toEqual([
+      "Style country has no valid result options.",
+      "Style country has no programming metadata.",
+      "Style country has no valid division schemes.",
+    ]);
     expect(setupProfileProblems({ ...DB_PROFILE, programs: {} })).toEqual(["The profile offers no styles."]);
     expect(setupProfileProblems(null)).toEqual(["The profile is not schema 2."]);
     expect(read("src/app/app/events/[id]/competition/new/page.tsx")).toContain("setupProfileProblems(profile.defaults).length > 0");

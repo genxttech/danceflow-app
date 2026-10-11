@@ -85,7 +85,7 @@ language sql immutable as $$
           "dances": ["two_step", "waltz"], "pricing": {"model": "per_dance", "amount": 25}},
          {"type": "pro_pro", "adjudication": "inherit", "divisions": [{"name": "Open", "skill_label": "Open"}], "dances": ["two_step"],
           "pricing": {"model": "per_entry", "amount": 60}},
-         {"type": "couples", "adjudication": "inherit", "divisions": [{"name": "Newcomer · Adult", "skill_label": "Newcomer", "age_label": "Adult"}],
+         {"type": "couples", "adjudication": "inherit", "divisions": [{"name": "Newcomer · Adult", "skill_label": "Newcomer", "age_label": "Adult", "axes": {"skill_level": "Newcomer", "age_group": "Adult"}}],
           "dances": ["custom_line_polka"], "pricing": {"model": "included", "amount": null}},
          {"type": "team", "adjudication": "inherit", "divisions": [{"name": "Open", "skill_label": "Open"}], "dances": [],
           "pricing": {"model": "later", "amount": null}},
@@ -236,11 +236,15 @@ select pg_temp.expect_msg('unused program dances are refused',
     '[{"key": "two_step"}, {"key": "waltz"}, {"key": "custom_line_polka", "name": "Line Polka"}, {"key": "polka"}]')), 'no entry format');
 select pg_temp.expect_msg('a routine format cannot list dances',
   pg_temp.draft('00e002', pg_temp.bad('reject-teamdance', '{programs,0,categories,3,dances}', '["two_step"]')), 'does not use individual dances');
+select pg_temp.expect_msg('unknown division axes are refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-axis', '{programs,0,categories,0,divisions}', '[{"name": "Novice", "axes": {"shoe_size": "9"}}]')), 'invalid division details');
+select pg_temp.expect_msg('division axis values must be text',
+  pg_temp.draft('00e002', pg_temp.bad('reject-axis-value', '{programs,0,categories,0,divisions}', '[{"name": "Novice", "axes": {"skill_level": 5}}]')), 'invalid division details');
 select pg_temp.expect_msg('duplicate division names are refused',
   pg_temp.draft('00e002', pg_temp.bad('reject-dupdiv', '{programs,0,categories,0,divisions}', '[{"name": "Bronze"}, {"name": "bronze"}]')), 'unique');
 select pg_temp.expect_msg('more than the per-format division limit is refused',
   pg_temp.draft('00e002', pg_temp.bad('reject-manydiv', '{programs,0,categories,1,divisions}',
-    (select jsonb_agg(jsonb_build_object('name', 'Level ' || n)) from generate_series(1, 31) n))), 'between 1 and 30 divisions');
+    (select jsonb_agg(jsonb_build_object('name', 'Level ' || n)) from generate_series(1, 81) n))), 'between 1 and 80 divisions');
 select pg_temp.expect_msg('duplicate entry formats are refused',
   pg_temp.draft('00e002', pg_temp.bad('reject-dupfmt', '{programs,0,categories,1,type}', '"pro_am"')), 'once per program');
 select pg_temp.expect_msg('Showcase / Performance purpose offers only performance formats',
@@ -337,6 +341,10 @@ select pg_temp.chk('dances: pool names and categories (client labels ignored) pl
    from public.event_competition_dances where program_id = pg_temp.id('country'))
     = 'two_step=Two Step/Partner,waltz=Waltz/Partner,custom_line_polka=Line Polka/Custom'
   and pg_temp.n($q$select count(*) from public.event_competition_dances where program_id = pg_temp.id('ballroom')$q$) = 1);
+select pg_temp.chk('each division records the selected axis values it was built from',
+  (select count(*) = 1 and bool_and(configuration #> '{setup,axes}' = '{"skill_level": "Newcomer", "age_group": "Adult"}'::jsonb)
+   from public.event_competition_divisions where contest_id = pg_temp.id('c_country_couples'))
+  and (select count(*) = 1 and bool_and(configuration #> '{setup,axes}' = '{}'::jsonb) from public.event_competition_divisions where contest_id = pg_temp.id('c_country_team')));
 select pg_temp.chk('divisions per entry format with level and age labels (no shared division list)',
   (select string_agg(c.configuration #>> '{simple,category_type}' || ':' || d.name || ':' || coalesce(d.skill_label, '-') || ':' || coalesce(d.age_label, '-'), ',' order by p.sort_order, c.sort_order, d.sort_order)
    from public.event_competition_divisions d join public.event_competition_contests c on c.id = d.contest_id

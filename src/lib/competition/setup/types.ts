@@ -207,7 +207,6 @@ export type EntryFormatDefinition = {
   dance_roles: "pair" | "single" | "optional" | "none";
   pricing_models: PricingModel[];
   default_pricing: PricingModel;
-  division_preset: string;
   /** regular = danced in the normal dance sequence; special = a routine / performance offering. */
   kind: "regular" | "special";
   music_source: Grounded<MusicSource>;
@@ -243,6 +242,43 @@ export type ProgrammingMetadata = {
   special_boundary: Grounded<ProgrammingDimension>;
 };
 
+// -----------------------------------------------------------------------------------------------------
+// Divisions (event configuration: which divisions are OFFERED -- not competitor classification)
+// -----------------------------------------------------------------------------------------------------
+
+export type DivisionAxisKey = "skill_level" | "age_group" | "style" | "proficiency" | "contest_type" | "custom";
+
+/** One offerable value on an axis, with where it comes from and optional eligibility metadata. */
+export type DivisionValue = {
+  key: string;
+  label: string;
+  /** Used in generated division names when the plain label would be ambiguous (e.g. "Open Level" vs Open age). */
+  name_label?: string;
+  basis: Basis;
+  sources?: SourceReference[];
+  eligibility?: { min_age?: number; under_age?: number; note?: string };
+};
+
+export type DivisionAxis = {
+  key: DivisionAxisKey;
+  label: string;
+  /** Every value the organizer may pick, in running order. */
+  values: DivisionValue[];
+  /** Shown by default; the rest sit behind "More options". */
+  recommended: string[];
+  /** Pre-selected for a newly added entry format. */
+  defaults: string[];
+  allow_custom: boolean;
+  note?: string;
+};
+
+/**
+ * How an entry format's divisions are built from the selected axis values:
+ * - cross: every combination of the selected values (e.g. Novice · Crystal), the usual level-by-age division;
+ * - separate: each selected value is its own division (e.g. WSDC skill contests vs age-based contests).
+ */
+export type DivisionScheme = { label: string; axes: DivisionAxis[]; combination: "cross" | "separate"; note?: string };
+
 export type ProgramTemplate = {
   label: string;
   description: string;
@@ -257,6 +293,8 @@ export type ProgramTemplate = {
   custom_dances: boolean;
   /** Adjudicated result options for this style (first is the default). */
   judging_options: string[];
+  /** Division scheme per entry format (keys into divisionSchemes). */
+  division_schemes: Record<FormatKey, string>;
   programming: ProgrammingMetadata;
 };
 
@@ -276,8 +314,8 @@ export type SetupProfileDefaults = {
   programs: Record<ProgramKey, ProgramTemplate>;
   categoryTypes: Record<FormatKey, EntryFormatDefinition>;
   dancePools: Record<string, ProfileDance[]>;
-  divisionPresets: Record<string, { label: string; levels: string[] }>;
-  ageBands: string[];
+  /** Division schemes (axes, values, provenance), referenced per style and entry format. */
+  divisionSchemes: Record<string, DivisionScheme>;
   /** divisions is per entry format; totalDivisions caps the whole draft. */
   limits: { programs: number; categories: number; divisions: number; totalDivisions: number; dances: number; nameLength: number; maxPrice: number };
 };

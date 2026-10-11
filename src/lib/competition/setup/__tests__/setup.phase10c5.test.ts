@@ -8,7 +8,7 @@ import {
   RULE_OPTIONS,
   activeProgramKeys,
   addCustomDance,
-  addLevel,
+  addCustomDivisionValue,
   availableFormats,
   chooseAdjudication,
   chooseJudging,
@@ -31,7 +31,7 @@ import {
   setRegistration,
   setRegistrationFee,
   stepErrors,
-  toggleAgeBand,
+  toggleDivisionValue,
   toggleFormat,
   updateFormat,
   visibleSteps,
@@ -247,10 +247,10 @@ describe("answers and steps", () => {
 
   it("changing purpose keeps the style and fits its offerings", () => {
     let answers = chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, "country");
-    answers = addLevel(answers, P, "country", "pro_am", "Platinum");
+    answers = toggleDivisionValue(answers, P, "country", "pro_am", "age_group", "Platinum");
     answers = choosePurpose(answers, P, "competition_showcase");
     expect(Object.keys(answers.programs.country.formats)).toEqual(["pro_am", "pro_pro", "couples", "showcase", "spotlight"]);
-    expect(answers.programs.country.formats.pro_am?.levels).toContain("Platinum");
+    expect(answers.programs.country.formats.pro_am?.divisions.age_group).toContain("Platinum");
     answers = choosePurpose(answers, P, "showcase");
     expect(Object.keys(answers.programs.country.formats)).toEqual(["showcase", "spotlight"]);
   });
@@ -420,21 +420,22 @@ describe("deriveDraft: the single derivation authority", () => {
     expect(deriveDraft(answers, P, CONTEXT).payload).toBeNull();
   });
 
-  it("division rules: per-format lists, age groups, duplicates and the total cap", () => {
+  it("division rules: per-format selections, empty selections, the per-format cap and the total cap", () => {
     let answers = competitionIn("custom");
-    answers = toggleAgeBand(answers, "custom", "pro_am", "Adult");
-    expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[0].divisions).toEqual(["Newcomer · Adult", "Bronze · Adult", "Silver · Adult", "Gold · Adult"]);
-    expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[1].divisions).toEqual(["Newcomer", "Bronze", "Silver", "Gold"]);
-    expect(addLevel(answers, P, "custom", "pro_am", "bronze")).toBe(answers);
-    answers = updateFormat(answers, "custom", "pro_am", { levels: [] });
+    answers = toggleDivisionValue(answers, P, "custom", "pro_am", "age_group", "Adult");
+    expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[0].divisions).toEqual(["Newcomer · Adult", "Novice · Adult", "Intermediate · Adult", "Advanced · Adult"]);
+    expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[1].divisions).toEqual(["Newcomer", "Novice", "Intermediate", "Advanced"]);
+    expect(addCustomDivisionValue(answers, P, "custom", "pro_am", "skill_level", "novice")).toBe(answers);
+    answers = updateFormat(answers, "custom", "pro_am", { divisions: { skill_level: [], age_group: [] } });
     expect(stepErrors(answers, P, "divisions")).toContain("Add at least one division for Other / Studio-defined ProAm.");
-    answers = updateFormat(answers, "custom", "pro_am", { levels: Array.from({ length: 31 }, (_, index) => `Level ${index}`), ageBands: [] });
-    expect(stepErrors(answers, P, "divisions")).toContain("Use 30 divisions or fewer for Other / Studio-defined ProAm.");
-    for (const format of P.programs.custom.formats) {
+    const many = (count: number) => Array.from({ length: count }, (_, index) => `Level ${index}`);
+    answers = updateFormat(answers, "custom", "pro_am", { divisions: { skill_level: many(81) } });
+    expect(stepErrors(answers, P, "divisions")).toContain("Use 80 divisions or fewer for Other / Studio-defined ProAm.");
+    for (const format of ["pro_am", "pro_pro", "couples", "professional"]) {
       if (!answers.programs.custom.formats[format]) answers = toggleFormat(answers, P, "custom", format);
-      answers = updateFormat(answers, "custom", format, { levels: Array.from({ length: 30 }, (_, index) => `Level ${index}`), ageBands: [] });
+      answers = updateFormat(answers, "custom", format, { divisions: { skill_level: many(80) } });
     }
-    expect(stepErrors(answers, P, "divisions")).toContain("This draft has 240 divisions; use 200 or fewer.");
+    expect(stepErrors(answers, P, "divisions")).toContain("This draft has 320 divisions; use 300 or fewer.");
   });
 
   it("custom dances only where the profile allows them, and removing one clears it everywhere", () => {
@@ -460,7 +461,7 @@ describe("persistence and resume", () => {
     const answers = fullAnswers();
     expect(restoreAnswers(JSON.parse(JSON.stringify(answers)), P)).toEqual(answers);
     expect(restoreAnswers(null, P)).toBeNull();
-    expect(restoreAnswers({ ...answers, version: 1 }, P)).toBeNull();
+    expect(restoreAnswers({ ...answers, version: 2 }, P)).toBeNull();
     expect(restoreAnswers({ ...answers, purpose: "gala" }, P)).toBeNull();
     expect(restoreAnswers({ ...answers, programs: { ucwdc: answers.programs.country } }, P)).toBeNull();
     const badFormat = JSON.parse(JSON.stringify(answers));
@@ -490,9 +491,9 @@ describe("persistence and resume", () => {
     });
     saveStoredSetup("e1", { answers: fullAnswers(), step: "pricing", requestKey: "request-key-0001" });
     expect(loadStoredSetup("e1")).toMatchObject({ step: "pricing", requestKey: "request-key-0001" });
-    expect([...store.keys()]).toEqual(["danceflow.competition-setup.v2:e1"]);
+    expect([...store.keys()]).toEqual(["danceflow.competition-setup.v3:e1"]);
     expect(loadStoredSetup("e2")).toBeNull();
-    store.set("danceflow.competition-setup.v2:e3", JSON.stringify({ answers: {}, step: "review", requestKey: "bad key" }));
+    store.set("danceflow.competition-setup.v3:e3", JSON.stringify({ answers: {}, step: "review", requestKey: "bad key" }));
     expect(loadStoredSetup("e3")).toBeNull();
     clearStoredSetup("e1");
     expect(loadStoredSetup("e1")).toBeNull();

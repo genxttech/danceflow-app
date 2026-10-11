@@ -8,6 +8,13 @@ import type { FormatKey, ProgramKey, SetupProfileDefaults } from "@/lib/competit
 import { clearStoredSetup, loadStoredSetup, saveStoredSetup } from "@/lib/competition/setup/persistence";
 import {
   ADJUDICATION_OVERRIDE_LABELS,
+  addCustomDivisionValue,
+  clearAxis,
+  divisionScheme,
+  formatDivisions,
+  orderedSelection,
+  selectRecommended,
+  toggleDivisionValue,
   availableFormats,
   formatRunNote,
   judgingSummary,
@@ -20,8 +27,6 @@ import {
   SETUP_STEPS,
   activeProgramKeys,
   addCustomDance,
-  addLevel,
-  applyLevelPreset,
   canReach,
   chooseAdjudication,
   chooseJudging,
@@ -29,13 +34,11 @@ import {
   chooseSingleStyleMode,
   chooseStyle,
   deriveDraft,
-  divisionsFor,
   initialAnswers,
   nextStep,
   previousStep,
   programDances,
   removeCustomDance,
-  removeLevel,
   restoreAnswers,
   resumeStep,
   setPricing,
@@ -43,7 +46,6 @@ import {
   setRegistrationFee,
   stepErrors,
   styleOptions,
-  toggleAgeBand,
   toggleFormat,
   toggleFormatDance,
   updateFormat,
@@ -145,6 +147,102 @@ export function StyleChoices({
   );
 }
 
+/**
+ * The Divisions choices for one entry format: for each division axis (e.g. Levels, Age divisions), a
+ * multi-select of the recommended values, "More options" for the rest, Select all / Clear, and an
+ * organizer-defined value where the rules allow it. The divisions themselves come from deriveDraft.
+ */
+export function DivisionChoices({
+  answers,
+  defaults,
+  styleKey,
+  format,
+  update,
+}: {
+  answers: SetupAnswers;
+  defaults: SetupProfileDefaults;
+  styleKey: ProgramKey;
+  format: FormatKey;
+  update: (change: (current: SetupAnswers) => SetupAnswers) => void;
+}) {
+  const [custom, setCustom] = useState<Record<string, string>>({});
+  const value = answers.programs[styleKey]?.formats[format];
+  if (!value) return null;
+  const scheme = divisionScheme(defaults, styleKey, format);
+  const divisions = formatDivisions(defaults, styleKey, format, value);
+  const counts = scheme.axes.map((axis) => ({ axis, selected: orderedSelection(axis, value.divisions[axis.key]) }));
+  const crossDetail = counts.filter((item) => item.selected.length > 0).map((item) => `${item.selected.length} ${item.axis.label.toLowerCase()}`).join(" × ");
+  return (
+    <div className="mt-3 space-y-4">
+      {counts.map(({ axis, selected }) => {
+        const recommended = axis.recommended.map((valueKey) => axis.values.find((item) => item.key === valueKey)?.label).filter(Boolean) as string[];
+        const more = axis.values.map((item) => item.label).filter((label) => !recommended.includes(label));
+        const customSelected = selected.filter((label) => !axis.values.some((item) => item.label === label));
+        const id = `${styleKey}:${format}:${axis.key}`;
+        const chip = (label: string) => (
+          <Chip key={label} selected={selected.includes(label)} onClick={() => update((current) => toggleDivisionValue(current, defaults, styleKey, format, axis.key, label))}>
+            {label}
+          </Chip>
+        );
+        return (
+          <div key={axis.key}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{axis.label}</p>
+              <span className="flex gap-3 text-xs font-semibold text-slate-600">
+                <button type="button" className="underline" onClick={() => update((current) => selectRecommended(current, defaults, styleKey, format, axis.key))}>
+                  Select all
+                </button>
+                <button type="button" className="underline" onClick={() => update((current) => clearAxis(current, defaults, styleKey, format, axis.key))}>
+                  Clear
+                </button>
+              </span>
+            </div>
+            {axis.note ? <p className="mt-1 text-xs text-slate-500">{axis.note}</p> : null}
+            <div className="mt-2 flex flex-wrap gap-2">
+              {recommended.map(chip)}
+              {more.filter((label) => selected.includes(label)).map(chip)}
+              {customSelected.map(chip)}
+            </div>
+            {more.length > 0 ? (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-600">More options</summary>
+                <div className="mt-2 flex flex-wrap gap-2">{more.filter((label) => !selected.includes(label)).map(chip)}</div>
+              </details>
+            ) : null}
+            {axis.allow_custom ? (
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={custom[id] ?? ""}
+                  onChange={(changeEvent) => setCustom((current) => ({ ...current, [id]: changeEvent.target.value }))}
+                  placeholder={`Add your own ${axis.label.toLowerCase().replace(/s$/, "")}`}
+                  aria-label={`Add your own ${axis.label.toLowerCase()} value`}
+                  maxLength={80}
+                  className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    update((current) => addCustomDivisionValue(current, defaults, styleKey, format, axis.key, custom[id] ?? ""));
+                    setCustom((current) => ({ ...current, [id]: "" }));
+                  }}
+                  className="h-9 shrink-0 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                >
+                  Add
+                </button>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+      <p className="text-sm text-slate-600">
+        {divisions.length} {divisions.length === 1 ? "division" : "divisions"}
+        {scheme.combination === "cross" && crossDetail.includes("×") ? ` (${crossDetail})` : ""}
+        {scheme.combination === "separate" ? " — each is its own contest" : ""}
+      </p>
+    </div>
+  );
+}
+
 export default function CompetitionSetupWizard({
   eventId,
   event,
@@ -166,7 +264,6 @@ export default function CompetitionSetupWizard({
   const [requestKey, setRequestKey] = useState(initialRequestKey);
   const [restored, setRestored] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
-  const [newLevel, setNewLevel] = useState<Record<string, string>>({});
   const [newDance, setNewDance] = useState<Record<string, string>>({});
   const [action, formAction, pending] = useActionState(createCompetitionDraftAction, INITIAL_ACTION);
 
@@ -425,70 +522,14 @@ export default function CompetitionSetupWizard({
             {programs.flatMap((key) =>
               tpl(key).formats
                 .filter((format) => answers.programs[key]?.formats[format])
-                .map((format) => {
-                  const value = answers.programs[key].formats[format]!;
-                  const id = `${key}:${format}`;
-                  const count = divisionsFor(value).length;
-                  return (
-                    <div key={id} className={groupClass}>
-                      <p className="text-sm font-semibold text-slate-950">
-                        {tpl(key).label} · {fmt(format).label}
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {Object.entries(defaults.divisionPresets).map(([presetKey, preset]) => (
-                          <Chip key={presetKey} selected={value.levelPreset === presetKey} onClick={() => update((current) => applyLevelPreset(current, defaults, key, format, presetKey))}>
-                            {preset.label}
-                          </Chip>
-                        ))}
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {value.levels.map((level) => (
-                          <span key={level} className="inline-flex items-center gap-2 rounded-full bg-slate-100 py-1.5 pl-3 pr-2 text-sm text-slate-800">
-                            {level}
-                            <button type="button" aria-label={`Remove ${level}`} onClick={() => update((current) => removeLevel(current, key, format, level))} className="rounded-full px-1.5 text-slate-500 hover:bg-slate-200">
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        <input
-                          value={newLevel[id] ?? ""}
-                          onChange={(changeEvent) => setNewLevel((current) => ({ ...current, [id]: changeEvent.target.value }))}
-                          onKeyDown={(keyEvent) => {
-                            if (keyEvent.key === "Enter") {
-                              keyEvent.preventDefault();
-                              update((current) => addLevel(current, defaults, key, format, newLevel[id] ?? ""));
-                              setNewLevel((current) => ({ ...current, [id]: "" }));
-                            }
-                          }}
-                          placeholder="Add your own level"
-                          aria-label={`Add a level for ${tpl(key).label} ${fmt(format).label}`}
-                          className={fieldClass}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            update((current) => addLevel(current, defaults, key, format, newLevel[id] ?? ""));
-                            setNewLevel((current) => ({ ...current, [id]: "" }));
-                          }}
-                          className="h-10 shrink-0 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-                        >
-                          Add
-                        </button>
-                      </div>
-                      <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Age groups (optional)</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {defaults.ageBands.map((band) => (
-                          <Chip key={band} selected={value.ageBands.includes(band)} onClick={() => update((current) => toggleAgeBand(current, key, format, band))}>
-                            {band}
-                          </Chip>
-                        ))}
-                      </div>
-                      <p className="mt-3 text-sm text-slate-600">{count} {count === 1 ? "division" : "divisions"}</p>
-                    </div>
-                  );
-                }),
+                .map((format) => (
+                  <div key={`${key}:${format}`} className={groupClass}>
+                    <p className="text-sm font-semibold text-slate-950">
+                      {tpl(key).label} · {fmt(format).label}
+                    </p>
+                    <DivisionChoices answers={answers} defaults={defaults} styleKey={key} format={format} update={update} />
+                  </div>
+                )),
             )}
           </section>
         ) : null}
