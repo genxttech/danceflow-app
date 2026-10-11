@@ -1561,20 +1561,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "newcomer",
-            "novice",
-            "intermediate",
-            "advanced",
-            "open"
-          ],
-          "defaults": [
-            "newcomer",
-            "novice",
-            "intermediate",
-            "advanced",
-            "open"
-          ],
+          "required": true,
           "allow_custom": true
         },
         {
@@ -1745,18 +1732,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "open",
-            "crystal",
-            "diamond",
-            "silver",
-            "gold",
-            "platinum",
-            "pearl"
-          ],
-          "defaults": [
-            "open"
-          ],
+          "required": true,
           "allow_custom": true,
           "note": "Age on the last day of the dance season (UCWDC). Pick every age division you will offer."
         }
@@ -1807,14 +1783,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "propro_ii",
-            "propro_i"
-          ],
-          "defaults": [
-            "propro_ii",
-            "propro_i"
-          ],
+          "required": true,
           "allow_custom": true
         },
         {
@@ -1985,18 +1954,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "open",
-            "crystal",
-            "diamond",
-            "silver",
-            "gold",
-            "platinum",
-            "pearl"
-          ],
-          "defaults": [
-            "open"
-          ],
+          "required": true,
           "allow_custom": true,
           "note": "Age on the last day of the dance season (UCWDC). Pick every age division you will offer."
         }
@@ -2148,20 +2106,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "newcomer",
-            "novice",
-            "intermediate",
-            "advanced",
-            "open"
-          ],
-          "defaults": [
-            "newcomer",
-            "novice",
-            "intermediate",
-            "advanced",
-            "open"
-          ],
+          "required": true,
           "allow_custom": true,
           "note": "Studio levels by default; the UCWDC Couples ladder (Newcomer IV–I, Classic III–I) is under More options."
         },
@@ -2388,17 +2333,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "open",
-            "crystal",
-            "diamond",
-            "silver",
-            "gold",
-            "platinum"
-          ],
-          "defaults": [
-            "open"
-          ],
+          "required": true,
           "allow_custom": true,
           "note": "Age on the last day of the dance season (UCWDC). Pick every age division you will offer."
         }
@@ -2577,18 +2512,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "open",
-            "crystal",
-            "diamond",
-            "silver",
-            "gold",
-            "platinum",
-            "pearl"
-          ],
-          "defaults": [
-            "open"
-          ],
+          "required": true,
           "allow_custom": true,
           "note": "Age on the last day of the dance season (UCWDC). Pick every age division you will offer."
         }
@@ -2682,20 +2606,7 @@ declare
               ]
             }
           ],
-          "recommended": [
-            "newcomer",
-            "novice",
-            "intermediate",
-            "advanced",
-            "all_star",
-            "champion"
-          ],
-          "defaults": [
-            "newcomer",
-            "novice",
-            "intermediate",
-            "advanced"
-          ],
+          "required": false,
           "allow_custom": true
         },
         {
@@ -2751,12 +2662,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "juniors",
-            "sophisticated",
-            "masters"
-          ],
-          "defaults": [],
+          "required": false,
           "allow_custom": true,
           "note": "Optional age-based contests, open to all skill levels."
         }
@@ -2911,18 +2817,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "newcomer",
-            "bronze",
-            "silver",
-            "gold",
-            "open"
-          ],
-          "defaults": [
-            "bronze",
-            "silver",
-            "gold"
-          ],
+          "required": true,
           "allow_custom": true
         },
         {
@@ -3042,16 +2937,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "a",
-            "b",
-            "c",
-            "s1",
-            "s2",
-            "s3",
-            "s4"
-          ],
-          "defaults": [],
+          "required": false,
           "allow_custom": true,
           "note": "Optional; whose age counts is NOT SPECIFIED IN PROVIDED SOURCE."
         }
@@ -3153,17 +3039,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "bronze",
-            "silver",
-            "gold",
-            "open"
-          ],
-          "defaults": [
-            "bronze",
-            "silver",
-            "gold"
-          ],
+          "required": true,
           "allow_custom": true
         },
         {
@@ -3355,14 +3231,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "adult",
-            "senior_i",
-            "senior_ii",
-            "senior_iii",
-            "senior_iv"
-          ],
-          "defaults": [],
+          "required": false,
           "allow_custom": true,
           "note": "Optional."
         }
@@ -3421,19 +3290,7 @@ declare
               }
             }
           ],
-          "recommended": [
-            "newcomer",
-            "novice",
-            "intermediate",
-            "advanced",
-            "open"
-          ],
-          "defaults": [
-            "newcomer",
-            "novice",
-            "intermediate",
-            "advanced"
-          ],
+          "required": true,
           "allow_custom": true
         },
         {
@@ -3456,12 +3313,7 @@ declare
               "basis": "studio_recommendation"
             }
           ],
-          "recommended": [
-            "youth",
-            "adult",
-            "senior"
-          ],
-          "defaults": [],
+          "required": false,
           "allow_custom": true,
           "note": "Studio / Custom age groups; define your own if you prefer."
         }
@@ -3481,12 +3333,7 @@ declare
               "basis": "studio_recommendation"
             }
           ],
-          "recommended": [
-            "open"
-          ],
-          "defaults": [
-            "open"
-          ],
+          "required": true,
           "allow_custom": true
         }
       ]

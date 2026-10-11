@@ -38,6 +38,7 @@ import {
   type SetupAnswers,
 } from "../draft";
 import { clearStoredSetup, loadStoredSetup, saveStoredSetup } from "../persistence";
+import { withDivisions } from "./divisionTestHelpers";
 
 const ROOT = join(__dirname, "..", "..", "..", "..", "..");
 const MIGRATION = join(ROOT, "src/lib/supabase/migrations/20261113090000_phase10c5_competition_draft.sql");
@@ -56,7 +57,7 @@ function fullAnswers(): SetupAnswers {
   answers = updateFormat(answers, "country", "showcase", { amount: "30", dances: ["two_step", "waltz"] });
   answers = setFormatAdjudication(answers, P, "country", "showcase", "non_adjudicated");
   answers = setPricing(answers, P, "country", "spotlight", "later");
-  return setRegistration(answers, { opens: "2026-11-01", closes: "2026-12-01" });
+  return withDivisions(setRegistration(answers, { opens: "2026-11-01", closes: "2026-12-01" }), P);
 }
 
 function competitionIn(style: string, adjudication: "adjudicated" | "non_adjudicated" = "adjudicated") {
@@ -236,7 +237,7 @@ describe("answers and steps", () => {
     answers = chooseAdjudication(answers, "country", "adjudicated");
     answers = updateFormat(answers, "country", "showcase", { amount: "30" });
     answers = updateFormat(answers, "country", "spotlight", { amount: "40" });
-    const draft = deriveDraft(answers, P, CONTEXT);
+    const draft = deriveDraft(withDivisions(answers, P), P, CONTEXT);
     expect(draft.payload?.programs[0]).toMatchObject({ key: "country", adjudication: "adjudicated", judging: "medal_marks" });
     expect(draft.programs[0].categories.map((category) => category.judging)).toEqual([
       "Adjudicated · Judge input: Medal Marks · Final result: Placement",
@@ -296,7 +297,7 @@ describe("answers and steps", () => {
     tampered.programs.country.judging = "placements";
     expect(programJudging(tampered, P, "country")).toBe("");
     expect(stepErrors(tampered, P, "adjudication")).toEqual(["Choose how Country results are given."]);
-    expect(deriveDraft(tampered, P, CONTEXT).payload).toBeNull();
+    expect(deriveDraft(withDivisions(tampered, P), P, CONTEXT).payload).toBeNull();
   });
 
   it("Continue stops on an invalid step and Back always works", () => {
@@ -352,7 +353,7 @@ describe("deriveDraft: the single derivation authority", () => {
     ballroom = updateFormat(ballroom, "ballroom", "pro_am", { amount: "20" });
     ballroom = updateFormat(ballroom, "ballroom", "couples", { amount: "20" });
     ballroom = updateFormat(ballroom, "ballroom", "showdance", { amount: "40" });
-    const derived = deriveDraft(ballroom, P, CONTEXT);
+    const derived = deriveDraft(withDivisions(ballroom, P), P, CONTEXT);
     expect(derived.errors).toEqual({});
     expect(derived.programs[0].categories.find((category) => category.label === "Showcase / Showdance")?.judging).toBe("Adjudicated · Placements");
   });
@@ -391,7 +392,7 @@ describe("deriveDraft: the single derivation authority", () => {
     for (const format of ["pro_am", "pro_pro", "couples"]) answers = setPricing(answers, P, "country", format, "free");
     answers = updateFormat(answers, "west_coast_swing", "jack_and_jill", { amount: "15" });
     answers = updateFormat(answers, "west_coast_swing", "couples", { amount: "20" });
-    const draft = deriveDraft(answers, P, CONTEXT);
+    const draft = deriveDraft(withDivisions(answers, P), P, CONTEXT);
     expect(draft.payload?.programs.map((program) => [program.name, program.adjudication, program.judging])).toEqual([
       ["Spring Classic — Country", "adjudicated", "medal_marks"],
       ["Spring Classic — West Coast Swing", "non_adjudicated", "non_adjudicated"],
@@ -402,7 +403,7 @@ describe("deriveDraft: the single derivation authority", () => {
   it("Configure later creates the draft but marks pricing incomplete", () => {
     let answers = competitionIn("country");
     for (const format of ["pro_am", "pro_pro", "couples"]) answers = setPricing(answers, P, "country", format, "later");
-    const draft = deriveDraft(answers, P, CONTEXT);
+    const draft = deriveDraft(withDivisions(answers, P), P, CONTEXT);
     expect(draft.payload).not.toBeNull();
     expect(draft.payload?.programs[0].categories.every((category) => category.pricing.model === "later" && category.pricing.amount === null)).toBe(true);
     expect(draft.programs[0].categories.every((category) => category.pricingPending)).toBe(true);
@@ -417,17 +418,24 @@ describe("deriveDraft: the single derivation authority", () => {
     expect(stepErrors(answers, P, "pricing")).toContain("Enter a price for Country ProAm, or choose Free or Configure later.");
     answers = setPricing(answers, P, "country", "pro_am", "included");
     expect(stepErrors(answers, P, "pricing")).toContain("Enter the Country registration fee.");
-    expect(deriveDraft(answers, P, CONTEXT).payload).toBeNull();
+    expect(deriveDraft(withDivisions(answers, P), P, CONTEXT).payload).toBeNull();
   });
 
   it("division rules: per-format selections, empty selections, the per-format cap and the total cap", () => {
     let answers = competitionIn("custom");
+    expect(answers.programs.custom.formats.pro_am?.divisions).toEqual({ skill_level: [], age_group: [] });
+    expect(stepErrors(answers, P, "divisions")).toContain("Choose at least one level for Other / Studio-defined ProAm.");
     answers = toggleDivisionValue(answers, P, "custom", "pro_am", "age_group", "Adult");
+    expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[0].divisions).toEqual([]);
+    for (const level of ["Newcomer", "Novice", "Intermediate", "Advanced"]) {
+      answers = toggleDivisionValue(answers, P, "custom", "pro_am", "skill_level", level);
+      answers = toggleDivisionValue(answers, P, "custom", "couples", "skill_level", level);
+    }
     expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[0].divisions).toEqual(["Newcomer · Adult", "Novice · Adult", "Intermediate · Adult", "Advanced · Adult"]);
     expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[1].divisions).toEqual(["Newcomer", "Novice", "Intermediate", "Advanced"]);
     expect(addCustomDivisionValue(answers, P, "custom", "pro_am", "skill_level", "novice")).toBe(answers);
     answers = updateFormat(answers, "custom", "pro_am", { divisions: { skill_level: [], age_group: [] } });
-    expect(stepErrors(answers, P, "divisions")).toContain("Add at least one division for Other / Studio-defined ProAm.");
+    expect(stepErrors(answers, P, "divisions")).toContain("Choose at least one level for Other / Studio-defined ProAm.");
     const many = (count: number) => Array.from({ length: count }, (_, index) => `Level ${index}`);
     answers = updateFormat(answers, "custom", "pro_am", { divisions: { skill_level: many(81) } });
     expect(stepErrors(answers, P, "divisions")).toContain("Use 80 divisions or fewer for Other / Studio-defined ProAm.");
@@ -446,7 +454,7 @@ describe("deriveDraft: the single derivation authority", () => {
     expect(addCustomDance(answers, P, "country", "Two Step")).toBe(answers);
     answers = updateFormat(answers, "country", "couples", { dances: ["custom_line_polka"] });
     for (const format of ["pro_am", "pro_pro", "couples"]) answers = updateFormat(answers, "country", format, { amount: "10" });
-    expect(deriveDraft(answers, P, CONTEXT).payload?.programs[0].dances.at(-1)).toEqual({ key: "custom_line_polka", name: "Line Polka", category: "Custom" });
+    expect(deriveDraft(withDivisions(answers, P), P, CONTEXT).payload?.programs[0].dances.at(-1)).toEqual({ key: "custom_line_polka", name: "Line Polka", category: "Custom" });
     answers = removeCustomDance(answers, "country", "custom_line_polka");
     expect(answers.programs.country.formats.couples?.dances).toEqual([]);
     const wcs = competitionIn("west_coast_swing");

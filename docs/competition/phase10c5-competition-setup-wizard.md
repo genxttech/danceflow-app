@@ -80,22 +80,23 @@ Non-Adjudicated means **no official competitive result**. It does not mean no ju
 
 Divisions are event configuration (what the event offers), not competitor classification.
 
-- **Schemes.** Each style maps each entry format to a division scheme (`division_schemes`). A scheme has one or more **axes**, each with values, recommended and default selections, `allow_custom`, provenance and optional eligibility. The axis keys are `skill_level`, `age_group`, `style`, `proficiency`, `contest_type` and `custom`.
-- **Selection.** The organizer multi-selects values on every axis. The page shows the recommended values first, with "More options", Select all / Clear, and their own values where allowed.
+- **Schemes.** Each style maps each entry format to a division scheme (`division_schemes`). A scheme has one or more **axes**, each with its values, `required`, `allow_custom`, provenance and optional eligibility. The axis keys are `skill_level`, `age_group`, `style`, `proficiency`, `contest_type` and `custom`.
+- **Selection (owner decision, 2026-10-11).** Nothing is pre-selected — no levels and no age divisions, not even Open. Every applicable value is shown immediately as a multi-select chip (no "More options"), with Select all / Clear and the organizer's own values where allowed.
+- **Required axes.** A required axis must have at least one value before the format has any divisions, so an empty axis never produces level-only or age-only divisions by accident. Country ProAm, ProPro and Couples require both a level and an age division (a UCWDC division is an age and a level, II.A.7); Country routines require an age division; Ballroom, Other and one-open-division formats require a level, with ages optional; WSDC contests require neither on its own.
 - **Combination.**
-  - `cross`: one division per level × age, e.g. "Novice · Diamond" (UCWDC II.A.7: "ProAm Female Diamond Novice is a division"). An axis left empty does not split.
+  - `cross`: one division per level × age, e.g. "Novice · Diamond" (UCWDC II.A.7: "ProAm Female Diamond Novice is a division"). An optional axis left empty does not split.
   - `separate`: each value is its own contest. WSDC skill contests and age-based contests (Juniors / Sophisticated / Masters) are separate, because "age-based … contests must be open to competitors of all skill levels" (WSDC 3.1.3.a).
-- **Storage.** `skill_label` and `age_label` as before; every division also records its axis values in `configuration.setup.axes`. No table change.
+- **Storage.** `skill_label` and `age_label` as before; every division also records its axis values in `configuration.setup.axes`. No table change. Limits stay 80 divisions per format and 300 overall.
 
-| Style / format | Levels (default selected) | Ages (default) | Basis |
+| Style / format | Levels offered | Age divisions offered | Basis |
 |---|---|---|---|
-| Country ProAm | Newcomer, Novice, Intermediate, Advanced, Open Level. More options: Newcomer IV–I, AllStars | Open. Recommended: Crystal 30+, Diamond 40+, Silver 50+, Gold 60+, Platinum 70+, Pearl 80+. More: Junior Primary / Youth / Teen | UCWDC ProAm 2026 II.D, II.E.1. Studio Newcomer and Open Level are Studio values. |
-| Country ProPro | ProPro II, ProPro I | Open (recommended Crystal–Pearl; Juniors under More options) — the shared ProPro/ProAm age divisions | UCWDC ProPro/ProAm II.E.2 (levels), II.D (ages: general section of the combined booklet, no ProPro exclusion) |
-| Country Couples | Studio Newcomer–Advanced, Open Level. More: Newcomer IV–I, Classic III, II, II/I, I | Open. Recommended: Crystal to Platinum (no Pearl). More: Juniors (older partner), Masters, Masters Plus 45+, Crown 40+, Crown Plus 55+ (ascension) | UCWDC Couples 2026 II.D, II.E |
-| Country Showcase / Spotlight / Solo | — | UCWDC ProAm ages, Open default | UCWDC II.D |
-| WCS (all contest formats) | Newcomer, Novice, Intermediate, Advanced. Also All Star, Champion | Optional separate contests: Juniors <18, Sophisticated 35+, Masters 50+ | WSDC 2026.1C |
-| Ballroom ProAm | Bronze, Silver, Gold. Also Newcomer, Open Level; more NDCA levels | Optional A 19+, B 36+, C 51+, S1–S4 | NDCA II.B.7.c / II.B.7.f ("may offer"; no universal list) |
-| Ballroom Couples | Bronze, Silver, Gold. Also Novice, Pre-Championship, Open Amateur, Open Level | Optional Adult, Senior I–IV. More: Pre-Teen, Junior, Youth, Under 21 | NDCA X.A / X.B |
+| Country ProAm (level and age required) | Newcomer, Newcomer IV–I, Novice, Intermediate, Advanced, AllStars, Open Level | Junior Primary, Junior Youth, Junior Teen, Open, Crystal 30+, Diamond 40+, Silver 50+, Gold 60+, Platinum 70+, Pearl 80+ | UCWDC ProAm 2026 II.D, II.E.1. Studio Newcomer and Open Level are Studio values. |
+| Country ProPro (level and age required) | ProPro II, ProPro I, Open Level | The shared ProPro/ProAm age divisions (as ProAm) | UCWDC ProPro/ProAm II.E.2 (levels), II.D (ages: general section of the combined booklet, no ProPro exclusion) |
+| Country Couples (level and age required) | Studio Newcomer, Novice, Intermediate, Advanced; Newcomer IV–I; Classic III, II, II/I, I; Open Level | Juniors (older partner), Open, Crystal to Platinum (no Pearl), Masters, Masters Plus 45+, Crown 40+, Crown Plus 55+ (ascension) | UCWDC Couples 2026 II.D, II.E |
+| Country Showcase / Spotlight / Solo (age required) | — | UCWDC ProAm ages | UCWDC II.D |
+| WCS (all contest formats) | Newcomer, Novice, Intermediate, Advanced, All Star, Champion | Separate optional contests: Juniors <18, Sophisticated 35+, Masters 50+ | WSDC 2026.1C |
+| Ballroom ProAm (level required) | NDCA Pro/Am levels (Newcomer, Pre-Bronze, Bronze, Silver, Gold, Gold Star, Supreme Gold, Beginner, Intermediate, Advanced), Open Level | Optional A 19+, B 36+, C 51+, S1–S4 | NDCA II.B.7.c / II.B.7.f ("may offer"; no universal list) |
+| Ballroom Couples (level required) | Bronze, Silver, Gold, Novice, Pre-Championship, Open Amateur, Open Level | Optional Pre-Teen I to Senior IV | NDCA X.A / X.B |
 | Other | Studio Newcomer, Novice, Intermediate, Advanced. Also Open Level, Bronze/Silver/Gold | Optional Studio Youth / Adult / Senior | Studio |
 
 Open is two different things:

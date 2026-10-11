@@ -13,7 +13,8 @@ import {
   divisionScheme,
   formatDivisions,
   orderedSelection,
-  selectRecommended,
+  selectAllValues,
+  missingRequiredAxes,
   toggleDivisionValue,
   availableFormats,
   formatRunNote,
@@ -170,13 +171,12 @@ export function DivisionChoices({
   if (!value) return null;
   const scheme = divisionScheme(defaults, styleKey, format);
   const divisions = formatDivisions(defaults, styleKey, format, value);
+  const missing = missingRequiredAxes(scheme, value.divisions);
   const counts = scheme.axes.map((axis) => ({ axis, selected: orderedSelection(axis, value.divisions[axis.key]) }));
   const crossDetail = counts.filter((item) => item.selected.length > 0).map((item) => `${item.selected.length} ${item.axis.label.toLowerCase()}`).join(" × ");
   return (
     <div className="mt-3 space-y-4">
       {counts.map(({ axis, selected }) => {
-        const recommended = axis.recommended.map((valueKey) => axis.values.find((item) => item.key === valueKey)?.label).filter(Boolean) as string[];
-        const more = axis.values.map((item) => item.label).filter((label) => !recommended.includes(label));
         const customSelected = selected.filter((label) => !axis.values.some((item) => item.label === label));
         const id = `${styleKey}:${format}:${axis.key}`;
         const chip = (label: string) => (
@@ -187,9 +187,11 @@ export function DivisionChoices({
         return (
           <div key={axis.key}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{axis.label}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {axis.label} <span className="font-normal normal-case text-slate-400">{axis.required ? "· choose at least one" : "· optional"}</span>
+              </p>
               <span className="flex gap-3 text-xs font-semibold text-slate-600">
-                <button type="button" className="underline" onClick={() => update((current) => selectRecommended(current, defaults, styleKey, format, axis.key))}>
+                <button type="button" className="underline" onClick={() => update((current) => selectAllValues(current, defaults, styleKey, format, axis.key))}>
                   Select all
                 </button>
                 <button type="button" className="underline" onClick={() => update((current) => clearAxis(current, defaults, styleKey, format, axis.key))}>
@@ -199,16 +201,9 @@ export function DivisionChoices({
             </div>
             {axis.note ? <p className="mt-1 text-xs text-slate-500">{axis.note}</p> : null}
             <div className="mt-2 flex flex-wrap gap-2">
-              {recommended.map(chip)}
-              {more.filter((label) => selected.includes(label)).map(chip)}
+              {axis.values.map((item) => chip(item.label))}
               {customSelected.map(chip)}
             </div>
-            {more.length > 0 ? (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs font-semibold text-slate-600">More options</summary>
-                <div className="mt-2 flex flex-wrap gap-2">{more.filter((label) => !selected.includes(label)).map(chip)}</div>
-              </details>
-            ) : null}
             {axis.allow_custom ? (
               <div className="mt-2 flex gap-2">
                 <input
@@ -237,7 +232,8 @@ export function DivisionChoices({
       <p className="text-sm text-slate-600">
         {divisions.length} {divisions.length === 1 ? "division" : "divisions"}
         {scheme.combination === "cross" && crossDetail.includes("×") ? ` (${crossDetail})` : ""}
-        {scheme.combination === "separate" ? " — each is its own contest" : ""}
+        {scheme.combination === "separate" && divisions.length > 0 ? " — each is its own contest" : ""}
+        {missing.length > 0 ? ` — choose at least one ${missing.map((axis) => axis.label.toLowerCase().replace(/s$/, "")).join(" and one ")}` : ""}
       </p>
     </div>
   );
@@ -644,8 +640,22 @@ export default function CompetitionSetupWizard({
                 onChange={(changeEvent) => update((current) => setRegistration(current, { accountRequired: changeEvent.target.checked }))}
                 className="mt-0.5 h-4 w-4"
               />
-              <span>Dancers need a DanceFlow account to register</span>
+              <span>Registrants need a DanceFlow account to register</span>
             </label>
+            <div className="mt-3 rounded-lg border border-slate-200 p-3 text-sm text-slate-700">
+              <p className="font-semibold text-slate-900">Why a DanceFlow account helps</p>
+              <p className="mt-1">
+                <span className="mr-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Planned</span>
+                A DanceFlow account allows competitors to receive released competition results and judges&apos; feedback directly in their personal portal, reducing manual distribution for organizers.
+              </p>
+              <p className="mt-2">
+                <span className="mr-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">Available now</span>
+                Requiring an account means every registration is submitted by a signed-in person, and dancers who register themselves are linked to their own account.
+              </p>
+              <p className="mt-2 text-slate-600">
+                Registrants can be dancers, instructors registering students, studios registering several competitors, or parents and guardians. Registering for your competition never makes anyone a lead or client of your studio.
+              </p>
+            </div>
             <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
               Registration stays closed until you open it. Online registration for dancers opens in a later update; nothing is sold yet.
             </p>

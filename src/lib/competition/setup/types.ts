@@ -262,12 +262,14 @@ export type DivisionValue = {
 export type DivisionAxis = {
   key: DivisionAxisKey;
   label: string;
-  /** Every value the organizer may pick, in running order. */
+  /** Every value the organizer may pick, in running order. All are shown; none is pre-selected. */
   values: DivisionValue[];
-  /** Shown by default; the rest sit behind "More options". */
-  recommended: string[];
-  /** Pre-selected for a newly added entry format. */
-  defaults: string[];
+  /**
+   * A required axis must have at least one selected value before the format has any divisions (e.g. a
+   * UCWDC division is an age AND a level, so neither may be left empty). An optional axis left empty simply
+   * does not split the divisions (e.g. Studio levels without age groups).
+   */
+  required: boolean;
   allow_custom: boolean;
   note?: string;
 };

@@ -327,7 +327,7 @@ export function updateFormat(answers: SetupAnswers, key: ProgramKey, format: For
 const OPEN_ONLY: DivisionScheme = {
   label: "One open division",
   combination: "cross",
-  axes: [{ key: "skill_level", label: "Level", values: [{ key: "open", label: "Open", basis: "studio_recommendation" }], recommended: ["open"], defaults: ["open"], allow_custom: true }],
+  axes: [{ key: "skill_level", label: "Level", values: [{ key: "open", label: "Open", basis: "studio_recommendation" }], required: true, allow_custom: true }],
 };
 
 /** The division scheme for a style's entry format (profile-driven, never a universal list). */
@@ -339,13 +339,10 @@ function axisOf(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKe
   return divisionScheme(profile, key, format).axes.find((axis) => axis.key === axisKey);
 }
 
-function labelOf(axis: DivisionAxis, valueKey: string) {
-  return axis.values.find((value) => value.key === valueKey)?.label ?? valueKey;
-}
-
+/** Nothing is pre-selected: the organizer chooses every level and age division the event offers. */
 function defaultDivisionSelection(scheme: DivisionScheme): DivisionSelection {
   const selection: DivisionSelection = {};
-  for (const axis of scheme.axes) selection[axis.key] = axis.defaults.map((valueKey) => labelOf(axis, valueKey));
+  for (const axis of scheme.axes) selection[axis.key] = [];
   return selection;
 }
 
@@ -364,12 +361,12 @@ export function toggleDivisionValue(answers: SetupAnswers, profile: SetupProfile
   return setAxisSelection(answers, key, format, axisKey, [...selected, label]);
 }
 
-/** Select every recommended value on an axis (keeps any extra values already chosen). */
-export function selectRecommended(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, axisKey: DivisionAxisKey) {
+/** Select every value the axis offers (keeps any organizer-defined values already chosen). */
+export function selectAllValues(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, axisKey: DivisionAxisKey) {
   const axis = axisOf(profile, key, format, axisKey);
   const selected = answers.programs[key]?.formats[format]?.divisions[axisKey] ?? [];
   if (!axis) return answers;
-  const add = axis.recommended.map((valueKey) => labelOf(axis, valueKey)).filter((label) => !selected.includes(label));
+  const add = axis.values.map((value) => value.label).filter((label) => !selected.includes(label));
   return setAxisSelection(answers, key, format, axisKey, [...selected, ...add]);
 }
 
@@ -569,12 +566,19 @@ function toDivision(parts: Array<[DivisionAxis, string]>): DraftDivision {
   };
 }
 
+/** Required axes that still have nothing selected. */
+export function missingRequiredAxes(scheme: DivisionScheme, selection: DivisionSelection): DivisionAxis[] {
+  return scheme.axes.filter((axis) => axis.required && orderedSelection(axis, selection[axis.key]).length === 0);
+}
+
 /**
  * The divisions an entry format offers, derived from its scheme and the selected values:
- * - cross: one division per combination of the axes that have selections (an axis left empty does not split);
+ * - nothing at all while a required axis is empty (never a level-only or age-only division by accident);
+ * - cross: one division per combination; an optional axis left empty does not split;
  * - separate: one division per selected value, axis by axis (no combinations).
  */
 export function divisionsFor(scheme: DivisionScheme, selection: DivisionSelection): DraftDivision[] {
+  if (missingRequiredAxes(scheme, selection).length > 0) return [];
   const chosen = scheme.axes.map((axis) => ({ axis, labels: orderedSelection(axis, selection[axis.key]) })).filter((item) => item.labels.length > 0);
   if (scheme.combination === "separate") {
     return chosen.flatMap(({ axis, labels }) => labels.map((label) => toDivision([[axis, label]])));
@@ -662,7 +666,9 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
         const label = `${profile.programs[key].label} ${formatLabel(profile, key, format)}`;
         const divisions = formatDivisions(profile, key, format, value);
         total += divisions.length;
-        if (divisions.length < 1) errors.push(`Add at least one division for ${label}.`);
+        const missing = missingRequiredAxes(divisionScheme(profile, key, format), value.divisions);
+        for (const axis of missing) errors.push(`Choose at least one ${axis.label.toLowerCase().replace(/s$/, "")} for ${label}.`);
+        if (missing.length === 0 && divisions.length < 1) errors.push(`Add at least one division for ${label}.`);
         if (divisions.length > limits.divisions) errors.push(`Use ${limits.divisions} divisions or fewer for ${label}.`);
         const seen = new Set<string>();
         for (const division of divisions) {
