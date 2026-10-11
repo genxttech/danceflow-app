@@ -2,6 +2,7 @@ import type {
   AdjudicationKey,
   DivisionAxis,
   DivisionAxisKey,
+  DanceStyleDefinition,
   DivisionScheme,
   EntryFormatDefinition,
   FormatAdjudication,
@@ -24,6 +25,10 @@ import type {
  *
  * Every purpose works through the organizer's styles: a Country Showcase stays a Country offering.
  * Adjudication is answered per style; Showcase and Spotlight may override it where the profile allows.
+ *
+ * Within a style, an offering may be entered per dance style (Ballroom Pro/Am in American Smooth and
+ * International Latin): each chosen dance style becomes its own category holding only that style's dances.
+ * Nothing is pre-selected -- offerings, dance styles, dances, levels and ages are all the organizer's choice.
  */
 
 export type Purpose = "competition" | "showcase" | "competition_showcase";
@@ -35,6 +40,9 @@ export type DivisionSelection = Partial<Record<DivisionAxisKey, string[]>>;
 export type FormatAnswer = {
   /** Which divisions are offered for this entry format: multiple values per axis. */
   divisions: DivisionSelection;
+  /** Dance styles the offering is entered in (only for offerings that use styles, e.g. Ballroom Pro/Am). */
+  danceStyles: string[];
+  /** Dances offered; for a styled offering every dance belongs to one of its chosen styles. */
   dances: string[];
   pricing: PricingModel;
   amount: string;
@@ -52,7 +60,7 @@ export type ProgramAnswer = {
 };
 
 export type SetupAnswers = {
-  version: 3;
+  version: 4;
   purpose: Purpose | null;
   styleMode: "single" | "multiple";
   styles: ProgramKey[];
@@ -122,7 +130,7 @@ export function parsePrice(value: string): number | null {
 
 export function initialAnswers(registration?: Partial<SetupAnswers["registration"]>): SetupAnswers {
   return {
-    version: 3,
+    version: 4,
     purpose: null,
     styleMode: "single",
     styles: [],
@@ -185,12 +193,30 @@ export function availableFormats(profile: SetupProfileDefaults, key: ProgramKey,
   return purpose === "showcase" ? template.formats.filter((format) => profile.categoryTypes[format]?.kind === "special") : [...template.formats];
 }
 
-export function recommendedFormats(profile: SetupProfileDefaults, key: ProgramKey, purpose: Purpose | null): FormatKey[] {
-  const template = profile.programs[key];
-  if (!template) return [];
-  if (purpose === "showcase") return [...template.recommended_special];
-  if (purpose === "competition_showcase") return [...template.recommended_formats, ...template.recommended_special];
-  return [...template.recommended_formats];
+/** The Offerings step's headings: the profile's groups, limited to what this purpose offers. Every offering stays visible. */
+export function offeringGroups(profile: SetupProfileDefaults, key: ProgramKey, purpose: Purpose | null): Array<{ label: string; formats: FormatKey[] }> {
+  const available = availableFormats(profile, key, purpose);
+  const groups = profile.programs[key]?.offering_groups ?? [{ label: "", formats: available }];
+  return groups.map((group) => ({ label: group.label, formats: group.formats.filter((format) => available.includes(format)) })).filter((group) => group.formats.length > 0);
+}
+
+/** The dance styles an offering may be entered in (none for an offering that does not use styles). */
+export function formatStyleOptions(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey): DanceStyleDefinition[] {
+  const definition = profile.categoryTypes[format];
+  if (!definition?.uses_styles) return [];
+  const styles = profile.programs[key]?.styles ?? [];
+  return definition.style_keys ? styles.filter((style) => definition.style_keys?.includes(style.key)) : styles;
+}
+
+/** The style a dance belongs to: listed in the style, or an organizer-added dance in the style that allows them. */
+export function danceStyleOf(profile: SetupProfileDefaults, key: ProgramKey, dance: string): DanceStyleDefinition | undefined {
+  const styles = profile.programs[key]?.styles ?? [];
+  return styles.find((style) => style.dances.includes(dance)) ?? (isCustomDanceKey(dance) ? styles.find((style) => style.allow_custom_dances) : undefined);
+}
+
+/** Chosen styles in profile order. */
+export function orderedStyles(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, chosen: string[] | undefined): DanceStyleDefinition[] {
+  return formatStyleOptions(profile, key, format).filter((style) => (chosen ?? []).includes(style.key));
 }
 
 /** Steps that apply to these answers. Sanction is only asked for rules that can be sanctioned. */
@@ -212,29 +238,20 @@ export function programDances(profile: SetupProfileDefaults, key: ProgramKey, pr
   return [...pool, ...(template?.custom_dances ? program?.customDances ?? [] : [])];
 }
 
+/** Nothing is pre-selected: a newly added offering has no styles, dances or divisions until the organizer picks them. */
 function defaultFormatAnswer(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey): FormatAnswer {
-  const definition = profile.categoryTypes[format];
-  const template = profile.programs[key];
-  const pool = new Set((profile.dancePools[template.dance_pool] ?? []).map((dance) => dance.key));
-  let dances: string[] = [];
-  if (definition.uses_dances) {
-    dances = template.recommended_dances.filter((dance) => pool.has(dance));
-    if (dances.length === 0) dances = [...pool].slice(0, 1);
-    if (definition.dance_selection_mode === "prescribed_set") dances = dances.slice(0, 1);
-  }
   return {
     divisions: defaultDivisionSelection(divisionScheme(profile, key, format)),
-    dances,
-    pricing: definition.default_pricing,
+    danceStyles: [],
+    dances: [],
+    pricing: profile.categoryTypes[format].default_pricing,
     amount: "",
     adjudication: "inherit",
   };
 }
 
-function defaultProgramAnswer(profile: SetupProfileDefaults, key: ProgramKey, purpose: Purpose | null): ProgramAnswer {
-  const formats: ProgramAnswer["formats"] = {};
-  for (const format of recommendedFormats(profile, key, purpose)) formats[format] = defaultFormatAnswer(profile, key, format);
-  return { adjudication: null, judging: profile.programs[key].judging_options[0] ?? "", formats, customDances: [], registrationFee: "" };
+function defaultProgramAnswer(profile: SetupProfileDefaults, key: ProgramKey): ProgramAnswer {
+  return { adjudication: null, judging: profile.programs[key].judging_options[0] ?? "", formats: {}, customDances: [], registrationFee: "" };
 }
 
 /** Keeps a style's answers when the purpose changes, dropping formats the new purpose does not offer. */
@@ -242,20 +259,14 @@ function fitProgramToPurpose(profile: SetupProfileDefaults, key: ProgramKey, pro
   const available = new Set(availableFormats(profile, key, purpose));
   const formats: ProgramAnswer["formats"] = {};
   for (const [format, value] of Object.entries(program.formats)) if (value && available.has(format)) formats[format] = value;
-  if (purpose === "competition_showcase" && !Object.keys(formats).some((format) => profile.categoryTypes[format]?.kind === "special")) {
-    for (const format of profile.programs[key].recommended_special) formats[format] = defaultFormatAnswer(profile, key, format);
-  }
-  if (Object.keys(formats).length === 0) {
-    for (const format of recommendedFormats(profile, key, purpose)) formats[format] = defaultFormatAnswer(profile, key, format);
-  }
   return { ...program, formats };
 }
 
-/** Keeps answers for styles that are still chosen and seeds newly chosen styles with profile recommendations. */
+/** Keeps answers for styles that are still chosen; a newly chosen style starts with no offerings. */
 export function syncPrograms(answers: SetupAnswers, profile: SetupProfileDefaults): SetupAnswers {
   const programs: SetupAnswers["programs"] = {};
   for (const key of activeProgramKeys(answers, profile)) {
-    programs[key] = answers.programs[key] ?? defaultProgramAnswer(profile, key, answers.purpose);
+    programs[key] = answers.programs[key] ?? defaultProgramAnswer(profile, key);
   }
   return { ...answers, programs };
 }
@@ -391,11 +402,31 @@ export function orderedSelection(axis: DivisionAxis, selected: string[] | undefi
   return [...known, ...chosen.filter((label) => !axis.values.some((value) => value.label === label))];
 }
 
-export function toggleFormatDance(answers: SetupAnswers, key: ProgramKey, format: FormatKey, dance: string) {
+/** Enter a styled offering in one more dance style, or withdraw it (which also removes that style's dances). */
+export function toggleFormatStyle(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, style: string) {
+  const current = answers.programs[key]?.formats[format];
+  if (!current || !formatStyleOptions(profile, key, format).some((item) => item.key === style)) return answers;
+  if (!current.danceStyles.includes(style)) return updateFormat(answers, key, format, { danceStyles: [...current.danceStyles, style] });
+  return updateFormat(answers, key, format, {
+    danceStyles: current.danceStyles.filter((item) => item !== style),
+    dances: current.dances.filter((dance) => danceStyleOf(profile, key, dance)?.key !== style),
+  });
+}
+
+/** Dances an offering may use: for a styled offering, only the dances of its chosen styles. */
+export function formatDanceOptions(profile: SetupProfileDefaults, key: ProgramKey, program: ProgramAnswer | undefined, format: FormatKey): ProfileDance[] {
+  const dances = programDances(profile, key, program);
+  if (!profile.categoryTypes[format]?.uses_styles) return dances;
+  const chosen = program?.formats[format]?.danceStyles ?? [];
+  return dances.filter((dance) => chosen.includes(danceStyleOf(profile, key, dance.key)?.key ?? ""));
+}
+
+export function toggleFormatDance(answers: SetupAnswers, profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, dance: string) {
   const current = answers.programs[key]?.formats[format];
   if (!current) return answers;
-  const dances = current.dances.includes(dance) ? current.dances.filter((item) => item !== dance) : [...current.dances, dance];
-  return updateFormat(answers, key, format, { dances });
+  if (current.dances.includes(dance)) return updateFormat(answers, key, format, { dances: current.dances.filter((item) => item !== dance) });
+  if (!formatDanceOptions(profile, key, answers.programs[key], format).some((item) => item.key === dance)) return answers;
+  return updateFormat(answers, key, format, { dances: [...current.dances, dance] });
 }
 
 export function customDanceKey(name: string) {
@@ -481,7 +512,10 @@ export function judgingSummary(judging: JudgingDefinition | undefined): string {
 export function formatRunNote(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey): string | null {
   const definition = profile.categoryTypes[format];
   if (!definition || definition.kind !== "special") return null;
-  const music = definition.music_source.value === "profile_defined" ? "Set music for each dance" : definition.music_source.value === "entry_selected" ? "Music chosen by the dancers" : "Event music";
+  const source = definition.music_source.value;
+  const music = source === "profile_defined" ? (definition.uses_dances ? "Set music for each dance" : "Preselected music, the same for every couple")
+    : source === "entry_selected" ? "Music chosen by the dancers"
+    : source === "not_specified" ? "Music not specified by the source" : "Event music";
   const boundary = profile.programs[key]?.programming.special_boundary.value;
   const where = boundary === "style" ? "runs after its style block" : boundary === "contest_format" ? "runs as its own contest block" : "runs after each age group's dances";
   const duration = definition.duration?.value;
@@ -497,6 +531,8 @@ export type DraftDivision = { name: string; skill_label?: string; age_label?: st
 
 export type DraftCategoryPayload = {
   type: FormatKey;
+  /** The dance style key for a styled offering, otherwise null. */
+  style: string | null;
   adjudication: FormatAdjudication;
   divisions: DraftDivision[];
   dances: string[];
@@ -595,6 +631,22 @@ export function formatDivisions(profile: SetupProfileDefaults, key: ProgramKey, 
   return divisionsFor(divisionScheme(profile, key, format), value.divisions);
 }
 
+export type FormatCategory = { style: DanceStyleDefinition | null; label: string; dances: string[] };
+
+/**
+ * The categories (contests) an offering becomes: one per chosen dance style for a styled offering
+ * (e.g. "Pro/Am — American Smooth", holding only that style's dances), otherwise exactly one.
+ */
+export function formatCategories(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, value: Pick<FormatAnswer, "danceStyles" | "dances">): FormatCategory[] {
+  const label = formatLabel(profile, key, format);
+  if (!profile.categoryTypes[format]?.uses_styles) return [{ style: null, label, dances: value.dances }];
+  return orderedStyles(profile, key, format, value.danceStyles).map((style) => ({
+    style,
+    label: `${label} — ${style.label}`,
+    dances: value.dances.filter((dance) => danceStyleOf(profile, key, dance)?.key === style.key),
+  }));
+}
+
 function money(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
 }
@@ -645,16 +697,24 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
       const chosen = Object.keys(answers.programs[key]?.formats ?? {});
       const label = profile.programs[key].label;
       if (chosen.length < 1) errors.push(`Choose at least one offering for ${label}.`);
-      if (chosen.length > limits.categories) errors.push(`Choose ${limits.categories} offerings or fewer for ${label}.`);
       const available = availableFormats(profile, key, answers.purpose);
+      let categories = 0;
       for (const format of chosen) {
+        const value = answers.programs[key]?.formats[format];
         if (!available.includes(format)) errors.push(`${formatLabel(profile, key, format)} is not offered for this purpose.`);
+        if (value && profile.categoryTypes[format]?.uses_styles) {
+          const valid = formatStyleOptions(profile, key, format).map((style) => style.key);
+          if (value.danceStyles.length < 1) errors.push(`Choose at least one style for ${label} ${formatLabel(profile, key, format)}.`);
+          if (value.danceStyles.some((style) => !valid.includes(style))) errors.push(`A style chosen for ${label} ${formatLabel(profile, key, format)} is not available.`);
+        }
+        categories += value ? Math.max(1, formatCategories(profile, key, format, value).length) : 0;
         if (profile.categoryTypes[format]?.kind === "special") special += 1;
         else regular += 1;
       }
+      if (categories > limits.categories) errors.push(`${label} has ${categories} categories; use ${limits.categories} or fewer.`);
     }
     if (answers.purpose === "competition_showcase" && programs.length > 0) {
-      if (special < 1) errors.push("Add a Showcase or Spotlight offering, or choose Competition as the purpose.");
+      if (special < 1) errors.push("Add a showcase or performance offering, or choose Competition as the purpose.");
       if (regular < 1) errors.push("Add a competition entry format, or choose Showcase / Performance as the purpose.");
     }
   }
@@ -665,7 +725,8 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
         if (!value) continue;
         const label = `${profile.programs[key].label} ${formatLabel(profile, key, format)}`;
         const divisions = formatDivisions(profile, key, format, value);
-        total += divisions.length;
+        // Every category (one per chosen dance style) gets the offering's divisions.
+        total += divisions.length * Math.max(1, formatCategories(profile, key, format, value).length);
         const missing = missingRequiredAxes(divisionScheme(profile, key, format), value.divisions);
         for (const axis of missing) errors.push(`Choose at least one ${axis.label.toLowerCase().replace(/s$/, "")} for ${label}.`);
         if (missing.length === 0 && divisions.length < 1) errors.push(`Add at least one division for ${label}.`);
@@ -688,12 +749,21 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
         const definition = profile.categoryTypes[format];
         if (!value || !definition?.uses_dances) continue;
         const label = `${profile.programs[key].label} ${formatLabel(profile, key, format)}`;
-        if (value.dances.length < 1) errors.push(`Choose at least one dance for ${label}.`);
         if (value.dances.length > limits.dances) errors.push(`Choose ${limits.dances} dances or fewer for ${label}.`);
         for (const dance of value.dances) {
           if (!available.has(dance)) errors.push(`A dance chosen for ${label} is no longer available.`);
           used.add(dance);
         }
+        if (!definition.uses_styles) {
+          if (value.dances.length < 1) errors.push(`Choose at least one dance for ${label}.`);
+          continue;
+        }
+        // A styled offering: each chosen style needs its own dances, and no dance may sit outside its styles.
+        for (const category of formatCategories(profile, key, format, value)) {
+          if (category.dances.length < 1) errors.push(`Choose at least one dance for ${profile.programs[key].label} ${category.label}.`);
+        }
+        const allowed = new Set(formatDanceOptions(profile, key, answers.programs[key], format).map((dance) => dance.key));
+        if (value.dances.some((dance) => available.has(dance) && !allowed.has(dance))) errors.push(`A dance chosen for ${label} is not part of its chosen styles.`);
       }
       if (used.size > limits.dances) errors.push(`${profile.programs[key].label} uses ${used.size} dances; use ${limits.dances} or fewer.`);
     }
@@ -758,40 +828,42 @@ export function deriveDraft(
       const value = program?.formats[format];
       const definition = profile.categoryTypes[format];
       if (!value || !definition) continue;
-      const label = formatLabel(profile, key, format);
       const judging = profile.judging[formatJudging(answers, profile, key, format)];
       const roundNames = (judging?.rounds ?? []).map((round) => round.name);
       const divisions = formatDivisions(profile, key, format, value);
-      const dances = definition.uses_dances ? value.dances.filter((dance) => dancesByKey.has(dance)) : [];
-      for (const dance of dances) if (!usedDances.includes(dance)) usedDances.push(dance);
       const pending = value.pricing === "later";
       if (value.pricing === "included") included = true;
       pricingPending ||= pending;
       const pricing = pricingText(definition, value, program?.registrationFee ?? "", profile.currency);
-      pricingLines.push(`${template.label} ${label}: ${pricing}`);
-      counts.categories += 1;
-      counts.divisions += divisions.length;
-      counts.rounds += divisions.length * roundNames.length;
-      counts.offerings += divisions.length * dances.length;
-      categories.push({
-        label,
-        special: definition.kind === "special",
-        judging: judgingSummary(judging),
-        runNote: formatRunNote(profile, key, format),
-        divisions: divisions.map((division) => division.name),
-        dances: dances.map((dance) => dancesByKey.get(dance)?.name ?? dance),
-        rounds: roundNames,
-        pricing,
-        pricingPending: pending,
-      });
+      pricingLines.push(`${template.label} ${formatLabel(profile, key, format)}: ${pricing}`);
       const amount = value.pricing === "per_dance" || value.pricing === "per_entry" ? parsePrice(value.amount) : null;
-      payloadCategories.push({
-        type: format,
-        adjudication: definition.adjudication_override ? value.adjudication : "inherit",
-        divisions,
-        dances,
-        pricing: { model: value.pricing, amount },
-      });
+      for (const category of formatCategories(profile, key, format, value)) {
+        const dances = definition.uses_dances ? category.dances.filter((dance) => dancesByKey.has(dance)) : [];
+        for (const dance of dances) if (!usedDances.includes(dance)) usedDances.push(dance);
+        counts.categories += 1;
+        counts.divisions += divisions.length;
+        counts.rounds += divisions.length * roundNames.length;
+        counts.offerings += divisions.length * dances.length;
+        categories.push({
+          label: category.label,
+          special: definition.kind === "special",
+          judging: judgingSummary(judging),
+          runNote: formatRunNote(profile, key, format),
+          divisions: divisions.map((division) => division.name),
+          dances: dances.map((dance) => dancesByKey.get(dance)?.name ?? dance),
+          rounds: roundNames,
+          pricing,
+          pricingPending: pending,
+        });
+        payloadCategories.push({
+          type: format,
+          style: category.style?.key ?? null,
+          adjudication: definition.adjudication_override ? value.adjudication : "inherit",
+          divisions,
+          dances,
+          pricing: { model: value.pricing, amount },
+        });
+      }
     }
 
     counts.dances += usedDances.length;
@@ -890,11 +962,11 @@ function validSelection(value: unknown): boolean {
 export function restoreAnswers(raw: unknown, profile: SetupProfileDefaults): SetupAnswers | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Partial<SetupAnswers>;
-  if (value.version !== 3 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
+  if (value.version !== 4 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
   if (!value.registration || typeof value.registration !== "object") return null;
   if (value.purpose !== null && !PURPOSE_OPTIONS.some((option) => option.key === value.purpose)) return null;
   const answers: SetupAnswers = {
-    version: 3,
+    version: 4,
     purpose: value.purpose ?? null,
     styleMode: value.styleMode === "multiple" ? "multiple" : "single",
     styles: value.styles.filter((key): key is string => typeof key === "string"),
@@ -912,6 +984,8 @@ export function restoreAnswers(raw: unknown, profile: SetupProfileDefaults): Set
     for (const [format, entry] of Object.entries(program.formats)) {
       if (!profile.programs[key].formats.includes(format) || !entry || !Array.isArray(entry.dances) || !validSelection(entry.divisions)) return null;
       if (!FORMAT_ADJUDICATION.includes(entry.adjudication)) return null;
+      const styles = formatStyleOptions(profile, key, format).map((style) => style.key);
+      if (!Array.isArray(entry.danceStyles) || entry.danceStyles.some((style) => !styles.includes(style))) return null;
     }
   }
   return syncPrograms(answers, profile);

@@ -28,6 +28,7 @@ import {
   type SetupAnswers,
 } from "../draft";
 import type { DivisionAxis, DivisionAxisKey } from "../types";
+import { withOfferings } from "./divisionTestHelpers";
 
 /**
  * 10C.5 Divisions: which divisions are OFFERED, per entry format, multi-select per axis, with provenance.
@@ -43,6 +44,7 @@ const labels = (scheme: string, key: string) => axis(scheme, key).values.map((it
 function country(): SetupAnswers {
   let answers = chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, "country");
   answers = chooseAdjudication(answers, "country", "adjudicated");
+  answers = withOfferings(answers, P, "country", ["pro_am", "pro_pro", "couples"]);
   for (const format of ["pro_am", "pro_pro", "couples"]) answers = { ...answers, programs: { ...answers.programs, country: { ...answers.programs.country, formats: { ...answers.programs.country.formats, [format]: { ...answers.programs.country.formats[format]!, pricing: "free" } } } } };
   return answers;
 }
@@ -82,8 +84,8 @@ describe("Country Studio / Custom divisions", () => {
   });
 
   it("optional axes still split only when chosen (Studio / Ballroom ages) and WSDC contests need no partner axis", () => {
-    expect(formatDivisions(P, "ballroom", "pro_am", { divisions: { skill_level: ["Bronze", "Silver"], age_group: [] } }).map((division) => division.name)).toEqual(["Bronze", "Silver"]);
-    expect(formatDivisions(P, "ballroom", "pro_am", { divisions: { skill_level: [], age_group: ["B"] } })).toEqual([]);
+    expect(formatDivisions(P, "ballroom", "ndca_pro_am", { divisions: { skill_level: ["Bronze", "Silver"], age_group: [] } }).map((division) => division.name)).toEqual(["Bronze", "Silver"]);
+    expect(formatDivisions(P, "ballroom", "ndca_pro_am", { divisions: { skill_level: [], age_group: ["B"] } })).toEqual([]);
     expect(formatDivisions(P, "west_coast_swing", "jack_and_jill", { divisions: { skill_level: [], age_group: ["Masters"] } }).map((division) => division.name)).toEqual(["Masters"]);
   });
 
@@ -150,7 +152,7 @@ describe("Country Studio / Custom divisions", () => {
     const broken = JSON.parse(JSON.stringify(answers));
     broken.programs.country.formats.pro_am.divisions = { skill_level: "Novice" };
     expect(restoreAnswers(broken, P)).toBeNull();
-    expect(restoreAnswers({ ...answers, version: 2 }, P)).toBeNull();
+    expect(restoreAnswers({ ...answers, version: 3 }, P)).toBeNull();
   });
 
   it("Review and the payload reflect every selected division with its axes", () => {
@@ -241,7 +243,7 @@ describe("source contracts", () => {
     expect(value("ballroom_proam", "skill_level", "Gold Star").sources?.[0]).toMatchObject({ section: "II.B.7.c" });
     expect(value("ballroom_proam", "age_group", "B").eligibility).toEqual({ min_age: 36 });
     expect(value("ballroom_amateur", "age_group", "Senior II").eligibility?.note).toContain("45+");
-    expect(P.divisionSchemes.ballroom_proam.note).toContain("no universal division list");
+    expect(P.divisionSchemes.ballroom_proam.note).toContain("any or all Pro/Am levels (II.B.7.c)");
     expect(axis("ballroom_proam", "age_group").required).toBe(false);
     expect(axis("ballroom_proam", "skill_level").required).toBe(true);
   });

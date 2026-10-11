@@ -7,9 +7,9 @@
 
 export type StoredSetup = { answers: unknown; step: string; requestKey: string };
 
-const PREFIX = "danceflow.competition-setup.v3:";
+const PREFIX = "danceflow.competition-setup.v4:";
 /** Answers saved by earlier 10C.5 candidates (different shapes). Only this event's legacy keys are removed. */
-const LEGACY_PREFIXES = ["danceflow.competition-setup.v1:", "danceflow.competition-setup.v2:"];
+const LEGACY_PREFIXES = ["danceflow.competition-setup.v1:", "danceflow.competition-setup.v2:", "danceflow.competition-setup.v3:"];
 
 function storage(): Storage | null {
   try {

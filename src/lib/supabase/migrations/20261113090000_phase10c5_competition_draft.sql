@@ -1,14 +1,15 @@
 -- Phase 10C.5: Competition Setup Wizard + Draft Generator
 --
 --   1. studio_simple@2 "Studio / Custom Rules" (schema 2): append-only new profile version carrying the
---      wizard metadata (styles, profile-derived entry formats incl. Showcase / Spotlight / routines,
+--      wizard metadata (styles, profile-derived entry formats with their governing-body or Studio origin,
+--      Ballroom dance styles that constrain dances, recorded source conflicts,
 --      participant / lead-follow rules, division presets, per-style adjudication and result terminology,
 --      staged scoring metadata with source references, programming order, pricing models). studio_simple@1 is untouched
 --      and create_simple_competition (10B) is unchanged for existing callers.
 --   2. create_competition_draft(event, spec): ONE transaction, manager-authorized, per-event advisory lock
 --      (shared with create_simple_competition), schema-2 profile only. Creates one draft program per
 --      style (showcase / performance offerings stay inside their style), their categories (entry formats,
---      each adjudicated per its style or a Showcase-type override), divisions, Final / Performance rounds, dances and offerings, the registration fee rule when entries are included in a
+--      one per dance style for styled offerings, each adjudicated per its style or a Showcase-type override), divisions, Final / Performance rounds, dances and offerings, the registration fee rule when entries are included in a
 --      registration fee, and the event registration basics. Registration stays CLOSED and every program
 --      stays an unpublished draft. Idempotent: one request key identifies the full set; replaying the
 --      same request returns the same programs, a different request with that key fails safely.
@@ -359,6 +360,48 @@ declare
     "default": "none",
     "note": "Feedback is evaluation only. A grade or score given as feedback never becomes a placement, ranking, advancement, medal threshold or official result."
   },
+  "source_conflicts": [
+    {
+      "key": "ndca_student_student_youth",
+      "description": "NDCA II.A.6.b limits Student/Student to adults, but II.B.8 describes youth Student/Student events. Youth Student/Student is not offered until this is reviewed.",
+      "references": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.A.6.b",
+          "page": "5"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.8",
+          "page": "8"
+        }
+      ],
+      "status": "unresolved",
+      "material": true
+    },
+    {
+      "key": "ndca_formation_scoring",
+      "description": "NDCA III.D.11 allows a cumulative point system for Formation Teams and Team Matches, but XII.N.3 requires the Skating System. Studio / Custom Formation uses Studio placements.",
+      "references": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "III.D.11",
+          "page": "21"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "XII.N.3",
+          "page": "52"
+        }
+      ],
+      "status": "unresolved",
+      "material": true
+    }
+  ],
   "programs": {
     "country": {
       "label": "Country",
@@ -374,25 +417,31 @@ declare
         "solo",
         "team"
       ],
-      "recommended_formats": [
-        "pro_am",
-        "pro_pro",
-        "couples"
-      ],
-      "recommended_special": [
-        "showcase",
-        "spotlight"
-      ],
-      "recommended_dances": [
-        "triple_two",
-        "nightclub",
-        "waltz",
-        "polka",
-        "cha_cha",
-        "east_coast_swing",
-        "two_step"
-      ],
       "custom_dances": true,
+      "offering_groups": [
+        {
+          "label": "Partnerships",
+          "formats": [
+            "pro_am",
+            "pro_pro",
+            "couples"
+          ]
+        },
+        {
+          "label": "Showcase and performances",
+          "formats": [
+            "showcase",
+            "spotlight",
+            "solo"
+          ]
+        },
+        {
+          "label": "Teams",
+          "formats": [
+            "team"
+          ]
+        }
+      ],
       "judging_options": [
         "medal_marks"
       ],
@@ -452,21 +501,27 @@ declare
       "dance_pool": "west_coast_swing",
       "formats": [
         "jack_and_jill",
-        "couples",
-        "pro_am",
+        "wcs_couples",
+        "wcs_pro_am",
         "routine"
-      ],
-      "recommended_formats": [
-        "jack_and_jill",
-        "couples"
-      ],
-      "recommended_special": [
-        "routine"
-      ],
-      "recommended_dances": [
-        "west_coast_swing"
       ],
       "custom_dances": false,
+      "offering_groups": [
+        {
+          "label": "WSDC Registry contest",
+          "formats": [
+            "jack_and_jill"
+          ]
+        },
+        {
+          "label": "Studio / Custom",
+          "formats": [
+            "wcs_couples",
+            "wcs_pro_am",
+            "routine"
+          ]
+        }
+      ],
       "judging_options": [
         "placements"
       ],
@@ -494,8 +549,8 @@ declare
       },
       "division_schemes": {
         "jack_and_jill": "wcs_contests",
-        "couples": "wcs_contests",
-        "pro_am": "wcs_contests",
+        "wcs_couples": "studio_wcs",
+        "wcs_pro_am": "studio_wcs",
         "routine": "open_only"
       }
     },
@@ -505,28 +560,160 @@ declare
       "discipline_family": "ballroom",
       "dance_pool": "ballroom",
       "formats": [
-        "pro_am",
-        "couples",
-        "professional",
-        "showdance",
-        "solo"
-      ],
-      "recommended_formats": [
-        "pro_am",
-        "couples"
-      ],
-      "recommended_special": [
-        "showdance"
-      ],
-      "recommended_dances": [
-        "smooth_waltz",
-        "smooth_tango",
-        "smooth_foxtrot",
-        "rhythm_cha_cha",
-        "rhythm_rumba",
-        "rhythm_swing"
+        "ndca_pro_am",
+        "ndca_amateur",
+        "ndca_mixed_amateur",
+        "ndca_student_student",
+        "ndca_professional",
+        "ndca_mixed_professional",
+        "ndca_solo_star",
+        "ndca_showdance",
+        "ndca_cabaret",
+        "ndca_theatre_arts",
+        "ndca_pro_am_theatrical",
+        "ndca_pro_am_exhibition",
+        "ndca_formation",
+        "ndca_team_match"
       ],
       "custom_dances": true,
+      "styles": [
+        {
+          "key": "international_standard",
+          "label": "International Standard",
+          "dances": [
+            "std_waltz",
+            "std_tango",
+            "std_viennese_waltz",
+            "std_slow_foxtrot",
+            "std_quickstep"
+          ],
+          "allow_custom_dances": false,
+          "basis": "source_grounded",
+          "sources": [
+            {
+              "document": "NDCA Rule Book",
+              "edition": "June 2026 (compiled)",
+              "section": "IX.A.1.a",
+              "page": "38-39"
+            }
+          ],
+          "note": "NDCA: International Style Ballroom."
+        },
+        {
+          "key": "international_latin",
+          "label": "International Latin",
+          "dances": [
+            "latin_cha_cha",
+            "latin_samba",
+            "latin_rumba",
+            "latin_paso_doble",
+            "latin_jive"
+          ],
+          "allow_custom_dances": false,
+          "basis": "source_grounded",
+          "sources": [
+            {
+              "document": "NDCA Rule Book",
+              "edition": "June 2026 (compiled)",
+              "section": "IX.A.1.b",
+              "page": "38-39"
+            }
+          ]
+        },
+        {
+          "key": "american_smooth",
+          "label": "American Smooth",
+          "dances": [
+            "smooth_waltz",
+            "smooth_tango",
+            "smooth_foxtrot",
+            "smooth_viennese_waltz"
+          ],
+          "allow_custom_dances": false,
+          "basis": "source_grounded",
+          "sources": [
+            {
+              "document": "NDCA Rule Book",
+              "edition": "June 2026 (compiled)",
+              "section": "IX.A.1.c",
+              "page": "38-39"
+            }
+          ]
+        },
+        {
+          "key": "american_rhythm",
+          "label": "American Rhythm",
+          "dances": [
+            "rhythm_cha_cha",
+            "rhythm_rumba",
+            "rhythm_swing",
+            "rhythm_bolero",
+            "rhythm_mambo"
+          ],
+          "allow_custom_dances": false,
+          "basis": "source_grounded",
+          "sources": [
+            {
+              "document": "NDCA Rule Book",
+              "edition": "June 2026 (compiled)",
+              "section": "IX.A.1.d",
+              "page": "38-39"
+            }
+          ]
+        },
+        {
+          "key": "american_additional",
+          "label": "Additional American Style Dances",
+          "dances": [],
+          "allow_custom_dances": true,
+          "basis": "source_grounded",
+          "sources": [
+            {
+              "document": "NDCA Rule Book",
+              "edition": "June 2026 (compiled)",
+              "section": "IX.A.1.e",
+              "page": "38-39"
+            }
+          ],
+          "note": "Add the additional American style dances you will offer; NDCA does not list them."
+        }
+      ],
+      "offering_groups": [
+        {
+          "label": "Partnerships",
+          "formats": [
+            "ndca_pro_am",
+            "ndca_amateur",
+            "ndca_mixed_amateur",
+            "ndca_student_student",
+            "ndca_professional",
+            "ndca_mixed_professional"
+          ]
+        },
+        {
+          "label": "Youth",
+          "formats": [
+            "ndca_solo_star"
+          ]
+        },
+        {
+          "label": "Performances",
+          "formats": [
+            "ndca_showdance",
+            "ndca_cabaret",
+            "ndca_theatre_arts",
+            "ndca_pro_am_theatrical",
+            "ndca_pro_am_exhibition"
+          ]
+        },
+        {
+          "label": "Teams",
+          "formats": [
+            "ndca_formation",
+            "ndca_team_match"
+          ]
+        }
+      ],
       "judging_options": [
         "placements"
       ],
@@ -543,6 +730,16 @@ declare
         },
         "dance_sequence": {
           "value": [
+            "std_waltz",
+            "std_tango",
+            "std_viennese_waltz",
+            "std_slow_foxtrot",
+            "std_quickstep",
+            "latin_cha_cha",
+            "latin_samba",
+            "latin_rumba",
+            "latin_paso_doble",
+            "latin_jive",
             "smooth_waltz",
             "smooth_tango",
             "smooth_foxtrot",
@@ -558,63 +755,34 @@ declare
             {
               "document": "NDCA Rule Book",
               "edition": "June 2026 (compiled)",
-              "section": "IX.A.1.c-d",
+              "section": "IX.A.1.a-d",
               "page": "38-39",
               "quote": "American Style Smooth. Waltz, Tango, Foxtrot, Viennese Waltz"
             }
           ],
-          "note": "NDCA also recommends ProAm single dances finish one level's sequence before the next level (IX.A.1.h)."
-        },
-        "style_blocks": {
-          "value": [
-            {
-              "key": "american_smooth",
-              "label": "American Smooth",
-              "dance_category": "American Smooth",
-              "dances": [
-                "smooth_waltz",
-                "smooth_tango",
-                "smooth_foxtrot",
-                "smooth_viennese_waltz"
-              ]
-            },
-            {
-              "key": "american_rhythm",
-              "label": "American Rhythm",
-              "dance_category": "American Rhythm",
-              "dances": [
-                "rhythm_cha_cha",
-                "rhythm_rumba",
-                "rhythm_swing",
-                "rhythm_bolero",
-                "rhythm_mambo"
-              ]
-            },
-            {
-              "key": "international_standard",
-              "label": "International Standard",
-              "dance_category": null
-            },
-            {
-              "key": "international_latin",
-              "label": "International Latin",
-              "dance_category": null
-            }
-          ],
-          "basis": "owner_operational"
+          "note": "NDCA also recommends Pro/Am single dances finish one level's sequence before the next level (IX.A.1.h)."
         },
         "special_boundary": {
           "value": "style",
           "basis": "owner_operational",
-          "note": "Showcase / Showdance numbers run after a style block, before the next major block."
+          "note": "Showdance, Cabaret and Theatre Arts numbers run after a style block, before the next major block."
         }
       },
       "division_schemes": {
-        "pro_am": "ballroom_proam",
-        "couples": "ballroom_amateur",
-        "professional": "open_only",
-        "showdance": "open_only",
-        "solo": "open_only"
+        "ndca_pro_am": "ballroom_proam",
+        "ndca_amateur": "ballroom_amateur",
+        "ndca_mixed_amateur": "open_only",
+        "ndca_student_student": "ballroom_adult_open",
+        "ndca_professional": "ballroom_professional",
+        "ndca_mixed_professional": "open_only",
+        "ndca_solo_star": "ballroom_solo_star",
+        "ndca_showdance": "open_only",
+        "ndca_cabaret": "open_only",
+        "ndca_theatre_arts": "open_only",
+        "ndca_pro_am_theatrical": "open_only",
+        "ndca_pro_am_exhibition": "open_only",
+        "ndca_formation": "open_only",
+        "ndca_team_match": "open_only"
       }
     },
     "custom": {
@@ -623,31 +791,36 @@ declare
       "discipline_family": "custom",
       "dance_pool": "general",
       "formats": [
-        "pro_am",
-        "pro_pro",
-        "couples",
-        "professional",
-        "jack_and_jill",
+        "studio_pro_am",
+        "studio_pro_pro",
+        "studio_couples",
+        "studio_professional",
+        "studio_jack_and_jill",
         "custom_routine",
-        "solo",
-        "team"
-      ],
-      "recommended_formats": [
-        "pro_am",
-        "couples"
-      ],
-      "recommended_special": [
-        "custom_routine"
-      ],
-      "recommended_dances": [
-        "waltz",
-        "foxtrot",
-        "cha_cha",
-        "rumba",
-        "swing",
-        "two_step"
+        "studio_solo",
+        "studio_team"
       ],
       "custom_dances": true,
+      "offering_groups": [
+        {
+          "label": "Partnerships",
+          "formats": [
+            "studio_pro_am",
+            "studio_pro_pro",
+            "studio_couples",
+            "studio_professional",
+            "studio_jack_and_jill"
+          ]
+        },
+        {
+          "label": "Routines and teams",
+          "formats": [
+            "custom_routine",
+            "studio_solo",
+            "studio_team"
+          ]
+        }
+      ],
       "judging_options": [
         "placements",
         "ratings"
@@ -684,14 +857,14 @@ declare
         }
       },
       "division_schemes": {
-        "pro_am": "studio_generic",
-        "pro_pro": "studio_generic",
-        "couples": "studio_generic",
-        "professional": "studio_generic",
-        "jack_and_jill": "studio_generic",
+        "studio_pro_am": "studio_generic",
+        "studio_pro_pro": "studio_generic",
+        "studio_couples": "studio_generic",
+        "studio_professional": "studio_generic",
+        "studio_jack_and_jill": "studio_generic",
         "custom_routine": "open_only",
-        "solo": "open_only",
-        "team": "open_only"
+        "studio_solo": "open_only",
+        "studio_team": "open_only"
       }
     }
   },
@@ -735,7 +908,23 @@ declare
         "value": "within_sequence",
         "basis": "studio_recommendation"
       },
-      "adjudication_override": false
+      "adjudication_override": false,
+      "origin": "ucwdc",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+          "edition": "2026 (v1-26-2026)",
+          "section": "II.A.16",
+          "page": "2"
+        },
+        {
+          "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+          "edition": "2026 (v1-26-2026)",
+          "section": "II.E.1",
+          "page": "4"
+        }
+      ]
     },
     "pro_pro": {
       "label": "ProPro",
@@ -776,11 +965,27 @@ declare
         "value": "within_sequence",
         "basis": "studio_recommendation"
       },
-      "adjudication_override": false
+      "adjudication_override": false,
+      "origin": "ucwdc",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+          "edition": "2026 (v1-26-2026)",
+          "section": "II.A.18",
+          "page": "2"
+        },
+        {
+          "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
+          "edition": "2026 (v1-26-2026)",
+          "section": "II.E.2",
+          "page": "4"
+        }
+      ]
     },
     "couples": {
       "label": "Couples",
-      "description": "Two dancers compete as a couple.",
+      "description": "Two dancers compete as a couple (UCWDC Couples dance type).",
       "contest_type": "single_dance",
       "entry_format": "couple",
       "uses_dances": true,
@@ -816,86 +1021,17 @@ declare
         "value": "within_sequence",
         "basis": "studio_recommendation"
       },
-      "adjudication_override": false
-    },
-    "professional": {
-      "label": "Professional",
-      "description": "Two professionals compete as a couple.",
-      "contest_type": "single_dance",
-      "entry_format": "professional",
-      "uses_dances": true,
-      "dance_selection_mode": "individual",
-      "pricing_method": "per_dance",
-      "price_unit": "per dance",
-      "minimum_participants": 2,
-      "maximum_participants": 2,
-      "pairing_mode": "fixed",
-      "participant_roles": [
-        "professional"
-      ],
-      "dance_roles": "pair",
-      "pricing_models": [
-        "per_dance",
-        "per_entry",
-        "included",
-        "free",
-        "later"
-      ],
-      "default_pricing": "per_dance",
-      "kind": "regular",
-      "music_source": {
-        "value": "event_music",
-        "basis": "studio_recommendation"
-      },
-      "floor_mode": {
-        "value": "multi_entry",
-        "basis": "studio_recommendation",
-        "note": "Studio policy: regular heats share the floor."
-      },
-      "program_placement": {
-        "value": "within_sequence",
-        "basis": "studio_recommendation"
-      },
-      "adjudication_override": false
-    },
-    "jack_and_jill": {
-      "label": "Jack & Jill",
-      "description": "Dancers enter alone and are paired with a random partner.",
-      "contest_type": "jack_and_jill",
-      "entry_format": "random_partner",
-      "uses_dances": true,
-      "dance_selection_mode": "prescribed_set",
-      "pricing_method": "flat_entry",
-      "price_unit": "per entry",
-      "minimum_participants": 1,
-      "maximum_participants": 1,
-      "pairing_mode": "random_final_pair",
-      "participant_roles": [
-        "dancer"
-      ],
-      "dance_roles": "single",
-      "pricing_models": [
-        "per_entry",
-        "included",
-        "free",
-        "later"
-      ],
-      "default_pricing": "per_entry",
-      "kind": "regular",
-      "music_source": {
-        "value": "event_music",
-        "basis": "studio_recommendation"
-      },
-      "floor_mode": {
-        "value": "multi_entry",
-        "basis": "studio_recommendation",
-        "note": "Studio policy: regular heats share the floor."
-      },
-      "program_placement": {
-        "value": "within_sequence",
-        "basis": "studio_recommendation"
-      },
-      "adjudication_override": false
+      "adjudication_override": false,
+      "origin": "ucwdc",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
+          "edition": "2026 (v1-26-2026)",
+          "section": "II.E",
+          "page": "4"
+        }
+      ]
     },
     "showcase": {
       "label": "Showcase",
@@ -956,6 +1092,8 @@ declare
         "note": "Special offerings run at the end of a program block, not between regular heats."
       },
       "adjudication_override": true,
+      "origin": "ucwdc",
+      "uses_styles": false,
       "sources": [
         {
           "document": "UCWDC Rules, Contest Procedures and Scoring Format — Couples",
@@ -1021,6 +1159,9 @@ declare
         "basis": "owner_operational",
         "note": "Special offerings run at the end of a program block, not between regular heats."
       },
+      "adjudication_override": true,
+      "origin": "ucwdc",
+      "uses_styles": false,
       "duration": {
         "value": {
           "min_seconds": 150,
@@ -1037,7 +1178,6 @@ declare
           }
         ]
       },
-      "adjudication_override": true,
       "sources": [
         {
           "document": "UCWDC Rules, Contest Procedures and Scoring Format — ProPro/ProAm",
@@ -1048,25 +1188,22 @@ declare
         }
       ]
     },
-    "showdance": {
-      "label": "Showcase / Showdance",
-      "description": "A choreographed routine to music the dancers choose.",
+    "solo": {
+      "label": "Solo routine (Studio)",
+      "description": "Studio / Custom: one dancer performs a routine. Not a UCWDC offering — UCWDC Solo Medley is a couple's multi-dance Showcase routine.",
       "contest_type": "showdance",
-      "entry_format": "custom",
+      "entry_format": "solo",
       "uses_dances": false,
       "dance_selection_mode": "routine",
       "pricing_method": "flat_entry",
       "price_unit": "per entry",
-      "minimum_participants": 2,
-      "maximum_participants": 2,
-      "pairing_mode": "fixed",
+      "minimum_participants": 1,
+      "maximum_participants": 1,
+      "pairing_mode": "individual",
       "participant_roles": [
-        "dancer",
-        "student",
-        "professional",
-        "instructor"
+        "dancer"
       ],
-      "dance_roles": "pair",
+      "dance_roles": "none",
       "pricing_models": [
         "per_entry",
         "included",
@@ -1089,11 +1226,199 @@ declare
         "basis": "owner_operational",
         "note": "Special offerings run at the end of a program block, not between regular heats."
       },
-      "adjudication_override": true
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
+    },
+    "team": {
+      "label": "Team",
+      "description": "A group performs a routine together (UCWDC Teams).",
+      "contest_type": "team",
+      "entry_format": "team",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 100,
+      "pairing_mode": "team",
+      "participant_roles": [
+        "team_member"
+      ],
+      "dance_roles": "none",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": false,
+      "origin": "ucwdc",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "UCWDC Rules, Contest Procedures and Scoring Format — Teams",
+          "edition": "2026 (v1-26-2026)",
+          "section": "II.D.1",
+          "page": "3",
+          "quote": "There are no age requirements in Team Divisions."
+        }
+      ]
+    },
+    "jack_and_jill": {
+      "label": "Jack & Jill",
+      "description": "Dancers enter alone and are paired with a random partner (WSDC Registry contest).",
+      "contest_type": "jack_and_jill",
+      "entry_format": "random_partner",
+      "uses_dances": true,
+      "dance_selection_mode": "prescribed_set",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 1,
+      "maximum_participants": 1,
+      "pairing_mode": "random_final_pair",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "single",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "wsdc",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "WSDC Registry Event Rules",
+          "edition": "Version 2026.1C",
+          "section": "3.4.9",
+          "page": "20",
+          "quote": "WSDC Jack and Jill contests must use the WSDC-approved Callback system"
+        }
+      ]
+    },
+    "wcs_couples": {
+      "label": "Couples (Studio)",
+      "description": "Studio / Custom couple contest. WSDC defines no Couples contest.",
+      "contest_type": "single_dance",
+      "entry_format": "couple",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
+    },
+    "wcs_pro_am": {
+      "label": "Pro-Am (Studio)",
+      "description": "Studio / Custom: a student dances with a professional. Not a WSDC Registry contest.",
+      "contest_type": "single_dance",
+      "entry_format": "pro_am",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
     },
     "routine": {
-      "label": "Routine / Showcase",
-      "description": "A choreographed couple's routine to music the dancers choose.",
+      "label": "Routine / Showcase (Studio)",
+      "description": "Studio / Custom: a choreographed couple's routine to music the dancers choose.",
       "contest_type": "showdance",
       "entry_format": "custom",
       "uses_dances": false,
@@ -1132,7 +1457,1045 @@ declare
         "basis": "owner_operational",
         "note": "Special offerings run at the end of a program block, not between regular heats."
       },
-      "adjudication_override": true
+      "adjudication_override": true,
+      "origin": "studio",
+      "uses_styles": false
+    },
+    "ndca_pro_am": {
+      "label": "Pro/Am",
+      "description": "A registered professional dances with their registered Pro/Am Student Competitor.",
+      "contest_type": "single_dance",
+      "entry_format": "pro_am",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": true,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.A.4",
+          "page": "4-5"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.7",
+          "page": "7-8"
+        }
+      ]
+    },
+    "ndca_amateur": {
+      "label": "Amateur",
+      "description": "Two registered amateur dancers compete together.",
+      "contest_type": "single_dance",
+      "entry_format": "couple",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": true,
+      "eligibility_note": "Both partners must be eligible for the proficiency entered; a couple's age is the older partner's (Pre-Teen to Adult) or the younger partner's (Senior). Amateurs may enter at most two consecutive proficiency levels.",
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.A.2",
+          "page": "4"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.6",
+          "page": "7"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "X.A.6; X.C",
+          "page": "42-43"
+        }
+      ]
+    },
+    "ndca_mixed_amateur": {
+      "label": "Mixed Amateur",
+      "description": "An advanced amateur competitor/teacher dances with an amateur who is their student; both are registered amateurs.",
+      "contest_type": "single_dance",
+      "entry_format": "mixed_amateur",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": true,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.A.5",
+          "page": "5"
+        }
+      ]
+    },
+    "ndca_student_student": {
+      "label": "Student/Student",
+      "description": "Two adult Pro/Am Student Competitors dance together, in heats danced with Pro/Am events.",
+      "contest_type": "single_dance",
+      "entry_format": "custom",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "student"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": true,
+      "eligibility_note": "Adults only. Not open to dancers who compete at the Open Amateur proficiency level. Youth Student/Student is not offered while NDCA II.A.6.b and II.B.8 conflict.",
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.A.6",
+          "page": "5"
+        }
+      ]
+    },
+    "ndca_professional": {
+      "label": "Professional",
+      "description": "Two registered professionals (16 and older) compete as a couple.",
+      "contest_type": "single_dance",
+      "entry_format": "professional",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": true,
+      "eligibility_note": "Professionals 16 years of age and older. Rising Star status is lost as described in NDCA II.B.1.b(1).",
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.1",
+          "page": "6"
+        }
+      ]
+    },
+    "ndca_mixed_professional": {
+      "label": "Mixed Professional",
+      "description": "Professionals dance with other than their regular professional partner.",
+      "contest_type": "single_dance",
+      "entry_format": "professional",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": true,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.2",
+          "page": "6"
+        }
+      ]
+    },
+    "ndca_solo_star": {
+      "label": "Solo Star",
+      "description": "Pre-Teen, Junior or Youth amateurs dance syllabus routines singly in heats, without a partner.",
+      "contest_type": "single_dance",
+      "entry_format": "solo",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 1,
+      "maximum_participants": 1,
+      "pairing_mode": "individual",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "none",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": true,
+      "eligibility_note": "Pre-Teen, Junior and Youth amateurs only; never Adult or Senior.",
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.A.3",
+          "page": "4"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.10",
+          "page": "8"
+        }
+      ]
+    },
+    "ndca_showdance": {
+      "label": "Showdance",
+      "description": "A choreographed show in one style, up to 4 minutes, using that style's regular dances.",
+      "contest_type": "showdance",
+      "entry_format": "custom",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer",
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "source_grounded",
+        "sources": [
+          {
+            "document": "NDCA Rule Book",
+            "edition": "June 2026 (compiled)",
+            "section": "XI.B.4",
+            "page": "47",
+            "quote": "The invitation for a Show Dance Competition must advise the couples of possible sound carriers"
+          }
+        ],
+        "note": "Couples supply their own music media."
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true,
+      "duration": {
+        "value": {
+          "min_seconds": 0,
+          "max_seconds": 240
+        },
+        "basis": "source_grounded",
+        "sources": [
+          {
+            "document": "NDCA Rule Book",
+            "edition": "June 2026 (compiled)",
+            "section": "XI.B.2",
+            "page": "47",
+            "quote": "The time of the show must be up to a maximum of 4 minutes."
+          }
+        ]
+      },
+      "origin": "ndca",
+      "uses_styles": true,
+      "style_keys": [
+        "international_standard",
+        "international_latin",
+        "american_smooth",
+        "american_rhythm"
+      ],
+      "eligibility_note": "NDCA XI.B rules apply when the organizer uses them instead of WDC or USDC showdance rules (III.D.27).",
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.4(3)",
+          "page": "6"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "XI.B.1",
+          "page": "47"
+        }
+      ]
+    },
+    "ndca_cabaret": {
+      "label": "Cabaret",
+      "description": "A solo performance with aerial work and artistry, moving on and off the floor, in any genre, to the couple's own music.",
+      "contest_type": "cabaret",
+      "entry_format": "custom",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer",
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "source_grounded",
+        "sources": [
+          {
+            "document": "NDCA Rule Book",
+            "edition": "June 2026 (compiled)",
+            "section": "II.B.4(2)",
+            "page": "6",
+            "quote": "to their own selection of music"
+          }
+        ]
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true,
+      "origin": "ndca",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.4(2)",
+          "page": "6"
+        }
+      ]
+    },
+    "ndca_theatre_arts": {
+      "label": "Theatre Arts Compulsory",
+      "description": "All couples dance at the same time to the same preselected music; lifts on no more than 50% of the bars.",
+      "contest_type": "custom",
+      "entry_format": "custom",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer",
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "special",
+      "music_source": {
+        "value": "profile_defined",
+        "basis": "source_grounded",
+        "sources": [
+          {
+            "document": "NDCA Rule Book",
+            "edition": "June 2026 (compiled)",
+            "section": "II.B.4(1)",
+            "page": "6",
+            "quote": "All couples dance at the same time to the same preselected music"
+          }
+        ]
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true,
+      "origin": "ndca",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.4(1)",
+          "page": "6"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "IX.A.1.f",
+          "page": "39"
+        }
+      ]
+    },
+    "ndca_pro_am_theatrical": {
+      "label": "Pro/Am Theatrical",
+      "description": "A Pro/Am Theatrical division (lifts allowed).",
+      "contest_type": "custom",
+      "entry_format": "pro_am",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "special",
+      "music_source": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. NDCA lists Theatrical as a Pro/Am division without defining its music."
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true,
+      "origin": "ndca",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.7.c",
+          "page": "7"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "IX.A.1.g(1)",
+          "page": "39"
+        }
+      ]
+    },
+    "ndca_pro_am_exhibition": {
+      "label": "Pro/Am Exhibition",
+      "description": "A Pro/Am Exhibition division (lifts allowed; not required to dance all dances).",
+      "contest_type": "exhibition",
+      "entry_format": "pro_am",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "special",
+      "music_source": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. NDCA lists Exhibition as a Pro/Am division without defining its music."
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": true,
+      "origin": "ndca",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.7.c",
+          "page": "7"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "IX.A.1",
+          "page": "38"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "IX.A.1.g(1)",
+          "page": "39"
+        }
+      ]
+    },
+    "ndca_formation": {
+      "label": "Formation",
+      "description": "A formation team of couples.",
+      "contest_type": "formation",
+      "entry_format": "team",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 100,
+      "pairing_mode": "team",
+      "participant_roles": [
+        "team_member"
+      ],
+      "dance_roles": "none",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "special",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "block_boundary",
+        "basis": "owner_operational",
+        "note": "Special offerings run at the end of a program block, not between regular heats."
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.3; II.B.6.c",
+          "page": "6-7"
+        },
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "XII",
+          "page": "48"
+        }
+      ]
+    },
+    "ndca_team_match": {
+      "label": "Team Match",
+      "description": "A team match between teams of couples.",
+      "contest_type": "team",
+      "entry_format": "team",
+      "uses_dances": false,
+      "dance_selection_mode": "routine",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 2,
+      "maximum_participants": 100,
+      "pairing_mode": "team",
+      "participant_roles": [
+        "team_member"
+      ],
+      "dance_roles": "none",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "regular",
+      "music_source": {
+        "value": "entry_selected",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "not_specified",
+        "basis": "not_specified",
+        "note": "NOT SPECIFIED IN PROVIDED SOURCE. Floor sharing is a Studio policy setting to configure later."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "ndca",
+      "uses_styles": false,
+      "sources": [
+        {
+          "document": "NDCA Rule Book",
+          "edition": "June 2026 (compiled)",
+          "section": "II.B.5; II.B.6.d",
+          "page": "6-7"
+        }
+      ]
+    },
+    "studio_pro_am": {
+      "label": "ProAm (Studio)",
+      "description": "A student dances with a professional.",
+      "contest_type": "single_dance",
+      "entry_format": "pro_am",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "student",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
+    },
+    "studio_pro_pro": {
+      "label": "ProPro (Studio)",
+      "description": "A competing professional dances with an instructing professional.",
+      "contest_type": "single_dance",
+      "entry_format": "pro_pro",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "instructor",
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
+    },
+    "studio_couples": {
+      "label": "Couples (Studio)",
+      "description": "Two dancers compete as a couple.",
+      "contest_type": "single_dance",
+      "entry_format": "couple",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
+    },
+    "studio_professional": {
+      "label": "Professional (Studio)",
+      "description": "Two professionals compete as a couple.",
+      "contest_type": "single_dance",
+      "entry_format": "professional",
+      "uses_dances": true,
+      "dance_selection_mode": "individual",
+      "pricing_method": "per_dance",
+      "price_unit": "per dance",
+      "minimum_participants": 2,
+      "maximum_participants": 2,
+      "pairing_mode": "fixed",
+      "participant_roles": [
+        "professional"
+      ],
+      "dance_roles": "pair",
+      "pricing_models": [
+        "per_dance",
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_dance",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
+    },
+    "studio_jack_and_jill": {
+      "label": "Jack & Jill (Studio)",
+      "description": "Studio / Custom: dancers enter alone and are paired with a random partner.",
+      "contest_type": "jack_and_jill",
+      "entry_format": "random_partner",
+      "uses_dances": true,
+      "dance_selection_mode": "prescribed_set",
+      "pricing_method": "flat_entry",
+      "price_unit": "per entry",
+      "minimum_participants": 1,
+      "maximum_participants": 1,
+      "pairing_mode": "random_final_pair",
+      "participant_roles": [
+        "dancer"
+      ],
+      "dance_roles": "single",
+      "pricing_models": [
+        "per_entry",
+        "included",
+        "free",
+        "later"
+      ],
+      "default_pricing": "per_entry",
+      "kind": "regular",
+      "music_source": {
+        "value": "event_music",
+        "basis": "studio_recommendation"
+      },
+      "floor_mode": {
+        "value": "multi_entry",
+        "basis": "studio_recommendation",
+        "note": "Studio policy: regular heats share the floor."
+      },
+      "program_placement": {
+        "value": "within_sequence",
+        "basis": "studio_recommendation"
+      },
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
     },
     "custom_routine": {
       "label": "Choreographed Routine",
@@ -1176,6 +2539,8 @@ declare
         "note": "Special offerings run at the end of a program block, not between regular heats."
       },
       "adjudication_override": true,
+      "origin": "studio",
+      "uses_styles": false,
       "organizer_configurable": [
         "label",
         "music_source",
@@ -1185,8 +2550,8 @@ declare
         "program_placement"
       ]
     },
-    "solo": {
-      "label": "Solo",
+    "studio_solo": {
+      "label": "Solo (Studio)",
       "description": "One dancer performs a routine.",
       "contest_type": "showdance",
       "entry_format": "solo",
@@ -1223,10 +2588,12 @@ declare
         "basis": "owner_operational",
         "note": "Special offerings run at the end of a program block, not between regular heats."
       },
-      "adjudication_override": false
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
     },
-    "team": {
-      "label": "Team",
+    "studio_team": {
+      "label": "Team (Studio)",
       "description": "A group performs a routine together.",
       "contest_type": "team",
       "entry_format": "team",
@@ -1263,7 +2630,9 @@ declare
         "basis": "owner_operational",
         "note": "Special offerings run at the end of a program block, not between regular heats."
       },
-      "adjudication_override": false
+      "adjudication_override": false,
+      "origin": "studio",
+      "uses_styles": false
     }
   },
   "dancePools": {
@@ -1330,6 +2699,56 @@ declare
       }
     ],
     "ballroom": [
+      {
+        "key": "std_waltz",
+        "name": "Waltz",
+        "category": "International Standard"
+      },
+      {
+        "key": "std_tango",
+        "name": "Tango",
+        "category": "International Standard"
+      },
+      {
+        "key": "std_viennese_waltz",
+        "name": "Viennese Waltz",
+        "category": "International Standard"
+      },
+      {
+        "key": "std_slow_foxtrot",
+        "name": "Slow Foxtrot",
+        "category": "International Standard"
+      },
+      {
+        "key": "std_quickstep",
+        "name": "Quickstep",
+        "category": "International Standard"
+      },
+      {
+        "key": "latin_cha_cha",
+        "name": "Cha Cha",
+        "category": "International Latin"
+      },
+      {
+        "key": "latin_samba",
+        "name": "Samba",
+        "category": "International Latin"
+      },
+      {
+        "key": "latin_rumba",
+        "name": "Rumba",
+        "category": "International Latin"
+      },
+      {
+        "key": "latin_paso_doble",
+        "name": "Paso Doble",
+        "category": "International Latin"
+      },
+      {
+        "key": "latin_jive",
+        "name": "Jive",
+        "category": "International Latin"
+      },
       {
         "key": "smooth_waltz",
         "name": "Waltz",
@@ -2108,7 +3527,7 @@ declare
           ],
           "required": true,
           "allow_custom": true,
-          "note": "Studio levels by default; the UCWDC Couples ladder (Newcomer IV–I, Classic III–I) is under More options."
+          "note": "Novice, Intermediate and Advanced are Studio levels; Newcomer IV–I and Classic III–I are the UCWDC Couples ladder."
         },
         {
           "key": "age_group",
@@ -2669,9 +4088,9 @@ declare
       ]
     },
     "ballroom_proam": {
-      "label": "Ballroom ProAm",
+      "label": "NDCA Pro/Am",
       "combination": "cross",
-      "note": "NDCA lets organizers offer any or all of its Pro/Am levels and age categories; it defines no universal division list.",
+      "note": "NDCA lets organizers offer any or all Pro/Am levels (II.B.7.c). A–S4 are the Pro/Am Multi-Dance age categories (II.B.7.f); youth Pro/Am uses the amateur ages (II.B.8.a).",
       "axes": [
         {
           "key": "skill_level",
@@ -2680,6 +4099,48 @@ declare
             {
               "key": "newcomer",
               "label": "Newcomer",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ],
+              "eligibility": {
+                "note": "First year of competition; closed syllabus only (II.B.7.c(1)–(2))."
+              }
+            },
+            {
+              "key": "beginner",
+              "label": "Beginner",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "intermediate",
+              "label": "Intermediate",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.7.c",
+                  "page": "7"
+                }
+              ]
+            },
+            {
+              "key": "advanced",
+              "label": "Advanced",
               "basis": "source_grounded",
               "sources": [
                 {
@@ -2767,54 +4228,6 @@ declare
                   "page": "7"
                 }
               ]
-            },
-            {
-              "key": "beginner",
-              "label": "Beginner",
-              "basis": "source_grounded",
-              "sources": [
-                {
-                  "document": "NDCA Rule Book",
-                  "edition": "June 2026 (compiled)",
-                  "section": "II.B.7.c",
-                  "page": "7"
-                }
-              ]
-            },
-            {
-              "key": "intermediate",
-              "label": "Intermediate",
-              "basis": "source_grounded",
-              "sources": [
-                {
-                  "document": "NDCA Rule Book",
-                  "edition": "June 2026 (compiled)",
-                  "section": "II.B.7.c",
-                  "page": "7"
-                }
-              ]
-            },
-            {
-              "key": "advanced",
-              "label": "Advanced",
-              "basis": "source_grounded",
-              "sources": [
-                {
-                  "document": "NDCA Rule Book",
-                  "edition": "June 2026 (compiled)",
-                  "section": "II.B.7.c",
-                  "page": "7"
-                }
-              ]
-            },
-            {
-              "key": "open",
-              "label": "Open",
-              "basis": "studio_recommendation",
-              "name_label": "Open Level",
-              "eligibility": {
-                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
-              }
             }
           ],
           "required": true,
@@ -2824,6 +4237,120 @@ declare
           "key": "age_group",
           "label": "Age divisions",
           "values": [
+            {
+              "key": "pre_teen_i",
+              "label": "Pre-Teen I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.8.a",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "under_age": 10
+              }
+            },
+            {
+              "key": "pre_teen_ii",
+              "label": "Pre-Teen II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.8.a",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "min_age": 10,
+                "under_age": 12
+              }
+            },
+            {
+              "key": "junior_i",
+              "label": "Junior I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.8.a",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "min_age": 12,
+                "under_age": 14
+              }
+            },
+            {
+              "key": "junior_ii",
+              "label": "Junior II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.8.a",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "min_age": 14,
+                "under_age": 16
+              }
+            },
+            {
+              "key": "youth",
+              "label": "Youth",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.8.a",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "min_age": 16,
+                "under_age": 19
+              }
+            },
             {
               "key": "a",
               "label": "A",
@@ -2939,17 +4466,18 @@ declare
           ],
           "required": false,
           "allow_custom": true,
-          "note": "Optional; whose age counts is NOT SPECIFIED IN PROVIDED SOURCE."
+          "note": "Optional. A–S4 are stated for Pro/Am Multi-Dance events; ages for single-dance events are NOT SPECIFIED IN PROVIDED SOURCE."
         }
       ]
     },
     "ballroom_amateur": {
-      "label": "Ballroom amateur couples",
+      "label": "NDCA Amateur",
       "combination": "cross",
+      "note": "A division is a proficiency level in an age category, e.g. Silver · Adult (NDCA X).",
       "axes": [
         {
           "key": "skill_level",
-          "label": "Levels",
+          "label": "Proficiency levels",
           "values": [
             {
               "key": "bronze",
@@ -2962,7 +4490,10 @@ declare
                   "section": "X.B",
                   "page": "43"
                 }
-              ]
+              ],
+              "eligibility": {
+                "note": "Syllabus."
+              }
             },
             {
               "key": "silver",
@@ -2975,7 +4506,10 @@ declare
                   "section": "X.B",
                   "page": "43"
                 }
-              ]
+              ],
+              "eligibility": {
+                "note": "Syllabus."
+              }
             },
             {
               "key": "gold",
@@ -2988,7 +4522,10 @@ declare
                   "section": "X.B",
                   "page": "43"
                 }
-              ]
+              ],
+              "eligibility": {
+                "note": "Syllabus."
+              }
             },
             {
               "key": "novice",
@@ -3028,19 +4565,11 @@ declare
                   "page": "43"
                 }
               ]
-            },
-            {
-              "key": "open",
-              "label": "Open",
-              "basis": "studio_recommendation",
-              "name_label": "Open Level",
-              "eligibility": {
-                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
-              }
             }
           ],
           "required": true,
-          "allow_custom": true
+          "allow_custom": true,
+          "note": "Amateurs may enter at most two consecutive proficiency levels (X.C.9)."
         },
         {
           "key": "age_group",
@@ -3054,8 +4583,8 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
@@ -3070,8 +4599,8 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
@@ -3087,8 +4616,8 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
@@ -3104,8 +4633,8 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
@@ -3121,29 +4650,13 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
                 "min_age": 16,
                 "under_age": 19
-              }
-            },
-            {
-              "key": "under_21",
-              "label": "Under 21",
-              "basis": "source_grounded",
-              "sources": [
-                {
-                  "document": "NDCA Rule Book",
-                  "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
-                }
-              ],
-              "eligibility": {
-                "note": "At least one partner 16+, neither 21."
               }
             },
             {
@@ -3154,8 +4667,8 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
@@ -3170,8 +4683,8 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
@@ -3187,8 +4700,8 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
@@ -3204,8 +4717,8 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
@@ -3221,19 +4734,323 @@ declare
                 {
                   "document": "NDCA Rule Book",
                   "edition": "June 2026 (compiled)",
-                  "section": "X.A",
-                  "page": "42-43"
+                  "section": "X.A.1",
+                  "page": "42"
                 }
               ],
               "eligibility": {
                 "min_age": 65,
                 "note": "One partner 65+, the other 60+."
               }
+            },
+            {
+              "key": "pre_teen",
+              "label": "Pre-Teen",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.2",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "note": "Organizer combination of Pre-Teen I and II."
+              }
+            },
+            {
+              "key": "junior",
+              "label": "Junior",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.2",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "note": "Organizer combination of Junior I and II."
+              }
+            },
+            {
+              "key": "senior",
+              "label": "Senior",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.2",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "note": "Organizer combination of Senior categories."
+              }
+            },
+            {
+              "key": "under_21",
+              "label": "Under 21",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.3",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "note": "Organizer add-on: at least one partner 16+, neither 21."
+              }
             }
           ],
-          "required": false,
+          "required": true,
           "allow_custom": true,
-          "note": "Optional."
+          "note": "A couple's age is the older partner's (Pre-Teen to Adult) or the younger partner's (Senior) (X.A.6)."
+        }
+      ]
+    },
+    "ballroom_professional": {
+      "label": "NDCA Professional",
+      "combination": "separate",
+      "note": "Open Professional and Rising Star are separate contests (II.B.1); NDCA defines no professional age categories.",
+      "axes": [
+        {
+          "key": "contest_type",
+          "label": "Contests",
+          "values": [
+            {
+              "key": "open_professional",
+              "label": "Open Professional",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.1.a",
+                  "page": "6"
+                }
+              ]
+            },
+            {
+              "key": "rising_star",
+              "label": "Rising Star",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.1.b",
+                  "page": "6"
+                }
+              ],
+              "eligibility": {
+                "note": "Rising Star status is lost as described in II.B.1.b(1)."
+              }
+            }
+          ],
+          "required": true,
+          "allow_custom": false
+        }
+      ]
+    },
+    "ballroom_solo_star": {
+      "label": "NDCA Solo Star",
+      "combination": "cross",
+      "note": "Solo Star is for Pre-Teen, Junior and Youth amateurs only (II.A.3, II.B.10). Proficiency for Solo Star is NOT SPECIFIED IN PROVIDED SOURCE.",
+      "axes": [
+        {
+          "key": "age_group",
+          "label": "Age divisions",
+          "values": [
+            {
+              "key": "pre_teen_i",
+              "label": "Pre-Teen I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.10",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "under_age": 10
+              }
+            },
+            {
+              "key": "pre_teen_ii",
+              "label": "Pre-Teen II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.10",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "min_age": 10,
+                "under_age": 12
+              }
+            },
+            {
+              "key": "junior_i",
+              "label": "Junior I",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.10",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "min_age": 12,
+                "under_age": 14
+              }
+            },
+            {
+              "key": "junior_ii",
+              "label": "Junior II",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.10",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "min_age": 14,
+                "under_age": 16
+              }
+            },
+            {
+              "key": "youth",
+              "label": "Youth",
+              "basis": "source_grounded",
+              "sources": [
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "II.B.10",
+                  "page": "8"
+                },
+                {
+                  "document": "NDCA Rule Book",
+                  "edition": "June 2026 (compiled)",
+                  "section": "X.A.1",
+                  "page": "42"
+                }
+              ],
+              "eligibility": {
+                "min_age": 16,
+                "under_age": 19
+              }
+            }
+          ],
+          "required": true,
+          "allow_custom": false
+        }
+      ]
+    },
+    "ballroom_adult_open": {
+      "label": "One adult open division",
+      "combination": "cross",
+      "note": "Student/Student is for adults only (II.A.6.b). Youth Student/Student is not offered while II.A.6.b and II.B.8 conflict.",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Divisions",
+          "values": [
+            {
+              "key": "adult_open",
+              "label": "Adult Open",
+              "basis": "studio_recommendation",
+              "eligibility": {
+                "note": "Adult Pro/Am Student Competitors; not open to Open Amateur dancers (II.A.6)."
+              }
+            }
+          ],
+          "required": true,
+          "allow_custom": false
+        }
+      ]
+    },
+    "studio_wcs": {
+      "label": "Studio WCS levels",
+      "combination": "cross",
+      "note": "Studio / Custom levels. WSDC 2026.1C defines no Couples or Pro-Am contest, so no WSDC age contests apply.",
+      "axes": [
+        {
+          "key": "skill_level",
+          "label": "Levels",
+          "values": [
+            {
+              "key": "newcomer",
+              "label": "Newcomer",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "novice",
+              "label": "Novice",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "intermediate",
+              "label": "Intermediate",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "advanced",
+              "label": "Advanced",
+              "basis": "studio_recommendation"
+            },
+            {
+              "key": "open",
+              "label": "Open",
+              "basis": "studio_recommendation",
+              "name_label": "Open Level",
+              "eligibility": {
+                "note": "Studio / Custom open skill level. UCWDC uses Open only as an age division, not a ProAm skill level."
+              }
+            }
+          ],
+          "required": true,
+          "allow_custom": true
         }
       ]
     },
@@ -3341,7 +5158,7 @@ declare
   },
   "limits": {
     "programs": 4,
-    "categories": 8,
+    "categories": 60,
     "divisions": 80,
     "totalDivisions": 300,
     "dances": 20,
@@ -3417,6 +5234,8 @@ declare
   v_cat_key text;
   v_cat_def jsonb;
   v_cat_seen text[];
+  v_style_key text;
+  v_style jsonb;
   v_div jsonb;
   v_div_ix integer;
   v_div_seen text[];
@@ -3569,7 +5388,7 @@ begin
 
     if jsonb_typeof(v_prog->'categories') is distinct from 'array'
       or jsonb_array_length(v_prog->'categories') < 1 or jsonb_array_length(v_prog->'categories') > (v_limits->>'categories')::integer then
-      raise exception 'Choose between 1 and % entry formats for %.', v_limits->>'categories', v_template->>'label';
+      raise exception 'Choose between 1 and % categories for %.', v_limits->>'categories', v_template->>'label';
     end if;
     v_cat_seen := '{}';
     v_used := '{}';
@@ -3581,8 +5400,23 @@ begin
       if v_cat_key is null or v_cat_def is null or not (v_template->'formats' ? v_cat_key) then
         raise exception 'Entry format % is not available for %.', coalesce(v_cat_key, '(none)'), v_template->>'label';
       end if;
-      if v_cat_key = any (v_cat_seen) then raise exception 'Each entry format can be added once per program.'; end if;
-      v_cat_seen := v_cat_seen || v_cat_key;
+      -- A styled offering (e.g. Ballroom Pro/Am) is entered per dance style: one category per (offering, style).
+      v_style_key := v_cat->>'style';
+      v_style := null;
+      if coalesce((v_cat_def->>'uses_styles')::boolean, false) then
+        select st.value into v_style from jsonb_array_elements(coalesce(v_template->'styles', '[]'::jsonb)) st(value)
+        where st.value->>'key' = v_style_key;
+        if jsonb_typeof(v_cat->'style') is distinct from 'string' or v_style is null
+          or (v_cat_def ? 'style_keys' and not coalesce(v_cat_def->'style_keys' ? v_style_key, false)) then
+          raise exception 'Choose an available style for %.', v_cat_def->>'label';
+        end if;
+      elsif coalesce(jsonb_typeof(v_cat->'style'), 'null') <> 'null' then
+        raise exception '% is not entered per style.', v_cat_def->>'label';
+      end if;
+      if v_cat_key || ':' || coalesce(v_style_key, '') = any (v_cat_seen) then
+        raise exception 'Each entry format can be added once per style in a program.';
+      end if;
+      v_cat_seen := v_cat_seen || (v_cat_key || ':' || coalesce(v_style_key, ''));
       -- Showcase / Performance offers only special (routine / performance) formats.
       if v_purpose = 'showcase' and v_cat_def->>'kind' is distinct from 'special' then
         raise exception '% is not a Showcase / Performance offering.', v_cat_def->>'label';
@@ -3627,6 +5461,12 @@ begin
         for v_dance_key in select value from jsonb_array_elements_text(v_cat->'dances') loop
           if not exists (select 1 from jsonb_array_elements(v_prog->'dances') d(value) where d.value->>'key' = v_dance_key) then
             raise exception 'Dance % is not part of %.', v_dance_key, v_template->>'label';
+          end if;
+          -- A styled category holds only its style's dances (or organizer-added dances where the style allows them).
+          if v_style is not null and not coalesce(v_style->'dances' ? v_dance_key, false)
+            and not (coalesce((v_style->>'allow_custom_dances')::boolean, false) and v_dance_key ~ '^custom_[a-z0-9_]{1,40}$'
+                     and not exists (select 1 from jsonb_array_elements(v_pool) pd(value) where pd.value->>'key' = v_dance_key)) then
+            raise exception 'Dance % is not part of the % style.', v_dance_key, v_style->>'label';
           end if;
           if v_dance_key = any (v_dance_keys) then raise exception 'Dances can be chosen once per entry format.'; end if;
           v_dance_keys := v_dance_keys || v_dance_key;
@@ -3674,7 +5514,7 @@ begin
     raise exception 'This setup has % divisions; use % or fewer.', v_total_divisions, v_limits->>'totalDivisions';
   end if;
   if v_purpose = 'competition_showcase' and (v_regular_count < 1 or v_special_count < 1) then
-    raise exception 'Competition + Showcase / Performance needs a competition entry format and a Showcase or Spotlight offering.';
+    raise exception 'Competition + Showcase / Performance needs a competition entry format and a showcase or performance offering.';
   end if;
 
   -- ---- writes ----
@@ -3739,13 +5579,19 @@ begin
         else v_template #>> '{judging_options,0}'
       end;
       v_cat_judging := v_defaults->'judging'->v_cat_judging_key;
-      v_cat_label := coalesce(v_template #>> array['format_labels', v_cat_key], v_cat_def->>'label');
+      v_style_key := v_cat->>'style';
+      v_style := null;
+      if v_style_key is not null then
+        select st.value into v_style from jsonb_array_elements(v_template->'styles') st(value) where st.value->>'key' = v_style_key;
+      end if;
+      v_cat_label := coalesce(v_template #>> array['format_labels', v_cat_key], v_cat_def->>'label')
+                     || coalesce(' — ' || (v_style->>'label'), '');
 
       insert into public.event_competition_contests (event_id, program_id, name, contest_type, entry_format, sort_order, configuration)
       values (p_event_id, v_program_id, v_cat_label, v_cat_def->>'contest_type', v_cat_def->>'entry_format', v_cat_ix * 10,
               jsonb_build_object(
                 'simple', jsonb_build_object('category_type', v_cat_key),
-                'setup', jsonb_build_object('pricing_model', v_model, 'pricing_pending', v_pending,
+                'setup', jsonb_build_object('pricing_model', v_model, 'pricing_pending', v_pending, 'style', v_style_key,
                                             'adjudication', case when v_cat_adjudication = 'inherit' then v_prog_adjudication else v_cat_adjudication end,
                                             'adjudication_source', case when v_cat_adjudication = 'inherit' then 'style' else 'override' end,
                                             'judging', v_cat_judging_key,

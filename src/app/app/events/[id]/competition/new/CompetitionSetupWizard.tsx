@@ -16,10 +16,14 @@ import {
   selectAllValues,
   missingRequiredAxes,
   toggleDivisionValue,
-  availableFormats,
   formatRunNote,
   judgingSummary,
-  recommendedFormats,
+  offeringGroups,
+  formatStyleOptions,
+  formatCategories,
+  formatDanceOptions,
+  danceStyleOf,
+  toggleFormatStyle,
   setFormatAdjudication,
   PRICING_LABELS,
   PRICING_PENDING_TEXT,
@@ -38,7 +42,6 @@ import {
   initialAnswers,
   nextStep,
   previousStep,
-  programDances,
   removeCustomDance,
   restoreAnswers,
   resumeStep,
@@ -150,7 +153,7 @@ export function StyleChoices({
 
 /**
  * The Divisions choices for one entry format: for each division axis (e.g. Levels, Age divisions), a
- * multi-select of the recommended values, "More options" for the rest, Select all / Clear, and an
+ * multi-select of every value (none pre-selected), Select all / Clear, and an
  * organizer-defined value where the rules allow it. The divisions themselves come from deriveDraft.
  */
 export function DivisionChoices({
@@ -467,45 +470,63 @@ export default function CompetitionSetupWizard({
           <section aria-labelledby="step-offerings" className="space-y-4">
             <div>
               <h3 id="step-offerings" className={headingClass}>What will you offer?</h3>
-              <p className="mt-1 text-sm text-slate-600">Choose the entry formats for each style. The list comes from the rules you chose.</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Choose the entry formats for each style. Nothing is selected for you. Offerings marked Studio are DanceFlow&apos;s own, not a governing-body definition.
+              </p>
             </div>
-            {programs.map((key) => {
-              const recommended = recommendedFormats(defaults, key, answers.purpose);
-              return (
-                <div key={key} className={groupClass}>
-                  <p className="text-sm font-semibold text-slate-950">{tpl(key).label}</p>
-                  <div className="mt-3 space-y-3">
-                    {availableFormats(defaults, key, answers.purpose).map((format) => {
-                      const value = answers.programs[key]?.formats[format];
-                      const note = formatRunNote(defaults, key, format);
-                      return (
-                        <div key={format}>
-                          <label className="flex cursor-pointer items-start gap-3">
-                            <input type="checkbox" checked={Boolean(value)} onChange={() => update((current) => toggleFormat(current, defaults, key, format))} className="mt-1 h-4 w-4" />
-                            <span>
-                              <span className="text-sm font-semibold text-slate-950">{fmt(format).label}</span>
-                              {recommended.includes(format) ? <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">Recommended</span> : null}
-                              <span className="block text-sm text-slate-600">{fmt(format).description}</span>
-                              {note ? <span className="block text-xs text-slate-500">{note}</span> : null}
-                            </span>
-                          </label>
-                          {value && fmt(format).adjudication_override ? (
-                            <div className="ml-7 mt-2 flex flex-wrap items-center gap-2">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Judged</span>
-                              {(["inherit", "adjudicated", "non_adjudicated"] as const).map((choice) => (
-                                <Chip key={choice} selected={value.adjudication === choice} onClick={() => update((current) => setFormatAdjudication(current, defaults, key, format, choice))}>
-                                  {choice === "inherit" ? `Same as ${tpl(key).label}` : ADJUDICATION_OVERRIDE_LABELS[choice]}
-                                </Chip>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+            {programs.map((key) => (
+              <div key={key} className={groupClass}>
+                <p className="text-sm font-semibold text-slate-950">{tpl(key).label}</p>
+                {offeringGroups(defaults, key, answers.purpose).map((group) => (
+                  <div key={group.label} className="mt-4">
+                    {group.label ? <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{group.label}</p> : null}
+                    <div className="mt-2 space-y-3">
+                      {group.formats.map((format) => {
+                        const value = answers.programs[key]?.formats[format];
+                        const note = formatRunNote(defaults, key, format);
+                        const styleChoices = formatStyleOptions(defaults, key, format);
+                        return (
+                          <div key={format}>
+                            <label className="flex cursor-pointer items-start gap-3">
+                              <input type="checkbox" checked={Boolean(value)} onChange={() => update((current) => toggleFormat(current, defaults, key, format))} className="mt-1 h-4 w-4" />
+                              <span>
+                                <span className="text-sm font-semibold text-slate-950">{fmt(format).label}</span>
+                                <span className="block text-sm text-slate-600">{fmt(format).description}</span>
+                                {fmt(format).eligibility_note ? <span className="block text-xs text-slate-600">Who may enter: {fmt(format).eligibility_note}</span> : null}
+                                {note ? <span className="block text-xs text-slate-500">{note}</span> : null}
+                              </span>
+                            </label>
+                            {value && styleChoices.length > 0 ? (
+                              <div className="ml-7 mt-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Dance styles</p>
+                                <p className="text-xs text-slate-500">Each style is its own category with only that style&apos;s dances.</p>
+                                <div className="mt-1 flex flex-wrap gap-2">
+                                  {styleChoices.map((style) => (
+                                    <Chip key={style.key} selected={value.danceStyles.includes(style.key)} onClick={() => update((current) => toggleFormatStyle(current, defaults, key, format, style.key))}>
+                                      {style.label}
+                                    </Chip>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                            {value && fmt(format).adjudication_override ? (
+                              <div className="ml-7 mt-2 flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Judged</span>
+                                {(["inherit", "adjudicated", "non_adjudicated"] as const).map((choice) => (
+                                  <Chip key={choice} selected={value.adjudication === choice} onClick={() => update((current) => setFormatAdjudication(current, defaults, key, format, choice))}>
+                                    {choice === "inherit" ? `Same as ${tpl(key).label}` : ADJUDICATION_OVERRIDE_LABELS[choice]}
+                                  </Chip>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            ))}
           </section>
         ) : null}
 
@@ -513,7 +534,7 @@ export default function CompetitionSetupWizard({
           <section aria-labelledby="step-divisions" className="space-y-4">
             <div>
               <h3 id="step-divisions" className={headingClass}>Divisions</h3>
-              <p className="mt-1 text-sm text-slate-600">Divisions group dancers of a similar level. Each entry format has its own.</p>
+              <p className="mt-1 text-sm text-slate-600">Divisions group dancers of a similar level. Each entry format has its own, shared by every dance style it is entered in.</p>
             </div>
             {programs.flatMap((key) =>
               tpl(key).formats
@@ -539,30 +560,52 @@ export default function CompetitionSetupWizard({
             {programs.map((key) => {
               const formats = tpl(key).formats.filter((format) => answers.programs[key]?.formats[format] && fmt(format).uses_dances);
               if (formats.length === 0) return null;
-              const available = programDances(defaults, key, answers.programs[key]);
+              const program = answers.programs[key];
+              const customStyle = tpl(key).styles?.find((style) => style.allow_custom_dances);
+              const danceChips = (format: FormatKey, dances: Array<{ key: string; name: string }>) => (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {dances.map((dance) => (
+                    <Chip
+                      key={dance.key}
+                      selected={program.formats[format]!.dances.includes(dance.key)}
+                      onClick={() => update((current) => toggleFormatDance(current, defaults, key, format, dance.key))}
+                    >
+                      {dance.name}
+                    </Chip>
+                  ))}
+                </div>
+              );
               return (
                 <div key={key} className={groupClass}>
                   <p className="text-sm font-semibold text-slate-950">{tpl(key).label}</p>
-                  {formats.map((format) => (
-                    <div key={format} className="mt-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fmt(format).label}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {available.map((dance) => (
-                          <Chip
-                            key={dance.key}
-                            selected={answers.programs[key].formats[format]!.dances.includes(dance.key)}
-                            onClick={() => update((current) => toggleFormatDance(current, key, format, dance.key))}
-                          >
-                            {dance.name}
-                          </Chip>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                  {formats.map((format) => {
+                    const options = formatDanceOptions(defaults, key, program, format);
+                    if (!fmt(format).uses_styles) {
+                      return (
+                        <div key={format} className="mt-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fmt(format).label}</p>
+                          {danceChips(format, options)}
+                        </div>
+                      );
+                    }
+                    // A styled offering: one group per chosen dance style, showing only that style's dances.
+                    return formatCategories(defaults, key, format, program.formats[format]!).map((category) => {
+                      const dances = options.filter((dance) => danceStyleOf(defaults, key, dance.key)?.key === category.style?.key);
+                      return (
+                        <div key={`${format}:${category.style?.key}`} className="mt-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{category.label}</p>
+                          {dances.length > 0 ? danceChips(format, dances) : (
+                            <p className="mt-1 text-xs text-slate-500">{category.style?.allow_custom_dances ? "Add the dances you will offer below." : "No dances are listed for this style."}</p>
+                          )}
+                        </div>
+                      );
+                    });
+                  })}
                   {tpl(key).custom_dances ? (
                     <div className="mt-4 border-t border-slate-100 pt-3">
+                      {customStyle ? <p className="mb-2 text-xs text-slate-500">Dances you add belong to {customStyle.label}.</p> : null}
                       <div className="flex flex-wrap gap-2">
-                        {answers.programs[key].customDances.map((dance) => (
+                        {program.customDances.map((dance) => (
                           <span key={dance.key} className="inline-flex items-center gap-2 rounded-full bg-slate-100 py-1.5 pl-3 pr-2 text-sm text-slate-800">
                             {dance.name}
                             <button type="button" aria-label={`Remove ${dance.name}`} onClick={() => update((current) => removeCustomDance(current, key, dance.key))} className="rounded-full px-1.5 text-slate-500 hover:bg-slate-200">

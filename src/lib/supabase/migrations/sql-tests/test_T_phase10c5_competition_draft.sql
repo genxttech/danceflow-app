@@ -68,12 +68,13 @@ end $$;
 -- The reviewed full request: Competition + Showcase / Performance in two styles.
 --   Country (adjudicated, Medal Marks): every pricing model, a custom dance, a Showcase judged
 --   Non-Adjudicated by override, and a Spotlight that inherits the style's adjudication.
---   Ballroom (adjudicated, Placements): ProAm plus a Showcase / Showdance that inherits.
+--   Ballroom (adjudicated, Placements): NDCA Pro/Am entered in two dance styles (one category per style,
+--   each holding only its style's dances) plus a Cabaret performance that inherits.
 create or replace function pg_temp.spec(p_key text) returns jsonb
 language sql immutable as $$
   select jsonb_build_object(
     'request_key', p_key, 'profile_key', 'studio_simple', 'profile_version', 2, 'purpose', 'competition_showcase',
-    'answers', '{"version": 2, "purpose": "competition_showcase", "styles": ["country", "ballroom"]}'::jsonb,
+    'answers', '{"version": 4, "purpose": "competition_showcase", "styles": ["country", "ballroom"]}'::jsonb,
     'registration', '{"opens_at": "2026-01-01T00:00:00Z", "closes_at": "2030-01-01T00:00:00Z", "account_required": false}'::jsonb,
     'programs', $j$[
       {"key": "country", "name": "P10C5 Comp — Country", "adjudication": "adjudicated", "judging": "medal_marks", "registration_fee": 40,
@@ -94,12 +95,14 @@ language sql immutable as $$
          {"type": "spotlight", "adjudication": "inherit", "divisions": [{"name": "Open", "skill_label": "Open"}], "dances": [],
           "pricing": {"model": "per_entry", "amount": 35}}]},
       {"key": "ballroom", "name": "P10C5 Comp — Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
-       "dances": [{"key": "smooth_waltz", "name": "Waltz", "category": "Smooth"}],
+       "dances": [{"key": "smooth_waltz", "name": "Waltz", "category": "Smooth"}, {"key": "latin_cha_cha"}],
        "categories": [
-         {"type": "pro_am", "adjudication": "inherit", "divisions": [{"name": "Open", "skill_label": "Open"}], "dances": ["smooth_waltz"],
-          "pricing": {"model": "per_dance", "amount": 20}},
-         {"type": "showdance", "adjudication": "inherit", "divisions": [{"name": "Open", "skill_label": "Open"}], "dances": [],
-          "pricing": {"model": "free", "amount": null}}]}
+         {"type": "ndca_pro_am", "style": "american_smooth", "adjudication": "inherit", "divisions": [{"name": "Bronze", "skill_label": "Bronze", "axes": {"skill_level": "Bronze"}}],
+          "dances": ["smooth_waltz"], "pricing": {"model": "per_dance", "amount": 20}},
+         {"type": "ndca_cabaret", "adjudication": "inherit", "divisions": [{"name": "Open", "skill_label": "Open"}], "dances": [],
+          "pricing": {"model": "free", "amount": null}},
+         {"type": "ndca_pro_am", "style": "international_latin", "adjudication": "inherit", "divisions": [{"name": "Bronze", "skill_label": "Bronze", "axes": {"skill_level": "Bronze"}}],
+          "dances": ["latin_cha_cha"], "pricing": {"model": "per_dance", "amount": 20}}]}
     ]$j$::jsonb);
 $$;
 
@@ -141,12 +144,21 @@ select pg_temp.chk('v1 profile is untouched and v2 is the active Studio / Custom
        from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
 select pg_temp.chk('v2 entry formats are profile-derived per style; Showcase-type offerings live inside the style',
   (select defaults #> '{programs,country,formats}' = '["pro_am","pro_pro","couples","showcase","spotlight","solo","team"]'::jsonb
-      and defaults #> '{programs,country,recommended_formats}' = '["pro_am","pro_pro","couples"]'::jsonb
-      and defaults #> '{programs,ballroom,formats}' ? 'professional'
-      and not (defaults #> '{programs,west_coast_swing,formats}' ? 'professional')
-      and defaults #> '{programs,west_coast_swing,recommended_formats}' = '["jack_and_jill","couples"]'::jsonb
-      and defaults #> '{programs,custom,formats}' ? 'professional'
+      and defaults #> '{programs,west_coast_swing,formats}' = '["jack_and_jill","wcs_couples","wcs_pro_am","routine"]'::jsonb
+      and defaults #> '{programs,custom,formats}' ? 'studio_professional'
       and not (defaults->'programs' ? 'showcase')
+      and not exists (select 1 from jsonb_each(defaults->'programs') p where p.value ?| array['recommended_formats', 'recommended_special', 'recommended_dances'])
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
+select pg_temp.chk('Ballroom offers NDCA classifications (no generic Couples) in dance styles; no offering is shared across styles',
+  (select defaults #> '{programs,ballroom,formats}' ?& array['ndca_pro_am', 'ndca_amateur', 'ndca_mixed_amateur', 'ndca_student_student', 'ndca_professional', 'ndca_mixed_professional']
+      and not (defaults #> '{programs,ballroom,formats}' ?| array['couples', 'pro_am', 'professional', 'showcase'])
+      and (select string_agg(st->>'key', ',') from jsonb_array_elements(defaults #> '{programs,ballroom,styles}') st)
+          = 'international_standard,international_latin,american_smooth,american_rhythm,american_additional'
+      and (select count(*) = count(distinct f.value) from jsonb_each(defaults->'programs') p, jsonb_array_elements_text(p.value->'formats') f)
+      and defaults #>> '{categoryTypes,couples,origin}' = 'ucwdc' and defaults #>> '{categoryTypes,jack_and_jill,origin}' = 'wsdc'
+      and defaults #>> '{categoryTypes,wcs_couples,origin}' = 'studio' and defaults #>> '{categoryTypes,solo,label}' = 'Solo routine (Studio)'
+      and (select string_agg(c->>'key' || ':' || (c->>'status'), ',') from jsonb_array_elements(defaults->'source_conflicts') c)
+          = 'ndca_student_student_youth:unresolved,ndca_formation_scoring:unresolved'
    from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
 select pg_temp.chk('Country Showcase = set music per dance; Spotlight = competitor-selected music (UCWDC-grounded); floor count not asserted',
   (select defaults #>> '{categoryTypes,showcase,music_source,value}' = 'profile_defined'
@@ -209,12 +221,36 @@ select pg_temp.expect_msg('an adjudicated style cannot use the Non-Adjudicated j
   pg_temp.draft('00e002', pg_temp.bad('reject-judging', '{programs,0,judging}', '"non_adjudicated"')), 'Choose how Country is judged');
 select pg_temp.expect_msg('an ordinary format cannot override its style adjudication',
   pg_temp.draft('00e002', pg_temp.bad('reject-override', '{programs,0,categories,0,adjudication}', '"non_adjudicated"')), 'follows the style');
-select pg_temp.expect_msg('Professional is not a Country format',
-  pg_temp.draft('00e002', pg_temp.bad('reject-pro-country', '{programs,0,categories,1,type}', '"professional"')), 'not available for Country');
+select pg_temp.expect_msg('an NDCA offering is not available in Country',
+  pg_temp.draft('00e002', pg_temp.bad('reject-ndca-country', '{programs,0,categories,1,type}', '"ndca_amateur"')), 'not available for Country');
+select pg_temp.expect_msg('a UCWDC offering is not available in Ballroom',
+  pg_temp.draft('00e002', pg_temp.bad('reject-ucwdc-ballroom', '{programs,1,categories,1,type}', '"couples"')), 'not available for Ballroom');
+select pg_temp.expect_msg('a styled offering needs a style',
+  pg_temp.draft('00e002', pg_temp.bad('reject-nostyle', '{programs,1,categories,0,style}', 'null')), 'Choose an available style for Pro/Am');
+select pg_temp.expect_msg('an unknown style is refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-badstyle', '{programs,1,categories,0,style}', '"country_western"')), 'Choose an available style for Pro/Am');
+select pg_temp.expect_msg('an offering that is not styled cannot carry a style',
+  pg_temp.draft('00e002', pg_temp.bad('reject-straystyle', '{programs,1,categories,1,style}', '"american_smooth"')), 'Cabaret is not entered per style');
+select pg_temp.expect_msg('a dance outside the category''s style is refused',
+  pg_temp.draft('00e002', pg_temp.bad('reject-styledance', '{programs,1,categories,0,dances}', '["latin_cha_cha"]')), 'not part of the American Smooth style');
+select pg_temp.expect_msg('the same offering cannot be added twice in one style',
+  pg_temp.draft('00e002', pg_temp.bad('reject-dupstyle', '{programs,1,categories,2,style}', '"american_smooth"')), 'once per style');
+select pg_temp.expect_msg('Showdance is not offered in Additional American Style Dances',
+  pg_temp.draft('00e002', pg_temp.one('reject-showdance-additional', 'competition',
+    '{"key": "ballroom", "name": "Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
+      "dances": [{"key": "custom_peabody", "name": "Peabody"}],
+      "categories": [{"type": "ndca_showdance", "style": "american_additional", "divisions": [{"name": "Open"}], "dances": ["custom_peabody"],
+                      "pricing": {"model": "free", "amount": null}}]}'::jsonb)), 'Choose an available style for Showdance');
+select pg_temp.expect_msg('organizer-added Ballroom dances belong only to Additional American Style Dances',
+  pg_temp.draft('00e002', pg_temp.one('reject-custom-smooth', 'competition',
+    '{"key": "ballroom", "name": "Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
+      "dances": [{"key": "custom_peabody", "name": "Peabody"}],
+      "categories": [{"type": "ndca_pro_am", "style": "american_smooth", "divisions": [{"name": "Bronze"}], "dances": ["custom_peabody"],
+                      "pricing": {"model": "free", "amount": null}}]}'::jsonb)), 'not part of the American Smooth style');
 select pg_temp.expect_msg('unknown style key is refused',
   pg_temp.draft('00e002', pg_temp.bad('reject-program', '{programs,0,key}', '"ucwdc_country"')), 'not available');
 select pg_temp.expect_msg('per-dance pricing is refused for a routine format',
-  pg_temp.draft('00e002', pg_temp.bad('reject-routine-pd', '{programs,1,categories,1,pricing}', '{"model": "per_dance", "amount": 10}')), 'Choose how Showcase / Showdance is priced');
+  pg_temp.draft('00e002', pg_temp.bad('reject-routine-pd', '{programs,1,categories,1,pricing}', '{"model": "per_dance", "amount": 10}')), 'Choose how Cabaret is priced');
 select pg_temp.expect_msg('per-dance pricing needs a price',
   pg_temp.draft('00e002', pg_temp.bad('reject-noprice', '{programs,0,categories,0,pricing}', '{"model": "per_dance", "amount": null}')), 'Enter a price');
 select pg_temp.expect_msg('a zero per-entry price is refused (choose Free instead)',
@@ -246,12 +282,12 @@ select pg_temp.expect_msg('more than the per-format division limit is refused',
   pg_temp.draft('00e002', pg_temp.bad('reject-manydiv', '{programs,0,categories,1,divisions}',
     (select jsonb_agg(jsonb_build_object('name', 'Level ' || n)) from generate_series(1, 81) n))), 'between 1 and 80 divisions');
 select pg_temp.expect_msg('duplicate entry formats are refused',
-  pg_temp.draft('00e002', pg_temp.bad('reject-dupfmt', '{programs,0,categories,1,type}', '"pro_am"')), 'once per program');
+  pg_temp.draft('00e002', pg_temp.bad('reject-dupfmt', '{programs,0,categories,1,type}', '"pro_am"')), 'once per style in a program');
 select pg_temp.expect_msg('Showcase / Performance purpose offers only performance formats',
   pg_temp.draft('00e002', pg_temp.spec('reject-perf-regular') || '{"purpose": "showcase"}'), 'not a Showcase / Performance offering');
 select pg_temp.expect_msg('Competition + Showcase needs a Showcase-type offering',
   pg_temp.draft('00e002', pg_temp.one('reject-noshowcase', 'competition_showcase',
-    jsonb_set(pg_temp.spec('x') #> '{programs,1}', '{categories}', (pg_temp.spec('x') #> '{programs,1,categories}') - 1))), 'needs a competition entry format and a Showcase or Spotlight');
+    jsonb_set(pg_temp.spec('x') #> '{programs,1}', '{categories}', (pg_temp.spec('x') #> '{programs,1,categories}') - 1))), 'needs a competition entry format and a showcase or performance offering');
 select pg_temp.expect_msg('custom dances are refused where the style does not allow them',
   pg_temp.draft('00e002', pg_temp.one('reject-wcs-custom', 'competition',
     '{"key": "west_coast_swing", "name": "WCS", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
@@ -274,8 +310,10 @@ select pg_temp.expect_ok('the full Competition + Showcase / Performance draft is
   $q$insert into t_out select 'first', public.create_competition_draft(pg_temp.u('00e001'), pg_temp.spec('p10c5-request-0001'))$q$);
 reset role;
 insert into t_ids select p.configuration #>> '{setup,program_key}', p.id from public.event_competition_programs p where p.event_id = pg_temp.u('00e001');
-insert into t_ids select 'c_' || (p.configuration #>> '{setup,program_key}') || '_' || (c.configuration #>> '{simple,category_type}'), c.id
-  from public.event_competition_contests c join public.event_competition_programs p on p.id = c.program_id where c.event_id = pg_temp.u('00e001');
+insert into t_ids select 'c_' || (p.configuration #>> '{setup,program_key}') || '_' || (c.configuration #>> '{simple,category_type}')
+                         || coalesce('_' || (c.configuration #>> '{setup,style}'), ''), c.id
+  from public.event_competition_contests c join public.event_competition_programs p on p.id = c.program_id where c.event_id = pg_temp.u('00e001')
+  on conflict do nothing;  -- a missing style must fail an assertion below, not the fixture
 insert into t_ids select 'd_couples', d.id from public.event_competition_divisions d where d.contest_id = pg_temp.id('c_country_couples') order by d.sort_order limit 1;
 insert into t_ids select 'o_couples', dd.id from public.event_competition_division_dances dd where dd.division_id = pg_temp.id('d_couples') order by dd.sort_order limit 1;
 
@@ -312,7 +350,9 @@ select pg_temp.chk('categories carry the profile entry formats and participant /
     = 'pro_am:single_dance:ProAm,pro_pro:single_dance:ProPro,couple:single_dance:Couples,team:team:Team,custom:custom:Showcase,custom:spotlight:Spotlight'
   and (select configuration #> '{setup,participant_roles}' = '["instructor","professional"]'::jsonb and configuration #>> '{setup,dance_roles}' = 'pair'
        from public.event_competition_contests where id = pg_temp.id('c_country_pro_pro'))
-  and (select name from public.event_competition_contests where id = pg_temp.id('c_ballroom_showdance')) = 'Showcase / Showdance',
+  and (select string_agg(entry_format || ':' || name || ':' || coalesce(configuration #>> '{setup,style}', '-'), ',' order by sort_order)
+       from public.event_competition_contests where program_id = pg_temp.id('ballroom'))
+      = 'pro_am:Pro/Am — American Smooth:american_smooth,custom:Cabaret:-,pro_am:Pro/Am — International Latin:international_latin',
   (select string_agg(entry_format || ':' || contest_type || ':' || name, ',' order by sort_order) from public.event_competition_contests where program_id = pg_temp.id('country')));
 select pg_temp.chk('Showcase override: Non-Adjudicated inside an adjudicated style; Spotlight and Showdance inherit',
   (select configuration #>> '{setup,adjudication}' = 'non_adjudicated' and configuration #>> '{setup,adjudication_source}' = 'override'
@@ -324,23 +364,27 @@ select pg_temp.chk('Showcase override: Non-Adjudicated inside an adjudicated sty
           and configuration #>> '{setup,floor_mode,value}' = 'not_specified'
        from public.event_competition_contests where id = pg_temp.id('c_country_spotlight'))
   and (select configuration #>> '{setup,adjudication}' = 'adjudicated' and configuration #>> '{setup,judging}' = 'placements'
-       from public.event_competition_contests where id = pg_temp.id('c_ballroom_showdance')));
+       from public.event_competition_contests where id = pg_temp.id('c_ballroom_ndca_cabaret')));
 select pg_temp.chk('registration rules: per dance / per entry / included / later / free',
   (select string_agg((p.configuration #>> '{setup,program_key}') || '.' || (c.configuration #>> '{simple,category_type}') || ':' || r.pricing_method || ':' || r.base_entry_fee::text || ':' || r.registration_open::text, ',' order by p.sort_order, c.sort_order)
    from public.event_competition_contests c join public.event_competition_programs p on p.id = c.program_id
    join public.event_competition_contest_registration_rules r on r.contest_id = c.id where c.event_id = pg_temp.u('00e001'))
     = 'country.pro_am:per_dance:0.00:false,country.pro_pro:flat_entry:60.00:false,country.couples:flat_entry:0.00:false,country.team:flat_entry:0.00:false,'
-      'country.showcase:flat_entry:0.00:false,country.spotlight:flat_entry:35.00:false,ballroom.pro_am:per_dance:0.00:false,ballroom.showdance:flat_entry:0.00:false');
+      'country.showcase:flat_entry:0.00:false,country.spotlight:flat_entry:35.00:false,ballroom.ndca_pro_am:per_dance:0.00:false,ballroom.ndca_cabaret:flat_entry:0.00:false,ballroom.ndca_pro_am:per_dance:0.00:false');
 select pg_temp.chk('per-dance offerings carry the price; other offerings are 0 (Showcase is danced per dance)',
   (select string_agg(c.configuration #>> '{simple,category_type}' || ':' || dd.entry_fee::text, ',' order by p.sort_order, c.sort_order, d.sort_order, dd.sort_order)
    from public.event_competition_division_dances dd join public.event_competition_divisions d on d.id = dd.division_id
    join public.event_competition_contests c on c.id = d.contest_id join public.event_competition_programs p on p.id = c.program_id where dd.event_id = pg_temp.u('00e001'))
-    = 'pro_am:25.00,pro_am:25.00,pro_am:25.00,pro_am:25.00,pro_pro:0.00,couples:0.00,showcase:0.00,pro_am:20.00');
+    = 'pro_am:25.00,pro_am:25.00,pro_am:25.00,pro_am:25.00,pro_pro:0.00,couples:0.00,showcase:0.00,ndca_pro_am:20.00,ndca_pro_am:20.00');
 select pg_temp.chk('dances: pool names and categories (client labels ignored) plus the custom dance',
   (select string_agg(dance_key || '=' || name || '/' || coalesce(category_label, ''), ',' order by sort_order)
    from public.event_competition_dances where program_id = pg_temp.id('country'))
     = 'two_step=Two Step/Partner,waltz=Waltz/Partner,custom_line_polka=Line Polka/Custom'
-  and pg_temp.n($q$select count(*) from public.event_competition_dances where program_id = pg_temp.id('ballroom')$q$) = 1);
+  and (select string_agg(dance_key || '=' || name || '/' || coalesce(category_label, ''), ',' order by sort_order)
+       from public.event_competition_dances where program_id = pg_temp.id('ballroom')) = 'smooth_waltz=Waltz/American Smooth,latin_cha_cha=Cha Cha/International Latin'
+  and (select string_agg(d.dance_key, ',') from public.event_competition_division_dances dd
+       join public.event_competition_dances d on d.id = dd.dance_id join public.event_competition_divisions v on v.id = dd.division_id
+       where v.contest_id = pg_temp.id('c_ballroom_ndca_pro_am_international_latin')) = 'latin_cha_cha');
 select pg_temp.chk('each division records the selected axis values it was built from',
   (select count(*) = 1 and bool_and(configuration #> '{setup,axes}' = '{"skill_level": "Newcomer", "age_group": "Adult"}'::jsonb)
    from public.event_competition_divisions where contest_id = pg_temp.id('c_country_couples'))
@@ -349,14 +393,14 @@ select pg_temp.chk('divisions per entry format with level and age labels (no sha
   (select string_agg(c.configuration #>> '{simple,category_type}' || ':' || d.name || ':' || coalesce(d.skill_label, '-') || ':' || coalesce(d.age_label, '-'), ',' order by p.sort_order, c.sort_order, d.sort_order)
    from public.event_competition_divisions d join public.event_competition_contests c on c.id = d.contest_id
    join public.event_competition_programs p on p.id = d.program_id where d.event_id = pg_temp.u('00e001'))
-    = 'pro_am:Newcomer:Newcomer:-,pro_am:Bronze:Bronze:-,pro_pro:Open:Open:-,couples:Newcomer · Adult:Newcomer:Adult,team:Open:Open:-,showcase:Open:Open:-,spotlight:Open:Open:-,pro_am:Open:Open:-,showdance:Open:Open:-');
+    = 'pro_am:Newcomer:Newcomer:-,pro_am:Bronze:Bronze:-,pro_pro:Open:Open:-,couples:Newcomer · Adult:Newcomer:Adult,team:Open:Open:-,showcase:Open:Open:-,spotlight:Open:Open:-,ndca_pro_am:Bronze:Bronze:-,ndca_cabaret:Open:Open:-,ndca_pro_am:Bronze:Bronze:-');
 select pg_temp.chk('rounds follow each format''s judging: Final for adjudicated, Performance for the Non-Adjudicated Showcase',
   (select string_agg((p.configuration #>> '{setup,program_key}') || '.' || (c.configuration #>> '{simple,category_type}') || ':' || r.name || ':' || r.round_type || ':' || r.scoring_method, ',' order by p.sort_order, c.sort_order)
    from (select distinct on (d.contest_id) d.contest_id, r.* from public.event_competition_rounds r join public.event_competition_divisions d on d.id = r.division_id
          where r.event_id = pg_temp.u('00e001') order by d.contest_id, r.sequence_number) r
    join public.event_competition_contests c on c.id = r.contest_id join public.event_competition_programs p on p.id = c.program_id)
     = 'country.pro_am:Final:final:custom,country.pro_pro:Final:final:custom,country.couples:Final:final:custom,country.team:Final:final:custom,'
-      'country.showcase:Performance:exhibition:none,country.spotlight:Final:final:custom,ballroom.pro_am:Final:final:ordinal_majority,ballroom.showdance:Final:final:ordinal_majority'
+      'country.showcase:Performance:exhibition:none,country.spotlight:Final:final:custom,ballroom.ndca_pro_am:Final:final:ordinal_majority,ballroom.ndca_cabaret:Final:final:ordinal_majority,ballroom.ndca_pro_am:Final:final:ordinal_majority'
   and pg_temp.n($q$select count(*) from public.event_competition_divisions d where d.event_id = pg_temp.u('00e001')
                    and (select count(*) from public.event_competition_rounds r where r.division_id = d.id) <> 1$q$) = 0);
 select pg_temp.chk('included pricing creates one program-scoped per-person registration fee rule',
@@ -380,7 +424,7 @@ select pg_temp.expect_ok('replaying the same request succeeds',
 select pg_temp.chk('replay returns the same programs and creates nothing',
   (select v->'program_ids' = (select v->'program_ids' from t_out where k = 'first') and v->>'replayed' = 'true' from t_out where k = 'replay')
   and pg_temp.n($q$select count(*) from public.event_competition_programs where event_id = pg_temp.u('00e001')$q$) = 2
-  and pg_temp.n($q$select count(*) from public.event_competition_divisions where event_id = pg_temp.u('00e001')$q$) = 9);
+  and pg_temp.n($q$select count(*) from public.event_competition_divisions where event_id = pg_temp.u('00e001')$q$) = 10);
 select pg_temp.expect_msg('the same request key with different choices fails safely',
   pg_temp.draft('00e001', pg_temp.bad('p10c5-request-0001', '{programs,0,categories,1,pricing,amount}', '65')), 'different choices');
 select pg_temp.expect_msg('a new request cannot add a second setup to the event',
@@ -460,11 +504,11 @@ select pg_temp.chk('the guard applies only to pricing-pending categories (open p
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('the Ballroom program publishes', $q$select public.publish_competition_program(pg_temp.id('ballroom'))$q$);
 reset role;
-update public.event_competition_contests set configuration = jsonb_set(configuration, '{setup,pricing_pending}', 'true') where id = pg_temp.id('c_ballroom_showdance');
+update public.event_competition_contests set configuration = jsonb_set(configuration, '{setup,pricing_pending}', 'true') where id = pg_temp.id('c_ballroom_ndca_cabaret');
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('a pending flag set outside the wizard also blocks opening',
   $q$select public.open_competition_registration(pg_temp.id('ballroom'))$q$, 'Pricing requires completion');
-select pg_temp.expect_ok('Free completes the Showdance pricing', $q$select public.set_competition_category_pricing(pg_temp.id('c_ballroom_showdance'), 'free', null)$q$);
+select pg_temp.expect_ok('Free completes the Cabaret pricing', $q$select public.set_competition_category_pricing(pg_temp.id('c_ballroom_ndca_cabaret'), 'free', null)$q$);
 select pg_temp.expect_ok('the Ballroom program then opens', $q$select public.open_competition_registration(pg_temp.id('ballroom'))$q$);
 
 -- ============================================================================
@@ -507,15 +551,25 @@ select pg_temp.chk('Non-Adjudicated competition: exhibition mode, Performance ro
           and (select bool_and(required) from public.event_competition_division_dances where program_id = p.id)
    from public.event_competition_programs p join public.event_competition_contests c on c.program_id = p.id
    join public.event_competition_contest_registration_rules r on r.contest_id = c.id where p.event_id = pg_temp.u('00e004')));
-select pg_temp.expect_ok('Ballroom may include Professional (Placements)',
+select pg_temp.expect_ok('Ballroom Professional (Placements) with Open Professional and Rising Star, plus an Additional American dance',
   pg_temp.draft('00e005', pg_temp.one('p10c5-ballroom-pro', 'competition',
     '{"key": "ballroom", "name": "Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
-      "dances": [{"key": "smooth_waltz"}],
-      "categories": [{"type": "professional", "divisions": [{"name": "Open"}], "dances": ["smooth_waltz"], "pricing": {"model": "free", "amount": null}}]}'::jsonb)));
-select pg_temp.chk('Ballroom Professional shape',
+      "dances": [{"key": "std_waltz"}, {"key": "custom_peabody", "name": "Peabody"}],
+      "categories": [{"type": "ndca_professional", "style": "international_standard",
+                      "divisions": [{"name": "Open Professional", "axes": {"contest_type": "Open Professional"}}, {"name": "Rising Star", "axes": {"contest_type": "Rising Star"}}],
+                      "dances": ["std_waltz"], "pricing": {"model": "free", "amount": null}},
+                     {"type": "ndca_pro_am", "style": "american_additional", "divisions": [{"name": "Bronze"}], "dances": ["custom_peabody"],
+                      "pricing": {"model": "free", "amount": null}}]}'::jsonb)));
+select pg_temp.chk('Ballroom Professional shape: per-style contest, contest-type divisions, professional roles',
   (select p.competition_mode = 'relative' and p.scoring_method = 'ordinal_majority' and c.entry_format = 'professional'
+          and c.name = 'Professional — International Standard' and c.configuration #>> '{setup,style}' = 'international_standard'
           and c.configuration #> '{setup,participant_roles}' = '["professional"]'::jsonb
-   from public.event_competition_programs p join public.event_competition_contests c on c.program_id = p.id where p.event_id = pg_temp.u('00e005')));
+          and (select string_agg(d.name || ':' || (d.configuration #>> '{setup,axes,contest_type}'), ',' order by d.sort_order)
+               from public.event_competition_divisions d where d.contest_id = c.id) = 'Open Professional:Open Professional,Rising Star:Rising Star'
+   from public.event_competition_programs p join public.event_competition_contests c on c.program_id = p.id
+   where p.event_id = pg_temp.u('00e005') and c.entry_format = 'professional')
+  and (select name = 'Pro/Am — Additional American Style Dances' from public.event_competition_contests
+       where event_id = pg_temp.u('00e005') and configuration #>> '{setup,style}' = 'american_additional'));
 select pg_temp.expect_ok('multiple styles create one program each; Other may use Gold / Silver / Bronze',
   pg_temp.draft('00e006', jsonb_build_object('request_key', 'p10c5-multi-style', 'profile_key', 'studio_simple', 'profile_version', 2,
     'purpose', 'competition', 'answers', '{}'::jsonb,

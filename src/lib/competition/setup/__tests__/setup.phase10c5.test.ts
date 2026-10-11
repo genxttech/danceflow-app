@@ -22,7 +22,6 @@ import {
   nextStep,
   previousStep,
   programJudging,
-  recommendedFormats,
   removeCustomDance,
   restoreAnswers,
   resumeStep,
@@ -38,7 +37,7 @@ import {
   type SetupAnswers,
 } from "../draft";
 import { clearStoredSetup, loadStoredSetup, saveStoredSetup } from "../persistence";
-import { withDivisions } from "./divisionTestHelpers";
+import { TEST_DANCES, withDivisions, withOfferings } from "./divisionTestHelpers";
 
 const ROOT = join(__dirname, "..", "..", "..", "..", "..");
 const MIGRATION = join(ROOT, "src/lib/supabase/migrations/20261113090000_phase10c5_competition_draft.sql");
@@ -49,6 +48,7 @@ function fullAnswers(): SetupAnswers {
   let answers = choosePurpose(initialAnswers(), P, "competition_showcase");
   answers = chooseStyle(answers, P, "country");
   answers = chooseAdjudication(answers, "country", "adjudicated");
+  answers = withOfferings(answers, P, "country", ["pro_am", "pro_pro", "couples", "showcase", "spotlight"]);
   answers = updateFormat(answers, "country", "pro_am", { amount: "25" });
   answers = setPricing(answers, P, "country", "pro_pro", "per_entry");
   answers = updateFormat(answers, "country", "pro_pro", { amount: "60" });
@@ -60,8 +60,17 @@ function fullAnswers(): SetupAnswers {
   return withDivisions(setRegistration(answers, { opens: "2026-11-01", closes: "2026-12-01" }), P);
 }
 
+/** The offerings each test style chooses explicitly (the wizard pre-selects none). */
+const TEST_OFFERINGS: Record<string, string[]> = {
+  country: ["pro_am", "pro_pro", "couples"],
+  west_coast_swing: ["jack_and_jill", "wcs_couples"],
+  ballroom: ["ndca_pro_am", "ndca_amateur"],
+  custom: ["studio_pro_am", "studio_couples"],
+};
+
 function competitionIn(style: string, adjudication: "adjudicated" | "non_adjudicated" = "adjudicated") {
-  return chooseAdjudication(chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, style), style, adjudication);
+  const answers = chooseAdjudication(chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, style), style, adjudication);
+  return withOfferings(answers, P, style, TEST_OFFERINGS[style], style === "ballroom" ? ["american_smooth"] : []);
 }
 
 describe("studio_simple@2 profile (Studio / Custom Rules)", () => {
@@ -82,22 +91,24 @@ describe("studio_simple@2 profile (Studio / Custom Rules)", () => {
 
   it("entry formats are profile-derived per style; Showcase-type offerings live inside the style", () => {
     expect(P.programs.country.formats).toEqual(["pro_am", "pro_pro", "couples", "showcase", "spotlight", "solo", "team"]);
-    expect(P.programs.country.recommended_formats).toEqual(["pro_am", "pro_pro", "couples"]);
-    expect(P.programs.west_coast_swing.recommended_formats).toEqual(["jack_and_jill", "couples"]);
-    expect(P.programs.ballroom.recommended_formats).toEqual(["pro_am", "couples"]);
-    expect(P.programs.custom.recommended_formats).toEqual(["pro_am", "couples"]);
-    expect(P.programs.country.formats).not.toContain("professional");
-    expect(P.programs.west_coast_swing.formats).not.toContain("professional");
-    expect(P.programs.ballroom.formats).toContain("professional");
-    expect(P.programs.custom.formats).toContain("professional");
+    expect(P.programs.west_coast_swing.formats).toEqual(["jack_and_jill", "wcs_couples", "wcs_pro_am", "routine"]);
+    expect(P.programs.ballroom.formats).toEqual([
+      "ndca_pro_am", "ndca_amateur", "ndca_mixed_amateur", "ndca_student_student", "ndca_professional", "ndca_mixed_professional",
+      "ndca_solo_star", "ndca_showdance", "ndca_cabaret", "ndca_theatre_arts", "ndca_pro_am_theatrical", "ndca_pro_am_exhibition",
+      "ndca_formation", "ndca_team_match",
+    ]);
+    expect(P.programs.custom.formats).toEqual(["studio_pro_am", "studio_pro_pro", "studio_couples", "studio_professional", "studio_jack_and_jill", "custom_routine", "studio_solo", "studio_team"]);
     expect(Object.keys(P.programs)).toEqual(["country", "west_coast_swing", "ballroom", "custom"]);
+    // Nothing is recommended or pre-selected: the profile carries no recommendation lists.
+    expect(JSON.stringify(P.programs)).not.toMatch(/recommended_/);
   });
 
   it("10C.4 relationship and lead/follow semantics are unchanged", () => {
     expect(P.categoryTypes.pro_am).toMatchObject({ entry_format: "pro_am", participant_roles: ["student", "professional"], dance_roles: "pair" });
     expect(P.categoryTypes.pro_pro).toMatchObject({ entry_format: "pro_pro", participant_roles: ["instructor", "professional"], dance_roles: "pair" });
     expect(P.categoryTypes.couples).toMatchObject({ participant_roles: ["dancer"], dance_roles: "pair" });
-    expect(P.categoryTypes.professional).toMatchObject({ participant_roles: ["professional"], dance_roles: "pair" });
+    expect(P.categoryTypes.ndca_professional).toMatchObject({ entry_format: "professional", participant_roles: ["professional"], dance_roles: "pair" });
+    expect(P.categoryTypes.ndca_pro_am).toMatchObject({ entry_format: "pro_am", participant_roles: ["student", "professional"], dance_roles: "pair" });
     expect(P.categoryTypes.jack_and_jill).toMatchObject({ participant_roles: ["dancer"], dance_roles: "single" });
     expect(P.categoryTypes.team).toMatchObject({ participant_roles: ["team_member"] });
   });
@@ -140,7 +151,7 @@ describe("studio_simple@2 profile (Studio / Custom Rules)", () => {
     expect(P.programs.custom.formats).toContain("custom_routine");
     expect(P.programs.custom.formats).not.toContain("showcase");
     expect(P.programs.custom.formats).not.toContain("spotlight");
-    for (const format of ["showdance", "routine"]) expect(P.categoryTypes[format].music_source.basis).toBe("studio_recommendation");
+    for (const format of ["routine", "studio_solo", "solo"]) expect(P.categoryTypes[format].music_source.basis).toBe("studio_recommendation");
   });
 
   it("adjudicated result terms are per style: Country Medal Marks, Ballroom/WCS Placements, Other may rate", () => {
@@ -187,7 +198,9 @@ describe("studio_simple@2 profile (Studio / Custom Rules)", () => {
     expect(ballroom.hierarchy).toMatchObject({ value: ["style", "level", "age", "event"], basis: "owner_operational" });
     expect(ballroom.hierarchy.note).toContain("Not mandated by the supplied NDCA rules");
     expect(ballroom.dance_sequence).toMatchObject({ basis: "source_grounded" });
-    expect(ballroom.style_blocks?.value.map((block) => block.label)).toEqual(["American Smooth", "American Rhythm", "International Standard", "International Latin"]);
+    expect(P.programs.ballroom.styles?.map((style) => style.label)).toEqual([
+      "International Standard", "International Latin", "American Smooth", "American Rhythm", "Additional American Style Dances",
+    ]);
     expect(ballroom.special_boundary.value).toBe("style");
     const wcs = P.programs.west_coast_swing.programming;
     expect(wcs.hierarchy).toMatchObject({ value: ["contest_format", "division", "round"], basis: "owner_operational" });
@@ -201,10 +214,10 @@ describe("studio_simple@2 profile (Studio / Custom Rules)", () => {
     }
   });
 
-  it("every recommended and sequenced dance exists in its style's pool", () => {
+  it("every sequenced dance exists in its style's pool", () => {
     for (const program of Object.values(P.programs)) {
       const pool = new Set(P.dancePools[program.dance_pool].map((dance) => dance.key));
-      for (const dance of [...program.recommended_dances, ...program.programming.dance_sequence.value]) expect(pool.has(dance), dance).toBe(true);
+      for (const dance of program.programming.dance_sequence.value) expect(pool.has(dance), dance).toBe(true);
     }
   });
 });
@@ -218,23 +231,32 @@ describe("answers and steps", () => {
 
   it("Showcase / Performance still asks Style and Adjudicated?; Sanction is never asked for Studio / Custom", () => {
     const showcase = chooseStyle(choosePurpose(initialAnswers(), P, "showcase"), P, "country");
-    expect(visibleSteps(showcase, P)).toEqual(["purpose", "styles", "adjudication", "rules", "offerings", "divisions", "dances", "rounds", "registration", "pricing", "review"]);
+    expect(visibleSteps(showcase, P)).toEqual(["purpose", "styles", "adjudication", "rules", "offerings", "divisions", "rounds", "registration", "pricing", "review"]);
+    expect(visibleSteps(withOfferings(showcase, P, "country", ["showcase"]), P)).toContain("dances");
     expect(stepErrors(showcase, P, "adjudication")).toEqual(["Choose Adjudicated or Non-Adjudicated for Country."]);
     expect(visibleSteps(fullAnswers(), P)).not.toContain("sanction");
   });
 
-  it("Showcase / Performance offers only performance formats and recommends the style's Showcase offerings", () => {
+  it("Showcase / Performance offers only performance formats and pre-selects none of them", () => {
     expect(availableFormats(P, "country", "showcase")).toEqual(["showcase", "spotlight", "solo", "team"]);
-    expect(recommendedFormats(P, "country", "showcase")).toEqual(["showcase", "spotlight"]);
-    expect(recommendedFormats(P, "ballroom", "competition_showcase")).toEqual(["pro_am", "couples", "showdance"]);
+    expect(availableFormats(P, "ballroom", "showcase")).toEqual(["ndca_showdance", "ndca_cabaret", "ndca_theatre_arts", "ndca_pro_am_theatrical", "ndca_pro_am_exhibition", "ndca_formation"]);
+    for (const purpose of ["competition", "showcase", "competition_showcase"] as const) {
+      for (const style of Object.keys(P.programs)) {
+        const answers = chooseStyle(choosePurpose(initialAnswers(), P, purpose), P, style);
+        expect(answers.programs[style].formats, `${purpose} ${style}`).toEqual({});
+      }
+    }
     const answers = chooseStyle(choosePurpose(initialAnswers(), P, "showcase"), P, "country");
-    expect(Object.keys(answers.programs.country.formats)).toEqual(["showcase", "spotlight"]);
+    expect(stepErrors(answers, P, "offerings")).toEqual(["Choose at least one offering for Country."]);
     expect(toggleFormat(answers, P, "country", "pro_am")).toBe(answers);
+    const added = toggleFormat(answers, P, "country", "showcase").programs.country.formats.showcase!;
+    expect(added).toMatchObject({ danceStyles: [], dances: [], divisions: { age_group: [] } });
   });
 
   it("an adjudicated Showcase / Performance is not forced to Non-Adjudicated", () => {
     let answers = chooseStyle(choosePurpose(initialAnswers(), P, "showcase"), P, "country");
     answers = chooseAdjudication(answers, "country", "adjudicated");
+    answers = withOfferings(answers, P, "country", ["showcase", "spotlight"]);
     answers = updateFormat(answers, "country", "showcase", { amount: "30" });
     answers = updateFormat(answers, "country", "spotlight", { amount: "40" });
     const draft = deriveDraft(withDivisions(answers, P), P, CONTEXT);
@@ -246,14 +268,15 @@ describe("answers and steps", () => {
     expect(draft.programs[0].categories[0].rounds).toEqual(["Final"]);
   });
 
-  it("changing purpose keeps the style and fits its offerings", () => {
-    let answers = chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, "country");
+  it("changing purpose keeps the style and its offerings, adds none and drops what the purpose cannot offer", () => {
+    let answers = withOfferings(chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, "country"), P, "country", ["pro_am", "pro_pro", "couples"]);
     answers = toggleDivisionValue(answers, P, "country", "pro_am", "age_group", "Platinum");
     answers = choosePurpose(answers, P, "competition_showcase");
-    expect(Object.keys(answers.programs.country.formats)).toEqual(["pro_am", "pro_pro", "couples", "showcase", "spotlight"]);
+    expect(Object.keys(answers.programs.country.formats)).toEqual(["pro_am", "pro_pro", "couples"]);
     expect(answers.programs.country.formats.pro_am?.divisions.age_group).toContain("Platinum");
+    answers = withOfferings(answers, P, "country", ["spotlight"]);
     answers = choosePurpose(answers, P, "showcase");
-    expect(Object.keys(answers.programs.country.formats)).toEqual(["showcase", "spotlight"]);
+    expect(Object.keys(answers.programs.country.formats)).toEqual(["spotlight"]);
   });
 
   it("one program per style; multiple styles; no separate showcase program", () => {
@@ -275,7 +298,7 @@ describe("answers and steps", () => {
     answers = setFormatAdjudication(answers, P, "country", "spotlight", "non_adjudicated");
     expect(formatJudging(answers, P, "country", "spotlight")).toBe("non_adjudicated");
     let social = competitionIn("country", "non_adjudicated");
-    social = choosePurpose(social, P, "competition_showcase");
+    social = withOfferings(choosePurpose(social, P, "competition_showcase"), P, "country", ["showcase"]);
     social = setFormatAdjudication(social, P, "country", "showcase", "adjudicated");
     expect(formatJudging(social, P, "country", "couples")).toBe("non_adjudicated");
     expect(formatJudging(social, P, "country", "showcase")).toBe("medal_marks");
@@ -311,8 +334,10 @@ describe("answers and steps", () => {
 
   it("Competition + Showcase / Performance needs both kinds of offering", () => {
     let answers = choosePurpose(chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, "ballroom"), P, "competition_showcase");
-    answers = toggleFormat(answers, P, "ballroom", "showdance");
-    expect(stepErrors(answers, P, "offerings")).toContain("Add a Showcase or Spotlight offering, or choose Competition as the purpose.");
+    answers = withOfferings(answers, P, "ballroom", ["ndca_pro_am"], ["american_smooth"]);
+    expect(stepErrors(answers, P, "offerings")).toContain("Add a showcase or performance offering, or choose Competition as the purpose.");
+    answers = withOfferings(toggleFormat(answers, P, "ballroom", "ndca_pro_am"), P, "ballroom", ["ndca_cabaret"]);
+    expect(stepErrors(answers, P, "offerings")).toContain("Add a competition entry format, or choose Showcase / Performance as the purpose.");
   });
 });
 
@@ -338,7 +363,7 @@ describe("deriveDraft: the single derivation authority", () => {
       ["showcase", "non_adjudicated", { model: "per_dance", amount: 30 }],
       ["spotlight", "inherit", { model: "later", amount: null }],
     ]);
-    expect(country.dances.map((dance) => dance.key)).toEqual(P.programs.country.recommended_dances);
+    expect(country.dances.map((dance) => dance.key)).toEqual(TEST_DANCES.country);
   });
 
   it("Review distinguishes adjudicated Medal Marks, a Non-Adjudicated Showcase and Ballroom Placements", () => {
@@ -350,12 +375,14 @@ describe("deriveDraft: the single derivation authority", () => {
     expect(byLabel.Showcase.runNote).toBe("Set music for each dance · runs after each age group's dances");
     expect(byLabel.Spotlight.runNote).toBe("Music chosen by the dancers · 2.5–4 minutes · runs after each age group's dances");
     let ballroom = choosePurpose(chooseAdjudication(chooseStyle(choosePurpose(initialAnswers(), P, "competition"), P, "ballroom"), "ballroom", "adjudicated"), P, "competition_showcase");
-    ballroom = updateFormat(ballroom, "ballroom", "pro_am", { amount: "20" });
-    ballroom = updateFormat(ballroom, "ballroom", "couples", { amount: "20" });
-    ballroom = updateFormat(ballroom, "ballroom", "showdance", { amount: "40" });
+    ballroom = withOfferings(ballroom, P, "ballroom", ["ndca_pro_am", "ndca_amateur", "ndca_showdance"], ["american_smooth"]);
+    for (const format of ["ndca_pro_am", "ndca_amateur", "ndca_showdance"]) ballroom = updateFormat(ballroom, "ballroom", format, { amount: "20" });
     const derived = deriveDraft(withDivisions(ballroom, P), P, CONTEXT);
     expect(derived.errors).toEqual({});
-    expect(derived.programs[0].categories.find((category) => category.label === "Showcase / Showdance")?.judging).toBe("Adjudicated · Placements");
+    expect(derived.programs[0].categories.map((category) => category.label)).toEqual([
+      "Pro/Am — American Smooth", "Amateur — American Smooth", "Showdance — American Smooth",
+    ]);
+    expect(derived.programs[0].categories.find((category) => category.label === "Showdance — American Smooth")?.judging).toBe("Adjudicated · Placements");
   });
 
   it("Review counts, labels and pricing come from the same derivation as the payload", () => {
@@ -389,9 +416,11 @@ describe("deriveDraft: the single derivation authority", () => {
     answers = chooseStyle(answers, P, "west_coast_swing");
     answers = chooseAdjudication(answers, "country", "adjudicated");
     answers = chooseAdjudication(answers, "west_coast_swing", "non_adjudicated");
+    answers = withOfferings(answers, P, "country", ["pro_am", "pro_pro", "couples"]);
+    answers = withOfferings(answers, P, "west_coast_swing", ["jack_and_jill", "wcs_couples"]);
     for (const format of ["pro_am", "pro_pro", "couples"]) answers = setPricing(answers, P, "country", format, "free");
     answers = updateFormat(answers, "west_coast_swing", "jack_and_jill", { amount: "15" });
-    answers = updateFormat(answers, "west_coast_swing", "couples", { amount: "20" });
+    answers = updateFormat(answers, "west_coast_swing", "wcs_couples", { amount: "20" });
     const draft = deriveDraft(withDivisions(answers, P), P, CONTEXT);
     expect(draft.payload?.programs.map((program) => [program.name, program.adjudication, program.judging])).toEqual([
       ["Spring Classic — Country", "adjudicated", "medal_marks"],
@@ -423,23 +452,23 @@ describe("deriveDraft: the single derivation authority", () => {
 
   it("division rules: per-format selections, empty selections, the per-format cap and the total cap", () => {
     let answers = competitionIn("custom");
-    expect(answers.programs.custom.formats.pro_am?.divisions).toEqual({ skill_level: [], age_group: [] });
-    expect(stepErrors(answers, P, "divisions")).toContain("Choose at least one level for Other / Studio-defined ProAm.");
-    answers = toggleDivisionValue(answers, P, "custom", "pro_am", "age_group", "Adult");
+    expect(answers.programs.custom.formats.studio_pro_am?.divisions).toEqual({ skill_level: [], age_group: [] });
+    expect(stepErrors(answers, P, "divisions")).toContain("Choose at least one level for Other / Studio-defined ProAm (Studio).");
+    answers = toggleDivisionValue(answers, P, "custom", "studio_pro_am", "age_group", "Adult");
     expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[0].divisions).toEqual([]);
     for (const level of ["Newcomer", "Novice", "Intermediate", "Advanced"]) {
-      answers = toggleDivisionValue(answers, P, "custom", "pro_am", "skill_level", level);
-      answers = toggleDivisionValue(answers, P, "custom", "couples", "skill_level", level);
+      answers = toggleDivisionValue(answers, P, "custom", "studio_pro_am", "skill_level", level);
+      answers = toggleDivisionValue(answers, P, "custom", "studio_couples", "skill_level", level);
     }
     expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[0].divisions).toEqual(["Newcomer · Adult", "Novice · Adult", "Intermediate · Adult", "Advanced · Adult"]);
     expect(deriveDraft(answers, P, CONTEXT).programs[0].categories[1].divisions).toEqual(["Newcomer", "Novice", "Intermediate", "Advanced"]);
-    expect(addCustomDivisionValue(answers, P, "custom", "pro_am", "skill_level", "novice")).toBe(answers);
-    answers = updateFormat(answers, "custom", "pro_am", { divisions: { skill_level: [], age_group: [] } });
-    expect(stepErrors(answers, P, "divisions")).toContain("Choose at least one level for Other / Studio-defined ProAm.");
+    expect(addCustomDivisionValue(answers, P, "custom", "studio_pro_am", "skill_level", "novice")).toBe(answers);
+    answers = updateFormat(answers, "custom", "studio_pro_am", { divisions: { skill_level: [], age_group: [] } });
+    expect(stepErrors(answers, P, "divisions")).toContain("Choose at least one level for Other / Studio-defined ProAm (Studio).");
     const many = (count: number) => Array.from({ length: count }, (_, index) => `Level ${index}`);
-    answers = updateFormat(answers, "custom", "pro_am", { divisions: { skill_level: many(81) } });
-    expect(stepErrors(answers, P, "divisions")).toContain("Use 80 divisions or fewer for Other / Studio-defined ProAm.");
-    for (const format of ["pro_am", "pro_pro", "couples", "professional"]) {
+    answers = updateFormat(answers, "custom", "studio_pro_am", { divisions: { skill_level: many(81) } });
+    expect(stepErrors(answers, P, "divisions")).toContain("Use 80 divisions or fewer for Other / Studio-defined ProAm (Studio).");
+    for (const format of ["studio_pro_am", "studio_pro_pro", "studio_couples", "studio_professional"]) {
       if (!answers.programs.custom.formats[format]) answers = toggleFormat(answers, P, "custom", format);
       answers = updateFormat(answers, "custom", format, { divisions: { skill_level: many(80) } });
     }
@@ -469,7 +498,7 @@ describe("persistence and resume", () => {
     const answers = fullAnswers();
     expect(restoreAnswers(JSON.parse(JSON.stringify(answers)), P)).toEqual(answers);
     expect(restoreAnswers(null, P)).toBeNull();
-    expect(restoreAnswers({ ...answers, version: 2 }, P)).toBeNull();
+    expect(restoreAnswers({ ...answers, version: 3 }, P)).toBeNull();
     expect(restoreAnswers({ ...answers, purpose: "gala" }, P)).toBeNull();
     expect(restoreAnswers({ ...answers, programs: { ucwdc: answers.programs.country } }, P)).toBeNull();
     const badFormat = JSON.parse(JSON.stringify(answers));
@@ -499,9 +528,14 @@ describe("persistence and resume", () => {
     });
     saveStoredSetup("e1", { answers: fullAnswers(), step: "pricing", requestKey: "request-key-0001" });
     expect(loadStoredSetup("e1")).toMatchObject({ step: "pricing", requestKey: "request-key-0001" });
-    expect([...store.keys()]).toEqual(["danceflow.competition-setup.v3:e1"]);
+    expect([...store.keys()]).toEqual(["danceflow.competition-setup.v4:e1"]);
     expect(loadStoredSetup("e2")).toBeNull();
-    store.set("danceflow.competition-setup.v3:e3", JSON.stringify({ answers: {}, step: "review", requestKey: "bad key" }));
+    store.set("danceflow.competition-setup.v3:e1", "{}");
+    store.set("danceflow.competition-setup.v3:e9", "{}");
+    loadStoredSetup("e1");
+    expect(store.has("danceflow.competition-setup.v3:e1")).toBe(false);
+    expect(store.has("danceflow.competition-setup.v3:e9")).toBe(true);
+    store.set("danceflow.competition-setup.v4:e3", JSON.stringify({ answers: {}, step: "review", requestKey: "bad key" }));
     expect(loadStoredSetup("e3")).toBeNull();
     clearStoredSetup("e1");
     expect(loadStoredSetup("e1")).toBeNull();

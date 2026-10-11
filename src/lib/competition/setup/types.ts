@@ -185,7 +185,8 @@ export type JudgingDefinition = {
 // Entry formats
 // -----------------------------------------------------------------------------------------------------
 
-export type MusicSource = "event_music" | "profile_defined" | "entry_selected";
+/** "not_specified" = the supplied source does not say where the music comes from. */
+export type MusicSource = "event_music" | "profile_defined" | "entry_selected" | "not_specified";
 /** "not_specified" = the supplied source does not establish how many entries share the floor. */
 export type FloorMode = "multi_entry" | "single_entry" | "team" | "not_specified";
 
@@ -222,7 +223,30 @@ export type EntryFormatDefinition = {
    * so local terminology never requires reversing an official format name.
    */
   organizer_configurable?: Array<"label" | "music_source" | "duration" | "adjudication" | "floor_mode" | "program_placement">;
+  /**
+   * Where the offering's definition comes from. A governing-body offering is used only in that body's style;
+   * a Studio offering is DanceFlow's own and is labelled as such. No offering is shared across styles.
+   */
+  origin: "ucwdc" | "wsdc" | "ndca" | "studio";
+  /** The offering is entered per dance style (e.g. Ballroom Pro/Am — American Smooth); each style limits its dances. */
+  uses_styles: boolean;
+  /** The dance styles this offering may be entered in, when narrower than the program's styles. */
+  style_keys?: string[];
+  /** Who may enter, as stated by the source (shown to the organizer; 10C.5 does not enforce eligibility). */
+  eligibility_note?: string;
   sources?: SourceReference[];
+};
+
+/** A dance style within a program (e.g. American Smooth). Its dances are the only dances offered in its category. */
+export type DanceStyleDefinition = {
+  key: string;
+  label: string;
+  dances: string[];
+  /** Organizer-added dances belong to this style (e.g. NDCA "Additional American Style Dances"). */
+  allow_custom_dances: boolean;
+  basis: Basis;
+  sources?: SourceReference[];
+  note?: string;
 };
 
 // -----------------------------------------------------------------------------------------------------
@@ -236,8 +260,6 @@ export type ProgrammingMetadata = {
   hierarchy: Grounded<ProgrammingDimension[]>;
   /** Standard dance order inside a block. */
   dance_sequence: Grounded<string[]>;
-  /** Major style blocks (Ballroom), when the style has them. */
-  style_blocks?: Grounded<Array<{ key: string; label: string; dance_category: string | null; dances?: string[] }>>;
   /** Special offerings run after a complete block of this dimension. */
   special_boundary: Grounded<ProgrammingDimension>;
 };
@@ -287,16 +309,15 @@ export type ProgramTemplate = {
   discipline_family: string;
   dance_pool: string;
   formats: FormatKey[];
-  /** Regular formats recommended for a competition. */
-  recommended_formats: FormatKey[];
-  /** Special (showcase / performance) formats recommended when the purpose includes performance. */
-  recommended_special: FormatKey[];
-  recommended_dances: string[];
   custom_dances: boolean;
   /** Adjudicated result options for this style (first is the default). */
   judging_options: string[];
   /** Division scheme per entry format (keys into divisionSchemes). */
   division_schemes: Record<FormatKey, string>;
+  /** Dance styles, when the program's offerings are entered per style (Ballroom). */
+  styles?: DanceStyleDefinition[];
+  /** Headings for the Offerings step (presentation only; every offering stays visible). */
+  offering_groups?: Array<{ label: string; formats: FormatKey[] }>;
   programming: ProgrammingMetadata;
 };
 
@@ -313,11 +334,13 @@ export type SetupProfileDefaults = {
   adjudication: Record<AdjudicationKey, AdjudicationOption>;
   judging: Record<string, JudgingDefinition>;
   feedback: FeedbackPolicy;
+  /** Unresolved disagreements inside supplied sources that affect what the profile offers (fail closed). */
+  source_conflicts: SourceConflict[];
   programs: Record<ProgramKey, ProgramTemplate>;
   categoryTypes: Record<FormatKey, EntryFormatDefinition>;
   dancePools: Record<string, ProfileDance[]>;
   /** Division schemes (axes, values, provenance), referenced per style and entry format. */
   divisionSchemes: Record<string, DivisionScheme>;
-  /** divisions is per entry format; totalDivisions caps the whole draft. */
+  /** categories is per program (an offering entered in several dance styles counts once per style); divisions is per category. */
   limits: { programs: number; categories: number; divisions: number; totalDivisions: number; dances: number; nameLength: number; maxPrice: number };
 };
