@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STUDIO_CUSTOM_V2_DEFAULTS as P } from "../studioCustomV2";
+import { STUDIO_CUSTOM_V3_DEFAULTS as P } from "../studioCustomV3";
 import { GOVERNING_BODY_REFERENCES, NDCA_REFERENCE, NOT_SPECIFIED, SCORING_ENGINES, UCWDC_REFERENCE, WSDC_REFERENCE, blockingConflicts } from "../scoringReference";
 import type { ScoringModel } from "../types";
 

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createCompetitionDraftAction, type ActionState } from "../simpleActions";
-import { EventPagePreview, EventPageStep } from "./EventPageStep";
+import { EventPagePreview, EventPageStep, presentationSummary } from "./EventPageStep";
+import type { EventOperationsLocks } from "@/lib/competition/setup/eventPresentationServer";
 import type { FormatKey, ProgramKey, SetupProfileDefaults } from "@/lib/competition/setup/types";
 import type { EventPresentation } from "@/lib/competition/setup/draft";
 import { clearStoredSetup, loadStoredSetup, saveStoredSetup } from "@/lib/competition/setup/persistence";
@@ -26,6 +27,8 @@ import {
   selectAllCategoryDances,
   clearCategoryDances,
   isCustomDanceKey,
+  isMultiDance,
+  axisNoun,
   formatStyleOptions,
   formatCategories,
   toggleFormatStyle,
@@ -217,7 +220,7 @@ export function DivisionChoices({
                 <input
                   value={custom[id] ?? ""}
                   onChange={(changeEvent) => setCustom((current) => ({ ...current, [id]: changeEvent.target.value }))}
-                  placeholder={`Add your own ${axis.label.toLowerCase().replace(/s$/, "")}`}
+                  placeholder={`Add your own ${axisNoun(axis)}`}
                   aria-label={`Add your own ${axis.label.toLowerCase()} value`}
                   maxLength={80}
                   className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950"
@@ -241,7 +244,7 @@ export function DivisionChoices({
         {divisions.length} {divisions.length === 1 ? "division" : "divisions"}
         {scheme.combination === "cross" && crossDetail.includes("×") ? ` (${crossDetail})` : ""}
         {scheme.combination === "separate" && divisions.length > 0 ? " — each is its own contest" : ""}
-        {missing.length > 0 ? ` — choose at least one ${missing.map((axis) => axis.label.toLowerCase().replace(/s$/, "")).join(" and one ")}` : ""}
+        {missing.length > 0 ? ` — choose at least one ${missing.map((axis) => axisNoun(axis)).join(" and one ")}` : ""}
       </p>
     </div>
   );
@@ -300,6 +303,11 @@ export function DanceCategoryChoices({
       </div>
       {style?.presentation ? <p className="mt-1 text-xs text-slate-500">{style.presentation.note}</p> : null}
       {style?.note ? <p className="mt-1 text-xs text-slate-500">{style.note}</p> : null}
+      {isMultiDance(defaults, format) ? (
+        <p className="mt-1 text-xs text-slate-600">
+          Multi-Dance set: one entry dances every dance you choose here, in the style&apos;s order. Choose at least {defaults.categoryTypes[format].min_dances ?? 2}.
+        </p>
+      ) : null}
       {options.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-2">
           {options.map((dance) => (
@@ -323,6 +331,8 @@ export default function CompetitionSetupWizard({
   defaults,
   initialRegistration,
   initialPresentation,
+  canEditOperations,
+  operationsLocks,
   requestKey: initialRequestKey,
 }: {
   eventId: string;
@@ -332,6 +342,9 @@ export default function CompetitionSetupWizard({
   initialRegistration: SetupAnswers["registration"];
   /** The event page as stored now: the starting point and the baseline only changes are written against. */
   initialPresentation: EventPresentation;
+  /** Studio owner/admin or organizer owner/admin: may change venue, dates, times and time zone. */
+  canEditOperations: boolean;
+  operationsLocks: EventOperationsLocks;
   requestKey: string;
 }) {
   const router = useRouter();
@@ -369,8 +382,8 @@ export default function CompetitionSetupWizard({
   }, [action.ok, action.href, eventId, router]);
 
   const draft = useMemo(
-    () => deriveDraft(answers, defaults, { eventName: event.name, profileKey: profile.key, profileVersion: profile.version, requestKey, event: initialPresentation }),
-    [answers, defaults, event.name, profile.key, profile.version, requestKey, initialPresentation],
+    () => deriveDraft(answers, defaults, { eventName: event.name, profileKey: profile.key, profileVersion: profile.version, requestKey, event: initialPresentation, canEditOperations }),
+    [answers, defaults, event.name, profile.key, profile.version, requestKey, initialPresentation, canEditOperations],
   );
   const steps = visibleSteps(answers, defaults);
   const errors = stepErrors(answers, defaults, step);
@@ -570,6 +583,7 @@ export default function CompetitionSetupWizard({
                                 <span className="text-sm font-semibold text-slate-950">{fmt(format).label}</span>
                                 <span className="block text-sm text-slate-600">{fmt(format).description}</span>
                                 {fmt(format).eligibility_note ? <span className="block text-xs text-slate-600">Who may enter: {fmt(format).eligibility_note}</span> : null}
+                                {fmt(format).registration_hold ? <span className="block text-xs text-amber-800">{fmt(format).registration_hold?.note}</span> : null}
                                 {note ? <span className="block text-xs text-slate-500">{note}</span> : null}
                               </span>
                             </label>
@@ -833,7 +847,14 @@ export default function CompetitionSetupWizard({
               <h3 id="step-event" className={headingClass}>Event details &amp; presentation</h3>
               <p className="mt-1 text-sm text-slate-600">The public event page for this competition. It starts from what the event already has.</p>
             </div>
-            <EventPageStep eventId={eventId} answers={answers} baseline={initialPresentation} summary={event} update={update} />
+            <EventPageStep
+              eventId={eventId}
+              answers={answers}
+              baseline={initialPresentation}
+              canEditOperations={canEditOperations}
+              locks={operationsLocks}
+              update={update}
+            />
           </section>
         ) : null}
 
@@ -879,7 +900,7 @@ export default function CompetitionSetupWizard({
                 {Object.keys(draft.payload?.event ?? {}).length > 0 ? `${Object.keys(draft.payload?.event ?? {}).length} change(s) will be saved to the event page.` : "The event page is unchanged."}
               </p>
               <div className="mt-3">
-                <EventPagePreview presentation={answers.presentation} summary={event} />
+                <EventPagePreview presentation={answers.presentation} summary={presentationSummary(answers.presentation)} />
               </div>
             </div>
             {draft.programs.map((program) => (
@@ -898,9 +919,10 @@ export default function CompetitionSetupWizard({
                       <p>{category.judging}</p>
                       {category.runNote ? <p className="text-slate-500">{category.runNote}</p> : null}
                       <p>Divisions: {category.divisions.join(", ")}</p>
-                      {category.dances.length > 0 ? <p>Dances: {category.dances.join(", ")}</p> : null}
+                      {category.dances.length > 0 ? <p>{category.multiDance ? "Multi-Dance set (one entry, in order)" : "Dances"}: {category.dances.join(", ")}</p> : null}
                       <p>Rounds: {category.rounds.join(", ")}</p>
                       <p className={category.pricingPending ? "text-amber-800" : ""}>Pricing: {category.pricing}</p>
+                      {category.registrationHold ? <p className="text-amber-800">{category.registrationHold}</p> : null}
                     </li>
                   ))}
                 </ul>

@@ -9,7 +9,7 @@ vi.mock("next/link", () => ({
 vi.mock("@/app/app/events/[id]/competition/simpleActions", () => ({ createCompetitionDraftAction: vi.fn(), uploadCompetitionCoverImageAction: vi.fn() }));
 
 import { DanceCategoryChoices } from "@/app/app/events/[id]/competition/new/CompetitionSetupWizard";
-import { STUDIO_CUSTOM_V2_DEFAULTS as P } from "../studioCustomV2";
+import { STUDIO_CUSTOM_V3_DEFAULTS as P } from "../studioCustomV3";
 import {
   addCustomDance,
   categoryDanceOptions,
@@ -124,8 +124,13 @@ describe("Nightclub / Specialty presentation of NDCA Additional American Style D
   it("keeps the official NDCA category and labels Nightclub as presentation only", () => {
     expect(additional.label).toBe("Additional American Style Dances");
     expect(additional.presentation).toMatchObject({ label: "Nightclub / Specialty Dances", basis: "owner_operational" });
-    expect(additional.presentation?.note).toContain("not an NDCA classification");
-    expect(additional.presentation?.sources?.[0]).toMatchObject({ section: "IX.B.5.c", page: "41" });
+    // NDCA uses "Night Club" for Pro/Am events and sessions (III.D.15) and for tempi (IX.B.5.c), not only for tempi;
+    // it is still not a competition classification.
+    expect(additional.presentation?.note).toContain("Pro/Am Night Club events and Night Club sessions");
+    expect(additional.presentation?.note).toContain("Night Club is not an NDCA competition classification");
+    expect(additional.presentation?.note).not.toMatch(/only (a|as a) tempo/i);
+    expect(additional.presentation?.sources?.map((source) => [source.section, source.page])).toEqual([["III.D.15", "21"], ["IX.B.5.c", "41"]]);
+    expect(additional.presentation?.sources?.[0]?.quote).toBe("For Pro/Am Night Club events the music may fade as early as the 50-second point");
     const labels = Object.values(P.categoryTypes).map((definition) => definition.label);
     expect(labels.filter((label) => /nightclub/i.test(label))).toEqual([]);
     expect(P.programs.ballroom.styles!.map((style) => style.label).filter((label) => /nightclub/i.test(label))).toEqual([]);

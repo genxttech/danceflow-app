@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { EventCoverImage, EventDescriptionBody, EventHeroText, EventHighlights, EventRegistrationInfo } from "@/components/public/EventPresentation";
 import {
+  OPERATIONS_PERMISSION_TEXT,
   PRESENTATION_LIMITS,
   addHighlight,
   presentationChanges,
@@ -13,9 +14,21 @@ import {
   type EventPresentation,
   type SetupAnswers,
 } from "@/lib/competition/setup/draft";
+import type { EventOperationsLocks } from "@/lib/competition/setup/eventPresentationServer";
+import { formatEventDates, formatEventTimes, formatEventVenue } from "@/lib/events/eventDisplay";
+import { TIMEZONE_OPTIONS, US_STATE_OPTIONS } from "@/lib/forms/options";
 import { uploadCompetitionCoverImageAction } from "../simpleActions";
 
 export type EventPageSummary = { dates: string | null; times: string | null; venue: string | null };
+
+/** The preview's date, time and venue line, from the pending (not yet saved) values. */
+export function presentationSummary(presentation: EventPresentation): EventPageSummary {
+  return {
+    dates: formatEventDates(presentation.startDate, presentation.endDate),
+    times: formatEventTimes(presentation.startTime, presentation.endTime),
+    venue: formatEventVenue(presentation.venueName, presentation.city, presentation.state),
+  };
+}
 
 const fieldClass = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950";
 const labelClass = "block text-sm font-semibold text-slate-950";
@@ -46,24 +59,48 @@ export function EventPagePreview({ presentation, summary }: { presentation: Even
 }
 
 /**
- * Event Details & Presentation: the event page content, starting from the event's current values. Only what
- * the organizer changes is written when the draft is created. Venue and dates belong to the event and stay in
- * Edit event, so the wizard never overwrites them.
+ * Event Details & Presentation: the event's venue, dates and time zone plus its page content, starting from the
+ * event's current values. Only what the organizer changes is written, in the same transaction as the draft.
+ * Venue, dates, times and time zone need an owner/admin role and are refused (here, by the server action and by
+ * the database) when registrations, extra locations or dated records depend on them.
  */
 export function EventPageStep({
   eventId,
   answers,
   baseline,
-  summary,
+  canEditOperations,
+  locks,
   update,
 }: {
   eventId: string;
   answers: SetupAnswers;
   baseline: EventPresentation;
-  summary: EventPageSummary;
+  canEditOperations: boolean;
+  locks: EventOperationsLocks;
   update: (change: (current: SetupAnswers) => SetupAnswers) => void;
 }) {
   const presentation = answers.presentation;
+  const summary = presentationSummary(presentation);
+  const venueLocked = !canEditOperations || locks.activeRegistrations || locks.additionalLocations;
+  const datesLocked = !canEditOperations || locks.activeRegistrations || locks.datedRecords;
+  const reasons = [
+    !canEditOperations ? OPERATIONS_PERMISSION_TEXT : null,
+    canEditOperations && locks.activeRegistrations ? "This event already has registrations, so its venue, dates and time zone are changed in Edit event, which notifies registrants." : null,
+    canEditOperations && !locks.activeRegistrations && locks.additionalLocations ? "This event lists additional locations; change its venue in Edit event." : null,
+    canEditOperations && !locks.activeRegistrations && locks.datedRecords ? "This event already has dated schedule items or sessions that a date or time zone change would strand; change its dates in Edit event." : null,
+  ].filter((reason): reason is string => Boolean(reason));
+  const field = (key: "venueName" | "addressLine1" | "addressLine2" | "city" | "postalCode", label: string, maxLength: number) => (
+    <label className="block">
+      <span className="block text-xs font-semibold text-slate-700">{label}</span>
+      <input
+        value={presentation[key]}
+        maxLength={maxLength}
+        disabled={venueLocked}
+        onChange={(changeEvent) => update((current) => setPresentation(current, { [key]: changeEvent.target.value }))}
+        className={`mt-1 ${fieldClass} disabled:bg-slate-100 disabled:text-slate-500`}
+      />
+    </label>
+  );
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, startUpload] = useTransition();
   const changed = Object.keys(presentationChanges(presentation, baseline));
@@ -83,17 +120,83 @@ export function EventPageStep({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-        <p className="font-semibold text-slate-950">Venue and dates</p>
-        <p className="mt-1">{[summary.dates, summary.times, summary.venue].filter(Boolean).join(" · ") || "Not set yet"}</p>
-        <p className="mt-1 text-xs text-slate-500">
-          These belong to the event and are not changed here.{" "}
-          <Link href={`/app/events/${eventId}/edit`} className="font-semibold underline">
-            Edit event
-          </Link>{" "}
-          to change them.
-        </p>
-      </div>
+      <fieldset className="rounded-xl border border-slate-200 p-4">
+        <legend className="px-1 text-sm font-semibold text-slate-950">Venue, dates and time zone</legend>
+        <p className="text-xs text-slate-500">Times are local to the event&apos;s time zone. The registration dates you chose are read in this time zone.</p>
+        {reasons.length > 0 ? (
+          <div role="note" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            {reasons.map((reason) => (
+              <p key={reason}>{reason}</p>
+            ))}
+            {canEditOperations ? (
+              <p className="mt-1">
+                <Link href={`/app/events/${eventId}/edit`} className="font-semibold underline">
+                  Edit event
+                </Link>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {field("venueName", "Venue", PRESENTATION_LIMITS.venue)}
+          {field("addressLine1", "Address", PRESENTATION_LIMITS.address)}
+          {field("addressLine2", "Address line 2", PRESENTATION_LIMITS.address)}
+          {field("city", "City", PRESENTATION_LIMITS.city)}
+          <label className="block">
+            <span className="block text-xs font-semibold text-slate-700">State</span>
+            <select
+              value={presentation.state}
+              disabled={venueLocked}
+              onChange={(changeEvent) => update((current) => setPresentation(current, { state: changeEvent.target.value }))}
+              className={`mt-1 ${fieldClass} disabled:bg-slate-100 disabled:text-slate-500`}
+            >
+              <option value="">—</option>
+              {US_STATE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {field("postalCode", "Postal code", PRESENTATION_LIMITS.postalCode)}
+          {(
+            [
+              ["startDate", "Start date", "date"],
+              ["endDate", "End date", "date"],
+              ["startTime", "Start time", "time"],
+              ["endTime", "End time", "time"],
+            ] as const
+          ).map(([key, label, type]) => (
+            <label key={key} className="block">
+              <span className="block text-xs font-semibold text-slate-700">{label}</span>
+              <input
+                type={type}
+                value={presentation[key]}
+                disabled={datesLocked}
+                onChange={(changeEvent) => update((current) => setPresentation(current, { [key]: changeEvent.target.value }))}
+                className={`mt-1 ${fieldClass} disabled:bg-slate-100 disabled:text-slate-500`}
+              />
+            </label>
+          ))}
+          <label className="block sm:col-span-2">
+            <span className="block text-xs font-semibold text-slate-700">Time zone</span>
+            <select
+              value={presentation.timezone}
+              disabled={datesLocked}
+              onChange={(changeEvent) => update((current) => setPresentation(current, { timezone: changeEvent.target.value }))}
+              className={`mt-1 ${fieldClass} disabled:bg-slate-100 disabled:text-slate-500`}
+            >
+              {presentation.timezone ? null : <option value="">Not set</option>}
+              {TIMEZONE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">The event&apos;s URL, publication status, visibility and registration settings are not changed here.</p>
+      </fieldset>
 
       <div>
         <span className={labelClass}>Cover image</span>

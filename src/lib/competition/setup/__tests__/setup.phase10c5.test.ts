@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { STUDIO_CUSTOM_PROFILE, STUDIO_CUSTOM_V2_DEFAULTS as P } from "../studioCustomV2";
+import { STUDIO_CUSTOM_PROFILE, STUDIO_CUSTOM_V3_DEFAULTS as P } from "../studioCustomV3";
 import { STUDIO_SIMPLE_V1_DEFAULTS } from "../../simple/studioSimpleV1";
 import {
   PRICING_PENDING_TEXT,
@@ -41,7 +42,8 @@ import { TEST_DANCES, withDivisions, withOfferings, TEST_EVENT } from "./divisio
 
 const ROOT = join(__dirname, "..", "..", "..", "..", "..");
 const MIGRATION = join(ROOT, "src/lib/supabase/migrations/20261113090000_phase10c5_competition_draft.sql");
-const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", profileVersion: 2, requestKey: "request-key-0001" };
+const MIGRATION_V3 = join(ROOT, "src/lib/supabase/migrations/20261114090000_phase10c5_profile_v3.sql");
+const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", profileVersion: 3, requestKey: "request-key-0001" };
 
 /** Competition + Showcase / Performance in Country (adjudicated Medal Marks) with a Non-Adjudicated Showcase override. */
 function fullAnswers(): SetupAnswers {
@@ -73,16 +75,34 @@ function competitionIn(style: string, adjudication: "adjudicated" | "non_adjudic
   return withOfferings(answers, P, style, TEST_OFFERINGS[style], style === "ballroom" ? ["american_smooth"] : []);
 }
 
-describe("studio_simple@2 profile (Studio / Custom Rules)", () => {
-  it("the TypeScript mirror is byte-equal to the migration seed (drift guard)", () => {
-    const sql = readFileSync(MIGRATION, "utf8");
+describe("studio_simple@3 profile (Studio / Custom Rules)", () => {
+  it("the TypeScript mirror is byte-equal to the v3 migration seed (drift guard), and new setups use v3", () => {
+    const sql = readFileSync(MIGRATION_V3, "utf8");
     const seed = sql.match(/\$profile\$([\s\S]*?)\$profile\$/);
     expect(seed).not.toBeNull();
     expect(JSON.parse(seed![1])).toEqual(P);
-    expect(STUDIO_CUSTOM_PROFILE).toEqual({ key: "studio_simple", version: 2 });
+    expect(sql).toContain("values ('studio_simple', 3, 'Studio / Custom Rules',");
+    expect(STUDIO_CUSTOM_PROFILE).toEqual({ key: "studio_simple", version: 3 });
   });
 
-  it("is a new append-only version: v1 is untouched and v2 is schema 2, unsanctioned", () => {
+  it("referenced profiles are immutable: the v2 migration is unchanged and the v3 migration never touches v2", () => {
+    const sha = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+    // 20261113090000 is applied on DEV, where a program references studio_simple@2: it stays byte-identical.
+    expect(sha(MIGRATION)).toBe("dcba340aa0f4836adf1327f44353464e3cc402576ff0992a22ca38eebd0ff332");
+    expect(sha(join(ROOT, "src/lib/supabase/migrations/rollback/20261113090000_phase10c5_competition_draft_rollback.sql"))).toBe(
+      "e763388ad0689d1c00d761db33022dbf948d53043988240596d36b941319e58e",
+    );
+    expect(JSON.parse(readFileSync(MIGRATION, "utf8").match(/\$profile\$([\s\S]*?)\$profile\$/)![1])).not.toEqual(P);
+    for (const path of [MIGRATION_V3, join(ROOT, "src/lib/supabase/migrations/rollback/20261114090000_phase10c5_profile_v3_rollback.sql")]) {
+      const sql = readFileSync(path, "utf8");
+      expect(sql, path).not.toMatch(/version\s*=\s*2\b|version\s*<>\s*2\b|'studio_simple',\s*2\b/);
+      expect(sql, path).not.toMatch(/delete from public\.competition_rules_profiles/);
+    }
+    // New setups need v3 or later; programs keep resolving the version they were created from.
+    expect(readFileSync(MIGRATION_V3, "utf8")).toContain("if v_profile.profile_key = 'studio_simple' and v_profile.version < 3 then");
+  });
+
+  it("is a new append-only version: v1 is untouched and v3 is schema 2, unsanctioned", () => {
     expect((STUDIO_SIMPLE_V1_DEFAULTS as unknown as { schema: number }).schema).toBe(1);
     expect(P.schema).toBe(2);
     expect(P.sanction).toEqual({ status: "none", claimable: false });
@@ -93,7 +113,7 @@ describe("studio_simple@2 profile (Studio / Custom Rules)", () => {
     expect(P.programs.country.formats).toEqual(["pro_am", "pro_pro", "couples", "showcase", "spotlight", "solo", "team"]);
     expect(P.programs.west_coast_swing.formats).toEqual(["jack_and_jill", "wcs_couples", "wcs_pro_am", "routine"]);
     expect(P.programs.ballroom.formats).toEqual([
-      "ndca_pro_am", "ndca_amateur", "ndca_mixed_amateur", "ndca_student_student", "ndca_professional", "ndca_mixed_professional",
+      "ndca_pro_am", "ndca_pro_am_multi", "ndca_amateur", "ndca_amateur_multi", "ndca_mixed_amateur", "ndca_student_student", "ndca_professional", "ndca_mixed_professional",
       "ndca_solo_star", "ndca_showdance", "ndca_cabaret", "ndca_theatre_arts", "ndca_pro_am_theatrical", "ndca_pro_am_exhibition",
       "ndca_formation", "ndca_team_match",
     ]);
@@ -348,7 +368,7 @@ describe("deriveDraft: the single derivation authority", () => {
     expect(draft.payload).toMatchObject({
       request_key: "request-key-0001",
       profile_key: "studio_simple",
-      profile_version: 2,
+      profile_version: 3,
       purpose: "competition_showcase",
       registration: { opens_at: "2026-11-01", closes_at: "2026-12-01", account_required: false },
     });
@@ -380,7 +400,7 @@ describe("deriveDraft: the single derivation authority", () => {
     const derived = deriveDraft(withDivisions(ballroom, P), P, CONTEXT);
     expect(derived.errors).toEqual({});
     expect(derived.programs[0].categories.map((category) => category.label)).toEqual([
-      "Pro/Am — American Smooth", "Amateur — American Smooth", "Showdance — American Smooth",
+      "Pro/Am Single-Dance — American Smooth", "Amateur Single-Dance — American Smooth", "Showdance — American Smooth",
     ]);
     expect(derived.programs[0].categories.find((category) => category.label === "Showdance — American Smooth")?.judging).toBe("Adjudicated · Placements");
   });
@@ -528,14 +548,14 @@ describe("persistence and resume", () => {
     });
     saveStoredSetup("e1", { answers: fullAnswers(), step: "pricing", requestKey: "request-key-0001" });
     expect(loadStoredSetup("e1")).toMatchObject({ step: "pricing", requestKey: "request-key-0001" });
-    expect([...store.keys()]).toEqual(["danceflow.competition-setup.v5:e1"]);
+    expect([...store.keys()]).toEqual(["danceflow.competition-setup.v6:e1"]);
     expect(loadStoredSetup("e2")).toBeNull();
-    store.set("danceflow.competition-setup.v4:e1", "{}");
-    store.set("danceflow.competition-setup.v4:e9", "{}");
+    store.set("danceflow.competition-setup.v5:e1", "{}");
+    store.set("danceflow.competition-setup.v5:e9", "{}");
     loadStoredSetup("e1");
-    expect(store.has("danceflow.competition-setup.v4:e1")).toBe(false);
-    expect(store.has("danceflow.competition-setup.v4:e9")).toBe(true);
-    store.set("danceflow.competition-setup.v5:e3", JSON.stringify({ answers: {}, step: "review", requestKey: "bad key" }));
+    expect(store.has("danceflow.competition-setup.v5:e1")).toBe(false);
+    expect(store.has("danceflow.competition-setup.v5:e9")).toBe(true);
+    store.set("danceflow.competition-setup.v6:e3", JSON.stringify({ answers: {}, step: "review", requestKey: "bad key" }));
     expect(loadStoredSetup("e3")).toBeNull();
     clearStoredSetup("e1");
     expect(loadStoredSetup("e1")).toBeNull();

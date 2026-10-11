@@ -13,6 +13,7 @@ import type {
   ProgramKey,
   SetupProfileDefaults,
 } from "./types";
+import { TIMEZONE_OPTIONS, US_STATE_OPTIONS } from "@/lib/forms/options";
 
 /**
  * 10C.5: pure model behind the Competition Setup Wizard.
@@ -70,14 +71,45 @@ export type EventPresentation = {
   coverImageUrl: string;
   highlights: string[];
   registrationInfo: string;
+  /**
+   * Venue, dates, times and time zone: operationally sensitive. Only studio owners/admins and organizer
+   * owners/admins may change them (enforced by the server action and by the database).
+   */
+  venueName: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  timezone: string;
 };
 
-export const PRESENTATION_LIMITS = { name: 160, summary: 300, description: 10000, highlights: 6, highlight: 120, registrationInfo: 2000, coverImageUrl: 2048 } as const;
+export const PRESENTATION_LIMITS = {
+  name: 160, summary: 300, description: 10000, highlights: 6, highlight: 120, registrationInfo: 2000, coverImageUrl: 2048,
+  venue: 200, address: 200, city: 120, postalCode: 20,
+} as const;
 
-export const EMPTY_PRESENTATION: EventPresentation = { name: "", summary: "", description: "", coverImageUrl: "", highlights: [], registrationInfo: "" };
+export const EMPTY_PRESENTATION: EventPresentation = {
+  name: "", summary: "", description: "", coverImageUrl: "", highlights: [], registrationInfo: "",
+  venueName: "", addressLine1: "", addressLine2: "", city: "", state: "", postalCode: "",
+  startDate: "", endDate: "", startTime: "", endTime: "", timezone: "",
+};
+
+/** The event fields only elevated roles may change (database column names). */
+export const OPERATIONAL_EVENT_KEYS = [
+  "venue_name", "address_line_1", "address_line_2", "city", "state", "postal_code",
+  "start_date", "end_date", "start_time", "end_time", "timezone",
+] as const;
+
+export const OPERATIONS_PERMISSION_TEXT =
+  "Only studio owners and admins, and organizer owners and admins, can change the venue, dates, times or time zone.";
 
 export type SetupAnswers = {
-  version: 5;
+  version: 6;
   purpose: Purpose | null;
   styleMode: "single" | "multiple";
   styles: ProgramKey[];
@@ -149,7 +181,7 @@ export function parsePrice(value: string): number | null {
 
 export function initialAnswers(registration?: Partial<SetupAnswers["registration"]>, presentation?: EventPresentation): SetupAnswers {
   return {
-    version: 5,
+    version: 6,
     purpose: null,
     styleMode: "single",
     styles: [],
@@ -549,6 +581,17 @@ export type EventPresentationChanges = Partial<{
   cover_image_url: string | null;
   highlights: string[];
   registration_info: string | null;
+  venue_name: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  start_date: string;
+  end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  timezone: string;
 }>;
 
 export function presentationChanges(current: EventPresentation, baseline: EventPresentation): EventPresentationChanges {
@@ -560,7 +603,31 @@ export function presentationChanges(current: EventPresentation, baseline: EventP
   const highlights = cleanHighlights(current.highlights);
   if (JSON.stringify(highlights) !== JSON.stringify(cleanHighlights(baseline.highlights))) changes.highlights = highlights;
   if (clean(current.registrationInfo) !== clean(baseline.registrationInfo)) changes.registration_info = clean(current.registrationInfo) || null;
+  // Venue, dates and time zone. Text is trimmed; an emptied optional field is cleared. A start date and a time
+  // zone are never cleared (an empty value keeps the event's current one).
+  const line = (value: string) => value.trim().replace(/\s+/g, " ");
+  const optional = [
+    ["venue_name", "venueName"], ["address_line_1", "addressLine1"], ["address_line_2", "addressLine2"],
+    ["city", "city"], ["state", "state"], ["postal_code", "postalCode"], ["end_date", "endDate"], ["start_time", "startTime"], ["end_time", "endTime"],
+  ] as const;
+  for (const [column, field] of optional) {
+    if (line(current[field]) !== line(baseline[field])) changes[column] = line(current[field]) || null;
+  }
+  if (line(current.startDate) && line(current.startDate) !== line(baseline.startDate)) changes.start_date = line(current.startDate);
+  if (line(current.timezone) && line(current.timezone) !== line(baseline.timezone)) changes.timezone = line(current.timezone);
   return changes;
+}
+
+/** The operationally sensitive fields a change set touches. */
+export function operationalChanges(changes: EventPresentationChanges): string[] {
+  return OPERATIONAL_EVENT_KEYS.filter((key) => key in changes);
+}
+
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+function isRealDate(value: string) {
+  if (!DATE_PATTERN.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 /** The title programs are named after: the edited event title, or the event's current one. */
@@ -675,6 +742,10 @@ export type DraftCategorySummary = {
   rounds: string[];
   pricing: string;
   pricingPending: boolean;
+  /** Multi-Dance: one entry dances this set, in order. */
+  multiDance: boolean;
+  /** Why the category cannot open registration yet, when it cannot. */
+  registrationHold: string | null;
 };
 
 export type DraftProgramSummary = {
@@ -705,6 +776,11 @@ function toDivision(parts: Array<[DivisionAxis, string]>): DraftDivision {
     ...(axes.age_group ? { age_label: axes.age_group } : {}),
     axes,
   };
+}
+
+/** An axis label as a singular noun: "Age divisions" becomes "age division", "Multi-Dance age categories" "multi-dance age category". */
+export function axisNoun(axis: Pick<DivisionAxis, "label">) {
+  return axis.label.toLowerCase().replace(/ies$/, "y").replace(/s$/, "");
 }
 
 /** Required axes that still have nothing selected. */
@@ -745,11 +821,32 @@ export type FormatCategory = { style: DanceStyleDefinition | null; label: string
 export function formatCategories(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, value: Pick<FormatAnswer, "danceStyles" | "dances">): FormatCategory[] {
   const label = formatLabel(profile, key, format);
   if (!profile.categoryTypes[format]?.uses_styles) return [{ style: null, label, dances: value.dances }];
-  return orderedStyles(profile, key, format, value.danceStyles).map((style) => ({
-    style,
-    label: `${label} — ${style.label}`,
-    dances: value.dances.filter((dance) => danceStyleOf(profile, key, dance)?.key === style.key),
-  }));
+  const multi = isMultiDance(profile, format);
+  return orderedStyles(profile, key, format, value.danceStyles).map((style) => {
+    const dances = value.dances.filter((dance) => danceStyleOf(profile, key, dance)?.key === style.key);
+    // A Multi-Dance set is danced in the style's order (NDCA IX.A.1), whatever order the dances were picked in.
+    return { style, label: `${label} — ${style.label}`, dances: multi ? sortByStyle(style, dances) : dances };
+  });
+}
+
+/** NDCA Multi-Dance: one entry dancing a prescribed set (never expanded into Single-Dance entries). */
+export function isMultiDance(profile: SetupProfileDefaults, format: FormatKey) {
+  return profile.categoryTypes[format]?.event_form === "multi_dance";
+}
+
+function sortByStyle(style: DanceStyleDefinition, dances: string[]) {
+  const position = (dance: string) => {
+    const index = style.dances.indexOf(dance);
+    return index < 0 ? style.dances.length : index;
+  };
+  return [...dances].sort((a, b) => position(a) - position(b));
+}
+
+/** Selected division values that oblige a Multi-Dance set to contain every dance of its style (NDCA X.B.4). */
+export function fullSetDivisionValues(profile: SetupProfileDefaults, key: ProgramKey, format: FormatKey, value: Pick<FormatAnswer, "divisions">): string[] {
+  return divisionScheme(profile, key, format).axes.flatMap((axis) =>
+    axis.values.filter((item) => item.requires_all_style_dances && (value.divisions[axis.key] ?? []).includes(item.label)).map((item) => item.label),
+  );
 }
 
 function money(amount: number, currency: string) {
@@ -833,7 +930,7 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
         // Every category (one per chosen dance style) gets the offering's divisions.
         total += divisions.length * Math.max(1, formatCategories(profile, key, format, value).length);
         const missing = missingRequiredAxes(divisionScheme(profile, key, format), value.divisions);
-        for (const axis of missing) errors.push(`Choose at least one ${axis.label.toLowerCase().replace(/s$/, "")} for ${label}.`);
+        for (const axis of missing) errors.push(`Choose at least one ${axisNoun(axis)} for ${label}.`);
         if (missing.length === 0 && divisions.length < 1) errors.push(`Add at least one division for ${label}.`);
         if (divisions.length > limits.divisions) errors.push(`Use ${limits.divisions} divisions or fewer for ${label}.`);
         const seen = new Set<string>();
@@ -867,6 +964,14 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
         for (const category of formatCategories(profile, key, format, value)) {
           if (category.dances.length < 1) errors.push(`Choose at least one dance for ${profile.programs[key].label} ${category.label}.`);
           if (category.dances.length > limits.dances) errors.push(`Choose ${limits.dances} dances or fewer for ${profile.programs[key].label} ${category.label}.`);
+          const minimum = definition.min_dances ?? 1;
+          if (category.dances.length > 0 && category.dances.length < minimum) {
+            errors.push(`A Multi-Dance set needs at least ${minimum} dances: choose more for ${profile.programs[key].label} ${category.label}.`);
+          }
+          const fullSet = fullSetDivisionValues(profile, key, format, value);
+          if (fullSet.length > 0 && category.style && category.style.dances.some((dance) => !category.dances.includes(dance))) {
+            errors.push(`${fullSet.join(", ")} dances every ${category.style.label} dance: choose all ${category.style.dances.length} for ${profile.programs[key].label} ${category.label}.`);
+          }
         }
         const allowed = new Set(formatDanceOptions(profile, key, answers.programs[key], format).map((dance) => dance.key));
         if (value.dances.some((dance) => available.has(dance) && !allowed.has(dance))) errors.push(`A dance chosen for ${label} is not part of its chosen styles.`);
@@ -890,6 +995,20 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
     if (p.highlights.some((item) => !item.trim())) errors.push("Fill in or remove empty highlights.");
     if (p.highlights.some((item) => item.trim().length > limits.highlight)) errors.push(`Keep each highlight to ${limits.highlight} characters or fewer.`);
     if (clean(p.registrationInfo).length > limits.registrationInfo) errors.push(`Use ${limits.registrationInfo} characters or fewer for the registration information.`);
+    if (!isRealDate(p.startDate)) errors.push("Enter a valid start date.");
+    if (p.endDate && !isRealDate(p.endDate)) errors.push("Enter a valid end date.");
+    if (isRealDate(p.startDate) && isRealDate(p.endDate) && p.endDate < p.startDate) errors.push("The end date cannot be before the start date.");
+    if (p.startTime && !TIME_PATTERN.test(p.startTime)) errors.push("Enter a valid start time.");
+    if (p.endTime && !TIME_PATTERN.test(p.endTime)) errors.push("Enter a valid end time.");
+    if (TIME_PATTERN.test(p.startTime) && TIME_PATTERN.test(p.endTime) && (!p.endDate || p.endDate === p.startDate) && p.endTime <= p.startTime) {
+      errors.push("On a one-day event the end time must be after the start time.");
+    }
+    if (p.timezone && !TIMEZONE_OPTIONS.some((option) => option.value === p.timezone)) errors.push("Choose the event's time zone.");
+    if (p.state && !US_STATE_OPTIONS.some((option) => option.value === p.state)) errors.push("Choose a state from the list.");
+    if (p.venueName.trim().length > limits.venue) errors.push(`Use ${limits.venue} characters or fewer for the venue.`);
+    if (p.addressLine1.trim().length > limits.address || p.addressLine2.trim().length > limits.address) errors.push(`Use ${limits.address} characters or fewer for each address line.`);
+    if (p.city.trim().length > limits.city) errors.push(`Use ${limits.city} characters or fewer for the city.`);
+    if (p.postalCode.trim().length > limits.postalCode) errors.push(`Use ${limits.postalCode} characters or fewer for the postal code.`);
     if (p.coverImageUrl && (!/^https:\/\/\S+$/.test(p.coverImageUrl) || p.coverImageUrl.length > limits.coverImageUrl)) errors.push("Upload the cover image again.");
   }
   if (step === "pricing") {
@@ -919,14 +1038,25 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
 export function deriveDraft(
   answers: SetupAnswers,
   profile: SetupProfileDefaults,
-  context: { eventName: string; profileKey: string; profileVersion: number; requestKey: string; event?: EventPresentation },
+  context: {
+    eventName: string;
+    profileKey: string;
+    profileVersion: number;
+    requestKey: string;
+    event?: EventPresentation;
+    /** Studio owner/admin or organizer owner/admin: may change venue, dates, times and time zone. */
+    canEditOperations?: boolean;
+  },
 ): DerivedDraft {
   const keys = activeProgramKeys(answers, profile);
   const errors: DerivedDraft["errors"] = {};
+  const eventChanges = context.event ? presentationChanges(answers.presentation, context.event) : {};
+  const unauthorized = context.canEditOperations !== true && operationalChanges(eventChanges).length > 0;
   for (const step of visibleSteps(answers, profile)) {
     const list = stepErrors(answers, profile, step);
     if (list.length > 0) errors[step] = list;
   }
+  if (unauthorized) errors.event = [...(errors.event ?? []), OPERATIONS_PERMISSION_TEXT];
 
   const counts = { programs: keys.length, categories: 0, divisions: 0, rounds: 0, dances: 0, offerings: 0 };
   const programs: DraftProgramSummary[] = [];
@@ -973,6 +1103,8 @@ export function deriveDraft(
           rounds: roundNames,
           pricing,
           pricingPending: pending,
+          multiDance: definition.event_form === "multi_dance",
+          registrationHold: definition.registration_hold?.note ?? null,
         });
         payloadCategories.push({
           type: format,
@@ -1027,7 +1159,7 @@ export function deriveDraft(
           account_required: answers.registration.accountRequired,
         },
         // Without the event's current values nothing is written (never a blind overwrite).
-        event: context.event ? presentationChanges(answers.presentation, context.event) : {},
+        event: eventChanges,
         programs: payloadPrograms,
       }
     : null;
@@ -1077,7 +1209,7 @@ export function resumeStep(answers: SetupAnswers, profile: SetupProfileDefaults,
 function validPresentation(value: unknown): value is EventPresentation {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
-  return ["name", "summary", "description", "coverImageUrl", "registrationInfo"].every((key) => typeof item[key] === "string")
+  return (Object.keys(EMPTY_PRESENTATION) as Array<keyof EventPresentation>).filter((key) => key !== "highlights").every((key) => typeof item[key] === "string")
     && Array.isArray(item.highlights) && item.highlights.every((entry) => typeof entry === "string");
 }
 
@@ -1090,12 +1222,12 @@ function validSelection(value: unknown): boolean {
 export function restoreAnswers(raw: unknown, profile: SetupProfileDefaults): SetupAnswers | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Partial<SetupAnswers>;
-  if (value.version !== 5 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
+  if (value.version !== 6 || typeof value.programs !== "object" || value.programs === null || !Array.isArray(value.styles)) return null;
   if (!value.registration || typeof value.registration !== "object") return null;
   if (value.purpose !== null && !PURPOSE_OPTIONS.some((option) => option.key === value.purpose)) return null;
   if (!validPresentation(value.presentation)) return null;
   const answers: SetupAnswers = {
-    version: 5,
+    version: 6,
     purpose: value.purpose ?? null,
     styleMode: value.styleMode === "multiple" ? "multiple" : "single",
     styles: value.styles.filter((key): key is string => typeof key === "string"),

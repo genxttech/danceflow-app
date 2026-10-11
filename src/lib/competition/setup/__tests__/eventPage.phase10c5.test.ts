@@ -12,7 +12,7 @@ vi.mock("@/app/app/events/[id]/competition/simpleActions", () => ({ createCompet
 
 import { EventPagePreview, EventPageStep } from "@/app/app/events/[id]/competition/new/EventPageStep";
 import { eventImagePublicPrefix } from "@/lib/events/media";
-import { STUDIO_CUSTOM_V2_DEFAULTS as P } from "../studioCustomV2";
+import { STUDIO_CUSTOM_V3_DEFAULTS as P } from "../studioCustomV3";
 import {
   addCustomDance,
   addHighlight,
@@ -31,6 +31,7 @@ import {
   toggleFormatStyle,
   updateFormat,
   visibleSteps,
+  EMPTY_PRESENTATION,
   type EventPresentation,
   type SetupAnswers,
 } from "../draft";
@@ -38,15 +39,24 @@ import { TEST_EVENT, withDivisions, withOfferings } from "./divisionTestHelpers"
 
 const ROOT = join(__dirname, "..", "..", "..", "..", "..");
 const STORED: EventPresentation = {
+  ...EMPTY_PRESENTATION,
   name: "Spring Classic",
+  venueName: "Main Studio",
+  city: "Austin",
+  state: "TX",
+  startDate: "2027-03-06",
+  endDate: "2027-03-07",
+  startTime: "18:00",
+  timezone: "America/Chicago",
   summary: "A friendly studio competition.",
   description: "Two days of dancing.\nBring your best smile.",
   coverImageUrl: "https://dev.supabase.co/storage/v1/object/public/event-media/studio-1/spring/cover.jpg",
   highlights: ["Live band"],
   registrationInfo: "",
 };
-const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", profileVersion: 2, requestKey: "request-key-0001", event: STORED };
+const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", profileVersion: 3, requestKey: "request-key-0001", event: STORED, canEditOperations: true };
 const SUMMARY = { dates: "Mar 6, 2027", times: "6:00 PM", venue: "Main Studio · Austin, TX" };
+const NO_LOCKS = { activeRegistrations: false, additionalLocations: false, datedRecords: false };
 
 function complete(presentation: EventPresentation = STORED): SetupAnswers {
   let answers = chooseAdjudication(chooseStyle(choosePurpose(initialAnswers(undefined, presentation), P, "competition"), P, "country"), "country", "adjudicated");
@@ -128,13 +138,39 @@ describe("Event details & presentation: UI", () => {
     expect(html).not.toContain("dangerouslySetInnerHTML");
   });
 
-  it("venue and dates are shown read-only with a link to Edit event; nothing is changed by default", () => {
-    const html = renderToStaticMarkup(createElement(EventPageStep, { eventId: "e1", answers: complete(), baseline: STORED, summary: SUMMARY, update: () => undefined }));
-    expect(html).toContain('href="/app/events/e1/edit"');
-    expect(html).toContain("These belong to the event and are not changed here.");
-    expect(html).not.toMatch(/name="(venue|start_date|end_date|slug)/);
+  it("owners/admins edit venue, dates, times and time zone inline, with no detour to Edit event", () => {
+    const html = renderToStaticMarkup(createElement(EventPageStep, { eventId: "e1", answers: complete(), baseline: STORED, canEditOperations: true, locks: NO_LOCKS, update: () => undefined }));
+    expect(html).toContain("Venue, dates and time zone");
+    expect(html).toContain('value="Main Studio"');
+    expect(html).toContain('type="date"');
+    expect(html).toContain('value="2027-03-06"');
+    expect(html).toContain('type="time"');
+    expect(html).toContain('<option value="America/Chicago" selected="">');
+    expect(html).not.toContain('disabled=""');
+    expect(html).not.toContain('href="/app/events/e1/edit"');
+    expect(html).not.toMatch(/name="(slug|status|visibility)/);
     expect(html).toContain("No changes to the event page yet.");
     expect(html).toContain('accept="image/jpeg,image/png,image/webp"');
+  });
+
+  it("without an owner/admin role the fields are read-only and the reason is shown", () => {
+    const html = renderToStaticMarkup(createElement(EventPageStep, { eventId: "e1", answers: complete(), baseline: STORED, canEditOperations: false, locks: NO_LOCKS, update: () => undefined }));
+    expect(html).toContain("Only studio owners and admins, and organizer owners and admins, can change the venue, dates, times or time zone.");
+    expect(html.match(/disabled=""/g)?.length).toBe(11);
+    expect(html).not.toContain('href="/app/events/e1/edit"');
+  });
+
+  it("registrations, extra locations or dated records lock the affected fields with an explanation", () => {
+    const registrations = renderToStaticMarkup(createElement(EventPageStep, { eventId: "e1", answers: complete(), baseline: STORED, canEditOperations: true, locks: { ...NO_LOCKS, activeRegistrations: true }, update: () => undefined }));
+    expect(registrations).toContain("already has registrations");
+    expect(registrations.match(/disabled=""/g)?.length).toBe(11);
+    expect(registrations).toContain('href="/app/events/e1/edit"');
+    const dated = renderToStaticMarkup(createElement(EventPageStep, { eventId: "e1", answers: complete(), baseline: STORED, canEditOperations: true, locks: { ...NO_LOCKS, datedRecords: true }, update: () => undefined }));
+    expect(dated).toContain("dated schedule items or sessions");
+    expect(dated.match(/disabled=""/g)?.length).toBe(5);
+    const locations = renderToStaticMarkup(createElement(EventPageStep, { eventId: "e1", answers: complete(), baseline: STORED, canEditOperations: true, locks: { ...NO_LOCKS, additionalLocations: true }, update: () => undefined }));
+    expect(locations).toContain("additional locations");
+    expect(locations.match(/disabled=""/g)?.length).toBe(6);
   });
 
   it("the public event page renders through the same shared components and reads the new fields", () => {
@@ -151,6 +187,6 @@ describe("dance limits are per category", () => {
     answers = toggleFormatStyle(withOfferings(answers, P, "ballroom", ["ndca_pro_am"], ["american_smooth"]), P, "ballroom", "ndca_pro_am", "american_additional");
     for (const name of ["Carolina Shag", "Balboa", "Collegiate Shag", "Two Step", "Kizomba"]) answers = addCustomDance(answers, P, "ballroom", name);
     answers = selectAllCategoryDances(answers, P, "ballroom", "ndca_pro_am", "american_additional");
-    expect(stepErrors(answers, P, "dances")).toEqual(["Choose 20 dances or fewer for Ballroom Pro/Am — Additional American Style Dances."]);
+    expect(stepErrors(answers, P, "dances")).toEqual(["Choose 20 dances or fewer for Ballroom Pro/Am Single-Dance — Additional American Style Dances."]);
   });
 });

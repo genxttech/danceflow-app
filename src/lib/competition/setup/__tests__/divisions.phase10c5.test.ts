@@ -9,7 +9,7 @@ vi.mock("next/link", () => ({
 vi.mock("@/app/app/events/[id]/competition/simpleActions", () => ({ createCompetitionDraftAction: vi.fn() }));
 
 import { DivisionChoices } from "@/app/app/events/[id]/competition/new/CompetitionSetupWizard";
-import { STUDIO_CUSTOM_V2_DEFAULTS as P } from "../studioCustomV2";
+import { STUDIO_CUSTOM_V3_DEFAULTS as P } from "../studioCustomV3";
 import {
   addCustomDivisionValue,
   chooseAdjudication,
@@ -36,7 +36,7 @@ import { withOfferings, TEST_EVENT } from "./divisionTestHelpers";
  * produces level-only or age-only divisions by accident.
  */
 
-const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", profileVersion: 2, requestKey: "request-key-0001" };
+const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", profileVersion: 3, requestKey: "request-key-0001" };
 const axis = (scheme: string, key: string) => P.divisionSchemes[scheme].axes.find((item) => item.key === key) as DivisionAxis;
 const value = (scheme: string, key: string, label: string) => axis(scheme, key).values.find((item) => item.label === label)!;
 const labels = (scheme: string, key: string) => axis(scheme, key).values.map((item) => item.label);
@@ -239,9 +239,10 @@ describe("source contracts", () => {
     expect(divisions[2]).toEqual({ name: "Sophisticated", age_label: "Sophisticated", axes: { age_group: "Sophisticated" } });
   });
 
-  it("NDCA lists are permissive and source-backed; ages are optional", () => {
+  it("NDCA lists are permissive and source-backed; Single-Dance ages are optional, A–S4 are Multi-Dance only", () => {
     expect(value("ballroom_proam", "skill_level", "Gold Star").sources?.[0]).toMatchObject({ section: "II.B.7.c" });
-    expect(value("ballroom_proam", "age_group", "B").eligibility).toEqual({ min_age: 36 });
+    expect(value("ballroom_proam_multi", "age_group", "B").eligibility).toEqual({ min_age: 36 });
+    expect(labels("ballroom_proam", "age_group")).not.toContain("B");
     expect(value("ballroom_amateur", "age_group", "Senior II").eligibility?.note).toContain("45+");
     expect(P.divisionSchemes.ballroom_proam.note).toContain("any or all Pro/Am levels (II.B.7.c)");
     expect(axis("ballroom_proam", "age_group").required).toBe(false);

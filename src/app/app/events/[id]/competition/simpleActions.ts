@@ -7,7 +7,7 @@ import { competitionWorkspaceHref } from "@/lib/competition/workspaceLink";
 import type { createClient as createServerClient } from "@/lib/supabase/server";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
 import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
-import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV2";
+import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV3";
 import { SETUP_STEPS, deriveDraft, parsePrice, restoreAnswers, setupProfileProblems } from "@/lib/competition/setup/draft";
 import { readEventPresentation } from "@/lib/competition/setup/eventPresentationServer";
 import { EVENT_IMAGE_BUCKET, EVENT_IMAGE_MAX_BYTES, eventImagePublicPrefix } from "@/lib/events/media";
@@ -49,7 +49,7 @@ function refreshWorkspace(eventId: string) {
 export async function createCompetitionDraftAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
   const eventId = text(formData, "eventId");
   if (!eventId) return { ok: false, error: "Event is required." };
-  const { supabase, event } = await requireCompetitionManager(eventId);
+  const { supabase, event, canEditOperations } = await requireCompetitionManager(eventId);
 
   const requestKey = text(formData, "requestKey");
   if (!REQUEST_KEY_PATTERN.test(requestKey)) return { ok: false, error: "The setup could not be read. Please start again." };
@@ -79,6 +79,8 @@ export async function createCompetitionDraftAction(_previous: ActionState, formD
   const draft = deriveDraft(answers, defaults, {
     eventName: baseline.name || event.name,
     event: baseline,
+    // Venue, dates, times and time zone need an owner/admin role; the database enforces the same rule.
+    canEditOperations,
     profileKey: STUDIO_CUSTOM_PROFILE.key,
     profileVersion: STUDIO_CUSTOM_PROFILE.version,
     requestKey,
@@ -95,7 +97,8 @@ export async function createCompetitionDraftAction(_previous: ActionState, formD
     return { ok: false, error: "Event page: Upload the cover image again." };
   }
 
-  const zone = getEventTimeZone(event);
+  // Registration dates are whole days in the event time zone: the new one when this setup changes it.
+  const zone = getEventTimeZone({ timezone: draft.payload.event.timezone ?? event.timezone });
   const { opens, closes } = answers.registration;
   const spec = {
     ...draft.payload,

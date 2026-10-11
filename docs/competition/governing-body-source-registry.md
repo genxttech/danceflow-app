@@ -22,6 +22,16 @@ Status values:
 | — | Relative Placement explanation (Tigges) | updated 12.20.2021 | `Relative-Placement-12-20-20-Rev-5-1-10-1.pdf` | `573cb005fc4f6ba0335b8fe237cd44eb989306dfbb2bb9f3e24e584400f3bc30` | reference (not WSDC rule text) |
 | NDCA | Rule Book (compiled) | June 2026, Master v1 | `2026 June - Compiled Rule Book Master v1 - reduced size.pdf` | `d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6` | authoritative |
 
+## Rules profiles built from these sources
+
+A profile version is immutable once a program references it; a correction is published as a new version.
+
+| Profile | Status | Notes |
+|---|---|---|
+| `studio_simple@1` | released | 10B Studio / Custom profile (schema 1). |
+| `studio_simple@2` | superseded, kept | Seeded by `20261113090000`. Referenced by a DEV walkthrough draft, so it is kept unchanged; new setups cannot use it. |
+| `studio_simple@3` | current | Seeded by `20261114090000`. Cites the documents above; see [phase10c5-source-to-ui-matrix.md](phase10c5-source-to-ui-matrix.md). |
+
 ## Known gaps
 
 - **Undefined algorithms.** The NDCA rule book requires the Skating System but does not define the algorithm, and the WSDC rules refer to their website for Relative Placement. Scoring engines (10F) need authoritative specifications for both.

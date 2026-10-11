@@ -234,6 +234,21 @@ export type EntryFormatDefinition = {
   style_keys?: string[];
   /** Who may enter, as stated by the source (shown to the organizer; 10C.5 does not enforce eligibility). */
   eligibility_note?: string;
+  /**
+   * Single-Dance or Multi-Dance (NDCA III.A.3.b names them separately). A Multi-Dance category is one entry
+   * dancing an explicit prescribed set of one style's dances, in that style's order (dance_selection_mode
+   * prescribed_set). It is never expanded into separate Single-Dance entries.
+   */
+  event_form?: "single_dance" | "multi_dance";
+  /** Fewest dances a category's prescribed set may contain. */
+  min_dances?: number;
+  /**
+   * The category cannot open registration yet (e.g. Multi-Dance combined results are not operational). The draft
+   * is still created; open_competition_registration refuses while any category of the program carries a hold.
+   */
+  registration_hold?: { key: string; note: string };
+  /** Source rules recorded for later phases because DanceFlow cannot enforce them yet. */
+  future_requirements?: Array<{ key: string; description: string; sources: SourceReference[] }>;
   sources?: SourceReference[];
 };
 
@@ -284,6 +299,8 @@ export type DivisionValue = {
   basis: Basis;
   sources?: SourceReference[];
   eligibility?: { min_age?: number; under_age?: number; note?: string };
+  /** A division at this value must dance every dance of its style, in order (e.g. NDCA X.B.4 Open Amateur). */
+  requires_all_style_dances?: boolean;
 };
 
 export type DivisionAxis = {

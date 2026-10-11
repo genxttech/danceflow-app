@@ -1,6 +1,6 @@
 -- Phase 10C.5 -- Competition Setup Wizard draft generator regression suite.
 --
--- Covers 20261113090000_phase10c5_competition_draft.sql: studio_simple@2, create_competition_draft,
+-- Covers 20261113090000_phase10c5_competition_draft.sql and 20261114090000_phase10c5_profile_v3.sql: studio_simple@3, create_competition_draft,
 -- set_competition_category_pricing and the pricing-pending guard in open_competition_registration.
 -- Calls run as the authenticated studio owner (or an outsider) through the real RPCs. One transaction;
 -- the final block ALWAYS raises, so nothing persists:
@@ -73,7 +73,7 @@ end $$;
 create or replace function pg_temp.spec(p_key text) returns jsonb
 language sql immutable as $$
   select jsonb_build_object(
-    'request_key', p_key, 'profile_key', 'studio_simple', 'profile_version', 2, 'purpose', 'competition_showcase',
+    'request_key', p_key, 'profile_key', 'studio_simple', 'profile_version', 3, 'purpose', 'competition_showcase',
     'answers', '{"version": 4, "purpose": "competition_showcase", "styles": ["country", "ballroom"]}'::jsonb,
     'registration', '{"opens_at": "2026-01-01T00:00:00Z", "closes_at": "2030-01-01T00:00:00Z", "account_required": false}'::jsonb,
     'event', jsonb_build_object(
@@ -114,10 +114,21 @@ $$;
 -- A one-style request (for the other purposes / styles).
 create or replace function pg_temp.one(p_key text, p_purpose text, p_program jsonb) returns jsonb
 language sql immutable as $$
-  select jsonb_build_object('request_key', p_key, 'profile_key', 'studio_simple', 'profile_version', 2, 'purpose', p_purpose,
+  select jsonb_build_object('request_key', p_key, 'profile_key', 'studio_simple', 'profile_version', 3, 'purpose', p_purpose,
     'answers', '{}'::jsonb, 'registration', '{"opens_at": null, "closes_at": null, "account_required": true}'::jsonb,
     'programs', jsonb_build_array(p_program));
 $$;
+
+-- A minimal Country request carrying an event-page change (for the Event Details checks).
+create or replace function pg_temp.page(p_key text, p_event jsonb) returns jsonb
+language sql immutable as $$
+  select pg_temp.one(p_key, 'competition',
+    '{"key": "country", "name": "Ops", "adjudication": "adjudicated", "judging": "medal_marks", "registration_fee": null, "dances": [{"key": "two_step"}],
+      "categories": [{"type": "couples", "divisions": [{"name": "Open"}], "dances": ["two_step"], "pricing": {"model": "free", "amount": null}}]}'::jsonb)
+    || jsonb_build_object('event', p_event);
+$$;
+create or replace function pg_temp.ops(p_event text, p_spec jsonb) returns text
+language sql as $$ select format('select public.create_competition_draft(%L, %L::jsonb)', pg_temp.u(p_event), p_spec) $$;
 
 create or replace function pg_temp.draft(p_event text, p_spec jsonb) returns text
 language sql as $$ select format('select public.create_competition_draft(%L, %L::jsonb)', pg_temp.u(p_event), p_spec) $$;
@@ -140,20 +151,45 @@ select pg_temp.u('00e00' || n), pg_temp.u('00a001'), 'P10C5 Event ' || n, 't-p10
        current_date + 30, current_date + 30, 'published', 'public', false, true
 from generate_series(1, 9) n;
 
+-- 10C.5 Event Details fixtures: an instructor (any studio role may update events under the existing policies), an
+-- organizer with staff and admin users, competition events owned by that organizer, and one non-competition event.
+insert into auth.users (id, email) values
+  (pg_temp.u('000003'), 't-p10c5-instructor@example.test'), (pg_temp.u('000004'), 't-p10c5-orgstaff@example.test'),
+  (pg_temp.u('000005'), 't-p10c5-orgadmin@example.test');
+insert into public.profiles (id, email, full_name) values
+  (pg_temp.u('000003'), 't-p10c5-instructor@example.test', 'Instructor'), (pg_temp.u('000004'), 't-p10c5-orgstaff@example.test', 'Org Staff'),
+  (pg_temp.u('000005'), 't-p10c5-orgadmin@example.test', 'Org Admin');
+insert into public.user_studio_roles (user_id, studio_id, role, active) values (pg_temp.u('000003'), pg_temp.u('00a001'), 'instructor', true);
+insert into public.organizers (id, name, slug) values (pg_temp.u('00b001'), 'P10C5 Organizer', 't-p10c5-organizer');
+insert into public.organizer_users (organizer_id, user_id, role, active) values
+  (pg_temp.u('00b001'), pg_temp.u('000004'), 'organizer_staff', true), (pg_temp.u('00b001'), pg_temp.u('000005'), 'organizer_admin', true);
+insert into public.events (id, studio_id, organizer_id, name, slug, event_type, start_date, end_date, start_time, end_time, timezone,
+                           venue_name, city, state, status, visibility, registration_required, account_required_for_registration)
+select pg_temp.u('00f0' || lpad(n::text, 2, '0')), pg_temp.u('00a001'), pg_temp.u('00b001'), 'P10C5 Ops Event ' || n, 't-p10c5-ops' || n,
+       case when n = 9 then 'social_dance' else 'competition' end, date '2027-03-06', date '2027-03-07', time '18:00', time '22:00', 'America/Chicago',
+       'Main Studio', 'Austin', 'TX', 'published', 'public', false, true
+from generate_series(1, 9) n;
+-- Dependent records: an active registration (ops 5), an additional location (ops 6), a schedule item (ops 7).
+insert into public.event_registrations (event_id, studio_id, status, attendee_first_name, attendee_last_name, attendee_email)
+values (pg_temp.u('00f005'), pg_temp.u('00a001'), 'confirmed', 'Reg', 'Istrant', 't-p10c5-reg@example.test');
+insert into public.event_locations (event_id, studio_id, location_name) values (pg_temp.u('00f006'), pg_temp.u('00a001'), 'Second Hall');
+insert into public.event_schedule_items (event_id, studio_id, schedule_date, start_time, title)
+values (pg_temp.u('00f007'), pg_temp.u('00a001'), date '2027-03-06', time '19:00', 'Opening social');
+
 -- ============================================================================
 -- Profile v2
 -- ============================================================================
-select pg_temp.chk('v1 profile is untouched and v2 is the active Studio / Custom profile (schema 2)',
+select pg_temp.chk('v1 profile is untouched and v3 is the active Studio / Custom profile (schema 2)',
   (select md5(defaults::text) from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 1) = '6e4b7ef21ca994c863f5d2de15f1c935'
   and (select status = 'active' and name = 'Studio / Custom Rules' and defaults->>'schema' = '2' and defaults #>> '{sanction,claimable}' = 'false'
-       from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
-select pg_temp.chk('v2 entry formats are profile-derived per style; Showcase-type offerings live inside the style',
+       from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 3));
+select pg_temp.chk('v3 entry formats are profile-derived per style; Showcase-type offerings live inside the style',
   (select defaults #> '{programs,country,formats}' = '["pro_am","pro_pro","couples","showcase","spotlight","solo","team"]'::jsonb
       and defaults #> '{programs,west_coast_swing,formats}' = '["jack_and_jill","wcs_couples","wcs_pro_am","routine"]'::jsonb
       and defaults #> '{programs,custom,formats}' ? 'studio_professional'
       and not (defaults->'programs' ? 'showcase')
       and not exists (select 1 from jsonb_each(defaults->'programs') p where p.value ?| array['recommended_formats', 'recommended_special', 'recommended_dances'])
-   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 3));
 select pg_temp.chk('Ballroom offers NDCA classifications (no generic Couples) in dance styles; no offering is shared across styles',
   (select defaults #> '{programs,ballroom,formats}' ?& array['ndca_pro_am', 'ndca_amateur', 'ndca_mixed_amateur', 'ndca_student_student', 'ndca_professional', 'ndca_mixed_professional']
       and not (defaults #> '{programs,ballroom,formats}' ?| array['couples', 'pro_am', 'professional', 'showcase'])
@@ -164,14 +200,31 @@ select pg_temp.chk('Ballroom offers NDCA classifications (no generic Couples) in
       and defaults #>> '{categoryTypes,wcs_couples,origin}' = 'studio' and defaults #>> '{categoryTypes,solo,label}' = 'Solo routine (Studio)'
       and (select string_agg(c->>'key' || ':' || (c->>'status'), ',') from jsonb_array_elements(defaults->'source_conflicts') c)
           = 'ndca_student_student_youth:unresolved,ndca_formation_scoring:unresolved'
-   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 3));
 select pg_temp.chk('Additional American Style Dances carry the NDCA IX.A.1.e examples; Nightclub is presentation only',
   (select st->'dances' = '["addl_bachata","addl_cumbia","addl_hustle","addl_jitterbug","addl_lindy_hop","addl_merengue","addl_night_club_two_step","addl_paso_doble","addl_peabody","addl_polka","addl_salsa","addl_samba","addl_west_coast_swing","addl_argentine_tango","addl_argentine_vals","addl_milonga"]'::jsonb
           and st->>'label' = 'Additional American Style Dances' and st #>> '{presentation,label}' = 'Nightclub / Specialty Dances'
           and st #>> '{presentation,basis}' = 'owner_operational' and (st->>'allow_custom_dances')::boolean
           and defaults #>> '{limits,programDances}' = '60' and defaults #>> '{limits,dances}' = '20'
    from public.competition_rules_profiles, jsonb_array_elements(defaults #> '{programs,ballroom,styles}') st
-   where profile_key = 'studio_simple' and version = 2 and st->>'key' = 'american_additional'));
+   where profile_key = 'studio_simple' and version = 3 and st->>'key' = 'american_additional'));
+select pg_temp.chk('NDCA Multi-Dance offerings: prescribed set, primary styles, registration hold; A–S4 only for Multi-Dance',
+  (select defaults #>> '{categoryTypes,ndca_pro_am_multi,contest_type}' = 'multi_dance'
+      and defaults #>> '{categoryTypes,ndca_pro_am_multi,dance_selection_mode}' = 'prescribed_set'
+      and defaults #>> '{categoryTypes,ndca_amateur_multi,event_form}' = 'multi_dance'
+      and defaults #>> '{categoryTypes,ndca_pro_am,event_form}' = 'single_dance'
+      and defaults #>> '{categoryTypes,ndca_pro_am_multi,registration_hold,key}' = 'multi_dance_results_not_operational'
+      and defaults #> '{categoryTypes,ndca_pro_am_multi,style_keys}' = '["international_standard","international_latin","american_smooth","american_rhythm"]'::jsonb
+      and not exists (select 1 from jsonb_array_elements(defaults #> '{divisionSchemes,ballroom_proam,axes}') a, jsonb_array_elements(a->'values') v where v->>'label' in ('A', 'B', 'S4'))
+      and (select count(*) from jsonb_array_elements(defaults #> '{divisionSchemes,ballroom_proam_multi,axes}') a, jsonb_array_elements(a->'values') v where v->>'label' in ('A', 'B', 'C', 'S1', 'S2', 'S3', 'S4')) = 7
+      and not exists (select 1 from jsonb_array_elements(defaults #> '{divisionSchemes,ballroom_amateur,axes}') a, jsonb_array_elements(a->'values') v where v->>'label' = 'Open Amateur')
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 3));
+select pg_temp.chk('Nightclub presentation cites NDCA III.D.15 (Night Club events and sessions) and IX.B.5.c (tempi)',
+  (select string_agg(src->>'section' || '@' || (src->>'page'), ',') = 'III.D.15@21,IX.B.5.c@41'
+          and st #>> '{presentation,note}' like '%Night Club is not an NDCA competition classification%'
+   from public.competition_rules_profiles, jsonb_array_elements(defaults #> '{programs,ballroom,styles}') st, jsonb_array_elements(st #> '{presentation,sources}') src
+   where profile_key = 'studio_simple' and version = 3 and st->>'key' = 'american_additional'
+   group by st));
 select pg_temp.chk('the event page columns exist with their limits and are readable wherever event names are',
   (select count(*) = 2 from information_schema.columns where table_schema = 'public' and table_name = 'events'
      and column_name in ('public_highlights', 'public_registration_info'))
@@ -186,7 +239,7 @@ select pg_temp.chk('Country Showcase = set music per dance; Spotlight = competit
       and defaults #>> '{categoryTypes,spotlight,music_source,basis}' = 'source_grounded'
       and defaults #>> '{categoryTypes,showcase,floor_mode,value}' = 'not_specified'
       and defaults #>> '{categoryTypes,spotlight,floor_mode,value}' = 'not_specified'
-   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 3));
 select pg_temp.chk('adjudicated result options are per style (Country Medal Marks, Ballroom/WCS Placements, Other may rate)',
   (select defaults #> '{programs,country,judging_options}' = '["medal_marks"]'::jsonb
       and defaults #> '{programs,ballroom,judging_options}' = '["placements"]'::jsonb
@@ -194,7 +247,7 @@ select pg_temp.chk('adjudicated result options are per style (Country Medal Mark
       and defaults #> '{programs,custom,judging_options}' = '["placements","ratings"]'::jsonb
       and defaults #>> '{judging,medal_marks,input_label}' = 'Medal Marks' and defaults #>> '{judging,medal_marks,result_label}' = 'Placement'
       and defaults #>> '{judging,medal_marks,engine,key}' = 'custom'
-   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 3));
 select pg_temp.chk('feedback is independent of adjudication: Non-Adjudicated has no official result but may carry feedback',
   (select defaults #>> '{judging,non_adjudicated,official_result}' = 'false'
       and defaults #> '{judging,non_adjudicated,feedback_modes}' = '["none","written","written_plus_grade","written_plus_score"]'::jsonb
@@ -202,8 +255,15 @@ select pg_temp.chk('feedback is independent of adjudication: Non-Adjudicated has
       and defaults #> '{judging,placements,feedback_modes}' ? 'written'
       and defaults #>> '{feedback,default}' = 'none'
       and (select string_agg(o->>'key', ',') from jsonb_array_elements(defaults #> '{feedback,options}') o) = 'none,written,written_plus_grade,written_plus_score'
-   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2));
-select pg_temp.expect_msg('v2 is append-only (defaults cannot change)',
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 3));
+select pg_temp.expect_msg('v3 is append-only (defaults cannot change)',
+  $q$update public.competition_rules_profiles set defaults = defaults || '{"x": 1}' where profile_key = 'studio_simple' and version = 3$q$,
+  'append-only');
+select pg_temp.chk('studio_simple@2 (seeded by 20261113090000) is kept exactly as it was: same content, still active',
+  (select md5(defaults::text) = '0ba037fe8c3024c93b841909d1a4e832' and status = 'active' and name = 'Studio / Custom Rules'
+   from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 2)
+  and (select md5(defaults::text) <> '0ba037fe8c3024c93b841909d1a4e832' from public.competition_rules_profiles where profile_key = 'studio_simple' and version = 3));
+select pg_temp.expect_msg('v2 is append-only too (referenced profiles are immutable)',
   $q$update public.competition_rules_profiles set defaults = defaults || '{"x": 1}' where profile_key = 'studio_simple' and version = 2$q$,
   'append-only');
 
@@ -228,6 +288,8 @@ select pg_temp.expect_msg('v1 profile is refused by the draft generator',
   pg_temp.draft('00e002', pg_temp.spec('reject-v1-key') || '{"profile_version": 1}'), 'Unsupported competition profile');
 select pg_temp.expect_msg('unknown profile version is refused',
   pg_temp.draft('00e002', pg_temp.spec('reject-v9-key') || '{"profile_version": 9}'), 'Unsupported competition profile');
+select pg_temp.expect_msg('new setups cannot use the superseded studio_simple@2 (existing v2 programs keep it)',
+  pg_temp.draft('00e002', pg_temp.spec('reject-v2-key') || '{"profile_version": 2}'), 'have been replaced');
 select pg_temp.expect_msg('a request key is required', pg_temp.draft('00e002', pg_temp.spec('bad key!')), 'request key');
 select pg_temp.expect_msg('unknown purpose is refused', pg_temp.draft('00e002', pg_temp.spec('reject-purpose') || '{"purpose": "gala"}'), 'Choose what you are creating');
 select pg_temp.expect_msg('style adjudication is required',
@@ -313,8 +375,8 @@ select pg_temp.expect_msg('custom dances are refused where the style does not al
       "dances": [{"key": "custom_slow_swing", "name": "Slow Swing"}],
       "categories": [{"type": "jack_and_jill", "divisions": [{"name": "Novice"}], "dances": ["custom_slow_swing"],
                       "pricing": {"model": "per_entry", "amount": 15}}]}'::jsonb)), 'not available for West Coast Swing');
-select pg_temp.expect_msg('the event page refuses fields outside the presentation (venue, dates, slug)',
-  pg_temp.draft('00e002', pg_temp.bad('reject-page-venue', '{event,venue_name}', '"Elsewhere"')), 'event page details are not valid');
+select pg_temp.expect_msg('the event page refuses fields it does not own (visibility, status, slug)',
+  pg_temp.draft('00e002', pg_temp.bad('reject-page-visibility', '{event,visibility}', '"private"')), 'event page details are not valid');
 select pg_temp.expect_msg('the event page must be an object',
   pg_temp.draft('00e002', pg_temp.bad('reject-page-shape', '{event}', '"x"')), 'event page details are not valid');
 select pg_temp.expect_msg('an empty event title is refused',
@@ -361,10 +423,10 @@ select pg_temp.chk('result lists both style programs in order, not replayed, pri
 select pg_temp.chk('no separate showcase program: exactly one program per style',
   pg_temp.n($q$select count(*) from public.event_competition_programs where event_id = pg_temp.u('00e001')$q$) = 2
   and pg_temp.n($q$select count(*) from public.event_competition_programs where event_id = pg_temp.u('00e001') and discipline_family = 'showcase'$q$) = 0);
-select pg_temp.chk('programs are unpublished drafts with registration CLOSED on profile v2',
+select pg_temp.chk('programs are unpublished drafts with registration CLOSED on profile v3',
   pg_temp.n($q$select count(*) from public.event_competition_programs where event_id = pg_temp.u('00e001')
                and status = 'draft' and registration_status = 'closed' and profile_locked_at is null
-               and rules_profile_key = 'studio_simple' and rules_profile_version = 2$q$) = 2);
+               and rules_profile_key = 'studio_simple' and rules_profile_version = 3$q$) = 2);
 select pg_temp.chk('Country program: adjudicated Medal Marks (placement result; generic storage binding)',
   (select name = 'P10C5 Comp — Country' and discipline_family = 'country' and competition_mode = 'relative' and scoring_method = 'custom' and sort_order = 10
           and configuration #>> '{simple,judging}' = 'medal_marks' and configuration #>> '{setup,adjudication}' = 'adjudicated'
@@ -389,7 +451,7 @@ select pg_temp.chk('categories carry the profile entry formats and participant /
        from public.event_competition_contests where id = pg_temp.id('c_country_pro_pro'))
   and (select string_agg(entry_format || ':' || name || ':' || coalesce(configuration #>> '{setup,style}', '-'), ',' order by sort_order)
        from public.event_competition_contests where program_id = pg_temp.id('ballroom'))
-      = 'pro_am:Pro/Am — American Smooth:american_smooth,custom:Cabaret:-,pro_am:Pro/Am — International Latin:international_latin',
+      = 'pro_am:Pro/Am Single-Dance — American Smooth:american_smooth,custom:Cabaret:-,pro_am:Pro/Am Single-Dance — International Latin:international_latin',
   (select string_agg(entry_format || ':' || contest_type || ':' || name, ',' order by sort_order) from public.event_competition_contests where program_id = pg_temp.id('country')));
 select pg_temp.chk('Showcase override: Non-Adjudicated inside an adjudicated style; Spotlight and Showdance inherit',
   (select configuration #>> '{setup,adjudication}' = 'non_adjudicated' and configuration #>> '{setup,adjudication_source}' = 'override'
@@ -616,7 +678,7 @@ select pg_temp.chk('Ballroom Professional shape: per-style contest, contest-type
                from public.event_competition_divisions d where d.contest_id = c.id) = 'Open Professional:Open Professional,Rising Star:Rising Star'
    from public.event_competition_programs p join public.event_competition_contests c on c.program_id = p.id
    where p.event_id = pg_temp.u('00e005') and c.entry_format = 'professional')
-  and (select name = 'Pro/Am — Additional American Style Dances' from public.event_competition_contests
+  and (select name = 'Pro/Am Single-Dance — Additional American Style Dances' from public.event_competition_contests
        where event_id = pg_temp.u('00e005') and configuration #>> '{setup,style}' = 'american_additional'));
 select pg_temp.expect_ok('a program may use more than 20 dances across its categories (the 20 cap is per category)',
   pg_temp.draft('00e009', pg_temp.one('p10c5-many-dances', 'competition', jsonb_build_object(
@@ -632,7 +694,7 @@ select pg_temp.chk('the 21-dance Ballroom program has five style categories',
   pg_temp.n($q$select count(*) from public.event_competition_dances where event_id = pg_temp.u('00e009')$q$) = 21
   and pg_temp.n($q$select count(*) from public.event_competition_contests where event_id = pg_temp.u('00e009')$q$) = 5);
 select pg_temp.expect_ok('multiple styles create one program each; Other may use Gold / Silver / Bronze',
-  pg_temp.draft('00e006', jsonb_build_object('request_key', 'p10c5-multi-style', 'profile_key', 'studio_simple', 'profile_version', 2,
+  pg_temp.draft('00e006', jsonb_build_object('request_key', 'p10c5-multi-style', 'profile_key', 'studio_simple', 'profile_version', 3,
     'purpose', 'competition', 'answers', '{}'::jsonb,
     'registration', '{"opens_at": null, "closes_at": null, "account_required": true}'::jsonb,
     'programs', '[{"key": "country", "name": "Multi — Country", "adjudication": "adjudicated", "judging": "medal_marks", "registration_fee": null, "dances": [{"key": "two_step"}],
@@ -645,8 +707,149 @@ select pg_temp.chk('two style programs: Country Medal Marks and Other ratings',
   and (select name from public.event_competition_contests where event_id = pg_temp.u('00e006') and entry_format = 'custom') = 'Choreographed Routine');
 
 -- ============================================================================
+-- Event Details: venue, address, dates, times and time zone (owner/admin roles only)
+-- ============================================================================
+select pg_temp.chk('the operations guard is installed: role function (no anon) and the events trigger',
+  to_regprocedure('public.can_edit_competition_event_operations(uuid)') is not null
+  and not has_function_privilege('anon', 'public.can_edit_competition_event_operations(uuid)', 'EXECUTE')
+  and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'protect_competition_event_operations' and tgenabled = 'O'));
+
+select pg_temp.as_user(pg_temp.u('000003'));
+select pg_temp.expect_msg('an instructor cannot change a competition event venue directly (forged table update)',
+  $q$update public.events set venue_name = 'Elsewhere' where id = pg_temp.u('00f001')$q$, 'Only studio owners and admins');
+select pg_temp.expect_msg('an instructor cannot change competition event dates or time zone directly',
+  $q$update public.events set start_date = date '2027-05-01', timezone = 'America/Denver' where id = pg_temp.u('00f001')$q$, 'Only studio owners and admins');
+select pg_temp.expect_msg('an instructor cannot turn a competition event into another type to bypass the guard',
+  $q$update public.events set event_type = 'social' where id = pg_temp.u('00f001')$q$, 'Only studio owners and admins');
+select pg_temp.expect_ok('an instructor keeps every other existing event permission (description)',
+  $q$update public.events set description = 'Instructor note' where id = pg_temp.u('00f001')$q$);
+select pg_temp.expect_ok('ordinary (non-competition) events keep their existing behaviour',
+  $q$update public.events set start_date = date '2027-04-01', end_date = date '2027-04-02' where id = pg_temp.u('00f009')$q$);
+
+select pg_temp.as_user(pg_temp.u('000004'));
+select pg_temp.expect_msg('organizer staff cannot change venue or dates through the draft generator',
+  pg_temp.ops('00f002', pg_temp.page('p10c5-ops-staff', '{"venue_name": "Grand Ballroom"}')), 'can change the venue, dates, times or time zone.');
+select pg_temp.expect_msg('organizer staff cannot change venue directly either',
+  $q$update public.events set city = 'Dallas' where id = pg_temp.u('00f002')$q$, 'Only studio owners and admins');
+select pg_temp.expect_ok('organizer staff keep competition setup with presentation-only changes',
+  pg_temp.ops('00f002', pg_temp.page('p10c5-ops-staff-ok', '{"summary": "Staff summary"}')));
+
+select pg_temp.as_user(pg_temp.u('000005'));
+select pg_temp.expect_ok('an organizer admin changes venue, address, dates, times and time zone inline',
+  pg_temp.ops('00f003', pg_temp.page('p10c5-ops-admin', '{"venue_name": "Grand Ballroom", "address_line_1": "1 Main St", "city": "Dallas",
+    "state": "TX", "postal_code": "75201", "start_date": "2027-04-10", "end_date": "2027-04-11", "start_time": "09:30", "end_time": null,
+    "timezone": "America/Denver"}')));
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('only the changed fields were written; slug, status, visibility and other details kept',
+  (select venue_name = 'Grand Ballroom' and address_line_1 = '1 Main St' and city = 'Dallas' and state = 'TX' and postal_code = '75201'
+          and start_date = date '2027-04-10' and end_date = date '2027-04-11' and start_time = time '09:30' and end_time is null
+          and timezone = 'America/Denver' and slug = 't-p10c5-ops3' and status = 'published' and visibility = 'public'
+          and name = 'P10C5 Ops Event 3' and event_type = 'competition' and account_required_for_registration
+   from public.events where id = pg_temp.u('00f003')),
+  (select row_to_json(e)::text from (select venue_name, start_date, end_date, start_time, end_time, timezone, slug from public.events where id = pg_temp.u('00f003')) e));
+select pg_temp.chk('a request without venue or date changes leaves them alone',
+  (select venue_name = 'Main Studio' and start_date = date '2027-03-06' and timezone = 'America/Chicago' and short_description = 'Staff summary'
+   from public.events where id = pg_temp.u('00f002')));
+select pg_temp.expect_ok('writes without a user session (service role, migrations) are not affected by the guard',
+  $q$update public.events set city = 'Austin' where id = pg_temp.u('00f002')$q$);
+
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('an unknown time zone is refused',
+  pg_temp.ops('00f004', pg_temp.page('p10c5-ops-tz', '{"timezone": "Mars/Base"}')), 'valid dates, times and a time zone');
+select pg_temp.expect_msg('an impossible date is refused',
+  pg_temp.ops('00f004', pg_temp.page('p10c5-ops-date', '{"start_date": "2027-02-30"}')), 'valid dates, times and a time zone');
+select pg_temp.expect_msg('the end date cannot precede the start date',
+  pg_temp.ops('00f004', pg_temp.page('p10c5-ops-order', '{"start_date": "2027-03-10"}')), 'cannot be before the start date');
+select pg_temp.expect_msg('on a one-day event the end time must follow the start time',
+  pg_temp.ops('00f004', pg_temp.page('p10c5-ops-time', '{"end_date": "2027-03-06", "end_time": "17:00"}')), 'end time must be after the start time');
+select pg_temp.expect_msg('a start date and a time zone cannot be cleared',
+  pg_temp.ops('00f004', pg_temp.page('p10c5-ops-clear', '{"start_date": null}')), 'not valid');
+select pg_temp.expect_msg('the state must be a two-letter code',
+  pg_temp.ops('00f004', pg_temp.page('p10c5-ops-state', '{"state": "Texas"}')), 'venue or address is not valid');
+select pg_temp.expect_msg('slug, status and visibility cannot be changed here',
+  pg_temp.ops('00f004', pg_temp.page('p10c5-ops-slug', '{"slug": "taken"}')), 'event page details are not valid');
+select pg_temp.expect_msg('active registrations block venue and date changes (registrants are notified only by Edit event)',
+  pg_temp.ops('00f005', pg_temp.page('p10c5-ops-reg', '{"venue_name": "Elsewhere"}')), 'already has registrations');
+select pg_temp.expect_msg('additional event locations block venue changes',
+  pg_temp.ops('00f006', pg_temp.page('p10c5-ops-loc', '{"venue_name": "Elsewhere"}')), 'additional locations');
+select pg_temp.expect_msg('dated schedule items block date and time zone changes',
+  pg_temp.ops('00f007', pg_temp.page('p10c5-ops-sched', '{"timezone": "America/New_York"}')), 'dated schedule items or sessions');
+select pg_temp.expect_ok('a venue change is still allowed when only dated schedule items exist',
+  pg_temp.ops('00f007', pg_temp.page('p10c5-ops-sched-venue', '{"venue_name": "Annex"}')));
+select pg_temp.chk('rejected requests changed nothing on the event',
+  (select venue_name = 'Main Studio' and timezone = 'America/Chicago' and start_date = date '2027-03-06'
+   from public.events where id = pg_temp.u('00f004'))
+  and pg_temp.n($q$select count(*) from public.event_competition_programs where event_id in (pg_temp.u('00f004'), pg_temp.u('00f005'), pg_temp.u('00f006'))$q$) = 0);
+
+-- ============================================================================
+-- NDCA Multi-Dance: one entry, a prescribed set in the style's order, registration held
+-- ============================================================================
+select pg_temp.expect_msg('a Multi-Dance set must follow the style order',
+  pg_temp.ops('00f008', pg_temp.one('p10c5-multi-order', 'competition',
+    '{"key": "ballroom", "name": "Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
+      "dances": [{"key": "smooth_waltz"}, {"key": "smooth_foxtrot"}],
+      "categories": [{"type": "ndca_pro_am_multi", "style": "american_smooth", "divisions": [{"name": "Bronze · B"}],
+                      "dances": ["smooth_foxtrot", "smooth_waltz"], "pricing": {"model": "per_entry", "amount": 60}}]}'::jsonb)), 'American Smooth order');
+select pg_temp.expect_msg('a Multi-Dance set needs at least two dances',
+  pg_temp.ops('00f008', pg_temp.one('p10c5-multi-one', 'competition',
+    '{"key": "ballroom", "name": "Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
+      "dances": [{"key": "smooth_waltz"}],
+      "categories": [{"type": "ndca_pro_am_multi", "style": "american_smooth", "divisions": [{"name": "Bronze · B"}],
+                      "dances": ["smooth_waltz"], "pricing": {"model": "per_entry", "amount": 60}}]}'::jsonb)), 'at least 2 dances');
+select pg_temp.expect_msg('Open Amateur dances every dance of the style (NDCA X.B.4)',
+  pg_temp.ops('00f008', pg_temp.one('p10c5-multi-open', 'competition',
+    '{"key": "ballroom", "name": "Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
+      "dances": [{"key": "latin_cha_cha"}, {"key": "latin_rumba"}],
+      "categories": [{"type": "ndca_amateur_multi", "style": "international_latin",
+                      "divisions": [{"name": "Open Amateur · Adult", "axes": {"skill_level": "Open Amateur", "age_group": "Adult"}}],
+                      "dances": ["latin_cha_cha", "latin_rumba"], "pricing": {"model": "per_entry", "amount": 60}}]}'::jsonb)), 'Open Amateur dances every International Latin dance');
+select pg_temp.expect_msg('Multi-Dance is not offered in Additional American Style Dances',
+  pg_temp.ops('00f008', pg_temp.one('p10c5-multi-addl', 'competition',
+    '{"key": "ballroom", "name": "Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
+      "dances": [{"key": "addl_salsa"}, {"key": "addl_hustle"}],
+      "categories": [{"type": "ndca_pro_am_multi", "style": "american_additional", "divisions": [{"name": "Bronze · B"}],
+                      "dances": ["addl_hustle", "addl_salsa"], "pricing": {"model": "per_entry", "amount": 60}}]}'::jsonb)), 'Choose an available style');
+select pg_temp.expect_ok('a Pro/Am Multi-Dance and a full-set Open Amateur Multi-Dance are created',
+  pg_temp.ops('00f008', pg_temp.one('p10c5-multi-ok', 'competition',
+    '{"key": "ballroom", "name": "Ballroom", "adjudication": "adjudicated", "judging": "placements", "registration_fee": null,
+      "dances": [{"key": "smooth_waltz"}, {"key": "smooth_foxtrot"}, {"key": "latin_cha_cha"}, {"key": "latin_samba"}, {"key": "latin_rumba"},
+                 {"key": "latin_paso_doble"}, {"key": "latin_jive"}],
+      "categories": [{"type": "ndca_pro_am_multi", "style": "american_smooth",
+                      "divisions": [{"name": "Bronze · B", "skill_label": "Bronze", "age_label": "B", "axes": {"skill_level": "Bronze", "age_group": "B"}}],
+                      "dances": ["smooth_waltz", "smooth_foxtrot"], "pricing": {"model": "per_entry", "amount": 60}},
+                     {"type": "ndca_amateur_multi", "style": "international_latin",
+                      "divisions": [{"name": "Open Amateur · Adult", "axes": {"skill_level": "Open Amateur", "age_group": "Adult"}}],
+                      "dances": ["latin_cha_cha", "latin_samba", "latin_rumba", "latin_paso_doble", "latin_jive"], "pricing": {"model": "free", "amount": null}}]}'::jsonb)));
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('one Multi-Dance contest per set: multi_dance, prescribed set, every dance required, in style order, hold recorded',
+  (select c.contest_type = 'multi_dance' and c.entry_format = 'pro_am' and c.name = 'Pro/Am Multi-Dance — American Smooth'
+          and c.configuration #>> '{setup,event_form}' = 'multi_dance'
+          and c.configuration #>> '{setup,registration_hold}' = 'multi_dance_results_not_operational'
+          and r.dance_selection_mode = 'prescribed_set' and r.pricing_method = 'flat_entry' and r.base_entry_fee = 60
+          and (select string_agg(d.dance_key || ':' || dd.required::text, ',' order by dd.sort_order)
+               from public.event_competition_division_dances dd join public.event_competition_dances d on d.id = dd.dance_id
+               join public.event_competition_divisions v on v.id = dd.division_id where v.contest_id = c.id) = 'smooth_waltz:true,smooth_foxtrot:true'
+   from public.event_competition_contests c join public.event_competition_contest_registration_rules r on r.contest_id = c.id
+   where c.event_id = pg_temp.u('00f008') and c.entry_format = 'pro_am')
+  and pg_temp.n($q$select count(*) from public.event_competition_contests where event_id = pg_temp.u('00f008')$q$) = 2
+  and pg_temp.n($q$select count(*) from public.event_competition_contests where event_id = pg_temp.u('00f008') and contest_type = 'single_dance'$q$) = 0);
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('the Multi-Dance draft publishes', format('select public.publish_competition_program(%L)',
+  (select id from public.event_competition_programs where event_id = pg_temp.u('00f008'))));
+select pg_temp.expect_msg('Multi-Dance blocks opening registration (combined results are not operational)',
+  format('select public.open_competition_registration(%L)', (select id from public.event_competition_programs where event_id = pg_temp.u('00f008'))),
+  'COMP10C_REGISTRATION_HOLD');
+reset role;
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('the refused open left registration closed',
+  (select registration_status = 'closed' from public.event_competition_programs where event_id = pg_temp.u('00f008')));
+
+-- ============================================================================
 -- 10B path unchanged
 -- ============================================================================
+select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('create_simple_competition still works with studio_simple@1',
   $q$select public.create_simple_competition(pg_temp.u('00e007'), '{"profile_key": "studio_simple", "profile_version": 1,
       "request_key": "p10c5-legacy-0001", "preset": "country", "judging": "placements", "name": "Legacy", "division_preset": "levels_basic",
@@ -654,7 +857,7 @@ select pg_temp.expect_ok('create_simple_competition still works with studio_simp
 select pg_temp.chk('the legacy program has no setup configuration (no pricing guard impact)',
   (select configuration->'setup' is null and rules_profile_version = 1 from public.event_competition_programs where event_id = pg_temp.u('00e007')));
 select pg_temp.expect_msg('create_simple_competition cannot use the schema-2 profile',
-  $q$select public.create_simple_competition(pg_temp.u('00e002'), '{"profile_key": "studio_simple", "profile_version": 2,
+  $q$select public.create_simple_competition(pg_temp.u('00e002'), '{"profile_key": "studio_simple", "profile_version": 3,
       "request_key": "p10c5-legacy-0002", "preset": "country", "judging": "placements", "name": "Legacy",
       "categories": [{"type": "couples", "price": 10, "dances": ["two_step"]}], "divisions": [{"name": "Open"}]}'::jsonb)$q$,
   'Unknown competition type');

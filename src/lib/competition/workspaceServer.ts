@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
-import { canManageCompetition } from "@/lib/competition/access";
+import { canEditCompetitionEventOperations, canManageCompetition } from "@/lib/competition/access";
 
 export type CompetitionWorkspaceEvent = {
   id: string;
@@ -65,7 +65,10 @@ export async function loadCompetitionWorkspace(eventId: string) {
     organizerUserRole,
   });
 
-  return { supabase, context, event: event as CompetitionWorkspaceEvent, canManage };
+  // Venue, dates, times and time zone need an owner/admin role (the database enforces the same rule).
+  const canEditOperations = canManage && canEditCompetitionEventOperations({ studioRole: context.studioRole ?? null, organizerUserRole });
+
+  return { supabase, context, event: event as CompetitionWorkspaceEvent, canManage, canEditOperations };
 }
 
 /** Same as loadCompetitionWorkspace but 404s for anyone who cannot manage the competition. */

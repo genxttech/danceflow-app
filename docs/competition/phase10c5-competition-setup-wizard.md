@@ -63,6 +63,13 @@ Dance style is a category dimension. The profile lists the styles with their dan
 
 An offering entered in two styles becomes two categories, for example "Pro/Am — American Smooth" and "Pro/Am — International Latin". Each category accepts only its style's dances; organizer-added dances belong only to Additional American Style Dances. Showdance is entered in the four primary styles (NDCA XI.B). Withdrawing a style removes its dances.
 
+### NDCA Multi-Dance
+
+- **Single-Dance and Multi-Dance are separate offerings** (NDCA names them separately, III.A.3.b): Pro/Am Single-Dance, Pro/Am Multi-Dance, Amateur Single-Dance, Amateur Multi-Dance.
+- **One entry, a prescribed set.** A Multi-Dance category uses the existing `multi_dance` contest type and the `prescribed_set` dance mode: one entry dances every dance of the set (at least two, from one of the four primary styles), in the style's order. It is never expanded into Single-Dance entries, and the 10D planner schedules it as one heat holding the whole set.
+- **Ages by classification.** A–S4 are the Pro/Am Multi-Dance age categories (II.B.7.f) and are required there; Pro/Am Single-Dance offers the youth ages only (adult Single-Dance ages are not specified by NDCA). Open Amateur is offered only as Multi-Dance and must dance every dance of the style (X.B.4).
+- **Not operational yet, and said so.** Combined results, accumulated-mark recalls (III.D.44) and the Skating multi-dance result are not computed; Multi-Dance categories carry a registration hold, so registration cannot open. Rules recorded as future requirements: II.B.7.d, III.D.14.b, III.D.44, III.D.11 / III.C.3.b(1)(d), IX.A.1.b(1)/d(1), III.D.36. Scholarships, prizes, Championship designations, cross-year eligibility and UCWDC Overall are not part of this phase; UCWDC Overall is a different model and is not normalized into NDCA Multi-Dance.
+
 ### Source conflicts and fail-closed decisions
 
 The profile records `source_conflicts`:
@@ -74,7 +81,13 @@ Pro/Am Theatrical and Pro/Am Exhibition are Pro/Am performance divisions (II.B.7
 
 ## Event details & presentation
 
-The competition runs on an existing event, so this step edits that event's page rather than creating a second one.
+The competition runs on an existing event, so this step edits that event rather than creating a second one, and the organizer no longer has to leave the wizard for Edit event.
+
+- **Venue, address, dates, times and time zone** are edited inline (the event's own columns; the separate `event_locations` list is never touched). Only fields that change are written, in the same transaction as the draft. Times are event-local; the registration dates are read in the event's time zone, the new one when this setup changes it.
+- **Owner decision: owners and admins only.** Only studio owners/admins and organizer owners/admins may change them. Organizer staff, instructors and platform support keep their existing access to everything else. Enforced three times: the wizard (read-only fields with the reason), the server action (`deriveDraft` refuses), and the database (`can_edit_competition_event_operations` in `create_competition_draft`, plus a guard trigger on `public.events`).
+- **Database drift found.** The `public.events` update policies exist in DEV but not in repository migrations, and they let any active studio role (instructors included) and organizer staff update any column, venue and dates included. For competition events (type `competition`, or any event with a competition program) the new `protect_competition_event_operations` trigger limits changes to venue, address, dates, times, time zone and event type to the roles above, whatever path writes them (Edit event, direct table updates). Writes without a user session (service role) are unaffected; ordinary events are unaffected.
+- **Dependent records.** Venue, dates and time zone are not changed here (the database refuses, and the wizard explains) while the event has active registrations (Edit event notifies registrants), additional locations (venue), or dated schedule items, location sessions, group-class sessions or competition schedule sessions (dates and time zone). Competition heats cannot exist yet, because the wizard runs only before any competition program exists.
+- **Never changed:** slug, publication status, visibility, registration-required and account-required flags (except the registration basics this step already sets).
 
 - **Starts from the event.** Title, short summary, description and cover image start from the event's current values (the same columns the public event page reads). Highlights and important registration information are new, optional fields.
 - **Only changes are written.** `create_competition_draft` receives only the fields that differ from the event as stored when the draft is created (the server re-reads the event and re-derives the change set). Unchanged fields are never written. The ordinary event form's `updateEventAction` was not reused: it rewrites every event column and replaces tags, styles, locations, schedule and coaches.
@@ -188,18 +201,25 @@ The current values:
 
 ## Database
 
-The migration is `20261113090000_phase10c5_competition_draft.sql`, with a rollback that:
+Two migrations, applied in order:
 
-- refuses while pricing is pending;
-- restores `open_competition_registration` exactly;
-- drops the new functions;
-- retires v2.
+1. **`20261113090000_phase10c5_competition_draft.sql`** (unchanged since candidate `3bd9b9c4`; applied on DEV). It seeds `studio_simple@2`, creates `create_competition_draft` and `set_competition_category_pricing`, adds the event page columns and the pricing-pending guard. Its rollback refuses while pricing is pending, restores `open_competition_registration` exactly, drops the functions and the columns (only while unused) and retires v2.
+2. **`20261114090000_phase10c5_profile_v3.sql`** (forward only). It seeds `studio_simple@3`, adds the event operations guard, replaces `create_competition_draft` and adds the registration-hold guard to `open_competition_registration`. Its rollback refuses while any category has a registration hold, restores both 20261113090000 functions byte-for-byte, drops the guard and retires (never deletes) v3. It never reads, changes or retires v2.
 
-The incorrect pre-correction v2 existed only on DEV and was never referenced. It was removed by a one-off DEV-only script that is not part of the migration, before the corrected v2 was seeded.
+**Profile versions are immutable once referenced.** On DEV, `studio_simple@2` is referenced by an owner walkthrough draft, so the corrected profile is published as `studio_simple@3` instead of replacing v2:
+
+- New wizard setups use v3: the app loads v3, and `create_competition_draft` refuses `studio_simple` versions below 3 for new setups.
+- Existing programs keep resolving the version they were created from (the overview and settings pages look the profile up by the program's own version), and nothing migrates them.
+- A fresh database (PROD) applies both files: v2 is seeded by the first and stays in the catalog unused, v3 by the second. Nothing in the second file depends on v2 existing.
+- Earlier, an incorrect pre-correction v2 that was never referenced existed only on DEV; it was removed by a one-off DEV-only script that is not part of any migration. That path is no longer used.
+
+**Event operations guard (additive).** `can_edit_competition_event_operations(uuid)` and the `protect_competition_event_operations` trigger on `public.events`; the v3 rollback drops both.
+
+**Multi-Dance registration hold.** `open_competition_registration` now also refuses while a category carries `configuration.setup.registration_hold` (`COMP10C_REGISTRATION_HOLD`); NDCA Multi-Dance categories carry one because combined results are not computed.
 
 **Event page columns (additive schema change).** `public.events` gains `public_highlights text[] not null default '{}'` (at most 6) and `public_registration_info text` (at most 2,000 characters). The migration refuses to run if they already exist. The rollback drops them only while no event uses them (it refuses otherwise). Release order: the PROD migration must be applied before the app is promoted, because the public event page selects these columns.
 
-**Ballroom correction (no schema change).** Dance styles, origins, source conflicts and the NDCA classifications are profile data inside the unreleased `studio_simple@2`. The existing `contest_type` and `entry_format` values already cover them (Student/Student uses `custom`). The only function change is in `create_competition_draft` (style validation, per-style uniqueness, contest naming, `configuration.setup.style`). No table, constraint or index changes. The per-program category limit is now 60, because one offering entered in several styles counts once per style.
+**Ballroom correction (no schema change).** Dance styles, origins, source conflicts and the NDCA classifications are profile data inside the unreleased Studio / Custom profile (now `studio_simple@3`). The existing `contest_type` and `entry_format` values already cover them (Student/Student uses `custom`). The only function change is in `create_competition_draft` (style validation, per-style uniqueness, contest naming, `configuration.setup.style`). No table, constraint or index changes. The per-program category limit is now 60, because one offering entered in several styles counts once per style.
 
 ## Carry-forwards
 

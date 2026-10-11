@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { STUDIO_CUSTOM_V2_DEFAULTS as P } from "../studioCustomV2";
+import { STUDIO_CUSTOM_V3_DEFAULTS as P } from "../studioCustomV3";
 import { feedbackModesFor, feedbackOutputs, officialResultOutputs, offeringOutputs } from "../evaluation";
 import { judgingSummary } from "../draft";
 

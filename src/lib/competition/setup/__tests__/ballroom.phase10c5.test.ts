@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STUDIO_CUSTOM_V2_DEFAULTS as P } from "../studioCustomV2";
+import { STUDIO_CUSTOM_V3_DEFAULTS as P } from "../studioCustomV3";
 import {
   addCustomDance,
   chooseAdjudication,
@@ -30,7 +30,7 @@ import { withDivisions, withOfferings, TEST_EVENT } from "./divisionTestHelpers"
  * proficiency structures are classification-specific. Governing-body offerings are never shared across styles.
  */
 
-const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", profileVersion: 2, requestKey: "request-key-0001" };
+const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", profileVersion: 3, requestKey: "request-key-0001" };
 const labels = (scheme: string, axis: string) => P.divisionSchemes[scheme].axes.find((item) => item.key === axis)!.values.map((value) => value.label);
 const YOUTH = ["Pre-Teen I", "Pre-Teen II", "Junior I", "Junior II", "Youth"];
 
@@ -41,9 +41,11 @@ function ballroom(purpose: "competition" | "showcase" | "competition_showcase" =
 describe("Ballroom offerings are NDCA competition classifications", () => {
   it("offers Pro/Am, Amateur, Mixed Amateur, Student/Student, Professional and Mixed Professional distinctly, and no generic Couples", () => {
     const formats = P.programs.ballroom.formats.map((format) => [format, P.categoryTypes[format].label, P.categoryTypes[format].entry_format]);
-    expect(formats.slice(0, 6)).toEqual([
-      ["ndca_pro_am", "Pro/Am", "pro_am"],
-      ["ndca_amateur", "Amateur", "couple"],
+    expect(formats.slice(0, 8)).toEqual([
+      ["ndca_pro_am", "Pro/Am Single-Dance", "pro_am"],
+      ["ndca_pro_am_multi", "Pro/Am Multi-Dance", "pro_am"],
+      ["ndca_amateur", "Amateur Single-Dance", "couple"],
+      ["ndca_amateur_multi", "Amateur Multi-Dance", "couple"],
       ["ndca_mixed_amateur", "Mixed Amateur", "mixed_amateur"],
       ["ndca_student_student", "Student/Student", "custom"],
       ["ndca_professional", "Professional", "professional"],
@@ -67,7 +69,7 @@ describe("Ballroom offerings are NDCA competition classifications", () => {
 
   it("performances are separate offerings: Showdance, Cabaret, Theatre Arts Compulsory, Pro/Am Theatrical and Exhibition", () => {
     expect(offeringGroups(P, "ballroom", "competition").map((group) => [group.label, group.formats])).toEqual([
-      ["Partnerships", ["ndca_pro_am", "ndca_amateur", "ndca_mixed_amateur", "ndca_student_student", "ndca_professional", "ndca_mixed_professional"]],
+      ["Partnerships", ["ndca_pro_am", "ndca_pro_am_multi", "ndca_amateur", "ndca_amateur_multi", "ndca_mixed_amateur", "ndca_student_student", "ndca_professional", "ndca_mixed_professional"]],
       ["Youth", ["ndca_solo_star"]],
       ["Performances", ["ndca_showdance", "ndca_cabaret", "ndca_theatre_arts", "ndca_pro_am_theatrical", "ndca_pro_am_exhibition"]],
       ["Teams", ["ndca_formation", "ndca_team_match"]],
@@ -128,7 +130,7 @@ describe("dance style is a category dimension that constrains dances", () => {
     const answers = toggleFormat(ballroom(), P, "ballroom", "ndca_pro_am");
     expect(answers.programs.ballroom.formats.ndca_pro_am).toMatchObject({ danceStyles: [], dances: [], divisions: { skill_level: [], age_group: [] } });
     expect(formatDanceOptions(P, "ballroom", answers.programs.ballroom, "ndca_pro_am")).toEqual([]);
-    expect(stepErrors(answers, P, "offerings")).toEqual(["Choose at least one style for Ballroom Pro/Am."]);
+    expect(stepErrors(answers, P, "offerings")).toEqual(["Choose at least one style for Ballroom Pro/Am Single-Dance."]);
   });
 
   it("each chosen style becomes its own category holding only that style's dances", () => {
@@ -139,15 +141,15 @@ describe("dance style is a category dimension that constrains dances", () => {
     const draft = deriveDraft(answers, P, CONTEXT);
     expect(draft.errors).toEqual({});
     expect(draft.programs[0].categories.map((category) => [category.label, category.dances])).toEqual([
-      ["Pro/Am — International Latin", ["Cha Cha", "Jive"]],
-      ["Pro/Am — American Smooth", ["Waltz", "Tango", "Foxtrot"]],
+      ["Pro/Am Single-Dance — International Latin", ["Cha Cha", "Jive"]],
+      ["Pro/Am Single-Dance — American Smooth", ["Waltz", "Tango", "Foxtrot"]],
     ]);
     expect(draft.payload!.programs[0].categories.map((category) => [category.type, category.style, category.dances])).toEqual([
       ["ndca_pro_am", "international_latin", ["latin_cha_cha", "latin_jive"]],
       ["ndca_pro_am", "american_smooth", ["smooth_waltz", "smooth_tango", "smooth_foxtrot"]],
     ]);
     expect(draft.counts).toMatchObject({ categories: 2, divisions: 4, offerings: 2 * 2 + 2 * 3 });
-    expect(draft.pricingLines).toContain("Ballroom Pro/Am: $25.00 per dance");
+    expect(draft.pricingLines).toContain("Ballroom Pro/Am Single-Dance: $25.00 per dance");
   });
 
   it("a dance outside the chosen styles cannot be chosen, and withdrawing a style removes its dances", () => {
@@ -165,9 +167,9 @@ describe("dance style is a category dimension that constrains dances", () => {
   it("every chosen style needs its own dances, and a tampered dance outside its styles is refused", () => {
     let answers = withOfferings(ballroom(), P, "ballroom", ["ndca_pro_am"], ["american_smooth"]);
     answers = toggleFormatStyle(answers, P, "ballroom", "ndca_pro_am", "international_standard");
-    expect(stepErrors(answers, P, "dances")).toEqual(["Choose at least one dance for Ballroom Pro/Am — International Standard."]);
+    expect(stepErrors(answers, P, "dances")).toEqual(["Choose at least one dance for Ballroom Pro/Am Single-Dance — International Standard."]);
     const tampered = updateFormat(answers, "ballroom", "ndca_pro_am", { danceStyles: ["american_smooth"], dances: ["smooth_waltz", "rhythm_swing"] });
-    expect(stepErrors(tampered, P, "dances")).toContain("A dance chosen for Ballroom Pro/Am is not part of its chosen styles.");
+    expect(stepErrors(tampered, P, "dances")).toContain("A dance chosen for Ballroom Pro/Am Single-Dance is not part of its chosen styles.");
     expect(deriveDraft(withDivisions(updateFormat(tampered, "ballroom", "ndca_pro_am", { pricing: "free" }), P), P, CONTEXT).payload).toBeNull();
   });
 
@@ -214,31 +216,49 @@ describe("dance style is a category dimension that constrains dances", () => {
     let answers = withOfferings(ballroom(), P, "ballroom", P.programs.ballroom.formats, (P.programs.ballroom.styles ?? []).map((style) => style.key));
     answers = addCustomDance(answers, P, "ballroom", "Carolina Shag");
     const categories = P.programs.ballroom.formats.reduce((sum, format) => sum + Math.max(1, formatCategories(P, "ballroom", format, answers.programs.ballroom.formats[format]!).length), 0);
-    expect(categories).toBe(7 * 5 + 4 + 6);
+    // 7 single-dance offerings in 5 styles, Showdance and 2 Multi-Dance offerings in the 4 primary styles, 6 unstyled.
+    expect(categories).toBe(7 * 5 + 4 + 2 * 4 + 6);
     expect(categories).toBeLessThanOrEqual(P.limits.categories);
     expect(stepErrors(answers, P, "offerings")).toEqual([]);
   });
 });
 
 describe("age and proficiency structures are classification-specific", () => {
-  it("Pro/Am: levels required (II.B.7.c); ages optional -- youth amateur ages (II.B.8.a) and A–S4 (II.B.7.f)", () => {
+  it("Pro/Am Single-Dance: levels required (II.B.7.c); youth ages optional (II.B.8.a); A–S4 are not offered", () => {
     expect(P.programs.ballroom.division_schemes.ndca_pro_am).toBe("ballroom_proam");
     expect(labels("ballroom_proam", "skill_level")).toEqual(["Newcomer", "Beginner", "Intermediate", "Advanced", "Pre-Bronze", "Bronze", "Silver", "Gold", "Gold Star", "Supreme Gold"]);
-    expect(labels("ballroom_proam", "age_group")).toEqual([...YOUTH, "A", "B", "C", "S1", "S2", "S3", "S4"]);
+    expect(labels("ballroom_proam", "age_group")).toEqual(YOUTH);
     expect(P.divisionSchemes.ballroom_proam.axes.map((axis) => [axis.key, axis.required])).toEqual([["skill_level", true], ["age_group", false]]);
-    expect(P.divisionSchemes.ballroom_proam.axes[1].note).toContain("Multi-Dance");
+    expect(P.divisionSchemes.ballroom_proam.axes[1]).toMatchObject({ allow_custom: true });
+    expect(P.divisionSchemes.ballroom_proam.note).toContain("NOT SPECIFIED IN PROVIDED SOURCE");
+    expect(P.divisionSchemes.ballroom_proam.note).toContain("A–S4 are the Multi-Dance categories (II.B.7.f)");
     const youth = P.divisionSchemes.ballroom_proam.axes[1].values.find((value) => value.label === "Junior I");
     expect(youth?.sources?.map((source) => source.section)).toEqual(["II.B.8.a", "X.A.1"]);
   });
 
-  it("Amateur: a proficiency level in an age category, both required (NDCA X)", () => {
-    expect(labels("ballroom_amateur", "skill_level")).toEqual(["Bronze", "Silver", "Gold", "Novice", "Pre-Championship", "Open Amateur"]);
+  it("Pro/Am Multi-Dance: A–S4 are the Multi-Dance age categories (II.B.7.f), required with the level", () => {
+    expect(P.programs.ballroom.division_schemes.ndca_pro_am_multi).toBe("ballroom_proam_multi");
+    expect(labels("ballroom_proam_multi", "skill_level")).toEqual(labels("ballroom_proam", "skill_level"));
+    expect(labels("ballroom_proam_multi", "age_group")).toEqual([...YOUTH, "A", "B", "C", "S1", "S2", "S3", "S4"]);
+    expect(P.divisionSchemes.ballroom_proam_multi.axes.map((axis) => [axis.key, axis.label, axis.required])).toEqual([
+      ["skill_level", "Levels", true], ["age_group", "Multi-Dance age categories", true],
+    ]);
+    const b = P.divisionSchemes.ballroom_proam_multi.axes[1].values.find((value) => value.label === "B");
+    expect(b).toMatchObject({ basis: "source_grounded", eligibility: { min_age: 36 } });
+    expect(b?.sources?.[0]).toMatchObject({ section: "II.B.7.f" });
+  });
+
+  it("Amateur: a proficiency level in an age category, both required (NDCA X); Open Amateur only as Multi-Dance (X.B.4)", () => {
+    expect(labels("ballroom_amateur", "skill_level")).toEqual(["Bronze", "Silver", "Gold", "Novice", "Pre-Championship"]);
+    expect(labels("ballroom_amateur_multi", "skill_level")).toEqual(["Bronze", "Silver", "Gold", "Novice", "Pre-Championship", "Open Amateur"]);
+    expect(P.divisionSchemes.ballroom_amateur_multi.axes[0].values.filter((value) => value.requires_all_style_dances).map((value) => value.label)).toEqual(["Open Amateur"]);
+    expect(labels("ballroom_amateur_multi", "age_group")).toEqual(labels("ballroom_amateur", "age_group"));
     expect(P.divisionSchemes.ballroom_amateur.axes[0].label).toBe("Proficiency levels");
     expect(labels("ballroom_amateur", "age_group")).toEqual([...YOUTH, "Adult", "Senior I", "Senior II", "Senior III", "Senior IV", "Pre-Teen", "Junior", "Senior", "Under 21"]);
     expect(P.divisionSchemes.ballroom_amateur.axes.every((axis) => axis.required)).toBe(true);
     let answers = withOfferings(ballroom(), P, "ballroom", ["ndca_amateur"], ["international_standard"]);
     answers = toggleDivisionValue(answers, P, "ballroom", "ndca_amateur", "skill_level", "Silver");
-    expect(stepErrors(answers, P, "divisions")).toContain("Choose at least one age division for Ballroom Amateur.");
+    expect(stepErrors(answers, P, "divisions")).toContain("Choose at least one age division for Ballroom Amateur Single-Dance.");
     answers = toggleDivisionValue(answers, P, "ballroom", "ndca_amateur", "age_group", "Adult");
     expect(formatDivisions(P, "ballroom", "ndca_amateur", answers.programs.ballroom.formats.ndca_amateur!).map((division) => division.name)).toEqual(["Silver · Adult"]);
   });

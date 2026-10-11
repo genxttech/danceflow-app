@@ -19,7 +19,8 @@ vi.mock("@/app/app/events/[id]/competition/simpleActions", () => ({
   removeDivisionAction: vi.fn(),
 }));
 
-import { STUDIO_CUSTOM_V2_DEFAULTS } from "@/lib/competition/setup/studioCustomV2";
+import { STUDIO_CUSTOM_V3_DEFAULTS } from "@/lib/competition/setup/studioCustomV3";
+import { EMPTY_PRESENTATION } from "@/lib/competition/setup/draft";
 import CompetitionNav from "@/app/app/events/[id]/competition/CompetitionNav";
 import PublishForm from "@/app/app/events/[id]/competition/PublishForm";
 import CompetitionSetupWizard from "@/app/app/events/[id]/competition/new/CompetitionSetupWizard";
@@ -43,10 +44,12 @@ describe("workspace components render", () => {
       createElement(CompetitionSetupWizard, {
         eventId: "e1",
         event: { name: "Spring Showcase", dates: "Mar 6, 2027", times: "6:00 PM", venue: "Main Studio", existingWindow: null },
-        profile: { key: "studio_simple", version: 2 },
-        defaults: STUDIO_CUSTOM_V2_DEFAULTS,
+        profile: { key: "studio_simple", version: 3 },
+        defaults: STUDIO_CUSTOM_V3_DEFAULTS,
         initialRegistration: { opens: "", closes: "", accountRequired: true },
-        initialPresentation: { name: "Spring Showcase", summary: "", description: "", coverImageUrl: "", highlights: [], registrationInfo: "" },
+        initialPresentation: { ...EMPTY_PRESENTATION, name: "Spring Showcase", startDate: "2027-03-06" },
+        canEditOperations: true,
+        operationsLocks: { activeRegistrations: false, additionalLocations: false, datedRecords: false },
         requestKey: "request-key-0001",
       }),
     );
