@@ -11,14 +11,17 @@ configuration without owner approval. A workflow that cannot be executed is repo
 - A separate local Supabase project (Supabase CLI, Docker), e.g. `danceflow-e2e-qa` on `127.0.0.1:55321`, loaded with
   the DEV `public` schema **schema-only**. It uses Supabase's local demo keys; no DEV/PROD key is involved.
 - A schema-only load has **no reference data and no storage buckets**. Apply the reference seed once per stack (it is
-  idempotent):
+  idempotent). The seed refuses to run unless the session declares the local QA stack, so an accidental paste into a
+  DEV/PROD SQL editor aborts without changing anything:
 
   ```bash
-  docker exec -i supabase_db_danceflow-e2e-qa psql -U postgres -v ON_ERROR_STOP=1 -1 < e2e/setup/qa-reference-data.sql
+  docker exec -i -e PGOPTIONS="-c danceflow.qa_stack=local" supabase_db_danceflow-e2e-qa     psql -U postgres -v ON_ERROR_STOP=1 -1 < e2e/setup/qa-reference-data.sql
   ```
 
   It provides:
-  - `accounting_categories` (copied from the migrations that seed DEV/PROD). Without them the `event_payments`
+  - `accounting_categories`, extracted verbatim and in order from every migration that seeds that table
+    (20260715 insert + its entry_type/normal_balance backfill, 20260720 retail, 20260722 commerce, 20261109
+    competition); regenerate the file when a migration adds categories. Without them the `event_payments`
     accounting trigger raises `Unknown accounting category: event_ticket_revenue` and real payment settlement rolls
     back its payment rows.
   - storage bucket `document-files`: private, **15 MB** limit, as configured in DEV/PROD (the bucket is not created by
@@ -85,7 +88,10 @@ E2E_STRIPE_TEST_SECRET_KEY=<sk_test_...> E2E_STRIPE_TEST_CONNECTED_ACCOUNT=<acct
 npx playwright test e2e/tests/ticket-early-bird-stripe-test-mode.spec.ts --project chromium
 ```
 
-The Stripe spec skips itself without a test key and refuses live keys, non-local databases and non-local app URLs.
+The Stripe spec skips itself (it constructs no Stripe client) without a test key (`sk_test_` or restricted `rk_test_`)
+and a test connected account, and refuses live keys, non-local databases and non-local app URLs. Fixtures are
+generated with ids up front; a failed creation cleans up what it wrote, and cleanup (including signature rows and
+signed files under `studios/<run studio>/`) checks every delete and fails loudly if anything is left.
 
 ## 5. Dedicated Playwright CI environment (not yet configured)
 
@@ -139,6 +145,10 @@ shown price are covered by unit/guard tests and the native API run.
 
 **Webhook ordering for web cart payments** (existing behaviour): Stripe can deliver `payment_intent.succeeded` before
 `checkout.session.completed`. The PaymentIntent is only bound to the order by the session event, so that first
-delivery is answered `500 event_payment_reference_mismatch` and Stripe retries it; the retry succeeds and re-applies
-the paid state (same amount, no duplicate payment rows, tickets or contacts; `paid_at` can advance by seconds). The
-spec asserts the idempotent outcome; reducing the noisy first failure is a follow-up for the payments hardening slice.
+delivery is answered `500 event_payment_reference_mismatch` and recorded `failed` in the webhook ledger. The order is
+settled by `checkout.session.completed`. In production Stripe retries the failed delivery automatically with backoff
+(`stripe listen` does not retry, so locally the spec re-delivers it via Stripe's event retry); that later delivery
+succeeds and re-applies the paid state -- same amount, no duplicate payment rows, tickets or contacts, but `paid_at` is
+rewritten. **This is tracked as a priority payment-integrity defect** (every web cart payment produces a 500, a
+failed-ledger row and Stripe retries, which mask real failures and can trigger Stripe endpoint-failure alerts); the fix
+is a separate payments work item, not this QA change.

@@ -9,6 +9,7 @@ import {
   readEventPurchase,
   readProviderEvents,
   setEarlyBirdCutoff,
+  studentAccessToken,
   type StripeTestModeFixture,
 } from "../helpers/stripeTestModeFixture";
 import { completeCurrentSigningPage, waitForResumeAfterSigningToSettle } from "../helpers/signingPage";
@@ -35,16 +36,18 @@ const TEST_KEY = process.env.E2E_STRIPE_TEST_SECRET_KEY ?? "";
 const ACCOUNT = process.env.E2E_STRIPE_TEST_CONNECTED_ACCOUNT ?? "";
 
 test.describe("Early-bird pricing through real Stripe test-mode payments (CI-A)", () => {
-  test.skip(!TEST_KEY.startsWith("sk_test_") || !/^acct_[A-Za-z0-9]+$/.test(ACCOUNT), "Stripe TEST key and test connected account not provided");
+  // Test-mode keys only (secret or restricted). Without them the whole file skips; nothing Stripe-related is constructed.
+  test.skip(!/^(sk|rk)_test_[A-Za-z0-9]+$/.test(TEST_KEY) || !/^acct_[A-Za-z0-9]+$/.test(ACCOUNT), "Stripe TEST key and test connected account not provided");
   let config: E2EConfig;
   let fixture: StripeTestModeFixture;
-  const stripe = new Stripe(TEST_KEY);
+  let stripe: Stripe; // created in beforeAll, only when the suite actually runs
   const onAccount = { stripeAccount: ACCOUNT };
 
   test.beforeAll(async () => {
     config = loadE2EConfig();
     if (!/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(config.supabaseUrl)) throw new Error("refusing: not the local QA Supabase");
     if (!/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(config.baseUrl)) throw new Error("refusing: not a local app");
+    stripe = new Stripe(TEST_KEY);
     const balance = await stripe.balance.retrieve();
     if (balance.livemode) throw new Error("refusing: Stripe key is live");
     fixture = await createStripeTestModeFixture(config, { connectedAccountId: ACCOUNT });
@@ -146,7 +149,7 @@ test.describe("Early-bird pricing through real Stripe test-mode payments (CI-A)"
     const siblingOrderId = (await readEventPurchase(config, fixture.events.orgEarly.id)).orders.find((o) => o.id !== a.orderId)!.id as string;
     const siblingBefore = orderSlice(await readEventPurchase(config, fixture.events.orgEarly.id), siblingOrderId);
 
-    const startedAt = Math.floor(Date.now() / 1000) - 5;
+    const startedAt = Math.floor(Date.now() / 1000) - 120; // tolerate local/Stripe clock skew
     await payCheckoutSession(a.session.id);
     const settled = orderSlice(await waitForOrderPaid(fixture.events.orgEarly.id, a.orderId), a.orderId);
     const session = await stripe.checkout.sessions.retrieve(a.session.id, { expand: ["payment_intent"] }, onAccount);
@@ -231,7 +234,9 @@ test.describe("Early-bird pricing through real Stripe test-mode payments (CI-A)"
   });
 
   test("W3 studio-hosted event, cutoff crosses while the form is open: refused with no order/session/lead; resubmitting pays the shown regular price with no DanceFlow fee and creates one studio lead", async ({ page }) => {
-    await setEarlyBirdCutoff(config, fixture.tickets.race, new Date(Date.now() + 45_000).toISOString());
+    // Cutoff far enough ahead to survive a cold compile; the wait below is computed from the stored cutoff.
+    const cutoffIso = new Date(Date.now() + 90_000).toISOString();
+    await setEarlyBirdCutoff(config, fixture.tickets.race, cutoffIso);
     await assignUniqueSourceIp(page);
     await page.goto(`/events/${fixture.events.studioRace.slug}`);
     await page.getByText("Open Registration Form").click();
@@ -239,7 +244,7 @@ test.describe("Early-bird pricing through real Stripe test-mode payments (CI-A)"
     await cartForm(page).locator(`input[name="ticketQuantityDisplay-${fixture.tickets.race}"]`).fill("1");
     await expect(cartForm(page).locator("details", { hasText: "Your checkout" }).getByText("$30.00").first()).toBeVisible();
     await fillBuyer(page, "w3");
-    await page.waitForTimeout(50_000);
+    await page.waitForTimeout(Math.max(0, Date.parse(cutoffIso) - Date.now() + 2_000));
     await cartForm(page).locator('button[type="submit"]').click();
     await page.waitForURL(/error=ticket_price_changed/, { timeout: 60_000 });
     await expect(page.getByText(/You have not been charged/)).toBeVisible();
@@ -288,12 +293,7 @@ test.describe("Early-bird pricing through real Stripe test-mode payments (CI-A)"
   });
 
   test("W5 native checkout API (PaymentSheet mode): lower shown price refused (409, no order, no contact); early-bird PaymentIntent paid with Stripe's test method settles via signed webhook", async ({ request }) => {
-    const tokenResponse = await request.post(`${config.supabaseUrl}/auth/v1/token?grant_type=password`, {
-      headers: { apikey: config.supabaseServiceRoleKey, "content-type": "application/json" },
-      data: { email: fixture.student.email, password: fixture.student.password },
-    });
-    expect(tokenResponse.ok()).toBe(true);
-    const accessToken = (await tokenResponse.json()).access_token as string;
+    const accessToken = await studentAccessToken(config, fixture);
     const checkout = (expectedUnitPriceCents: number) =>
       request.post(`/api/student/events/${fixture.events.orgNative.id}/checkout`, {
         headers: { authorization: `Bearer ${accessToken}`, "x-forwarded-for": `198.18.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` },

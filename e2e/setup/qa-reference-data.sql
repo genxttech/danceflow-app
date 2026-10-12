@@ -1,20 +1,25 @@
--- DanceFlow LOCAL QA reference data (isolated local Supabase QA stack ONLY).
+-- DanceFlow LOCAL QA reference data -- isolated local Supabase QA stack ONLY. Idempotent.
 --
--- NEVER run against DEV (epdrtzcydvnoidwrepqz) or PROD (hvsujyfbftfffxpfmlpb). DEV and PROD already hold this data.
+-- Refuses to run unless the session explicitly declares the local QA stack:
+--   docker exec -i -e PGOPTIONS="-c danceflow.qa_stack=local" supabase_db_<qa-project> --     psql -U postgres -v ON_ERROR_STOP=1 -1 < e2e/setup/qa-reference-data.sql
+-- DEV and PROD already hold this data and must never receive this file (an accidental paste into a SQL editor
+-- aborts at the guard below and changes nothing).
 --
--- A QA stack loaded schema-only (pg_dump --schema-only of DEV public) has no reference rows and no storage buckets.
--- Without them, real payment settlement and document signing fail in ways that are artifacts of the QA stack, not app
--- behaviour:
---   * accounting_categories: the event_payments accounting trigger (accounting_upsert_entry) raises
---     "Unknown accounting category: event_ticket_revenue", which rolls back the webhook's event_payments insert.
---   * storage bucket document-files: private, 15 MB file size limit (as configured in DEV/PROD; the bucket is not
---     created by any repo migration). e2e/tests/registration-failure-document-setup.spec.ts relies on the limit.
---
--- The category rows are copied verbatim from the repo migrations that seed DEV/PROD:
---   src/lib/supabase/migrations/20260715_accounting_foundation_hardening_v1_production_ready.sql
---   src/lib/supabase/migrations/20261109090000_phase10c_competitor_registration.sql
--- If a migration adds categories, add them here too. Idempotent: safe to re-run.
+-- Why: a schema-only QA stack has no reference rows and no storage buckets, so real payment settlement fails with
+-- "Unknown accounting category" (event_payments accounting trigger) and document-size limits are absent.
+-- The accounting_categories statements below are extracted verbatim, in migration order, from every migration that
+-- seeds that table (generated; re-generate when a migration adds categories).
 
+do $$
+begin
+  if coalesce(current_setting('danceflow.qa_stack', true), '') <> 'local' then
+    raise exception 'refusing: qa-reference-data.sql runs only on the local QA stack (danceflow.qa_stack=local not set)';
+  end if;
+end
+$$;
+
+
+-- from 20260715_accounting_foundation_hardening_v1_production_ready.sql (line 174)
 insert into public.accounting_categories (
   key, label, entry_class, statement_section, normal_direction,
   allowed_external_account_types, blocks_auto_post_when_unmapped
@@ -73,6 +78,152 @@ on conflict (key) do update set
   blocks_auto_post_when_unmapped = excluded.blocks_auto_post_when_unmapped,
   active = true,
   updated_at = now();
+
+-- from 20260715_accounting_foundation_hardening_v1_production_ready.sql (line 234)
+update public.accounting_categories
+set
+  entry_type = case
+    when key = 'stripe_processing_fee' then 'processing_fee'
+    when key in ('danceflow_platform_fee', 'organizer_platform_fee') then 'platform_fee'
+    when key = 'account_credit' then 'credit_applied'
+    when entry_class = 'revenue' then 'revenue'
+    when entry_class = 'refund' then 'refund'
+    when entry_class = 'expense' then 'expense'
+    else 'adjustment'
+  end,
+  normal_balance = normal_direction,
+  sort_order = case
+    when entry_class = 'revenue' then 100
+    when entry_class = 'refund' then 200
+    when entry_class = 'fee' then 300
+    when entry_class = 'expense' then 400
+    when entry_class in ('asset', 'liability', 'equity') then 500
+    else 600
+  end,
+  updated_at = now();
+
+-- from 20260720223000_sync_retail_accounting.sql (line 7)
+insert into public.accounting_categories (
+  key,
+  label,
+  entry_type,
+  normal_balance,
+  active,
+  sort_order,
+  entry_class,
+  statement_section,
+  normal_direction,
+  allowed_external_account_types,
+  blocks_auto_post_when_unmapped
+)
+values
+  (
+    'retail_revenue',
+    'Retail Product Revenue',
+    'revenue',
+    'credit',
+    true,
+    145,
+    'revenue',
+    'income',
+    'credit',
+    array['INCOME', 'REVENUE']::text[],
+    true
+  ),
+  (
+    'retail_cogs',
+    'Retail Cost of Goods Sold',
+    'expense',
+    'debit',
+    true,
+    445,
+    'expense',
+    'cost_of_sales',
+    'debit',
+    array['EXPENSE', 'COST_OF_GOODS_SOLD']::text[],
+    true
+  ),
+  (
+    'retail_refund',
+    'Retail Product Refund',
+    'refund',
+    'debit',
+    true,
+    245,
+    'refund',
+    'contra_income',
+    'debit',
+    array['INCOME', 'REVENUE', 'EXPENSE']::text[],
+    true
+  )
+on conflict (key) do update
+set
+  label = excluded.label,
+  entry_type = excluded.entry_type,
+  normal_balance = excluded.normal_balance,
+  active = excluded.active,
+  sort_order = excluded.sort_order,
+  entry_class = excluded.entry_class,
+  statement_section = excluded.statement_section,
+  normal_direction = excluded.normal_direction,
+  allowed_external_account_types = excluded.allowed_external_account_types,
+  blocks_auto_post_when_unmapped = excluded.blocks_auto_post_when_unmapped;
+
+-- from 20260722114500_commerce_reporting_accuracy.sql (line 7)
+insert into public.accounting_categories (
+  key,
+  label,
+  entry_type,
+  normal_balance,
+  active,
+  sort_order,
+  entry_class,
+  statement_section,
+  normal_direction,
+  allowed_external_account_types,
+  blocks_auto_post_when_unmapped
+)
+values
+  (
+    'digital_content_revenue',
+    'Digital Content Revenue',
+    'revenue',
+    'credit',
+    true,
+    146,
+    'revenue',
+    'income',
+    'credit',
+    array['INCOME', 'REVENUE']::text[],
+    true
+  ),
+  (
+    'digital_content_refund',
+    'Digital Content Refund',
+    'refund',
+    'debit',
+    true,
+    246,
+    'refund',
+    'contra_income',
+    'debit',
+    array['INCOME', 'REVENUE', 'EXPENSE']::text[],
+    true
+  )
+on conflict (key) do update
+set
+  label = excluded.label,
+  entry_type = excluded.entry_type,
+  normal_balance = excluded.normal_balance,
+  active = excluded.active,
+  sort_order = excluded.sort_order,
+  entry_class = excluded.entry_class,
+  statement_section = excluded.statement_section,
+  normal_direction = excluded.normal_direction,
+  allowed_external_account_types = excluded.allowed_external_account_types,
+  blocks_auto_post_when_unmapped = excluded.blocks_auto_post_when_unmapped;
+
+-- from 20261109090000_phase10c_competitor_registration.sql (line 140)
 insert into public.accounting_categories (
   key, label, entry_class, statement_section, normal_direction,
   allowed_external_account_types, blocks_auto_post_when_unmapped
@@ -82,6 +233,7 @@ insert into public.accounting_categories (
 )
 on conflict (key) do nothing;
 
+-- document-files storage bucket as configured in DEV/PROD (private, 15 MB). Not created by any repo migration.
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('document-files', 'document-files', false, 15728640)
 on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit;
