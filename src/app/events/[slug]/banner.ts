@@ -30,6 +30,15 @@ export function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  // CI-A: the server refused a price higher than the one shown (e.g. early bird ended while the form was open).
+  if (search.error === "ticket_price_changed") {
+    return {
+      kind: "error" as const,
+      message:
+        "Ticket prices changed since you opened this page (early bird pricing has ended). You have not been charged. Review the current prices below and submit again.",
+    };
+  }
+
   if (search.error === "checkout_cancelled") {
     return {
       kind: "error" as const,

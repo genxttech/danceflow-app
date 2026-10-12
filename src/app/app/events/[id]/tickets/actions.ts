@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getStudioContextForStudio } from "@/lib/auth/studio";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { canManageEventTickets } from "@/lib/auth/permissions";
+import { getEventTimeZone } from "@/lib/events/eventTiming";
+import { parseTicketPricingInput } from "@/lib/events/ticketPricingInput";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -27,17 +29,6 @@ function parsePositiveInteger(value: string, fallback = 1) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, parsed);
-}
-
-function parseMoney(value: string) {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function parseOptionalMoney(value: string) {
-  if (!value.trim()) return null;
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function parseOptionalTimezoneOffset(value: string) {
@@ -77,6 +68,7 @@ type EventAccess = {
     id: string;
     studio_id: string;
     organizer_id: string | null;
+    timezone: string | null;
   };
   studioRole: string | null;
   organizerUserRole: string | null;
@@ -100,7 +92,7 @@ async function getTicketEventAccess(eventId: string): Promise<{
 
   const { data: event, error } = await supabase
     .from("events")
-    .select("id, studio_id, organizer_id")
+    .select("id, studio_id, organizer_id, timezone")
     .eq("id", eventId)
     .single();
 
@@ -112,6 +104,7 @@ async function getTicketEventAccess(eventId: string): Promise<{
     id: string;
     studio_id: string;
     organizer_id: string | null;
+    timezone: string | null;
   };
 
   const context = await getStudioContextForStudio(typedEvent.studio_id);
@@ -174,7 +167,6 @@ export async function createTicketTypeAction(formData: FormData) {
     const name = getString(formData, "name");
     const description = getString(formData, "description");
     const ticketKind = getString(formData, "ticketKind") || "general_admission";
-    const price = parseMoney(getString(formData, "price"));
     const currency = (getString(formData, "currency") || "USD").toUpperCase();
     const capacity = parseOptionalInteger(getString(formData, "capacity"));
     const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
@@ -190,15 +182,6 @@ export async function createTicketTypeAction(formData: FormData) {
       timezoneOffsetMinutes
     );
     const earlyBirdEnabled = getBoolean(formData, "earlyBirdEnabled");
-    const earlyBirdPrice = earlyBirdEnabled
-      ? parseOptionalMoney(getString(formData, "earlyBirdPrice"))
-      : null;
-    const earlyBirdEndsAt = earlyBirdEnabled
-      ? parseOptionalDateTimeLocal(
-          getString(formData, "earlyBirdEndsAt"),
-          timezoneOffsetMinutes
-        )
-      : null;
     const active = getBoolean(formData, "active");
     const attendeesPerTicket = getAttendeesPerTicket(formData);
 
@@ -210,16 +193,6 @@ export async function createTicketTypeAction(formData: FormData) {
       throw new Error("Ticket name is required.");
     }
 
-    if (earlyBirdEnabled) {
-      if (earlyBirdPrice == null || earlyBirdPrice < 0) {
-        throw new Error("Early bird price is required when early bird pricing is enabled.");
-      }
-
-      if (earlyBirdEndsAt == null) {
-        throw new Error("Early bird end date/time is required when early bird pricing is enabled.");
-      }
-    }
-
     await requireEventWorkspaceFeature({
       eventId,
       feature: "ticketing",
@@ -228,20 +201,33 @@ export async function createTicketTypeAction(formData: FormData) {
 
     const { supabase, access } = await getTicketEventAccess(eventId);
 
+    // CI-A: regular price must be valid; early bird must be lower, with its cutoff entered in the EVENT's time zone.
+    const pricingInput = parseTicketPricingInput({
+      price: getString(formData, "price"),
+      earlyBirdEnabled,
+      earlyBirdPrice: getString(formData, "earlyBirdPrice"),
+      earlyBirdEndsLocal: getString(formData, "earlyBirdEndsAt"),
+      eventTimeZone: getEventTimeZone(access.event),
+    });
+    if (!pricingInput.ok) {
+      throw new Error(pricingInput.error);
+    }
+    const pricingFields = pricingInput.value;
+
     const { error } = await supabase.from("event_ticket_types").insert({
       event_id: access.event.id,
       name,
       description: description || null,
       ticket_kind: ticketKind,
-      price,
+      price: pricingFields.price,
       currency,
       capacity,
       sort_order: sortOrder,
       sale_starts_at: saleStartsAt,
       sale_ends_at: saleEndsAt,
-      early_bird_enabled: earlyBirdEnabled,
-      early_bird_price: earlyBirdEnabled ? earlyBirdPrice : null,
-      early_bird_ends_at: earlyBirdEnabled ? earlyBirdEndsAt : null,
+      early_bird_enabled: pricingFields.early_bird_enabled,
+      early_bird_price: pricingFields.early_bird_price,
+      early_bird_ends_at: pricingFields.early_bird_ends_at,
       active,
       attendees_per_ticket: attendeesPerTicket,
     });
@@ -276,7 +262,6 @@ export async function updateTicketTypeAction(formData: FormData) {
     const name = getString(formData, "name");
     const description = getString(formData, "description");
     const ticketKind = getString(formData, "ticketKind") || "general_admission";
-    const price = parseMoney(getString(formData, "price"));
     const currency = (getString(formData, "currency") || "USD").toUpperCase();
     const capacity = parseOptionalInteger(getString(formData, "capacity"));
     const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
@@ -292,15 +277,6 @@ export async function updateTicketTypeAction(formData: FormData) {
       timezoneOffsetMinutes
     );
     const earlyBirdEnabled = getBoolean(formData, "earlyBirdEnabled");
-    const earlyBirdPrice = earlyBirdEnabled
-      ? parseOptionalMoney(getString(formData, "earlyBirdPrice"))
-      : null;
-    const earlyBirdEndsAt = earlyBirdEnabled
-      ? parseOptionalDateTimeLocal(
-          getString(formData, "earlyBirdEndsAt"),
-          timezoneOffsetMinutes
-        )
-      : null;
     const active = getBoolean(formData, "active");
     const attendeesPerTicket = getAttendeesPerTicket(formData);
 
@@ -316,16 +292,6 @@ export async function updateTicketTypeAction(formData: FormData) {
       throw new Error("Ticket name is required.");
     }
 
-    if (earlyBirdEnabled) {
-      if (earlyBirdPrice == null || earlyBirdPrice < 0) {
-        throw new Error("Early bird price is required when early bird pricing is enabled.");
-      }
-
-      if (earlyBirdEndsAt == null) {
-        throw new Error("Early bird end date/time is required when early bird pricing is enabled.");
-      }
-    }
-
     await requireEventWorkspaceFeature({
       eventId,
       feature: "ticketing",
@@ -334,21 +300,34 @@ export async function updateTicketTypeAction(formData: FormData) {
 
     const { supabase, access } = await getTicketEventAccess(eventId);
 
+    // CI-A: regular price must be valid; early bird must be lower, with its cutoff entered in the EVENT's time zone.
+    const pricingInput = parseTicketPricingInput({
+      price: getString(formData, "price"),
+      earlyBirdEnabled,
+      earlyBirdPrice: getString(formData, "earlyBirdPrice"),
+      earlyBirdEndsLocal: getString(formData, "earlyBirdEndsAt"),
+      eventTimeZone: getEventTimeZone(access.event),
+    });
+    if (!pricingInput.ok) {
+      throw new Error(pricingInput.error);
+    }
+    const pricingFields = pricingInput.value;
+
     const { error } = await supabase
       .from("event_ticket_types")
       .update({
         name,
         description: description || null,
         ticket_kind: ticketKind,
-        price,
+        price: pricingFields.price,
         currency,
         capacity,
         sort_order: sortOrder,
         sale_starts_at: saleStartsAt,
         sale_ends_at: saleEndsAt,
-        early_bird_enabled: earlyBirdEnabled,
-        early_bird_price: earlyBirdEnabled ? earlyBirdPrice : null,
-        early_bird_ends_at: earlyBirdEnabled ? earlyBirdEndsAt : null,
+        early_bird_enabled: pricingFields.early_bird_enabled,
+        early_bird_price: pricingFields.early_bird_price,
+        early_bird_ends_at: pricingFields.early_bird_ends_at,
         active,
         attendees_per_ticket: attendeesPerTicket,
         updated_at: new Date().toISOString(),

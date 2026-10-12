@@ -216,7 +216,8 @@ export default function EventRegisterScreen() {
         returnUrl,
         ticketSelections: selectedTickets.map((selection) => ({
           ticketTypeId: selection.ticket.id,
-          quantity: selection.quantity
+          quantity: selection.quantity,
+          expectedUnitPriceCents: selection.ticket.priceCents
         }))
       };
 

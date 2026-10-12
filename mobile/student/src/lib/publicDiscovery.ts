@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { effectiveTicketPrice } from "./ticketPricing";
 
 const DANCE_CATEGORY_LABELS: Record<string, string> = {
   ballroom: "Ballroom",
@@ -181,6 +182,8 @@ export type PublicEventTicketType = {
   description: string | null;
   ticketKind: string;
   price: number;
+  /** CI-A: the effective unit price in cents (sent back at checkout so a higher server price is never charged silently). */
+  priceCents: number;
   regularPrice: number;
   currency: string;
   capacity: number | null;
@@ -354,37 +357,16 @@ type TicketCapacityRegistrationRow = {
   event_ticket_types?: { attendees_per_ticket: number | null } | { attendees_per_ticket: number | null }[] | null;
 };
 
-function activeTicketPrice(ticket: TicketTypeRow) {
-  const regularPrice = Number(ticket.price ?? 0);
-  const earlyBirdPrice =
-    ticket.early_bird_price === null || ticket.early_bird_price === undefined
-      ? null
-      : Number(ticket.early_bird_price);
-  const earlyBirdEndsAt = ticket.early_bird_ends_at
-    ? new Date(ticket.early_bird_ends_at).getTime()
-    : null;
-
-  if (
-    ticket.early_bird_enabled &&
-    earlyBirdPrice !== null &&
-    Number.isFinite(earlyBirdPrice) &&
-    earlyBirdPrice >= 0 &&
-    earlyBirdEndsAt !== null &&
-    earlyBirdEndsAt >= Date.now()
-  ) {
-    return {
-      price: earlyBirdPrice,
-      regularPrice,
-      isEarlyBird: true,
-      earlyBirdEndsAt: ticket.early_bird_ends_at
-    };
-  }
-
+/** CI-A: the shared effective-price rule (identical copy of the web rule; early bird strictly before its cutoff). */
+function activeTicketPrice(ticket: TicketTypeRow, nowMs: number) {
+  const pricing = effectiveTicketPrice(ticket, nowMs);
+  if (!pricing.ok) return null;
   return {
-    price: regularPrice,
-    regularPrice,
-    isEarlyBird: false,
-    earlyBirdEndsAt: ticket.early_bird_ends_at
+    price: pricing.unitCents / 100,
+    priceCents: pricing.unitCents,
+    regularPrice: pricing.regularCents / 100,
+    isEarlyBird: pricing.isEarlyBird,
+    earlyBirdEndsAt: pricing.isEarlyBird ? pricing.earlyBirdEndsAt : null
   };
 }
 
@@ -962,8 +944,12 @@ export async function getPublicEventDetailForMobile(
   const ticketRows = (ticketsResult.data ?? []) as TicketTypeRow[];
   const admissionCounts = await loadTicketAdmissionCounts(ticketRows.map((ticket) => ticket.id));
 
+  const pricingNowMs = Date.now();
   const ticketTypes = ticketRows.map((ticket) => {
-    const activePrice = activeTicketPrice(ticket);
+    // A ticket the shared rule cannot price is shown as unavailable (inactive) and is never sold.
+    const computedPrice = activeTicketPrice(ticket, pricingNowMs);
+    const priceable = computedPrice !== null;
+    const activePrice = computedPrice ?? { price: 0, priceCents: 0, regularPrice: 0, isEarlyBird: false, earlyBirdEndsAt: null };
 
     return {
       id: ticket.id,
@@ -971,11 +957,12 @@ export async function getPublicEventDetailForMobile(
       description: ticket.description,
       ticketKind: ticket.ticket_kind ?? "general",
       price: activePrice.price,
+      priceCents: activePrice.priceCents,
       regularPrice: activePrice.regularPrice,
       currency: ticket.currency ?? "USD",
       capacity: ticket.capacity,
       remainingAdmissionSpots: remainingAdmissionSpotsFor(ticket, admissionCounts.get(ticket.id) ?? 0),
-      active: ticket.active === true,
+      active: ticket.active === true && priceable,
       saleStartsAt: ticket.sale_starts_at,
       saleEndsAt: ticket.sale_ends_at,
       isEarlyBird: activePrice.isEarlyBird,

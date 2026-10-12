@@ -6,6 +6,10 @@ import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { canManageEventTickets } from "@/lib/auth/permissions";
 import { createTicketTypeAction, updateTicketTypeAction } from "./actions";
 import TimezoneFormatter from "./TimezoneFormatter";
+import { effectiveTicketPrice } from "@/lib/events/ticketPricing";
+import { instantToEventLocalInput } from "@/lib/events/eventLocalTime";
+import { ticketEditorErrorMessage } from "@/lib/events/ticketPricingInput";
+import { getEventTimeZone } from "@/lib/events/eventTiming";
 
 type TicketTypeRow = {
   id: string;
@@ -43,28 +47,15 @@ function formatPrice(value: number | string, currency: string) {
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
+/** CI-A: the same effective-price rule the public page and checkout use (early bird strictly before its cutoff). */
 function isEarlyBirdActive(ticket: TicketTypeRow) {
-  const earlyBirdPrice =
-    ticket.early_bird_price == null ? null : Number(ticket.early_bird_price);
-  const earlyBirdEndsAt = ticket.early_bird_ends_at
-    ? new Date(ticket.early_bird_ends_at).getTime()
-    : null;
-
-  return Boolean(
-    ticket.early_bird_enabled &&
-      earlyBirdPrice != null &&
-      Number.isFinite(earlyBirdPrice) &&
-      earlyBirdPrice >= 0 &&
-      earlyBirdEndsAt != null &&
-      Number.isFinite(earlyBirdEndsAt) &&
-      earlyBirdEndsAt >= Date.now()
-  );
+  const pricing = effectiveTicketPrice(ticket, Date.now());
+  return pricing.ok && pricing.isEarlyBird;
 }
 
 function activeTicketPrice(ticket: TicketTypeRow) {
-  return isEarlyBirdActive(ticket) && ticket.early_bird_price != null
-    ? ticket.early_bird_price
-    : ticket.price;
+  const pricing = effectiveTicketPrice(ticket, Date.now());
+  return pricing.ok ? pricing.unitCents / 100 : ticket.price;
 }
 
 function ticketStatusLabel(ticket: TicketTypeRow) {
@@ -135,10 +126,13 @@ function toDatetimeLocal(value: string | null) {
 
 export default async function EventTicketsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ error?: string | string[] }>;
 }) {
   const { id } = await params;
+  const saveError = ticketEditorErrorMessage((await searchParams)?.error);
 
   await requireEventWorkspaceFeature({
     eventId: id,
@@ -173,7 +167,8 @@ export default async function EventTicketsPage({
       name,
       slug,
       status,
-      visibility
+      visibility,
+      timezone
     `)
     .eq("id", id)
     .eq("studio_id", studioId)
@@ -182,6 +177,9 @@ export default async function EventTicketsPage({
   if (eventError || !event) {
     notFound();
   }
+
+  // CI-A: early-bird cutoffs are entered and shown in the event's own time zone.
+  const eventTimeZone = getEventTimeZone(event as { timezone?: string | null });
 
   const typedEvent = event as EventRow;
   const isStudioHosted = !typedEvent.organizer_id;
@@ -232,7 +230,12 @@ export default async function EventTicketsPage({
     throw new Error(`Failed to load tickets: ${ticketsError.message}`);
   }
 
-  const ticketRows = (tickets ?? []).map((ticket: any): TicketTypeRow => ({
+  type RawTicketRow = Omit<TicketTypeRow, "sort_order" | "description" | "currency"> & {
+    description?: string | null;
+    currency?: string | null;
+    sort_order?: number | null;
+  };
+  const ticketRows = ((tickets ?? []) as RawTicketRow[]).map((ticket): TicketTypeRow => ({
     id: ticket.id,
     name: ticket.name,
     description: ticket.description ?? null,
@@ -326,6 +329,12 @@ export default async function EventTicketsPage({
         <Link href={`/app/events/${typedEvent.id}/check-in`} className="snap-start whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Check-in</Link>
       </div>
 
+
+      {saveError ? (
+        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
+          {saveError}
+        </div>
+      ) : null}
 
       <details className="group rounded-2xl border border-violet-200 bg-[#FCF8FF] shadow-sm">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-4">
@@ -646,11 +655,11 @@ export default async function EventTicketsPage({
                         </label>
 
                         <label className="space-y-2 text-sm">
-                          <span className="font-medium text-slate-700">Early bird ends</span>
+                          <span className="font-medium text-slate-700">Early bird ends ({eventTimeZone} time)</span>
                           <input
                             name="earlyBirdEndsAt"
                             type="datetime-local"
-                            defaultValue={toDatetimeLocal(ticket.early_bird_ends_at)}
+                            defaultValue={instantToEventLocalInput(ticket.early_bird_ends_at, eventTimeZone)}
                             disabled={!canManage}
                             className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
                           />
@@ -829,7 +838,7 @@ export default async function EventTicketsPage({
                 <span>
                   <span className="block font-medium text-slate-900">Enable early bird pricing</span>
                   <span className="mt-1 block text-xs leading-5 text-slate-600">
-                    Offer a lower price until a cutoff date/time. Checkout will enforce the active price.
+                    Offer a lower price until a cutoff date/time in the event&apos;s time zone. The early bird price must be lower than the regular price; from the cutoff on, checkout charges the regular price.
                   </span>
                 </span>
               </label>
@@ -848,7 +857,7 @@ export default async function EventTicketsPage({
                 </label>
 
                 <label className="space-y-2 text-sm">
-                  <span className="font-medium text-slate-700">Early bird ends</span>
+                  <span className="font-medium text-slate-700">Early bird ends ({eventTimeZone} time)</span>
                   <input
                     name="earlyBirdEndsAt"
                     type="datetime-local"

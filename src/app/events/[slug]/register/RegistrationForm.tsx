@@ -36,6 +36,11 @@ type TicketTypeRow = {
   sale_starts_at: string | null;
   sale_ends_at: string | null;
   attendees_per_ticket: number | null;
+  /** CI-A: server-computed effective price for this page render (null = the ticket cannot be priced or sold). */
+  effectiveUnitPriceCents: number | null;
+  regularUnitPriceCents: number | null;
+  isEarlyBird: boolean;
+  earlyBirdEndsAt: string | null;
 };
 
 type RegistrationFormProps = {
@@ -83,6 +88,16 @@ function ticketKindLabel(value: string) {
 
 function ticketStatusMeta(ticket: TicketTypeRow, waitlistEnabled: boolean) {
   const now = Date.now();
+
+  if (ticket.effectiveUnitPriceCents === null) {
+    return {
+      selectable: false,
+      soldOut: false,
+      label: "Unavailable",
+      className: "bg-slate-100 text-slate-700",
+      helper: "This ticket is not available for online purchase. Please contact the host.",
+    };
+  }
 
   if (!ticket.active) {
     return {
@@ -156,7 +171,7 @@ export default function RegistrationForm({
   requiredEventDocuments = [],
 }: RegistrationFormProps) {
   const [ticketQuantities, setTicketQuantities] = useState<Record<string, number>>({});
-  const botStartedAt = useMemo(() => String(Date.now()), []);
+  const [botStartedAt] = useState(() => String(Date.now()));
 
   const ticketOptions = useMemo(() => {
     return ticketTypes.map((ticket) => ({
@@ -177,10 +192,12 @@ export default function RegistrationForm({
       .filter((ticket) => ticket.selectedQuantity > 0);
   }, [ticketOptions, ticketQuantities]);
 
-  const selectedTicketTotal = selectedTickets.reduce(
-    (sum, ticket) => sum + Number(ticket.price ?? 0) * ticket.selectedQuantity,
+  // CI-A: totals in integer cents from the server-computed effective price.
+  const selectedTicketTotalCents = selectedTickets.reduce(
+    (sum, ticket) => sum + (ticket.effectiveUnitPriceCents ?? 0) * ticket.selectedQuantity,
     0,
   );
+  const selectedTicketTotal = selectedTicketTotalCents / 100;
 
   const selectedTicketAttendeeCount = selectedTickets.reduce((sum, ticket) => {
     const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
@@ -298,6 +315,7 @@ export default function RegistrationForm({
         <div key={ticket.id}>
           <input type="hidden" name="ticketTypeIds" value={ticket.id} />
           <input type="hidden" name="ticketQuantities" value={ticket.selectedQuantity} />
+          <input type="hidden" name="expectedUnitPriceCents" value={ticket.effectiveUnitPriceCents ?? ""} />
         </div>
       ))}
 
@@ -403,8 +421,15 @@ export default function RegistrationForm({
 
                     <div className="min-w-[170px] text-right">
                       <p className="font-semibold text-slate-900">
-                        {formatCurrency(ticket.price, ticket.currency)}
+                        {ticket.effectiveUnitPriceCents === null
+                          ? "Unavailable"
+                          : formatCurrency(ticket.effectiveUnitPriceCents / 100, ticket.currency)}
                       </p>
+                      {ticket.isEarlyBird && ticket.regularUnitPriceCents !== null ? (
+                        <p className="text-xs font-semibold text-orange-700">
+                          Early bird price · regular {formatCurrency(ticket.regularUnitPriceCents / 100, ticket.currency)}
+                        </p>
+                      ) : null}
                       <p className="text-xs text-slate-500">
                         {ticket.capacity == null
                           ? "Unlimited"
@@ -625,7 +650,7 @@ export default function RegistrationForm({
         <div className="mt-3 space-y-3 text-sm">
           {selectedTickets.map((ticket) => {
             const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
-            const ticketTotal = Number(ticket.price ?? 0) * ticket.selectedQuantity;
+            const ticketTotal = ((ticket.effectiveUnitPriceCents ?? 0) * ticket.selectedQuantity) / 100;
             const attendeeCount = attendeesPerTicket * ticket.selectedQuantity;
 
             return (

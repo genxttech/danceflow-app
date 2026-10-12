@@ -83,6 +83,8 @@ async function withTimeout<T>(
 export type EventCheckoutTicketSelection = {
   quantity: number;
   ticketTypeId: string;
+  /** CI-A: the unit price (cents) shown to the buyer; the server refuses a higher price instead of charging it. */
+  expectedUnitPriceCents?: number;
 };
 
 export type CreateEventCheckoutInput = {
