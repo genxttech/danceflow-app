@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createEventRegistrationAction } from "./actions";
 import RegistrationForm from "./RegistrationForm";
+import { withEffectiveTicketPricing } from "@/lib/events/ticketDisplayPricing";
 import { BOT_HONEYPOT_FIELD, BOT_STARTED_AT_FIELD } from "@/lib/security/bot-protection";
 
 type Params = Promise<{
@@ -34,6 +35,43 @@ type EventRow = {
     | { name: string; slug: string }
     | { name: string; slug: string }[]
     | null;
+  is_sold_out?: boolean | null;
+  waitlist_enabled?: boolean | null;
+};
+
+type RawDocumentTemplate = {
+  id?: string | null;
+  title?: string | null;
+  description?: string | null;
+  body?: string | null;
+  requires_signature?: boolean | null;
+  is_active?: boolean | null;
+};
+
+type RawDocumentRequirementRow = {
+  id: string;
+  template_id: string;
+  template_version_id: string | null;
+  document_templates: RawDocumentTemplate | RawDocumentTemplate[] | null;
+  document_template_versions?: RawDocumentTemplate | RawDocumentTemplate[] | null;
+};
+
+type RawTicketTypeRow = {
+  id: string;
+  event_id: string;
+  name: string;
+  description: string | null;
+  ticket_kind: string | null;
+  price: number | string | null;
+  currency: string | null;
+  capacity: number | null;
+  active: boolean | null;
+  sale_starts_at: string | null;
+  sale_ends_at: string | null;
+  early_bird_enabled: boolean | null;
+  early_bird_price: number | string | null;
+  early_bird_ends_at: string | null;
+  attendees_per_ticket: number | null;
 };
 
 type TicketTypeRow = {
@@ -173,6 +211,10 @@ function checkoutBanner(search: { error?: string; success?: string; order?: stri
     ticket_capacity_exceeded: {
       title: "Ticket quantity unavailable",
       message: "One of the selected ticket quantities is no longer available. Review the current availability and try again.",
+    },
+    ticket_price_changed: {
+      title: "Ticket prices changed",
+      message: "Ticket prices changed since you opened this page (early bird pricing has ended). You have not been charged. Review the current prices and submit again.",
     },
     ticket_unavailable: {
       title: "Ticket unavailable",
@@ -325,8 +367,8 @@ export default async function PublicEventRegisterPage({
     );
   }
 
-  const requiredEventDocuments = (eventDocumentRequirements ?? [])
-    .map((requirement: any): EventDocumentRequirement | null => {
+  const requiredEventDocuments = ((eventDocumentRequirements ?? []) as unknown as RawDocumentRequirementRow[])
+    .map((requirement): EventDocumentRequirement | null => {
       const template = Array.isArray(requirement.document_templates)
         ? requirement.document_templates[0]
         : requirement.document_templates;
@@ -351,7 +393,7 @@ export default async function PublicEventRegisterPage({
     .filter((document): document is EventDocumentRequirement => Boolean(document));
   const organizer = getOrganizer(typedEvent.organizers);
 
-  const allTicketTypes = (ticketTypes ?? []).map((ticket: any): TicketTypeRow => ({
+  const allTicketTypes = ((ticketTypes ?? []) as unknown as RawTicketTypeRow[]).map((ticket): TicketTypeRow => ({
   id: ticket.id,
   event_id: ticket.event_id,
   name: ticket.name,
@@ -379,6 +421,9 @@ export default async function PublicEventRegisterPage({
   const typedTicketTypes = allTicketTypes
     .filter((ticket) => ticket.event_id === typedEvent.id)
     .filter((ticket) => isTicketCurrentlyAvailable(ticket));
+  // CI-A: server-computed effective prices (one instant per render); the form shows and posts these.
+  // eslint-disable-next-line react-hooks/purity -- one pricing instant per server render, by design
+  const pricedTicketTypes = withEffectiveTicketPricing(typedTicketTypes, Date.now());
 
   const registrationOpen = canRegisterForEvent(typedEvent);
 
@@ -453,6 +498,7 @@ export default async function PublicEventRegisterPage({
             className="mt-5"
           >
             <input type="hidden" name="eventSlug" value={typedEvent.slug} />
+            {/* eslint-disable-next-line react-hooks/purity -- render timestamp for bot-protection timing, by design */}
             <input type="hidden" name={BOT_STARTED_AT_FIELD} value={String(Date.now())} />
             <div className="hidden" aria-hidden="true">
               <label htmlFor="dfRegisterWebsite">Website</label>
@@ -484,7 +530,7 @@ export default async function PublicEventRegisterPage({
               </p>
             ) : (
               <div className="mt-4 space-y-4">
-                {typedTicketTypes.map((ticket) => (
+                {pricedTicketTypes.map((ticket) => (
                   <div key={ticket.id} className="rounded-2xl border bg-slate-50 p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-lg font-semibold text-slate-900">
@@ -501,7 +547,10 @@ export default async function PublicEventRegisterPage({
                     </div>
 
                     <p className="mt-2 font-medium text-slate-900">
-                      {formatCurrency(ticket.price, ticket.currency)}
+                      {ticket.effectiveUnitPriceCents === null
+                        ? "Unavailable"
+                        : formatCurrency(ticket.effectiveUnitPriceCents / 100, ticket.currency)}
+                      {ticket.isEarlyBird ? " · early bird price" : ""}
                     </p>
 
                     {ticket.description ? (
@@ -540,10 +589,10 @@ export default async function PublicEventRegisterPage({
             ) : (
               <RegistrationForm
                 eventSlug={typedEvent.slug}
-                ticketTypes={typedTicketTypes}
+                ticketTypes={pricedTicketTypes}
                 currentUserEmail={user?.email ?? ""}
-                isSoldOut={Boolean((typedEvent as any).is_sold_out)}
-                waitlistEnabled={Boolean((typedEvent as any).waitlist_enabled)}
+                isSoldOut={Boolean(typedEvent.is_sold_out)}
+                waitlistEnabled={Boolean(typedEvent.waitlist_enabled)}
                 requiredEventDocuments={requiredEventDocuments}
               />
             )}

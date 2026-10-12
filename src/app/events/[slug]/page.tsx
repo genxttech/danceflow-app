@@ -12,6 +12,8 @@ import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { EventCoverImage, EventDescriptionBody, EventHeroText, EventHighlights, EventRegistrationInfo } from "@/components/public/EventPresentation";
 import { getBanner } from "./banner";
+import { effectiveTicketPrice } from "@/lib/events/ticketPricing";
+import { withEffectiveTicketPricing } from "@/lib/events/ticketDisplayPricing";
 
 // Public competition registration stays off until the registration slice ships (see the register route).
 const competitionRegistrationEnabled =
@@ -714,44 +716,27 @@ function formatCurrency(value: number, currency: string) {
   }).format(Number(value ?? 0));
 }
 
-function activeTicketPrice(ticket: TicketTypeRow) {
-  const regularPrice = Number(ticket.price ?? 0);
-  const earlyBirdPrice =
-    ticket.early_bird_price === null || ticket.early_bird_price === undefined
-      ? null
-      : Number(ticket.early_bird_price);
-  const earlyBirdEndsAt = ticket.early_bird_ends_at
-    ? new Date(ticket.early_bird_ends_at).getTime()
-    : null;
-
-  if (
-    ticket.early_bird_enabled &&
-    earlyBirdPrice !== null &&
-    Number.isFinite(earlyBirdPrice) &&
-    earlyBirdPrice >= 0 &&
-    earlyBirdEndsAt !== null &&
-    earlyBirdEndsAt >= Date.now()
-  ) {
-    return {
-      price: earlyBirdPrice,
-      isEarlyBird: true,
-      regularPrice,
-      endsAt: ticket.early_bird_ends_at,
-    };
-  }
-
+/**
+ * CI-A: the displayed price comes from the shared effective-price rule (the same one the cart checkout charges),
+ * evaluated at one instant per render. price is null when the ticket cannot be priced (it is then not sold).
+ */
+function activeTicketPrice(ticket: TicketTypeRow, nowMs: number) {
+  const pricing = effectiveTicketPrice(ticket, nowMs);
+  if (!pricing.ok) return { price: null, isEarlyBird: false, regularPrice: null, endsAt: null };
   return {
-    price: regularPrice,
-    isEarlyBird: false,
-    regularPrice,
-    endsAt: ticket.early_bird_ends_at,
+    price: pricing.unitCents / 100,
+    isEarlyBird: pricing.isEarlyBird,
+    regularPrice: pricing.regularCents / 100,
+    endsAt: pricing.isEarlyBird ? pricing.earlyBirdEndsAt : null,
   };
 }
 
-function lowestVisibleTicketPriceLabel(tickets: TicketTypeRow[]) {
-  if (!tickets.length) return "Tickets";
+function lowestVisibleTicketPriceLabel(tickets: TicketTypeRow[], nowMs: number) {
+  const prices = tickets
+    .map((ticket) => activeTicketPrice(ticket, nowMs).price)
+    .filter((price): price is number => price !== null);
+  if (!prices.length) return "Tickets";
   const currency = tickets[0]?.currency || "USD";
-  const prices = tickets.map((ticket) => activeTicketPrice(ticket).price);
   const min = Math.min(...prices);
   return `From ${formatCurrency(min, currency)}`;
 }
@@ -1399,6 +1384,9 @@ export default async function PublicEventDetailPage({
 
   const typedTags = (tags ?? []) as EventTagRow[];
   const allActiveTicketTypes = (ticketTypes ?? []) as TicketTypeRow[];
+  // CI-A: one pricing instant for everything this render shows (cards, offers, form).
+  // eslint-disable-next-line react-hooks/purity -- one pricing instant per server render, by design
+  const pricingNowMs = Date.now();
   const requiredEventDocuments = (
     (eventDocumentRequirements ?? []) as EventDocumentRequirementRow[]
   )
@@ -1556,7 +1544,7 @@ export default async function PublicEventDetailPage({
     "@type": "Offer",
     name: ticket.name,
     description: ticket.description ?? undefined,
-    price: activeTicketPrice(ticket).price,
+    price: activeTicketPrice(ticket, pricingNowMs).price ?? undefined,
     priceCurrency: ticket.currency || "USD",
     availability:
       ticketRemainingCount(ticket, ticketActiveCountById) === 0
@@ -1624,7 +1612,7 @@ export default async function PublicEventDetailPage({
 
   const hasPrivateLessons = privateLessonSlotGroups.length > 0;
   const hasSchedule = groupedScheduleItems.length > 0;
-  const ticketPriceLabel = lowestVisibleTicketPriceLabel(visibleTicketTypes);
+  const ticketPriceLabel = lowestVisibleTicketPriceLabel(visibleTicketTypes, pricingNowMs);
   const hasDanceFlowRegistration = typedEvent.registration_required;
   // 10C.5: the competition entry CTA follows competition registration (the feature flag and the database gate the
   // catalog and checkout use), not the event's ticket registration, so it shows whether or not ticket checkout is on.
@@ -2299,9 +2287,11 @@ export default async function PublicEventDetailPage({
                                     {ticket.name}
                                   </h3>
                                   <p className="mt-1 text-xl font-semibold text-slate-950">
-                                    {formatCurrency(activeTicketPrice(ticket).price, ticket.currency)}
+                                    {activeTicketPrice(ticket, pricingNowMs).price === null
+                                      ? "Unavailable"
+                                      : formatCurrency(activeTicketPrice(ticket, pricingNowMs).price ?? 0, ticket.currency)}
                                   </p>
-                                  {activeTicketPrice(ticket).isEarlyBird ? (
+                                  {activeTicketPrice(ticket, pricingNowMs).isEarlyBird ? (
                                     <p className="mt-1 text-xs font-semibold text-orange-700">
                                       Early bird pricing active
                                     </p>
@@ -2659,7 +2649,7 @@ export default async function PublicEventDetailPage({
                           {visibleTicketTypes.length > 0 ? (
                             <RegistrationForm
                               eventSlug={typedEvent.slug}
-                              ticketTypes={visibleTicketTypes}
+                              ticketTypes={withEffectiveTicketPricing(visibleTicketTypes, pricingNowMs)}
                               currentUserEmail={user?.email ?? ""}
                               isSoldOut={eventSoldOut}
                               waitlistEnabled={typedEvent.waitlist_enabled}
@@ -2672,7 +2662,7 @@ export default async function PublicEventDetailPage({
                           ) : (
                             <RegistrationForm
                               eventSlug={typedEvent.slug}
-                              ticketTypes={allActiveTicketTypes}
+                              ticketTypes={withEffectiveTicketPricing(allActiveTicketTypes, pricingNowMs)}
                               currentUserEmail={user?.email ?? ""}
                               isSoldOut={true}
                               waitlistEnabled={typedEvent.waitlist_enabled}

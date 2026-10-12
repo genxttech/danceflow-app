@@ -814,3 +814,24 @@ describe("startEventOrderPayment zero-total guard (LAUNCH-SEC-2C)", () => {
     expect(currentFakeStripe.createCalls).toHaveLength(1);
   });
 });
+
+describe("CI-A: resume after document signing charges the persisted price snapshot", () => {
+  it("charges the stored early-bird unit price even after the cutoff has passed (no silent re-pricing)", async () => {
+    // Order created during early bird (30.00 instead of the regular 40.00); the buyer signs after the cutoff.
+    const order = seedOrder({ total_amount: 60, currency: "usd" });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({ order_id: order.id, quantity: 2, unit_price: 30, description: "Early Bird Pass" });
+
+    await startEventOrderPayment({ request: fakeRequest(), orderId: order.id as string, surface: "web", paymentMode: "checkout" });
+
+    const [sessionParams] = currentFakeStripe.stripe.checkout.sessions.create.mock.calls[0] as unknown as [{ line_items: Array<{ quantity: number; price_data: { unit_amount: number } }> }];
+    expect(sessionParams.line_items.map((line) => [line.quantity, line.price_data.unit_amount])).toEqual([[2, 3000]]);
+  });
+
+  it("never reads ticket definitions or early-bird settings when starting payment", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const source = readFileSync(join(__dirname, "..", "event-order-payment.ts"), "utf8");
+    expect(source).not.toMatch(/event_ticket_types|early_bird|effectiveTicketPrice/);
+  });
+});

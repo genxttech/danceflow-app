@@ -1,4 +1,6 @@
 import { randomUUID } from "crypto";
+import { fromMinorUnits, ticketLineTotalCents } from "@/lib/events/ticketPricing";
+import { parseExpectedUnitPriceCents, priceNativeTicketSelections } from "@/lib/events/nativeTicketPricing";
 import { beginEventSigningCheckpoint } from "@/lib/documents/event-signing";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
@@ -26,6 +28,8 @@ type Params = {
 type TicketSelectionInput = {
   ticketTypeId: string;
   quantity: number;
+  /** CI-A: the unit price (cents) the app showed for this ticket; -1 when the app sent a malformed value. */
+  expectedUnitPriceCents?: number;
 };
 
 type CheckoutBody = {
@@ -172,7 +176,8 @@ function normalizeTicketSelections(value: unknown) {
 
     const quantity = Math.max(0, Math.min(50, Number(record.quantity ?? 0) || 0));
     if (quantity > 0) {
-      selections.push({ ticketTypeId: ticketTypeIdResult.value, quantity });
+      const expectedUnitPriceCents = parseExpectedUnitPriceCents(record.expectedUnitPriceCents);
+      selections.push({ ticketTypeId: ticketTypeIdResult.value, quantity, ...(expectedUnitPriceCents === undefined ? {} : { expectedUnitPriceCents }) });
     }
   }
 
@@ -217,51 +222,7 @@ function validateTicketWindow(ticket: TicketTypeRow) {
   return null;
 }
 
-function activeTicketPrice(ticket: TicketTypeRow) {
-  const regularPrice = Number(ticket.price ?? 0);
-  const earlyBirdPrice =
-    ticket.early_bird_price === null || ticket.early_bird_price === undefined
-      ? null
-      : Number(ticket.early_bird_price);
-  const earlyBirdEndsAt = ticket.early_bird_ends_at
-    ? new Date(ticket.early_bird_ends_at).getTime()
-    : null;
 
-  if (
-    ticket.early_bird_enabled &&
-    earlyBirdPrice !== null &&
-    Number.isFinite(earlyBirdPrice) &&
-    earlyBirdPrice >= 0 &&
-    earlyBirdEndsAt !== null &&
-    earlyBirdEndsAt >= Date.now()
-  ) {
-    return earlyBirdPrice;
-  }
-
-  return regularPrice;
-}
-
-/**
- * Side-effect-free total, computed the same way (same per-ticket rounding)
- * as the real ticket-registration loop below so the two always agree. Used
- * only for the idempotency consistency check in resolveEventOrderForCheckout
- * -- it must be computable before deciding whether to run that loop at all
- * (a reused order skips it entirely).
- */
-function computeRequestedTotalCents(
-  selections: TicketSelectionInput[],
-  ticketsById: Map<string, TicketTypeRow>
-): number {
-  let total = 0;
-  for (const selection of selections) {
-    const ticket = ticketsById.get(selection.ticketTypeId);
-    if (!ticket) continue;
-    const quantity = Math.max(1, selection.quantity);
-    const ticketTotal = Number((activeTicketPrice(ticket) * quantity).toFixed(2));
-    total = Number((total + ticketTotal).toFixed(2));
-  }
-  return Math.round(total * 100);
-}
 
 async function startSigningCheckpointIfRequired(params: {
   requiredDocumentRows: EventDocumentRequirementRow[];
@@ -637,15 +598,31 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const ticketsById = new Map((tickets as TicketTypeRow[]).map((ticket) => [ticket.id, ticket]));
 
+  // CI-A: the shared effective-price rule (early bird strictly before its cutoff), one instant for the whole request.
+  // A ticket that cannot be priced is not sold, and a price above the one the app showed is refused (no order is
+  // created) so the buyer reviews the current price first.
+  const pricingResult = priceNativeTicketSelections(selections, tickets as TicketTypeRow[], Date.now());
+  if (!pricingResult.ok) {
+    if (pricingResult.kind === "ticket_price_changed") {
+      return NextResponse.json(
+        { error: "Ticket prices changed (early bird pricing ended). Review the current price and try again.", code: "ticket_price_changed" },
+        { status: 409 },
+      );
+    }
+    return jsonError("One or more selected tickets are not available.");
+  }
+  const unitCentsById = pricingResult.unitCentsById;
+
   const additionalAttendeeNames = getValidatedValue(additionalAttendeeNamesResult);
   let additionalAttendeeCursor = 0;
   let totalAmount = 0;
+  let totalAmountCents = 0;
   let currency = "USD";
   const holdUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   const orderHoldToken = randomUUID();
   const orderItems: Record<string, unknown>[] = [];
   const paymentMode: "checkout" | "payment_sheet" = body.paymentMode === "payment_sheet" ? "payment_sheet" : "checkout";
-  const requestedTotalCents = computeRequestedTotalCents(selections, ticketsById);
+  const requestedTotalCents = pricingResult.requestedTotalCents;
   const ticketSelectionSignature = computeTicketSelectionSignature(selections);
 
   const resolution = await resolveEventOrderForCheckout({
@@ -834,10 +811,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       additionalAttendeeCursor += additionalCount;
-      const unitPrice = activeTicketPrice(ticket);
-      const ticketTotal = Number((unitPrice * quantity).toFixed(2));
+      const unitCents = unitCentsById.get(ticket.id);
+      const lineCents = unitCents === undefined ? null : ticketLineTotalCents(unitCents, quantity);
+      if (unitCents === undefined || lineCents === null) throw new Error("Selected ticket is not available.");
+      const unitPrice = fromMinorUnits(unitCents);
+      const ticketTotal = fromMinorUnits(lineCents);
       currency = ticket.currency || currency;
-      totalAmount = Number((totalAmount + ticketTotal).toFixed(2));
+      totalAmountCents += lineCents;
+      totalAmount = fromMinorUnits(totalAmountCents);
 
       const { data: registration, error: registrationError } = await supabase
         .from("event_registrations")

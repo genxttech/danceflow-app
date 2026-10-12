@@ -15,9 +15,11 @@ import {
   normalizeRequiredSlug,
   normalizeOptionalUuid,
   normalizeTextList,
+  cleanTextValue,
   rawFormString,
 } from "@/lib/validation/forms";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+import { effectiveTicketPrice, fromMinorUnits, ticketLineTotalCents, toMinorUnits } from "@/lib/events/ticketPricing";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -54,6 +56,35 @@ function getSafeTextList(formData: FormData, key: string, fieldLabel: string, ma
     maxItemLength,
     maxItems,
   });
+}
+
+/**
+ * CI-A: an ORDER-PRESERVING list for the per-line cart fields (ticketTypeIds, ticketQuantities,
+ * expectedUnitPriceCents). These are paired by position, so duplicates and empty entries must be kept:
+ * normalizeTextList de-duplicates and drops empties, which misaligned lines (e.g. two tickets each with quantity "1"
+ * collapsed to one quantity and silently dropped the second ticket).
+ */
+function getPositionalTextList(formData: FormData, key: string, fieldLabel: string, maxItemLength: number, maxItems: number) {
+  const rawValues = formData.getAll(key).map((value) => (typeof value === "string" ? value : ""));
+  if (rawValues.length > maxItems) return { ok: false as const, error: `${fieldLabel} has too many selections.` };
+  const values: string[] = [];
+  for (const value of rawValues) {
+    const cleaned = cleanTextValue(value, { fieldLabel, maxLength: maxItemLength });
+    if (!cleaned.ok) return cleaned;
+    values.push(cleaned.value ?? "");
+  }
+  return { ok: true as const, value: values };
+}
+
+function getPositionalUuidList(formData: FormData, key: string, fieldLabel: string, maxItems: number) {
+  const list = getPositionalTextList(formData, key, fieldLabel, 36, maxItems);
+  if (!list.ok) return list;
+  for (const value of list.value) {
+    if (!value) continue;
+    const uuid = normalizeOptionalUuid(value, fieldLabel);
+    if (!uuid.ok || !uuid.value) return { ok: false as const, error: `${fieldLabel} contains an invalid selection.` };
+  }
+  return list;
 }
 
 function getSafeUuidList(formData: FormData, key: string, fieldLabel: string, maxItems = 100) {
@@ -263,12 +294,19 @@ type TicketTypeRow = {
   sale_starts_at: string | null;
   sale_ends_at: string | null;
   attendees_per_ticket: number | null;
+  early_bird_enabled: boolean | null;
+  early_bird_price: number | string | null;
+  early_bird_ends_at: string | null;
 };
 
 type TicketSelection = {
   ticket: TicketTypeRow;
   quantity: number;
-  total: number;
+  /** CI-A: server-authoritative effective unit price and line total, in cents. */
+  unitCents: number;
+  lineCents: number;
+  regularCents: number;
+  isEarlyBird: boolean;
   attendeeNames: string[];
 };
 
@@ -390,8 +428,10 @@ export async function POST(request: NextRequest) {
     allowNewlines: true,
   });
   const legacyTicketTypeIdResult = normalizeOptionalUuid(rawFormString(formData, "ticketTypeId"), "Ticket type");
-  const ticketTypeIdsResult = getSafeUuidList(formData, "ticketTypeIds", "Ticket types", 50);
-  const ticketQuantitiesResult = getSafeTextList(formData, "ticketQuantities", "Ticket quantities", 6, 50);
+  const ticketTypeIdsResult = getPositionalUuidList(formData, "ticketTypeIds", "Ticket types", 50);
+  const ticketQuantitiesResult = getPositionalTextList(formData, "ticketQuantities", "Ticket quantities", 6, 50);
+  // CI-A: the unit price (cents) the buyer was shown for each submitted ticket line, aligned with ticketTypeIds.
+  const expectedUnitPriceCentsResult = getPositionalTextList(formData, "expectedUnitPriceCents", "Ticket prices", 9, 50);
   const additionalAttendeeNamesResult = getSafeTextList(
     formData,
     "additionalAttendeeNames",
@@ -416,6 +456,7 @@ export async function POST(request: NextRequest) {
     legacyTicketTypeIdResult,
     ticketTypeIdsResult,
     ticketQuantitiesResult,
+    expectedUnitPriceCentsResult,
     additionalAttendeeNamesResult,
     slotIdsResult,
     slotIdResult,
@@ -446,6 +487,7 @@ export async function POST(request: NextRequest) {
   );
   const ticketTypeIds = getValidatedValue(ticketTypeIdsResult);
   const ticketQuantities = getValidatedValue(ticketQuantitiesResult);
+  const expectedUnitPriceCentsValues = getValidatedValue(expectedUnitPriceCentsResult);
   const additionalAttendeeNames = getValidatedValue(additionalAttendeeNamesResult);
   const slotIds = Array.from(
     new Set(getValidatedValue(slotIdsResult).concat(getValidatedValue(slotIdResult))),
@@ -483,6 +525,17 @@ export async function POST(request: NextRequest) {
       quantity: legacyQuantity,
     });
   }
+
+  const expectedUnitCentsByTicketType = new Map<string, number>();
+  ticketTypeIds.forEach((ticketTypeId, index) => {
+    const raw = expectedUnitPriceCentsValues[index];
+    if (!ticketTypeId || raw === undefined || raw === "") return;
+    const cents = /^\d{1,8}$/.test(raw) ? Number(raw) : Number.NaN;
+    const current = expectedUnitCentsByTicketType.get(ticketTypeId);
+    // A malformed expectation is treated as "shown nothing payable": it can only cause a price-change refusal.
+    const value = Number.isSafeInteger(cents) ? cents : -1;
+    expectedUnitCentsByTicketType.set(ticketTypeId, current === undefined ? value : Math.min(current, value));
+  });
 
   const dedupedSubmittedTicketSelections = Array.from(
     submittedTicketSelections
@@ -615,7 +668,7 @@ export async function POST(request: NextRequest) {
 
 
   const ticketSelections: TicketSelection[] = [];
-  let ticketTotal = 0;
+  let ticketTotalCents = 0;
   let ticketCurrency = "USD";
   const registrationIds: string[] = [];
 
@@ -649,7 +702,10 @@ export async function POST(request: NextRequest) {
         active,
         sale_starts_at,
         sale_ends_at,
-        attendees_per_ticket
+        attendees_per_ticket,
+        early_bird_enabled,
+        early_bird_price,
+        early_bird_ends_at
       `,
       )
       .eq("event_id", event.id)
@@ -669,6 +725,8 @@ export async function POST(request: NextRequest) {
       (tickets as TicketTypeRow[]).map((ticket) => [ticket.id, ticket]),
     );
     let additionalAttendeeCursor = 0;
+    // CI-A: one evaluation instant for the whole cart.
+    const pricingNowMs = Date.now();
 
     for (const submittedSelection of dedupedSubmittedTicketSelections) {
       const ticket = ticketsById.get(submittedSelection.ticketTypeId);
@@ -715,18 +773,37 @@ export async function POST(request: NextRequest) {
 
       additionalAttendeeCursor += additionalCount;
 
-      const unitPrice = Number(ticket.price ?? 0);
-      const selectionTotal = Number((unitPrice * safeQuantity).toFixed(2));
+      // CI-A: the server-authoritative effective price (early bird strictly before its cutoff). A ticket whose
+      // price is not a valid amount is not sold. Nothing has been written yet.
+      const pricing = effectiveTicketPrice(ticket, pricingNowMs);
+      const lineCents = pricing.ok ? ticketLineTotalCents(pricing.unitCents, safeQuantity) : null;
+      if (!pricing.ok || lineCents === null) {
+        return NextResponse.redirect(
+          absoluteEventUrl(request, eventSlug, "?error=ticket_unavailable"),
+        );
+      }
+
+      // The price the buyer saw must not be exceeded silently (e.g. the early-bird cutoff passed while the form was
+      // open): refuse, so the buyer reviews the current price and submits again.
+      const expectedUnitCents = expectedUnitCentsByTicketType.get(ticket.id);
+      if (expectedUnitCents !== undefined && pricing.unitCents > expectedUnitCents) {
+        return NextResponse.redirect(
+          absoluteEventUrl(request, eventSlug, "?error=ticket_price_changed"),
+        );
+      }
 
       ticketSelections.push({
         ticket,
         quantity: safeQuantity,
-        total: selectionTotal,
+        unitCents: pricing.unitCents,
+        lineCents,
+        regularCents: pricing.regularCents,
+        isEarlyBird: pricing.isEarlyBird,
         attendeeNames: [buyerName, ...additionalForTicket],
       });
 
       ticketCurrency = ticket.currency || ticketCurrency || "USD";
-      ticketTotal = Number((ticketTotal + selectionTotal).toFixed(2));
+      ticketTotalCents += lineCents;
     }
 
     // Failed cart checkout attempts can leave pending registrations behind before Stripe is reached.
@@ -813,14 +890,22 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const slotTotal = slots.reduce(
-    (sum, slot) => sum + Number(slot.price ?? 0),
-    0,
-  );
+  let slotTotalCents = 0;
+  for (const slot of slots) {
+    const slotCents = toMinorUnits(slot.price ?? 0);
+    if (slotCents === null) {
+      return NextResponse.redirect(
+        absoluteEventUrl(request, eventSlug, "?error=coach_slot_unavailable"),
+      );
+    }
+    slotTotalCents += slotCents;
+  }
   const currency = (ticketCurrency || "USD").toUpperCase();
-  const totalAmount = Number((ticketTotal + slotTotal).toFixed(2));
+  // CI-A: totals are summed in integer cents; the stored amounts are the exact cents / 100.
+  const totalAmountCents = ticketTotalCents + slotTotalCents;
+  const totalAmount = fromMinorUnits(totalAmountCents);
 
-  if (totalAmount <= 0) {
+  if (totalAmountCents <= 0) {
     return NextResponse.redirect(
       absoluteEventUrl(request, eventSlug, "?error=cart_invalid_total"),
     );
@@ -874,8 +959,8 @@ export async function POST(request: NextRequest) {
     for (const ticketSelection of ticketSelections) {
       const ticketType = ticketSelection.ticket;
       const quantity = ticketSelection.quantity;
-      const ticketTotal = ticketSelection.total;
-      const unitPrice = Number(ticketType.price ?? 0);
+      const ticketTotal = fromMinorUnits(ticketSelection.lineCents);
+      const unitPrice = fromMinorUnits(ticketSelection.unitCents);
       const attendeeNames = ticketSelection.attendeeNames;
 
       const { data: registration, error: registrationError } = await supabase
@@ -978,6 +1063,14 @@ export async function POST(request: NextRequest) {
         metadata: {
           registration_id: registration.id,
           attendees_per_ticket: ticketType.attendees_per_ticket ?? 1,
+          // CI-A: the price evidence for this line, as charged.
+          pricing: {
+            rule: "effective_ticket_price_v1",
+            unit_cents: ticketSelection.unitCents,
+            regular_unit_cents: ticketSelection.regularCents,
+            early_bird: ticketSelection.isEarlyBird,
+            early_bird_ends_at: ticketSelection.isEarlyBird ? ticketType.early_bird_ends_at : null,
+          },
         },
       });
     }
