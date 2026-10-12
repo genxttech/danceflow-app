@@ -11,8 +11,10 @@ configuration without owner approval. A workflow that cannot be executed is repo
 - A separate local Supabase project (Supabase CLI, Docker), e.g. `danceflow-e2e-qa` on `127.0.0.1:55321`, loaded with
   the DEV `public` schema **schema-only**. It uses Supabase's local demo keys; no DEV/PROD key is involved.
 - A schema-only load has **no reference data and no storage buckets**. Apply the reference seed once per stack (it is
-  idempotent). The seed refuses to run unless the session declares the local QA stack, so an accidental paste into a
-  DEV/PROD SQL editor aborts without changing anything:
+  idempotent). It has two independent guards and aborts, changing nothing, unless both pass: the session must declare
+  the local QA stack (`danceflow.qa_stack=local`), and the database must contain only synthetic accounts on reserved
+  test domains (`e2e.test`, `example.*`) and at most 50 studios. DEV and PROD hold real accounts, so the seed refuses
+  there even if the marker is set; a QA stack that contains a real-email account is refused too (by design):
 
   ```bash
   docker exec -i -e PGOPTIONS="-c danceflow.qa_stack=local" supabase_db_danceflow-e2e-qa     psql -U postgres -v ON_ERROR_STOP=1 -1 < e2e/setup/qa-reference-data.sql

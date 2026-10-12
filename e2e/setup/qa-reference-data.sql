@@ -1,6 +1,7 @@
 -- DanceFlow LOCAL QA reference data -- isolated local Supabase QA stack ONLY. Idempotent.
 --
--- Refuses to run unless the session explicitly declares the local QA stack:
+-- Refuses to run unless the session explicitly declares the local QA stack AND the database contains only synthetic
+-- test accounts (see the guard below):
 --   docker exec -i -e PGOPTIONS="-c danceflow.qa_stack=local" supabase_db_<qa-project> --     psql -U postgres -v ON_ERROR_STOP=1 -1 < e2e/setup/qa-reference-data.sql
 -- DEV and PROD already hold this data and must never receive this file (an accidental paste into a SQL editor
 -- aborts at the guard below and changes nothing).
@@ -10,10 +11,27 @@
 -- The accounting_categories statements below are extracted verbatim, in migration order, from every migration that
 -- seeds that table (generated; re-generate when a migration adds categories).
 
+-- Two independent guards. (1) An explicit opt-in marker. (2) A data fingerprint no real environment can satisfy:
+-- an isolated QA database holds only synthetic accounts on reserved test domains and a handful of fixture studios.
+-- DEV and PROD contain real accounts, so the seed aborts there even if someone sets the marker.
 do $$
+declare
+  non_test_accounts bigint;
+  studio_count bigint;
 begin
   if coalesce(current_setting('danceflow.qa_stack', true), '') <> 'local' then
     raise exception 'refusing: qa-reference-data.sql runs only on the local QA stack (danceflow.qa_stack=local not set)';
+  end if;
+  select count(*) into non_test_accounts
+  from auth.users
+  where email is null
+     or lower(split_part(email, '@', 2)) not in ('e2e.test', 'example.com', 'example.org', 'example.net', 'example.invalid');
+  if non_test_accounts > 0 then
+    raise exception 'refusing: % account(s) outside reserved test domains -- this is not an isolated QA database', non_test_accounts;
+  end if;
+  select count(*) into studio_count from public.studios;
+  if studio_count > 50 then
+    raise exception 'refusing: % studios -- this is not an isolated QA database', studio_count;
   end if;
 end
 $$;
