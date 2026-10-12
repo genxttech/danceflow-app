@@ -243,6 +243,39 @@ mechanism (see `playwright.config.ts`) runs a dependency project's full test
 set as a prerequisite, not just tests related to the file you asked for.
 This is correct and safe, just slower than it might look at first.
 
+## Competition setup and registration isolation (Phase 10C.5)
+
+`e2e/tests/competition-setup-registration-isolation.spec.ts` drives the real
+Competition setup wizard as a studio owner and checks the database
+independently: draft creation, publish and competition registration never
+change the event's ticket registration (`registration_required`, account
+requirement, window, ticket types); the competition's own window and account
+setting are stored on the program; new drafts use `studio_simple@3`; NDCA
+Multi-Dance cannot open registration; an instructor cannot reach the wizard or
+change a competition event's venue; Back/Continue/refresh keep selections; the
+event page fields render publicly; `studio_simple@2` programs are untouched.
+
+- **Fixtures** (`e2e/helpers/competitionFixture.ts`) are run-scoped: a new
+  studio, owner and instructor test accounts (random passwords, never logged),
+  six events and a legacy v2 program, all deleted in `afterAll` (set
+  `E2E_KEEP_FIXTURES=true` to keep them for debugging). They never touch other
+  studios' records.
+- **Target**: the E2E Supabase target must carry the 10C.5 schema
+  (`20261113090000`–`20261115090000`) and the `studio_simple` profile rows; the
+  fixture refuses to run without an active `studio_simple@3`. Creating
+  accounts and signing in through a hosted project's Auth is a deliberate
+  choice for whoever configures the target; locally, a throwaway Supabase
+  stack loaded with the DEV `public` schema (`supabase db dump --linked
+  --schema public`, structure only) plus the `competition_rules_profiles`
+  rows works.
+- **Feature flag**: the browser cannot see the server's flag, so declare it.
+  Leave `E2E_COMPETITION_REGISTRATION_ENABLED` unset when the app runs with the
+  flag off (the register route must 404, no competition CTA). With the app
+  started with `NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED=true`, set
+  `E2E_COMPETITION_REGISTRATION_ENABLED=true` to also run the CTA test, which
+  opens and then closes competition registration on a run-scoped event only.
+- **No commerce**: no test buys a ticket or submits a competition entry.
+
 ## Files
 
 - `playwright.config.ts` (repo root) -- Playwright config; fails closed at
@@ -273,6 +306,9 @@ This is correct and safe, just slower than it might look at first.
   document/signing setup failure + retry.
 - `e2e/tests/registration-failure-signing-continuation.spec.ts` -- Slice 3
   signing continuation application failure + retry idempotency.
+- `e2e/helpers/competitionFixture.ts`, `e2e/helpers/competitionWizard.ts`,
+  `e2e/tests/competition-setup-registration-isolation.spec.ts` -- Phase 10C.5
+  Competition setup wizard and registration isolation.
 - `e2e/tests/registration-cancellation.spec.ts` -- Slice 3 genuine
   cancellation, kept distinct from technical failure.
 - `src/app/events/page.tsx` / `src/app/discover/events/resumeBanner.ts` --

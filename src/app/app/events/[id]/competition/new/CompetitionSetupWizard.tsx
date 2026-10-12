@@ -962,8 +962,12 @@ export default function CompetitionSetupWizard({
           >
             Back
           </button>
+          {/* Distinct keys: React must not reuse the Continue button's DOM node as the submit button. Otherwise the
+              click that moves to Review turns that same node into type="submit" mid-event, and the browser submits
+              the form, creating the draft before the Review step is ever confirmed. */}
           {isReview ? (
             <button
+              key="create-draft"
               type="submit"
               disabled={pending || action.ok || !draft.payload}
               className="h-11 rounded-lg bg-slate-950 px-6 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
@@ -971,7 +975,7 @@ export default function CompetitionSetupWizard({
               {pending || action.ok ? "Creating…" : "Create Competition Draft"}
             </button>
           ) : (
-            <button type="button" onClick={next} className="h-11 rounded-lg bg-slate-950 px-6 text-sm font-semibold text-white hover:bg-slate-800">
+            <button key="continue" type="button" onClick={next} className="h-11 rounded-lg bg-slate-950 px-6 text-sm font-semibold text-white hover:bg-slate-800">
               Continue
             </button>
           )}

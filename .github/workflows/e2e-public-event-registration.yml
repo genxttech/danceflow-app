@@ -27,6 +27,10 @@ on:
       - "src/lib/documents/**"
       - "src/lib/events/event-order-payment.ts"
       - "src/lib/payments/**"
+      # Phase 10C.5: Competition setup wizard / registration isolation browser coverage
+      # (e2e/tests/competition-setup-registration-isolation.spec.ts).
+      - "src/app/app/events/*/competition/**"
+      - "src/lib/competition/**"
       - "e2e/**"
       - "src/lib/e2e/**"
       - "playwright.config.ts"
