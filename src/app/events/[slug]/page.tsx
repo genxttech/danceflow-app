@@ -10,6 +10,7 @@ import { retryEventRegistrationCheckoutAction } from "./register/actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
+import { EventCoverImage, EventDescriptionBody, EventHeroText, EventHighlights, EventRegistrationInfo } from "@/components/public/EventPresentation";
 import { getBanner } from "./banner";
 
 // Public competition registration stays off until the registration slice ships (see the register route).
@@ -45,6 +46,8 @@ type EventRow = {
   start_time: string | null;
   end_time: string | null;
   cover_image_url: string | null;
+  public_highlights: string[] | null;
+  public_registration_info: string | null;
   visibility: string;
   featured: boolean;
   status: string;
@@ -1142,6 +1145,8 @@ export default async function PublicEventDetailPage({
       start_time,
       end_time,
       cover_image_url,
+      public_highlights,
+      public_registration_info,
       visibility,
       featured,
       status,
@@ -1621,6 +1626,12 @@ export default async function PublicEventDetailPage({
   const hasSchedule = groupedScheduleItems.length > 0;
   const ticketPriceLabel = lowestVisibleTicketPriceLabel(visibleTicketTypes);
   const hasDanceFlowRegistration = typedEvent.registration_required;
+  // 10C.5: the competition entry CTA follows competition registration (the feature flag and the database gate the
+  // catalog and checkout use), not the event's ticket registration, so it shows whether or not ticket checkout is on.
+  const competitionRegistrationOpen =
+    competitionRegistrationEnabled &&
+    (typedEvent.event_type === "competition" || typedEvent.event_type === "showcase") &&
+    (await supabase.rpc("competition_registration_event_open", { p_event_id: typedEvent.id })).data === true;
   const basicEventListingCta = basicListingCta({
     websiteUrl: eventHost.websiteUrl,
     contactEmail: eventHost.contactEmail,
@@ -1684,19 +1695,7 @@ export default async function PublicEventDetailPage({
 
             <section className="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
               <div className="relative">
-                <div className="aspect-[16/7] w-full bg-slate-100">
-                  {typedEvent.cover_image_url ? (
-                    <img
-                      src={typedEvent.cover_image_url}
-                      alt={typedEvent.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_40%,#fff7ed_100%)] text-sm text-slate-500">
-                      Event image coming soon
-                    </div>
-                  )}
-                </div>
+                <EventCoverImage url={typedEvent.cover_image_url} alt={typedEvent.name} />
 
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/20 to-transparent" />
 
@@ -1729,16 +1728,7 @@ export default async function PublicEventDetailPage({
                         )}
                       </div>
 
-                      <div>
-                        <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">
-                          {typedEvent.name}
-                        </h1>
-                        <p className="mt-3 max-w-3xl text-sm leading-6 text-white/90 sm:text-base">
-                          {typedEvent.short_description ||
-                            typedEvent.description ||
-                            "Public event details coming soon."}
-                        </p>
-                      </div>
+                      <EventHeroText name={typedEvent.name} summary={typedEvent.short_description} description={typedEvent.description} />
 
                       <div className="flex flex-wrap gap-3">
                         {hasDanceFlowRegistration ? (
@@ -1884,15 +1874,9 @@ export default async function PublicEventDetailPage({
                       ))}
                     </div>
 
-                    <div className="mt-5 rounded-2xl border border-fuchsia-100 bg-white p-5 text-base leading-8 text-slate-700 shadow-sm">
-                      {typedEvent.description ? (
-                        <p className="whitespace-pre-wrap">
-                          {typedEvent.description}
-                        </p>
-                      ) : (
-                        <p>Full public event details are coming soon.</p>
-                      )}
-                    </div>
+                    <EventDescriptionBody description={typedEvent.description} />
+                    <EventHighlights highlights={typedEvent.public_highlights} />
+                    <EventRegistrationInfo info={typedEvent.public_registration_info} />
                   </div>
                 </section>
 
@@ -2650,29 +2634,6 @@ export default async function PublicEventDetailPage({
                     </div>
                   ) : null}
 
-                  {competitionRegistrationEnabled &&
-                  (typedEvent.event_type === "competition" ||
-                    typedEvent.event_type === "showcase") ? (
-                    <div className="mt-6 border border-slate-300 bg-white p-5">
-                      <p className="text-sm font-semibold text-slate-950">
-                        {typedEvent.event_type === "showcase"
-                          ? "Enter the showcase"
-                          : "Register to compete"}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        Build individual or studio entries using the competition-specific registration form.
-                      </p>
-                      <Link
-                        href={`/events/${encodeURIComponent(typedEvent.slug)}/competition/register`}
-                        className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                      >
-                        {typedEvent.event_type === "showcase"
-                          ? "Open Showcase Registration"
-                          : "Open Competition Registration"}
-                      </Link>
-                    </div>
-                  ) : null}
-
                   <div className="mt-6">
                     {visibleTicketTypes.length > 0 || allowWaitlistJoin ? (
                       <details
@@ -2733,6 +2694,27 @@ export default async function PublicEventDetailPage({
                   </div>
                   </>
                   )}
+
+                  {competitionRegistrationOpen ? (
+                    <div className="mt-6 border border-slate-300 bg-white p-5">
+                      <p className="text-sm font-semibold text-slate-950">
+                        {typedEvent.event_type === "showcase"
+                          ? "Enter the showcase"
+                          : "Register to compete"}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Build individual or studio entries using the competition-specific registration form.
+                      </p>
+                      <Link
+                        href={`/events/${encodeURIComponent(typedEvent.slug)}/competition/register`}
+                        className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        {typedEvent.event_type === "showcase"
+                          ? "Open Showcase Registration"
+                          : "Open Competition Registration"}
+                      </Link>
+                    </div>
+                  ) : null}
                 </section>
 
                 <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
