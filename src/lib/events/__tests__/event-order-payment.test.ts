@@ -19,6 +19,7 @@ let ordersTable: FakeTable;
 let itemsTable: FakeTable;
 let registrationsTable: FakeTable;
 let attemptsTable: FakeTable;
+let studiosTable: FakeTable;
 let extendHoldResult: unknown = null;
 
 vi.mock("@/lib/supabase/admin", () => ({
@@ -28,12 +29,13 @@ vi.mock("@/lib/supabase/admin", () => ({
       event_order_items: itemsTable,
       event_registrations: registrationsTable,
       event_order_payment_attempts: attemptsTable,
+      studios: studiosTable,
       __extendHoldResult: extendHoldResult,
     } as never),
 }));
 
 type FakePaymentIntent = { id: string; status: string; client_secret: string };
-type FakeSession = { id: string; status: string; url: string; expires_at?: number };
+type FakeSession = { id: string; status: string; url: string; expires_at?: number; payment_status?: string; metadata?: Record<string, string> };
 
 /**
  * Models real Stripe idempotency-key semantics closely enough to catch a
@@ -46,6 +48,7 @@ type FakeSession = { id: string; status: string; url: string; expires_at?: numbe
  * the stale original response instead of a real new object.
  */
 function createFakeStripe() {
+  const platformSessionIds = new Set<string>();
   let piCounter = 0;
   let sessionCounter = 0;
   const paymentIntents = new Map<string, FakePaymentIntent>();
@@ -100,14 +103,14 @@ function createFakeStripe() {
           sessionCreateCalls.push({ idempotencyKey: key });
           return session;
         }),
-        retrieve: vi.fn(async (id: string) => {
+        retrieve: vi.fn(async (id: string, _params?: unknown, options?: { stripeAccount?: string }) => {
           const session = sessions.get(id);
-          if (!session) throw new Error(`Unknown session ${id}`);
+          if (!session || (platformSessionIds.has(id) && options?.stripeAccount)) throw Object.assign(new Error(`No such checkout.session: ${id}`), { code: "resource_missing" });
           return session;
         }),
-        expire: vi.fn(async (id: string) => {
+        expire: vi.fn(async (id: string, _params?: unknown, options?: { stripeAccount?: string }) => {
           const session = sessions.get(id);
-          if (!session) throw new Error(`Unknown session ${id}`);
+          if (!session || (platformSessionIds.has(id) && options?.stripeAccount)) throw Object.assign(new Error(`No such checkout.session: ${id}`), { code: "resource_missing" });
           session.status = "expired";
           return session;
         }),
@@ -115,7 +118,7 @@ function createFakeStripe() {
     },
   };
 
-  return { stripe, paymentIntents, sessions, createCalls, sessionCreateCalls };
+  return { stripe, paymentIntents, sessions, createCalls, sessionCreateCalls, platformSessionIds };
 }
 
 let currentFakeStripe: ReturnType<typeof createFakeStripe>;
@@ -173,6 +176,7 @@ function fakeRequest(): NextRequest {
 beforeEach(() => {
   extendHoldResult = null;
   attemptsTable = new FakeTable();
+  studiosTable = new FakeTable();
   ordersTable = new FakeTable();
   ordersTable.uniqueColumns = ["studio_id", "client_request_id"];
   itemsTable = new FakeTable();
@@ -685,6 +689,62 @@ describe("startEventOrderPayment", () => {
     expect(currentFakeStripe.sessions.get("cs_legacy")!.status).toBe("expired");
     expect(currentFakeStripe.sessionCreateCalls).toHaveLength(1);
     expect(result.checkoutUrl).not.toBe("https://checkout.stripe.com/cs_legacy");
+  });
+
+  it("PAY-WH-1B: resuming a legacy order expires its platform-account Session ON THE PLATFORM and charges only via a new direct Session", async () => {
+    const order = seedOrder({ stripe_checkout_session_id: "cs_live_platform", created_at: "2026-06-10T12:00:00Z", metadata: { source: "event_cart_v1" } });
+    attemptsTable.rows.forEach((row) => { if (row.order_id === order.id) row.surface = "legacy"; });
+    studiosTable.rows.push({ id: STUDIO_ID, stripe_connected_account_id: "acct_1" });
+    currentFakeStripe.platformSessionIds.add("cs_live_platform");
+    currentFakeStripe.sessions.set("cs_live_platform", {
+      id: "cs_live_platform", status: "open", url: "https://checkout.stripe.com/cs_live_platform",
+      expires_at: Math.floor(Date.now() / 1000) + 24 * 3600,
+      metadata: { source: "event_cart_order", order_id: String(order.id), studio_id: STUDIO_ID, connected_account_id: "acct_1" },
+    });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({ order_id: order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
+
+    const result = await startEventOrderPayment({ request: fakeRequest(), orderId: order.id as string, surface: "student_app", paymentMode: "checkout" });
+
+    expect(result.checkoutUrl).not.toBe("https://checkout.stripe.com/cs_live_platform");
+    expect(currentFakeStripe.sessionCreateCalls).toHaveLength(1);
+    expect(currentFakeStripe.sessions.get("cs_live_platform")!.status).toBe("expired");
+    const expireCall = currentFakeStripe.stripe.checkout.sessions.expire.mock.calls.find((call) => call[0] === "cs_live_platform");
+    expect(expireCall?.[2]).toBeUndefined(); // the platform account, not the connected account
+  });
+
+  it("PAY-WH-1B: a legacy platform Session is never reused, even one that would close before the hold", async () => {
+    const order = seedOrder({ stripe_checkout_session_id: "cs_live_platform_short", created_at: "2026-06-10T12:00:00Z", metadata: { source: "event_cart_v1" } });
+    attemptsTable.rows.forEach((row) => { if (row.order_id === order.id) row.surface = "legacy"; });
+    studiosTable.rows.push({ id: STUDIO_ID, stripe_connected_account_id: "acct_1" });
+    currentFakeStripe.platformSessionIds.add("cs_live_platform_short");
+    currentFakeStripe.sessions.set("cs_live_platform_short", {
+      id: "cs_live_platform_short", status: "open", url: "https://checkout.stripe.com/cs_live_platform_short",
+      expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
+      metadata: { source: "event_cart_order", order_id: String(order.id), studio_id: STUDIO_ID, connected_account_id: "acct_1" },
+    });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({ order_id: order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
+    const result = await startEventOrderPayment({ request: fakeRequest(), orderId: order.id as string, surface: "student_app", paymentMode: "checkout" });
+    expect(result.checkoutUrl).not.toBe("https://checkout.stripe.com/cs_live_platform_short");
+    expect(currentFakeStripe.sessionCreateCalls).toHaveLength(1);
+  });
+
+  it("PAY-WH-1B: a legacy order whose platform Session was PAID is never charged again on resume", async () => {
+    const order = seedOrder({ stripe_checkout_session_id: "cs_live_platform_paid", created_at: "2026-06-10T12:00:00Z", metadata: { source: "event_cart_v1" } });
+    attemptsTable.rows.forEach((row) => { if (row.order_id === order.id) row.surface = "legacy"; });
+    studiosTable.rows.push({ id: STUDIO_ID, stripe_connected_account_id: "acct_1" });
+    currentFakeStripe.platformSessionIds.add("cs_live_platform_paid");
+    currentFakeStripe.sessions.set("cs_live_platform_paid", {
+      id: "cs_live_platform_paid", status: "complete", payment_status: "paid", url: "",
+      metadata: { source: "event_cart_order", order_id: String(order.id), studio_id: STUDIO_ID, connected_account_id: "acct_1" },
+    });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({ order_id: order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
+
+    await expect(startEventOrderPayment({ request: fakeRequest(), orderId: order.id as string, surface: "student_app", paymentMode: "checkout" }))
+      .rejects.toThrow("This order already has a payment that the studio needs to review.");
+    expect(currentFakeStripe.sessionCreateCalls).toHaveLength(0);
   });
 
   it("uses a different idempotency key on a genuine retry after the session is no longer open -- does not replay the original creation's cached response", async () => {

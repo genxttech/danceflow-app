@@ -39,7 +39,7 @@ describe("checkout and resume never create an unrecorded or outliving Stripe obj
 
   it("resume closes a Session that would outlive the hold only after the replacement is recorded", () => {
     const record = resume.indexOf('kind: "checkout_session"');
-    const expire = resume.indexOf("if (staleSessionId) await stripe.checkout.sessions.expire(staleSessionId");
+    const expire = resume.indexOf("await stripe.checkout.sessions.expire(staleSession.id");
     expect(record).toBeGreaterThan(0);
     expect(expire).toBeGreaterThan(record);
     expect(resume).toContain("existing.expires_at < holdSeconds");

@@ -180,19 +180,134 @@ function stripeId(value: unknown): string | null {
   return null;
 }
 
+/**
+ * PAY-WH-1B -- legacy platform-account Checkout Sessions.
+ *
+ * Before the 2026-07-16 direct-charge cutover (commits 41328d44 / 363c6b01) event cart Checkout Sessions were created on
+ * the PLATFORM account as destination charges (transfer_data.destination = the studio's connected account). PAY-WH-1
+ * records such an order's stored Session as a 'legacy' attempt on the studio's connected account, where Stripe cannot
+ * find it. For a POSITIVELY IDENTIFIED legacy order only, a Session that Stripe reports missing on the connected account
+ * is looked up on the platform account -- never on any other account -- and used only after its metadata proves it is
+ * this order's destination-charge Session for this studio. A paid platform Session is never released as unpaid and never
+ * settled automatically: settlement's account binding rejects it and records a durable captured-payment exception.
+ */
+export const LEGACY_DESTINATION_CHARGE_CUTOVER = "2026-07-18T00:00:00.000Z";
+/** Account marker passed to settlement for platform-account evidence; it can never equal a studio's connected account. */
+export const LEGACY_PLATFORM_ACCOUNT_MARKER = "platform:legacy_destination_charge";
+
+export type LegacyPlatformContext = {
+  orderId: string;
+  studioId: string;
+  studioAccount: string;
+  legacyAttemptIds: ReadonlySet<string>;
+};
+
+/** Facts that positively identify a pre-cutover destination-charge order; null for every other order. */
+export async function loadLegacyPlatformContext(admin: SupabaseClient, orderId: string): Promise<LegacyPlatformContext | null> {
+  const { data: order, error } = await admin
+    .from("event_orders")
+    .select("id, studio_id, created_at, metadata")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (error) throw new CartSettlementError(`legacy order lookup failed: ${error.message}`, error.code);
+  const metadata = ((order as { metadata?: Record<string, unknown> | null } | null)?.metadata ?? {}) as Record<string, unknown>;
+  if (
+    !order ||
+    !(Date.parse(String((order as { created_at: string }).created_at)) < Date.parse(LEGACY_DESTINATION_CHARGE_CUTOVER)) ||
+    metadata.charge_model === "direct" ||
+    metadata.source === "competition_registration"
+  ) {
+    return null;
+  }
+  const studioId = String((order as { studio_id: string }).studio_id);
+  const { data: studio, error: studioError } = await admin.from("studios").select("stripe_connected_account_id").eq("id", studioId).maybeSingle();
+  if (studioError) throw new CartSettlementError(`legacy studio lookup failed: ${studioError.message}`, studioError.code);
+  const studioAccount = (studio as { stripe_connected_account_id?: string | null } | null)?.stripe_connected_account_id;
+  if (!studioAccount) return null;
+  const { data: attempts, error: attemptsError } = await admin
+    .from("event_order_payment_attempts")
+    .select("id, order_id, kind, surface, stripe_account_id")
+    .eq("order_id", orderId)
+    .eq("surface", "legacy")
+    .eq("kind", "checkout_session");
+  if (attemptsError) throw new CartSettlementError(`legacy attempt lookup failed: ${attemptsError.message}`, attemptsError.code);
+  const legacyAttemptIds = new Set(
+    ((attempts ?? []) as Array<{ id: string; order_id: string; kind: string; surface: string; stripe_account_id: string }>)
+      .filter((row) => row.order_id === orderId && row.kind === "checkout_session" && row.surface === "legacy" && row.stripe_account_id === studioAccount)
+      .map((row) => row.id),
+  );
+  if (!legacyAttemptIds.size) return null;
+  return { orderId, studioId, studioAccount, legacyAttemptIds };
+}
+
+function isStripeResourceMissing(error: unknown) {
+  const value = error as { code?: unknown; raw?: { code?: unknown } } | null;
+  return value?.code === "resource_missing" || value?.raw?.code === "resource_missing";
+}
+
+/** A platform Session is used only when its own metadata proves it is THIS order's destination charge for THIS studio. */
+export function isVerifiedLegacyPlatformSession(session: Stripe.Checkout.Session, context: LegacyPlatformContext) {
+  const metadata = (session.metadata ?? {}) as Record<string, string | undefined>;
+  return (
+    metadata.source === "event_cart_order" &&
+    metadata.order_id === context.orderId &&
+    metadata.studio_id === context.studioId &&
+    metadata.connected_account_id === context.studioAccount &&
+    !metadata.charge_model
+  );
+}
+
+export class LegacyPlatformSessionUnverifiedError extends Error {
+  constructor(readonly sessionId: string) {
+    super("legacy_platform_session_unverified");
+    this.name = "LegacyPlatformSessionUnverifiedError";
+  }
+}
+
+/**
+ * Retrieves an attempt's Checkout Session on its recorded account. Only for a positively identified legacy attempt AND
+ * a Stripe "resource_missing" answer is the platform account consulted; anything else is rethrown unchanged.
+ */
+export async function retrieveCheckoutSessionForAttempt(
+  stripe: Stripe,
+  attempt: { attempt_id: string; stripe_account_id: string; stripe_checkout_session_id: string },
+  legacy: LegacyPlatformContext | null,
+): Promise<{ session: Stripe.Checkout.Session; onPlatform: boolean }> {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(attempt.stripe_checkout_session_id, {}, { stripeAccount: attempt.stripe_account_id });
+    return { session, onPlatform: false };
+  } catch (error) {
+    if (!legacy || !legacy.legacyAttemptIds.has(attempt.attempt_id) || attempt.stripe_account_id !== legacy.studioAccount || !isStripeResourceMissing(error)) {
+      throw error;
+    }
+    const session = await stripe.checkout.sessions.retrieve(attempt.stripe_checkout_session_id);
+    if (session.id !== attempt.stripe_checkout_session_id || !isVerifiedLegacyPlatformSession(session, legacy)) {
+      throw new LegacyPlatformSessionUnverifiedError(attempt.stripe_checkout_session_id);
+    }
+    return { session, onPlatform: true };
+  }
+}
+
 /** Reads (and where still payable, closes) one Stripe payment attempt. Network/API errors leave it "open" (retry). */
-async function inspectAndCloseAttempt(stripe: Stripe, attempt: ReleaseAttempt): Promise<AttemptFinding> {
+async function inspectAndCloseAttempt(stripe: Stripe, attempt: ReleaseAttempt, legacy: LegacyPlatformContext | null = null): Promise<AttemptFinding> {
   const options = { stripeAccount: attempt.stripe_account_id };
   try {
     if (attempt.kind === "checkout_session" && attempt.stripe_checkout_session_id) {
-      let session = await stripe.checkout.sessions.retrieve(attempt.stripe_checkout_session_id, {}, options);
+      const found = await retrieveCheckoutSessionForAttempt(
+        stripe,
+        { attempt_id: attempt.attempt_id, stripe_account_id: attempt.stripe_account_id, stripe_checkout_session_id: attempt.stripe_checkout_session_id },
+        legacy,
+      );
+      // A verified legacy Session lives on the platform account: read and expire it there, nowhere else.
+      const sessionOptions = found.onPlatform ? undefined : options;
+      let session = found.session;
       if (session.status === "open") {
         try {
-          session = await stripe.checkout.sessions.expire(session.id, {}, options);
+          session = await stripe.checkout.sessions.expire(session.id, {}, sessionOptions);
         } catch {
           // The Session may have completed in the meantime; read it again below.
         }
-        session = await stripe.checkout.sessions.retrieve(session.id, {}, options);
+        session = await stripe.checkout.sessions.retrieve(session.id, {}, sessionOptions);
       }
       if (session.status === "expired") return { attempt_id: attempt.attempt_id, stripe_state: "closed" };
       if (session.status === "complete") {
@@ -204,7 +319,9 @@ async function inspectAndCloseAttempt(stripe: Stripe, attempt: ReleaseAttempt): 
               source: "reconcile",
               stripeEventId: null,
               claimOwner: null,
-              stripeAccountId: attempt.stripe_account_id,
+              // Platform evidence can never bind to a connected-account order: settlement records a captured-payment
+              // exception (mismatch_account) instead of settling, and the order is never released as unpaid.
+              stripeAccountId: found.onPlatform ? LEGACY_PLATFORM_ACCOUNT_MARKER : attempt.stripe_account_id,
               checkoutSessionId: session.id,
               paymentIntentId: stripeId(session.payment_intent),
               amountCents: session.amount_total ?? null,
@@ -212,6 +329,8 @@ async function inspectAndCloseAttempt(stripe: Stripe, attempt: ReleaseAttempt): 
             },
           };
         }
+        // A completed platform Session that is not paid yet is never treated as closed: keep reconciling.
+        if (found.onPlatform) return { attempt_id: attempt.attempt_id, stripe_state: "open" };
         return { attempt_id: attempt.attempt_id, stripe_state: session.payment_status === "unpaid" ? "processing" : "closed" };
       }
       return { attempt_id: attempt.attempt_id, stripe_state: "open" };
@@ -276,9 +395,12 @@ export async function releaseEventCartOrder(params: {
   if (attempts.length > 0 && !params.stripe) {
     return { outcome: "retry", reason: "stripe_unavailable" };
   }
+  const legacy = attempts.some((attempt) => attempt.kind === "checkout_session")
+    ? await loadLegacyPlatformContext(params.admin, params.orderId)
+    : null;
   const findings: AttemptFinding[] = [];
   for (const attempt of attempts) {
-    findings.push(await inspectAndCloseAttempt(params.stripe as Stripe, attempt));
+    findings.push(await inspectAndCloseAttempt(params.stripe as Stripe, attempt, legacy));
   }
 
   const paid = findings.find((finding) => finding.stripe_state === "paid" && finding.evidence);
