@@ -1238,7 +1238,7 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     if (summary.stoppedReason) {
-      throw new CampaignActionError("send_paused_provider");
+      throw new CampaignActionError(summary.stoppedReason === "marketing_paused" ? "marketing_paused" : "send_paused_provider");
     }
   } catch (error) {
     // A redirect thrown inside the try (campaign_locked, campaign_already_sent, ...) is the intended response.

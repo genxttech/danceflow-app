@@ -30,17 +30,31 @@ begin
   end;
 end $$;
 
+create or replace function pg_temp.expect_ok(p_name text, p_sql text) returns void
+language plpgsql as $f$
+begin
+  begin
+    execute p_sql;
+    insert into t_results values (p_name, true, 'ok');
+  exception when others then
+    insert into t_results values (p_name, false, sqlstate || ' ' || sqlerrm);
+  end;
+end $f$;
+
 create or replace function pg_temp.kv(p_k text) returns text language sql as $$ select v from t_kv where k = p_k $$;
 create or replace function pg_temp.as_user(p_user text) returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', p_user, 'role', 'authenticated')::text, true) $$;
+
+-- Stage 1 lands frozen; this rolled-back transaction exercises the unfrozen pipeline.
+select public.marketing_set_send_freeze(false, 'M-0 stage 2 suite (rolled back)');
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Schema state
 -- ---------------------------------------------------------------------------------------------------------------
 select pg_temp.chk('stage 2: no tenant manage policy on studio recipients',
-  not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'marketing_campaign_recipients' and cmd <> 'SELECT'));
+  not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'marketing_campaign_recipients' and cmd <> 'SELECT' and permissive = 'PERMISSIVE'));
 select pg_temp.chk('stage 2: no tenant manage policy on organizer recipients',
-  not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'organizer_marketing_campaign_recipients' and cmd <> 'SELECT'));
+  not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'organizer_marketing_campaign_recipients' and cmd <> 'SELECT' and permissive = 'PERMISSIVE'));
 
 select pg_temp.chk(format('privileges: %s cannot %s %s', r, p, t),
   not has_table_privilege(r, 'public.' || t, p))
@@ -144,6 +158,33 @@ select pg_temp.expect_msg('anon: cannot call the legacy unsubscribe RPC',
   format($q$select public.unsubscribe_marketing_recipient(%L)$q$, pg_temp.kv('tok')), '42501');
 select pg_temp.expect_msg('anon: cannot unsubscribe by token directly',
   format($q$select public.marketing_unsubscribe_by_token(%L, 'one_click')$q$, pg_temp.kv('tok')), '42501');
+select pg_temp.expect_msg('anon: cannot queue an outbound delivery',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, status) values ('00000000-0000-0000-0000-0000ae200001', 'email', 'appointment_confirmed', 'x@example.com', 'queued')$q$, '42501');
+reset role;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Outbound deliveries (D): no client-role write path at all
+-- ---------------------------------------------------------------------------------------------------------------
+select pg_temp.chk(format('outbound: %s cannot %s outbound_deliveries', r, p), not has_table_privilege(r, 'public.outbound_deliveries', p))
+from unnest(array['anon', 'authenticated']) r, unnest(array['insert', 'update', 'delete', 'truncate']) p;
+select pg_temp.chk('outbound: no client write policy remains',
+  not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'outbound_deliveries'
+              and cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL') and 'service_role' <> all (roles)));
+select pg_temp.chk('outbound: staff keep read access (communications history)', has_table_privilege('authenticated', 'public.outbound_deliveries', 'select'));
+insert into public.clients (id, studio_id, first_name, last_name, email, status) values
+  ('00000000-0000-0000-0000-0000ae200301', '00000000-0000-0000-0000-0000ae200001', 'S2', 'Client', 'm0-s2-client@example.com', 'active');
+insert into public.appointments (id, studio_id, client_id, appointment_type, starts_at, ends_at) values
+  ('00000000-0000-0000-0000-0000ae200801', '00000000-0000-0000-0000-0000ae200001', '00000000-0000-0000-0000-0000ae200301', 'private_lesson', now() + interval '1 day', now() + interval '1 day 1 hour');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae200201');
+select pg_temp.expect_msg('outbound: studio owner cannot queue even a valid appointment notification directly',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, related_table, related_id, status)
+     values ('00000000-0000-0000-0000-0000ae200001', 'email', 'appointment_confirmed', 'm0-s2-client@example.com', 'appointments', '00000000-0000-0000-0000-0000ae200801', 'queued')$q$, '42501');
+reset role;
+set local role service_role;
+select pg_temp.expect_ok('outbound: the server (service role) still queues it',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, related_table, related_id, status, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae200001', 'email', 'appointment_confirmed', 'm0-s2-client@example.com', 'appointments', '00000000-0000-0000-0000-0000ae200801', 'queued', 'm0-s2-od')$q$);
 reset role;
 
 -- ---------------------------------------------------------------------------------------------------------------

@@ -142,6 +142,18 @@ export async function createMarketingFixture(config: E2EConfig): Promise<Marketi
   }
 }
 
+/** Marketing M-0 send freeze (stage 1 lands frozen). Specs record the state, unfreeze, and restore it afterwards. */
+export async function isMarketingFrozen(config: E2EConfig): Promise<boolean> {
+  const { data, error } = await e2eAdminClient(config).rpc("marketing_send_frozen");
+  if (error) throw new Error(`marketing freeze: ${error.message}`);
+  return data === true;
+}
+
+export async function setMarketingFreeze(config: E2EConfig, frozen: boolean, reason: string) {
+  const { error } = await e2eAdminClient(config).rpc("marketing_set_send_freeze", { p_frozen: frozen, p_reason: reason });
+  if (error) throw new Error(`marketing freeze: ${error.message}`);
+}
+
 export async function cleanupMarketingFixture(config: E2EConfig, fixture: MarketingFixture | undefined) {
   if (!fixture) return;
   const admin = e2eAdminClient(config);

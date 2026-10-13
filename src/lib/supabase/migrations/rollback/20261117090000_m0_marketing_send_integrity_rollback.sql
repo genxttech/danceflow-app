@@ -1,6 +1,11 @@
 -- Rollback of 20261117090000_m0_marketing_send_integrity.sql: restores the exact pre-M-0 schema (verified with
--- sql-tests/m0_marketing_fingerprint.sql). Roll the APPLICATION back first (to a pre-M-0 build) and roll back
--- 20261117091000 (stage 2) before this file.
+-- sql-tests/m0_marketing_fingerprint.sql), including the PAY-WH-1 dispatcher claim function.
+--
+-- NOT part of a normal application rollback. Stage 1 is compatible with the pre-M-0 application and should stay in
+-- place: it carries the send freeze, the legacy unsubscribe compatibility (organizer page persistence, per-message
+-- tokens on the legacy studio RPC) and the client-write guards. Run this only on an explicit decision to remove M-0
+-- entirely, after 20261117091000 (stage 2) has been rolled back, with the application already below M-0 and marketing
+-- frozen. Removing stage 1 also removes the freeze and the legacy unsubscribe compatibility.
 --
 -- Refuses (changing nothing) while M-0 data would be lost or a send is unresolved:
 --   * a recipient in 'sending', 'suppressed' or 'delivery_unknown' (the pre-M-0 status constraint cannot hold them);
@@ -49,12 +54,75 @@ drop trigger if exists organizer_contacts_00_m0_unsubscribe_guard on public.orga
 drop trigger if exists outbound_deliveries_00_m0_content_origin_guard on public.outbound_deliveries;
 drop trigger if exists marketing_campaigns_00_m0_delete_guard on public.marketing_campaigns;
 drop trigger if exists organizer_marketing_campaigns_00_m0_delete_guard on public.organizer_marketing_campaigns;
+drop trigger if exists organizer_marketing_campaign_recipients_10_m0_legacy_unsubscribe on public.organizer_marketing_campaign_recipients;
+drop trigger if exists outbound_deliveries_01_m0_client_write_guard on public.outbound_deliveries;
+
+-- Freeze and visibility policies (section 10 / 12 of the migration).
+drop policy if exists "m0 freeze hides pending recipients" on public.marketing_campaign_recipients;
+drop policy if exists "m0 freeze blocks recipient inserts" on public.marketing_campaign_recipients;
+drop policy if exists "m0 freeze blocks recipient updates" on public.marketing_campaign_recipients;
+drop policy if exists "m0 freeze blocks recipient deletes" on public.marketing_campaign_recipients;
+drop policy if exists "m0 freeze hides pending recipients" on public.organizer_marketing_campaign_recipients;
+drop policy if exists "m0 freeze blocks recipient inserts" on public.organizer_marketing_campaign_recipients;
+drop policy if exists "m0 freeze blocks recipient updates" on public.organizer_marketing_campaign_recipients;
+drop policy if exists "m0 freeze blocks recipient deletes" on public.organizer_marketing_campaign_recipients;
+drop policy if exists "m0 marketing managers can view campaign recipients" on public.marketing_campaign_recipients;
+drop policy if exists "m0 marketing managers can view unsubscribes" on public.marketing_unsubscribes;
+drop policy if exists "studio members can view marketing campaign recipients" on public.marketing_campaign_recipients;
+create policy "studio members can view marketing campaign recipients" on public.marketing_campaign_recipients
+  for select using (public.user_has_studio_access(studio_id));
+drop policy if exists "studio members can view marketing unsubscribes" on public.marketing_unsubscribes;
+create policy "studio members can view marketing unsubscribes" on public.marketing_unsubscribes
+  for select using (public.user_has_studio_access(studio_id));
+
+-- PAY-WH-1 dispatcher claim, restored byte-for-byte from 20261116091000_paywh1_settlement_outbox.sql (grants unchanged).
+create or replace function public.claim_outbound_deliveries(
+  p_owner uuid,
+  p_limit integer default 25,
+  p_lease_seconds integer default 300
+)
+returns setof public.outbound_deliveries
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if p_owner is null then
+    raise exception 'claim_outbound_deliveries: owner is required' using errcode = '22023';
+  end if;
+
+  return query
+  with due as (
+    select d.id
+    from public.outbound_deliveries d
+    where d.status = 'queued'
+      and (d.claim_owner is null or d.claim_expires_at <= now())
+    order by d.created_at
+    limit least(greatest(coalesce(p_limit, 25), 1), 200)
+    for update skip locked
+  )
+  update public.outbound_deliveries d
+  set claim_owner = p_owner,
+      claim_expires_at = now() + make_interval(secs => least(greatest(coalesce(p_lease_seconds, 300), 30), 1800))
+  from due
+  where d.id = due.id
+  returning d.*;
+end;
+$$;
 
 drop function if exists public._mkt_guard_unsubscribe_writes();
 drop function if exists public._mkt_guard_recipient_writes();
 drop function if exists public._mkt_guard_contact_unsubscribe();
 drop function if exists public._mkt_guard_campaign_delete();
 drop function if exists public._mkt_guard_outbound_content_origin();
+drop function if exists public._mkt_guard_outbound_client_writes();
+drop function if exists public._mkt_outbound_appointment_recipient_ok(uuid, uuid, text, text, text);
+drop function if exists public._mkt_outbound_automation_action_ok(uuid, uuid);
+drop function if exists public._mkt_persist_legacy_organizer_unsubscribe();
+drop function if exists public._mkt_can_view_studio_marketing(uuid);
+drop function if exists public._mkt_is_commercial_outbound(text, text, jsonb);
+drop function if exists public.marketing_set_send_freeze(boolean, text);
+drop function if exists public.marketing_send_frozen();
 drop function if exists public._mkt_campaign_has_mailed(text, uuid);
 drop function if exists public._mkt_campaign_exists(text, uuid);
 drop function if exists public.marketing_authorize_test_send(text, uuid, uuid, uuid, text, integer);
@@ -71,6 +139,8 @@ drop function if exists public._mkt_norm_email(text);
 drop table if exists public.marketing_test_sends;
 drop table if exists public.marketing_message_unsubscribe_tokens;
 drop table if exists public.marketing_email_suppressions;
+drop table if exists public.marketing_send_control_events;
+drop table if exists public.marketing_send_controls;
 
 alter table public.marketing_campaign_recipients drop constraint if exists marketing_campaign_recipients_claim_shape;
 alter table public.organizer_marketing_campaign_recipients drop constraint if exists organizer_marketing_campaign_recipients_claim_shape;

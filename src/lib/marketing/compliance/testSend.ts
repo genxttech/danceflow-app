@@ -10,7 +10,7 @@ export const TEST_SENDS_PER_WORKSPACE_PER_HOUR = 10;
 
 export type TestSendDecision =
   | { allowed: true }
-  | { allowed: false; reason: "recipient_not_verified_staff" | "rate_limited" | "not_found" | "unavailable" };
+  | { allowed: false; reason: "recipient_not_verified_staff" | "rate_limited" | "not_found" | "frozen" | "unavailable" };
 
 export async function authorizeCampaignTestSend(
   admin: ReturnType<typeof createAdminClient>,
@@ -29,7 +29,7 @@ export async function authorizeCampaignTestSend(
     if (error || typeof result.allowed !== "boolean") return { allowed: false, reason: "unavailable" };
     if (result.allowed) return { allowed: true };
     const reason = result.reason;
-    if (reason === "recipient_not_verified_staff" || reason === "rate_limited" || reason === "not_found") {
+    if (reason === "recipient_not_verified_staff" || reason === "rate_limited" || reason === "not_found" || reason === "frozen") {
       return { allowed: false, reason };
     }
     return { allowed: false, reason: "unavailable" };
@@ -47,6 +47,8 @@ export function testSendRefusalCode(reason: Exclude<TestSendDecision, { allowed:
       return "test_send_rate_limited";
     case "not_found":
       return "not_found";
+    case "frozen":
+      return "marketing_paused";
     default:
       return "test_send_failed";
   }

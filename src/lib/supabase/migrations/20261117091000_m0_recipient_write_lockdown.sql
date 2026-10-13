@@ -9,6 +9,12 @@
 -- Tenants keep read access (campaign pages show recipient lists and statuses). Campaign rows themselves (drafts, status)
 -- stay writable by studio staff / organizer users through their existing policies.
 --
+-- Also removes every client-role write to outbound_deliveries (D): the M-0 application queues all notifications with
+-- the service role, so a signed-in user can no longer create, re-route or forge a queued email/SMS by any path.
+--
+-- The pre-M-0 application must NEVER run against this stage (its sends would be accepted by the provider but not
+-- recorded, and its studio unsubscribe page would fail). Roll this file back BEFORE any application rollback.
+--
 -- Rollback: rollback/20261117091000_m0_recipient_write_lockdown_rollback.sql (restores the stage-1 policies/grants).
 
 begin;
@@ -19,6 +25,11 @@ drop policy if exists "Platform admins can manage organizer marketing recipients
 
 revoke insert, update, delete, truncate on public.marketing_campaign_recipients from anon, authenticated;
 revoke insert, update, delete, truncate on public.organizer_marketing_campaign_recipients from anon, authenticated;
+
+-- Outbound deliveries: no client-role writes (service role only).
+drop policy if exists "outbound_deliveries_insert" on public.outbound_deliveries;
+drop policy if exists "outbound_deliveries_update" on public.outbound_deliveries;
+revoke insert, update, delete, truncate on public.outbound_deliveries from anon, authenticated;
 
 -- The pre-M-0 page RPC: the new pages post to the server unsubscribe endpoint instead.
 revoke execute on function public.unsubscribe_marketing_recipient(text) from public, anon, authenticated;

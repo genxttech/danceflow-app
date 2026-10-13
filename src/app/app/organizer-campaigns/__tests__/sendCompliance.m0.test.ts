@@ -156,6 +156,20 @@ describe("organizer campaign send: M-0 compliance", () => {
   });
 });
 
+describe("organizer campaign send: marketing freeze", () => {
+  it("while frozen nothing is sent and the campaign is restored", async () => {
+    seed(pending(2));
+    h.rpcOverride = (name) =>
+      name === "marketing_claim_campaign_recipient" ? Promise.resolve({ data: { outcome: "frozen" }, error: null }) : null;
+    expect(await run(sendOrganizerCampaignAction, { campaignId: "c1", confirmSend: "yes", confirmSendPhrase: "SEND 2" })).toContain(
+      "campaign_error=marketing_paused",
+    );
+    expect(h.send).not.toHaveBeenCalled();
+    expect(statuses()).toEqual({ pending: 2 });
+    expect(db.tables.organizer_marketing_campaigns[0].status).toBe("draft");
+  });
+});
+
 describe("organizer campaign draft lock", () => {
   const edit = () =>
     run(updateOrganizerCampaignDraftAction, { campaignId: "c1", name: "c1", subject: "Changed", bodyText: "Changed body", audienceType: "all_organizer_contacts" });

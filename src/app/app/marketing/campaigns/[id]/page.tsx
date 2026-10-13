@@ -12,6 +12,7 @@ import {
 } from "../actions";
 import CampaignAIAssistant from "../CampaignAIAssistant";
 import CampaignAllowancePanel from "../CampaignAllowancePanel";
+import { isMarketingSendPaused, MARKETING_PAUSED_NOTICE } from "@/lib/marketing/compliance/sendFreeze";
 import {
   campaignAllowanceMessageFromQuery,
   evaluateCampaignAllowance,
@@ -137,6 +138,8 @@ function campaignErrorMessage(code?: string) {
       return "Some recipients are still being delivered. Finish sending before preparing the list again.";
     case "eligibility_check_failed":
       return "Sending stopped because unsubscribe and suppression status could not be confirmed. No further emails were sent; try again shortly.";
+    case "marketing_paused":
+      return "Marketing sends are paused for maintenance. Nothing was sent; recipients stay pending and can be sent once sending resumes.";
     case "send_paused_provider":
       return "Sending paused because the email provider did not accept more messages right now. Recipients not yet sent stay pending; try again later.";
     default:
@@ -625,6 +628,7 @@ export default async function MarketingCampaignDetailPage({
   if (!canViewCommunications(context.studioRole ?? "")) {
     redirect("/app");
   }
+  const marketingPaused = await isMarketingSendPaused(supabase);
 
   const studioId = context.studioId;
 
@@ -868,6 +872,12 @@ export default async function MarketingCampaignDetailPage({
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
             Campaign sending finished. Check the recipient status summary for
             any failed emails.
+          </div>
+        ) : null}
+
+        {marketingPaused ? (
+          <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 shadow-sm">
+            {MARKETING_PAUSED_NOTICE}
           </div>
         ) : null}
 

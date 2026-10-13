@@ -1,0 +1,301 @@
+From b4289d3042979d1addb2579b863a2219f6a8a9c5 Mon Sep 17 00:00:00 2001
+From: Michael Curtis <mcurtis@genxmsp.com>
+Date: Tue, 13 Oct 2026 15:11:42 -0400
+Subject: [PATCH] M-0 rollback-compat build: pre-M-0 application + the M-0
+ one-click unsubscribe endpoint
+
+Rollback target for the Marketing M-0 release (never the plain pre-M-0 build). Keeps RFC 8058
+List-Unsubscribe POSTs in emails already sent by M-0 working if the application is rolled back.
+The footer links of those emails keep working through the pre-M-0 confirmation pages and the
+M-0 stage-1 compatibility SQL. Requires M-0 stage 1 (marketing_unsubscribe_by_token); never run
+with M-0 stage 2.
+
+Contents: src/app/api/email/unsubscribe/[token]/route.ts and its pure link helper
+src/lib/marketing/compliance/unsubscribeLinks.ts, identical to Marketing M-0; endpoint tests.
+---
+ .../api/email/unsubscribe/[token]/route.ts    |  87 +++++++++++++
+ .../unsubscribe/__tests__/route.m0.test.ts    | 122 ++++++++++++++++++
+ .../marketing/compliance/unsubscribeLinks.ts  |  48 +++++++
+ 3 files changed, 257 insertions(+)
+ create mode 100644 src/app/api/email/unsubscribe/[token]/route.ts
+ create mode 100644 src/app/api/email/unsubscribe/__tests__/route.m0.test.ts
+ create mode 100644 src/lib/marketing/compliance/unsubscribeLinks.ts
+
+diff --git a/src/app/api/email/unsubscribe/[token]/route.ts b/src/app/api/email/unsubscribe/[token]/route.ts
+new file mode 100644
+index 00000000..4983a4f6
+--- /dev/null
++++ b/src/app/api/email/unsubscribe/[token]/route.ts
+@@ -0,0 +1,87 @@
++import { NextResponse } from "next/server";
++import { createAdminClient } from "@/lib/supabase/admin";
++import { checkRateLimit, getIpFromRequest, rateLimitKey } from "@/lib/security/rate-limit";
++import { isUnsubscribeToken, marketingSiteOrigin } from "@/lib/marketing/compliance/unsubscribeLinks";
++
++/**
++ * Marketing M-0: the single marketing unsubscribe endpoint for every token kind (studio campaigns, organizer campaigns,
++ * commercial ARIA / automation messages).
++ *
++ * POST (RFC 8058 one-click, sent by mailbox providers from the List-Unsubscribe-Post header, or the confirmation page's
++ * form): no login, no cookies; the per-recipient token is the only credential. Idempotent and recorded with its method.
++ * The response never reveals whether the token exists or whose it is.
++ * GET never changes anything (mail scanners and link prefetchers follow links): it redirects to the confirmation page.
++ */
++
++export const dynamic = "force-dynamic";
++
++const LIMIT = { limit: 30, windowMs: 60_000 };
++
++function confirmationPath(kind: string | null, token: string) {
++  const base = kind === "organizer" ? "/unsubscribe/organizer-marketing/" : "/unsubscribe/marketing/";
++  return `${base}${encodeURIComponent(token)}`;
++}
++
++function redirectTo(path: string, status: 303) {
++  return NextResponse.redirect(`${marketingSiteOrigin()}${path}`, status);
++}
++
++async function readForm(request: Request) {
++  const type = request.headers.get("content-type") ?? "";
++  if (!type.includes("application/x-www-form-urlencoded") && !type.includes("multipart/form-data")) return null;
++  try {
++    return await request.formData();
++  } catch {
++    return null;
++  }
++}
++
++export async function GET(_request: Request, context: { params: Promise<{ token: string }> }) {
++  const { token } = await context.params;
++  const safe = isUnsubscribeToken(token) ? token.trim().toLowerCase() : "invalid";
++  return redirectTo(confirmationPath(null, safe), 303);
++}
++
++export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
++  const { token } = await context.params;
++  const form = await readForm(request);
++  const fromPage = form?.get("df_source") === "page";
++  const kindValue = form?.get("df_kind");
++  const kind = typeof kindValue === "string" ? kindValue : null;
++  const tokenValue = isUnsubscribeToken(token) ? token.trim().toLowerCase() : null;
++
++  const limited = !checkRateLimit(rateLimitKey("email-unsubscribe", getIpFromRequest(request)), LIMIT).allowed;
++  if (limited) {
++    if (fromPage && tokenValue) return redirectTo(`${confirmationPath(kind, tokenValue)}?error=rate_limited`, 303);
++    return new NextResponse("Too many requests.", { status: 429, headers: { "Retry-After": "60" } });
++  }
++
++  if (!tokenValue) {
++    // Generic: an invalid token looks exactly like a processed one.
++    if (fromPage) return redirectTo(`${confirmationPath(kind, "invalid")}?done=1`, 303);
++    return new NextResponse("Unsubscribe request received.", { status: 200 });
++  }
++
++  let failed = false;
++  try {
++    const admin = createAdminClient();
++    const { error } = await admin.rpc("marketing_unsubscribe_by_token", {
++      p_token: tokenValue,
++      p_method: fromPage ? "page_form" : "one_click",
++    });
++    failed = Boolean(error);
++    if (error) console.error("marketing unsubscribe failed", { code: error.code });
++  } catch {
++    failed = true;
++    console.error("marketing unsubscribe failed");
++  }
++
++  if (fromPage) {
++    return redirectTo(`${confirmationPath(kind, tokenValue)}?${failed ? "error=unavailable" : "done=1"}`, 303);
++  }
++  if (failed) {
++    // Not recorded: tell the mailbox provider to try again rather than claiming success.
++    return new NextResponse("Unsubscribe is temporarily unavailable.", { status: 503, headers: { "Retry-After": "120" } });
++  }
++  return new NextResponse("Unsubscribe request received.", { status: 200 });
++}
+diff --git a/src/app/api/email/unsubscribe/__tests__/route.m0.test.ts b/src/app/api/email/unsubscribe/__tests__/route.m0.test.ts
+new file mode 100644
+index 00000000..510ad734
+--- /dev/null
++++ b/src/app/api/email/unsubscribe/__tests__/route.m0.test.ts
+@@ -0,0 +1,122 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++/**
++ * Marketing M-0 ROLLBACK-COMPAT build: the pre-M-0 application plus only the M-0 RFC 8058 one-click endpoint, so
++ * List-Unsubscribe POSTs in emails already sent by M-0 keep working if the application is rolled back. The footer links
++ * of those emails open the pre-M-0 confirmation pages, which keep working through the M-0 stage-1 compatibility SQL.
++ * The endpoint needs M-0 stage 1 (marketing_unsubscribe_by_token) to be installed.
++ */
++
++const h = vi.hoisted(() => ({ rpc: vi.fn(), adminCreated: 0 }));
++
++vi.mock("@/lib/supabase/admin", () => ({
++  createAdminClient: () => {
++    h.adminCreated += 1;
++    return { rpc: (...args: unknown[]) => h.rpc(...args) };
++  },
++}));
++
++const { GET, POST } = await import("../[token]/route");
++
++const TOKEN = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
++let ip = 0;
++
++function post(token: string, body: string | null, contentType = "application/x-www-form-urlencoded") {
++  ip += 1;
++  const request = new Request(`https://www.idanceflow.com/api/email/unsubscribe/${token}`, {
++    method: "POST",
++    headers: { "content-type": contentType, "x-forwarded-for": `10.0.0.${ip}` },
++    body,
++  });
++  return POST(request, { params: Promise.resolve({ token }) });
++}
++
++beforeEach(() => {
++  process.env.NEXT_PUBLIC_SITE_URL = "https://www.idanceflow.com";
++  h.rpc.mockReset();
++  h.rpc.mockResolvedValue({ data: { ok: true, scope_kind: "studio" }, error: null });
++  h.adminCreated = 0;
++  vi.spyOn(console, "error").mockImplementation(() => undefined);
++});
++
++describe("POST /api/email/unsubscribe/[token]", () => {
++  it("RFC 8058 one-click: unsubscribes with no login or cookies and answers 200", async () => {
++    const response = await post(TOKEN, "List-Unsubscribe=One-Click");
++    expect(response.status).toBe(200);
++    expect(h.rpc).toHaveBeenCalledWith("marketing_unsubscribe_by_token", { p_token: TOKEN, p_method: "one_click" });
++  });
++
++  it("accepts the token case-insensitively and normalizes it", async () => {
++    await post(TOKEN.toUpperCase(), "List-Unsubscribe=One-Click");
++    expect(h.rpc).toHaveBeenCalledWith("marketing_unsubscribe_by_token", { p_token: TOKEN, p_method: "one_click" });
++  });
++
++  it("is idempotent from the caller's side: a repeat is processed the same way", async () => {
++    expect((await post(TOKEN, "List-Unsubscribe=One-Click")).status).toBe(200);
++    expect((await post(TOKEN, "List-Unsubscribe=One-Click")).status).toBe(200);
++    expect(h.rpc).toHaveBeenCalledTimes(2);
++  });
++
++  it("does not disclose whether a token exists: an unknown token gets the same answer", async () => {
++    h.rpc.mockResolvedValue({ data: { ok: false, reason: "not_found" }, error: null });
++    const unknown = await post(TOKEN, "List-Unsubscribe=One-Click");
++    h.rpc.mockResolvedValue({ data: { ok: true, scope_kind: "organizer" }, error: null });
++    const known = await post(TOKEN, "List-Unsubscribe=One-Click");
++    expect(unknown.status).toBe(known.status);
++    expect(await unknown.text()).toBe(await known.text());
++  });
++
++  it("a malformed token never reaches the database and still looks processed", async () => {
++    const response = await post("x' or 1=1 --", "List-Unsubscribe=One-Click");
++    expect(response.status).toBe(200);
++    expect(h.rpc).not.toHaveBeenCalled();
++  });
++
++  it("if the unsubscribe cannot be recorded it says so (503) instead of claiming success", async () => {
++    h.rpc.mockResolvedValue({ data: null, error: { code: "57014", message: "db down" } });
++    const response = await post(TOKEN, "List-Unsubscribe=One-Click");
++    expect(response.status).toBe(503);
++  });
++
++  it("the confirmation page form posts back here and is redirected to the done state", async () => {
++    const response = await post(TOKEN, "df_source=page&df_kind=organizer");
++    expect(response.status).toBe(303);
++    expect(response.headers.get("location")).toBe(`https://www.idanceflow.com/unsubscribe/organizer-marketing/${TOKEN}?done=1`);
++    expect(h.rpc).toHaveBeenCalledWith("marketing_unsubscribe_by_token", { p_token: TOKEN, p_method: "page_form" });
++  });
++
++  it("page form failure redirects with an error instead of a false confirmation", async () => {
++    h.rpc.mockResolvedValue({ data: null, error: { code: "57014" } });
++    const response = await post(TOKEN, "df_source=page&df_kind=studio");
++    expect(response.headers.get("location")).toBe(`https://www.idanceflow.com/unsubscribe/marketing/${TOKEN}?error=unavailable`);
++  });
++
++  it("rate limits a single client", async () => {
++    const request = () =>
++      POST(
++        new Request(`https://www.idanceflow.com/api/email/unsubscribe/${TOKEN}`, {
++          method: "POST",
++          headers: { "content-type": "application/x-www-form-urlencoded", "x-forwarded-for": "10.9.9.9" },
++          body: "List-Unsubscribe=One-Click",
++        }),
++        { params: Promise.resolve({ token: TOKEN }) },
++      );
++    const statuses: number[] = [];
++    for (let i = 0; i < 32; i += 1) statuses.push((await request()).status);
++    expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
++    expect(statuses.at(-1)).toBe(429);
++  });
++});
++
++describe("GET never unsubscribes", () => {
++  it("GET on the endpoint only redirects to the confirmation page", async () => {
++    const response = await GET(new Request(`https://www.idanceflow.com/api/email/unsubscribe/${TOKEN}`), {
++      params: Promise.resolve({ token: TOKEN }),
++    });
++    expect(response.status).toBe(303);
++    expect(response.headers.get("location")).toBe(`https://www.idanceflow.com/unsubscribe/marketing/${TOKEN}`);
++    expect(h.rpc).not.toHaveBeenCalled();
++    expect(h.adminCreated).toBe(0);
++  });
++
++});
+diff --git a/src/lib/marketing/compliance/unsubscribeLinks.ts b/src/lib/marketing/compliance/unsubscribeLinks.ts
+new file mode 100644
+index 00000000..d9ee6cdf
+--- /dev/null
++++ b/src/lib/marketing/compliance/unsubscribeLinks.ts
+@@ -0,0 +1,48 @@
++/**
++ * Marketing M-0: unsubscribe links and RFC 8058 one-click headers.
++ *
++ * Every marketing message carries two forms of the same per-recipient token:
++ *  - a human link in the footer, to a confirmation page that never changes anything on GET (mail scanners and link
++ *    prefetchers open links); the page posts to the unsubscribe endpoint;
++ *  - `List-Unsubscribe` / `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers (RFC 8058) pointing at the same
++ *    endpoint, which a mailbox provider POSTs to without cookies or login.
++ * The token is an opaque random UUID; it is the only credential, and the endpoint discloses nothing about its owner.
++ */
++
++export type UnsubscribeLinkKind = "studio" | "organizer" | "message";
++
++const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++
++export function isUnsubscribeToken(value: unknown): value is string {
++  return typeof value === "string" && UUID_PATTERN.test(value.trim());
++}
++
++/** Canonical public origin for links in email (never a preview or request host). */
++export function marketingSiteOrigin(env: NodeJS.ProcessEnv = process.env) {
++  return (env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").trim().replace(/\/+$/, "");
++}
++
++export function buildUnsubscribeLinks(
++  token: string,
++  kind: UnsubscribeLinkKind,
++  env: NodeJS.ProcessEnv = process.env,
++) {
++  if (!isUnsubscribeToken(token)) {
++    throw new Error("A marketing message cannot be sent without a valid unsubscribe token.");
++  }
++  const origin = marketingSiteOrigin(env);
++  const safe = encodeURIComponent(token.trim().toLowerCase());
++  const pagePath = kind === "organizer" ? "/unsubscribe/organizer-marketing/" : "/unsubscribe/marketing/";
++  return {
++    pageUrl: `${origin}${pagePath}${safe}`,
++    oneClickUrl: `${origin}/api/email/unsubscribe/${safe}`,
++  };
++}
++
++/** RFC 2369 + RFC 8058 headers. The URL must be https in production (Gmail/Yahoo bulk-sender requirement). */
++export function buildListUnsubscribeHeaders(oneClickUrl: string): Record<string, string> {
++  return {
++    "List-Unsubscribe": `<${oneClickUrl}>`,
++    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
++  };
++}
+-- 
+2.53.0.windows.2
+

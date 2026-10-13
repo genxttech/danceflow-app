@@ -21,6 +21,7 @@ import {
 } from "./actions";
 import CampaignAIAssistant from "../../marketing/campaigns/CampaignAIAssistant";
 import CampaignAllowancePanel from "../../marketing/campaigns/CampaignAllowancePanel";
+import { isMarketingSendPaused, MARKETING_PAUSED_NOTICE } from "@/lib/marketing/compliance/sendFreeze";
 import {
   campaignAllowanceMessageFromQuery,
   evaluateCampaignAllowance,
@@ -948,6 +949,12 @@ export default async function OrganizerCampaignDetailPage({
         <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
           Organizer campaign send started. Refresh this page to review sent,
           failed, and suppressed recipients.
+        </div>
+      ) : null}
+
+      {(await isMarketingSendPaused(supabase)) ? (
+        <div role="status" className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+          {MARKETING_PAUSED_NOTICE}
         </div>
       ) : null}
 

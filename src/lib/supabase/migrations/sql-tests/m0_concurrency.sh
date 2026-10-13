@@ -28,7 +28,10 @@ CAMP=00000000-0000-0000-0000-0000ae900401
 CAMP2=00000000-0000-0000-0000-0000ae900402
 OCAMP=00000000-0000-0000-0000-0000ae900404
 
+# Stage 1 lands with marketing sends frozen; the races run unfrozen and the previous freeze state is restored after.
+WAS_FROZEN=$(q "select public.marketing_send_frozen()")
 cleanup() {
+  q "select public.marketing_set_send_freeze($( [ "$WAS_FROZEN" = "t" ] && echo true || echo false ), 'm0_concurrency.sh: restore');" >/dev/null
   q "delete from public.marketing_test_sends where scope_id in ('$STUDIO', '$ORG');
      delete from public.marketing_campaigns where id in ('$CAMP', '$CAMP2');
      delete from public.organizer_marketing_campaigns where id = '$OCAMP';
@@ -41,6 +44,7 @@ cleanup() {
 }
 trap cleanup EXIT
 cleanup
+q "select public.marketing_set_send_freeze(false, 'm0_concurrency.sh: run');" >/dev/null
 
 q "insert into public.studios (id, name, slug) values ('$STUDIO', 'M0 Conc', 'm0-conc-studio');
    insert into public.organizers (id, name, slug) values ('$ORG', 'M0 Conc Org', 'm0-conc-org');
@@ -152,6 +156,18 @@ B8=$(claim "$CAMP" "$R8")
 wait
 check "unsubscribe window: the claim waited for the unsubscribe and refused" "$B8" "unsubscribed"
 check "unsubscribe window: recipient never claimed" "$(q "select attempt_count from public.marketing_campaign_recipients where id = '$R8'")" "0"
+
+# ---- 9. Legacy organizer page (pre-M-0 app, service role) and an M-0 one-click unsubscribe for the same address race:
+# both are recorded once, with both requests counted; the address's pending rows end unsubscribed.
+q "select public.marketing_sync_campaign_recipients('organizer', '$ORG', '$OCAMP', '[{\"email\":\"m0conc-o@example.com\"},{\"email\":\"m0conc-lg@example.com\"}]'::jsonb);" >/dev/null
+LG=$(q "select id from public.organizer_marketing_campaign_recipients where campaign_id = '$OCAMP' and email = 'm0conc-lg@example.com'")
+LGT=$(q "select unsubscribe_token from public.organizer_marketing_campaign_recipients where id = '$LG'")
+( $PSQL -c "begin; set local role service_role; update public.organizer_marketing_campaign_recipients set status = 'unsubscribed', error_message = 'Recipient unsubscribed from organizer marketing' where id = '$LG'; select pg_sleep(2); commit;" > /tmp/m0_a9.out 2>&1 || true ) &
+sleep 0.7
+B9=$($PSQL -c "select public.marketing_unsubscribe_by_token('$LGT', 'one_click') ->> 'ok';" | tail -1)
+wait
+check "legacy page vs one-click: both recorded" "$B9/$(grep -c ERROR /tmp/m0_a9.out)" "true/0"
+check "legacy page vs one-click: exactly one organizer record, both requests counted" "$(q "select count(*) || ':' || max(request_count) from public.organizer_marketing_unsubscribes where organizer_id = '$ORG' and email = 'm0conc-lg@example.com'")" "1:2"
 
 echo "M-0 CONCURRENCY: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

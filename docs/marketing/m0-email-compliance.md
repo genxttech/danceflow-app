@@ -1,6 +1,6 @@
 # Marketing M-0 — Email Compliance and Suppression Integrity
 
-Status: implementation candidate (M-0A–M-0C). Stage-1 SQL is applied to DEV; stage 2 and the application are not merged or released.
+Status: implementation candidate (M-0A–M-0C) plus the final-audit remediation (A–D). The revised stage-1 SQL is applied to DEV (landing frozen); stage 2 and the application are not merged or released.
 Scope comes from the owner decisions D1–D4 and implementation safeguards 1–10 (M-0 authorization, 2026-10-13).
 M-0D (provider event ingestion) is planned below and is **not** part of this change.
 
@@ -97,49 +97,123 @@ Commercial messages pass through `prepareCommercialOutboundEmail` at the dispatc
 
 Skipped commercial messages update the ARIA action (`execution_skipped`).
 
-Studio staff can insert `outbound_deliveries` rows directly (existing RLS). A stage-1 trigger therefore forces
-`content_origin = "customized"` on any client-role write of an `aria_execution_*` / `automation_*` row, so a forged
-`system_default` cannot route promotional content through the transactional path (D1, safeguard 10). The two legacy
-automation producers that used the signed-in client now write with the service role, with `studio_id` taken from the
-verified studio context.
+A stage-1 trigger forces `content_origin = "studio_customized"` on any client-role write of an `aria_execution_*` /
+`automation_*` row, so a forged `system_default` cannot route promotional content through the transactional path (D1,
+safeguard 10). Every queue producer now writes with the service role (see §1 "Outbound deliveries (D)").
 
 The unreferenced legacy `src/app/app/marketing/campaigns/[id]/actions.ts`, a dormant non-compliant send path, was
 deleted.
+
+### Marketing send freeze (A)
+
+`marketing_send_controls` is a service-role-only singleton, and every change is logged in `marketing_send_control_events`.
+It is set with `marketing_set_send_freeze(frozen, reason)`. **Stage 1 lands frozen.** While frozen, in either application
+version:
+- campaign claims return `frozen`, and the M-0 batch stops with `marketing_paused`;
+- test sends are refused;
+- client roles cannot see pending recipients or write recipients. The pre-M-0 send finds nothing and redirects; its
+  regenerate fails closed instead of duplicating rows;
+- the dispatcher claim (`claim_outbound_deliveries`, shared by both versions) **holds** commercial ARIA / automation email
+  queued. It is not dropped. `_mkt_is_commercial_outbound` is the SQL mirror of the TS classifier, kept in step by a parity
+  test.
+
+Operational, transactional and SMS deliveries continue, and unsubscribe is never frozen. A missing control row reads as
+frozen. The campaign pages show a "paused for maintenance" notice while frozen.
+
+### Recipient privacy (B)
+
+Studio recipient and unsubscribe rows (addresses, names, unsubscribe tokens) are readable only by the roles that may
+manage campaigns. That is the same set as `canViewCommunications`: platform admin (by studio role or by
+`profiles.platform_role`), studio owner, studio admin and front desk. Instructors and any client-role account read nothing
+(FC-1B5D). Organizer policies already match the organizer campaign roles (owner / admin / staff); this is verified, not
+changed.
+
+Stage 1 cannot broaden an unknown database. Before it changes anything it requires:
+- every existing policy on the two tables to be a known pre-M-0 policy, by exact definition hash, or an M-0 policy;
+- a visibility policy to exist;
+- the dispatcher claim function to be the PAY-WH-1 version.
+
+Otherwise the whole migration aborts, changing nothing. This is proven by `sql-tests/m0_precondition_tests.sh`.
+
+### Legacy unsubscribe compatibility (C)
+
+- The pre-M-0 organizer page marks a recipient row with the service role, but its organizer-level upsert fails (C1). A
+  stage-1 trigger on that page's exact signature records the opt-out through `marketing_unsubscribe_by_token`. The
+  record is idempotent and token-scoped: the organizer record is written, other pending rows are suppressed and the
+  contact is marked, and another tenant is never affected.
+- The pre-M-0 studio page RPC also resolves studio-scoped per-message tokens, so footer links of commercial ARIA /
+  automation email keep working after an application rollback. Organizer tokens, unknown tokens and malformed tokens
+  are refused.
+
+### Outbound deliveries (D)
+
+The dispatcher sends a queued row as stored. Before M-0, any studio staff role (including instructors) could insert rows
+directly through RLS, which allowed three abuses:
+- forging operational or DanceFlow notifications;
+- sending arbitrary content through the transactional sender, without suppression or unsubscribe;
+- reaching arbitrary addresses.
+
+Fixed in two steps:
+
+- **Application.** Every producer writes with the service role. The only one that used the signed-in client
+  (appointment notifications in `schedule/actions.ts`) now uses its admin client. A source guard test
+  (`outboundProducers.m0.test.ts`) fails if any producer writes through a session client.
+- **Stage 1** (old-app compatible). Client-role inserts are limited to what the pre-M-0 application produces:
+  - appointment notifications for an appointment of the row's studio, addressed to that appointment's client or partner,
+    with subject, body, HTML and reply-to cleared so the fixed template renders;
+  - legacy automation emails for one of the studio's own automation actions, forced to `studio_customized` so they are
+    commercial.
+
+  Everything else is refused, including DanceFlow/platform keys, ARIA executions, booking, portal and event keys, and
+  unknown keys. Client updates (platform admins) cannot re-route a row.
+- **Stage 2** removes every client-role write to `outbound_deliveries`: both policies are dropped and the privileges
+  revoked.
 
 ### Staged migrations
 
 | Stage | File | Compatible with the pre-M-0 app | Apply |
 |---|---|---|---|
-| 1 | `20261117090000_m0_marketing_send_integrity.sql` | Yes, with one difference: the old app's regenerate after a partial send now fails closed, and the old send path still works | before the app |
-| 2 | `20261117091000_m0_recipient_write_lockdown.sql` | No: the old app can no longer write recipients, so its sends fail closed (no mail) | after the M-0 app is live |
+| 1 | `20261117090000_m0_marketing_send_integrity.sql` | Yes. It lands frozen, so while frozen the old app cannot send marketing; its unsubscribe pages keep working (C) | before the app |
+| 2 | `20261117091000_m0_recipient_write_lockdown.sql` | **No, never.** Provider-accepted old-app sends would go unrecorded (duplicates), and the old studio unsubscribe page would fail | after the M-0 app is live |
 
-Rollback is app first. Then `rollback/20261117091000_…` restores tenant writes and the legacy RPC grants. Then, only if needed,
-`rollback/20261117090000_…`, which refuses while M-0 data exists unless the operator sets `m0.allow_data_loss = 'yes'` in the
-same transaction. Stage 1 can safely stay in place under the old app.
+Rollback order and the rollback build: see §6. Stage 2 is reverted before any application rollback, and the application
+rolls back to the **rollback-compat build**, never to the plain pre-M-0 build.
 
 ## 2. QA matrix (developer-owned)
 
-**Environment:** the isolated local QA stack (`supabase_db_danceflow-e2e-qa`, 127.0.0.1:55321), with the app on :3100 and
-`RESEND_BASE_URL` pointed at a local mock provider. No real email was sent. All results are for the final code, including the
-fixes from the independent review.
+**Environment:** the isolated local QA stack (`supabase_db_danceflow-e2e-qa`, 127.0.0.1:55321). The app runs on :3100 with
+`RESEND_BASE_URL` pointed at a local mock provider, or a dead local endpoint for the Stripe test-mode runs. No real email was
+sent. All results are for the final committed files, including the final-audit remediation (A–D).
+
+### Database
 
 | Area | Evidence | Result |
 |---|---|---|
-| SQL suite, stage 1 (`sql-tests/test_T_m0_marketing_send_integrity.sql`) | Generation preservation; claim/complete lifecycle (uncertain, 23-hour window, retry after release); unsubscribe for every token kind, including upper-case tokens; organizer persistence (C1); platform suppression; test-send authorization; guards and RLS, with defense-in-depth probe grants; mailed-campaign delete guard; forced recipient tokens; outbound content-origin guard; privileges; old-app compatibility | **PASS 139/139** (QA and DEV) |
-| SQL suite, stage 2 (`sql-tests/test_T_m0_recipient_write_lockdown.sql`) | Tenants cannot write recipients by any path; read access is kept; legacy RPC revoked; service pipeline works; drafts stay editable | **PASS 41/41** (QA). Negative control: at stage 1 the suite fails, as expected |
-| Concurrency (`sql-tests/m0_concurrency.sh`, separate sessions) | Unsubscribe vs claim in both orders, plus the window between writing the record and updating the rows; double claim; sync vs claim; concurrent organizer unsubscribes; concurrent test sends at the hourly limit; stale completion | **PASS 23/23** (QA only: the harness commits its fixtures and refuses to run on databases with real accounts) |
-| SQL mutation testing (32 mutants) | 27 caught by a suite FAIL. 4 caught because they abort the suite; the unmutated control run passes in the same harness. Removing the email lock is caught by the concurrency harness (2 checks fail) | **32/32 caught** |
-| TS mutation testing (31 mutants) | Delivery, provider classification, endpoint, classification, dispatch, test send, organizer lock, ENT-1, abandoned-send resume, redirect handling | **31/31 caught** |
-| Migration cycles (QA) | pre `9493285f…`/191 → s1 `00500265…`/295 → s2 `5df2d790…`/292 → rb2 → rb1 → pre, twice. Re-applying each stage is idempotent, and the rollback refuses while M-0 data exists | **PASS** (deterministic) |
-| DEV (`epdrtzcydvnoidwrepqz`) | Pre-state equals the QA pre-state (`9493285f…`/191). Data is compatible: no `sending` rows, no duplicates. **Stage 1 applied**; fingerprint `00500265…`/295, identical to QA. The stage-1 suite passes on DEV inside a rolled-back transaction, leaving no fixture residue and existing rows unchanged. **Stage 2 is not applied to DEV**; it goes on after the M-0 app is deployed | **PASS (stage 1)** |
-| Vitest (full) | 383 files / 6058 tests, including 6 new M-0 files | **PASS** |
-| Typecheck / lint / build | `tsc --noEmit` is clean; eslint on changed files gives 0 errors and no new warnings vs main; `next build` succeeds | **PASS** |
-| Browser E2E (`e2e/tests/marketing-m0-compliance.spec.ts`) | Test send goes to staff only; the send list is decided in the DB; a one-click unsubscribe between prepare and send is honored; each recipient gets its own link, RFC 8058 headers and idempotency key; GET does not unsubscribe; the page form records the unsubscribe; an organizer unsubscribe persists and suppresses the next campaign; commercial automation email is suppressed or given its footer; operational email is unaffected | **PASS 5/5**, twice, at stage 2 |
-| Browser E2E regression (non-Stripe specs) | 9 passed, 20 skipped by spec env gates, 4 did not run. 6 registration/checkout specs time out because the isolated M-0 app runs without `STRIPE_SECRET_KEY` (log: `Missing STRIPE_SECRET_KEY`). M-0 changes no registration or payment code | **BLOCKED (environment)** for those 6 specs; not counted as passed |
+| SQL suite, stage 1 (`test_T_m0_marketing_send_integrity.sql`) | Lifecycle, generation, unsubscribe (all token kinds), C1, platform suppression, test sends, guards and RLS, privileges, old-app compatibility, plus remediation: freeze (claims, test sends, client-role visibility and writes, dispatcher hold and release, control row), B (owner, front desk, instructor, client role, other studio, platform admin, organizer, anon), C (legacy organizer page, legacy studio RPC tokens), D (appointment / automation / forbidden keys, tenant isolation, re-routing, helper oracles) | **PASS 208/208** on QA and on DEV (rolled back) |
+| SQL suite, stage 2 (`test_T_m0_recipient_write_lockdown.sql`) | No client-role recipient or outbound write by any path; reads kept; legacy RPC revoked; service pipeline and service-role outbound writes work | **PASS 54/54** on QA. Negative control: the suite fails at stage 1, as expected |
+| Preconditions (`m0_precondition_tests.sh`) | Unknown policy, altered policy definition, missing visibility policy and unexpected dispatcher function each make stage 1 refuse, changing nothing. The pre-M-0 fingerprint is unchanged, and the control applies | **PASS 13/13** |
+| Concurrency (`m0_concurrency.sh`) | Previous races, plus the legacy organizer page racing an M-0 one-click for the same address (one record, both requests counted) | **PASS 25/25** |
+| SQL mutation testing | 61 mutants: 60 caught by the suite, and email-lock removal caught by the concurrency harness. Separately, 4 precondition mutants are all caught; the unmutated control passes | **61/61 + 4/4** |
+| Migration cycles (QA) | Two cycles of pre → s1 → s2 → rb2 → rb1. Re-applying each stage is idempotent. The full rollback equals the original DEV pre-state under the original fingerprint (`9493285f…`/191) | **PASS**, deterministic: pre `50857fc3…`/201 → s1 `d8df2494…`/338 → s2 `6da390b4…`/333 |
+| PROD preflights (read-only, validated on QA) | At pre-M-0, A4–A9 show the documented baseline. The C1 repair preflight was validated with fixtures for every class | **PASS** (not run on PROD) |
+| DEV (`epdrtzcydvnoidwrepqz`) | It was stage 1 v1 (`ae4e6f28…`/307, identical to QA). The revised stage 1 has been applied (LF), giving `d8df2494…`/338, identical to QA. It lands **frozen**. The suite passes with no residue, and existing rows are unchanged. **Stage 2 is not applied** | **PASS (stage 1)** |
+
+### Application
+
+| Area | Evidence | Result |
+|---|---|---|
+| Vitest (full) | Includes the new freeze, parity, producer-guard and appointment-producer tests | **PASS**: 384 files / 6068 tests |
+| TS mutation testing | Adds freeze handling, refusal codes, pause notice, and the appointment producer on the session client | **39/39 caught** |
+| Typecheck / lint / build | `tsc` clean; eslint on changed files gives 0 errors and no new warnings vs main; `next build` succeeds | **PASS** |
+| Browser: M-0 application, S2 and S3 | `marketing-m0-compliance.spec.ts` (6, including the freeze UI) and `marketing-m0-unsubscribe-survival.spec.ts` (`m0`, 8) | **PASS 14/14**, twice in each state (1 old-app-only scenario skipped by design) |
+| Browser: rollback-compat build, S1 | Survival spec as `compat`: one-click for studio, organizer and message tokens; GET does not mutate; every footer page; the frozen pre-M-0 campaign send sends nothing, even when forced | **PASS 9/9** |
+| Browser: plain pre-M-0 build, S1 | Survival spec as `pre_m0`: footers work through C, but **one-click returns 404**. This is why it is not a rollback target | **PASS 9/9** (gap documented) |
+| Browser regression, Stripe test mode, S3 | Registration, waivers, cancellation, signing continuation, early-bird pricing, and others | **PASS 33**, 27 skipped by env gates, 0 failed. No Resend traffic and no outbound permission errors |
+| Rollback-compat build | Typecheck and lint clean; endpoint tests 10/10 | **PASS** |
 
 Live Resend, DNS and webhooks were not exercised. That is by design and still requires separate authorization.
 
-### Independent review (read-only reviewer, C1–C7 + safeguards)
+### Independent review, round 1 (read-only reviewer, C1–C7 + safeguards)
 
 **Verdict: GO for PR.** C1–C7, C8, C9, C10, S1 and S3 are fixed. C13 was partial in the review and is now fixed. Every finding raised was addressed in this branch:
 
@@ -161,11 +235,9 @@ Live Resend, DNS and webhooks were not exercised. That is by design and still re
   - The `outbound_deliveries` client-write gap was confirmed on DEV and closed by the D1 guard.
 
 Follow-ups recorded but not in this PR:
-- Recipient and unsubscribe SELECT policies don't check the user's role. This is pre-existing, and instructors can read recipient emails and tokens.
 - Studio campaigns have no content lock once a send starts. Organizer campaigns do, and a retry's outcome stays fail-safe.
 - ENT-1 can possibly overcount when a settle fails and is later reconciled. The error is in the conservative direction.
 - The TS preview list is unpaginated, so preview counts can be off (cosmetic).
-- Staff-authored `outbound_deliveries` rows outside the automation families (1:1 messages) keep their existing handling.
 
 ## 3. Production preflight (read-only, prepared; NOT run)
 
@@ -180,36 +252,63 @@ and schema hashes only: no addresses, names, tokens or content. It covers:
   - the `outbound_deliveries` client write policies;
 - **C:** campaigns whose ENT-1 usage exceeds their current sent rows, which is evidence of past C2 regenerate damage;
 - **D:** organizer unsubscribes that were never stored (C1);
-- **E:** commercial automation-family email exposure.
+- **E:** commercial automation-family email exposure;
+- **A7–A10:** the stage-1 preconditions, checked read-only:
+  - the PAY-WH-1 claim function hash;
+  - no unknown recipient/unsubscribe policy;
+  - the visibility policies present, and no freeze table yet;
+  - the `outbound_deliveries` write policies.
 
-Run it only with explicit authorization, from a fresh scratch workdir linked to PROD.
+`sql-tests/m0_c1_repair_preflight_readonly.sql` sizes the historical organizer repair (§4). It also returns counts only.
+
+Run both only with explicit authorization, from a fresh scratch workdir linked to PROD.
 
 ## 4. Historical repair (C1): affected-row criteria and plan (NOT run)
 
-**Affected rows.** These are organizer recipients that the old confirmation page marked unsubscribed, where the organizer-level upsert then
-failed on the expression index:
+**Evidence signature.** On main `858e74eb`, the only writer of the following is the pre-M-0 organizer page:
 
 ```sql
-organizer_marketing_campaign_recipients r
-where r.status = 'unsubscribed'
-  and r.error_message = 'Recipient unsubscribed from organizer marketing'
-  and not exists (select 1 from organizer_marketing_unsubscribes u
-                  where u.organizer_id = r.organizer_id and lower(u.email) = lower(r.email))
+status = 'unsubscribed' AND error_message = 'Recipient unsubscribed from organizer marketing'
 ```
 
-**Plan** (separate authorization; after stage 1 is live):
+That page ran on a plain GET of the unsubscribe link, with the service role, and set only those two fields. It kept
+`sent_at` and `provider_message_id`. The table had no `updated_at`, so the request time was never recorded. Rows marked
+`unsubscribed` for other reasons carry different messages and are excluded:
+- `Suppressed by organizer unsubscribe list` (generation);
+- `Unsubscribed before send` (M-0, which always stores its record).
 
-1. Run preflight D1/D2 to get counts only.
-2. In one transaction, insert one `organizer_marketing_unsubscribes` row per distinct `(organizer_id, lower(email))`, with these values:
-   - `unsubscribed_at` = the earliest matching recipient's `updated_at` (or `created_at`);
-   - `source = 'm0_repair'`;
-   - `reason = 'Restored from campaign unsubscribe (M-0 repair)'`.
+Event registrations never change a contact's `status`.
 
-   Use `on conflict (organizer_id, lower(email)) do nothing`. Then mark the matching `organizer_contacts` unsubscribed.
-3. Verify that D1 returns 0 and the inserted count equals the distinct count. No recipient rows change, and the operation is idempotent.
-4. Rollback: delete only the rows where `source = 'm0_repair'`. This restores the exact pre-repair state; the contact status changes are recorded first for reversal.
+**Classes.** A row is "missing" only when no `organizer_marketing_unsubscribes` record exists for `(organizer_id, lower(email))`.
+- **Class A:** the signature, plus `sent_at` and `provider_message_id` set. The email was delivered, then the
+  unsubscribe URL was requested, and the person was told they were unsubscribed. Whether a human or a mail-security link
+  scanner made the request cannot be determined from stored data. Honoring it errs toward not mailing.
+- **Class B:** the signature without delivery evidence. These are reviewed only and never repaired automatically.
 
-D2 counts later sends to these addresses (an upper bound). They cannot be recalled. Report them to the owner for any disclosure decision.
+**Preflight.** `sql-tests/m0_c1_repair_preflight_readonly.sql` returns counts only:
+- rows and addresses by class;
+- affected organizers;
+- contact state;
+- an upper bound of later sends that may have gone out after the opt-out;
+- addresses with pending rows now;
+- the evidence age range.
+
+It was validated on QA with fixtures for every class.
+
+**Repair** (separately authorized; run right after the M-0 application is promoted, before organizer campaigns resume,
+because until then M-0 would still mail class-A addresses that have pending rows):
+1. Class A only: one `organizer_marketing_unsubscribes` record per distinct `(organizer_id, lower(email))`, using
+   `INSERT … ON CONFLICT (organizer_id, lower(email)) DO NOTHING`. Existing records are never overwritten.
+2. `source = 'm0_c1_repair'`. The reason states the evidence: the request was acknowledged by the pre-M-0 page, the
+   record was never stored, and the request time is unknown but after the delivery of a named campaign.
+   `unsubscribed_at` is the time of repair; the true request time is unknown and is not fabricated. `campaign_id` /
+   `recipient_id` link the evidence.
+3. `organizer_contacts` and recipient rows are **not** modified: consent state is not overwritten, and the stored record
+   alone suppresses at every M-0 claim.
+4. Verify that the inserted count equals R5 and that a re-run of the preflight shows R3 = 0.
+5. Rollback: `DELETE FROM organizer_marketing_unsubscribes WHERE source = 'm0_c1_repair'` (service role).
+
+R9, the possible post-opt-out sends, cannot be recalled. Report it to the owner for any disclosure decision.
 
 ## 5. M-0D — provider event ingestion (planned; separate authorization for live configuration)
 
@@ -231,3 +330,84 @@ Safeguards:
 5. **No live change in this PR.** Creating the webhook in Resend, setting the secret in Vercel, and any domain or DNS change each need separate
    owner authorization.
 6. **QA.** Signed fixtures, replay and duplicate handling, bad signatures, unknown types, and concurrency with a claim.
+
+## 6. Release and rollback runbook (operator-safe)
+
+### States
+
+| State | Application | Schema | Safe? | Notes |
+|---|---|---|---|---|
+| S0 | pre-M-0 | pre-M-0 | today's production | C1–C7 open (the reason for M-0) |
+| S1 | pre-M-0 | stage 1 | **yes, while frozen** | Stage 1 lands frozen. While frozen, the pre-M-0 app cannot send campaigns, held commercial ARIA / automation email waits, the old organizer page's opt-outs persist (C), and its studio page accepts per-message tokens (C). Unfrozen it would behave like S0 for marketing, so it is never unfrozen |
+| S2 | M-0 | stage 1 | **yes** | Full M-0 behavior. Client roles can still insert constrained recipient rows and constrained appointment / automation deliveries (old-app compatibility); every one goes through the claim, suppression and the guards |
+| S3 | M-0 | stages 1 + 2 | **yes** | Final state: no client-role recipient or outbound writes |
+| X | pre-M-0 | stage 2 | **NEVER** | The old send's provider-accepted messages cannot be recorded (silent duplicates), and the old studio unsubscribe page fails (legacy RPC revoked) |
+
+The marketing freeze (`marketing_send_controls`, service role only) is DB-enforced in every state that has stage 1: campaign
+claims return `frozen`, test sends are refused, client roles cannot see pending recipients or write recipients, and the
+dispatcher claim holds commercial ARIA / automation email (queued, not dropped). Unsubscribe is never frozen.
+
+### Release (S0 → S1 → S2 → S3)
+
+Each step needs its own owner authorization. PROD is only ever accessed from a fresh scratch workdir.
+
+1. **Prepare.**
+   - Push branch `m0-rollback-compat` (`docs/marketing/rollback/m0-rollback-compat.patch`, local commit `b4289d30`).
+   - Have a production-target build of it ready as the rollback target. It must contain the one-click endpoint, and it is
+     never the plain pre-M-0 build.
+   - Record the current production deployment id.
+2. **Read-only preflights** (`sql-tests/m0_prod_preflight_readonly.sql`, then
+   `sql-tests/m0_c1_repair_preflight_readonly.sql`). Stop on any of:
+   - A3 / A7 / A8 not matching the documented pre-M-0 hashes (stage 1 would refuse anyway);
+   - B8 / B9 / B10 not zero;
+   - B5 campaigns stuck in `sending`.
+3. **Quiet window.**
+   - Confirm B6 shows no partially sent campaign in progress and E3 no queued commercial email (optional).
+   - Stage 1's own freeze covers marketing from the moment it commits. Pre-M-0 campaign sends already running finish
+     within their action (≤ 1 batch).
+4. **Stage 1 SQL** (`20261117090000`).
+   - It refuses on unknown policies or an unexpected dispatcher function, changing nothing.
+   - Verify that the fingerprint equals the QA value (`d8df2494…`/338) and that `marketing_send_frozen()` is true.
+   - State is now **S1**.
+5. **Promote the M-0 application.** State is now **S2**, still frozen.
+6. **Public smoke** (no authentication; it changes nothing):
+   - one-click POST with a random UUID returns 200, with no redirect;
+   - GET returns 303 to the confirmation page;
+   - both confirmation pages render.
+7. **C1 historical repair** (separately authorized; class A only), before organizer campaigns resume.
+8. **Release the freeze:** `select public.marketing_set_send_freeze(false, '<operator>: M-0 verified')`. Every change is
+   logged in `marketing_send_control_events`.
+9. **Observe**, for example for 24 h: dispatch errors, `marketing_suppression_unavailable`, unsubscribe 503s, held queue
+   size.
+10. **Stage 2 SQL** (`20261117091000`). State is now **S3**. Verify the fingerprint (`6da390b4…`/333).
+
+### Rollback
+
+**Rule 1.** Stage 2 is always reverted before any application rollback. A successful SQL rollback alone does not make an
+application rollback safe; the steps below are all required.
+
+**Rule 2.** The application rollback target is the prepared **rollback-compat build**, never the plain pre-M-0 build. The
+plain build has no one-click endpoint, so emails M-0 already sent would get 404s on RFC 8058 POSTs (proven by
+`marketing-m0-unsubscribe-survival.spec.ts` as `pre_m0`).
+
+From S3 / S2:
+
+1. Freeze: `select public.marketing_set_send_freeze(true, '<operator>: rollback')`.
+2. If in S3, run `rollback/20261117091000_…`. The state is now S2. This is safe with the M-0 application still live, and
+   the fingerprint returns to `d8df2494…`/338.
+3. Promote the rollback-compat build. The state is now S1, frozen.
+4. **Keep the freeze on** for as long as the pre-M-0 application is live. Marketing stays paused, and held commercial
+   email stays queued. Transactional and operational email continue.
+5. Keep stage 1. Its rollback (`rollback/20261117090000_…`) is only for removing M-0 entirely. It refuses while M-0 data
+   exists and would remove the freeze and the legacy compatibility.
+
+Unsubscribe-link survival in S1 with the compat build, for emails M-0 sent (all proven in the browser):
+
+| Link | Path |
+|---|---|
+| One-click, every token kind | The compat endpoint |
+| Studio footer link | Old page → legacy RPC |
+| Per-message (commercial) footer link | Old page → legacy RPC, which resolves studio message tokens (C) |
+| Organizer footer link | Old page → the stage-1 trigger persists the opt-out (C) |
+
+Roll forward from S1: promote the M-0 application (S2), verify, release the freeze, then re-apply stage 2.

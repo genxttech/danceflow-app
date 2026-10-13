@@ -5,6 +5,7 @@
 -- client-role guards and RLS (C8), privileges and tenant isolation.
 -- One transaction, synthetic fixtures only (UUID block 00000000-0000-0000-0000-0000ae0XXXXX). The final block ALWAYS
 -- raises, so nothing persists: "M-0 SQL SUITE PASS (<n> checks)" or "M-0 SQL SUITE FAIL: <failures>".
+-- Remediation (section 11): send freeze, recipient privacy, legacy unsubscribe compatibility, outbound client writes.
 -- Concurrency (separate sessions) is covered by sql-tests/m0_concurrency.sh.
 
 begin;
@@ -48,6 +49,9 @@ create or replace function pg_temp.save(p_k text, p_v jsonb) returns void langua
 create or replace function pg_temp.j(p_k text) returns jsonb language sql as $$ select v::jsonb from t_kv where k = p_k $$;
 create or replace function pg_temp.as_user(p_user text) returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', p_user, 'role', 'authenticated')::text, true) $$;
+
+-- Stage 1 lands with marketing sends frozen; unfreeze inside this rolled-back transaction (section 11 tests the freeze).
+select public.marketing_set_send_freeze(false, 'M-0 SQL suite (rolled back)');
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Fixtures
@@ -337,10 +341,11 @@ select pg_temp.chk('test send: studio staff without organizer link refused for o
 -- ---------------------------------------------------------------------------------------------------------------
 -- 8. Privileges: every M-0 function is service-role only
 -- ---------------------------------------------------------------------------------------------------------------
-select pg_temp.chk('privileges: anon/authenticated can run only the two guard lookups among M-0 functions',
-  (select coalesce(string_agg(distinct p.proname, ','), '') from pg_proc p, (values ('anon'), ('authenticated')) r(role)
-   where p.pronamespace = 'public'::regnamespace and (p.proname like 'marketing_%' or p.proname like '_mkt_%')
-     and has_function_privilege(r.role, p.oid, 'execute')) = '_mkt_campaign_exists,_mkt_campaign_has_mailed');
+select pg_temp.chk('privileges: anon/authenticated can run only the guard / policy helpers among M-0 functions',
+  (select coalesce(string_agg(distinct p.proname, ',' order by p.proname), '') from pg_proc p, (values ('anon'), ('authenticated')) r(role)
+   where p.pronamespace = 'public'::regnamespace and (p.proname like 'marketing\_%' or p.proname like '\_mkt\_%')
+     and has_function_privilege(r.role, p.oid, 'execute'))
+  = '_mkt_campaign_exists,_mkt_campaign_has_mailed,_mkt_can_view_studio_marketing,_mkt_outbound_appointment_recipient_ok,_mkt_outbound_automation_action_ok,marketing_send_frozen');
 select pg_temp.chk('privileges: service_role can run the pipeline functions', has_function_privilege('service_role', 'public.marketing_claim_campaign_recipient(text, uuid, uuid, uuid, integer)', 'execute')
   and has_function_privilege('service_role', 'public.marketing_unsubscribe_by_token(text, text)', 'execute'));
 select pg_temp.chk('privileges: new tables closed to tenants', not has_table_privilege('authenticated', 'public.marketing_email_suppressions', 'select')
@@ -494,16 +499,25 @@ select pg_temp.chk('token: an upper-case token resolves through the indexed colu
 select public.marketing_sync_campaign_recipients('studio', '00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000408',
   jsonb_build_array(jsonb_build_object('email', 'm0-fix-3@example.com')));
 
+insert into public.automation_actions (studio_id, rule_key, title) values ('00000000-0000-0000-0000-0000ae000001', 'unsigned_document', 'Unsigned');
+insert into t_kv select 'od-action', id::text from public.automation_actions where studio_id = '00000000-0000-0000-0000-0000ae000001' and title = 'Unsigned';
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000ae000201');
 insert into public.marketing_campaign_recipients (campaign_id, studio_id, email, status, unsubscribe_token)
 values ('00000000-0000-0000-0000-0000ae000408', '00000000-0000-0000-0000-0000ae000001', 'm0-fix-forged@example.com', 'pending', 'forged-token-0001');
 select pg_temp.expect_msg('P2-2: staff cannot delete a mailed campaign',
   $q$delete from public.marketing_campaigns where id = '00000000-0000-0000-0000-0000ae000407'$q$, 'has been sent cannot be deleted');
-insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, payload, status, dedupe_key) values
-  ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-od@example.com', 'S', 'B', '{"content_origin": "system_default"}', 'draft', 'm0-suite-od-1'),
-  ('00000000-0000-0000-0000-0000ae000001', 'email', 'aria_execution_aria_membership_past_due', 'm0-od@example.com', 'S', 'B', null, 'draft', 'm0-suite-od-2'),
-  ('00000000-0000-0000-0000-0000ae000001', 'email', 'client_message', 'm0-od@example.com', 'S', 'B', '{"content_origin": "system_default"}', 'draft', 'm0-suite-od-3');
+insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, payload, related_table, related_id, status, dedupe_key)
+select '00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-od@example.com', 'S', 'B', '{"content_origin": "system_default"}',
+       'automation_actions', pg_temp.kv('od-action')::uuid, 'draft', 'm0-suite-od-1';
+select pg_temp.expect_msg('D1: a client cannot queue an ARIA execution email',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, status, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'aria_execution_aria_membership_past_due', 'm0-od@example.com', 'S', 'B', 'draft', 'm0-suite-od-2')$q$,
+  'cannot be created by a signed-in user');
+select pg_temp.expect_msg('D1: a client cannot queue an arbitrary template',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, status, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'client_message', 'm0-od@example.com', 'S', 'B', 'draft', 'm0-suite-od-3')$q$,
+  'cannot be created by a signed-in user');
 reset role;
 
 select pg_temp.chk('P2-3: a client-chosen recipient token is replaced',
@@ -512,11 +526,9 @@ select pg_temp.chk('P2-3: a client-chosen recipient token is replaced',
 select pg_temp.chk('P2-2: the mailed campaign and its rows survive', exists (select 1 from public.marketing_campaigns where id = '00000000-0000-0000-0000-0000ae000407')
   and exists (select 1 from public.marketing_campaign_recipients where id = pg_temp.kv('rid:f1')::uuid));
 select pg_temp.chk('D1: a client write cannot mark automation email as system content',
-  (select payload ->> 'content_origin' from public.outbound_deliveries where dedupe_key = 'm0-suite-od-1') = 'customized');
-select pg_temp.chk('D1: an unstamped client ARIA row is marked customized',
-  (select payload ->> 'content_origin' from public.outbound_deliveries where dedupe_key = 'm0-suite-od-2') = 'customized');
-select pg_temp.chk('D1: other template families are unchanged',
-  (select payload ->> 'content_origin' from public.outbound_deliveries where dedupe_key = 'm0-suite-od-3') = 'system_default');
+  (select payload ->> 'content_origin' from public.outbound_deliveries where dedupe_key = 'm0-suite-od-1') = 'studio_customized');
+select pg_temp.chk('D1: refused client rows were not stored',
+  not exists (select 1 from public.outbound_deliveries where dedupe_key in ('m0-suite-od-2', 'm0-suite-od-3')));
 insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, payload, status, dedupe_key) values
   ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-od@example.com', 'S', 'B', '{"content_origin": "system_default"}', 'draft', 'm0-suite-od-4');
 select pg_temp.chk('D1: server producers keep system content',
@@ -528,6 +540,299 @@ delete from public.marketing_campaigns where id = '00000000-0000-0000-0000-0000a
 reset role;
 select pg_temp.chk('P2-2: staff can still delete a never-mailed draft campaign',
   not exists (select 1 from public.marketing_campaigns where id = '00000000-0000-0000-0000-0000ae000408'));
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- 11. Remediation: send freeze (A), recipient privacy (B), legacy unsubscribe compatibility (C), outbound writes (D)
+-- ---------------------------------------------------------------------------------------------------------------
+insert into auth.users (id, email, email_confirmed_at) values
+  ('00000000-0000-0000-0000-0000ae000207', 'm0-instructor@example.com', now()),
+  ('00000000-0000-0000-0000-0000ae000208', 'm0-frontdesk@example.com', now()),
+  ('00000000-0000-0000-0000-0000ae000209', 'm0-platform@example.com', now());
+insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-0000ae000207', 'm0-instructor@example.com'),
+  ('00000000-0000-0000-0000-0000ae000208', 'm0-frontdesk@example.com'),
+  ('00000000-0000-0000-0000-0000ae000209', 'm0-platform@example.com');
+update public.profiles set platform_role = 'platform_admin' where id = '00000000-0000-0000-0000-0000ae000209';
+insert into public.user_studio_roles (user_id, studio_id, role, active) values
+  ('00000000-0000-0000-0000-0000ae000207', '00000000-0000-0000-0000-0000ae000001', 'instructor', true),
+  ('00000000-0000-0000-0000-0000ae000208', '00000000-0000-0000-0000-0000ae000001', 'front_desk', true);
+
+-- B. Recipient / unsubscribe visibility (direct PostgREST access = role authenticated + JWT claims)
+create temp table t_vis (who text, recipients bigint, tokens bigint, unsubscribes bigint, org_recipients bigint) on commit drop;
+grant all on t_vis to authenticated, anon;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000201');
+insert into t_vis select 'owner', (select count(*) from public.marketing_campaign_recipients), (select count(unsubscribe_token) from public.marketing_campaign_recipients),
+  (select count(*) from public.marketing_unsubscribes), (select count(*) from public.organizer_marketing_campaign_recipients);
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000208');
+insert into t_vis select 'front_desk', (select count(*) from public.marketing_campaign_recipients), (select count(unsubscribe_token) from public.marketing_campaign_recipients),
+  (select count(*) from public.marketing_unsubscribes), (select count(*) from public.organizer_marketing_campaign_recipients);
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000207');
+insert into t_vis select 'instructor', (select count(*) from public.marketing_campaign_recipients), (select count(unsubscribe_token) from public.marketing_campaign_recipients),
+  (select count(*) from public.marketing_unsubscribes), (select count(*) from public.organizer_marketing_campaign_recipients);
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000206');
+insert into t_vis select 'client_role', (select count(*) from public.marketing_campaign_recipients), (select count(unsubscribe_token) from public.marketing_campaign_recipients),
+  (select count(*) from public.marketing_unsubscribes), (select count(*) from public.organizer_marketing_campaign_recipients);
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000205');
+insert into t_vis select 'other_studio_owner', (select count(*) from public.marketing_campaign_recipients where studio_id = '00000000-0000-0000-0000-0000ae000001'),
+  (select count(unsubscribe_token) from public.marketing_campaign_recipients where studio_id = '00000000-0000-0000-0000-0000ae000001'),
+  (select count(*) from public.marketing_unsubscribes where studio_id = '00000000-0000-0000-0000-0000ae000001'), 0;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000209');
+insert into t_vis select 'platform_admin', (select count(*) from public.marketing_campaign_recipients where studio_id = '00000000-0000-0000-0000-0000ae000001'), 0,
+  (select count(*) from public.marketing_unsubscribes where studio_id = '00000000-0000-0000-0000-0000ae000001'), 0;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000204');
+insert into t_vis select 'organizer_owner', (select count(*) from public.marketing_campaign_recipients), 0, (select count(*) from public.marketing_unsubscribes),
+  (select count(*) from public.organizer_marketing_campaign_recipients where organizer_id = '00000000-0000-0000-0000-0000ae000101');
+reset role;
+set local role anon;
+insert into t_vis select 'anon', (select count(*) from public.marketing_campaign_recipients), 0, (select count(*) from public.marketing_unsubscribes),
+  (select count(*) from public.organizer_marketing_campaign_recipients);
+reset role;
+insert into t_kv select 'studioA_recipients', count(*)::text from public.marketing_campaign_recipients where studio_id = '00000000-0000-0000-0000-0000ae000001';
+insert into t_kv select 'studioA_unsubs', count(*)::text from public.marketing_unsubscribes where studio_id = '00000000-0000-0000-0000-0000ae000001';
+insert into t_kv select 'org101_recipients', count(*)::text from public.organizer_marketing_campaign_recipients where organizer_id = '00000000-0000-0000-0000-0000ae000101';
+
+select pg_temp.chk('B: studio owner sees the studio''s recipients, tokens and unsubscribes',
+  (select recipients = pg_temp.kv('studioA_recipients')::bigint and tokens > 0 and unsubscribes = pg_temp.kv('studioA_unsubs')::bigint from t_vis where who = 'owner'),
+  (select row(t.*)::text from t_vis t where who = 'owner'));
+select pg_temp.chk('B: front desk (campaign manager) sees them too',
+  (select recipients = pg_temp.kv('studioA_recipients')::bigint and unsubscribes = pg_temp.kv('studioA_unsubs')::bigint from t_vis where who = 'front_desk'));
+select pg_temp.chk('B: instructor sees no recipient, token or unsubscribe (FC-1B5D)',
+  (select recipients = 0 and tokens = 0 and unsubscribes = 0 from t_vis where who = 'instructor'), (select row(t.*)::text from t_vis t where who = 'instructor'));
+select pg_temp.chk('B: a client-role account sees nothing',
+  (select recipients = 0 and tokens = 0 and unsubscribes = 0 and org_recipients = 0 from t_vis where who = 'client_role'));
+select pg_temp.chk('B: another studio''s owner sees nothing of this studio',
+  (select recipients = 0 and tokens = 0 and unsubscribes = 0 from t_vis where who = 'other_studio_owner'));
+select pg_temp.chk('B: a platform admin (profiles.platform_role) keeps access',
+  (select recipients = pg_temp.kv('studioA_recipients')::bigint and unsubscribes = pg_temp.kv('studioA_unsubs')::bigint from t_vis where who = 'platform_admin'));
+select pg_temp.chk('B: organizer users keep their own organizer recipients and see no studio data',
+  (select org_recipients = pg_temp.kv('org101_recipients')::bigint and org_recipients > 0 and recipients = 0 and unsubscribes = 0 from t_vis where who = 'organizer_owner'));
+select pg_temp.chk('B: anon sees nothing', (select recipients = 0 and unsubscribes = 0 and org_recipients = 0 from t_vis where who = 'anon'));
+select pg_temp.chk('B: no permissive SELECT policy on recipients/unsubscribes uses the role-agnostic studio access check',
+  not exists (select 1 from pg_policies where schemaname = 'public' and tablename in ('marketing_campaign_recipients', 'marketing_unsubscribes')
+              and permissive = 'PERMISSIVE' and cmd in ('SELECT', 'ALL') and coalesce(qual, '') like '%user_has_studio_access%'));
+
+-- A. Send freeze
+insert into public.marketing_campaigns (id, studio_id, name, subject, body_text, status, audience_type) values
+  ('00000000-0000-0000-0000-0000ae000409', '00000000-0000-0000-0000-0000ae000001', 'C-freeze', 'S', 'B', 'draft', 'manual');
+select public.marketing_sync_campaign_recipients('studio', '00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000409',
+  jsonb_build_array(jsonb_build_object('email', 'm0-freeze-1@example.com'), jsonb_build_object('email', 'm0-pre-unsub@example.com')));
+insert into t_kv select 'rid:fz', id::text from public.marketing_campaign_recipients where campaign_id = '00000000-0000-0000-0000-0000ae000409' and email = 'm0-freeze-1@example.com';
+insert into t_kv select 'rid:fzu', id::text from public.marketing_campaign_recipients where campaign_id = '00000000-0000-0000-0000-0000ae000409' and email = 'm0-pre-unsub@example.com';
+select pg_temp.chk('A fixture: a never-mailed unsubscribed row exists', exists (select 1 from public.marketing_campaign_recipients where id = pg_temp.kv('rid:fzu')::uuid and status = 'unsubscribed'));
+insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, payload, status, dedupe_key) values
+  ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_low_package_balance', 'm0-od@example.com', 'S', 'B', '{"content_origin": "system_default"}', 'queued', 'm0-fz-commercial'),
+  ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-od@example.com', 'S', 'B', '{"content_origin": "system_default"}', 'queued', 'm0-fz-operational'),
+  ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-od@example.com', 'S', 'B', '{"content_origin": "studio_customized"}', 'queued', 'm0-fz-customized'),
+  ('00000000-0000-0000-0000-0000ae000001', 'email', 'aria_execution_aria_intro_no_purchase', 'm0-od@example.com', 'S', 'B', null, 'queued', 'm0-fz-aria'),
+  ('00000000-0000-0000-0000-0000ae000001', 'email', 'appointment_confirmed', 'm0-od@example.com', null, null, '{}', 'queued', 'm0-fz-transactional'),
+  ('00000000-0000-0000-0000-0000ae000001', 'sms', 'automation_low_package_balance', null, null, 'B', '{}', 'queued', 'm0-fz-sms');
+
+select public.marketing_set_send_freeze(true, 'suite: freeze on');
+select pg_temp.save('fzc', public.marketing_claim_campaign_recipient('studio', '00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000409', pg_temp.kv('rid:fz')::uuid, 600));
+select pg_temp.chk('A: frozen -> the campaign claim refuses and sends nothing', pg_temp.j('fzc') ->> 'outcome' = 'frozen', pg_temp.kv('fzc'));
+select pg_temp.chk('A: frozen -> the recipient is untouched (still pending, no attempt)',
+  exists (select 1 from public.marketing_campaign_recipients where id = pg_temp.kv('rid:fz')::uuid and status = 'pending' and attempt_count = 0 and claim_id is null));
+select pg_temp.chk('A: frozen -> test sends are refused',
+  public.marketing_authorize_test_send('studio', '00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000409',
+    '00000000-0000-0000-0000-0000ae000201', 'm0-staff-a@example.com', 10) ->> 'reason' = 'frozen');
+create temp table t_claimed (dedupe_key text) on commit drop;
+insert into t_claimed select dedupe_key from public.claim_outbound_deliveries('00000000-0000-0000-0000-0000ae0009f1', 200, 300) where dedupe_key like 'm0-fz-%';
+select pg_temp.chk('A: frozen -> the dispatcher holds commercial email (automation, customized operational, ARIA)',
+  not exists (select 1 from t_claimed where dedupe_key in ('m0-fz-commercial', 'm0-fz-customized', 'm0-fz-aria')), (select string_agg(dedupe_key, ',') from t_claimed));
+select pg_temp.chk('A: frozen -> operational, transactional and SMS deliveries still go out',
+  (select count(*) from t_claimed where dedupe_key in ('m0-fz-operational', 'm0-fz-transactional', 'm0-fz-sms')) = 3, (select string_agg(dedupe_key, ',') from t_claimed));
+select pg_temp.chk('A: held email stays queued (not dropped)',
+  (select count(*) from public.outbound_deliveries where dedupe_key in ('m0-fz-commercial', 'm0-fz-customized', 'm0-fz-aria') and status = 'queued' and claim_owner is null) = 3);
+
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000201');
+select pg_temp.chk('A: frozen -> the pre-M-0 send path (client role) sees no pending recipient',
+  (select count(*) from public.marketing_campaign_recipients where status = 'pending') = 0
+  and (select count(*) from public.marketing_campaign_recipients where status <> 'pending') > 0);
+select pg_temp.expect_msg('A: frozen -> client roles cannot insert recipients (pre-M-0 regenerate fails closed)',
+  $q$insert into public.marketing_campaign_recipients (campaign_id, studio_id, email, status) values ('00000000-0000-0000-0000-0000ae000409', '00000000-0000-0000-0000-0000ae000001', 'm0-fz-new@example.com', 'pending')$q$, '42501');
+update public.marketing_campaign_recipients set status = 'sent' where id = pg_temp.kv('rid:fz')::uuid;
+delete from public.marketing_campaign_recipients where id = pg_temp.kv('rid:fz')::uuid;
+-- a never-mailed non-pending row is visible but still cannot be deleted or changed while frozen
+delete from public.marketing_campaign_recipients where id = pg_temp.kv('rid:fzu')::uuid;
+update public.marketing_campaign_recipients set name = 'changed while frozen' where id = pg_temp.kv('rid:fzu')::uuid;
+reset role;
+select pg_temp.chk('A: frozen -> client roles cannot delete or change visible never-mailed rows either',
+  exists (select 1 from public.marketing_campaign_recipients where id = pg_temp.kv('rid:fzu')::uuid and name is distinct from 'changed while frozen'));
+select pg_temp.chk('A: frozen -> client-role update/delete of the pending row had no effect',
+  exists (select 1 from public.marketing_campaign_recipients where id = pg_temp.kv('rid:fz')::uuid and status = 'pending'));
+
+select pg_temp.expect_msg('A: freeze needs a reason', $q$select public.marketing_set_send_freeze(false, '  ')$q$, '22023');
+select pg_temp.expect_msg('A: freeze needs a value', $q$select public.marketing_set_send_freeze(null, 'x')$q$, '22023');
+select pg_temp.chk('A: only the service role can change the freeze',
+  not has_function_privilege('authenticated', 'public.marketing_set_send_freeze(boolean, text)', 'execute')
+  and not has_function_privilege('anon', 'public.marketing_set_send_freeze(boolean, text)', 'execute')
+  and has_function_privilege('service_role', 'public.marketing_set_send_freeze(boolean, text)', 'execute'));
+select pg_temp.chk('A: the control tables are closed to tenants',
+  not has_table_privilege('authenticated', 'public.marketing_send_controls', 'select')
+  and not has_table_privilege('authenticated', 'public.marketing_send_controls', 'update'));
+
+select public.marketing_set_send_freeze(false, 'suite: freeze off');
+delete from t_claimed;
+insert into t_claimed select dedupe_key from public.claim_outbound_deliveries('00000000-0000-0000-0000-0000ae0009f2', 200, 300) where dedupe_key like 'm0-fz-%';
+select pg_temp.chk('A: unfrozen -> held commercial email is released to the dispatcher',
+  (select count(*) from t_claimed where dedupe_key in ('m0-fz-commercial', 'm0-fz-customized', 'm0-fz-aria')) = 3, (select string_agg(dedupe_key, ',') from t_claimed));
+select pg_temp.chk('A: unfrozen -> the campaign claim works again',
+  public.marketing_claim_campaign_recipient('studio', '00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000409', pg_temp.kv('rid:fz')::uuid, 600) ->> 'outcome' = 'claimed');
+select pg_temp.chk('A: every freeze change is logged', (select count(*) from public.marketing_send_control_events where reason like 'suite:%') = 2);
+delete from public.marketing_send_controls;
+select pg_temp.chk('A: a missing control row means frozen (fail closed)', public.marketing_send_frozen());
+select public.marketing_set_send_freeze(false, 'suite: restore');
+
+-- C. Legacy organizer unsubscribe page (pre-M-0 application, service role)
+insert into public.organizer_marketing_campaigns (id, organizer_id, name, subject, body_text, status) values
+  ('00000000-0000-0000-0000-0000ae000410', '00000000-0000-0000-0000-0000ae000101', 'O-legacy', 'S', 'B', 'draft'),
+  ('00000000-0000-0000-0000-0000ae000411', '00000000-0000-0000-0000-0000ae000101', 'O-legacy-2', 'S', 'B', 'draft'),
+  ('00000000-0000-0000-0000-0000ae000412', '00000000-0000-0000-0000-0000ae000102', 'O-other-org', 'S', 'B', 'draft');
+insert into public.organizer_contacts (id, organizer_id, email, status) values
+  ('00000000-0000-0000-0000-0000ae000510', '00000000-0000-0000-0000-0000ae000101', 'm0-legacy-1@example.com', 'active');
+select public.marketing_sync_campaign_recipients('organizer', '00000000-0000-0000-0000-0000ae000101', '00000000-0000-0000-0000-0000ae000410',
+  jsonb_build_array(jsonb_build_object('email', 'M0-Legacy-1@Example.com'), jsonb_build_object('email', 'm0-legacy-2@example.com')));
+select public.marketing_sync_campaign_recipients('organizer', '00000000-0000-0000-0000-0000ae000101', '00000000-0000-0000-0000-0000ae000411',
+  jsonb_build_array(jsonb_build_object('email', 'm0-legacy-1@example.com')));
+select public.marketing_sync_campaign_recipients('organizer', '00000000-0000-0000-0000-0000ae000102', '00000000-0000-0000-0000-0000ae000412',
+  jsonb_build_array(jsonb_build_object('email', 'm0-legacy-1@example.com')));
+insert into t_kv select 'lg1', id::text from public.organizer_marketing_campaign_recipients where campaign_id = '00000000-0000-0000-0000-0000ae000410' and lower(email) = 'm0-legacy-1@example.com';
+insert into t_kv select 'lg2', id::text from public.organizer_marketing_campaign_recipients where campaign_id = '00000000-0000-0000-0000-0000ae000410' and email = 'm0-legacy-2@example.com';
+update public.organizer_marketing_campaign_recipients set status = 'sent', sent_at = now(), provider_message_id = 'legacy-msg'
+where id = pg_temp.kv('lg1')::uuid;
+
+set local role service_role;
+-- exactly what the pre-M-0 page does after its (failing) organizer upsert
+update public.organizer_marketing_campaign_recipients
+set status = 'unsubscribed', error_message = 'Recipient unsubscribed from organizer marketing'
+where id = pg_temp.kv('lg1')::uuid;
+reset role;
+select pg_temp.chk('C: the legacy organizer page opt-out is persisted for the organizer',
+  (select count(*) from public.organizer_marketing_unsubscribes where organizer_id = '00000000-0000-0000-0000-0000ae000101' and lower(email) = 'm0-legacy-1@example.com') = 1);
+select pg_temp.chk('C: it suppresses the address''s other pending rows of that organizer',
+  (select status from public.organizer_marketing_campaign_recipients where campaign_id = '00000000-0000-0000-0000-0000ae000411') = 'unsubscribed');
+select pg_temp.chk('C: it marks the organizer contact unsubscribed',
+  (select status from public.organizer_contacts where id = '00000000-0000-0000-0000-0000ae000510') = 'unsubscribed');
+select pg_temp.chk('C: another organizer is unaffected (tenant scope)',
+  (select status from public.organizer_marketing_campaign_recipients where campaign_id = '00000000-0000-0000-0000-0000ae000412') = 'pending'
+  and not exists (select 1 from public.organizer_marketing_unsubscribes where organizer_id = '00000000-0000-0000-0000-0000ae000102'));
+select pg_temp.chk('C: the delivered row keeps its delivery evidence',
+  exists (select 1 from public.organizer_marketing_campaign_recipients where id = pg_temp.kv('lg1')::uuid and sent_at is not null and provider_message_id = 'legacy-msg'));
+set local role service_role;
+update public.organizer_marketing_campaign_recipients
+set status = 'unsubscribed', error_message = 'Recipient unsubscribed from organizer marketing'
+where id = pg_temp.kv('lg1')::uuid;
+update public.organizer_marketing_campaign_recipients set status = 'unsubscribed', error_message = 'Removed by an import'
+where id = pg_temp.kv('lg2')::uuid;
+reset role;
+select pg_temp.chk('C: a repeated legacy request is idempotent (one record)',
+  (select count(*) from public.organizer_marketing_unsubscribes where organizer_id = '00000000-0000-0000-0000-0000ae000101' and lower(email) = 'm0-legacy-1@example.com') = 1);
+select pg_temp.chk('C: other status changes are not treated as opt-outs',
+  not exists (select 1 from public.organizer_marketing_unsubscribes where organizer_id = '00000000-0000-0000-0000-0000ae000101' and lower(email) = 'm0-legacy-2@example.com'));
+
+-- C. Legacy studio RPC resolves studio per-message tokens (rollback compatibility), nothing else new
+select pg_temp.save('lmt', to_jsonb(public.marketing_issue_message_unsubscribe_token('studio', '00000000-0000-0000-0000-0000ae000001', 'm0-legacy-msg@example.com', 'outbound_deliveries', '00000000-0000-0000-0000-0000ae000602')));
+select pg_temp.save('omt', to_jsonb(public.marketing_issue_message_unsubscribe_token('organizer', '00000000-0000-0000-0000-0000ae000101', 'm0-legacy-omsg@example.com', 'outbound_deliveries', '00000000-0000-0000-0000-0000ae000603')));
+set local role anon;
+insert into t_kv select 'lr1', (select success::text from public.unsubscribe_marketing_recipient(upper(pg_temp.j('lmt') #>> '{}')));
+insert into t_kv select 'lr2', (select success::text from public.unsubscribe_marketing_recipient(pg_temp.j('omt') #>> '{}'));
+insert into t_kv select 'lr3', (select success::text from public.unsubscribe_marketing_recipient(gen_random_uuid()::text));
+insert into t_kv select 'lr4', (select success::text from public.unsubscribe_marketing_recipient('not-a-token'));
+reset role;
+select pg_temp.chk('C: legacy studio page accepts a studio per-message token (any case)', pg_temp.kv('lr1') = 'true', pg_temp.kv('lr1'));
+select pg_temp.chk('C: ... and records the studio opt-out',
+  exists (select 1 from public.marketing_unsubscribes where studio_id = '00000000-0000-0000-0000-0000ae000001' and lower(email) = 'm0-legacy-msg@example.com'));
+select pg_temp.chk('C: legacy studio page refuses an organizer message token', pg_temp.kv('lr2') = 'false'
+  and not exists (select 1 from public.organizer_marketing_unsubscribes where lower(email) = 'm0-legacy-omsg@example.com'));
+select pg_temp.chk('C: legacy studio page refuses unknown / malformed tokens', pg_temp.kv('lr3') = 'false' and pg_temp.kv('lr4') = 'false');
+
+-- D. Outbound deliveries written by client roles
+insert into public.appointments (id, studio_id, client_id, partner_client_id, appointment_type, starts_at, ends_at) values
+  ('00000000-0000-0000-0000-0000ae000801', '00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000301', '00000000-0000-0000-0000-0000ae000302',
+   'private_lesson', now() + interval '1 day', now() + interval '1 day 1 hour'),
+  ('00000000-0000-0000-0000-0000ae000802', '00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000303', null,
+   'private_lesson', now() + interval '1 day', now() + interval '1 day 1 hour');
+update public.clients set phone = '+1 (919) 555-0101' where id = '00000000-0000-0000-0000-0000ae000301';
+insert into public.automation_actions (id, studio_id, rule_key, title) values
+  ('00000000-0000-0000-0000-0000ae000701', '00000000-0000-0000-0000-0000ae000001', 'low_package_balance', 'Low balance'),
+  ('00000000-0000-0000-0000-0000ae000702', '00000000-0000-0000-0000-0000ae000002', 'low_package_balance', 'Other studio');
+
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000207');  -- instructor of studio A (allowed to insert by RLS)
+select pg_temp.expect_ok('D: an appointment notification to the appointment''s client is accepted',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, body_html, reply_to_email, related_table, related_id, status, payload, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'appointment_confirmed', 'M0-A1@Example.com', 'HUGE SALE', 'Buy now', '<b>x</b>', 'evil@example.com', 'appointments', '00000000-0000-0000-0000-0000ae000801', 'queued', '{"appointmentLabel": "Private Lesson"}', 'm0-d-ok-email')$q$);
+select pg_temp.expect_ok('D: ... and to the partner',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, related_table, related_id, status, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'appointment_rescheduled', 'm0-a2@example.com', 'appointments', '00000000-0000-0000-0000-0000ae000801', 'queued', 'm0-d-ok-partner')$q$);
+select pg_temp.expect_ok('D: an appointment SMS to the client''s phone is accepted',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_phone, body_text, related_table, related_id, status, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae000001', 'sms', 'appointment_cancelled', '+19195550101', 'Click my link', 'appointments', '00000000-0000-0000-0000-0000ae000801', 'queued', 'm0-d-ok-sms')$q$);
+select pg_temp.expect_msg('D: an appointment notification to a non-participant is refused',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, related_table, related_id, status)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'appointment_confirmed', 'stranger@example.com', 'appointments', '00000000-0000-0000-0000-0000ae000801', 'queued')$q$, 'participants');
+select pg_temp.expect_msg('D: an appointment SMS to another phone is refused',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_phone, related_table, related_id, status)
+     values ('00000000-0000-0000-0000-0000ae000001', 'sms', 'appointment_confirmed', '+19195559999', 'appointments', '00000000-0000-0000-0000-0000ae000801', 'queued')$q$, 'participants');
+select pg_temp.expect_msg('D: an appointment notification without its appointment is refused',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, status)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'appointment_confirmed', 'm0-a1@example.com', 'queued')$q$, 'participants');
+select pg_temp.expect_msg('D: another studio''s appointment cannot be used',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, related_table, related_id, status)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'appointment_confirmed', 'm0-a1@example.com', 'appointments', '00000000-0000-0000-0000-0000ae000802', 'queued')$q$, 'participants');
+select pg_temp.expect_msg('D: no delivery can be queued for another tenant',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, related_table, related_id, status)
+     values ('00000000-0000-0000-0000-0000ae000002', 'email', 'appointment_confirmed', 'm0-a1@example.com', 'appointments', '00000000-0000-0000-0000-0000ae000802', 'queued')$q$, '42501');
+select pg_temp.expect_msg(format('D: a signed-in user cannot queue %s', k),
+  format($q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, status) values ('00000000-0000-0000-0000-0000ae000001', 'email', %L, 'anyone@example.com', 'S', 'B', 'queued')$q$, k),
+  'cannot be created by a signed-in user')
+from unnest(array['welcome_to_danceflow', 'platform_admin_invite', 'danceflow_security_notice', 'platform_digest', 'aria_execution_aria_membership_past_due',
+                  'aria_execution_aria_low_package_balance', 'booking_request_received_client', 'event_registration_confirmed', 'client_message']) k;
+select pg_temp.expect_msg('D: a legacy automation email needs an automation action of the studio',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, status)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_low_package_balance', 'anyone@example.com', 'S', 'B', 'queued')$q$, 'cannot be created by a signed-in user');
+select pg_temp.expect_msg('D: ... of this studio (not another tenant''s action)',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, related_table, related_id, status)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_low_package_balance', 'anyone@example.com', 'S', 'B', 'automation_actions', '00000000-0000-0000-0000-0000ae000702', 'queued')$q$, 'cannot be created by a signed-in user');
+select pg_temp.expect_ok('D: a legacy automation draft for the studio''s own action is accepted',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, payload, related_table, related_id, status, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-a1@example.com', 'S', 'B', '{"content_origin": "system_default"}', 'automation_actions', '00000000-0000-0000-0000-0000ae000701', 'draft', 'm0-d-ok-automation')$q$);
+select pg_temp.expect_msg('D: legacy automation SMS is refused',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_phone, body_text, related_table, related_id, status)
+     values ('00000000-0000-0000-0000-0000ae000001', 'sms', 'automation_low_package_balance', '+19195550101', 'B', 'automation_actions', '00000000-0000-0000-0000-0000ae000701', 'queued')$q$, 'cannot be created by a signed-in user');
+reset role;
+
+select pg_temp.chk('D: accepted appointment rows carry no client-supplied subject, body, html or reply-to',
+  (select count(*) from public.outbound_deliveries where dedupe_key in ('m0-d-ok-email', 'm0-d-ok-partner', 'm0-d-ok-sms')
+     and subject is null and body_text is null and body_html is null and reply_to_email is null) = 3);
+select pg_temp.chk('D: the accepted legacy automation row is forced to studio content (commercial controls apply)',
+  (select payload ->> 'content_origin' from public.outbound_deliveries where dedupe_key = 'm0-d-ok-automation') = 'studio_customized'
+  and public._mkt_is_commercial_outbound('email', 'automation_unsigned_document',
+        (select payload from public.outbound_deliveries where dedupe_key = 'm0-d-ok-automation')));
+
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000209');  -- platform admin (the only client role RLS lets update)
+select pg_temp.expect_msg('D: a queued notification cannot be re-routed by a client role',
+  $q$update public.outbound_deliveries set recipient_email = 'elsewhere@example.com' where dedupe_key = 'm0-d-ok-email'$q$, 're-routed');
+select pg_temp.expect_msg('D: ... nor switched to another template',
+  $q$update public.outbound_deliveries set template_key = 'welcome_to_danceflow' where dedupe_key = 'm0-d-ok-email'$q$, 're-routed');
+reset role;
+insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, status, dedupe_key)
+values ('00000000-0000-0000-0000-0000ae000001', 'email', 'welcome_to_danceflow', 'm0-sys@example.com', 'S', 'B', 'queued', 'm0-d-server');
+select pg_temp.chk('D: server writes are unaffected by the client guard',
+  exists (select 1 from public.outbound_deliveries where dedupe_key = 'm0-d-server' and subject = 'S'));
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000207');  -- instructor of studio A probing studio B
+insert into t_kv select 'oracle', public._mkt_outbound_appointment_recipient_ok('00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000802', 'email', 'm0-a1@example.com', null)::text;
+insert into t_kv select 'oracle-own', public._mkt_outbound_appointment_recipient_ok('00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000801', 'email', 'm0-a1@example.com', null)::text;
+insert into t_kv select 'oracle-aa', public._mkt_outbound_automation_action_ok('00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000702')::text;
+reset role;
+select pg_temp.chk('D: the appointment helper reveals nothing about another studio (no participant oracle)', pg_temp.kv('oracle') = 'false' and pg_temp.kv('oracle-own') = 'true');
+select pg_temp.chk('D: the automation helper reveals nothing about another studio', pg_temp.kv('oracle-aa') = 'false');
+select pg_temp.chk('D: the helper functions refuse callers without a role in the studio',
+  not has_function_privilege('anon', 'public._mkt_outbound_appointment_recipient_ok(uuid, uuid, text, text, text)', 'execute'));
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Verdict (always raises: nothing persists)

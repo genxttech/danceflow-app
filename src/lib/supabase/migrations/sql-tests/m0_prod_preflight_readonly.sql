@@ -44,6 +44,27 @@ where event_object_schema = 'public'
   and event_object_table in ('marketing_campaign_recipients', 'organizer_marketing_campaign_recipients', 'marketing_unsubscribes',
                              'organizer_marketing_unsubscribes', 'organizer_contacts');
 
+-- A7-A9: the stage-1 preconditions, checked read-only first (stage 1 itself refuses, changing nothing, on a mismatch).
+select 'A7 dispatcher claim function (expect d3179a2f46f603111b1bad5293ae6857, PAY-WH-1)' as check_name,
+       coalesce((select md5(replace(prosrc, E'\r\n', E'\n')) from pg_proc
+                 where oid = to_regprocedure('public.claim_outbound_deliveries(uuid,integer,integer)')), 'MISSING') as result;
+select 'A8 recipient/unsubscribe policies not in the known pre-M-0 set (expect none)' as check_name,
+       coalesce(string_agg(p.tablename || '.' || p.policyname, ', '), 'none') as result
+from pg_policies p
+where p.schemaname = 'public' and p.tablename in ('marketing_campaign_recipients', 'marketing_unsubscribes')
+  and (p.tablename || '|' || p.policyname || '|' || p.cmd || '|' || p.permissive || '|' || md5(coalesce(p.qual, '')) || '|' || md5(coalesce(p.with_check, ''))) not in (
+    'marketing_campaign_recipients|studio members can view marketing campaign recipients|SELECT|PERMISSIVE|f50ff73df5a6762543cf9fd384c8a549|d41d8cd98f00b204e9800998ecf8427e',
+    'marketing_campaign_recipients|studio staff manage marketing campaign recipients|ALL|PERMISSIVE|10f040ae00f1673e9695bfd71f92d962|10f040ae00f1673e9695bfd71f92d962',
+    'marketing_unsubscribes|studio members can view marketing unsubscribes|SELECT|PERMISSIVE|f50ff73df5a6762543cf9fd384c8a549|d41d8cd98f00b204e9800998ecf8427e',
+    'marketing_unsubscribes|studio staff manage marketing unsubscribes|ALL|PERMISSIVE|e98c38e5f4794f0e03401202a506ce73|e98c38e5f4794f0e03401202a506ce73');
+select 'A9 visibility policies present / send-freeze table absent (expect 2 / absent)' as check_name,
+       (select count(*) from pg_policies where schemaname = 'public'
+          and policyname in ('studio members can view marketing campaign recipients', 'studio members can view marketing unsubscribes'))::text
+       || ' / ' || case when to_regclass('public.marketing_send_controls') is null then 'absent' else 'PRESENT' end as result;
+select 'A10 outbound_deliveries client write paths (insert policy roles; for D)' as check_name,
+       coalesce(string_agg(policyname || ' [' || cmd || '] ' || array_to_string(roles, ','), ' | ' order by policyname), 'none') as result
+from pg_policies where schemaname = 'public' and tablename = 'outbound_deliveries';
+
 -- B. Campaign state (aggregates) --------------------------------------------------------------------------------------
 select 'B1 studio campaigns by status' as check_name, coalesce(string_agg(status || '=' || n, ', '), 'none') as result
 from (select status, count(*) n from public.marketing_campaigns group by status) s;

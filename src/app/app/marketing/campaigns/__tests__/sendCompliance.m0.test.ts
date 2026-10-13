@@ -233,6 +233,24 @@ describe("studio campaign send: M-0 compliance", () => {
   });
 });
 
+describe("studio campaign send: marketing freeze (release / rollback transition)", () => {
+  it("while frozen nothing is claimed or sent, recipients stay pending, the allowance is released and the campaign is restored", async () => {
+    seed(3);
+    h.rpcOverride = (name) =>
+      name === "marketing_claim_campaign_recipient" ? Promise.resolve({ data: { outcome: "frozen" }, error: null }) : null;
+    expect(await send()).toContain("campaign_error=marketing_paused");
+    expect(h.send).not.toHaveBeenCalled();
+    expect(statuses()).toEqual({ pending: 3 });
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "released" });
+    expect(campaignStatus()).toBe("draft");
+
+    h.rpcOverride = null; // released: the same campaign sends normally
+    expect(await send()).toContain("campaign_sent=1");
+    expect(h.send).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("studio campaign test send: D3", () => {
   it("is refused (provider never called) when the address is not a verified staff address", async () => {
     seed(1);

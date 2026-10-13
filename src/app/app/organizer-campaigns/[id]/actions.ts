@@ -1031,7 +1031,9 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
             };
           },
         });
-        if (summary.stoppedReason) stopCode = "send_paused_provider";
+        if (summary.stoppedReason) {
+          stopCode = summary.stoppedReason === "marketing_paused" ? "marketing_paused" : "send_paused_provider";
+        }
       } catch (error) {
         console.error("organizer campaign send stopped", error instanceof MarketingComplianceError ? error.code : error);
         stopCode = error instanceof MarketingComplianceError ? "eligibility_check_failed" : "send_failed";

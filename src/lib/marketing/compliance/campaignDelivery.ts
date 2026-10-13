@@ -231,6 +231,11 @@ export async function deliverCampaignBatch(args: {
       throw new MarketingComplianceError("claim_failed", error?.message ?? "Recipient eligibility could not be confirmed.");
     }
 
+    if (claim.outcome === "frozen") {
+      // Marketing sends are frozen (release / rollback transition): nothing is claimed or sent; the batch stops.
+      summary.stoppedReason = "marketing_paused";
+      break;
+    }
     if (claim.outcome === "delivery_unknown") {
       summary.unknown += 1;
       continue;

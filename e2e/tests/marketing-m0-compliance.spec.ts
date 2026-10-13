@@ -2,7 +2,14 @@ import { test, expect } from "@playwright/test";
 import { loadE2EConfig, type E2EConfig } from "@/lib/e2e/config";
 import { e2eAdminClient } from "../helpers/competitionFixture";
 import { signIn } from "../helpers/competitionWizard";
-import { cleanupMarketingFixture, createMarketingFixture, startMockEmailProvider, type MarketingFixture } from "../helpers/marketingFixture";
+import {
+  cleanupMarketingFixture,
+  createMarketingFixture,
+  isMarketingFrozen,
+  setMarketingFreeze,
+  startMockEmailProvider,
+  type MarketingFixture,
+} from "../helpers/marketingFixture";
 
 /**
  * Marketing M-0 -- email compliance and suppression integrity, end to end in the browser against the LOCAL QA stack.
@@ -29,6 +36,7 @@ test.describe("Marketing M-0 email compliance (local QA stack, mock provider)", 
   let config: E2EConfig;
   let fixture: MarketingFixture;
   let mock: Awaited<ReturnType<typeof startMockEmailProvider>>;
+  let frozenBefore = true;
   const admin = () => e2eAdminClient(config);
   const campaignUrl = () => `/app/marketing/campaigns/${fixture.campaignId}`;
 
@@ -37,11 +45,14 @@ test.describe("Marketing M-0 email compliance (local QA stack, mock provider)", 
     if (!/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(config.supabaseUrl)) throw new Error("refusing: not the local QA Supabase");
     if (!/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(config.baseUrl)) throw new Error("refusing: app is not local");
     mock = await startMockEmailProvider(MOCK_PORT);
+    frozenBefore = await isMarketingFrozen(config);
+    await setMarketingFreeze(config, false, "e2e marketing-m0-compliance: run");
     fixture = await createMarketingFixture(config);
   });
 
   test.afterAll(async () => {
     await mock?.close();
+    if (config) await setMarketingFreeze(config, frozenBefore, "e2e marketing-m0-compliance: restore");
     if (process.env.E2E_KEEP_FIXTURES === "true") return;
     await cleanupMarketingFixture(config, fixture);
   });
@@ -72,6 +83,38 @@ test.describe("Marketing M-0 email compliance (local QA stack, mock provider)", 
     expect(mock.received[0].body.to).toEqual([fixture.owner.email]);
     expect(mock.received[0].body.subject).toContain("[TEST]");
     mock.clear();
+  });
+
+  test("marketing freeze (release / rollback transition): sending is paused with nothing mailed; once released it is available again", async ({ page }) => {
+    mock.clear();
+    await signIn(page, fixture.owner, campaignUrl());
+    await page.goto(campaignUrl());
+    await page.getByRole("button", { name: /^(Prepare Send List|Refresh Send List)$/ }).click();
+    await page.waitForURL(/recipients_generated=1/);
+    await setMarketingFreeze(config, true, "e2e: freeze scenario");
+    try {
+      await page.goto(campaignUrl());
+      // staff are told why; the pending list is hidden from client roles and Send cannot be confirmed
+      await expect(page.getByRole("status").filter({ hasText: "Marketing sends are paused for maintenance." })).toBeVisible();
+      await expect(page.locator('input[name="confirmSend"]')).toBeDisabled();
+      expect(mock.received).toHaveLength(0);
+      for (const client of [fixture.clients.a, fixture.clients.b, fixture.clients.c]) {
+        expect((await recipient(client.email))?.status).toBe("pending");
+      }
+      // a test send is refused too
+      await page.goto(campaignUrl());
+      await page.locator("#testEmail").fill(fixture.owner.email);
+      await page.getByRole("button", { name: "Send Test Email" }).click();
+      await page.waitForURL(/campaign_error=marketing_paused/);
+      expect(mock.received).toHaveLength(0);
+    } finally {
+      await setMarketingFreeze(config, false, "e2e: freeze scenario released");
+    }
+    await page.goto(campaignUrl());
+    await expect(page.getByText("Marketing sends are paused for maintenance.")).toHaveCount(0);
+    await expect(page.locator('input[name="confirmSend"]')).toBeEnabled();
+    const { data: campaign } = await admin().from("marketing_campaigns").select("status").eq("id", fixture.campaignId).single();
+    expect(campaign?.status).toBe("draft");
   });
 
   test("studio send: an address unsubscribed (one-click) after the list was prepared is not mailed; every email is compliant", async ({ page, request }) => {

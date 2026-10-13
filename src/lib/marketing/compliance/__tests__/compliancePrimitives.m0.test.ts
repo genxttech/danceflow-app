@@ -7,6 +7,7 @@ import {
   marketingSiteOrigin,
 } from "../unsubscribeLinks";
 import {
+  CLASSIFIED_TEMPLATE_PREFIXES,
   CONTENT_ORIGIN_CUSTOMIZED,
   CONTENT_ORIGIN_SYSTEM,
   OUTBOUND_EMAIL_CLASSIFICATION,
@@ -143,6 +144,57 @@ describe("message classification (D1)", () => {
   });
 });
 
+describe("marketing freeze", () => {
+  it("a frozen claim stops the batch before anything is sent", async () => {
+    const { deliverCampaignBatch, emptyDeliverySummary } = await import("../campaignDelivery");
+    const admin = { rpc: vi.fn(async () => ({ data: { outcome: "frozen" }, error: null })) };
+    const send = vi.fn();
+    const summary = emptyDeliverySummary();
+    await deliverCampaignBatch({
+      summary,
+      admin: admin as never,
+      transport: { send } as unknown as MarketingEmailTransport,
+      kind: "studio",
+      scopeId: "s1",
+      campaignId: "c1",
+      recipientIds: ["r1", "r2"],
+      from: "Studio <m@example.com>",
+      render: () => ({ subject: "s", html: "h", text: "t" }),
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(admin.rpc).toHaveBeenCalledTimes(1);
+    expect(summary).toMatchObject({ stoppedReason: "marketing_paused", attempted: 0, skipped: 0 });
+  });
+
+  it("a frozen test send is refused with its own message", async () => {
+    const { authorizeCampaignTestSend, testSendRefusalCode } = await import("../testSend");
+    const admin = { rpc: vi.fn(async () => ({ data: { allowed: false, reason: "frozen" }, error: null })) };
+    const decision = await authorizeCampaignTestSend(admin as never, {
+      kind: "studio", scopeId: "s1", campaignId: "c1", requestedBy: "u1", email: "a@example.com",
+    });
+    expect(decision).toEqual({ allowed: false, reason: "frozen" });
+    expect(testSendRefusalCode("frozen")).toBe("marketing_paused");
+  });
+
+  it("the SQL classifier used by the dispatcher freeze mirrors the TS classification registry", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const sql = readFileSync(join(process.cwd(), "src/lib/supabase/migrations/20261117090000_m0_marketing_send_integrity.sql"), "utf8");
+    const fn = sql.slice(sql.indexOf("create or replace function public._mkt_is_commercial_outbound("));
+    const body = fn.slice(0, fn.indexOf("$$;"));
+    const operationalInSql = [...body.matchAll(/'((?:aria_execution|automation)_[a-z_]+)'/g)].map((m) => m[1]).sort();
+    const operationalInTs = Object.entries(OUTBOUND_EMAIL_CLASSIFICATION)
+      .filter(([, entry]) => entry.class === "operational")
+      .map(([key]) => key)
+      .sort();
+    expect(operationalInSql).toEqual(operationalInTs);
+    expect(body).toContain("starts_with(coalesce(p_template_key, ''), 'aria_execution_')");
+    expect(body).toContain("starts_with(coalesce(p_template_key, ''), 'automation_')");
+    expect(body).toContain(`= '${CONTENT_ORIGIN_SYSTEM}'`);
+    expect([...CLASSIFIED_TEMPLATE_PREFIXES].sort()).toEqual(["aria_execution_", "automation_"]);
+  });
+});
+
 describe("campaign batch claim outcomes", () => {
   it("never sends to a recipient whose final claim is unsubscribed or suppressed, and counts it as suppressed", async () => {
     const { deliverCampaignBatch, emptyDeliverySummary } = await import("../campaignDelivery");
@@ -203,5 +255,24 @@ describe("abandoned 'sending' campaign (C13)", () => {
     expect(await isAbandonedSendingCampaign(adminWithLiveClaims({ count: 0, error: null }).admin, { ...base, updatedAt: "2026-10-13T11:00:00.000Z" })).toBe(true);
     expect(await isAbandonedSendingCampaign(adminWithLiveClaims({ count: null, error: { message: "x" } }).admin, { ...base, updatedAt: "2026-10-13T11:00:00.000Z" })).toBe(false);
     expect(await isAbandonedSendingCampaign(adminWithLiveClaims({ count: 0, error: null }).admin, { ...base, updatedAt: null })).toBe(false);
+  });
+});
+
+describe("campaign page pause notice", () => {
+  it("shows the notice only when the database says marketing sends are frozen; any error never claims a pause", async () => {
+    const { isMarketingSendPaused } = await import("../sendFreeze");
+    const client = (result: { data: unknown; error: unknown } | Error) => ({
+      rpc: vi.fn(async () => {
+        if (result instanceof Error) throw result;
+        return result;
+      }),
+    });
+    expect(await isMarketingSendPaused(client({ data: true, error: null }))).toBe(true);
+    expect(await isMarketingSendPaused(client({ data: false, error: null }))).toBe(false);
+    expect(await isMarketingSendPaused(client({ data: true, error: { message: "x" } }))).toBe(false);
+    expect(await isMarketingSendPaused(client(new Error("network")))).toBe(false);
+    const c = client({ data: true, error: null });
+    await isMarketingSendPaused(c);
+    expect(c.rpc).toHaveBeenCalledWith("marketing_send_frozen");
   });
 });
