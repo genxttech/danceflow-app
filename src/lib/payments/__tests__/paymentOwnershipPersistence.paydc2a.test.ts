@@ -48,8 +48,12 @@ describe("creation-time ownership persistence", () => {
 
   it("connected event and membership webhook writes stamp event.account", () => {
     const source = read("src", "app", "api", "payments", "webhook", "route.ts");
-    expect(source.match(/stripe_account_id: stripeAccountId \?\? null,/g)?.length ?? 0).toBeGreaterThanOrEqual(5);
+    // PAY-WH-1 moved event-cart payment rows into the locked settle_event_cart_order (two former route sites).
+    expect(source.match(/stripe_account_id: stripeAccountId \?\? null,/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
     expect(source).toContain("await stampEventPaymentOwner(supabase, existingPayment.id, stripeAccountId);");
+    const settlement = read("src", "lib", "supabase", "migrations", "20261116092000_paywh1_event_cart_settlement.sql");
+    expect(settlement).toMatch(/insert into public\.event_payments \([^)]*stripe_account_id\s*\)/);
+    expect(settlement).toMatch(/'Settled by PAY-WH-1 event cart settlement\.', p_stripe_account/);
   });
 });
 

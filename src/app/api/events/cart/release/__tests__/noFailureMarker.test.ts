@@ -43,6 +43,7 @@ beforeEach(() => {
     event_orders: table([
       {
         id: ORDER_ID,
+        status: "pending",
         payment_status: "pending",
         metadata: { source: "event_cart_v1", holdToken: HOLD_TOKEN },
       },

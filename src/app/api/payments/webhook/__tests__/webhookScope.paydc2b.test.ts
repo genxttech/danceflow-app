@@ -20,6 +20,11 @@ vi.mock("next/headers", () => ({
 vi.mock("@/lib/payments/stripe", () => ({ getStripe: () => realStripe }));
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
+    // PAY-WH-1: the dedupe step is the atomic claim; report the event as already processed so no handler runs.
+    rpc: async (fn: string) => {
+      supabaseTables.push(`rpc:${fn}`);
+      return { data: { outcome: "already_processed" }, error: null };
+    },
     from(table: string) {
       supabaseTables.push(table);
       const chain = {
@@ -98,11 +103,11 @@ describe("POST webhook secret scope", () => {
 
   it("valid platform and Connect events reach the dedupe step", async () => {
     expect((await post(payload(), PLATFORM_SECRET)).status).toBe(200);
-    expect(supabaseTables).toEqual(["payment_provider_events"]);
+    expect(supabaseTables).toEqual(["rpc:claim_payment_provider_event"]);
 
     supabaseTables.length = 0;
     expect((await post(payload("acct_studio_1"), CONNECT_SECRET)).status).toBe(200);
-    expect(supabaseTables).toEqual(["payment_provider_events"]);
+    expect(supabaseTables).toEqual(["rpc:claim_payment_provider_event"]);
   });
 
   it("invalid signature and missing configuration keep their existing responses", async () => {

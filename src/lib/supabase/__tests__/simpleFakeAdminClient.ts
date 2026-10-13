@@ -1,3 +1,4 @@
+import { fakeCartLifecycleRpc } from "./fakeCartLifecycleRpc";
 /**
  * Public Event Document-Checkpoint Remediation: minimal, purpose-built
  * chainable fake of the subset of the Supabase query-builder surface needed
@@ -207,6 +208,8 @@ export function createFakeAdminClient(
         delete: () => new FakeQuery(t, "delete"),
       };
     },
+    // PAY-WH-1 lifecycle functions (in-memory model, see fakeCartLifecycleRpc.ts).
+    rpc: async (fn: string, args: Record<string, unknown> = {}) => fakeCartLifecycleRpc(tables, fn, args),
     storage: {
       from: () => ({
         upload: async () =>

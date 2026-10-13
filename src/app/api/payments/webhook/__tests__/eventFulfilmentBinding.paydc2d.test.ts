@@ -119,27 +119,25 @@ describe("single registration checkout binding", () => {
   });
 });
 
-describe("cart order checkout binding", () => {
-  function cartDb(orderOverrides: Row = {}) {
-    return db({
-      event_orders: [
-        {
-          id: "order-1",
-          studio_id: STUDIO,
-          total_amount: 25,
-          currency: "usd",
-          stripe_checkout_session_id: "cs_cart",
-          stripe_payment_intent_id: null,
-          ...orderOverrides,
-        },
-      ],
-      event_registrations: [
-        { id: "reg-c1", order_id: "order-1", total_price: 25, currency: "usd", stripe_checkout_session_id: "cs_cart" },
-      ],
-      studios: [{ id: STUDIO, stripe_connected_account_id: A }],
-      event_payments: [],
-      event_private_lesson_slots: [],
-    });
+describe("cart order checkout binding (PAY-WH-1: the locked database settlement is the binding boundary)", () => {
+  // The order, its stored attempt, account, amount, currency and state are verified inside settle_event_cart_order
+  // (sql-tests/test_T_paywh1_event_cart_settlement.sql proves zero writes on account / session / amount mismatch).
+  // Here: the webhook hands the database only the SIGNED Stripe facts plus its event claim, and writes nothing itself.
+  function rpcDb(outcome: Record<string, unknown>) {
+    const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+    const tableWrites: string[] = [];
+    const supabase = {
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        calls.push({ fn, args });
+        if (fn === "claim_event_settlement_outbox") return { data: [], error: null };
+        return { data: outcome, error: null };
+      },
+      from: (table: string) => {
+        tableWrites.push(table);
+        throw new Error(`unexpected direct table access: ${table}`);
+      },
+    } as unknown as SupabaseClient;
+    return { supabase, calls, tableWrites };
   }
 
   function cartSession(id = "cs_cart") {
@@ -149,32 +147,57 @@ describe("cart order checkout binding", () => {
       payment_intent: "pi_cart",
       amount_total: 2500,
       currency: "usd",
-      metadata: { source: "event_cart_order", order_id: "order-1" },
+      metadata: { source: "event_cart_order", order_id: "order-forged-by-metadata" },
     } as unknown as Stripe.Checkout.Session;
   }
 
-  it("matching values confirm the order without rewriting the stored session", async () => {
-    const { fake, supabase } = cartDb();
-    await handleCheckoutSessionCompleted(supabase, noFeeStripe, cartSession(), A).catch(() => undefined);
+  const claim = { eventId: "evt_cart", owner: "00000000-0000-0000-0000-0000000000c1" };
 
-    const order = fake.rows("event_orders")[0];
-    expect(order).toMatchObject({ payment_status: "paid", stripe_checkout_session_id: "cs_cart" });
-    const orderUpdates = fake.mutations.filter((m) => m.table === "event_orders");
-    expect(orderUpdates.every((m) => !("stripe_checkout_session_id" in m.values))).toBe(true);
-    const registrationUpdates = fake.mutations.filter((m) => m.table === "event_registrations");
-    expect(registrationUpdates.every((m) => !("stripe_checkout_session_id" in m.values))).toBe(true);
-    expect(fake.rows("event_payments")[0]).toMatchObject({ stripe_account_id: A });
+  it("settles through the locked function with the signed facts and the event claim -- never the metadata order id", async () => {
+    const { supabase, calls, tableWrites } = rpcDb({ outcome: "settled", order_id: "order-1" });
+    await handleCheckoutSessionCompleted(supabase, noFeeStripe, cartSession(), A, "evt_cart", "checkout.session.completed", claim);
+
+    const settle = calls.find((call) => call.fn === "settle_event_cart_order");
+    expect(settle?.args).toMatchObject({
+      p_source: "webhook",
+      p_stripe_event_id: "evt_cart",
+      p_claim_owner: claim.owner,
+      p_stripe_account: A,
+      p_session_id: "cs_cart",
+      p_payment_intent_id: "pi_cart",
+      p_amount_cents: 2500,
+      p_currency: "usd",
+    });
+    expect(JSON.stringify(settle?.args)).not.toContain("order-forged-by-metadata");
+    expect(tableWrites).toEqual([]);
   });
 
   it.each([
-    ["other account", C, "cs_cart"],
-    ["other session for the same order id", A, "cs_forged"],
-  ])("%s -> zero writes", async (_name, account, sessionId) => {
-    const { fake, supabase } = cartDb();
+    ["other account", "mismatch:account"],
+    ["other session for the same order", "mismatch:session"],
+    ["wrong amount", "mismatch:amount"],
+  ])("%s -> the database refuses; the delivery fails visibly and the webhook writes nothing", async (_name, outcome) => {
+    const { supabase, tableWrites } = rpcDb({ outcome, order_id: "order-1" });
     await expect(
-      handleCheckoutSessionCompleted(supabase, noFeeStripe, cartSession(sessionId), account),
-    ).rejects.toThrow(/^event_payment_(account|reference)_mismatch$/);
-    expect(writes(fake)).toBe(0);
+      handleCheckoutSessionCompleted(supabase, noFeeStripe, cartSession(), A, "evt_cart", "checkout.session.completed", claim),
+    ).rejects.toThrow(/^event_cart_mismatch_/);
+    expect(tableWrites).toEqual([]);
+  });
+
+  it("a platform-scoped (account-less) cart session is never settled", async () => {
+    const { supabase, calls } = rpcDb({ outcome: "settled" });
+    await expect(
+      handleCheckoutSessionCompleted(supabase, noFeeStripe, cartSession(), null, "evt_cart", "checkout.session.completed", claim),
+    ).rejects.toThrow(/mismatch_account/);
+    expect(calls.some((call) => call.fn === "settle_event_cart_order")).toBe(false);
+  });
+
+  it("without an owned webhook claim nothing is settled", async () => {
+    const { supabase, calls } = rpcDb({ outcome: "settled" });
+    await expect(
+      handleCheckoutSessionCompleted(supabase, noFeeStripe, cartSession(), A, "evt_cart", "checkout.session.completed", null),
+    ).rejects.toThrow(/requires a webhook claim/);
+    expect(calls).toEqual([]);
   });
 });
 
@@ -232,8 +255,6 @@ describe("cart PaymentIntent and private lesson binding", () => {
     const source = readFileSync(join(process.cwd(), "src", "app", "api", "payments", "webhook", "route.ts"), "utf8");
     for (const [handler, kind] of [
       ["handleEventRegistrationCheckoutCompleted", "registration"],
-      ["handleEventCartOrderCheckoutCompleted", "order_session"],
-      ["handleEventCartOrderPaymentIntentSucceeded", "order_payment_intent"],
       ["handleEventPrivateLessonCheckoutCompleted", "private_lesson_slot"],
     ]) {
       const start = source.indexOf(`async function ${handler}(`);
@@ -244,6 +265,9 @@ describe("cart PaymentIntent and private lesson binding", () => {
       expect(bindAt).toBeLessThan(firstWrite);
     }
     expect(source).toContain("handleEventPrivateLessonCheckoutCompleted(supabase, session, stripeAccountId)");
+    // PAY-WH-1: event-cart handlers perform no table writes of their own; every cart mutation is in the locked SQL.
+    const cartWebhook = readFileSync(join(process.cwd(), "src", "lib", "events", "cartWebhook.ts"), "utf8");
+    expect(cartWebhook).not.toMatch(/\.(update|insert|upsert|delete)\(/);
   });
 });
 

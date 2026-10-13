@@ -236,7 +236,8 @@ async function getRegistrationForEvent(params: {
       total_price,
       currency,
       checked_in_at,
-      stripe_payment_intent_id
+      stripe_payment_intent_id,
+      order_id
     `,
     )
     .eq("id", registrationId)
@@ -1852,6 +1853,17 @@ export async function upsertEventAttendanceAction(formData: FormData) {
               ? "confirmed"
               : "confirmed";
 
+    // PAY-WH-1: an order-backed registration is confirmed only by payment settlement; staff cannot confirm or check
+    // in an unpaid hold (the database refuses it too).
+    if (
+      registration.order_id &&
+      registration.payment_status !== "paid" &&
+      registrationStatus !== "cancelled" &&
+      registrationStatus !== registration.status
+    ) {
+      redirect(buildReturnUrl(eventId, "error=registration_unpaid"));
+    }
+
     const { error: registrationUpdateError } = await supabase
       .from("event_registrations")
       .update({
@@ -1922,7 +1934,9 @@ export async function upsertEventAttendanceAction(formData: FormData) {
     });
 
     redirect(buildReturnUrl(eventId, "success=attendance_updated"));
-  } catch {
+  } catch (error) {
+    // Success and validation redirects are thrown as errors; only real failures become attendance_update_failed.
+    if (isRedirectError(error)) throw error;
     redirect(buildReturnUrl(eventId, "error=attendance_update_failed"));
   }
 }

@@ -481,6 +481,13 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "registration_unpaid") {
+    return {
+      kind: "error" as const,
+      message: "This registration has not been paid yet. It is confirmed automatically when its online payment completes.",
+    };
+  }
+
   if (search.error === "registration_not_found") {
     return {
       kind: "error" as const,

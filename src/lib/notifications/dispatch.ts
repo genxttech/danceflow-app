@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EMAIL_TOKENS, appendEmailLegalText, buildAppUrl, escapeHtml, resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";
 import {
@@ -543,14 +544,19 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
   try {
     const resend = getResendClient();
 
-    const response = await resend.emails.send({
-      from,
-      to: [row.recipient_email],
-      subject: sanitizeEmailSubject(rendered.subject),
-      text: appendEmailLegalText(rendered.bodyText),
-      html: bodyHtml,
-      ...(replyTo ? { replyTo } : {}),
-    });
+    const response = await resend.emails.send(
+      {
+        from,
+        to: [row.recipient_email],
+        subject: sanitizeEmailSubject(rendered.subject),
+        text: appendEmailLegalText(rendered.bodyText),
+        html: bodyHtml,
+        ...(replyTo ? { replyTo } : {}),
+      },
+      // PAY-WH-1: a resend after an uncertain acknowledgement (worker interrupted after the provider accepted the
+      // message) is de-duplicated by the provider for this delivery row.
+      { idempotencyKey: `outbound-delivery:${row.id}` },
+    );
 
     if (response.error) {
       return {
@@ -1214,27 +1220,37 @@ export async function dispatchQueuedOutboundDeliveries(
   const actionRequeued = await requeueFailedAriaActionDeliveries(limit);
   const requeued = digestRequeued + actionRequeued;
 
-  const { data, error } = await supabase
-    .from("outbound_deliveries")
-    .select(`
-      id,
-      studio_id,
-      channel,
-      template_key,
-      recipient_email,
-      recipient_phone,
-      subject,
-      body_text,
-      body_html,
-      reply_to_email,
-      payload,
-      status,
-      related_table,
-      related_id
-    `)
-    .eq("status", "queued")
-    .order("created_at", { ascending: true })
-    .limit(limit);
+  // PAY-WH-1: lease the queued rows to this dispatcher so overlapping runs cannot send the same message twice.
+  // Status values are unchanged for every other producer/reader. Before the claim function exists (database not yet
+  // migrated) the previous unleased selection is used.
+  let { data, error } = await supabase.rpc("claim_outbound_deliveries", {
+    p_owner: randomUUID(),
+    p_limit: limit,
+    p_lease_seconds: 300,
+  });
+  if (error && (error.code === "PGRST202" || error.code === "42883")) {
+    ({ data, error } = await supabase
+      .from("outbound_deliveries")
+      .select(`
+        id,
+        studio_id,
+        channel,
+        template_key,
+        recipient_email,
+        recipient_phone,
+        subject,
+        body_text,
+        body_html,
+        reply_to_email,
+        payload,
+        status,
+        related_table,
+        related_id
+      `)
+      .eq("status", "queued")
+      .order("created_at", { ascending: true })
+      .limit(limit));
+  }
 
   if (error) {
     throw new Error(`Failed to load queued outbound deliveries: ${error.message}`);

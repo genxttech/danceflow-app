@@ -28,6 +28,10 @@
     {
       "path": "/api/cron/document-operations",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/event-cart-orders",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

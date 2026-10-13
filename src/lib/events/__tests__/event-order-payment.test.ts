@@ -18,6 +18,8 @@ import type { NextRequest } from "next/server";
 let ordersTable: FakeTable;
 let itemsTable: FakeTable;
 let registrationsTable: FakeTable;
+let attemptsTable: FakeTable;
+let extendHoldResult: unknown = null;
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () =>
@@ -25,11 +27,13 @@ vi.mock("@/lib/supabase/admin", () => ({
       event_orders: ordersTable,
       event_order_items: itemsTable,
       event_registrations: registrationsTable,
-    }),
+      event_order_payment_attempts: attemptsTable,
+      __extendHoldResult: extendHoldResult,
+    } as never),
 }));
 
 type FakePaymentIntent = { id: string; status: string; client_secret: string };
-type FakeSession = { id: string; status: string; url: string };
+type FakeSession = { id: string; status: string; url: string; expires_at?: number };
 
 /**
  * Models real Stripe idempotency-key semantics closely enough to catch a
@@ -78,7 +82,7 @@ function createFakeStripe() {
     },
     checkout: {
       sessions: {
-        create: vi.fn(async (_params: unknown, requestOptions: { idempotencyKey?: string }) => {
+        create: vi.fn(async (params: { expires_at?: number }, requestOptions: { idempotencyKey?: string }) => {
           const key = requestOptions?.idempotencyKey;
           if (key && sessionIdempotencyCache.has(key)) {
             sessionCreateCalls.push({ idempotencyKey: key });
@@ -89,6 +93,7 @@ function createFakeStripe() {
             id: `cs_${sessionCounter}`,
             status: "open",
             url: `https://checkout.stripe.com/cs_${sessionCounter}`,
+            expires_at: params?.expires_at,
           };
           sessions.set(session.id, session);
           if (key) sessionIdempotencyCache.set(key, { ...session });
@@ -98,6 +103,12 @@ function createFakeStripe() {
         retrieve: vi.fn(async (id: string) => {
           const session = sessions.get(id);
           if (!session) throw new Error(`Unknown session ${id}`);
+          return session;
+        }),
+        expire: vi.fn(async (id: string) => {
+          const session = sessions.get(id);
+          if (!session) throw new Error(`Unknown session ${id}`);
+          session.status = "expired";
           return session;
         }),
       },
@@ -145,6 +156,13 @@ function seedOrder(overrides: Row = {}) {
     ...overrides,
   };
   ordersTable.rows.push(row);
+  // PAY-WH-1: an existing Stripe object of an order is a recorded payment attempt (the only thing that is reused).
+  if (row.stripe_payment_intent_id) {
+    attemptsTable.rows.push({ id: `attempt-pi-${row.id}`, order_id: row.id, kind: "payment_intent", stripe_account_id: "acct_1", stripe_checkout_session_id: null, stripe_payment_intent_id: row.stripe_payment_intent_id, status: "open", created_at: new Date().toISOString() });
+  }
+  if (row.stripe_checkout_session_id) {
+    attemptsTable.rows.push({ id: `attempt-cs-${row.id}`, order_id: row.id, kind: "checkout_session", stripe_account_id: "acct_1", stripe_checkout_session_id: row.stripe_checkout_session_id, stripe_payment_intent_id: null, status: "open", created_at: new Date().toISOString() });
+  }
   return row;
 }
 
@@ -153,6 +171,8 @@ function fakeRequest(): NextRequest {
 }
 
 beforeEach(() => {
+  extendHoldResult = null;
+  attemptsTable = new FakeTable();
   ordersTable = new FakeTable();
   ordersTable.uniqueColumns = ["studio_id", "client_request_id"];
   itemsTable = new FakeTable();
@@ -628,6 +648,7 @@ describe("startEventOrderPayment", () => {
       id: "cs_existing",
       status: "open",
       url: "https://checkout.stripe.com/cs_existing",
+      expires_at: Math.floor(Date.now() / 1000) + 31 * 60, // closes before the (35-minute) hold
     });
     registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
     itemsTable.rows.push({ order_id: order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
@@ -641,6 +662,29 @@ describe("startEventOrderPayment", () => {
 
     expect(result.checkoutUrl).toBe("https://checkout.stripe.com/cs_existing");
     expect(currentFakeStripe.sessionCreateCalls).toHaveLength(0);
+  });
+
+  it("PAY-WH-1: never reuses a Session that outlives the hold (legacy 24-hour default) -- expires it and creates a bounded one", async () => {
+    const order = seedOrder({ stripe_checkout_session_id: "cs_legacy" });
+    currentFakeStripe.sessions.set("cs_legacy", {
+      id: "cs_legacy",
+      status: "open",
+      url: "https://checkout.stripe.com/cs_legacy",
+      expires_at: Math.floor(Date.now() / 1000) + 24 * 3600,
+    });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({ order_id: order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
+
+    const result = await startEventOrderPayment({
+      request: fakeRequest(),
+      orderId: order.id as string,
+      surface: "student_app",
+      paymentMode: "checkout",
+    });
+
+    expect(currentFakeStripe.sessions.get("cs_legacy")!.status).toBe("expired");
+    expect(currentFakeStripe.sessionCreateCalls).toHaveLength(1);
+    expect(result.checkoutUrl).not.toBe("https://checkout.stripe.com/cs_legacy");
   });
 
   it("uses a different idempotency key on a genuine retry after the session is no longer open -- does not replay the original creation's cached response", async () => {
@@ -833,5 +877,30 @@ describe("CI-A: resume after document signing charges the persisted price snapsh
     const { join } = await import("node:path");
     const source = readFileSync(join(__dirname, "..", "event-order-payment.ts"), "utf8");
     expect(source).not.toMatch(/event_ticket_types|early_bird|effectiveTicketPrice/);
+  });
+});
+
+describe("PAY-WH-1: resume creates Stripe objects only for a live, re-checked hold and reuses only recorded attempts", () => {
+  it("refuses (and creates nothing on Stripe) when the hold cannot be extended -- e.g. its capacity was taken", async () => {
+    const order = seedOrder();
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({ order_id: order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
+    extendHoldResult = { ok: false, reason: "capacity_unavailable" };
+    await expect(startEventOrderPayment({ request: fakeRequest(), orderId: order.id as string, surface: "web", paymentMode: "checkout" }))
+      .rejects.toThrow("These tickets are no longer available.");
+    expect(currentFakeStripe.sessionCreateCalls).toHaveLength(0);
+    expect(currentFakeStripe.createCalls).toHaveLength(0);
+  });
+
+  it("never reuses a PaymentIntent that is only on the legacy order column (unrecorded) -- it records a new attempt", async () => {
+    const order = seedOrder();
+    order.stripe_payment_intent_id = "pi_unrecorded";
+    currentFakeStripe.paymentIntents.set("pi_unrecorded", { id: "pi_unrecorded", status: "requires_payment_method", client_secret: "secret_unrecorded" });
+    registrationsTable.rows.push({ id: "reg-1", order_id: order.id });
+    itemsTable.rows.push({ order_id: order.id, quantity: 1, unit_price: 20, description: "GA Ticket" });
+    const result = await startEventOrderPayment({ request: fakeRequest(), orderId: order.id as string, surface: "student_app", paymentMode: "payment_sheet" });
+    expect(result.clientSecret).not.toBe("secret_unrecorded");
+    expect(currentFakeStripe.createCalls).toHaveLength(1);
+    expect(attemptsTable.rows.some((row) => row.kind === "payment_intent" && row.order_id === order.id)).toBe(true);
   });
 });
