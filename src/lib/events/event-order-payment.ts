@@ -6,6 +6,8 @@ import {
   extendEventCartOrderHold,
   newEventCartHoldUntil,
   recordEventCartPaymentAttempt,
+  loadLegacyPlatformContext,
+  retrieveCheckoutSessionForAttempt,
 } from "@/lib/events/cartSettlement";
 import { calculateApplicationFeeAmount, getOrganizerPlatformFeePercent } from "@/lib/events/platformFee";
 
@@ -348,11 +350,11 @@ export async function startEventOrderPayment(params: {
 
   const { data: openAttemptRows } = await admin
     .from("event_order_payment_attempts")
-    .select("id, kind, stripe_checkout_session_id, stripe_payment_intent_id, stripe_account_id")
+    .select("id, kind, surface, stripe_checkout_session_id, stripe_payment_intent_id, stripe_account_id")
     .eq("order_id", order.id)
     .eq("status", "open")
     .order("created_at", { ascending: false });
-  const openAttempts = (openAttemptRows ?? []) as Array<{ kind: string; stripe_checkout_session_id: string | null; stripe_payment_intent_id: string | null; stripe_account_id: string }>;
+  const openAttempts = (openAttemptRows ?? []) as Array<{ id: string; kind: string; surface?: string | null; stripe_checkout_session_id: string | null; stripe_payment_intent_id: string | null; stripe_account_id: string }>;
 
   if (params.paymentMode === "payment_sheet" && params.surface === "student_app") {
     const reusableIntent = openAttempts.find((attempt) => attempt.kind === "payment_intent" && attempt.stripe_account_id === connectedAccountId);
@@ -430,21 +432,29 @@ export async function startEventOrderPayment(params: {
     return { clientSecret: intent.client_secret, orderId: order.id, publishableKey: getStripePublishableKey(), registrationIds };
   }
 
-  let staleSessionId: string | null = null;
+  let staleSession: { id: string; onPlatform: boolean } | null = null;
   const reusableSession = openAttempts.find((attempt) => attempt.kind === "checkout_session" && attempt.stripe_account_id === connectedAccountId);
   if (reusableSession?.stripe_checkout_session_id) {
-    const existing = await stripe.checkout.sessions.retrieve(
-      reusableSession.stripe_checkout_session_id,
-      {},
-      { stripeAccount: connectedAccountId },
+    // PAY-WH-1B: a positively identified legacy order's destination-charge Session is read on the platform account.
+    const legacy = reusableSession.surface === "legacy" ? await loadLegacyPlatformContext(admin, order.id) : null;
+    const found = await retrieveCheckoutSessionForAttempt(
+      stripe,
+      { attempt_id: reusableSession.id, stripe_account_id: connectedAccountId, stripe_checkout_session_id: reusableSession.stripe_checkout_session_id },
+      legacy,
     );
+    const existing = found.session;
+    if (found.onPlatform && existing.status === "complete") {
+      // A legacy payment that completed on the platform account is reviewed by staff; never charge the buyer again.
+      throw new Error("This order already has a payment that the studio needs to review.");
+    }
     // Reuse only a Session that closes before the (just extended) hold; anything else -- e.g. a pre-PAY-WH-1 Session
     // with Stripe's 24-hour default -- would outlive the capacity hold, so it is expired once the replacement is recorded.
+    // A legacy platform Session is never reused (new payments are direct charges on the connected account).
     const holdSeconds = Math.floor(Date.parse(holdUntil) / 1000);
-    if (existing.url && existing.status === "open" && existing.expires_at && existing.expires_at < holdSeconds) {
+    if (!found.onPlatform && existing.url && existing.status === "open" && existing.expires_at && existing.expires_at < holdSeconds) {
       return { checkoutUrl: existing.url, orderId: order.id, registrationIds };
     }
-    if (existing.status === "open") staleSessionId = existing.id;
+    if (existing.status === "open") staleSession = { id: existing.id, onPlatform: found.onPlatform };
   }
 
   // Same attempt-numbering rationale as the PaymentIntent branch above --
@@ -519,7 +529,9 @@ export async function startEventOrderPayment(params: {
   });
   // Only now (the replacement is recorded, so the order keeps a live attempt) close the Session that would outlive the
   // hold: its checkout.session.expired webhook then cannot release the order in between.
-  if (staleSessionId) await stripe.checkout.sessions.expire(staleSessionId, {}, { stripeAccount: connectedAccountId });
+  if (staleSession) {
+    await stripe.checkout.sessions.expire(staleSession.id, {}, staleSession.onPlatform ? undefined : { stripeAccount: connectedAccountId });
+  }
   if (!session.url) throw new Error("Stripe did not return a checkout URL.");
   await admin
     .from("event_orders")
