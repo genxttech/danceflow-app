@@ -126,6 +126,9 @@ function messageForError(value: string | undefined) {
   if (value === "terminal_payment_start_failed") return "Could not start the card reader payment.";
   if (value === "terminal_payment_refresh_failed") return "Could not refresh the card reader payment.";
   if (value === "terminal_payment_failed") return "The card reader payment did not complete.";
+  if (value === "terminal_tickets_unavailable") return "These tickets are no longer available, so the card reader was not started. Nothing was charged.";
+  if (value === "terminal_ticket_sale_not_payable") return "This ticket sale can no longer be paid (it was cancelled or already paid). Nothing was charged.";
+  if (value === "terminal_ticket_not_fulfilled") return "The card was charged, but the tickets could not be issued (sold out or the sale was cancelled). A payment exception was recorded and staff were alerted; nothing was refunded automatically.";
   if (value === "terminal_payment_cancel_failed") return "Could not cancel the card reader payment.";
   if (value === "terminal_reader_offline") return "That reader is not online. Wake the reader, confirm Wi-Fi, refresh reader status, then try again.";
   if (value === "terminal_reader_process_failed") return "Stripe could not send this payment to the reader. Check that the reader is online and not already collecting another payment, then try again.";

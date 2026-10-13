@@ -12,7 +12,7 @@ import {
   handleChargeDisputeEvent,
   resolveStudioIdForStripeAccount,
 } from "@/lib/payments/paymentDisputes";
-import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
+import { fulfillTerminalPayment, TerminalEventNotFulfilledError } from "@/lib/payments/terminal-fulfillment";
 import {
   reconcilePackageStripeRefund,
   buildPackageRefundReconciliationInput,
@@ -253,13 +253,20 @@ export async function handleTerminalPaymentIntentSucceeded(
     );
   }
 
-  await fulfillTerminalPayment({
-    supabase,
-    studioId,
-    paymentId,
-    sessionId: session.id,
-    paymentIntentId: paymentIntent.id,
-  });
+  try {
+    await fulfillTerminalPayment({
+      supabase,
+      studioId,
+      paymentId,
+      sessionId: session.id,
+      paymentIntentId: paymentIntent.id,
+    });
+  } catch (error) {
+    // PAY-WH-1A: charged but not fulfillable -- the payment exception and staff alert are already durable in the
+    // database; acknowledge the delivery instead of having Stripe retry it for days.
+    if (error instanceof TerminalEventNotFulfilledError) return true;
+    throw error;
+  }
 
   await finalizeTerminalMembership({
     supabase,
@@ -1372,17 +1379,24 @@ async function handleEventRegistrationCheckoutCompleted(
     currency,
   });
 
-  const { error: registrationUpdateError } = await supabase
+  const { data: settledRegistration, error: registrationUpdateError } = await supabase
     .from("event_registrations")
     .update({
       payment_status: "paid",
       status: "confirmed",
       stripe_payment_intent_id: paymentIntentId,
     })
-    .eq("id", registrationId);
+    .eq("id", registrationId)
+    // PAY-WH-1A: never settle an order-backed registration outside settle_event_cart_order.
+    .is("order_id", null)
+    .select("id")
+    .maybeSingle();
 
   if (registrationUpdateError) {
     throw new Error(registrationUpdateError.message);
+  }
+  if (!settledRegistration) {
+    throw new Error("event_registration_checkout_not_orderless");
   }
 
   const { data: existingPayment, error: existingPaymentError } = await supabase

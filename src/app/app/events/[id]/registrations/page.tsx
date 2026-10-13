@@ -13,6 +13,7 @@ import {
   updateEventRegistrationAttendeeAction,
   upsertEventAttendanceAction,
 } from "./actions";
+import PaymentExceptionsPanel from "./PaymentExceptionsPanel";
 
 type Params = Promise<{
   id: string;
@@ -485,6 +486,37 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "This registration has not been paid yet. It is confirmed automatically when its online payment completes.",
+    };
+  }
+
+  if (search.success === "payment_exception_acknowledged") {
+    return { kind: "success" as const, message: "Payment exception acknowledged." };
+  }
+
+  if (search.success === "payment_exception_resolved") {
+    return { kind: "success" as const, message: "Payment exception resolved. Nothing was refunded or changed automatically." };
+  }
+
+  if (search.error === "payment_exception_note_required") {
+    return { kind: "error" as const, message: "Add a short note describing how the payment was resolved." };
+  }
+
+  if (search.error === "payment_exception_not_authorized") {
+    return { kind: "error" as const, message: "You do not have permission to handle payment exceptions for this event." };
+  }
+
+  if (search.error === "payment_exception_already_handled") {
+    return { kind: "error" as const, message: "This payment exception was already handled." };
+  }
+
+  if (search.error === "payment_exception_update_failed") {
+    return { kind: "error" as const, message: "The payment exception could not be updated. Try again." };
+  }
+
+  if (search.error === "order_backed_registration_payment_locked") {
+    return {
+      kind: "error" as const,
+      message: "This registration belongs to an online order. Its payment and refunds are handled through the order, not from this list.",
     };
   }
 
@@ -1237,6 +1269,7 @@ export default async function EventRegistrationsPage({
           {banner.message}
         </div>
       ) : null}
+      <PaymentExceptionsPanel eventId={typedEvent.id} />
       <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">

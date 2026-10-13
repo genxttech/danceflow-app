@@ -9,6 +9,7 @@ import {
   type CartSettlementOutcome,
   type StripePaymentEvidence,
 } from "@/lib/events/cartSettlement";
+import { drainSettlementExceptionAlerts } from "@/lib/events/settlementAlerts";
 import { drainEventSettlementOutbox } from "@/lib/events/settlementOutbox";
 
 /**
@@ -56,6 +57,16 @@ async function afterOutcome(
   stripe: Stripe,
   result: CartSettlementOutcome,
 ): Promise<CartSettlementOutcome> {
+  if (typeof result.exception_id === "string") {
+    // PAY-WH-1A: a payment exception was recorded (and its staff alert queued) in the same transaction. Make it visible
+    // in the logs and deliver the alert now; the cron delivers it otherwise.
+    console.error("event cart payment exception recorded", result.outcome, result.exception_id);
+    try {
+      await drainSettlementExceptionAlerts({ admin, limit: 5 });
+    } catch (alertError) {
+      console.error("payment exception alert delivery deferred to cron", alertError instanceof Error ? alertError.message : alertError);
+    }
+  }
   if (isMismatchOutcome(result)) {
     throw new EventCartWebhookMismatch(result.outcome);
   }

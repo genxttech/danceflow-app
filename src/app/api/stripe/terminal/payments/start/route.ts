@@ -170,6 +170,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_session_already_open" }));
     }
 
+    // PAY-WH-1A: a box-office ticket sale reserves its tickets (database-checked) before the card is charged.
+    if (payment.payment_type === "event_registration" && payment.external_reference) {
+      const { data: hold, error: holdError } = await supabase.rpc("hold_terminal_event_registration", {
+        p_studio_id: studio.id,
+        p_registration_id: payment.external_reference,
+        p_minutes: 15,
+      });
+      const holdResult = (hold ?? {}) as { ok?: boolean; reason?: string };
+      if (holdError || holdResult.ok !== true) {
+        return NextResponse.redirect(
+          terminalPaymentUrl(paymentId, {
+            error: holdResult.reason === "capacity_unavailable" ? "terminal_tickets_unavailable" : "terminal_ticket_sale_not_payable",
+          }),
+        );
+      }
+    }
+
     const currency = clean(payment.currency || "usd").toLowerCase() || "usd";
     const amountCents = Math.round(amount * 100);
     const isMembershipEnrollment =

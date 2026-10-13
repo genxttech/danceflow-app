@@ -304,3 +304,85 @@ export function buildEventConfirmedSmsTemplate(
       : "Free registration."
   } Details: ${params.eventUrl}`;
 }
+
+/** PAY-WH-1A: what each payment exception means for staff (plain language; no internal codes in the headline). */
+export const PAYMENT_EXCEPTION_LABELS: Record<string, string> = {
+  late_payment_after_release: "A buyer paid after their ticket hold was released",
+  duplicate_payment: "An order was paid twice",
+  paid_capacity_unavailable: "A buyer paid but the tickets were no longer available",
+  unknown_payment_reference: "A payment arrived that does not match any order",
+  settlement_integrity_conflict: "A payment could not be applied to its order",
+  terminal_paid_capacity_unavailable: "A card-reader sale was charged but the tickets were sold out",
+  terminal_payment_unfulfilled: "A card-reader sale was charged but its tickets could not be issued",
+  failure_after_settlement: "A completed payment later failed",
+  settlement_effect_dead: "A follow-up step for a paid order keeps failing",
+  reconcile_stuck: "A pending order cannot be reconciled with Stripe",
+  mismatch_account: "A payment arrived on the wrong Stripe account",
+  mismatch_session: "A payment did not match its checkout",
+  mismatch_payment_intent: "A payment did not match its checkout",
+  mismatch_amount: "A payment amount did not match its order",
+  mismatch_currency: "A payment currency did not match its order",
+};
+
+export function paymentExceptionLabel(kind: string) {
+  return PAYMENT_EXCEPTION_LABELS[kind] ?? kind.replaceAll("_", " ");
+}
+
+export function buildPaymentExceptionAlertEmailTemplate(params: {
+  kind: string;
+  moneyState: string;
+  amountCents: number | null;
+  currency: string | null;
+  eventName: string | null;
+  buyerEmail: string | null;
+  stripePaymentIntentId: string | null;
+  reviewUrl: string;
+  brandName?: string | null;
+  brandLogoUrl?: string | null;
+}) {
+  const brand = { name: params.brandName?.trim() || "DanceFlow", logoUrl: params.brandLogoUrl ?? null };
+  const headline = paymentExceptionLabel(params.kind);
+  const amount =
+    typeof params.amountCents === "number" ? money(params.amountCents / 100, params.currency || "USD") : null;
+  const moneyLine =
+    params.moneyState === "captured"
+      ? "The buyer was charged. Nothing was refunded or fulfilled automatically."
+      : params.moneyState === "reversed"
+        ? "A payment that had completed was reversed by the payment provider."
+        : "No money moved automatically; the order needs a staff decision.";
+  const details = [
+    params.eventName ? `Event: ${params.eventName}` : "",
+    amount ? `Amount: ${amount}` : "",
+    params.buyerEmail ? `Buyer: ${params.buyerEmail}` : "",
+    params.stripePaymentIntentId ? `Stripe payment: ${params.stripePaymentIntentId}` : "",
+  ].filter(Boolean);
+  const bodyText = [
+    `${headline}.`,
+    "",
+    moneyLine,
+    ...details,
+    "",
+    "Review it in DanceFlow, decide whether to issue tickets or refund the buyer in Stripe, then mark it resolved:",
+    params.reviewUrl,
+  ].join("\n");
+  const contentHtml = `
+    <div style="padding:13px 15px;border-radius:14px;background:#fef2f2;border:1px solid #fecaca;font-size:15px;color:#991b1b;">
+      <strong>${escapeHtml(headline)}</strong><br />${escapeHtml(moneyLine)}
+    </div>
+    ${details.length ? `<p style="margin:12px 0 0;font-size:14px;line-height:1.7;color:#334155;">${details.map(escapeHtml).join("<br />")}</p>` : ""}
+  `;
+  return {
+    subject: `Payment needs review: ${headline}`,
+    bodyText,
+    bodyHtml: renderStudioBrandedEmail(brand, {
+      previewText: `Payment needs review: ${headline}`,
+      eyebrow: "Payment exception",
+      heading: "A payment needs your review",
+      bodyText,
+      contentHtml,
+      actionLabel: "Review payment exception",
+      actionUrl: safeUrl(params.reviewUrl) || undefined,
+      footerText: `Sent to ${brand.name} staff by DanceFlow.`,
+    }),
+  };
+}

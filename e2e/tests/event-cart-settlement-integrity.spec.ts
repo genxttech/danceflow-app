@@ -11,6 +11,7 @@ import {
   type StripeTestModeFixture,
 } from "../helpers/stripeTestModeFixture";
 import { useUniqueE2ESourceIp as assignUniqueSourceIp } from "../helpers/rateLimitBypass";
+import { signIn } from "../helpers/competitionWizard";
 
 /**
  * PAY-WH-1 -- event cart settlement integrity against REAL Stripe test mode and REAL signed webhooks
@@ -70,6 +71,9 @@ test.describe("PAY-WH-1 event cart settlement integrity (real Stripe test mode)"
       .eq("buyer_email", `e2e-stripe-${fixture.runId}-${tag}@example.com`)
       .single();
     expect(page.url()).toContain(String(data?.stripe_checkout_session_id));
+    // PAY-WH-1A: the initial release accepts card payments only (verified on the real Stripe object).
+    const session = await stripe.checkout.sessions.retrieve(String(data?.stripe_checkout_session_id), {}, onAccount);
+    expect(session.payment_method_types).toEqual(["card"]);
     return data as { id: string; stripe_checkout_session_id: string; expires_at: string; metadata: { holdToken: string } };
   }
 
@@ -204,6 +208,43 @@ test.describe("PAY-WH-1 event cart settlement integrity (real Stripe test mode)"
     expect([intent.status, intent.amount_received]).toEqual(["succeeded", 3000]); // money is with the studio; nothing was refunded
     const refunds = await stripe.refunds.list({ payment_intent: intent.id }, onAccount);
     expect(refunds.data).toEqual([]);
+
+    // PAY-WH-1A H-1: captured money is classified, its staff alert delivered (cron), and staff resolve it in the app.
+    const { data: recorded } = await admin().from("event_order_settlement_exceptions").select("id, money_state, alert_status").eq("order_id", created.id).single();
+    expect(recorded?.money_state).toBe("captured");
+    const alertedRow = await waitFor(async () => {
+      await runCron();
+      return (await admin().from("event_order_settlement_exceptions").select("alert_status").eq("id", recorded!.id).single()).data;
+    }, (row) => row?.alert_status === "sent", 60_000);
+    expect(alertedRow?.alert_status).toBe("sent");
+    const { data: notifications } = await admin().from("notifications").select("type, priority, studio_id").eq("dedupe_key", `payment_exception:${recorded!.id}`);
+    expect(notifications).toEqual([{ type: "payment_exception", priority: "urgent", studio_id: fixture.studioId }]);
+    const { data: emails } = await admin().from("outbound_deliveries").select("recipient_email, template_key, subject")
+      .eq("related_id", recorded!.id).eq("channel", "email");
+    expect(emails).toEqual([expect.objectContaining({ recipient_email: fixture.owner.email, template_key: "payment_exception_alert" })]);
+    await runCron(); // replay of the worker: still exactly one notification and one email
+    expect((await admin().from("outbound_deliveries").select("id").eq("related_id", recorded!.id)).data).toHaveLength(1);
+
+    await signIn(page, fixture.owner, `/app/events/${fixture.events.orgEarly.id}/registrations`);
+    await page.goto(`/app/events/${fixture.events.orgEarly.id}/registrations`);
+    const item = page.getByTestId("payment-exception").filter({ hasText: "A buyer paid after their ticket hold was released" });
+    await expect(item).toBeVisible();
+    await expect(item).toContainText("Buyer was charged");
+    await expect(item).toContainText(String(exception?.stripe_payment_intent_id));
+    await item.getByLabel("Acknowledge (optional note)").fill("Contacting the buyer");
+    await item.getByRole("button", { name: "Acknowledge" }).click();
+    await page.waitForURL(/success=payment_exception_acknowledged/);
+    const acknowledged = page.getByTestId("payment-exception").filter({ hasText: "A buyer paid after their ticket hold was released" });
+    await expect(acknowledged).toContainText("Acknowledged");
+    await acknowledged.getByLabel("Resolution note (required)").fill("Refunded in the Stripe dashboard (E2E)");
+    await acknowledged.getByRole("button", { name: "Mark resolved" }).click();
+    await page.waitForURL(/success=payment_exception_resolved/);
+    await expect(page.getByTestId("payment-exception").filter({ hasText: "A buyer paid after their ticket hold was released" })).toHaveCount(0);
+    const { data: resolved } = await admin().from("event_order_settlement_exceptions").select("status, resolved_by, resolution_note, acknowledged_by").eq("id", recorded!.id).single();
+    expect(resolved).toEqual({ status: "resolved", resolved_by: fixture.owner.id, acknowledged_by: fixture.owner.id, resolution_note: "Refunded in the Stripe dashboard (E2E)" });
+    const { data: trail } = await admin().from("event_order_settlement_exception_events").select("action").eq("exception_id", recorded!.id).order("created_at");
+    expect((trail ?? []).map((row) => row.action)).toEqual(expect.arrayContaining(["recorded", "alert_sent", "acknowledged", "resolved"]));
+    expect(await order(created.id)).toMatchObject({ status: "cancelled", payment_status: "failed" }); // resolving moved nothing
   });
 
   test("S5 forged metadata: a Session not recorded for the order never settles it (delivery fails visibly)", async ({ page }) => {
@@ -232,6 +273,8 @@ test.describe("PAY-WH-1 event cart settlement integrity (real Stripe test mode)"
     const { data: unknown } = await admin().from("event_order_settlement_exceptions")
       .select("kind, order_id, status, amount_cents").eq("stripe_checkout_session_id", forged.id);
     expect(unknown).toEqual([{ kind: "unknown_payment_reference", order_id: null, status: "open", amount_cents: 100 }]);
+    const { data: attributed } = await admin().from("event_order_settlement_exceptions").select("studio_id, money_state, alert_status").eq("stripe_checkout_session_id", forged.id).single();
+    expect(attributed).toMatchObject({ studio_id: fixture.studioId, money_state: "captured" });
     await admin().from("event_order_settlement_exceptions").delete().eq("stripe_checkout_session_id", forged.id);
   });
 
@@ -245,6 +288,7 @@ test.describe("PAY-WH-1 event cart settlement integrity (real Stripe test mode)"
     expect(response.status(), await response.text()).toBe(200);
     const body = await response.json();
     const intentId = String(body.clientSecret).split("_secret_")[0];
+    expect((await stripe.paymentIntents.retrieve(intentId, {}, onAccount)).payment_method_types).toEqual(["card"]);
     const { data: attempts } = await admin().from("event_order_payment_attempts").select("kind, status, stripe_payment_intent_id").eq("order_id", body.orderId);
     expect(attempts).toEqual([{ kind: "payment_intent", status: "open", stripe_payment_intent_id: intentId }]);
     await stripe.paymentIntents.confirm(intentId, { payment_method: "pm_card_visa", return_url: "https://example.com/e2e" }, onAccount);

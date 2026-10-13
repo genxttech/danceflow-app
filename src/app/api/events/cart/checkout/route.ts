@@ -1185,6 +1185,9 @@ export async function POST(request: NextRequest) {
       mode: "payment",
       // PAY-WH-1: the Session stops accepting payment before the capacity hold ends.
       expires_at: sessionExpiresAt,
+      // PAY-WH-1A: card payments only (wallets included) -- the settlement path tested end to end. Delayed methods
+      // (ACH etc.) stay off until they are released as a separate, tested decision.
+      payment_method_types: ["card"],
       customer_email: buyerEmail,
       success_url: absoluteEventUrl(
         request,

@@ -31,7 +31,7 @@
     },
     {
       "path": "/api/cron/event-cart-orders",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

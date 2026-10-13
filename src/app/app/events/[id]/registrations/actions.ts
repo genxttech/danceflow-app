@@ -2004,6 +2004,12 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
       redirect(buildReturnUrl(eventId, "error=registration_not_found"));
     }
 
+    // PAY-WH-1A: an order-backed registration is paid and refunded only through its order (Stripe settlement / the
+    // order refund flow). Refuse before any write or Stripe call.
+    if (registration.order_id) {
+      redirect(buildReturnUrl(eventId, "error=order_backed_registration_payment_locked"));
+    }
+
     const amount = Number(
       registration.total_amount ?? registration.total_price ?? 0,
     );
@@ -2210,6 +2216,12 @@ export async function refundEventRegistrationAction(formData: FormData) {
 
     if (!registration) {
       redirect(buildReturnUrl(eventId, "error=registration_not_found"));
+    }
+
+    // PAY-WH-1A: an order-backed registration is paid and refunded only through its order (Stripe settlement / the
+    // order refund flow). Refuse before any write or Stripe call.
+    if (registration.order_id) {
+      redirect(buildReturnUrl(eventId, "error=order_backed_registration_payment_locked"));
     }
 
     const amount = Number(

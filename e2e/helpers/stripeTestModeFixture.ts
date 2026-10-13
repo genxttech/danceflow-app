@@ -23,6 +23,8 @@ export type StripeTestModeFixture = {
   createdPlan: boolean;
   templateId: string;
   student: CompetitionAccount;
+  /** PAY-WH-1A: the studio owner (event manager) used for staff-side browser flows. */
+  owner: CompetitionAccount;
   events: Record<EventKey, { id: string; slug: string; name: string }>;
   tickets: { earlyBird: string; regular: string; expired: string; race: string; docs: string; native: string };
 };
@@ -48,6 +50,7 @@ export async function createStripeTestModeFixture(config: E2EConfig, options: { 
     createdPlan: false,
     templateId: randomUUID(),
     student: { id: "", email: `e2e-stripe-${runId}-student@example.com`, password: randomBytes(18).toString("base64url") },
+    owner: { id: "", email: `e2e-stripe-${runId}-owner@e2e.test`, password: randomBytes(18).toString("base64url") },
     events: {
       orgEarly: eventDef("org-early", "E2E Stripe Early Bird"),
       orgExpired: eventDef("org-expired", "E2E Stripe Expired"),
@@ -123,6 +126,12 @@ export async function createStripeTestModeFixture(config: E2EConfig, options: { 
     if (error || !created.user) throw new Error(`Stripe test-mode fixture: student: ${error?.message}`);
     fixture.student.id = created.user.id;
     await must(admin.from("profiles").upsert({ id: fixture.student.id, email: fixture.student.email, full_name: "E2E Native Student" }), "student profile");
+
+    const { data: createdOwner, error: ownerError } = await admin.auth.admin.createUser({ email: fixture.owner.email, password: fixture.owner.password, email_confirm: true });
+    if (ownerError || !createdOwner.user) throw new Error(`Stripe test-mode fixture: owner: ${ownerError?.message}`);
+    fixture.owner.id = createdOwner.user.id;
+    await must(admin.from("profiles").upsert({ id: fixture.owner.id, email: fixture.owner.email, full_name: "E2E Studio Owner" }), "owner profile");
+    await must(admin.from("user_studio_roles").insert({ user_id: fixture.owner.id, studio_id: fixture.studioId, role: "studio_owner", active: true }), "owner role");
     return fixture;
   } catch (error) {
     await cleanupStripeTestModeFixture(config, fixture).catch((cleanupError) => {
@@ -229,11 +238,19 @@ export async function cleanupStripeTestModeFixture(config: E2EConfig, fixture: S
   await step("organizers", () => admin.from("organizers").delete().eq("id", fixture.organizerId));
   await step("usage_addon_entitlements", () => admin.from("usage_addon_entitlements").delete().eq("studio_id", fixture.studioId));
   await step("studio_subscriptions", () => admin.from("studio_subscriptions").delete().eq("studio_id", fixture.studioId));
+  await step("payment exceptions", () => admin.from("event_order_settlement_exceptions").delete().eq("studio_id", fixture.studioId));
+  await step("outbound_deliveries", () => admin.from("outbound_deliveries").delete().eq("studio_id", fixture.studioId));
+  await step("user_studio_roles", () => admin.from("user_studio_roles").delete().eq("studio_id", fixture.studioId));
   await step("studios", () => admin.from("studios").delete().eq("id", fixture.studioId));
   if (fixture.createdPlan) {
     // Shared row: remove it only if no other studio (e.g. an overlapping run) subscribes to it.
     const { count } = await admin.from("studio_subscriptions").select("id", { count: "exact", head: true }).eq("subscription_plan_id", fixture.planId);
     if (!count) await step("subscription_plans", () => admin.from("subscription_plans").delete().eq("id", fixture.planId));
+  }
+  if (fixture.owner?.id) {
+    await step("owner profile", () => admin.from("profiles").delete().eq("id", fixture.owner.id));
+    const { error } = await admin.auth.admin.deleteUser(fixture.owner.id);
+    if (error) failures.push(`owner auth user: ${error.message}`);
   }
   if (fixture.student.id) {
     await step("profiles", () => admin.from("profiles").delete().eq("id", fixture.student.id));

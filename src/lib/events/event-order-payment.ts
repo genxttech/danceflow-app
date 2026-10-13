@@ -382,7 +382,8 @@ export async function startEventOrderPayment(params: {
         amount: amountCents,
         currency,
         receipt_email: order.buyer_email,
-        automatic_payment_methods: { enabled: true },
+        // PAY-WH-1A: card payments only (wallets included); delayed methods stay off until separately tested.
+        payment_method_types: ["card"],
         ...(applicationFeeAmount > 0
           ? { application_fee_amount: applicationFeeAmount }
           : {}),
@@ -457,6 +458,8 @@ export async function startEventOrderPayment(params: {
     {
       mode: "payment",
       expires_at: sessionExpiresAt,
+      // PAY-WH-1A: card payments only (see the cart checkout route).
+      payment_method_types: ["card"],
       customer_email: order.buyer_email,
       success_url: successUrl,
       cancel_url: releaseUrl,
