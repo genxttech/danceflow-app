@@ -9,7 +9,8 @@
 #   1. an unknown extra policy on the recipient table;
 #   2. a known policy name with a different (broader) definition;
 #   3. the recipient visibility policy missing (creating one would grant new access);
-#   4. claim_outbound_deliveries not the PAY-WH-1 version.
+#   4. claim_outbound_deliveries not the PAY-WH-1 version;
+#   5. the stage-1 rollback run while stage 2 is still applied.
 # Each tamper is reverted afterwards and the pre-M-0 fingerprint must be unchanged at the end.
 set -uo pipefail
 : "${PSQL:?set PSQL to a psql command for the isolated QA database}"
@@ -68,6 +69,17 @@ check "pre-M-0 fingerprint unchanged after all tampering" "$(fp)" "$PRE"
 out=$($PSQL -v ON_ERROR_STOP=1 < "$MIG" 2>&1)
 check "control: untampered pre-M-0 state applies" "$(q "select to_regproc('public.marketing_send_frozen') is not null")" "t"
 check "control: lands frozen" "$(q "select frozen from public.marketing_send_controls")" "t"
+
+# 5. The stage-1 rollback refuses while stage 2 is applied (stage 2 must be rolled back first), changing nothing.
+STAGE2="$DIR/../20261117091000_m0_recipient_write_lockdown.sql"
+RB1="$DIR/../rollback/20261117090000_m0_marketing_send_integrity_rollback.sql"
+RB2="$DIR/../rollback/20261117091000_m0_recipient_write_lockdown_rollback.sql"
+$PSQL -v ON_ERROR_STOP=1 < "$STAGE2" >/dev/null 2>&1
+S2FP=$(fp)
+out=$($PSQL -v ON_ERROR_STOP=1 < "$RB1" 2>&1)
+if echo "$out" | grep -q "roll back 20261117091000 (stage 2) first"; then check "stage-1 rollback refused while stage 2 is applied" "refused" "refused"; else check "stage-1 rollback refused while stage 2 is applied" "ran" "refused"; fi
+check "stage-1 rollback refusal changed nothing" "$(fp)" "$S2FP"
+$PSQL -v ON_ERROR_STOP=1 < "$RB2" >/dev/null 2>&1
 
 echo "M-0 PRECONDITIONS: $pass passed, $fail failed"
 [ "$fail" = "0" ]

@@ -20,6 +20,12 @@ do $$
 declare
   v_blockers text := '';
 begin
+  -- Stage 2 must be rolled back first (it is never combined with a pre-M-0 schema).
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'outbound_deliveries' and policyname = 'outbound_deliveries_insert')
+     or not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'marketing_campaign_recipients'
+                    and policyname = 'studio staff manage marketing campaign recipients') then
+    raise exception 'M-0 rollback refused: roll back 20261117091000 (stage 2) first';
+  end if;
   if coalesce(current_setting('m0.allow_data_loss', true), '') = 'yes' then
     return;
   end if;
@@ -116,6 +122,8 @@ drop function if exists public._mkt_guard_contact_unsubscribe();
 drop function if exists public._mkt_guard_campaign_delete();
 drop function if exists public._mkt_guard_outbound_content_origin();
 drop function if exists public._mkt_guard_outbound_client_writes();
+drop function if exists public._mkt_outbound_appointment_payload(uuid, uuid, text, text, text, text);
+drop function if exists public._mkt_outbound_automation_recipient_ok(uuid, uuid, text);
 drop function if exists public._mkt_outbound_appointment_recipient_ok(uuid, uuid, text, text, text);
 drop function if exists public._mkt_outbound_automation_action_ok(uuid, uuid);
 drop function if exists public._mkt_persist_legacy_organizer_unsubscribe();

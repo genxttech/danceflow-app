@@ -345,7 +345,7 @@ select pg_temp.chk('privileges: anon/authenticated can run only the guard / poli
   (select coalesce(string_agg(distinct p.proname, ',' order by p.proname), '') from pg_proc p, (values ('anon'), ('authenticated')) r(role)
    where p.pronamespace = 'public'::regnamespace and (p.proname like 'marketing\_%' or p.proname like '\_mkt\_%')
      and has_function_privilege(r.role, p.oid, 'execute'))
-  = '_mkt_campaign_exists,_mkt_campaign_has_mailed,_mkt_can_view_studio_marketing,_mkt_outbound_appointment_recipient_ok,_mkt_outbound_automation_action_ok,marketing_send_frozen');
+  = '_mkt_campaign_exists,_mkt_campaign_has_mailed,_mkt_can_view_studio_marketing,_mkt_outbound_appointment_payload,_mkt_outbound_automation_recipient_ok,marketing_send_frozen');
 select pg_temp.chk('privileges: service_role can run the pipeline functions', has_function_privilege('service_role', 'public.marketing_claim_campaign_recipient(text, uuid, uuid, uuid, integer)', 'execute')
   and has_function_privilege('service_role', 'public.marketing_unsubscribe_by_token(text, text)', 'execute'));
 select pg_temp.chk('privileges: new tables closed to tenants', not has_table_privilege('authenticated', 'public.marketing_email_suppressions', 'select')
@@ -499,7 +499,7 @@ select pg_temp.chk('token: an upper-case token resolves through the indexed colu
 select public.marketing_sync_campaign_recipients('studio', '00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000408',
   jsonb_build_array(jsonb_build_object('email', 'm0-fix-3@example.com')));
 
-insert into public.automation_actions (studio_id, rule_key, title) values ('00000000-0000-0000-0000-0000ae000001', 'unsigned_document', 'Unsigned');
+insert into public.automation_actions (studio_id, rule_key, title, client_id) values ('00000000-0000-0000-0000-0000ae000001', 'unsigned_document', 'Unsigned', '00000000-0000-0000-0000-0000ae000301');
 insert into t_kv select 'od-action', id::text from public.automation_actions where studio_id = '00000000-0000-0000-0000-0000ae000001' and title = 'Unsigned';
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000ae000201');
@@ -508,7 +508,7 @@ values ('00000000-0000-0000-0000-0000ae000408', '00000000-0000-0000-0000-0000ae0
 select pg_temp.expect_msg('P2-2: staff cannot delete a mailed campaign',
   $q$delete from public.marketing_campaigns where id = '00000000-0000-0000-0000-0000ae000407'$q$, 'has been sent cannot be deleted');
 insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, payload, related_table, related_id, status, dedupe_key)
-select '00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-od@example.com', 'S', 'B', '{"content_origin": "system_default"}',
+select '00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-a1@example.com', 'S', 'B', '{"content_origin": "system_default"}',
        'automation_actions', pg_temp.kv('od-action')::uuid, 'draft', 'm0-suite-od-1';
 select pg_temp.expect_msg('D1: a client cannot queue an ARIA execution email',
   $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, status, dedupe_key)
@@ -758,6 +758,13 @@ update public.clients set phone = '+1 (919) 555-0101' where id = '00000000-0000-
 insert into public.automation_actions (id, studio_id, rule_key, title) values
   ('00000000-0000-0000-0000-0000ae000701', '00000000-0000-0000-0000-0000ae000001', 'low_package_balance', 'Low balance'),
   ('00000000-0000-0000-0000-0000ae000702', '00000000-0000-0000-0000-0000ae000002', 'low_package_balance', 'Other studio');
+update public.automation_actions set client_id = '00000000-0000-0000-0000-0000ae000301' where id = '00000000-0000-0000-0000-0000ae000701';
+update public.automation_actions set client_id = '00000000-0000-0000-0000-0000ae000303' where id = '00000000-0000-0000-0000-0000ae000702';
+insert into public.booking_requests (id, studio_id, requested_starts_at, requested_ends_at, customer_email) values
+  ('00000000-0000-0000-0000-0000ae000901', '00000000-0000-0000-0000-0000ae000001', now() + interval '2 days', now() + interval '2 days 1 hour', 'm0-booker@example.com');
+insert into public.automation_actions (id, studio_id, rule_key, title, related_table, related_id) values
+  ('00000000-0000-0000-0000-0000ae000703', '00000000-0000-0000-0000-0000ae000001', 'pending_booking_request', 'Booking', 'booking_requests', '00000000-0000-0000-0000-0000ae000901');
+update public.appointments set title = 'Showcase Rehearsal' where id = '00000000-0000-0000-0000-0000ae000801';
 
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000ae000207');  -- instructor of studio A (allowed to insert by RLS)
@@ -795,10 +802,21 @@ select pg_temp.expect_msg('D: a legacy automation email needs an automation acti
      values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_low_package_balance', 'anyone@example.com', 'S', 'B', 'queued')$q$, 'cannot be created by a signed-in user');
 select pg_temp.expect_msg('D: ... of this studio (not another tenant''s action)',
   $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, related_table, related_id, status)
-     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_low_package_balance', 'anyone@example.com', 'S', 'B', 'automation_actions', '00000000-0000-0000-0000-0000ae000702', 'queued')$q$, 'cannot be created by a signed-in user');
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_low_package_balance', 'm0-a1@example.com', 'S', 'B', 'automation_actions', '00000000-0000-0000-0000-0000ae000702', 'queued')$q$, 'cannot be created by a signed-in user');  -- the address matches that action's (other-studio) client
 select pg_temp.expect_ok('D: a legacy automation draft for the studio''s own action is accepted',
   $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, payload, related_table, related_id, status, dedupe_key)
      values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_unsigned_document', 'm0-a1@example.com', 'S', 'B', '{"content_origin": "system_default"}', 'automation_actions', '00000000-0000-0000-0000-0000ae000701', 'draft', 'm0-d-ok-automation')$q$);
+select pg_temp.expect_ok('D: a forged appointment payload is accepted only as rebuilt from the database',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, related_table, related_id, status, payload, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'appointment_confirmed', 'm0-a1@example.com', 'appointments', '00000000-0000-0000-0000-0000ae000801', 'queued',
+             '{"senderDisplayName": "Chase Fraud Dept", "appointmentLabel": "HUGE SALE click evil.example", "clientFirstName": "Valued customer",
+               "recipientClientId": "00000000-0000-0000-0000-0000ae000302", "roomName": "Visit evil.example", "extra": "x"}', 'm0-d-forged')$q$);
+select pg_temp.expect_msg('D: a legacy automation email to someone other than the action''s client is refused',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, related_table, related_id, status)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_low_package_balance', 'anyone@example.com', 'S', 'B', 'automation_actions', '00000000-0000-0000-0000-0000ae000701', 'queued')$q$, 'cannot be created by a signed-in user');
+select pg_temp.expect_ok('D: a legacy booking-request automation to that request''s customer is accepted',
+  $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, subject, body_text, reply_to_email, related_table, related_id, status, dedupe_key)
+     values ('00000000-0000-0000-0000-0000ae000001', 'email', 'automation_pending_booking_request', 'M0-Booker@Example.com', 'S', 'B', 'evil@example.com', 'automation_actions', '00000000-0000-0000-0000-0000ae000703', 'draft', 'm0-d-ok-booking')$q$);
 select pg_temp.expect_msg('D: legacy automation SMS is refused',
   $q$insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_phone, body_text, related_table, related_id, status)
      values ('00000000-0000-0000-0000-0000ae000001', 'sms', 'automation_low_package_balance', '+19195550101', 'B', 'automation_actions', '00000000-0000-0000-0000-0000ae000701', 'queued')$q$, 'cannot be created by a signed-in user');
@@ -807,6 +825,24 @@ reset role;
 select pg_temp.chk('D: accepted appointment rows carry no client-supplied subject, body, html or reply-to',
   (select count(*) from public.outbound_deliveries where dedupe_key in ('m0-d-ok-email', 'm0-d-ok-partner', 'm0-d-ok-sms')
      and subject is null and body_text is null and body_html is null and reply_to_email is null) = 3);
+select pg_temp.chk('D: a forged sender name, consent subject and free text never reach the queued row',
+  (select payload from public.outbound_deliveries where dedupe_key = 'm0-d-forged') ->> 'senderDisplayName' is null
+  and (select payload from public.outbound_deliveries where dedupe_key = 'm0-d-forged') ->> 'extra' is null
+  and (select payload ->> 'appointmentLabel' from public.outbound_deliveries where dedupe_key = 'm0-d-forged') = 'Showcase Rehearsal'
+  and (select payload ->> 'clientFirstName' from public.outbound_deliveries where dedupe_key = 'm0-d-forged') = 'A'
+  and (select payload ->> 'roomName' from public.outbound_deliveries where dedupe_key = 'm0-d-forged') is null
+  and (select payload ->> 'recipientClientId' from public.outbound_deliveries where dedupe_key = 'm0-d-forged') = '00000000-0000-0000-0000-0000ae000301'
+  and (select payload ->> 'recipientRole' from public.outbound_deliveries where dedupe_key = 'm0-d-forged') = 'primary',
+  (select payload::text from public.outbound_deliveries where dedupe_key = 'm0-d-forged'));
+select pg_temp.chk('D: the appointment payload is the database''s (partner and SMS consent subject bound to the matched client)',
+  (select payload ->> 'recipientClientId' from public.outbound_deliveries where dedupe_key = 'm0-d-ok-partner') = '00000000-0000-0000-0000-0000ae000302'
+  and (select payload ->> 'recipientRole' from public.outbound_deliveries where dedupe_key = 'm0-d-ok-partner') = 'partner'
+  and (select payload ->> 'recipientClientId' from public.outbound_deliveries where dedupe_key = 'm0-d-ok-sms') = '00000000-0000-0000-0000-0000ae000301'
+  and (select payload ->> 'reason' from public.outbound_deliveries where dedupe_key = 'm0-d-ok-sms') = 'cancelled'
+  and (select payload ->> 'startsAt' from public.outbound_deliveries where dedupe_key = 'm0-d-ok-email') ~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$');
+select pg_temp.chk('D: an accepted legacy automation row carries no client reply-to',
+  (select reply_to_email from public.outbound_deliveries where dedupe_key = 'm0-d-ok-booking') is null
+  and (select payload ->> 'content_origin' from public.outbound_deliveries where dedupe_key = 'm0-d-ok-booking') = 'studio_customized');
 select pg_temp.chk('D: the accepted legacy automation row is forced to studio content (commercial controls apply)',
   (select payload ->> 'content_origin' from public.outbound_deliveries where dedupe_key = 'm0-d-ok-automation') = 'studio_customized'
   and public._mkt_is_commercial_outbound('email', 'automation_unsigned_document',
@@ -825,14 +861,16 @@ select pg_temp.chk('D: server writes are unaffected by the client guard',
   exists (select 1 from public.outbound_deliveries where dedupe_key = 'm0-d-server' and subject = 'S'));
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000ae000207');  -- instructor of studio A probing studio B
-insert into t_kv select 'oracle', public._mkt_outbound_appointment_recipient_ok('00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000802', 'email', 'm0-a1@example.com', null)::text;
-insert into t_kv select 'oracle-own', public._mkt_outbound_appointment_recipient_ok('00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000801', 'email', 'm0-a1@example.com', null)::text;
-insert into t_kv select 'oracle-aa', public._mkt_outbound_automation_action_ok('00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000702')::text;
+insert into t_kv select 'oracle', (public._mkt_outbound_appointment_payload('00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000802', 'email', 'm0-a1@example.com', null, 'appointment_confirmed') is not null)::text;
+insert into t_kv select 'oracle-own', (public._mkt_outbound_appointment_payload('00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000801', 'email', 'm0-a1@example.com', null, 'appointment_confirmed') is not null)::text;
+insert into t_kv select 'oracle-aa', public._mkt_outbound_automation_recipient_ok('00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000702', 'm0-a1@example.com')::text;
 reset role;
 select pg_temp.chk('D: the appointment helper reveals nothing about another studio (no participant oracle)', pg_temp.kv('oracle') = 'false' and pg_temp.kv('oracle-own') = 'true');
 select pg_temp.chk('D: the automation helper reveals nothing about another studio', pg_temp.kv('oracle-aa') = 'false');
 select pg_temp.chk('D: the helper functions refuse callers without a role in the studio',
-  not has_function_privilege('anon', 'public._mkt_outbound_appointment_recipient_ok(uuid, uuid, text, text, text)', 'execute'));
+  not has_function_privilege('anon', 'public._mkt_outbound_appointment_payload(uuid, uuid, text, text, text, text)', 'execute')
+  and not has_function_privilege('anon', 'public._mkt_campaign_exists(text, uuid)', 'execute')
+  and not has_function_privilege('anon', 'public._mkt_campaign_has_mailed(text, uuid)', 'execute'));
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Verdict (always raises: nothing persists)

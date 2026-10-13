@@ -1384,50 +1384,99 @@ create trigger organizer_marketing_campaign_recipients_10_m0_legacy_unsubscribe
 -- arbitrary addresses. The M-0 application writes every delivery with the service role. Until stage 2 removes client
 -- inserts entirely, client-role inserts are limited to what the pre-M-0 application legitimately produces:
 --  * appointment notifications (appointment_confirmed / _rescheduled / _cancelled) for an appointment of the row's
---    studio, addressed to that appointment's client or partner; subject/body/reply-to are cleared so the dispatcher
---    renders the fixed appointment template;
---  * legacy automation emails (automation_*) for an automation action of the row's studio; their content origin is
---    forced to studio_customized (section 9) so the M-0 dispatcher applies every marketing control.
+--    studio, addressed to that appointment's client or partner. Subject/body/html/reply-to are cleared and the payload
+--    is REBUILT from the database (appointment, participants, instructor, room, studio time zone), so the dispatcher
+--    renders the fixed appointment template with no client-supplied text, sender name or consent subject;
+--  * legacy automation emails (automation_*) for an automation action of the row's studio, addressed to that action's
+--    client (or its booking request's customer); reply-to is cleared; content origin is forced to studio_customized
+--    (section 9) so the M-0 dispatcher applies every marketing control.
 -- Anything else (DanceFlow/platform keys, ARIA executions, digests, booking/portal/event keys, unknown keys) is refused.
 -- Updates by client roles (platform admins, by RLS) cannot re-route a row.
-create or replace function public._mkt_outbound_appointment_recipient_ok(
+-- Earlier drafts of this migration created boolean helpers; drop them so a re-apply leaves one definition.
+drop function if exists public._mkt_outbound_appointment_recipient_ok(uuid, uuid, text, text, text);
+drop function if exists public._mkt_outbound_automation_action_ok(uuid, uuid);
+
+-- The appointment notification payload, rebuilt from the database (same fields as the application producer in
+-- src/app/app/schedule/actions.ts). NULL unless the caller has a role in the studio and the recipient is the
+-- appointment's client or partner (email, or the last 10 digits of the phone).
+create or replace function public._mkt_outbound_appointment_payload(
   p_studio_id uuid,
   p_appointment_id uuid,
   p_channel text,
   p_email text,
-  p_phone text
+  p_phone text,
+  p_template_key text
 )
-returns boolean
+returns jsonb
 language sql
 stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select exists (
-    select 1
-    from public.appointments a
-    join public.clients c on c.id in (a.client_id, a.partner_client_id) and c.studio_id = a.studio_id
-    where a.id = p_appointment_id and a.studio_id = p_studio_id
-      and (
-        (p_channel = 'email' and p_email is not null and lower(btrim(c.email)) = lower(btrim(p_email)))
-        or (p_channel = 'sms' and length(regexp_replace(coalesce(p_phone, ''), '\D', '', 'g')) >= 10
-            and right(regexp_replace(coalesce(c.phone, ''), '\D', '', 'g'), 10) = right(regexp_replace(p_phone, '\D', '', 'g'), 10))
-      )
+  with caller as (
+    select exists (select 1 from public.user_studio_roles usr where usr.user_id = auth.uid() and usr.studio_id = p_studio_id and usr.active = true)
+        or exists (select 1 from public.profiles p where p.id = auth.uid() and p.platform_role = 'platform_admin') as ok
+  ),
+  appt as (
+    select a.* from public.appointments a where a.id = p_appointment_id and a.studio_id = p_studio_id
+  ),
+  matched as (
+    select c.id, c.id = appt.client_id as is_primary
+    from appt
+    join public.clients c on c.id in (appt.client_id, appt.partner_client_id) and c.studio_id = appt.studio_id
+    where (p_channel = 'email' and p_email is not null and lower(btrim(c.email)) = lower(btrim(p_email)))
+       or (p_channel = 'sms' and length(regexp_replace(coalesce(p_phone, ''), '\D', '', 'g')) >= 10
+           and right(regexp_replace(coalesce(c.phone, ''), '\D', '', 'g'), 10) = right(regexp_replace(p_phone, '\D', '', 'g'), 10))
+    order by (c.id = appt.client_id) desc
+    limit 1
   )
-  and (
-    exists (select 1 from public.user_studio_roles usr where usr.user_id = auth.uid() and usr.studio_id = p_studio_id and usr.active = true)
-    or exists (select 1 from public.profiles p where p.id = auth.uid() and p.platform_role = 'platform_admin')
+  select jsonb_build_object(
+    'appointmentId', appt.id::text,
+    'appointmentType', appt.appointment_type::text,
+    'appointmentLabel', coalesce(nullif(btrim(appt.title), ''), initcap(replace(appt.appointment_type::text, '_', ' '))),
+    'status', appt.status::text,
+    'startsAt', to_char(appt.starts_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+    'endsAt', to_char(appt.ends_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+    'studioTimeZone', coalesce(nullif(btrim(s.timezone), ''), 'America/New_York'),
+    'notes', appt.notes,
+    'clientFirstName', pc.first_name, 'clientLastName', pc.last_name,
+    'partnerFirstName', pp.first_name, 'partnerLastName', pp.last_name,
+    'instructorFirstName', i.first_name, 'instructorLastName', i.last_name,
+    'roomName', r.name,
+    'reason', case p_template_key when 'appointment_cancelled' then 'cancelled' when 'appointment_rescheduled' then 'rescheduled' else 'confirmed' end,
+    'recipientRole', case when matched.is_primary then 'primary' else 'partner' end,
+    'recipientClientId', matched.id::text
   )
+  from appt
+  join matched on true
+  join caller on caller.ok
+  join public.studios s on s.id = appt.studio_id
+  left join public.clients pc on pc.id = appt.client_id and pc.studio_id = appt.studio_id
+  left join public.clients pp on pp.id = appt.partner_client_id and pp.studio_id = appt.studio_id
+  left join public.instructors i on i.id = appt.instructor_id and i.studio_id = appt.studio_id
+  left join public.rooms r on r.id = appt.room_id and r.studio_id = appt.studio_id
 $$;
 
-create or replace function public._mkt_outbound_automation_action_ok(p_studio_id uuid, p_action_id uuid)
+-- A legacy automation email may only go to its own action's client (or that action's booking request customer).
+create or replace function public._mkt_outbound_automation_recipient_ok(p_studio_id uuid, p_action_id uuid, p_email text)
 returns boolean
 language sql
 stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select exists (select 1 from public.automation_actions aa where aa.id = p_action_id and aa.studio_id = p_studio_id)
+  select p_email is not null
+  and exists (
+    select 1 from public.automation_actions aa
+    where aa.id = p_action_id and aa.studio_id = p_studio_id
+      and (
+        exists (select 1 from public.clients c where c.id = aa.client_id and c.studio_id = aa.studio_id
+                and lower(btrim(c.email)) = lower(btrim(p_email)))
+        or (aa.related_table = 'booking_requests' and exists (
+              select 1 from public.booking_requests br where br.id = aa.related_id and br.studio_id = aa.studio_id
+                and lower(btrim(br.customer_email)) = lower(btrim(p_email))))
+      )
+  )
   and (
     exists (select 1 from public.user_studio_roles usr where usr.user_id = auth.uid() and usr.studio_id = p_studio_id and usr.active = true)
     or exists (select 1 from public.profiles p where p.id = auth.uid() and p.platform_role = 'platform_admin')
@@ -1439,6 +1488,8 @@ returns trigger
 language plpgsql
 set search_path = public, pg_temp
 as $$
+declare
+  v_payload jsonb;
 begin
   if current_user not in ('anon', 'authenticated') then
     return new;
@@ -1455,10 +1506,14 @@ begin
   end if;
 
   if new.template_key in ('appointment_confirmed', 'appointment_rescheduled', 'appointment_cancelled') then
-    if new.channel not in ('email', 'sms') or new.related_table is distinct from 'appointments' or new.related_id is null
-       or not public._mkt_outbound_appointment_recipient_ok(new.studio_id, new.related_id, new.channel, new.recipient_email, new.recipient_phone) then
+    if new.channel in ('email', 'sms') and new.related_table = 'appointments' and new.related_id is not null then
+      v_payload := public._mkt_outbound_appointment_payload(new.studio_id, new.related_id, new.channel, new.recipient_email,
+                                                             new.recipient_phone, new.template_key);
+    end if;
+    if v_payload is null then
       raise exception 'Appointment notifications can only be sent to that appointment''s participants.' using errcode = '42501';
     end if;
+    new.payload := v_payload;
     new.subject := null;
     new.body_text := null;
     new.body_html := null;
@@ -1468,7 +1523,8 @@ begin
 
   if starts_with(coalesce(new.template_key, ''), 'automation_') and new.channel = 'email'
      and new.related_table = 'automation_actions' and new.related_id is not null
-     and public._mkt_outbound_automation_action_ok(new.studio_id, new.related_id) then
+     and public._mkt_outbound_automation_recipient_ok(new.studio_id, new.related_id, new.recipient_email) then
+    new.reply_to_email := null;
     return new;
   end if;
 
@@ -1508,16 +1564,16 @@ revoke all on function public.marketing_set_send_freeze(boolean, text) from publ
 revoke all on function public._mkt_is_commercial_outbound(text, text, jsonb) from public, anon, authenticated;
 revoke all on function public._mkt_can_view_studio_marketing(uuid) from public, anon, authenticated;
 revoke all on function public._mkt_persist_legacy_organizer_unsubscribe() from public, anon, authenticated;
-revoke all on function public._mkt_outbound_appointment_recipient_ok(uuid, uuid, text, text, text) from public, anon, authenticated;
-revoke all on function public._mkt_outbound_automation_action_ok(uuid, uuid) from public, anon, authenticated;
+revoke all on function public._mkt_outbound_appointment_payload(uuid, uuid, text, text, text, text) from public, anon, authenticated;
+revoke all on function public._mkt_outbound_automation_recipient_ok(uuid, uuid, text) from public, anon, authenticated;
 revoke all on function public._mkt_guard_outbound_client_writes() from public, anon, authenticated;
 
 grant execute on function public._mkt_norm_email(text) to service_role;
 -- The recipient guard runs as the calling client role (that is how it recognises one) and needs this lookup; it reveals
 -- only whether a campaign id exists.
-grant execute on function public._mkt_campaign_exists(text, uuid) to anon, authenticated;
+grant execute on function public._mkt_campaign_exists(text, uuid) to authenticated;
 -- Same for the campaign delete guard; it reveals only whether a campaign the caller is deleting was mailed.
-grant execute on function public._mkt_campaign_has_mailed(text, uuid) to anon, authenticated;
+grant execute on function public._mkt_campaign_has_mailed(text, uuid) to authenticated;
 grant execute on function public.marketing_suppression_status(text, uuid, text) to service_role;
 grant execute on function public.marketing_sync_campaign_recipients(text, uuid, uuid, jsonb) to service_role;
 grant execute on function public.marketing_claim_campaign_recipient(text, uuid, uuid, uuid, integer) to service_role;
@@ -1531,8 +1587,8 @@ grant execute on function public._mkt_is_commercial_outbound(text, text, jsonb) 
 -- (freeze state, own marketing visibility, own appointment/automation rows).
 grant execute on function public.marketing_send_frozen() to anon, authenticated, service_role;
 grant execute on function public._mkt_can_view_studio_marketing(uuid) to authenticated;
-grant execute on function public._mkt_outbound_appointment_recipient_ok(uuid, uuid, text, text, text) to authenticated;
-grant execute on function public._mkt_outbound_automation_action_ok(uuid, uuid) to authenticated;
+grant execute on function public._mkt_outbound_appointment_payload(uuid, uuid, text, text, text, text) to authenticated;
+grant execute on function public._mkt_outbound_automation_recipient_ok(uuid, uuid, text) to authenticated;
 
 -- unsubscribe_marketing_recipient(text) keeps its existing anon/authenticated grants in stage 1 (old application).
 

@@ -110,7 +110,8 @@ deleted.
 It is set with `marketing_set_send_freeze(frozen, reason)`. **Stage 1 lands frozen.** While frozen, in either application
 version:
 - campaign claims return `frozen`, and the M-0 batch stops with `marketing_paused`;
-- test sends are refused;
+- test sends are refused by the M-0 application. The **pre-M-0 application's test send is not gated**: it calls the
+  provider directly, sending one message to whatever address staff type, so it is not frozen (pre-existing C10);
 - client roles cannot see pending recipients or write recipients. The pre-M-0 send finds nothing and redirects; its
   regenerate fails closed instead of duplicating rows;
 - the dispatcher claim (`claim_outbound_deliveries`, shared by both versions) **holds** commercial ARIA / automation email
@@ -159,10 +160,12 @@ Fixed in two steps:
   (appointment notifications in `schedule/actions.ts`) now uses its admin client. A source guard test
   (`outboundProducers.m0.test.ts`) fails if any producer writes through a session client.
 - **Stage 1** (old-app compatible). Client-role inserts are limited to what the pre-M-0 application produces:
-  - appointment notifications for an appointment of the row's studio, addressed to that appointment's client or partner,
-    with subject, body, HTML and reply-to cleared so the fixed template renders;
-  - legacy automation emails for one of the studio's own automation actions, forced to `studio_customized` so they are
-    commercial.
+  - appointment notifications for an appointment of the row's studio, addressed to that appointment's client or partner.
+    Subject, body, HTML and reply-to are cleared, and **the payload is rebuilt from the database**: appointment, title or
+    type label, times, notes, participants, instructor, room and studio time zone. No client-supplied text, sender display
+    name or SMS consent subject survives; `recipientClientId` is the matched participant;
+  - legacy automation emails for one of the studio's own automation actions, **addressed only to that action's client**
+    (or its booking request's customer), with reply-to cleared, and forced to `studio_customized` so they are commercial.
 
   Everything else is refused, including DanceFlow/platform keys, ARIA executions, booking, portal and event keys, and
   unknown keys. Client updates (platform admins) cannot re-route a row.
@@ -176,8 +179,9 @@ Fixed in two steps:
 | 1 | `20261117090000_m0_marketing_send_integrity.sql` | Yes. It lands frozen, so while frozen the old app cannot send marketing; its unsubscribe pages keep working (C) | before the app |
 | 2 | `20261117091000_m0_recipient_write_lockdown.sql` | **No, never.** Provider-accepted old-app sends would go unrecorded (duplicates), and the old studio unsubscribe page would fail | after the M-0 app is live |
 
-Rollback order and the rollback build: see §6. Stage 2 is reverted before any application rollback, and the application
-rolls back to the **rollback-compat build**, never to the plain pre-M-0 build.
+Rollback order and the rollback build: see §6. Stage 2 is reverted before any application rollback (the stage-1 rollback
+refuses while stage 2 is applied), and the application rolls back to the **rollback-compat build**, never to the plain
+pre-M-0 build.
 
 ## 2. QA matrix (developer-owned)
 
@@ -189,14 +193,14 @@ sent. All results are for the final committed files, including the final-audit r
 
 | Area | Evidence | Result |
 |---|---|---|
-| SQL suite, stage 1 (`test_T_m0_marketing_send_integrity.sql`) | Lifecycle, generation, unsubscribe (all token kinds), C1, platform suppression, test sends, guards and RLS, privileges, old-app compatibility, plus remediation: freeze (claims, test sends, client-role visibility and writes, dispatcher hold and release, control row), B (owner, front desk, instructor, client role, other studio, platform admin, organizer, anon), C (legacy organizer page, legacy studio RPC tokens), D (appointment / automation / forbidden keys, tenant isolation, re-routing, helper oracles) | **PASS 208/208** on QA and on DEV (rolled back) |
+| SQL suite, stage 1 (`test_T_m0_marketing_send_integrity.sql`) | Lifecycle, generation, unsubscribe (all token kinds), C1, platform suppression, test sends, guards and RLS, privileges, old-app compatibility, plus remediation: freeze (claims, test sends, client-role visibility and writes, dispatcher hold and release, control row), B (owner, front desk, instructor, client role, other studio, platform admin, organizer, anon), C (legacy organizer page, legacy studio RPC tokens), D (appointment / automation / forbidden keys, tenant isolation, re-routing, helper oracles) | **PASS 214/214** on QA and on DEV (rolled back) |
 | SQL suite, stage 2 (`test_T_m0_recipient_write_lockdown.sql`) | No client-role recipient or outbound write by any path; reads kept; legacy RPC revoked; service pipeline and service-role outbound writes work | **PASS 54/54** on QA. Negative control: the suite fails at stage 1, as expected |
-| Preconditions (`m0_precondition_tests.sh`) | Unknown policy, altered policy definition, missing visibility policy and unexpected dispatcher function each make stage 1 refuse, changing nothing. The pre-M-0 fingerprint is unchanged, and the control applies | **PASS 13/13** |
+| Preconditions (`m0_precondition_tests.sh`) | Unknown policy, altered policy definition, missing visibility policy and unexpected dispatcher function each make stage 1 refuse, changing nothing. The pre-M-0 fingerprint is unchanged, and the control applies. The stage-1 rollback refuses while stage 2 is applied, changing nothing | **PASS 15/15** |
 | Concurrency (`m0_concurrency.sh`) | Previous races, plus the legacy organizer page racing an M-0 one-click for the same address (one record, both requests counted) | **PASS 25/25** |
-| SQL mutation testing | 61 mutants: 60 caught by the suite, and email-lock removal caught by the concurrency harness. Separately, 4 precondition mutants are all caught; the unmutated control passes | **61/61 + 4/4** |
-| Migration cycles (QA) | Two cycles of pre → s1 → s2 → rb2 → rb1. Re-applying each stage is idempotent. The full rollback equals the original DEV pre-state under the original fingerprint (`9493285f…`/191) | **PASS**, deterministic: pre `50857fc3…`/201 → s1 `d8df2494…`/338 → s2 `6da390b4…`/333 |
+| SQL mutation testing | 67 mutants (including payload rebuild, recipient binding, reply-to, cross-tenant action, anon grants): 66 caught by the suite, and email-lock removal caught by the concurrency harness. Separately, 4 precondition mutants are all caught; the unmutated control passes | **67/67 + 4/4** |
+| Migration cycles (QA) | Two cycles of pre → s1 → s2 → rb2 → rb1. Re-applying each stage is idempotent. The full rollback equals the original DEV pre-state under the original fingerprint (`9493285f…`/191) | **PASS**, deterministic: pre `50857fc3…`/201 → s1 `c4aea45f…`/338 → s2 `f7923df6…`/333 |
 | PROD preflights (read-only, validated on QA) | At pre-M-0, A4–A9 show the documented baseline. The C1 repair preflight was validated with fixtures for every class | **PASS** (not run on PROD) |
-| DEV (`epdrtzcydvnoidwrepqz`) | It was stage 1 v1 (`ae4e6f28…`/307, identical to QA). The revised stage 1 has been applied (LF), giving `d8df2494…`/338, identical to QA. It lands **frozen**. The suite passes with no residue, and existing rows are unchanged. **Stage 2 is not applied** | **PASS (stage 1)** |
+| DEV (`epdrtzcydvnoidwrepqz`) | It was stage 1 v1 (`ae4e6f28…`/307, identical to QA). The revised stage 1 (including review round 2) has been applied (LF), giving `c4aea45f…`/338, identical to QA. It is **frozen**. The suite passes 214/214 with no residue, and existing rows are unchanged. **Stage 2 is not applied** | **PASS (stage 1)** |
 
 ### Application
 
@@ -205,8 +209,8 @@ sent. All results are for the final committed files, including the final-audit r
 | Vitest (full) | Includes the new freeze, parity, producer-guard and appointment-producer tests | **PASS**: 384 files / 6068 tests |
 | TS mutation testing | Adds freeze handling, refusal codes, pause notice, and the appointment producer on the session client | **39/39 caught** |
 | Typecheck / lint / build | `tsc` clean; eslint on changed files gives 0 errors and no new warnings vs main; `next build` succeeds | **PASS** |
-| Browser: M-0 application, S2 and S3 | `marketing-m0-compliance.spec.ts` (6, including the freeze UI) and `marketing-m0-unsubscribe-survival.spec.ts` (`m0`, 8) | **PASS 14/14**, twice in each state (1 old-app-only scenario skipped by design) |
-| Browser: rollback-compat build, S1 | Survival spec as `compat`: one-click for studio, organizer and message tokens; GET does not mutate; every footer page; the frozen pre-M-0 campaign send sends nothing, even when forced | **PASS 9/9** |
+| Browser: M-0 application, S2 and S3 | `marketing-m0-compliance.spec.ts` (6, including the freeze UI) and `marketing-m0-unsubscribe-survival.spec.ts` (`m0`, 8) | **PASS 14/14**, twice in each state, plus once more on the round-2 SQL (1 old-app-only scenario skipped by design) |
+| Browser: rollback-compat build, S1 | Survival spec as `compat`: one-click for studio, organizer and message tokens; GET does not mutate; every footer page; the frozen pre-M-0 campaign send sends nothing, even when forced | **PASS 9/9** (also on the round-2 SQL) |
 | Browser: plain pre-M-0 build, S1 | Survival spec as `pre_m0`: footers work through C, but **one-click returns 404**. This is why it is not a rollback target | **PASS 9/9** (gap documented) |
 | Browser regression, Stripe test mode, S3 | Registration, waivers, cancellation, signing continuation, early-bird pricing, and others | **PASS 33**, 27 skipped by env gates, 0 failed. No Resend traffic and no outbound permission errors |
 | Rollback-compat build | Typecheck and lint clean; endpoint tests 10/10 | **PASS** |
@@ -238,6 +242,26 @@ Follow-ups recorded but not in this PR:
 - Studio campaigns have no content lock once a send starts. Organizer campaigns do, and a retry's outcome stays fail-safe.
 - ENT-1 can possibly overcount when a settle fails and is later reconciled. The error is in the conservative direction.
 - The TS preview list is unpaginated, so preview counts can be off (cosmetic).
+
+### Independent review, round 2 (final remediation, read-only reviewer)
+
+**Verdict: GO for merge.** A, B and C pass. D was **PARTIAL**, with two stage-1-window gaps, both fixed in this PR:
+- **P2-1:** client-role appointment rows kept their payload. That allowed a forged From display name, free text, and the
+  SMS consent subject. **Fixed:** the guard rebuilds the payload from the database (§1 D).
+- **P2-2:** client-role automation rows could reach any recipient with any Reply-To. **Fixed:** the recipient is bound
+  to the action's client or booking-request customer, and reply-to is cleared. The runbook also now applies stage 2
+  **before** the freeze is released.
+
+The P3 findings:
+- **P3-1:** the doc overstated the freeze for the pre-M-0 test send. **Corrected.**
+- **P3-2:** the stage-1 rollback now refuses while stage 2 is applied. **Tested.**
+- **P3-4:** the campaign-lookup helpers are no longer executable by anon. **Tested.**
+- **P3-3** (precondition hardening: `roles` and RLS-enabled are not fingerprinted; any `m0 %` name is accepted): not
+  exploitable without DBA access. **Tracked.**
+- **P3-5** (organizer staff can make the legacy trigger record an opt-out for their own recipient): tenant-scoped,
+  errs toward suppression, and stage 2 removes it. **Tracked.**
+- **P3-6** (suspected: after a rollback, the old organizer page can overwrite a row M-0 left `sending`): rare; the
+  opt-out is still persisted. **Tracked.**
 
 ## 3. Production preflight (read-only, prepared; NOT run)
 
@@ -338,8 +362,8 @@ Safeguards:
 | State | Application | Schema | Safe? | Notes |
 |---|---|---|---|---|
 | S0 | pre-M-0 | pre-M-0 | today's production | C1–C7 open (the reason for M-0) |
-| S1 | pre-M-0 | stage 1 | **yes, while frozen** | Stage 1 lands frozen. While frozen, the pre-M-0 app cannot send campaigns, held commercial ARIA / automation email waits, the old organizer page's opt-outs persist (C), and its studio page accepts per-message tokens (C). Unfrozen it would behave like S0 for marketing, so it is never unfrozen |
-| S2 | M-0 | stage 1 | **yes** | Full M-0 behavior. Client roles can still insert constrained recipient rows and constrained appointment / automation deliveries (old-app compatibility); every one goes through the claim, suppression and the guards |
+| S1 | pre-M-0 | stage 1 | **yes, while frozen** | Stage 1 lands frozen. While frozen, the pre-M-0 app cannot send campaigns, held commercial ARIA / automation email waits, the old organizer page's opt-outs persist (C), and its studio page accepts per-message tokens (C). Its direct test send (one message to a staff-typed address) is not DB-gated (pre-existing C10). Unfrozen it would behave like S0 for marketing, so it is never unfrozen |
+| S2 | M-0 | stage 1 | **yes** | Full M-0 behavior. Client roles can still insert constrained recipient rows and constrained appointment / automation deliveries (old-app compatibility): appointment payloads are rebuilt from the database, and automation recipients are bound to their action. In a release, S2 is passed through **frozen** (stage 2 is applied before the freeze is released) |
 | S3 | M-0 | stages 1 + 2 | **yes** | Final state: no client-role recipient or outbound writes |
 | X | pre-M-0 | stage 2 | **NEVER** | The old send's provider-accepted messages cannot be recorded (silent duplicates), and the old studio unsubscribe page fails (legacy RPC revoked) |
 
@@ -367,7 +391,7 @@ Each step needs its own owner authorization. PROD is only ever accessed from a f
      within their action (≤ 1 batch).
 4. **Stage 1 SQL** (`20261117090000`).
    - It refuses on unknown policies or an unexpected dispatcher function, changing nothing.
-   - Verify that the fingerprint equals the QA value (`d8df2494…`/338) and that `marketing_send_frozen()` is true.
+   - Verify that the fingerprint equals the QA value (`c4aea45f…`/338) and that `marketing_send_frozen()` is true.
    - State is now **S1**.
 5. **Promote the M-0 application.** State is now **S2**, still frozen.
 6. **Public smoke** (no authentication; it changes nothing):
@@ -375,11 +399,13 @@ Each step needs its own owner authorization. PROD is only ever accessed from a f
    - GET returns 303 to the confirmation page;
    - both confirmation pages render.
 7. **C1 historical repair** (separately authorized; class A only), before organizer campaigns resume.
-8. **Release the freeze:** `select public.marketing_set_send_freeze(false, '<operator>: M-0 verified')`. Every change is
+8. **Stage 2 SQL** (`20261117091000`), **while still frozen**. State is now **S3**. Verify the fingerprint
+   (`f7923df6…`/333). The M-0 application needs no client-role writes, so this costs nothing. It removes every client
+   write to recipients and `outbound_deliveries` before any marketing flows again.
+9. **Release the freeze:** `select public.marketing_set_send_freeze(false, '<operator>: M-0 verified')`. Every change is
    logged in `marketing_send_control_events`.
-9. **Observe**, for example for 24 h: dispatch errors, `marketing_suppression_unavailable`, unsubscribe 503s, held queue
-   size.
-10. **Stage 2 SQL** (`20261117091000`). State is now **S3**. Verify the fingerprint (`6da390b4…`/333).
+10. **Observe**, for example for 24 h: dispatch errors, `marketing_suppression_unavailable`, unsubscribe 503s, held queue
+    size.
 
 ### Rollback
 
@@ -394,7 +420,7 @@ From S3 / S2:
 
 1. Freeze: `select public.marketing_set_send_freeze(true, '<operator>: rollback')`.
 2. If in S3, run `rollback/20261117091000_…`. The state is now S2. This is safe with the M-0 application still live, and
-   the fingerprint returns to `d8df2494…`/338.
+   the fingerprint returns to `c4aea45f…`/338.
 3. Promote the rollback-compat build. The state is now S1, frozen.
 4. **Keep the freeze on** for as long as the pre-M-0 application is live. Marketing stays paused, and held commercial
    email stays queued. Transactional and operational email continue.
