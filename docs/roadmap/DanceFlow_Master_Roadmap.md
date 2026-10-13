@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Roadmap version** | v2.21 |
-| **Last reconciled against main** | `67e735ca81e79886ddd616c0f01f28d5b29cee50` (Twilio TW-3, PR #202). Live application `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` (2026-10-09; rollback: application first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA`, then the TW-3 SQL rollback). TW-3 migration `20261106090000` applied to PROD 2026-10-09 12:34Z. Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED / FULLY RELEASED (9A–9E). Phase 9 migrations `20261102090000`, `20261103090000` and `20261104090000` are applied to PROD (2026-10-09); 9D and 9E were app-only. Phase 8 — Documents Center remains COMPLETE / CLOSED / FULLY RELEASED |
-| **Current non-Twilio launch state** | NON-TWILIO ENGINEERING READY |
-| **Current external dependency** | None blocking. Phase 2 Twilio A2P is an ACTIVE parallel compliance/engineering lane (studio-specific ConfiDance pilot campaign: final compliance review and submission); it does not block Phase 10 |
-| **Current recommended next roadmap phase** | Phase 10 — Organizer + Competition OS; next slice 10A — Competition Foundation Reconciliation (Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED, 2026-10-09). Phase 3 — Branding Relaunch stays PARTIAL: BR-6 — Promotional Media is parked awaiting the professional ARIA voice recording. ENT-1 is RELEASED (PR #138) |
+| **Roadmap version** | v2.22 (2026-10-13; documentation-only reconciliation; prepared for owner review) |
+| **Last reconciled against main** | `24a37a15bb0daf6f2b2de48745e84bd862ad29d1` (PAY-WH-1B, PR #216). Live application `dpl_5BjsJaSPqn1qA3D4fCDijZbRNqqK` (promoted 2026-10-13 11:58Z; application rollback target `dpl_9GRhgfVhT6eDHyQooiqjXnEvpbj3` = PAY-WH-1, app-only; PAY-WH-1B has no SQL). PROD schema includes PAY-WH-1 migrations M1–M5 (`20261116090000`–`20261116094000`, applied 2026-10-13 10:30–10:31Z). Phase 10 slices 10A–10D.1 and 10C.1–10C.5, CI-A, PAY-WH-1/1A and PAY-WH-1B are released (see Phase 10 and the [Commerce Integrity lane](#commerce-integrity-lane)). Phases 5–9 remain COMPLETE / CLOSED |
+| **Current non-Twilio launch state** | Core platform released. **Public Competition registration is HELD** (flag OFF) on the open Commerce Integrity items CI-B and CI-D plus the 10C.1 launch gates; see [Release holds and gates](#release-holds-and-gates-v222). Marketing M-0 (campaign compliance remediation) is the top-priority engineering item |
+| **Current external dependencies** | Twilio technical confirmation on ticket #29647095 (TW-4 Q1–Q5) gates TW-4 slices that write to Twilio. Also: Migration Center real-studio pilots; the pricing cutover business decision; banner vendor/stand (BR-5 follow-up, only before a print order); the professional ARIA voice recording (BR-6). None blocks unrelated phases |
+| **Current recommended next work** | **Near-term priority order — PROVISIONALLY ACCEPTED by the owner (2026-10-13 review of PR #217):** (1) Marketing M-0 compliance remediation, (2) CI-B atomic event check-in, (3) CI-D ticket-attributed refund integrity, (4) Competition OS remaining v1 milestones (10E → 10F), (5) TW-4 automated SMS onboarding, (6) Marketing Messages enhancements, followed by the UX/mobile work. See [Near-term priority order (v2.22)](#near-term-priority-order-v222). It does not renumber, reorder or remove the 26 canonical phases or their dependencies |
 
 > **Explicit note:** BR-4 was shaped by Featured Events and Partner Match maturity and was **not blocked** by either; their public-claim restrictions remain in force for BR-5 onward. See [Featured Events](#strategic-module-featured-events), [Partner Match](#strategic-module-partner-match) and Phase 3 §Public-claim restrictions.
 
@@ -42,7 +42,7 @@ Companion file: [`DanceFlow_Current_State.md`](DanceFlow_Current_State.md) (shor
 
 ### Evidence confidence
 
-Statuses below come from a read-only reconciliation of main `2266f5f` (source, migrations, tests, release history). Evidence is largely "the routes, tables, migrations and tests exist"; it does not prove each feature behaves correctly end to end. Items marked **(unverified)** were not confirmed beyond existence or a grep. Do not read "implemented" as "QA'd" unless the item says so.
+Statuses below come from a read-only reconciliation of main `2266f5f` (source, migrations, tests, release history), updated at each closeout. The v2.22 reconciliation (2026-10-13) re-checked git history `67e735ca..24a37a15`, release records and targeted code audits for Phases 2, 10, 13, 18–20 and the commerce lane; it did not re-audit every phase. Evidence is largely "the routes, tables, migrations and tests exist"; it does not prove each feature behaves correctly end to end. Items marked **(unverified)** were not confirmed beyond existence or a grep. Do not read "implemented" as "QA'd" unless the item says so.
 
 ---
 
@@ -57,6 +57,16 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 | **EXTERNAL DEPENDENCY** | Engineering is complete or independent; completion waits on an outside party or real-world activity. |
 | **ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION** | Engineering is complete; the remaining work is owned by DanceFlow (compliance materials, submission, verification) and runs in parallel with engineering phases. Not a blocker. |
 | **SUPERSEDED / REPLACED** | Replaced by later architecture or decisions; the replacement is named. |
+
+**Provenance labels (v2.22).** Items added or restated in v2.22 carry one of these labels so that unsupported proposals cannot be mistaken for commitments:
+
+| Label | Meaning |
+|---|---|
+| **OWNER-APPROVED** | An owner-typed instruction or approval exists (date cited). It is a commitment. |
+| **OWNER-PROVISIONAL** | The owner accepted it provisionally (e.g. the v2.22 priority order). |
+| **ENGINEERING FINDING** | A verified fact about the code or production (a defect, gap or drift) recorded so it is not lost. Fixing it still needs authorization; it is not a product commitment. |
+| **AGENT-RECORDED PROPOSAL** | A follow-up or idea that exists only in engineering notes, release reports or task chips. **Not owner-approved**; it needs owner confirmation before it becomes a commitment, and may be dropped. |
+| **ENGINEERING SLICING** | How engineering proposes to split an approved commitment into slices (e.g. M-0…M-7, 20-R/20-D, TW-4 4A–4G). The commitment is approved; the slicing is a proposal. |
 
 ---
 
@@ -81,7 +91,7 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 | # | Phase | Status |
 |---|---|---|
 | 1 | Landmark 1A | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS |
-| 2 | Twilio A2P / SMS | ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION |
+| 2 | Twilio A2P / SMS | ACTIVE — TW-4 AUTOMATED ISV ONBOARDING (self-service direction approved; implementation not started; Twilio technical verification pending) |
 | 3 | Branding Relaunch / Public Branding & Launch Readiness | PARTIAL — MATERIAL WORK REMAINS |
 | 4 | Remaining entitlement foundation | PARTIAL — MATERIAL WORK REMAINS |
 | 5 | Group Class canonical foundation | COMPLETE / CLOSED (items carried forward are listed in Phase 5) |
@@ -89,27 +99,72 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 | 7 | GC-3.5 — Direct-payment Group Class enrollment | COMPLETE / CLOSED (GC-3.5-1, GC-3.5-2, REFUND-RECON-1, REFUND-RECON-2 and GC-3.5-3 released) |
 | 8 | Documents Center completion | COMPLETE / CLOSED (8A, 8B, 8C and 8D all released) |
 | 9 | Payroll Prep v1 | COMPLETE / CLOSED (9A, 9B, 9C, 9D and 9E all released) |
-| 10 | Organizer + Competition OS | PARTIAL — MATERIAL WORK REMAINS — NEXT PRIMARY ENGINEERING PHASE |
+| 10 | Organizer + Competition OS | PARTIAL — MATERIAL WORK REMAINS — ACTIVE (10A–10D.1 and 10C.1–10C.5 released; 10E next, gated on owner walkthrough; public registration held) |
 | 11 | Messaging / Notification platform completion | PARTIAL — MATERIAL WORK REMAINS |
 | 12 | Team & Permissions expansion | PARTIAL — MATERIAL WORK REMAINS |
-| 13 | Marketing / Campaigns completion | PARTIAL — MATERIAL WORK REMAINS |
+| 13 | Marketing / Campaigns completion | PARTIAL — MATERIAL WORK REMAINS (M-0 compliance remediation is priority 1) |
 | 14 | Marketplace + digital products + Mux | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS |
 | 15 | ARIA Operations completion | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS |
 | 16 | Migration / Onboarding completion | SUBSTANTIALLY COMPLETE — SMALL CLOSEOUT REMAINS |
 | 17 | Web application design-gap completion | NOT STARTED |
-| 18 | Mobile App Architecture & Boundary Audit | NOT STARTED |
-| 19 | DanceFlow Business app | NOT STARTED |
-| 20 | Student App redesign + Google Play readiness | NOT STARTED |
+| 18 | Mobile App Architecture & Boundary Audit | NOT STARTED (decides whether a separate Business app exists; not pre-approved) |
+| 19 | DanceFlow Business app | NOT STARTED (existence and architecture NOT approved; depends on Phase 18) |
+| 20 | Student App redesign + Google Play readiness | NOT STARTED as a redesign; the existing Expo Student App is a substantial baseline that is not store-released. Split in v2.22 into 20-R (readiness and mobile QA of the existing app) and 20-D (redesign and Google Play release) |
 | 21 | Public website / discovery expansion | NOT STARTED |
 | 22 | Regular v1 pricing cutover | NOT STARTED |
 | 23 | Platform Admin / DanceFlow HQ expansion | PARTIAL — MATERIAL WORK REMAINS |
 | 24 | Data Loss Prevention | NOT STARTED |
-| 25 | SOC 2 Type II | NOT STARTED |
+| 25 | SOC 2 Type II | FORMAL TYPE II PROGRAM NOT STARTED (start date subject to readiness planning); SOC 2 readiness is an ongoing governance activity |
 | 26 | Later integrations / enterprise features | NOT STARTED |
 
-**Strategic modules that span phases** (see dedicated sections): [Featured Events](#strategic-module-featured-events) (Phases 10, 13, 19, 20, 21, 22, 23 + analytics foundation) and [Partner Match](#strategic-module-partner-match) (Phases 17, 18, 20, 21, 23 + analytics foundation).
+**Strategic modules that span phases** (see dedicated sections): [Featured Events](#strategic-module-featured-events) (Phases 10, 13, 19, 20, 21, 22, 23 + analytics foundation), [Partner Match](#strategic-module-partner-match) (Phases 17, 18, 20, 21, 23 + analytics foundation) and, added in v2.22, [DanceFlow Communities](#strategic-module-danceflow-communities) (Phases 11, 12, 18, 20, 21, 23).
 
 **Work completed outside the numbered sequence** (inserted ahead of it, all released): the launch-security and payment-integrity tracks. See [Completed launch work register](#completed-launch-work-register).
+
+**Parallel lanes outside the numbered sequence:** the Phase 2 Twilio lane (TW-1…TW-4) and, added in v2.22, the [Commerce Integrity lane](#commerce-integrity-lane) (CI-A, PAY-WH-1/1A/1B, CI-B, CI-D and their follow-ups). Lanes are not phases; they do not renumber the canonical order.
+
+**Maintained backlog:** commitments that are not yet scheduled into a slice are listed in the [Preserved commitments register (v2.22)](#preserved-commitments-register-v222), the [Deferred / post-launch register](#deferred--post-launch-register) and each phase's REMAINING DELIVERABLES. Nothing is dropped by omission from the priority order below.
+
+---
+
+## Near-term priority order (v2.22)
+
+**Status: PROVISIONALLY ACCEPTED by the owner (2026-10-13, owner review of PR #217).** Items 1–6 are accepted in the order shown, "followed by the UX/mobile work" (items 7–8). Item 9 (Communities V1) remains listed after the UX/mobile work and starts with product definition. "Provisional" means the order guides slice selection now and the owner may revise it at any time (recorded under the normal maintenance rule). It does **not** renumber, reorder or delete the 26 canonical phases or any existing dependency, and it does not authorize any implementation, SQL, deployment or external-service change. Each item still needs its own slice authorization, QA matrix and release gates.
+
+| Priority | Work | Canonical home | Kind | Depends on | Release gate(s) |
+|---|---|---|---|---|---|
+| 1 | **Marketing M-0 — campaign compliance remediation** (send-time unsubscribe suppression, fail-closed suppression lookup, one-click `List-Unsubscribe`, sender-separation verification) | Phase 13 | Engineering (small; likely app-only) | None | Normal app release; developer-owned QA matrix |
+| 2 | **CI-B — atomic event check-in** (compare-and-set check-in; no duplicate admission) | Commerce Integrity lane | Engineering (app-only expected; SQL only if a DB guard is chosen) | None | Normal release; clears one public-Competition-registration hold |
+| 3 | **CI-D — ticket-attributed refund integrity** (per-registration refund attribution, order refund flow, webhook attribution) | Commerce Integrity lane | Engineering (SQL expected; payment-integrity / Opus review) | PAY-WH-1 (released) | PROD SQL + promotion, each separately authorized; clears the other hold |
+| 4 | **Competition OS remaining v1 milestones**: 10E Officials + Immutable Ballots → 10F Scoring + Results + Publication (10G polish optional) | Phase 10 | Engineering (Opus; own Security Review) | Owner Schedule & Heats walkthrough (10E gate); public registration enablement additionally needs CI-B, CI-D and the 10C.1 gates | Studio v1 = 10A–10F |
+| 5 | **TW-4 automated SMS onboarding** (4A–4G) | Phase 2 | Engineering + Twilio verification | Twilio answers Q1–Q5 for slices that write to Twilio (4A can start earlier); decision #8 amounts only for general availability | ConfiDance pilot through the real in-app flow (4F); manual platform release for the pilot only (D5) |
+| 6 | **Marketing Messages enhancements** (M-1 studio draft editing + ARIA apply; M-2 shared composer / organizer parity; M-3 block editor; M-4 images; M-5 event-link picker; M-6 interactive blocks; M-7 segments / analytics / consent model / scheduled send) | Phase 13 | Engineering | M-0; Phase 11 provider webhooks for analytics | Per slice |
+| 7 | **Web / Business UX audit and redesign** (existing web admin UX improvements, then the Phase 18 architecture decision; a separate Business app only if Phase 18 approves it) | Phases 17 → 18 (→ 19 only if approved) | Design + engineering | Phase 12 permission catalog for permission-driven navigation; material completion of upstream workflow phases | Phase 18 decision record before any Business app build |
+| 8 | **Student App readiness and redesign** (20-R readiness + mobile QA of the existing Expo app first; 20-D redesign + Google Play release after Phase 18) | Phase 20 | Engineering + store operations | 20-R: none beyond test infrastructure; 20-D: Phase 18 | Store submission is an explicit owner-authorized gate |
+| 9 | **DanceFlow Communities V1** | Strategic module (new) | Product definition first, then engineering | Governance/moderation model, Phase 12 permissions, Phase 23 moderation tooling, Student App integration (Phase 20) | Product definition approved before any build |
+
+**Parallel workstreams (can run concurrently without conflicting files or gates):**
+- **Lane A — Compliance & commerce integrity:** M-0 → CI-B → CI-D (serial; small, high-risk-reduction slices).
+- **Lane B — Competition OS:** 10E can be prepared (design, Opus review planning) while Lane A runs; it starts building once the owner walkthrough clears. 10E/10F do not depend on CI-B/CI-D; only *public registration enablement* does.
+- **Lane C — Twilio TW-4:** 4A (schema, owner wizard, legal-page templates, EIN handling) can proceed once implementation is authorized; 4B–4D wait on Twilio answers. TW-4 shares no files with the commerce lane (4G billing wiring comes last).
+- **Lane D — Mobile readiness (20-R):** test harness (Expo UI automation), dependency pinning, privacy/data-safety drafts and store-release status verification do not depend on Phase 18 and do not redesign the app.
+- **Owner-only tracks (not engineering):** Schedule & Heats walkthrough (10E gate); Twilio correspondence; decision #8 amounts; BR-6 professional voice recording; Communities product definition.
+
+**Sequencing rules carried forward unchanged:** Phase 17 should not start a formal pass before upstream workflows are materially complete (it can absorb bounded UX fixes earlier); Phase 20-D must not leapfrog Phase 18; Phase 12 (data-driven permissions) precedes Business navigation and Phase 24 (DLP); public Competition OS claims stay restricted.
+
+## Release holds and gates (v2.22)
+
+| Hold / gate | Applies to | Cleared by | Status |
+|---|---|---|---|
+| **CI-B** duplicate / concurrent event check-in | Enabling public Competition registration (`NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED`) | CI-B released, or explicit owner waiver | OPEN |
+| **CI-D** whole-payment refund allocation / no per-registration refund path | Enabling public Competition registration | CI-D released, or explicit owner waiver | OPEN (partly mitigated: PAY-WH-1A blocks the unsafe staff refund for order-backed registrations) |
+| Early-bird overcharge (formerly blocker 1) | Public Competition registration | CI-A | CLOSED (released 2026-10-12); historical-impact query not yet run (needs PROD read authorization) |
+| 10C.1 launch gates | Public Competition registration | Live Stripe Connect webhook subscriptions confirmed (`checkout.session.expired`, `checkout.session.async_payment_failed`); owner organizer walkthrough; verified "this is me" walkthrough; explicit acceptance of whole-order refunds (until CI-D) and buyer-signed waivers | OPEN |
+| NDCA Multi-Dance registration hold (definition hold `multi_dance_results_not_operational`; database refusal `COMP10C_REGISTRATION_HOLD`) | Registration into Multi-Dance categories created by the 10C.5 wizard | Multi-Dance results becoming operational (10H scope) plus the holds above | OPEN |
+| Owner Schedule & Heats walkthrough (10C.2/10D) | Starting 10E | Owner business acceptance | OPEN |
+| Twilio Q1–Q5 confirmation | TW-4 slices that create Twilio resources (4B real adapter, 4C, 4D, 4F) | Twilio answers on #29647095 | OPEN |
+| ACH / delayed payment methods | Enabling non-card methods on event cart and competition checkout | Real ACH end-to-end test and an explicit decision | Card-only by design (PAY-WH-1) |
+| Marketing M-0 | None (compliance remediation of live behavior) | — | Priority 1 |
 
 ---
 
@@ -155,11 +210,11 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 
 ## Phase 2 — Twilio A2P / SMS
 
-**STATUS:** ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION (engineering complete; not blocked on Twilio architecture; runs in parallel with the engineering phases and does not block Phase 10)
+**STATUS:** ACTIVE — TW-4 AUTOMATED ISV ONBOARDING. The per-studio sending, consent and registration-metadata engineering (SMS-A2P-1…3C, TW-1…TW-3) is released. The v2.21 "final compliance / pilot submission" framing (a manually provisioned ConfiDance campaign) is **SUPERSEDED** (v2.22): the owner approved self-service, API-driven ISV onboarding as the product direction, and the ConfiDance pilot will use that real automated flow. TW-4 implementation has not started and is not yet authorized. Runs in parallel with the engineering phases and does not block Phase 10.
 
-**OBJECTIVE:** Compliant SMS under Twilio's ISV model: DanceFlow operates as the ISV (existing GenX TotalTech LLC / DanceFlow Twilio account); each studio receives its own studio-specific A2P campaign and is its own message sender.
+**OBJECTIVE (v2.22):** Compliant SMS under Twilio's ISV model with **automated, self-service studio onboarding**: a studio owner completes one guided DanceFlow form; DanceFlow provisions the studio's Trust Hub profiles, brand, Messaging Service, campaign and number through Twilio's APIs (one Twilio subaccount per studio, subject to technical verification), tracks status automatically and activates only when every compliance invariant holds. **DanceFlow must not require routine founder-operated Twilio Console onboarding for studios.** DanceFlow (GenX TotalTech LLC) is the ISV; each studio is its own brand and sender. (v2.21 objective, preserved for history: "each studio receives its own studio-specific A2P campaign and is its own message sender" under the GenX account — still true; the manual provisioning model is what changed.)
 
-**PRODUCT INTENT:** Studios send service SMS to opted-in clients through DanceFlow, with per-studio identity, consent, registration and routing.
+**PRODUCT INTENT:** Studios send service SMS to opted-in clients through DanceFlow, with per-studio identity, consent, registration and routing, and turn texting on themselves without DanceFlow staff doing Twilio Console work.
 
 **COMPLETED CAPABILITIES** (all released to PROD)
 - SMS-A2P-1 (#131): `studio_sms_registrations` (one row per studio; separate `messaging_service_sid`, `campaign_sid`, `sender_e164`; constrained status `not_registered | in_review | approved | rejected | suspended`; `approved` requires all three identifiers; platform-admin-only RLS; no delete policy), platform admin management form on `/platform/sms`, corrected `/sms-consent`.
@@ -174,25 +229,49 @@ Statuses below come from a read-only reconciliation of main `2266f5f` (source, m
 - ConfiDance Studio is the immediate pilot and first studio-specific campaign.
 - Twilio guidance: for transactional appointment messages and one-to-one operational staff messages, the appropriate campaign use case is typically Mixed or Customer Care, provided the campaign description and samples accurately reflect transactional/operational messaging and contain no marketing or promotional content. The final use case has NOT been chosen (see Unresolved product decisions).
 - Twilio reviewed the proposed ConfiDance opt-in flow and supporting materials and said they appear aligned with compliance requirements.
-- The remaining work is not a Twilio architecture blocker; the next actions are on DanceFlow. Nothing is yet recorded as submitted, approved or production-verified.
-- Advanced Opt-Out is the compliance response authority for STOP/START/HELP. Mixed is the intended pilot use-case direction; no marketing or promotional SMS in the pilot campaign.
+- The remaining work is not a Twilio architecture blocker; the next actions are on DanceFlow. Nothing is yet recorded as submitted, approved or production-verified (still true at v2.22: no `studio_sms_registrations` row exists in PROD and every studio is fail-closed).
+- ~~Advanced Opt-Out is the compliance response authority for STOP/START/HELP. Mixed is the intended pilot use-case direction~~ — superseded by TW-4 D1 and D4 (v2.22; see below). No marketing or promotional SMS in the pilot campaign (unchanged).
+- **2026-10-12 (owner-reported):** Twilio switched the GenX TotalTech LLC primary Customer Profile to **ISV Reseller or Partner**, enabling API-based ISV onboarding.
 
 **COMPLIANCE-ENGINEERING SLICES (parallel lane)**
 - **TW-1 — Advanced Opt-Out Alignment:** COMPLETE / RELEASED (PR #197, `b3ce238`).
 - **TW-2 — Consent Integrity:** COMPLETE / RELEASED (PR #199, `6cb7a39`).
 - **TW-3 — Registration Metadata & Readiness:** COMPLETE / RELEASED 2026-10-09 (PR #202 → main `67e735c`; PROD SQL `20261106090000` applied 12:34Z; production deployment `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` live; rollback: application first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA`, then the SQL rollback).
-- TW-1/TW-2/TW-3 engineering is complete; no TW-4 is planned. The next Twilio work is **TW-OPS** (ConfiDance setup, pre-submission review, campaign submission, production SMS verification), a separate parallel track.
+- ~~TW-1/TW-2/TW-3 engineering is complete; no TW-4 is planned. The next Twilio work is TW-OPS (manual ConfiDance setup …)~~ — **SUPERSEDED (v2.22).** TW-OPS manual Console provisioning was paused on 2026-10-09 by owner architecture correction (manual Console creation of ConfiDance resources is not the intended workflow). On 2026-10-12 Twilio switched the GenX primary Customer Profile to **ISV Reseller or Partner** (owner-reported). TW-4 replaces TW-OPS steps 1–2; TW-OPS's remaining steps (pre-submission review, submission, production verification) are absorbed into TW-4 slice 4F.
+- **TW-4 — Automated ISV SMS Onboarding: PRODUCT DIRECTION APPROVED (owner, 2026-10-12, confirmed v2.22); IMPLEMENTATION NOT STARTED / NOT YET AUTHORIZED.** Design: [`docs/twilio/TW-4_ISV_SMS_Onboarding_Design.md`](../twilio/TW-4_ISV_SMS_Onboarding_Design.md).
 
-**REMAINING DELIVERABLES** (DanceFlow-owned compliance/pilot work, parallel to the engineering phases)
-1. Finalize the ConfiDance campaign description.
-2. Finalize the supporting evidence/materials.
-3. Send the package back to Twilio for final pre-submission review.
-4. Submit the studio-specific ConfiDance campaign.
-5. Obtain approval.
-6. Perform production SMS verification.
-7. Use the approved ConfiDance implementation as the repeatable studio onboarding model.
+**TW-4 ESTABLISHED DESIGN DIRECTIONS (D1–D7; owner-approved directions, not open product choices) and their remaining technical verification requirements**
 
-Supporting operational detail for the above (ConfiDance Twilio setup and app records):
+| # | Established direction | Remaining technical verification (not a product decision) |
+|---|---|---|
+| D1 | Opt-out: Twilio default STOP/START blocking plus DanceFlow consent/suppression enforcement; per-registration `opt_out_mode` (`twilio_default` / `twilio_advanced`); DanceFlow never duplicates a Twilio reply; Twilio send error 21610 marks the message suppressed and alerts, never auto-retries | Twilio Q2: default HELP behavior, whether STOP/START/HELP still reach the inbound webhook, whether campaign OptOut/Help fields should be supplied; TW-1 inbound amendment and any `twilio_send_blocked` consent source need TW-2-level (Opus) review |
+| D2 | One Twilio subaccount per studio (preferred ISV architecture); all studio A2P resources live in the subaccount; sending and webhooks become account-aware | Twilio Q1: parent-profile assignment into subaccount Secondary profiles, parent-credential A2P calls, webhook signature token per subaccount (runtime retrieval, never stored), studio-exit lifecycle; Q5: Event Streams sink placement |
+| D3 | Studio-specific SMS Privacy and Terms pages generated from versioned DanceFlow templates (`/studios/{slug}/sms-privacy`, `/sms-terms`) | Twilio Q3: domain rule for studios with their own website (brand `website_url` / campaign URL domain HELD until answered) |
+| D4 | Low-Volume Standard brand + `LOW_VOLUME` use case by default for eligible studios; Standard + `MIXED` (or Customer Care if advised) for high-volume studios; final use case always taken from Twilio's `Usecases` endpoint; never `MARKETING` | Twilio Q4: suitability for ConfiDance-type traffic, upgrade path, recommended industry value; TW-3 enum extension (`low_volume_mixed`) |
+| D5 | Manual platform Release before aggregate `approved` **for the ConfiDance pilot only**; automated activation afterwards (all invariants, number registered, entitlement active, no open exception, GET re-verification at activation) | Pilot retrospective sign-off before automatic activation is enabled |
+| D6 | Minimize EIN retention: AES-GCM ciphertext with an env-held key plus last 4 digits; decrypted only inside the provisioning step; purged after approval or 30 days after a terminal state; never logged or returned | Security review in 4A |
+| D7 | SMS commercial direction: setup fee + monthly service fee + included message allowance with metered overage (`usage_events: sms_segment`); no final prices until Twilio costs are verified over at least one pilot billing cycle | Verified pilot invoice lines; amounts remain with decision #8 / Phase 22 |
+
+**TW-4 slice plan (from the design §18.8; engineering sequencing, not a delivery commitment)**
+- **4A** — schema, owner wizard (draft / validate / attest), studio status RPC, feature flag, per-studio SMS legal pages (template; domain held), EIN encryption/purge. No Twilio writes.
+- **4B** — subaccount-aware Twilio client (send + provisioning), per-AccountSid webhook signature validation, Event Streams endpoint and inbox, poller, TW-1 `opt_out_mode` amendment, 21610 suppression handling. Gated on Twilio Q1, Q2, Q5 and Opus security review.
+- **4C** — subaccount creation + Secondary profile + A2P TrustProduct + brand, fee gates, reconcile, error catalog, tier selection. Gated on Q1, Q4.
+- **4D** — Messaging Service, use case + campaign (pilot hold for Twilio pre-submission review), number search/purchase/attach. Gated on Q2, Q3.
+- **4E** — release/auto-activation, branded emails, platform alerts, ARIA guidance and knowledgebase article.
+- **4F** — ConfiDance pilot through the real in-app flow, completed by ConfiDance's owner, plus bounded production SMS verification (confirmation to a consented test recipient, status callback, STOP/START/HELP).
+- **4G** — entitlement and billing wiring per D7 (after PAY-WH-1, released; amounts per decision #8).
+- **Later:** sole-proprietor path, LVS→Standard upgrade, marketing SMS campaign (Phase 13; separate `MARKETING` campaign and separate marketing consent), Compliance Embeddable re-evaluation.
+
+**REMAINING DELIVERABLES (v2.22)**
+1. Send the Twilio verification questions Q1–Q5 (design §20, draft not yet sent) and record the answers.
+2. Authorize and build TW-4 slices 4A–4E (developer-owned QA; Opus review for 4B–4D security-critical paths).
+3. ConfiDance pilot (4F) through the real automated onboarding experience, including Twilio's pre-submission review of the generated campaign package, campaign approval and production SMS verification.
+4. 4G entitlement wiring and post-pilot automatic activation.
+5. Studio-visible registration status (delivered by the 4A status RPC and tracker).
+
+*Superseded v2.21 remaining-deliverable list (preserved for history; replaced by the list above):* (1) finalize the ConfiDance campaign description; (2) finalize supporting evidence; (3) send the package to Twilio for pre-submission review; (4) submit the ConfiDance campaign; (5) obtain approval; (6) production SMS verification; (7) use the approved ConfiDance implementation as the repeatable onboarding model. Steps 3–6 survive inside 4D/4F; steps 1–2 become DanceFlow-owned campaign template v1 content; step 7 is now the automated onboarding itself.
+
+Supporting operational detail recorded in v2.21 for the manual model (**SUPERSEDED by TW-4; preserved for history**):
 - Twilio Console work for ConfiDance: customer brand registration under the GenX ISV profile; A2P campaign; dedicated Messaging Service; sending number; inbound webhook `POST https://www.idanceflow.com/api/sms/twilio/inbound`. (Status callbacks need no Console setting; the app attaches the callback per message.)
 - Console checks: brand legal name / EIN / address / website; whether any ConfiDance resource already exists; that the Console campaign SID matches the `QE…` format the database requires; that the resources are in the same Twilio account as the app's credentials (no subaccount support); Advanced Opt-Out interaction with the app's own STOP reply.
 - Record the ConfiDance row in `/platform/sms` (`in_review` once submitted; `approved` only after campaign approval, number attached, webhook set).
@@ -206,14 +285,26 @@ Supporting operational detail for the above (ConfiDance Twilio setup and app rec
 - STOP/START/HELP are scoped per studio (no cross-studio opt-out).
 - Strict status-callback matching: for a registered studio the callback `MessagingServiceSid` must match; a missing or old SID fails closed. No historical-SID support.
 - Consent evidence: `consent_source`, `consent_at`, and `consent_note` carrying `disclosure=a2p1b-v1;form=…`. No IP or user-agent is stored (do not claim it).
+- **(v2.22) No routine founder-operated Twilio Console onboarding for studios.** Studio onboarding is self-service and API-driven (TW-4). Console or Twilio Support involvement is acceptable only for documented exceptions (e.g. appeals, resubmissions beyond Twilio's limits) surfaced through the platform exception queue.
+- **(v2.22) The ConfiDance pilot uses the real automated onboarding experience**, completed by the studio owner, not a hand-built campaign.
+- `studio_sms_registrations` remains the single send-time authority; TW-4 writes component statuses and the aggregate `approved` only under the D5 release rules.
 
-**PROPOSED BUT NOT APPROVED:** None currently identified.
+**SUPERSEDED DECISIONS (v2.22; preserved so later reasoning stays unambiguous)**
+- "Twilio Advanced Opt-Out is the compliance response authority for STOP/START/HELP" (TW-1, 2026-10-09) → superseded by **D1** (Twilio opt-out enforcement — default handling, or Advanced Opt-Out where Twilio enables it — is authoritative; DanceFlow records and enforces suppression and never duplicates Twilio replies). Reason: Advanced Opt-Out is Console-only and irreversible, which is incompatible with zero-Console onboarding.
+- "Single parent Twilio account; subaccounts are not part of the architecture" → superseded by **D2** (subaccount per studio), subject to Twilio Q1 verification.
+- "Manual Console provisioning; SIDs entered by hand in `/platform/sms`" → superseded by TW-4 automated provisioning. The manual TW-3 form remains only for `provisioned_by = 'manual'` rows; `/platform/sms` becomes an operations console and exception queue.
+- "Use case = Mixed (TW-3 enum `mixed` only)" → superseded by **D4** (Low-Volume Standard + `LOW_VOLUME` default; Standard + `MIXED` for high volume; enum extended at build).
+- TW-OPS as a manual parallel track → absorbed into TW-4 slice 4F.
 
-**UNRESOLVED PRODUCT DECISIONS:** Campaign use-case type to register: Mixed is the intended pilot direction; Customer Care is the alternative Twilio also describes as typically appropriate for transactional/operational messaging. The final selection is made at submission.
+**PROPOSED BUT NOT APPROVED:** None. (TW-4's architecture is approved as direction; its implementation still needs explicit slice authorization.)
 
-**DEPENDENCIES:** Twilio final pre-submission review and campaign approval (steps in the DanceFlow-owned compliance lane; not a blocker for other phases). Phase 4 (plan gating of SMS is not yet implemented).
+**UNRESOLVED PRODUCT DECISIONS:** Final SMS prices (decision #8 amounts; direction set by D7). *(The v2.21 open item "Mixed vs Customer Care" is SUPERSEDED by D4: the use case is selected deterministically per studio from Twilio's offered use cases.)*
 
-**WEB IMPLICATIONS:** Platform SMS admin page (`/platform/sms`) exists. Studio-facing registration status UX is not built.
+**TECHNICAL VERIFICATION GATES (not product decisions):** Twilio Q1–Q5 (design §17/§20); webhook signature model under subaccounts; Event Streams sink placement; 21610 handling; per-studio legal-page domain acceptance.
+
+**DEPENDENCIES:** Twilio technical confirmation (Q1–Q5) for slices that create Twilio resources; Phase 4 decision #8 (amounts) for general availability only — the pilot uses a platform comp entitlement; Phase 11 (Event Streams and 21610 suppression become part of the SMS platform).
+
+**WEB IMPLICATIONS:** Platform SMS admin page (`/platform/sms`) exists and becomes an operations console under TW-4. Studio-facing onboarding wizard and status tracker (Settings → Texting) are TW-4 deliverables.
 
 **MOBILE IMPLICATIONS:** None currently identified.
 
@@ -221,9 +312,9 @@ Supporting operational detail for the above (ConfiDance Twilio setup and app rec
 
 **BRANDING / POLISH CONSIDERATIONS:** `/sms-consent` is the public program explainer and is not itself the opt-in form.
 
-**DEFERRED / POST-LAUNCH ITEMS:** Historical-SID support for callbacks after a future registration SID change; studio-visible registration status.
+**DEFERRED / POST-LAUNCH ITEMS:** Historical-SID support for callbacks after a future registration SID change. (Studio-visible registration status moves into TW-4 4A.)
 
-**EVIDENCE / RELEASE REFERENCES:** PRs #131–#134; final PROD deployment for this lane `dpl_G8vf1vywXJ8K9nNK4AbTuHdruR21`.
+**EVIDENCE / RELEASE REFERENCES:** PRs #131–#134 (SMS-A2P, deployment `dpl_G8vf1vywXJ8K9nNK4AbTuHdruR21` at the time); TW-1 PR #197, TW-2 PR #199, TW-3 PR #202 (last Twilio-lane production release `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy`, since superseded in production by later releases). TW-4 design `docs/twilio/TW-4_ISV_SMS_Onboarding_Design.md` (added to the repository with v2.22; no code, SQL or Twilio change).
 
 ---
 
@@ -295,7 +386,7 @@ Supporting operational detail for the above (ConfiDance Twilio setup and app rec
 Logo system (primary horizontal mark, symbol-only use, favicon/app icon, social avatar) exists. Compact horizontal and descriptor lockups are not adopted (locked). Typography/color/gradient rules follow the current application palette and fonts (locked). Product-facing identity: DanceFlow, with "Studio Portal" and similar legacy descriptors being removed.
 
 ### B. Product/public identity rollout
-- **Public site:** metadata/shell done; BR-4 pending.
+- **Public site:** metadata/shell done; BR-4 done and live (v2.22 correction; this line previously said "BR-4 pending").
 - **Authenticated product:** shell done (BR-2C/2D); vocabulary sweep pending.
 - **Email:** done (BR-3 evidence, PAY-DC-3); confirm.
 - **Social/avatar:** avatar asset exists; `FACEBOOK_RELAUNCH_FOUNDATION.md` is a requirements document only (page URL, handle, cover, bio are "owner to supply"; bio line 2 and pinned post are unwritten).
@@ -306,7 +397,7 @@ Logo system (primary horizontal mark, symbol-only use, favicon/app icon, social 
 ### C. Launch messaging architecture
 - Master story: "Software that helps do the work—not just track it."
 - Audience-specific architecture for dancers, studio owners, independent instructors and organizers, each with: value proposition, headline hierarchy, proof points, CTA system, booth/demo talking points.
-- Current state: the headline is not on any public page; there are no audience pages for instructors or dancers; there is no standalone pricing route (pricing is embedded in the home and signup pages).
+- Current state (v2.22 correction; the pre-BR-4 text said the headline and audience pages did not exist): the approved headline is the homepage H1; `/for-studios`, `/for-instructors` and `/for-organizers` exist and dancers use `/discover` (BR-4); there is deliberately no standalone pricing route.
 - **Do not make claims about unreleased automation.**
 
 ### D. Event / print collateral (BR-5 delivered the minimum set; see Delivered above)
@@ -319,7 +410,7 @@ Considered: 60-second master launch video; 30-second social/ad cut; 15-second sh
 Considered: audience landing pages; trackable QR codes; UTM/campaign tracking; event lead capture; studio demo request; independent-instructor interest; organizer interest; dancer signup/download; follow-up sequences; attribution. Delivered in BR-4: audience landing pages (`/for-studios`, `/for-instructors`, `/for-organizers`, `/discover`), stable campaign destinations, and first-touch UTM/ref attribution carried into signup metadata (see Delivered above). Delivered in BR-5: QR codes and attribution-tagged print assets (banner, sheets, dancer card). Still not built: per-event print attribution (static QR codes cannot tell events apart), a demo-request / interest-capture flow (deferred; needs storage), marketing follow-up sequences, and an attribution reporting view.
 
 ### G. Final launch maturity QA
-Dead links; placeholder content; unfinished screens; empty states; CTA clarity; responsive behavior; QR/deep links; trust/credibility presentation; brand consistency. (No placeholder or "coming soon" text was found in a grep; dead-link and CTA checks are unverified.)
+Dead links; placeholder content; unfinished screens; empty states; CTA clarity; responsive behavior; QR/deep links; trust/credibility presentation; brand consistency. (The original reconciliation grep found no "coming soon" text; that was superseded — BR-7 lists remaining "coming soon" placeholder strings on Discover cards. Dead-link and CTA checks are unverified.)
 
 ### H. Branding work that can proceed now
 BR-4 (messaging architecture, audience pages, vocabulary, attribution foundation) is live, and BR-5 produced the print and social collateral. Remaining and unblocked: promo video using web product footage (BR-6), and brand QA (BR-7).
@@ -354,7 +445,8 @@ These were enforced for BR-4 and remain in force for all later public materials 
 **REMAINING DELIVERABLES**
 - **SMS plan gating: BLOCKED on open decision #8 (plan placement and allowance).** SMS has no plan gate or usage consumption (SMS allowance is hard-coded to 0; no `BillingFeature` entry). The send paths already enforce role, per-contact consent, the studio's own approved A2P registration and the global kill switch (SMS-A2P-2); plan/usage gating is the only missing layer and is independent of the Twilio / Sachin external dependency, which gates A2P approval and the global status, not plan placement.
 - ~~Email-campaign recipient allowance is defined but not enforced~~ — DONE for studio and organizer campaigns by ENT-1 (released; see above). **Scope clarified (owner-approved):** the campaign-recipient allowance applies to user-created marketing campaigns only. Operational and transactional email (auth and verification, portal invites, documents and signing, reminders, receipts and payments, accountant delivery, support, platform digest) and current ARIA operational outreach (the 1:1 `aria_execution_*` client messages queued through `outbound_deliveries`) are NOT campaign-recipient-metered under the current product model, and are not an open ENT-1 gap. ARIA has no marketing-campaign send path: its marketing rules (`aria_marketing_opportunity`, `aria_event_promotion_gap`) are suggestion-only drafts, and any send goes through the enforced studio/organizer campaign actions. **No email add-on or credit product is approved, and none is required to close Phase 4:** the approved state is a capped allowance with an upgrade path (pricing belongs to Phase 22). The unreferenced duplicate campaign action module `src/app/app/marketing/campaigns/[id]/actions.ts` is not an enforcement gap (it is not bundled or callable); its removal stays with the planned Phase 13 action-module dedupe.
-- **Plan placement and `BillingFeature` keys for payroll, marketplace and ARIA: BLOCKED on open decision #8.** Today payroll, ARIA Operations/automations and the marketplace/catalog pages have no plan gate (role authorization only); only `ai_assistant` gates AI generation. No speculative keys are to be created before placement is decided.
+- **Payroll Prep tier placement: DECIDED — Growth+ (owner-approved 2026-09-15; reaffirmed by the owner 2026-10-13, see below).** **Payroll Prep entitlement enforcement and its `BillingFeature` key: NOT IMPLEMENTED — pending a separately authorized slice** (today Payroll Prep has role authorization only and no plan gate).
+- **Plan placement and `BillingFeature` keys for marketplace and ARIA: BLOCKED on open decision #8.** Today ARIA Operations/automations and the marketplace/catalog pages have no plan gate (role authorization only); only `ai_assistant` gates AI generation. No speculative keys are to be created before placement is decided.
 - ~~No reusable upgrade-prompt component~~ — **reassigned to Phase 17** (owner-approved). Phase 4 is satisfied by the existing functional entitlement-denial behavior: `requireStudioFeature` / organizer helpers redirect to `/app/settings/billing?reason=feature_required&feature=…&requiredPlan=…`, which the billing page renders, plus feature-specific inline limit messages (reports, AI insights, events, organizer contacts, ENT-1 campaign allowance). The shared upgrade-prompt component and usage display are web-UX completion work (see Phase 17).
 - Usage ledger writes outside `addons.ts` (and lumi portal): ENT-1 adds reservation-based writes for campaign recipients; no other new metering.
 - Future entitlement needs: Featured Events promotion (see module), Partner Match is intentionally free.
@@ -363,7 +455,12 @@ These were enforced for BR-4 and remain in force for all later public materials 
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Open decision #8 — plan placement for SMS (including whether it has a monthly allowance and its quantity), payroll, marketplace and ARIA features (including whether ARIA Operations is plan-gated or only AI-credit metered), and how that ties to Phase 22 pricing. All remaining Phase 4 implementation waits on it. **Phase 4 stays PARTIAL; it is not complete.**
+**UNRESOLVED PRODUCT DECISIONS:** Open decision #8 — plan placement for SMS (including whether it has a monthly allowance and its quantity), marketplace and ARIA features (payroll placement resolved in v2.22: Growth+) (including whether ARIA Operations is plan-gated or only AI-credit metered), and how that ties to Phase 22 pricing. All remaining Phase 4 implementation waits on it. **Phase 4 stays PARTIAL; it is not complete.** **v2.22 progress on #8:** (a) **Payroll Prep placement is RESOLVED: Growth+** (owner decision below); (b) the SMS **commercial direction** is set by TW-4 D7 (setup fee + monthly service fee + included allowance with metered overage). SMS amounts and allowance, marketplace placement and ARIA placement remain **open**.
+
+**Payroll Prep tier placement — DECIDED: Growth+ (OWNER-APPROVED).** Source: the owner's 2026-09-15 entitlement decisions listed *Payroll Prep = Growth+* among "locked decisions" and restated it the same day as already locked (superseding the earlier same-day Decision 4 note that the tier "will be decided separately"). The 2026-10-03 Phase 4 reconciliation listed "payroll plan placement" among the items blocked on decision #8; **on 2026-10-13 the owner explicitly resolved that conflict in favor of Growth+** ("Payroll Prep = Growth+ is reaffirmed as the current owner-approved product-tier decision") during the v2.22 merge review.
+- **What is decided:** the product tier — Payroll Prep is included in Growth and Pro, not Starter.
+- **What is still pending (implementation, not a product decision):** the Payroll Prep `BillingFeature` key, server-side entitlement enforcement and the denial/upgrade UX. These need their own authorized slice (with a live-plan check before any grandfathering exception, per the owner's 2026-09-15 note that the then-live studios were on Pro). No billing, pricing or Stripe change is implied.
+- **Not affected:** Gusto remains a separate, dormant future capability (Decision 4) with its pricing undecided; the other 2026-09-15 tier statements (general Documents/e-signature Growth+, minimal Group Class waiver Core, Packages/Memberships Core, ARIA Core with metered usage, seat and owned-location limits) are **not ruled on in v2.22** and stay as recorded evidence; marketplace and ARIA placement and SMS amounts stay open under #8.
 
 **DEPENDENCIES:** Phase 2 (SMS), Phase 22 (pricing), Phase 13 (campaign allowances), Phase 19/20 (mobile gating).
 
@@ -379,7 +476,7 @@ These were enforced for BR-4 and remain in force for all later public materials 
 
 **EVIDENCE / RELEASE REFERENCES:** `src/lib/billing/{plans,access}.ts`, `src/lib/usage/addons.ts`. ENT-1: `src/lib/usage/campaignAllowance.ts`, migration `src/lib/supabase/migrations/20261013090000_ent1_usage_allowance_reservations.sql` (rollback and SQL test alongside; race harness `sql-tests/concurrency/ent1_race_harness.mjs`), campaign send actions under `src/app/app/marketing/campaigns/` and `src/app/app/organizer-campaigns/`.
 
-**PHASE 4 RECONCILIATION (2026-10-03, owner-approved):** no dependency-safe Phase 4 implementation work remains. What is left is blocked by open decision #8 (SMS, payroll, marketplace and ARIA plan placement) and, for pricing, Phase 22. SMS stays blocked on plan placement independently of the separate Twilio / Sachin external dependency. Existing functional entitlement denial is sufficient until Phase 17. Phase 4 is PARTIAL by decision, not by missing engineering; the unresolved items stay visible in this section and in the consolidated decisions list.
+**PHASE 4 RECONCILIATION (2026-10-03, owner-approved):** no dependency-safe Phase 4 implementation work remains. What is left is blocked by open decision #8 (SMS, payroll, marketplace and ARIA plan placement) and, for pricing, Phase 22. SMS stays blocked on plan placement independently of the separate Twilio / Sachin external dependency. Existing functional entitlement denial is sufficient until Phase 17. Phase 4 is PARTIAL by decision, not by missing engineering; the unresolved items stay visible in this section and in the consolidated decisions list. *(v2.22: the payroll placement part of this reconciliation is superseded by the owner's 2026-10-13 reaffirmation of Payroll Prep = Growth+; payroll enforcement remains unimplemented. SMS, marketplace and ARIA are unchanged.)*
 
 **PHASE 5 HANDOFF (explicit, not a silent reorder):** roadmap execution may proceed to Phase 5 while Phase 4 remains PARTIAL because (1) the remaining Phase 4 work is explicitly blocked by product decisions, (2) those items remain visible and unresolved, and (3) they do not affect the existing entitlement foundation (the plan features, seat limits, credit/benefit engine inputs and ENT-1 allowance) that Group Class work relies on. No Phase 5 work is complete as a result of this handoff.
 
@@ -501,8 +598,6 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 
 **Bounded S1E-4 follow-ups (non-blocking; not S1F blockers and not expanded here):** (1) generic Google create→mapping-write failure: if Google event creation succeeds but the sync-item write fails, a later run may create a duplicate event (pre-existing, not group-class specific); (2) legacy wall-clock-as-UTC appointment rows (created before zone-aware writers, around mid-May 2026) may display offset in Google and ICS, and no historical normalization migration exists; (3) ICS `no_show` behavior (Google excludes no_show, ICS does not) is an unresolved product-semantic question; (4) the separate Events-table Google behavior remains outside Group Class S1E.
 
-(x) => x
-
 **GC-S1E status and what remains in Phase 5 (supersedes the earlier "S1E next" statements above):** GC-S1A, S1B, S1C, S1D and S1E are complete and closed; **GC-S1F — Security, polish and closeout is NEXT and NOT STARTED.** Phase 5 remains PARTIAL until S1F closes: S1F, legacy Events group-class retirement (requires a production-data inventory first), multiple rooms/locations, class revenue reporting and the depleted-credit decision (#10, open) remain. Legacy Events remain active; GC-3.4 (Phase 6) and GC-3.5 (Phase 7) are not part of Phase 5. Twilio and BR-6 status are unchanged. **Next engineering item: GC-S1F.** *(Superseded by the Phase 5 closeout below: GC-S1F is released and Phase 5 is COMPLETE / CLOSED.)*
 
 **GC-S1F (security, polish and closeout) — RELEASED / CLOSED (2026-10-05); PHASE 5 — GROUP CLASS CANONICAL FOUNDATION — COMPLETE / CLOSED.** PR #168, squash `d39bf3f7e9eb18adb898f74d7954fa251c2ffa24` (parent `036e390cb1fbaba2a0b9d96895b42f5a605de424`, tree identical to the reviewed candidate); qfem `dpl_F6NpfGX6o9E7s9Dhisi4WMvKXBod`, rollback target `dpl_78dEg8zqXvkWZQ11TEnC1C3bgyr1`; no SQL, no migration. Authenticated production smoke was intentionally omitted because prior production read-only verification attempts resulted in secret/key exposure; authenticated behavior was instead validated in DEV/local before release.
@@ -514,7 +609,7 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 - **Dancer confirmation:** a self-enrolled dancer now reads natural wording ("You're enrolled in …") instead of staff-action wording. Staff-driven single enrollment and consolidated series enrollment semantics are unchanged.
 - **Group Class UX / polish (Group Class surfaces only, not the whole application):** cancellation scope language clarified; canonical edit and cancel scopes remain **This class** and **This and following classes** (there is no "Entire series" edit scope); Group Class collapsible controls (Add dancer, class cancellation, Remove dancer, Mark No Show) now carry a visible chevron that changes when opened; one-time class create and single-class edit show visible success confirmation; the raw database error on one-time class creation is no longer exposed; missing class / appointment states show safe copy.
 
-**Public Discovery notification rule (v2.11, preserved):** externally initiated Public Discovery purchases, registrations, enrollments and bookings generate a studio-side operational notification, tied to authoritative committed success; where payment is required, no success notice is sent before the relevant settled state is established; none for failed attempts, abandoned checkout, unresolved pending payment, previews, stale/refused operations or replays that created no new successful transaction. **The rule is RECORDED; only the Group Class portal self-enrollment path has implemented it.** Phase 6, Phase 7 and later public flows must carry it forward.
+**Public Discovery notification rule (v2.11, preserved):** externally initiated Public Discovery purchases, registrations, enrollments and bookings generate a studio-side operational notification, tied to authoritative committed success; where payment is required, no success notice is sent before the relevant settled state is established; none for failed attempts, abandoned checkout, unresolved pending payment, previews, stale/refused operations or replays that created no new successful transaction. **The rule is RECORDED; at Phase 5 closeout only the Group Class portal self-enrollment path had implemented it.** (Later: GC-3.4C and GC-3.5-3 implement it for public Group Class enrollment and paid registration; see Phases 6 and 7.) Phase 6, Phase 7 and later public flows must carry it forward.
 
 **Deferred / bounded, not Phase-5 blockers:** the Group Class studio notice is email-only; the generic (non-Group-Class) lesson cancel form has no chevron; the delivery-key uniqueness is part of the underlying notification infrastructure; the bounded S1E-4 Google, legacy-time and ICS concerns above remain bounded as recorded; GC-3.5 direct-payment enrollment remains Phase 7.
 
@@ -776,7 +871,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **REMAINING DELIVERABLES:** None for Phase 9. Carry-forwards are listed under Deferred.
 
-**LOCKED DECISIONS:** Payroll disbursement is owner/platform-admin only. Compensation rules are managed by studio owner/admin only. Approved-batch evidence is immutable. No distinct "exported/finalized" status was added; export is recorded as evidence events.
+**LOCKED DECISIONS:** **(v2.22) Payroll Prep tier = Growth+** (owner-approved 2026-09-15, reaffirmed 2026-10-13; entitlement enforcement not yet implemented — see Phase 4). Payroll disbursement is owner/platform-admin only. Compensation rules are managed by studio owner/admin only. Approved-batch evidence is immutable. No distinct "exported/finalized" status was added; export is recorded as evidence events.
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
@@ -794,7 +889,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **DEFERRED / POST-LAUNCH ITEMS** (Phase 9 is not reopened for these)
 - Phase 12: platform-admin non-batch payroll reports, platform-admin direct earning edits, and platform-admin compensation-rule management.
-- Later Gusto phase: the dormant Gusto "Last checked" timestamp still displays in server time.
+- Later Gusto phase: the dormant Gusto "Last checked" timestamp still displays in server time. (v2.22: Gusto is dormant by owner Decision 4 and reactivates only if Gusto approves the integration; see Phase 26.)
 - Optional UX follow-up: visually inspect the newer narrow-width Payroll layouts in a browser (covered by source/class tests only).
 
 **EVIDENCE / RELEASE REFERENCES:** 9A PR #194 (`d3fa0af`, migration `20261102090000`); 9B PR #195 (`2cc204e`, migration `20261103090000`); 9C PR #196 (`c991f9c`, migration `20261104090000`); 9D PR #198 (`8cc97f2`, app-only); 9E PR #200 (`9c3fd5a`, app-only; live `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`). Earlier: migrations `20260715_payroll_*`, `20261004090000`; SQL suites `test_T_phase9a_*`, `test_T_phase9b_*`, `test_T_phase9c_*`; `src/app/app/instructor-pay`, `src/lib/compensation`, `src/lib/utils/csv.ts`.
@@ -803,7 +898,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 ## Phase 10 — Organizer + Competition OS
 
-**STATUS:** PARTIAL — MATERIAL WORK REMAINS — NEXT PRIMARY ENGINEERING PHASE (Phase 9 closed 2026-10-09). **Next slice: 10A — Competition Foundation Reconciliation.** Phase 10 is NOT greenfield: a partial Competition OS foundation already exists (see below). The Competition OS architecture and slice plan were approved in v2.21 (docs only; no code, SQL or deployment change).
+**STATUS (v2.22):** PARTIAL — MATERIAL WORK REMAINS — ACTIVE. Released: 10A, 10B, 10C, 10C.1, 10C.2, 10C.4, 10D, 10D.1 and 10C.5 (10C.3 was an audit, no code). **Next slice: 10E — Officials + Immutable Ballots**, gated on the owner's Schedule & Heats walkthrough; then 10F. Studio v1 (10A–10F) is therefore about two-thirds complete by slice count; the judging, scoring, results and publication half of the v1 loop is not built. **Public Competition registration remains OFF and HELD** (see [Release holds and gates](#release-holds-and-gates-v222)). The Competition OS architecture and slice plan were approved in v2.21.
 
 **OBJECTIVE:** A complete organizer workspace and a full Competition OS. **Ordinary event ticketing does not count as Competition OS.**
 
@@ -831,7 +926,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **EXISTING FOUNDATION (June 2026, partial; not complete):** roughly 40 `event_competition_*` tables covering programs, contests, divisions, rounds, heats and heat entries; configuration templates; entry structures; generation/proposal infrastructure and the heat planner; scheduling structures; check-in including competitor numbers and credentials; the WSDC profile foundation; and a public competition registration builder behind a feature flag. Material work remains on top of it.
 
-**KNOWN FOUNDATION DEFECTS / DRIFT (to be fixed in 10A; not yet fixed)**
+**KNOWN FOUNDATION DEFECTS / DRIFT (v2.21 list — ALL ADDRESSED by 10A, PR #204, released 2026-10-09; preserved for history).** 10A captured the five schedule tables and the two schedule functions into migration `20261107090000`, repaired contest/division public RLS, made entry changes non-forgeable, replaced the session-GUC heat override with a role-checked lock-event ledger, added foundation SQL and application tests, and added the workspace entry from event detail. 10A also fixed defects not on this list (anon-callable registration-rule default, a schedule trigger and an unqualified `digest()` that broke heat-plan runs and schedule publish). Original list:
 - The schedule tables and the schedule-version RPC exist in the deployed databases but are not captured in repository migrations.
 - Public competition read RLS defects (contest and division policies).
 - `event_competition_entry_changes` is not append-only or hardened.
@@ -849,14 +944,50 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 - **Public participant result and heat views** (none found).
 - **Feedback** (judge or competitor) (none found).
 - **Live heat management** (call, advance, delay, live status to competitors) (none found).
-- **Scratches/changes workflow UI** with fees and re-heat (table exists; no UI).
-- **Partnerships/couples management** (partial: entry participants and partner search only).
-- Competition **test coverage** (none found for lib or routes; 10A adds foundation tests).
+- **Scratches/changes workflow UI** with fees and re-heat (table exists; no UI; 10D added scratch/no-show handling in floor heats only).
+- **Partnerships/couples management** (partial: entry participants and partner search; 10C.4 added participant-role integrity — mixed relationship vs lead/follow role — and combination validation).
+- Competition **test coverage**: foundation, profile, registration, role, heat and eligibility SQL suites plus application tests now exist (10A–10D.1); scoring/results coverage arrives with 10E/10F.
+- (v2.22) ~~Canonical event-level competitor identity~~ — DELIVERED by 10C (event-level competitors and entries). The other items above remain for 10E–10G.
 
-**REMAINING DELIVERABLES — EVENT side:** volunteer/staff UI (labor actions exist without a page); a profitability view (only financial summary and settlement); organizer-specific notification center; organizer ARIA page; event-promotion/Featured management (see module).
+**RELEASED SLICES (v2.22 reconciliation; production releases recorded by the operator at release time — the commit bodies say "DEV only" because they were written at PR time)**
 
-**SLICE PLAN** (approved v2.21; engineering sequencing, not a delivery commitment)
-- **10A — Competition Foundation Reconciliation (NEXT; recommended model Opus):** read-only DEV/PROD introspection; capture the deployed schedule tables and RPC into repository migrations; repair the public competition RLS defects; harden `event_competition_entry_changes`; replace the unsafe heat override with role-checked behavior; tests around the existing foundation; an obvious Competition workspace entry from event detail.
+| Slice | Scope | PR → main | SQL | Production |
+|---|---|---|---|---|
+| 10A Competition Foundation Reconciliation | Captured undeclared schedule objects; RLS, entry-change, heat-lock and anon-EXECUTE fixes; foundation tests; workspace entry | #204 → `b0c8630f` | `20261107090000` (PROD 2026-10-09 14:30Z) | `dpl_F5jwWf7u…` |
+| 10B Simple Creation + Competition Workspace | `studio_simple@1` profile, publish lock/snapshot, 5-step Simple Mode wizard, lifecycle Overview, divisions panel; old setup moved to Advanced | #205 → `72f12c4b` | `20261108090000` (PROD 19:16Z) | `dpl_3ycRADDt…` |
+| 10C Competitors + Transactional Registration | Event-level competitors and entries; transactional, idempotent registration on the event commerce stack; server price snapshot; Phase 8 signing; webhook finalize (`finalize_competition_registration`) | #206 → `a2bcb203` | `20261109090000` (PROD 22:06Z; preceded by an authorized repair of two duplicate PROD `event_payments` rows) | `dpl_65HJvF9i…` |
+| 10C.1 Launch readiness + entry UX | Guest checkout, idempotent resume, processing→confirmed status, cancel/expiry, waiver→resume; launch gates defined | #207 → `55344d43` | none | `dpl_3NW22SgV…` |
+| 10C.2 Create Event simplification | Simplified Create Event; publish → `published` status | #208 → `be48b5b4` | none | `dpl_CMY4inat…` (owner walkthrough pending) |
+| 10C.3 Entry relationship completeness (audit) | Rulebook audit (UCWDC, WSDC, NDCA) found participant-role conflation; no code | — | — | — |
+| 10C.4 Participant role integrity | Relationship vs lead/follow role separation; combination validation | #209 → `5e307c98` | `20261110090000` (PROD 2026-10-10 11:06Z) | `dpl_4QJPm2Yw…` |
+| 10D Heats + Floor Schedule v1 | Floor heats (canonical Schedule & Heats), running order, one publish/snapshot authority, scratches/no-show; June planner kept under Advanced | #210 → `b5e552f2` | `20261111090000` (PROD 12:07Z) | `dpl_CqspkCpy…` (owner walkthrough pending) |
+| 10D.1 Heat entry eligibility integrity | Database floor-heat integrity check enforces entry eligibility | #211 → `20aefe82` | `20261112090000` (PROD 12:53Z; SQL-only) | app unchanged |
+| 10C.5 Competition setup wizard + draft generator | Format-driven setup wizard; per-format division schemes (UCWDC Country, NDCA Ballroom classifications, WSDC, Studio); dance selection; feedback policy separated from official results; draft generator; registration settings isolated on the program; profile `studio_simple@3` (`@2` kept immutable) | #212 → `fb2fbd15` | `20261113090000`, `20261114090000`, `20261115090000` (PROD 2026-10-12 01:18Z, one transaction) | `dpl_4f83RdS9…` (promoted 01:44Z; 30-minute observation clean) |
+
+All slices released with the public registration flag OFF. Later production deployments (CI-A, PAY-WH-1, PAY-WH-1B) carry these slices forward.
+
+**v2.22 scope notes (recorded so they do not silently become requirements):**
+- **Profile version:** the current Simple profile is `studio_simple@3`; `@1` and `@2` remain immutable for any competition that locked them (rules/version lock principle).
+- **Pull-forward from 10H:** 10C.5 lets organizers *set up* NDCA Ballroom classifications and Multi-Dance categories, but registration into Multi-Dance categories is held (`multi_dance_results_not_operational`) until Multi-Dance results are operational. This is a bounded setup pull-forward, **not** a change to the rule that 10H–10J are outside studio v1.
+- **Feedback vs official results:** 10C.5 separated feedback modes (none / written / + grade / + score) from official competitive results in the profile; feedback UI is deferred to 10F/Companion.
+
+**REMAINING STUDIO v1 MILESTONES (v2.22)**
+1. **10E — Officials + Immutable Ballots** (Opus; own Security Review). Gate: owner Schedule & Heats walkthrough (10C.2/10D). Carry-forwards from 10A that land here or in 10F: `organizer_staff` full authority and the studio-name organizer heuristic (with Phase 12), published schedule versions not trigger-immutable, audit change-type labels supplied by callers, locked heats blocking event deletion, and blocking event deletion once results exist.
+2. **10F — Scoring Engines + Results + Publication** (Opus for engines and finalization): `ordinal_majority`, `proficiency_rating`, `callback_tally`; calculate, review, approve, publish, corrections, awards, public results, participant history; feedback delivery.
+3. **10G — Live Competition Run + Polish** (optional for the v1 milestone).
+4. **Public registration enablement** (separate from the v1 milestone; owner-authorized flag change): requires CI-B, CI-D, the 10C.1 launch gates and, for Multi-Dance categories, the Multi-Dance hold.
+5. 10C carry-forwards (**AGENT-RECORDED PROPOSAL** — recorded at release; non-blocking unless noted): per-competitor waivers; duplicate admission attendees across orders; reopen re-enabling per-category rules; anchored email/DOB snapshot; expired-signing redirect; status-page lazy release; organizer manual confirm; staff-side registration UI; stale competition-order sweeper (check whether the PAY-WH-1 reconcile sweeper now covers it); three copies of the platform-fee rule; guest competitor PII erasure; publicly readable `request_key`.
+6. Format carry-forwards (**AGENT-RECORDED PROPOSAL** except the Jack & Jill deferral, which was approved in 10D; 10C.4 / 10D / 10C.5; post-v1 unless a v1 slice needs them): NDCA Student/Student and Mixed Proficiency; "judged" marker; team minimum size and internal couples; per-round pairing; Jack & Jill pairing table (deferral approved in 10D); feedback UI.
+
+**REMAINING DELIVERABLES — EVENT side:** volunteer/staff UI (labor actions exist without a page); a profitability view (only financial summary and settlement); organizer-specific notification center; organizer ARIA page (owned by Phase 15 from v2.22, with a Phase 10 dependency); event-promotion/Featured management (see module).
+- **(v2.22, OWNER-APPROVED commitment "organizer parity"; matrix layout is engineering) Organizer parity matrix** — Phase 10 is the home of the cross-cutting organizer-parity checklist (campaign editing, composer, ARIA, notification center, CRM depth, organizer-owned classes, roles); see the [Preserved commitments register](#preserved-commitments-register-v222) section C.
+- **(v2.22, owner-approved 2026-10-10) Edit Event simplification:** Edit Event still uses the old publishing UI/model, and its save rewrites every column and deletes/recreates child rows; bring it to the 10C.2 Create Event model.
+- **(v2.22, AGENT-RECORDED PROPOSAL) Past event detail page** still shows registration / spots-remaining affordances after an event has ended (Cleanup PR B follow-up; agent-recorded, owner approval UNVERIFIED).
+- **(v2.22, owner-identified 2026-10-11 during 10C.5; deferred from PR #212) Competition commerce requirements:** youth / multiple pricing categories; spectator admission tickets sold separately from competitor entries; hotel room blocks / accommodation packages (post-v1); scholarship offerings with designation, prize obligations and payment (10H/10J+ scope).
+- **(v2.22, ENGINEERING FINDING) Event commerce authority hardening** (2026-10-12 commerce audit): `event_payments` amount/status/refund columns are writable by tenant staff roles, registrations/attendees are updatable by any active studio role, and `canCheckInEventAttendees` is unused. CI-B addresses the check-in part; the rest attaches to deferred item #7 (event staff/action-role hardening).
+
+**SLICE PLAN** (approved v2.21; engineering sequencing, not a delivery commitment; **v2.22 status: 10A–10D RELEASED, plus inserted slices 10C.1–10C.5 and 10D.1 — see Released slices above; 10E NEXT**)
+- **10A — Competition Foundation Reconciliation (RELEASED 2026-10-09; was NEXT in v2.21):** read-only DEV/PROD introspection; capture the deployed schedule tables and RPC into repository migrations; repair the public competition RLS defects; harden `event_competition_entry_changes`; replace the unsafe heat override with role-checked behavior; tests around the existing foundation; an obvious Competition workspace entry from event detail.
 - **10B — Simple Creation + Competition Workspace:** `studio_simple@1`, profile/version lock, Simple Mode wizard, workspace shell with readiness, separate rules-profile and sanction fields.
 - **10C — Competitors + Transactional Registration:** event-level competitors and entries; competition checkout hardening on the existing event commerce stack (transactional, idempotent, server price snapshot, signing via the Phase 8 workflow).
 - **10D — Heats + Floor Schedule v1:** floor heats, single floor, heat sheets, scratches/no-show, check-in tie-in, participant heat lookup.
@@ -891,19 +1022,21 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **UNRESOLVED PRODUCT DECISIONS:** Whether a separate judging application exists (v1 is web with authenticated accounts; the separate-app question remains Phase 18); Featured Events model. (Scoring systems to support is resolved by the locked studio v1 defaults and the post-v1 profile order above.)
 
-**DEPENDENCIES:** Competition-specific event roles are implemented inside Phase 10 as needed; Phase 12 (generic Team & Permissions expansion) later folds them into its permission catalog. Phase 8 (signing workflow) for competition checkout; Phase 11 (notification integration); Phase 13/Featured module.
+**DEPENDENCIES:** Competition-specific event roles are implemented inside Phase 10 as needed; Phase 12 (generic Team & Permissions expansion) later folds them into its permission catalog. Phase 8 (signing workflow) for competition checkout; Phase 11 (notification integration); Phase 13/Featured module. **(v2.22)** Public registration enablement depends on the Commerce Integrity lane (CI-B, CI-D).
+
+**OWNER ACCEPTANCE GATES (business acceptance only; functional QA is developer-owned):** Schedule & Heats walkthrough (10C.2/10D; gates 10E); organizer walkthrough and verified "this is me" walkthrough (10C.1; gate public registration).
 
 **WEB IMPLICATIONS:** Organizer and Competition are named workspaces in Phase 17.
 
 **MOBILE IMPLICATIONS:** Studio v1 judging is web-based with authenticated accounts. Judging, live heats and competitor surfaces still drive the 2-app vs 3-app decision (Phase 18). Today `mobile/` contains only the student app; its competition screen is a discovery category.
 
-**SECURITY / PERMISSIONS CONSIDERATIONS:** Judge/scoring access and result integrity are new high-risk surfaces; require their own Security Review (10E and 10F require Opus review). 10A also repairs existing public-read RLS and append-only/override defects in the foundation. Event staff-role granularity is deferred (see register).
+**SECURITY / PERMISSIONS CONSIDERATIONS:** Judge/scoring access and result integrity are new high-risk surfaces; require their own Security Review (10E and 10F require Opus review). 10A repaired the foundation's public-read RLS and append-only/override defects (released). Event staff-role granularity is deferred (see register).
 
 **BRANDING / POLISH CONSIDERATIONS:** Organizer/competition surface branding unverified; vocabulary sweep ("Organizer Workspace").
 
 **DEFERRED / POST-LAUNCH ITEMS:** Event staff-role hardening; floor-rental pricing redesign (unrelated sibling item).
 
-**EVIDENCE / RELEASE REFERENCES:** `src/app/app/events/[id]/competition/*`, `src/lib/competition/*`, `20260622_west_coast_swing_foundation_v1`. v2.21 architecture approval is docs only (no application, SQL or deployment change).
+**EVIDENCE / RELEASE REFERENCES:** `src/app/app/events/[id]/competition/*`, `src/lib/competition/*`, `20260622_west_coast_swing_foundation_v1`. v2.21 architecture approval is docs only. v2.22: PRs #204–#212 and migrations `20261107090000`–`20261115090000` (see Released slices); slice documents under `docs/competition/` and `docs/events/phase10c2-create-event-ux.md` (the 10C.1 and 10C.5 documents still describe themselves as a local candidate / open PR; both were merged — #207, #212).
 
 ---
 
@@ -926,6 +1059,9 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 - Quiet-hours/dedupe policy.
 - Push and preference-path test coverage.
 - Notification-preference membership hardening (#9, deferred).
+- **(v2.22, from the owner-approved TW-4 direction)** Twilio Event Streams intake and send-error 21610 suppression handling become part of the SMS platform (built in TW-4 4B).
+- **(v2.22, ENGINEERING FINDING, from PAY-WH-1)** `outbound_deliveries` claim fields (`claim_owner`, `claim_expires_at`) are not cleared after a send and mark-sent/skipped does not check the claim owner (cosmetic today; tidy when the dispatcher is next touched).
+- **(v2.22, AGENT-RECORDED PROPOSAL — GC-R1 known gaps)** private-lesson reminder dedupe gap when `user_id` is NULL; cancel-after-queue handling outside Group Classes.
 
 **LOCKED DECISIONS:** SMS is limited to the registered categories (Phase 2); no marketing SMS.
 
@@ -970,12 +1106,14 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 - Event staff-role granularity (#7, deferred).
 
 **LOCKED DECISIONS:** Owner-only administration and owner-access safeguards remain.
+- **(v2.22 — recording owner direction of 2026-09-04/05):** the relationship/role type supplies secure default capabilities; Team & Permissions is primarily the owner-controlled override/delegation layer; support role-level defaults plus per-user overrides; clearly distinguish inherited vs overridden access; preserve owner-only permission administration; no architecture may make per-user overrides impossible.
+- **(v2.22 — owner sequencing, 2026-10-13):** granular Team & Permissions (the data-driven catalog and overrides) must be delivered **before Phase 24 — Data Loss Prevention**, because DLP policies are expressed over the permission model.
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
 **UNRESOLVED PRODUCT DECISIONS:** Whether custom roles are in scope.
 
-**DEPENDENCIES:** Prerequisite for Phase 19 (Business navigation).
+**DEPENDENCIES:** Prerequisite for Phase 19 (Business navigation), Phase 17 permission-aware navigation and **Phase 24 (DLP)**.
 
 **WEB IMPLICATIONS:** Team settings redesign; permission-aware navigation.
 
@@ -1001,32 +1139,40 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **COMPLETED CAPABILITIES:** Draft/test-send/recipient-generation/send for plain-text email campaigns (single CTA); fixed audiences (manual, all active clients, new leads, inactive clients, event attendees); unsubscribe table and public unsubscribe routes with compliance footer and consent acknowledgment; AI draft assistant; parallel organizer campaign system; tests for actions, authorization and email rendering; monthly recipient allowance enforced for studio and organizer sends (ENT-1, released).
 
-**REMAINING DELIVERABLES**
-- Edit/update-draft action and UI (unconfirmed).
-- Block-based editor storing structured blocks rendered to `body_html`.
-- Image upload/insert; interactive blocks (multiple CTAs/buttons).
-- DanceFlow event-link picker.
-- Saved/custom segments.
-- Open/click/delivery/unsubscribe analytics (needs provider webhooks).
-- Email/SMS channel selector (SMS campaigns gated on SMS consent and A2P; campaign recipients are email-only today).
-- Client marketing-consent model beyond email unsubscribes.
-- ARIA guidance beyond draft generation.
-- Dedupe the duplicated action modules in campaign actions.
+**v2.22 AUDIT FINDINGS (code at `24a37a15`)**
+- **Drafts:** organizers can reopen and edit drafts (`updateOrganizerCampaignDraftAction`); **studios cannot** — the studio campaign actions are create, test, generate recipients and send only, and the studio detail page shows the body read-only. (Resolves v2.21's "(unconfirmed)".)
+- **Editor:** a plain textarea plus one CTA label/URL rendered through the fixed branded shell; `body_html` exists in the schema but is unused; images are limited to the studio logo; the CTA URL is free text (no event-link picker).
+- **ARIA:** the draft assistant (subjects, preview, body; metered as `ai_action`) works only by copy/paste, which a studio cannot apply after creation because there is no edit form. ARIA marketing rules are suggestion-only with no send path (unchanged, locked by ENT-1 scope).
+- **Compliance gaps (live behavior):** (1) unsubscribes are applied when recipients are *generated*, not re-checked at *send*, so someone who unsubscribes from campaign A after campaign B's recipients were generated can still receive B; (2) the suppression lookup fails open (a lookup error returns an empty set); (3) no `List-Unsubscribe` / `List-Unsubscribe-Post` one-click headers; (4) no recipient-side marketing-consent basis (audiences are inferred from business relationships); (5) marketing and transactional mail use separate sender variables on one Resend account — whether the live sender domains are actually separated is unverified.
+- **Architecture:** studio and organizer campaigns are fully parallel systems (separate tables, separate unsubscribe implementations: anon RPC vs admin client). The unreferenced duplicate `marketing/campaigns/[id]/actions.ts` remains (a test pins it untouched until the dedupe).
+
+**REMAINING DELIVERABLES (v2.22; the commitments are OWNER-APPROVED — drafts, block editor, images, ARIA integration, event-link picker, plus every v2.21 item; the M-0…M-7 split is ENGINEERING SLICING)**
+- **M-0 — Campaign compliance remediation (PRIORITY 1):** re-check suppression at send time for every batch (studio and organizer); make the suppression lookup fail closed; add `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers backed by a one-click endpoint; verify (and record) marketing vs transactional sender-domain separation; validate CTA URL schemes on the studio form. Developer-owned QA including a concurrency case (unsubscribe between generate and send).
+- **M-1 — Studio draft reopen/edit + ARIA apply:** studio update-draft action and UI matching organizer parity (edits refused once not `draft`); ARIA assistant output can be applied directly into the draft (subject/preview/body) instead of copy/paste.
+- **M-2 — Shared composer model / organizer parity:** one campaign content model and editor component used by studio and organizer workspaces; dedupe the duplicated action modules (v2.21 item); align the two unsubscribe implementations.
+- **M-3 — Modern block-based editor:** structured blocks (text, image, button, divider/spacer, multi-column layout/sections) stored as JSON and rendered server-side to `body_html` inside the BR-3B2 branded shell with the locked footer order; plain-text alternative generated.
+- **M-4 — Image support:** campaign image upload/insert with a dedicated storage bucket and policy, size/type limits, alt text.
+- **M-5 — DanceFlow event-link picker:** insert existing public DanceFlow event (and class) links from a picker of the workspace's published public items; links resolve to stable public URLs (Phase 10/21).
+- **M-6 — Interactive content where technically supported:** multiple CTAs/buttons; RSVP-style links into existing DanceFlow flows. Email clients do not run scripts; "interactive" means link-driven actions, not embedded forms. (Featured Events tie-in stays with the module and is NOT implied.)
+- **M-7 — Audience and measurement:** saved/custom segments; open/click/delivery/bounce/complaint/unsubscribe analytics with automatic bounce/complaint suppression (needs Resend webhooks — Phase 11); recipient marketing-consent model beyond unsubscribes (v2.21 item); scheduled send (the `scheduled` status exists without a scheduler); ARIA guidance beyond draft generation (v2.21 item).
+- **Channel selector:** email/SMS channel selection stays blocked by the locked no-marketing-SMS decision; a future marketing SMS path would need its own `MARKETING` campaign and separate marketing consent (TW-4 "later" item).
 - Future Featured Events integration (NOT implemented; see module).
 
-**LOCKED DECISIONS:** No marketing SMS under the current registered A2P scope.
+**TRANSACTIONAL vs MARKETING BOUNDARY (v2.22 — recorded as a Phase 13 deliverable, consolidating ENT-1 and Phase 2 rules):** marketing campaigns only through the campaign actions (ENT-1 metered, legal footer, unsubscribe, marketing sender); operational and transactional messages (auth, receipts, reminders, documents, Public Discovery notices, ARIA 1:1 operational outreach) never carry marketing content, are not campaign-metered and are not suppressed by marketing unsubscribes; no marketing SMS. M-0 verifies sender separation; M-7 adds the consent model.
+
+**LOCKED DECISIONS:** No marketing SMS under the current registered A2P scope. ENT-1 reserve → send → settle must be preserved by every new send path.
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Campaign SMS scope and use-case registration.
+**UNRESOLVED PRODUCT DECISIONS:** Campaign SMS scope and use-case registration; whether marketing mail gets its own sending subdomain for reputation isolation (v2.22); recipient marketing-consent model scope (CAN-SPAM-only vs CASL/GDPR-ready, depending on studio geography).
 
-**DEPENDENCIES:** Phase 11, Phase 4 (allowances), Phase 2 (SMS).
+**DEPENDENCIES:** Phase 11 (provider webhooks for M-7 analytics), Phase 4 (allowances; ENT-1 released), Phase 2 (SMS), BR-3B2 branded shell (M-3), storage policy (M-4), stable public event URLs (M-5).
 
 **WEB IMPLICATIONS:** Marketing is a named workspace in Phase 17.
 
 **MOBILE IMPLICATIONS:** None currently identified.
 
-**SECURITY / PERMISSIONS CONSIDERATIONS:** Consent enforcement and unsubscribe correctness.
+**SECURITY / PERMISSIONS CONSIDERATIONS:** Consent enforcement and unsubscribe correctness (M-0 closes the known send-time and fail-open gaps).
 
 **BRANDING / POLISH CONSIDERATIONS:** Branded campaign rendering exists (br3b2).
 
@@ -1047,17 +1193,18 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 **COMPLETED CAPABILITIES:** Mux server library, webhook reconciliation, secure playback; staff digital catalog and Mux uploader; syllabus video uploads; student marketplace pages and APIs; checkout creating digital entitlements; entitlement/expiry-aware playback and progress; mobile wallet with digital purchases and learn screens; verified-email linking.
 
 **REMAINING DELIVERABLES**
-- Web student purchase-history/wallet page (API-level only found).
-- Refund → entitlement-revoke path (only a `refunded_access_retained` status seen) (unverified).
+- Web student purchase-history/wallet page (API-level only found; the web wallet appears only on the portal page and APIs).
+- Refund → entitlement path — **v2.22: gap CONFIRMED, and it is a product decision first.** `commerce_entitlements` allows `active | revoked | expired | refunded_access_retained`, but no application code or SQL writes `revoked` or `refunded_access_retained`, and playback grants access for both `active` and `refunded_access_retained`. A refund therefore never changes digital access today.
 - Digital entitlement failure detection as an ARIA rule (unverified).
+- **(v2.22, AGENT-RECORDED PROPOSAL) Commerce integrity alignment:** digital-product checkout should adopt the PAY-WH-1 settlement pattern (atomic settlement, claim/lease webhook processing, outbox, captured-payment exceptions) and the CI-D refund-attribution pattern; PAY-WH-1 covered event tickets only.
 
 **LOCKED DECISIONS:** None currently identified.
 
 **PROPOSED BUT NOT APPROVED:** Seller payouts / third-party instructor or studio-as-seller revenue split (not found; assumed future).
 
-**UNRESOLVED PRODUCT DECISIONS:** Seller model and payouts.
+**UNRESOLVED PRODUCT DECISIONS:** Seller model and payouts. **(v2.22) Whether a refund revokes or retains digital access** (and whether partial refunds differ).
 
-**DEPENDENCIES:** Phase 4 (marketplace entitlement keys).
+**DEPENDENCIES:** Phase 4 (marketplace entitlement keys, decision #8); Commerce Integrity lane (CI-D pattern) for refund handling.
 
 **WEB IMPLICATIONS:** Purchase-history UX.
 
@@ -1086,16 +1233,22 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 **REMAINING DELIVERABLES**
 - Production digest delivery, retry handling and end-to-end QA (retry completeness unverified).
 - Threshold and default tuning.
-- Refresh the stale coverage-audit document.
+- Refresh the stale coverage-audit document (`docs/aria/aria-day-to-day-automation-coverage-audit.md` predates Slices 5–6).
 - No documented organizer/competition assistance beyond cron role resolution; tier/credit enforcement in ARIA beyond AI-credit allowances (unverified).
+- **(v2.22, ENGINEERING FINDING) Executes vs suggests — recorded explicitly.** The operational matrix marks all 32 rules implemented (12 internal-only, 4 suggestion-only, 9 draft-for-review, 7 default auto-send), but real external execution is email only and limited to a five-rule allowlist (`low_package_balance`, `stale_active_student`, `intro_no_purchase`, `membership_past_due`, `membership_canceling`) that also requires the rule's mode to be auto-send. The matrix declares seven default auto-send rules against five executable ones; how the other two degrade must be verified and the matrix and allowlist reconciled.
+- **(v2.22) ARIA operational automation — execution-scope expansion** (owner direction: ARIA as an operational team member, 2026-09-20; listed for v2.22 capture 2026-10-13): widen the executable allowlist rule by rule, SMS execution only through the Phase 2 / TW-4 registered scope and Phase 11, reversible non-message actions — each designed and explicitly authorized; billing ceilings unchanged.
+- **(v2.22) Organizer ARIA** (event-side "organizer ARIA page" from Phase 10) is owned here, with a Phase 10 dependency. Today `/app/aria` has a partial, read-only organizer-workspace view (event, registration, ticket, profitability and settlement rows); there are no organizer automation rules or executions.
+- **(v2.22, AGENT-RECORDED PROPOSAL) ARIA cleanup follow-ups A–D** (Cleanup PR C): #24 activation decision; draft generated-vs-edited marker; outbound claimed/sending state; move internal ARIA functions out of the server-action module. Also 14 deferred rule-wording refreshes, `aria_schedule_conflict`, a dead confirmation-gap generator, and queued-action recall claim state.
+- **(v2.22) LUMI sub-track — LUMI Dance Journey Assistant.** Owned by this phase from v2.22. Existing released functionality is preserved (see the Preserved commitments register, section C); the owner-approved LUMI Performance Intelligence direction stays in Phase 10 Competition Companion; any further enhancement is a new decision (#24).
+- **(v2.22)** ARIA assistance in TW-4 SMS onboarding (deterministic guidance + knowledgebase article, TW-4 4E) and in Marketing (apply-to-draft, M-1).
 
-**LOCKED DECISIONS:** Autonomy levels (Handle automatically / Prepare for review / Notify only / Off) and the permission ceilings above. Do not claim unreleased automation publicly.
+**LOCKED DECISIONS:** Autonomy levels (Handle automatically / Prepare for review / Notify only / Off) and the permission ceilings above. Do not claim unreleased automation publicly. ARIA never submits or edits SMS registration data itself (TW-4).
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** None currently identified.
+**UNRESOLVED PRODUCT DECISIONS:** ARIA plan gating vs AI-credit metering only (decision #8; v2.21 said "none", which conflicted with #8).
 
-**DEPENDENCIES:** Phase 4, Phase 10 (organizer assistance), Phase 11.
+**DEPENDENCIES:** Phase 4, Phase 10 (organizer assistance), Phase 11, Phase 2/TW-4 (any SMS execution).
 
 **WEB IMPLICATIONS:** Operations UX in Phase 17.
 
@@ -1122,6 +1275,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 **COMPLETED CAPABILITIES:** Guided onboarding and 30-day health view; Migration Center (upload, batch detail, classification, package activation plan); Mindbody, WellnessLiving and Square mappers with pilot-readiness UIs; related migrations.
 
 **REMAINING DELIVERABLES:** Execute real studio pilots per source and record the results (no pilot record or validation test exists); possibly additional importers if canonical scope requires; readiness-scoring and issue-resolution depth unverified.
+- **(v2.22, AGENT-RECORDED PROPOSAL for the acceptance criteria; the Migration Center commitment itself is owner-named) Migration Center pilot gates:** one real pilot per supported source (Mindbody, Square, WellnessLiving), run against the existing QA checklists in `docs/migrations/`, with results and acceptance recorded in `docs/migrations/`; the phase is not COMPLETE until at least the in-scope sources pass. "Substantially complete" rests on code that has not been pilot-validated. Confirm the 2026-09-11 Mindbody `frozen` membership follow-up is closed (the mapper handles `frozen`; closure unverified).
 
 **LOCKED DECISIONS:** None currently identified.
 
@@ -1157,7 +1311,11 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **REMAINING DELIVERABLES:** The pass across Studio, Organizer, Competition, Payroll, Documents, Marketing and related operational workspaces, **plus Discovery / Partner Match where applicable** (web request flow, listing management, moderation-state UX). Absorb PORTAL-UX-1/2 backlog. **Also owns (reassigned from Phase 4): the shared, reusable upgrade-prompt component and plan/usage display** (consistent upgrade and limit messaging across features, replacing the per-feature messages and the billing-page query-param landing).
 
-**LOCKED DECISIONS:** The finalized web workflows become the canonical UX model for mobile. Do not start before material upstream workflow phases are done.
+**v2.22 — two distinct kinds of web work (priority item 7, "Web / Business UX audit and redesign"; the 17-I / 17-A split is ENGINEERING SLICING):**
+- **17-I — Existing web admin UX improvements (can proceed incrementally now):** bounded, previously approved fixes and workflow improvements on today's web app — they are not blocked by the formal pass and should land with the phase that owns the workflow where possible (governing principle: UX quality is part of feature completion). The tracked list lives in the [Preserved commitments register](#preserved-commitments-register-v222) (e.g. New Client `/n`, Edit Event simplification, attendance correction/reversal, package eligibility and lifecycle UX, past-event detail state, PORTAL-UX-1/2, BR polish items) **and the New Student Intake workflow** (owner-approved direction: distinct from discovery lead capture; triggered when the first qualifying appointment is scheduled/confirmed; studio-selected service types and manual sending; branded and configurable; linked to the client record and visible to staff before the lesson — see the Preserved commitments register).
+- **17-A — Formal web design-gap audit and redesign pass** (this phase's canonical objective): starts once upstream workflow phases are materially complete; its output is the canonical UX model consumed by Phase 18. It is a **web** audit; it does not decide or presuppose a separate Business app.
+
+**LOCKED DECISIONS:** The finalized web workflows become the canonical UX model for mobile. Do not start the formal pass (17-A) before material upstream workflow phases are done; bounded 17-I fixes are not held by this rule.
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
@@ -1189,6 +1347,8 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **COMPLETED CAPABILITIES:** None as an audit. One mobile app exists (student).
 
+**v2.22 clarification:** Phase 18 is an **architecture decision**, not a redesign and not a build. Its outputs are a decision record (app count, names, boundaries, navigation ownership, store strategy, auth/session model) and the inputs for Phases 19 and 20-D. **A separate DanceFlow Business app is NOT assumed or approved**; it exists only if Phase 18 decides so and the owner approves. Phase 18 should also consume the Competition Companion requirements (Phase 10), the Communities requirements (strategic module) and the 20-R readiness findings.
+
 **REMAINING DELIVERABLES:** The audit covering hybrid users; role switching; workspace switching; independent instructors; organizer/studio overlap; competition staff; judges; scoring; Dancer Passport; authentication/session architecture; deep links; push routing; shared components; store listings; version/release ownership. Partner Match is a core dancer-app requirement; organizer promotion management placement is an input.
 
 **LOCKED DECISIONS:** The audit precedes locking app count, names, navigation ownership or store strategy.
@@ -1215,7 +1375,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 ## Phase 19 — DanceFlow Business app
 
-**STATUS:** NOT STARTED (nothing exists)
+**STATUS:** NOT STARTED (nothing exists). **v2.22: existence and architecture are NOT approved** — this phase is conditional on a Phase 18 decision and owner approval. Business-user mobile needs may instead be met by the responsive web app or another Phase 18 outcome.
 
 **OBJECTIVE:** A mobile app for studio owners, instructors, staff, organizers and potentially competition staff/judges (subject to Phase 18).
 
@@ -1257,9 +1417,13 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **COMPLETED CAPABILITIES (baseline):** Expo student app v0.1.0 (`com.idanceflow.student`): auth, schedule/appointments, discover (events, studios, group classes, competitions, etc.), favorites, jobs, learn/curriculum/digital video, Lumi, partners (listing editor, requests, threads, report, block, near-me), wallet (packages, memberships, tickets, documents, rewards, payment requests, digital purchases), settings and push preferences.
 
-**REMAINING DELIVERABLES:** Redesign; replace the retired couple/script logo and DF monogram icon; Partner Match accept/decline, thread push routing, web photo parity and refined UX; featured-event visibility if built; store readiness (no listing assets, privacy/data-safety declarations or screenshots found; `eas.json` `submit.production` is empty); remove the duplicate `partners/draft` screen.
+**v2.22 — EXISTING EXPO STUDENT APP (audited at `24a37a15`):** Expo SDK 54, v0.1.0, `com.idanceflow.student`, about 70 routes backed by about 33 `/api/student` routes. A native **card-only event PaymentSheet already exists** (`mobile/student/app/events/[id]/register.tsx`, in use since 2026-07 and exercised by the PR #214/#215 QA), with a byte-identical shared ticket-pricing rule (CI-A). Apple Pay is not configured (empty merchant identifier); marketplace purchase is disabled in the app. Push is student-only; push tap routing for threads/partners is incomplete. **Not store-released** (privacy unlisted, `submit.production` empty; whether any build was ever published is UNVERIFIED). No automated mobile tests; dependencies pinned to `latest`; README scripts missing.
 
-**LOCKED DECISIONS:** Must not leapfrog unfinished web workflows or the Phase 18 audit.
+**REMAINING DELIVERABLES — split in v2.22 (readiness ≠ redesign; the owner asked to separate app readiness from redesign; the 20-R / 20-D item lists are ENGINEERING SLICING except Expo UI automation, which is OWNER-APPROVED):**
+- **20-R — Student App readiness and mobile QA (existing functionality; does not redesign and does not depend on Phase 18):** Expo UI automation / emulator harness (owner asked to preserve this task, 2026-10-12); pin dependency versions; restore README/dev scripts; verify actual store-release status; privacy policy and data-safety declarations drafted from real data flows; crash/analytics posture decision; push tap routing for existing notification types; PaymentSheet regression coverage; remove the duplicate `partners/draft` screen. Store **submission** itself is an owner-authorized gate and normally waits for 20-D unless the owner decides to ship the existing app.
+- **20-D — Student App redesign + Google Play release (gated on Phase 18):** redesign around finalized web workflows and the app-boundary decision; replace the retired couple/script logo and DF monogram icon; Partner Match accept/decline, thread push routing, web photo parity and refined UX; featured-event visibility if built; Competition Companion and Communities surfaces if approved; store listing assets, screenshots and Google Play release.
+
+**LOCKED DECISIONS:** 20-D must not leapfrog unfinished web workflows or the Phase 18 audit. (20-R is maintenance/QA of the existing app and is not held by this rule.)
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
@@ -1275,7 +1439,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **BRANDING / POLISH CONSIDERATIONS:** App-store-facing identity and variants (waits on Phase 18).
 
-**DEFERRED / POST-LAUNCH ITEMS:** Mobile PaymentSheet.
+**DEFERRED / POST-LAUNCH ITEMS:** Mobile PaymentSheet — **re-scoped in v2.22:** the event-cart PaymentSheet exists (card only); what remains deferred is Apple Pay / Google Pay configuration and PaymentSheet for non-event surfaces (marketplace, packages, Group Class direct payment).
 
 **EVIDENCE / RELEASE REFERENCES:** `mobile/student`.
 
@@ -1367,7 +1531,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **UNRESOLVED PRODUCT DECISIONS:** HQ scope.
 
-**DEPENDENCIES:** Moderation queue precedes Partner Match public promotion.
+**DEPENDENCIES:** Moderation queue precedes Partner Match public promotion and (v2.22) DanceFlow Communities.
 
 **WEB IMPLICATIONS:** Admin UX.
 
@@ -1401,7 +1565,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **UNRESOLVED PRODUCT DECISIONS:** Scope and tooling.
 
-**DEPENDENCIES:** Phase 25 shares evidence needs.
+**DEPENDENCIES:** **Phase 12 granular Team & Permissions (permission catalog and overrides) must precede DLP (owner sequencing, recorded v2.22).** Phase 25 shares evidence needs.
 
 **WEB IMPLICATIONS:** None currently identified.
 
@@ -1419,7 +1583,7 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 ## Phase 25 — SOC 2 Type II
 
-**STATUS:** NOT STARTED
+**STATUS:** FORMAL TYPE II ATTAINMENT PROGRAM NOT STARTED (start date subject to resource and operational-readiness planning). SOC 2 readiness — the underlying security controls — is an ongoing governance activity (v2.22).
 
 **OBJECTIVE:** SOC 2 Type II readiness and attestation.
 
@@ -1433,9 +1597,13 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **PROPOSED BUT NOT APPROVED:** None currently identified.
 
-**UNRESOLVED PRODUCT DECISIONS:** Timing and auditor.
+**v2.22 — OWNER DIRECTION (2026-10-13 review): two parts.**
+- **SOC 2 readiness — ONGOING GOVERNANCE ACTIVITY (not deferred).** Security-control work continues in every slice and is not postponed to this phase: least-privilege authorization and RLS, the developer-owned QA and security-review gates, secret handling (no secret exposure in tooling or logs), change management (reviewed PRs, separately authorized merge/SQL/promotion, rollback records), production access through scratch workdirs only, audit trails (consent, documents, payroll evidence, settlement exceptions), incident follow-up, and vendor/sub-processor awareness. Essential controls already identified elsewhere stay scheduled where they are: platform-admin MFA (#6), Phase 12 granular permissions, Phase 24 DLP, the deferred security register (N-S2, G2, #7, #9, raw RPC error text).
+- **SOC 2 Type II formal attainment program — ON THE ROADMAP.** Policies and evidence collection, control mapping, readiness assessment, auditor selection, the Type II observation window and the report. Its **exact start date is subject to resource and operational-readiness planning** (decision #21). Starting the formal program later does not defer any essential control above.
 
-**DEPENDENCIES:** Phase 24; platform admin MFA.
+**UNRESOLVED PRODUCT DECISIONS:** Formal-program start date and auditor (#21). Public "no SOC 2 claim" restriction stays in force until attestation.
+
+**DEPENDENCIES:** Phase 24 (which itself follows Phase 12 granular permissions); platform admin MFA.
 
 **WEB IMPLICATIONS:** None currently identified.
 
@@ -1459,11 +1627,11 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 
 **PRODUCT INTENT:** Extend DanceFlow for larger and more connected customers.
 
-**COMPLETED CAPABILITIES (baseline):** Google Calendar, Gusto, and Wave integrations. Carried from Phase 9: the dormant Gusto "Last checked" timestamp still displays in server time.
+**COMPLETED CAPABILITIES (baseline):** Google Calendar and Wave integrations. **Gusto: DORMANT (v2.22 correction — v2.21 listed it as an active baseline).** `GUSTO_INTEGRATION_ENABLED = false`; code and tables are retained for possible reactivation. Carried from Phase 9: the dormant Gusto "Last checked" timestamp still displays in server time.
 
-**REMAINING DELIVERABLES:** Not yet defined.
+**REMAINING DELIVERABLES:** Not yet defined. **Gusto reactivation** is a candidate item only if Gusto approves the integration (owner condition); it would then need a scoped slice and security review.
 
-**LOCKED DECISIONS:** None currently identified.
+**LOCKED DECISIONS:** **(v2.22 — recording owner Decision 4, 2026-09-15)** the Gusto-specific integration is removed from the active product direction; Payroll Prep stays a provider-neutral DanceFlow capability and is not tied to Gusto; the Gusto implementation is preserved for possible future reactivation if Gusto approves the integration. Gusto is a separate future capability; **its pricing/tier is undecided** (the Payroll Prep Growth+ decision does not cover Gusto).
 
 **PROPOSED BUT NOT APPROVED:** Seller payouts/Connect revenue split for the marketplace (also listed in Phase 14).
 
@@ -1482,6 +1650,34 @@ Depleted-credit behavior (decision #10) remains OPEN. Direct payment does not co
 **DEFERRED / POST-LAUNCH ITEMS:** All of it.
 
 **EVIDENCE / RELEASE REFERENCES:** `src/lib/integrations`.
+
+---
+
+## COMMERCE INTEGRITY LANE
+
+**Added in v2.22.** A parallel lane (not a phase) for event, ticket and competition commerce integrity found after the launch-security and PAY-DC work. It reuses the locked Phase 10 rule that Competition OS has no separate payment stack: every fix here applies to event tickets and competition entries alike. Origin: the 10C.5 commerce audit (2026-10-11) identified three issues the owner treats as **holds on enabling public Competition registration** (early-bird overcharge, whole-payment refund, duplicate check-in); CI-A QA (2026-10-12) then found the webhook-ordering defect that became PAY-WH-1.
+
+| Item | Scope | Status | Release reference |
+|---|---|---|---|
+| **CI-A — Early-bird ticket pricing integrity** | Shared server/mobile ticket-pricing rule (`src/lib/events/ticketPricing.ts`, byte-identical mobile copy); cart checkout refuses a stale client price (`ticket_price_changed`) | **COMPLETE / RELEASED** 2026-10-12 | PR #213 → `1e3deed7`; `dpl_267ZZtRbzExRAnbXN3SPwZiSTysP` promoted 18:18Z; no SQL. QA PR #214 → `733a20c0` (Stripe test-mode E2E; QA-only, no promotion) |
+| CI-A historical impact | Read-only query (`docs/events/ci-a-early-bird-historical-impact.md`) to find past overcharges | **NOT RUN** — needs separate PROD read authorization; any remediation (refunds) needs its own authorization | — |
+| **PAY-WH-1 — Event cart webhook ordering and settlement integrity** | Webhook claim leases on `payment_provider_events` (atomic dedupe), notification outbox, guarded two-phase settlement and release, settlement exceptions, capacity trigger fixes, direct-write guards; event cart and competition checkout are **card-only** | **COMPLETE / RELEASED** 2026-10-13 | PR #215 → `21ec7b6d`; PROD SQL M1 `20261116090000` → M3 `…091000` → M2 `…092000` → M4 `…093000` → M5 `…094000`, 10:30–10:31Z; `dpl_9GRhgfVhT6eDHyQooiqjXnEvpbj3` promoted 10:39Z |
+| **PAY-WH-1A — Remediation (M5)** | Captured-payment exception money state, alert queue, acknowledge/resolve panel and platform page; box-office card-reader terminal holds; competition desk payment via `record_competition_checkin_payment`; staff refund/mark-paid locked for order-backed registrations; `event_payments.event_id` fill trigger where the column exists | **COMPLETE / RELEASED** (shipped inside PR #215) | as above |
+| **PAY-WH-1B — Legacy platform-account Checkout Sessions** | Gated platform-account fallback for pre-2026-07-16 destination-charge Sessions (legacy attempt + order before 2026-07-18 + not direct/competition + `resource_missing`, then metadata proof); a paid legacy Session becomes a `mismatch_account` captured exception, never settled or released | **COMPLETE / RELEASED** 2026-10-13 | PR #216 → `24a37a15`; no SQL; `dpl_5BjsJaSPqn1qA3D4fCDijZbRNqqK` promoted 11:58Z. The four stuck legacy PROD orders reconciled to expired by the normal sweeper (12:15Z) |
+| **CI-B — Atomic event check-in** | Ticket-code and manual check-in currently read `checked_in_at` then update by id with no `checked_in_at is null` guard, so concurrent scans can double-admit; make check-in compare-and-set (and use `canCheckInEventAttendees`), with a clear "already checked in" outcome; competition presence check-in reviewed for the same pattern | **PLANNED — NOT STARTED** (priority 2; app-only expected) | — |
+| **CI-D — Ticket-attributed refund integrity** | `refundEventRegistrationAction` refunds the whole PaymentIntent (no amount) and is not wired to any UI; Stripe-dashboard refunds are allocated across every registration on the PaymentIntent (pro-rata partial, all-refunded full); there is no per-registration refund ledger or order refund flow. Deliver per-registration refund attribution (ledger + locked RPC), webhook attribution, a staff order-refund flow and competition-entry coverage | **PARTIALLY MITIGATED — NOT STARTED** (priority 3; SQL expected; payment-integrity review). PAY-WH-1A blocks the unsafe staff refund for order-backed registrations | — |
+
+**PAY-WH-1 / 1B follow-ups (ENGINEERING FINDINGS and AGENT-RECORDED PROPOSALS — not owner-approved commitments; none started):**
+- Studio-level page for payment exceptions that have no event (`event_order_settlement_exceptions.event_id` is nullable; today only the per-event panel and `/platform/payment-exceptions` show them). Agent-recorded follow-up.
+- A paid legacy Session raises a second alert (`reconcile_stuck` after six attempts) alongside the `mismatch_account` captured exception; suppress the duplicate (SQL).
+- 15 of 24 PROD `event_payments` rows have a NULL `event_id` from before PAY-WH-1; the M5 trigger fills new rows only. Any backfill is a data repair that needs explicit authorization.
+- ACH / delayed payment methods stay disabled until a real ACH end-to-end test and an explicit decision.
+- `outbound_deliveries` claim fields not cleared after send (Phase 11, cosmetic).
+- QA fixture performance (Vitest timeouts, slow storage-upload E2E) and a dedicated Playwright CI environment (engineering hygiene).
+- Raw RPC error text in commerce actions and `payment_provider_events` is still open (not addressed by PAY-WH-1; deferred register).
+- EVENT-CAP-1 may overlap the PAY-WH-1 capacity-trigger and terminal-hold work; verify before scheduling.
+
+**Closed by this lane:** deferred-register item "`payment_provider_events` dedupe is not database-atomic" (PAY-WH-1 M1 claim leases); commerce blocker "early-bird overcharge" (CI-A); the webhook-ordering priority defect (PAY-WH-1).
 
 ---
 
@@ -1582,6 +1778,107 @@ BR-4 may describe an existing dance-partner directory but must **not** claim alg
 
 ---
 
+## STRATEGIC MODULE: DANCEFLOW COMMUNITIES
+
+**Added in v2.22 (owner priority item 9, "DanceFlow Communities V1"; owner commitment "Communities governance and Student App integration").** No Communities code exists ("community" appears only in marketing copy).
+
+**Status:** NOT STARTED. Product direction APPROVED (below); detailed V1 scoping is future product-definition work (open decision #20).
+
+**APPROVED PRODUCT DIRECTION (OWNER-APPROVED; restated in the owner's v2.22 review, 2026-10-13)**
+- **DanceFlow-governed communities** organized by **dance discipline** and by **region**. DanceFlow, not a studio, governs them.
+- **Independent of studio ownership:** a community is not owned by, scoped to or controlled by a studio; dancers participate as DanceFlow users, consistent with the global-dancer identity model used by Partner Match.
+- **Separate, optional studio/private spaces:** studios (and private groups) may have their own optional spaces, kept separate from the DanceFlow-governed discipline/regional communities.
+- **No automatic CRM effects:** community membership **must not automatically create studio leads or clients** (same principle as competition registration identity in Phase 10).
+- **Governance** and **Student App integration** are part of the commitment.
+
+**Remaining V1 product-definition decisions (genuine; owner + design):** V1 discipline and region taxonomy and granularity; who may post and what content types V1 allows; moderation standards, staffing and escalation (who moderates DanceFlow-governed communities); minors/guardian participation rules; how studio/private spaces are created, governed and kept separate (and whether they are in V1); privacy and visibility of membership; whether any opt-in, consent-based path lets a member choose to connect with a studio (never automatic); relation to Partner Match, events and Competition Companion; notifications; entitlement and pricing (none implied).
+
+**Reusable foundations:** Partner Match's user-generated-content safety controls (opt-in, moderation gate, contact-information filtering, block/report RPCs, rate limiting) and messaging threads; verified identity linking; Phase 11 notifications.
+
+**Dependencies and placement:** Phase 12 (permissions and community roles), **Phase 23 moderation queue** (a shared prerequisite for Partner Match public promotion and Communities), Phase 11 (notifications), Phase 18 (which app hosts it) and Phase 20-D (Student App integration), Phase 24 (DLP posture for user-generated content).
+
+**Branding restriction (current):** no public claim of a DanceFlow community feature until it exists.
+
+---
+
+## PRESERVED COMMITMENTS REGISTER (v2.22)
+
+**Purpose:** the owner asked (2026-10-13) that named commitments and previously approved UI fixes and workflow improvements be placed explicitly in the roadmap or a maintained backlog, and not dropped silently. This register is that maintained backlog. Each row names its canonical home; the phase sections remain authoritative for scope. "Owner-approved" means an owner-typed instruction was found; "agent-recorded" means it exists only in release notes or session task chips and needs owner confirmation before it becomes a commitment.
+
+### A. Owner-named commitments (2026-10-13 brief)
+
+| Commitment | Canonical home | v2.22 status |
+|---|---|---|
+| Marketing campaign drafts, block editor, image support, ARIA integration, event-link picker | Phase 13 M-1, M-3, M-4, M-1/M-7, M-5 | Planned; M-0 compliance first |
+| Automated Twilio SMS onboarding (no routine founder Console work) | Phase 2 TW-4 | Direction approved; implementation not started |
+| ARIA operational automation | Phase 15 (execution-scope expansion; organizer ARIA; cleanup A–D) | Partial: email execution for 5 rules only |
+| Granular Team & Permissions before DLP | Phase 12 (prerequisite of Phase 24, recorded) | Partial: fixed roles + export overrides only |
+| Commerce and digital entitlements | Commerce Integrity lane (CI-B, CI-D, follow-ups); Phase 14 (refund → access decision #16, wallet page, settlement pattern); Phase 4 (#8) | Event commerce hardened (PAY-WH-1); digital products not yet aligned |
+| Migration Center | Phase 16 (per-source pilot gates) | Built, not pilot-validated |
+| Gusto | Phase 26 (dormant; reactivation only on Gusto approval; Decision 4) | Dormant by decision |
+| SOC 2 Type II | Phase 25: readiness is an ongoing governance activity; the formal Type II attainment program stays on the roadmap (after Phase 24 and platform-admin MFA) | Formal program start subject to resource/readiness planning (#21); essential controls not deferred |
+| Web/Business UX audit and redesign | Phase 17 (17-I, 17-A) → Phase 18 → Phase 19 only if approved | Not started (formal pass) |
+| Student App readiness and redesign | Phase 20-R, 20-D | Existing app not store-released |
+| New Student Intake | Phase 17-I workflow item (section C); delivery Phase 11; signed documents Phase 8 | Direction owner-approved; not started; remaining design decisions #23 |
+| LUMI enhancements | Phase 15 "LUMI" sub-track (section C); mobile delivery Phase 20; Performance Intelligence stays in Phase 10 Competition Companion | Existing functionality released and preserved; Performance Intelligence owner-approved (future); any further enhancements are new decisions (#24) |
+| Communities governance and Student App integration | [DanceFlow Communities strategic module](#strategic-module-danceflow-communities) | Direction owner-approved; detailed V1 scoping future (#20) |
+| Organizer parity | Phase 10 "Organizer parity matrix" (section C) | Partial; spread across Phases 10, 11, 13, 15 |
+
+### B. Previously approved UI fixes and workflow improvements (not previously tracked in v2.21)
+
+| Item | Source | Approval | Canonical home |
+|---|---|---|---|
+| Edit Event simplification (old publishing UI; save rewrites every column and recreates child rows) | Owner prompt 2026-10-10 ("carry forward") | Owner-approved | Phase 10 event side (17-I) |
+| Attendance correction / reversal workflow (permissions, reason, audit; usage, capacity and payroll correction) | Owner prompt 2026-09-12 ("do not implement, but add to roadmap") | Owner-approved | Phase 17-I; touches Phases 5, 9 |
+| Package eligibility and lifecycle UX (remaining count in selectors, hide depleted/expired, archive lifecycle, auto-select, bounded reservation horizon; `block_depleted_package_booking` left dormant; self-service eligibility uses the UTC date) | Owner prompt 2026-09-12; PR #184 delivered part | Owner-approved (UTC-date item agent-recorded) | Phase 17-I; related to decision #4/#10 |
+| Competition youth / multiple pricing categories; spectator admission tickets; hotel room blocks; scholarship offerings | Owner-identified 2026-10-11 (10C.5) | Owner-approved | Phase 10 (event side / 10H–10J+) |
+| Dedicated Playwright CI environment | Owner prompt 2026-10-12 ("preserve") | Owner-approved | Deferred register — engineering hygiene |
+| Expo UI test automation | Owner prompt 2026-10-12 ("preserve") | Owner-approved | Phase 20-R |
+| Past event detail still shows registration / spots remaining | Cleanup PR B follow-up | Agent-recorded | Phase 10 event side (17-I) |
+| Already tracked in v2.21 and kept: New Client `/n` bug; inactive-client portal access; PORTAL-UX-1/2; BR polish (focus ring, nested `<main>`, webhooks `<h1>`, invalid-logo fallback); upgrade prompt; Competition Companion + LUMI Performance Intelligence; competitor identity follow-ups; N-S2, G2, PAY-DC-4B; DEV drift items; BR-6/BR-7; demo-request capture; per-event print attribution; Payroll 9E narrow-width check; GC-S1C/S1E bounded follow-ups; portal-only classes; GC-3.4B identity items | — | — | Unchanged locations |
+
+### C. Commitments without a previous roadmap owner (placed in v2.22)
+
+**New Student Intake (NSI) — studio workflow item (canonical home Phase 17-I; delivery through Phase 11; any signed documents through Phase 8). NOT STARTED. Product direction OWNER-APPROVED** (restated in the owner's v2.22 review, 2026-10-13; it was not previously in the roadmap — Phase 16 "Onboarding" is studio migration, not student intake):
+- **Distinct from discovery lead capture.** Intake is not the public lead / intro-lesson contact form and not lead creation; those stay as they are.
+- **Trigger:** sent when the student's **first qualifying appointment is actually scheduled/confirmed** — not on inquiry or lead creation.
+- **Studio-selected service types:** the studio chooses which appointment/service types qualify.
+- **Manual sending** is also supported (staff can send or resend intake on demand).
+- **Branded and configurable** (studio branding through the existing branded shell; studio-configurable content).
+- **Linked to the client record**, and **accessible to staff before the lesson**.
+
+Existing pieces it can build on: the client record, the `intro_lesson` appointment type and appointment confirmation flows, dance goals (`student_dance_goals`), the branded email shell, and Phase 8 envelopes for anything that must be signed.
+
+**Genuine remaining design decisions (owner + design; decision #23):** (1) the exact trigger event when scheduling and confirmation differ (on booking vs on confirmation), and behavior on reschedule or cancellation before completion; (2) what "configurable" covers in v1 — editable questions/sections vs a fixed DanceFlow template with studio toggles; (3) once per student per studio vs re-sendable on a new service type; (4) completion path — tokenized link without an account vs Student Portal sign-in; (5) reminders if incomplete before the lesson; (6) minors — who completes it (guardian) and how it links to the guardian relationship; (7) whether intake may include a signature/waiver step (then it uses Phase 8 envelopes, not a second signing engine); (8) delivery channels (email by default; SMS only within the registered transactional scope); (9) retention and visibility of intake answers (staff roles that can see them, Phase 12).
+
+**LUMI — Phase 15 sub-track "LUMI Dance Journey Assistant".** LUMI had no owning phase; v2.22 gives current-assistant work to Phase 15 (one owner for AI assistants), mobile delivery to Phase 20, and keeps Performance Intelligence in Phase 10 Competition Companion.
+
+*Existing functionality (released; preserved — must not regress):* studio-level toggle (`lumi_enabled`); Growth/Pro gating through the shared billing-plan resolver (override-consistent since the 2026-09-15 billing-override fix); active students only; AI-allowance metering and usage recording; web Student Portal **Journey**: dance goals (create/complete), "ask LUMI" practice guidance using studio context (lesson recaps, syllabus progress, digital learning), and the LUMI practice-plan generator before the next lesson; mobile Student App **LUMI** assistant screen (schedule, practice plan and progress questions, with the context LUMI may use shown to the student); response reporting (`lumi_response_reports`).
+
+*Previously approved commitments (OWNER-APPROVED):* **LUMI Performance Intelligence** (2026-10-11) — analyzes Country, Ballroom and WCS separately; preserves each governing body's scoring semantics; identifies only evidence-supported longitudinal trends; suggests training priorities; shares findings with instructors only with the dancer's explicit permission; lives in the Student App as part of Competition Companion; depends on 10F released results. *Public-copy rule* (2026-10-03): describe LUMI publicly only as currently real student/dancer assistance; do not force LUMI into every page.
+
+*Genuinely new decisions (decision #24):* any LUMI enhancement beyond the above (none was found as owner-approved in the repository or session history) — e.g. new data sources, instructor-facing LUMI, proactive nudges, or plan placement changes (decision #8).
+
+**Organizer parity — Phase 10 "Organizer parity matrix".** Owner direction: studio and organizer events are the same event product differing in ownership/business context (2026-09-08); "studio + organizer parity — do not leave one surface unenforced" (2026-10-03). Matrix to maintain:
+
+| Capability | Studio | Organizer | Owner of the gap |
+|---|---|---|---|
+| Campaign draft editing | Missing | Exists | Phase 13 M-1 |
+| Campaign composer / unsubscribe implementation | Separate | Separate | Phase 13 M-2 |
+| Campaign allowance (ENT-1) | Enforced | Enforced | Done |
+| ARIA | Full operations | Partial read-only view in `/app/aria` | Phase 15 |
+| Notification center | Full | Partial organizer mode in `/app/notifications` | Phase 11 / Phase 10 |
+| CRM depth (`organizer_contacts` vs studio clients) | Full | Lighter | Open question: intentionally lighter or incomplete (owner, 2026-09-08) |
+| Organizer-owned standalone Group Classes | Yes | Not supported | Phase 5 follow-up (owner raised 2026-09-08; scope undecided) |
+| Roles / permissions | Fixed roles | `organizer_owner/admin/staff`; `organizer_staff` has full authority | Phase 12 / 10E |
+| Profitability, volunteer/staff UI | n/a | Missing | Phase 10 event side |
+
+### D. Other preserved follow-ups added in v2.22 (agent-recorded; owner confirmation pending)
+
+ARIA cleanup follow-ups A–D (Phase 15); GC-R1 reminder gaps (Phase 11); outbound claim fields (Phase 11); PAY-WH follow-ups and NULL `event_id` backfill (Commerce Integrity lane); event commerce authority hardening (Phase 10 / deferred #7); 10A/10C/10C.4/10D/10C.5 carry-forwards (Phase 10); DEV/PROD/repo drift additions, QA fixture performance, launch-audit forensics (deferred register). The Phase 8C "guardian delivery for clients without email" follow-up was delivered by 8D and is closed.
+
+---
+
 ## DEFERRED / POST-LAUNCH REGISTER
 
 None of these becomes immediate roadmap work without an explicit decision. Do not implement from this list.
@@ -1606,9 +1903,11 @@ None of these becomes immediate roadmap work without an explicit decision. Do no
 - Pre-2A async failure skip
 - Confirm-route push
 - Seller payouts / revenue split for the marketplace
-- Mobile PaymentSheet
+- Mobile PaymentSheet — **re-scoped (v2.22):** the event-cart PaymentSheet exists; Apple Pay / Google Pay and non-event surfaces remain deferred (see Phase 20)
 - PKG-REFUND-2 package-credit ledger for staff refunds depends on `refund.created` webhook timing (GC-3.5 follow-up)
-- `payment_provider_events` dedupe is not database-atomic (GC-3.5 follow-up)
+- ~~`payment_provider_events` dedupe is not database-atomic (GC-3.5 follow-up)~~ — **CLOSED (v2.22)** by PAY-WH-1 M1 webhook claim leases (PR #215, PROD 2026-10-13)
+- (v2.22) PAY-WH-1/1B follow-ups — see the [Commerce Integrity lane](#commerce-integrity-lane)
+- (v2.22, AGENT-RECORDED PROPOSAL) EVENT-CAP-1: verify overlap with PAY-WH-1 capacity and terminal-hold changes before scheduling
 
 **Product decisions / future work**
 - Group-class depleted-credit behavior (#10)
@@ -1626,6 +1925,9 @@ None of these becomes immediate roadmap work without an explicit decision. Do no
 - **DEV `accounting_upsert_entry` drift:** DEV runs an untracked variant (md5 `a2779c25219dc8fd50a781985e6909db`); the repository and PROD are canonical (`548b512c2cf4ca3534ff2541594a1c7c`). Take migration precondition pins from the repository, not the DEV catalog. Repair in its own gate.
 - **Floor-rental index drift:** `payments_floor_rental_pending_studio_client_key` exists on DEV but not PROD. Investigate in its own gate.
 - **Legacy SQL-suite failures (seven, pre-existing):** gc1_1, gc1_2, gc1_4a, gc3_1, gc3_2 (instructor-assignability fixture setup), h2c1 and launchsec1ca. Not repaired in GC-3.5.
+- **(v2.22, ENGINEERING FINDING) Additional DEV/PROD/repo drift:** `event_payments.event_id` (and migration `20260502000600`) is missing on DEV but present on PROD (PAY-WH-1 M5 handles both); `uq_accounting_entries_event_payment_source` exists on DEV and PROD but not in the repository; `event_document_requirements` has no repository DDL. DEV `attendance_records` has a unique `(event_registration_id)` not in the repository. Repair each in its own gate; pin from the repository.
+- **(v2.22) Test infrastructure:** dedicated Playwright CI environment (the CI Playwright job is skipped because E2E secrets are absent; owner asked to preserve this task 2026-10-12); Expo UI automation (Phase 20-R); QA fixture performance (Vitest timeouts, slow storage-upload E2E).
+- **(v2.22, AGENT-RECORDED PROPOSAL) Launch-audit forensics:** `legacy_email_repair` rows review deferred pending approval.
 
 ---
 
@@ -1635,6 +1937,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 - **Launch security:** LAUNCH-SEC-1A (payroll authorization fail-closed), 1B/1B2 (private client photos, public asset storage authorization), 1C-0/1C-0-R (legacy auth surfaces; #123, #124), 1C-A/A1 (verified email proof; #125, #126), 1C-B (verified email enforcement; #127), 2A (owner billing authority; #128), 2B (tenant write surfaces: deduction errors, job postings, floor rentals; #129), 2C (event zero-total guard; #130).
 - **Payments / package integrity:** PAY-DC-1 through 4A (#109–#115), PKG-MUT-1 (#116), PKG-REFUND-1 (#117), PKG-REFUND-2 and hold release (#118; `PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD = false`).
+- **(v2.22) Commerce integrity (post-launch, released):** CI-A (#213), PAY-WH-1/1A (#215), PAY-WH-1B (#216). Open items in the same lane (CI-B, CI-D) are tracked in the [Commerce Integrity lane](#commerce-integrity-lane), not here.
 - **SMS A2P:** SMS-A2P-1 through 3C (#131–#134).
 - **Final non-Twilio launch gate:** typecheck, 3082 tests, production build and diff check clean on main `2266f5f`; no engineering launch blockers; launch-critical migrations present in PROD (catalog check).
 
@@ -1649,12 +1952,55 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 5. Floor-rental authoritative pricing/approval model.
 6. Final mobile app boundary (Phase 18).
 7. Landmark 1A canonical closeout scope (invitation flow, seat UI, audit viewer).
-8. Phase 4 plan placement for SMS, payroll, marketplace, ARIA. **Open; blocks all remaining Phase 4 implementation** (SMS allowance and quantity, payroll/marketplace/ARIA tiers, ARIA gated by plan vs AI credits only, tie to Phase 22 pricing). No speculative `BillingFeature` keys until decided.
+8. Phase 4 plan placement for SMS, marketplace and ARIA (payroll resolved — see below). **Open; blocks the remaining Phase 4 implementation for those features** (SMS allowance and quantity, marketplace/ARIA tiers, ARIA gated by plan vs AI credits only, tie to Phase 22 pricing). No speculative `BillingFeature` keys for undecided features. **v2.22 progress:** **Payroll Prep = Growth+ — RESOLVED** (owner-approved 2026-09-15, reaffirmed 2026-10-13; enforcement and billing key not yet implemented); SMS commercial *direction* set by TW-4 D7 (amounts open). The other 2026-09-15 tier statements (Documents Growth+, ARIA Core with metered usage, seat and location limits) are recorded in Phase 4 as evidence and are not ruled on in v2.22.
 9. **CLOSED (2026-10-08, Phase 8D):** Documents scope: waivers and receipts. A waiver is a Documents template / use type on the canonical envelope lifecycle (no separate waiver engine); the envelope completion (signing) certificate is the canonical evidence receipt for Documents; payment receipts stay in Commerce.
 10. **CLOSED (2026-10-09, Phase 9B):** Payroll "exported/finalized" state. No distinct status was added; approval and export are recorded as immutable evidence.
 11. **PARTLY CLOSED (2026-10-09, v2.21):** Competition scoring systems for studio v1 are approved (Phase 10), and v1 judging is web with authenticated accounts. Whether a separate judging app exists remains open (Phase 18).
 12. Pricing cutover timing.
 13. Video cut list (BR-6) and the banner vendor (BR-5 follow-up).
+14. **(v2.22; previously only in Current State)** Demo-request / interest-capture storage (deferred to Marketing/CRM; needs a storage decision).
+15. **(v2.22; previously only in Current State)** Per-event print attribution (static QR codes cannot distinguish events; per-event print run or a signup survey question).
+16. **(v2.22)** Digital products: does a refund revoke or retain digital access (and do partial refunds differ)? (Phase 14.)
+17. **(v2.22)** Marketing: separate marketing sending subdomain; recipient marketing-consent scope (CAN-SPAM-only vs CASL/GDPR-ready). (Phase 13.)
+18. **(v2.22)** Team & Permissions: whether custom roles are in scope (moved here from Phase 12 so it is visible).
+19. **(v2.22)** Migration Center: which import sources are in scope beyond Mindbody, Square and WellnessLiving (moved here from Phase 16).
+20. **(v2.22)** DanceFlow Communities V1 detailed scoping (direction approved: DanceFlow-governed discipline and regional communities, independent of studio ownership, separate optional studio/private spaces, no automatic leads/clients). Open: taxonomy, posting/content scope, moderation staffing, minors, studio/private-space governance, privacy, any opt-in studio connection, relation to Partner Match/events. (Strategic module.)
+21. **(v2.22)** SOC 2 Type II formal attainment program: start date and auditor, subject to resource and operational readiness planning (Phase 25). Readiness work is ongoing and is not deferred.
+22. **(v2.22)** Multi-Dance: when Multi-Dance results become operational and the registration hold lifts (10H scope; the hold is a release gate, the scope is a product decision).
+23. **(v2.22)** New Student Intake remaining design decisions (direction approved; see Phase 17 / Preserved commitments register).
+24. **(v2.22)** LUMI: which new enhancements, if any, beyond existing functionality and the approved Performance Intelligence direction (Phase 15).
+
+*Superseded in v2.22:* Phase 2 "Mixed vs Customer Care" (→ TW-4 D4). *Resolved direction, verification pending:* TW-4 D1–D7 are established directions, not open decisions (see Technical verification gates).
+
+## Technical verification gates (v2.22; not product decisions)
+
+These are facts engineering or a third party must confirm. They do not need an owner product choice, but they gate specific work.
+
+| Gate | Gates | Owner of the check |
+|---|---|---|
+| Twilio Q1 — subaccount registration with parent credentials, parent-profile assignment, webhook signing per subaccount, studio-exit lifecycle | TW-4 4B–4D | Twilio (ticket #29647095) + engineering |
+| Twilio Q2 — default opt-out/HELP behavior and webhook delivery without Advanced Opt-Out; campaign OptOut/Help fields | TW-4 4B, 4D | Twilio + engineering |
+| Twilio Q3 — studio-scoped SMS Terms/Privacy pages on a different domain from the studio's website | TW-4 4C/4D for studios with their own website | Twilio |
+| Twilio Q4 — Low-Volume Standard + `LOW_VOLUME` suitability, upgrade path, industry value | TW-4 4C | Twilio |
+| Twilio Q5 — campaign-update API enablement; Event Streams sink placement; compliance mailbox; pre-submission review of the first generated package | TW-4 4B, 4F | Twilio |
+| Live Stripe Connect webhook subscriptions include `checkout.session.expired` and `checkout.session.async_payment_failed` | Public Competition registration | Engineering (read-only check) |
+| Real ACH end-to-end test | Enabling delayed payment methods | Engineering |
+| CI-A historical overcharge query on PROD | Deciding whether remediation is needed | Engineering, after separate PROD read authorization |
+| Marketing vs transactional sender-domain separation (live env values) | M-0 closeout; decision #17 | Engineering (read-only; no secret values printed) |
+| ARIA matrix (7 default auto-send) vs executable allowlist (5) degradation behavior | Phase 15 closeout | Engineering |
+| EVENT-CAP-1 overlap with PAY-WH-1 capacity work | Scheduling EVENT-CAP-1 | Engineering |
+| Student App store-release status (any published build?) | Phase 20-R scoping | Engineering + owner store accounts |
+| Migration Center per-source pilot results | Phase 16 completion | Engineering + pilot studios |
+
+## Owner business-acceptance gates (v2.22)
+
+Functional QA is developer-owned (untested work is BLOCKED, not PASSED); these gates are owner **business acceptance** only.
+
+- Schedule & Heats walkthrough (10C.2 Create Event + 10D) — gates 10E.
+- Organizer walkthrough and verified "this is me" walkthrough (10C.1) — gate public Competition registration.
+- Explicit acceptance of whole-order refund behavior (until CI-D) and buyer-signed waivers (10C.1).
+- ConfiDance owner completes TW-4 onboarding in production (4F); pilot retrospective sign-off before automatic activation (D5).
+- Any merge, PROD SQL, promotion, commerce enablement (flags), financial correction or store submission remains a separate explicit authorization.
 
 ---
 
@@ -1664,6 +2010,55 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 - Landmark 1A's canonical slice list beyond the nine migrated slices.
 - The exact contents of the earlier Featured Events and Partner Match discussions beyond what is recorded in the repo and the owner's reconciliation briefs.
 - Branding assets/specs for promotional media (BR-6; none exist in the repo). Collateral assets and specs exist from BR-5 under `docs/brand/collateral/`.
+- (v2.22) The owner restated the approved directions for New Student Intake and DanceFlow Communities during the v2.22 review; their earlier source discussions are not in the repository or the available session history. No owner-approved LUMI enhancement list beyond Performance Intelligence was found.
+- (v2.22) Production releases of Phase 10 slices and CI-A are recorded from the operator's release records; the commit bodies (written at PR time) say "DEV only".
+
+---
+
+## v2.22 RECONCILIATION LEDGER
+
+Itemized list of roadmap entries **closed, added, moved or superseded** in v2.22. Nothing was deleted; superseded text is kept and marked.
+
+**Closed / marked complete (released work recorded)**
+- Phase 10 slices 10A, 10B, 10C, 10D (were "NEXT"/"Planned"); inserted slices 10C.1, 10C.2, 10C.4, 10D.1, 10C.5 recorded as released; 10C.3 recorded as an audit.
+- Phase 10 "Known foundation defects / drift (to be fixed in 10A; not yet fixed)" → addressed by 10A.
+- Phase 10 remaining item "canonical event-level competitor identity" → delivered by 10C.
+- Commerce: CI-A, PAY-WH-1/1A, PAY-WH-1B recorded as released; commerce blocker "early-bird overcharge" closed.
+- Deferred register: "`payment_provider_events` dedupe is not database-atomic" → closed by PAY-WH-1 M1.
+- Phase 8C follow-up "guardian delivery for clients without email" → recorded as delivered by 8D.
+
+**Added**
+- Owner review corrections (PR #217 revision): provenance labels in Status vocabulary; New Student Intake approved direction + remaining decisions (#23); Communities approved direction; LUMI existing functionality / approved commitments / new decisions (#24); SOC 2 two-part direction (ongoing readiness + formal Type II program); Payroll Prep tier = Growth+ recorded as decided (enforcement pending), other Phase 4 pricing decisions unchanged; Current State archive file.
+- Sections: Near-term priority order (v2.22); Release holds and gates; Commerce Integrity lane; Strategic module: DanceFlow Communities; Preserved commitments register; Technical verification gates; Owner business-acceptance gates; this ledger.
+- Phase 2: TW-4 (approved direction, D1–D7 table with verification requirements, slices 4A–4G); locked "no routine founder Console onboarding" and "ConfiDance pilot uses the real automated flow".
+- Commerce: CI-B, CI-D, PAY-WH follow-ups, CI-A historical impact (not run).
+- Phase 10: released-slices table, profile `@3`, Multi-Dance pull-forward and hold, remaining v1 milestones, owner acceptance gates, organizer parity matrix pointer, Edit Event simplification, past-event detail state, competition commerce requirements (youth pricing, spectator tickets, hotel blocks, scholarships), event commerce authority hardening, 10C and format carry-forwards.
+- Phase 11: Event Streams / 21610, outbound claim fields, GC-R1 reminder gaps.
+- Phase 12: owner override/delegation model (locked direction); "before DLP" sequencing.
+- Phase 13: audit findings, M-0…M-7, transactional/marketing boundary, new unresolved decisions.
+- Phase 14: refund → digital access gap confirmed + decision; PAY-WH settlement alignment.
+- Phase 15: executes-vs-suggests record, execution-scope expansion, organizer ARIA ownership, ARIA cleanup A–D, LUMI sub-track; decision #8 cross-reference.
+- Phase 16: per-source pilot gates.
+- Phase 17: 17-I / 17-A split; New Student Intake workflow item.
+- Phase 20: existing-app audit facts; 20-R / 20-D split.
+- Phase 24: dependency on Phase 12. Phase 25: timing owner-to-set. Phase 26: Gusto Decision 4.
+- Open decisions #14–#22. Deferred register: drift additions, test infrastructure, launch-audit forensics, EVENT-CAP-1 overlap check.
+
+**Moved**
+- Organizer ARIA page: Phase 10 event side → owned by Phase 15 (Phase 10 dependency).
+- Studio-visible SMS registration status: Phase 2 deferred → TW-4 4A.
+- Demo-request storage and per-event print attribution: Current State only → consolidated decisions #14/#15.
+- Custom roles (Phase 12) and import-source scope (Phase 16): also listed as consolidated decisions #18/#19.
+- Current State release histories (Phases 5–7 and earlier) → archived verbatim, marked non-authoritative, in `docs/roadmap/archive/DanceFlow_Current_State_v2.21.md`; Current State is now a short operational snapshot with an explicit authority split (operational facts there; everything else here), so there are no two competing status sections.
+
+**Superseded (kept, marked)**
+- Phase 2: TW-1 "Advanced Opt-Out is the compliance authority" (→ D1); "single account, no subaccounts" (→ D2); manual Console provisioning and SID entry (→ TW-4); Mixed-only use case and the "Mixed vs Customer Care" open decision (→ D4); TW-OPS manual track, "no TW-4 is planned" and the v2.21 seven-step remaining list (→ TW-4, 4F); v2.21 status "Final compliance / pilot submission".
+- Header / Current State: "next slice 10A", main `67e735ca`, live `dpl_C5TYuEwJ…`, "Launch blockers: None identified" (→ holds table).
+- Mobile PaymentSheet (deferred) → re-scoped to Apple/Google Pay and non-event surfaces.
+- Phase 26: Gusto listed as an active baseline → dormant.
+- Stale text corrected: Phase 3 "BR-4 pending" / "headline not on any page" / "no coming soon text"; Phase 5 notification-rule sentence; a stray `(x) => x` artifact removed.
+
+**Not changed:** the 26-phase numbering and canonical order; Phases 5–9 closed scope; Featured Events and Partner Match modules (except Communities cross-references); public-claim restrictions.
 
 ---
 
@@ -1671,6 +2066,7 @@ Inserted ahead of the numbered sequence; all released and closed. Do not reopen 
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-13 | v2.22 | **Docs-only reconciliation and prioritization for owner review (no application, SQL, test, configuration, deployment or external-service change).** Reconciled against main `24a37a15` (PAY-WH-1B) and live `dpl_5BjsJaSPqn1qA3D4fCDijZbRNqqK`; v2.21 had last been reconciled at `67e735ca` and #212 had edited it without a version entry. (1) **Phase 10:** 10A, 10B, 10C, 10C.1, 10C.2, 10C.4, 10D, 10D.1 and 10C.5 recorded as released with PRs, migrations and deployments; 10C.3 recorded as an audit; the v2.21 foundation-defect list marked addressed by 10A; profile `studio_simple@3`; Multi-Dance setup pull-forward and registration hold recorded; remaining v1 milestones 10E → 10F (10E gated on the owner Schedule & Heats walkthrough); public registration held. (2) **Commerce Integrity lane added:** CI-A, PAY-WH-1/1A, PAY-WH-1B released; CI-B (atomic check-in) and CI-D (ticket-attributed refunds) open as holds on public Competition registration; PAY-WH follow-ups recorded; register item "`payment_provider_events` dedupe not atomic" closed. (3) **Phase 2 Twilio:** TW-4 self-service ISV onboarding recorded as the approved product direction; D1–D7 recorded as established design directions with separate technical verification gates (Twilio Q1–Q5); "no routine founder-operated Console onboarding" and "ConfiDance pilot uses the real automated flow" locked; AOO-authority, single-account, manual-provisioning, Mixed-only and TW-OPS decisions recorded as superseded; TW-4 design document added to the repository. (4) **Near-term priority order — provisionally accepted by the owner** (M-0, CI-B, CI-D, Competition v1, TW-4, Marketing enhancements, then UX/mobile; Communities after) with parallel workstreams, dependencies and release gates, without renumbering phases. (5) **Phase 13** restructured into M-0…M-7 with audit findings (studio drafts not editable; send-time unsubscribe and fail-open suppression gaps; no one-click unsubscribe) and the transactional/marketing boundary recorded as a deliverable. (6) **Apps separated:** Phase 17 split into 17-I (existing web UX fixes) and 17-A (formal pass); Phase 18 clarified as a decision, with no Business app assumed; Phase 19 marked not approved; Phase 20 split into 20-R (readiness and mobile QA of the existing Expo app) and 20-D (redesign and Google Play release); Mobile PaymentSheet re-scoped. (7) **Preserved commitments** captured explicitly (register added). (8) Open product decisions separated from technical verification gates and owner acceptance gates; decisions #14–#22 added. (9) **Owner review corrections (same version, PR #217 revision):** provisional acceptance of the priority order; **Payroll Prep tier recorded as DECIDED: Growth+** (owner-approved 2026-09-15; the owner resolved the conflict with the 2026-10-03 reconciliation in favor of Growth+ on 2026-10-13), distinguished from the still-pending enforcement and billing-key implementation; Gusto pricing undecided; other 2026-09-15 tier statements recorded as evidence only; New Student Intake and Communities approved directions recorded with only genuine remaining decisions; LUMI existing functionality and the approved Performance Intelligence direction separated from new decisions; SOC 2 readiness recorded as ongoing governance with the formal Type II program kept on the roadmap; provenance labels added (owner-approved vs engineering finding vs agent-recorded proposal vs engineering slicing); Current State reduced to a single operational snapshot with the v2.21 text archived. (10) Stale text corrected (header, Current State, Phase 3 BR-4 lines, Phase 5 notification-rule wording, stray artifact, Phase 26 Gusto). See [v2.22 reconciliation ledger](#v222-reconciliation-ledger) for the itemized list. |
 | 2026-10-09 | v2.21 | **Docs-only reconciliation (no application, SQL, test, configuration or deployment change).** (1) **Phase 10 — Organizer + Competition OS: Competition OS architecture approved.** Phase 10 is not greenfield: a partial June-2026 foundation exists (about 40 competition tables, heat planner, scheduling, check-in, WSDC profile foundation, flagged public registration builder). Governing principle: simple competitions stay simple; complexity comes from the selected format. Two organizer layers (Simple Mode default; Advanced Mode progressive). Architecture: Competition Core + versioned Rules/Format Profile + versioned Scoring Engine + Organizer UX, initial profile `studio_simple@1`; rules/scoring version and configuration snapshot locked at publish; rules profile and sanction status are separate and no organization authorization is claimed. (2) **Locked:** event-level competitor identity (one human, one competitor per event, many entries; no second person-identity system; guests allowed); scoring heat vs floor heat; authenticated-account web judging with paper-ballot entry and no anonymous judge links in v1; competition roles implemented in Phase 10 and folded into Phase 12 later; integrity rules (immutable ballots, versioned deterministic engines, versioned publication, corrections keep history); studio v1 scoring defaults (`ordinal_majority`, `proficiency_rating`, `callback_tally`; Gold/Silver/Bronze rating bands); payment reuse of the existing event commerce stack. (3) **Slice plan:** 10A Competition Foundation Reconciliation (NEXT), 10B–10G, 10H–10J+; studio v1 = 10A–10F; post-v1 engineering order WSDC, UCWDC, NDCA (dependency order, not market priority). Known foundation defects recorded for 10A (undeclared schedule tables/RPC, public-read RLS defects, non-hardened entry-changes table, unsafe heat override, no tests, no workspace entry). Open decision #11 partly closed; separate judging app stays a Phase 18 question; public Competition OS claim restriction unchanged. (4) **Twilio TW-3 (registration metadata and readiness) RELEASED 2026-10-09:** PR #202 → main `67e735c`; PROD SQL `20261106090000` applied 12:34Z; production deployment `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` live (rollback: app first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA`, then the SQL rollback). TW-1/TW-2/TW-3 engineering complete; Phase 2 stays ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION; next Twilio work is TW-OPS; no TW-4 planned; Twilio remains a separate parallel track. |
 | 2026-10-09 | v2.20 | **Docs-only reconciliation (no application, SQL, test, configuration or deployment change).** (1) **Phase 9 — Payroll Prep v1 — COMPLETE / CLOSED / FULLY RELEASED:** 9A integrity (PR #194), 9B immutable evidence (PR #195), 9C compensation history and validation (PR #196), 9D formula-safe CSV (PR #198) and 9E UX/timezone closeout (PR #200) are all released; main `9c3fd5a`, live `dpl_7x4dRs2rctJUw1knjZdmac8Fae6u`; Phase 9 migrations `20261102090000`, `20261103090000` and `20261104090000` applied to PROD. (2) Decision #10 (payroll exported/finalized state) closed: no new status; the shared-CSV-helper register item resolved. (3) **Phase 10 — Organizer + Competition OS is the next primary engineering phase;** numbering and the 26-phase order are unchanged. (4) Twilio Phase 2 remains ACTIVE in parallel: TW-1 released (PR #197); TW-2 implemented / DEV complete / Opus review complete, not merged or released. (5) Carry-forwards recorded without reopening Phase 9: platform-admin payroll items (Phase 12), dormant Gusto timestamp display (later Gusto phase), optional narrow-width visual check. |
 | 2026-10-08 | v2.19 | **Docs-only reconciliation (no application, SQL, Twilio-integration or deployment change).** (1) **Phase 2 Twilio A2P status corrected** to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION: DanceFlow is the ISV and each studio gets its own studio-specific A2P campaign (ticket #29647095; Twilio guidance 2026-10-06); the shared campaign is unused; ConfiDance is the pilot and its opt-in materials appear aligned; Mixed vs Customer Care not yet selected; no remaining step recorded as done; Twilio proceeds in parallel with Phase 9. (2) **Phase 8 production baseline reconciled after the final 8D release:** main `ab60dba` (PR #192), live `dpl_4JAnpXDXu9idXiVC7Dc3KsjuFtEC`, migration `20261101090000` applied to PROD 2026-10-08; Phase 8 scope unchanged. Phase 9 — Payroll Prep v1 remains next; numbering unchanged. |
