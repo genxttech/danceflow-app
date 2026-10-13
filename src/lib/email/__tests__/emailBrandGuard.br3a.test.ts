@@ -220,10 +220,11 @@ describe("subject sanitizer chokepoints", () => {
     // from the shared module, regardless of which other names share its import statement.
     expect(dispatch).toMatch(/import\s*\{[^}]*\bsanitizeEmailSubject\b[^}]*\}\s*from\s*"@\/lib\/email\/brand";/);
     const sends = dispatch.match(
-      /resend\.emails\.send\(\{[^}]*?subject: sanitizeEmailSubject\(rendered\.subject\)/g,
+      // PAY-WH-1: the queued send also passes a request-options argument, so the payload may start on the next line.
+      /resend\.emails\.send\(\s*\{[^}]*?subject: sanitizeEmailSubject\(rendered\.subject\)/g,
     );
     expect(sends?.length).toBe(2);
-    expect(dispatch).not.toMatch(/resend\.emails\.send\(\{[^}]*?\n\s*subject: rendered\.subject,/);
+    expect(dispatch).not.toMatch(/resend\.emails\.send\(\s*\{[^}]*?\n\s*subject: rendered\.subject,/);
   });
 
   it("wraps the notification send route", () => {

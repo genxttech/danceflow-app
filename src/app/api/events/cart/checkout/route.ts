@@ -7,6 +7,13 @@ import { randomUUID } from "crypto";
 import { beginEventSigningCheckpoint } from "@/lib/documents/event-signing";
 import { getStripe } from "@/lib/payments/stripe";
 import {
+  checkoutSessionExpiresAtForHold,
+  newEventCartHoldUntil,
+  recordEventCartPaymentAttempt,
+  releaseEventCartOrder,
+  releaseUnattemptedEventCartOrders,
+} from "@/lib/events/cartSettlement";
+import {
   cleanFormText,
   getValidatedValue,
   getValidationError,
@@ -806,23 +813,16 @@ export async function POST(request: NextRequest) {
       ticketTotalCents += lineCents;
     }
 
-    // Failed cart checkout attempts can leave pending registrations behind before Stripe is reached.
-    // Only stale pending cart attempts are cancelled. Prior completed purchases by the same email remain valid
-    // and should not block a new order for another class, pass, or ticket option.
-    const { error: staleRegistrationCleanupError } = await supabase
-      .from("event_registrations")
-      .update({
-        status: "cancelled",
-        payment_status: "failed",
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq("event_id", event.id)
-      .eq("attendee_email", buyerEmail)
-      .eq("status", "pending")
-      .eq("payment_status", "pending")
-      .not("order_id", "is", null);
-
-    if (staleRegistrationCleanupError) {
+    // PAY-WH-1: only this buyer's earlier orders for this event that never reached Stripe (no payment attempt, no
+    // stored Stripe reference) are released here. An order whose Checkout Session may still be paid is left to its
+    // own expiry / two-phase release, so a second tab can never cancel a payable checkout.
+    try {
+      await releaseUnattemptedEventCartOrders(supabase, {
+        eventId: event.id,
+        buyerEmail,
+        excludeOrderId: null,
+      });
+    } catch (staleRegistrationCleanupError) {
       console.error(
         "event cart stale registration cleanup failed:",
         staleRegistrationCleanupError,
@@ -839,7 +839,8 @@ export async function POST(request: NextRequest) {
 
   let slots: SlotRow[] = [];
   const holdToken = randomUUID();
-  const holdUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  // PAY-WH-1: the hold outlives the Checkout Session (which expires first), see checkoutSessionExpiresAtForHold.
+  const holdUntil = newEventCartHoldUntil();
 
   if (slotIds.length > 0) {
     const { data: slotRows, error: slotsError } = await supabase
@@ -952,6 +953,8 @@ export async function POST(request: NextRequest) {
   // handled entirely by /api/events/cart/release, a separate route that
   // never writes event_orders.metadata.
   let executionPhase: "document_setup" | "checkout_session" = "document_setup";
+  let createdCheckoutSessionId: string | null = null;
+  let createdCheckoutSessionAccount: string | null = null;
 
   try {
     const orderItems = [];
@@ -1173,9 +1176,18 @@ export async function POST(request: NextRequest) {
     const connectedAccountId = studio.stripe_connected_account_id;
 
     executionPhase = "checkout_session";
+    const sessionExpiresAt = checkoutSessionExpiresAtForHold(holdUntil);
+    if (!sessionExpiresAt) {
+      throw new Error("Checkout hold is too short for a Stripe Checkout Session.");
+    }
     const session = await stripe.checkout.sessions.create(
       {
       mode: "payment",
+      // PAY-WH-1: the Session stops accepting payment before the capacity hold ends.
+      expires_at: sessionExpiresAt,
+      // PAY-WH-1A: card payments only (wallets included) -- the settlement path tested end to end. Delayed methods
+      // (ACH etc.) stay off until they are released as a separate, tested decision.
+      payment_method_types: ["card"],
       customer_email: buyerEmail,
       success_url: absoluteEventUrl(
         request,
@@ -1221,26 +1233,20 @@ export async function POST(request: NextRequest) {
     },
     );
 
-    const { error: sessionLinkError } = await supabase
-      .from("event_orders")
-      .update({
-        stripe_checkout_session_id: session.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", order.id);
-
-    if (sessionLinkError) {
-      throw new Error(sessionLinkError.message);
-    }
-
-    if (registrationIds.length > 0) {
-      await supabase
-        .from("event_registrations")
-        .update({
-          stripe_checkout_session_id: session.id,
-        })
-        .in("id", registrationIds);
-    }
+    createdCheckoutSessionId = session.id;
+    createdCheckoutSessionAccount = connectedAccountId;
+    // PAY-WH-1: every Stripe object created for an order is recorded as an immutable payment attempt; settlement
+    // binds the attempt that actually paid. Registrations get their Stripe identifiers only at settlement.
+    await recordEventCartPaymentAttempt(supabase, {
+      orderId: order.id,
+      stripeAccountId: connectedAccountId,
+      kind: "checkout_session",
+      checkoutSessionId: session.id,
+      amountCents: totalAmountCents,
+      currency,
+      surface: "web",
+      expiresAt: new Date(sessionExpiresAt * 1000).toISOString(),
+    });
 
     if (!session.url) {
       throw new Error("Stripe did not return a checkout URL.");
@@ -1250,49 +1256,33 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("event cart checkout failed:", error);
 
-    await supabase
-      .from("event_private_lesson_slots")
-      .update({
-        status: "available",
-        payment_status: "unpaid",
-        buyer_name: null,
-        buyer_email: null,
-        buyer_phone: null,
-        buyer_notes: null,
-        order_id: null,
-        held_until: null,
-        hold_token: null,
-        stripe_checkout_session_id: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("order_id", order.id)
-      .eq("status", "held");
-
-    await supabase
-      .from("event_registrations")
-      .update({
-        status: "cancelled",
-        payment_status: "failed",
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq("order_id", order.id)
-      .eq("status", "pending");
+    if (createdCheckoutSessionId && createdCheckoutSessionAccount) {
+      // A Session that was created but could not be recorded must not stay payable.
+      try {
+        await stripe.checkout.sessions.expire(createdCheckoutSessionId, {}, { stripeAccount: createdCheckoutSessionAccount });
+      } catch (expireError) {
+        console.error("event cart checkout: could not expire the unrecorded Checkout Session", expireError);
+      }
+    }
 
     const failureReason =
       executionPhase === "document_setup"
         ? "document_setup_failed"
         : "checkout_session_failed";
 
+    try {
+      await releaseEventCartOrder({ admin: supabase, stripe, orderId: order.id, reason: failureReason });
+    } catch (releaseError) {
+      // The hold lapses on its own and the reconcile sweeper retries the release.
+      console.error("event cart checkout: release after failure did not complete", releaseError);
+    }
+
     await supabase
       .from("event_orders")
       .update({
-        status: "cancelled",
-        payment_status: "failed",
-        cancelled_at: new Date().toISOString(),
         metadata: { ...(order.metadata ?? {}), failure_reason: failureReason },
       })
       .eq("id", order.id);
-
     return NextResponse.redirect(
       absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"),
     );

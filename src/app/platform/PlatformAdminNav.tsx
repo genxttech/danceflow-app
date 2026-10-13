@@ -132,6 +132,14 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     });
   }
 
+  if (!normalizedItems.some((item) => item.href === "/platform/payment-exceptions")) {
+    const alertsIndex = normalizedItems.findIndex((item) => item.href === "/platform/alerts");
+    normalizedItems.splice(alertsIndex >= 0 ? alertsIndex + 1 : normalizedItems.length, 0, {
+      href: "/platform/payment-exceptions",
+      label: "Payment Exceptions",
+    });
+  }
+
   if (!normalizedItems.some((item) => item.href === "/platform/wave")) {
     const billingIndex = normalizedItems.findIndex(
       (item) => item.href === "/platform/billing",

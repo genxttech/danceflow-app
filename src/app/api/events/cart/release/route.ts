@@ -1,4 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { releaseEventCartOrder } from "@/lib/events/cartSettlement";
+import { getStripe } from "@/lib/payments/stripe";
+
+function getStripeOrNull() {
+  try {
+    return getStripe();
+  } catch {
+    return null;
+  }
+}
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 import { normalizeOptionalUuid, normalizeRequiredSlug } from "@/lib/validation/forms";
 import { normalizePublicToken, safeTokenEquals } from "@/lib/security/tokens";
@@ -33,7 +43,8 @@ function fallbackUrl(request: NextRequest, eventSlug: string, query: string) {
 }
 
 function getOrderHoldToken(order: EventOrderRow | null) {
-  const value = order?.metadata?.holdToken;
+  // Web cart orders store holdToken; student-app orders store hold_token (PAY-WH-1: both are accepted).
+  const value = order?.metadata?.holdToken ?? order?.metadata?.hold_token;
   return typeof value === "string" ? value : null;
 }
 
@@ -85,6 +96,34 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  if (!competitionCart) {
+    // PAY-WH-1: ordinary event cart orders are released through the two-phase lifecycle: the order is marked
+    // 'releasing' (capacity kept), every live Stripe attempt is expired/canceled and read back, and the order is
+    // released only when payment is ruled out. A payment that already succeeded settles the order instead.
+    let outcome = "retry";
+    try {
+      const result = await releaseEventCartOrder({
+        admin: supabase,
+        stripe: getStripeOrNull(),
+        orderId,
+        reason: "buyer_cancelled_checkout",
+      });
+      outcome = result.outcome;
+    } catch (error) {
+      console.error("event cart release failed", error instanceof Error ? error.message : error);
+    }
+    if (outcome === "settled" || outcome === "already_paid" || outcome === "already_settled") {
+      return NextResponse.redirect(new URL(`${returnPath}?success=paid`, request.nextUrl.origin));
+    }
+    if (outcome === "processing") {
+      return NextResponse.redirect(new URL(`${returnPath}?success=payment_processing`, request.nextUrl.origin));
+    }
+    return NextResponse.redirect(
+      new URL(`${returnPath}?error=checkout_cancelled`, request.nextUrl.origin),
+    );
+  }
+
+  // Competition carts keep their own (Phase 10C) release behaviour.
   await supabase
     .from("event_private_lesson_slots")
     .update({

@@ -403,7 +403,8 @@ describe("A2P-1A source guards", () => {
     // PAY-DC-2D retired the legacy public register action (and with it the
     // waitlist enqueue site); the paid-registration SMS enqueue remains in the
     // webhook and is still rejected by dispatch.
-    const webhook = read("src", "app", "api", "payments", "webhook", "route.ts");
+    // PAY-WH-1 moved the event confirmation code verbatim from the webhook route into settlementSideEffects.ts.
+    const webhook = read("src", "app", "api", "payments", "webhook", "route.ts") + read("src", "lib", "events", "settlementSideEffects.ts");
 
     expect(webhook).toContain('templateKey: "event_registration_confirmed"');
     expect(webhook).toContain('channel: "sms"');

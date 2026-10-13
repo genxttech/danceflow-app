@@ -286,11 +286,15 @@ describe("source guards (Phase 10C invariants)", () => {
 
   it("the webhook routes competition sessions to the competition lifecycle before the event cart handler, and handles expiry", () => {
     const competition = webhook.indexOf("handleCompetitionRegistrationCheckoutEvent(\n    supabase,\n    stripe,\n    session,");
-    const cart = webhook.indexOf("const handledEventCartOrder = await handleEventCartOrderCheckoutCompleted(");
+    const cart = webhook.indexOf("const handledEventCartOrder = await handleEventCartCheckoutSessionEvent(");
     expect(competition).toBeGreaterThan(-1);
     expect(cart).toBeGreaterThan(competition);
     expect(webhook).toContain(`case "checkout.session.expired":`);
-    expect(webhook.match(/paymentInsertError && paymentInsertError\.code !== "23505"/g)?.length).toBe(2);
+    // PAY-WH-1: event-cart payment rows are written only by the locked settle_event_cart_order (an existing row is
+    // verified, never blindly skipped); the webhook delegates cart Session and PaymentIntent events to it.
+    const cartWebhook = readFileSync(join(ROOT, "src/lib/events/cartWebhook.ts"), "utf8");
+    expect(webhook).toContain("handleEventCartPaymentIntentEvent(");
+    expect(cartWebhook).toContain("settleEventCartOrder(admin, evidence)");
     const failed = webhook.slice(webhook.indexOf(`case "checkout.session.async_payment_failed"`));
     const failedBlock = failed.slice(0, failed.indexOf("break;"));
     expect(failedBlock.indexOf("handleCompetitionRegistrationCheckoutEvent(")).toBeGreaterThan(0);

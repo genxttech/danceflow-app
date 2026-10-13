@@ -1,6 +1,12 @@
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/payments/stripe";
+import {
+  checkoutSessionExpiresAtForHold,
+  extendEventCartOrderHold,
+  newEventCartHoldUntil,
+  recordEventCartPaymentAttempt,
+} from "@/lib/events/cartSettlement";
 import { calculateApplicationFeeAmount, getOrganizerPlatformFeePercent } from "@/lib/events/platformFee";
 
 type Surface = "web" | "student_app";
@@ -324,12 +330,35 @@ export async function startEventOrderPayment(params: {
     ? params.mobileReturnUrl
     : `danceflow://events/orders/${encodeURIComponent(order.id)}?checkout=event`;
   const successUrl = params.surface === "student_app" ? mobileSuccessUrl : webSuccessUrl;
-  const releaseUrl = `${baseUrl}/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(event.slug)}`;
+  const holdToken = typeof order.metadata?.holdToken === "string"
+    ? order.metadata.holdToken
+    : typeof order.metadata?.hold_token === "string" ? order.metadata.hold_token : "";
+  const releaseUrl = `${baseUrl}/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(event.slug)}&holdToken=${encodeURIComponent(holdToken)}`;
+  const amountCents = Math.round(totalAmount * 100);
+
+  // PAY-WH-1: every new Stripe payment object needs a capacity hold that outlives it. Extending re-checks capacity,
+  // so a hold that lapsed and was taken by someone else cannot be revived here.
+  const holdUntil = newEventCartHoldUntil();
+  const extended = await extendEventCartOrderHold(admin, order.id, holdUntil);
+  if (extended.ok !== true) {
+    throw new Error(extended.reason === "capacity_unavailable"
+      ? "These tickets are no longer available."
+      : "This event checkout has expired.");
+  }
+
+  const { data: openAttemptRows } = await admin
+    .from("event_order_payment_attempts")
+    .select("id, kind, stripe_checkout_session_id, stripe_payment_intent_id, stripe_account_id")
+    .eq("order_id", order.id)
+    .eq("status", "open")
+    .order("created_at", { ascending: false });
+  const openAttempts = (openAttemptRows ?? []) as Array<{ kind: string; stripe_checkout_session_id: string | null; stripe_payment_intent_id: string | null; stripe_account_id: string }>;
 
   if (params.paymentMode === "payment_sheet" && params.surface === "student_app") {
-    if (order.stripe_payment_intent_id) {
+    const reusableIntent = openAttempts.find((attempt) => attempt.kind === "payment_intent" && attempt.stripe_account_id === connectedAccountId);
+    if (reusableIntent?.stripe_payment_intent_id) {
       const existing = await stripe.paymentIntents.retrieve(
-        order.stripe_payment_intent_id,
+        reusableIntent.stripe_payment_intent_id,
         {},
         { stripeAccount: connectedAccountId },
       );
@@ -350,10 +379,11 @@ export async function startEventOrderPayment(params: {
 
     const intent = await stripe.paymentIntents.create(
       {
-        amount: Math.round(totalAmount * 100),
+        amount: amountCents,
         currency,
         receipt_email: order.buyer_email,
-        automatic_payment_methods: { enabled: true },
+        // PAY-WH-1A: card payments only (wallets included); delayed methods stay off until separately tested.
+        payment_method_types: ["card"],
         ...(applicationFeeAmount > 0
           ? { application_fee_amount: applicationFeeAmount }
           : {}),
@@ -378,10 +408,18 @@ export async function startEventOrderPayment(params: {
       },
     );
     if (!intent.client_secret) throw new Error("Stripe did not return a native payment secret.");
+    await recordEventCartPaymentAttempt(admin, {
+      orderId: order.id,
+      stripeAccountId: connectedAccountId,
+      kind: "payment_intent",
+      paymentIntentId: intent.id,
+      amountCents,
+      currency,
+      surface: params.surface,
+    });
     await admin
       .from("event_orders")
       .update({
-        stripe_payment_intent_id: intent.id,
         updated_at: new Date().toISOString(),
         // Merge, not replace -- metadata also carries requested_total_cents
         // and ticket_selection_signature, which resolveEventOrderForCheckout
@@ -389,19 +427,24 @@ export async function startEventOrderPayment(params: {
         metadata: { ...(order.metadata ?? {}), payment_intent_attempt_count: paymentIntentAttempt + 1 },
       })
       .eq("id", order.id);
-    if (registrationIds.length) await admin.from("event_registrations").update({ stripe_payment_intent_id: intent.id }).in("id", registrationIds);
     return { clientSecret: intent.client_secret, orderId: order.id, publishableKey: getStripePublishableKey(), registrationIds };
   }
 
-  if (order.stripe_checkout_session_id) {
+  let staleSessionId: string | null = null;
+  const reusableSession = openAttempts.find((attempt) => attempt.kind === "checkout_session" && attempt.stripe_account_id === connectedAccountId);
+  if (reusableSession?.stripe_checkout_session_id) {
     const existing = await stripe.checkout.sessions.retrieve(
-      order.stripe_checkout_session_id,
+      reusableSession.stripe_checkout_session_id,
       {},
       { stripeAccount: connectedAccountId },
     );
-    if (existing.url && existing.status === "open") {
+    // Reuse only a Session that closes before the (just extended) hold; anything else -- e.g. a pre-PAY-WH-1 Session
+    // with Stripe's 24-hour default -- would outlive the capacity hold, so it is expired once the replacement is recorded.
+    const holdSeconds = Math.floor(Date.parse(holdUntil) / 1000);
+    if (existing.url && existing.status === "open" && existing.expires_at && existing.expires_at < holdSeconds) {
       return { checkoutUrl: existing.url, orderId: order.id, registrationIds };
     }
+    if (existing.status === "open") staleSessionId = existing.id;
   }
 
   // Same attempt-numbering rationale as the PaymentIntent branch above --
@@ -409,9 +452,14 @@ export async function startEventOrderPayment(params: {
   // Checkout Session's original response on a genuine retry.
   const checkoutSessionAttempt = Number(order.metadata?.checkout_session_attempt_count ?? 0);
 
+  const sessionExpiresAt = checkoutSessionExpiresAtForHold(holdUntil);
+  if (!sessionExpiresAt) throw new Error("This event checkout has expired.");
   const session = await stripe.checkout.sessions.create(
     {
       mode: "payment",
+      expires_at: sessionExpiresAt,
+      // PAY-WH-1A: card payments only (see the cart checkout route).
+      payment_method_types: ["card"],
       customer_email: order.buyer_email,
       success_url: successUrl,
       cancel_url: releaseUrl,
@@ -459,15 +507,26 @@ export async function startEventOrderPayment(params: {
       idempotencyKey: `event-order:${order.id}:checkout-session:${checkoutSessionAttempt}`,
     },
   );
+  await recordEventCartPaymentAttempt(admin, {
+    orderId: order.id,
+    stripeAccountId: connectedAccountId,
+    kind: "checkout_session",
+    checkoutSessionId: session.id,
+    amountCents,
+    currency,
+    surface: params.surface,
+    expiresAt: new Date(sessionExpiresAt * 1000).toISOString(),
+  });
+  // Only now (the replacement is recorded, so the order keeps a live attempt) close the Session that would outlive the
+  // hold: its checkout.session.expired webhook then cannot release the order in between.
+  if (staleSessionId) await stripe.checkout.sessions.expire(staleSessionId, {}, { stripeAccount: connectedAccountId });
   if (!session.url) throw new Error("Stripe did not return a checkout URL.");
   await admin
     .from("event_orders")
     .update({
-      stripe_checkout_session_id: session.id,
       updated_at: new Date().toISOString(),
       metadata: { ...(order.metadata ?? {}), checkout_session_attempt_count: checkoutSessionAttempt + 1 },
     })
     .eq("id", order.id);
-  if (registrationIds.length) await admin.from("event_registrations").update({ stripe_checkout_session_id: session.id }).in("id", registrationIds);
   return { checkoutUrl: session.url, orderId: order.id, registrationIds };
 }

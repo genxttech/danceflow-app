@@ -1,3 +1,4 @@
+import { fakeCartLifecycleRpc } from "@/lib/supabase/__tests__/fakeCartLifecycleRpc";
 /**
  * Minimal in-memory fake of the Supabase query-builder surface used by the
  * terminal payment-creation paths (payments, terminal_payment_sessions,
@@ -177,6 +178,9 @@ export class FakeQuery {
 
 export function createFakeAdminClient(tables: Record<string, FakeTable>) {
   return {
+    // PAY-WH-1 lifecycle functions (in-memory model shared with simpleFakeAdminClient).
+    rpc: async (fn: string, args: Record<string, unknown> = {}) =>
+      fakeCartLifecycleRpc(tables as unknown as Parameters<typeof fakeCartLifecycleRpc>[0], fn, args),
     from(table: string) {
       const t = tables[table];
       if (!t) throw new Error(`Unexpected table in fake db: ${table}`);

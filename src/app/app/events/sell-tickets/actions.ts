@@ -591,6 +591,8 @@ export async function sellTicketsAction(
           notes ||
           `${useCardReader ? "Card reader" : "Manual"} ticket sale created from workspace by user ${userId}. Payment method: ${paymentMethod}.`,
         payment_status: paidNow ? "paid" : "pending",
+        // PAY-WH-1A: the card-reader sale reserves its tickets for the terminal hold (database-enforced capacity).
+        terminal_hold_until: useCardReader ? new Date(Date.now() + 15 * 60_000).toISOString() : null,
         stripe_checkout_session_id: null,
         stripe_payment_intent_id: null,
       })

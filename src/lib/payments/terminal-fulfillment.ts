@@ -232,6 +232,176 @@ async function ensureTerminalEventRegistrationFulfillment(params: {
   }
 }
 
+/**
+ * PAY-WH-1A: thrown when a box-office card-reader charge succeeded but its tickets could not be issued (sold out after
+ * the terminal hold lapsed, sale cancelled, not an orderless box-office sale). The database has already recorded a
+ * captured-payment exception and queued the staff alert; nothing is refunded or fulfilled automatically.
+ */
+export class TerminalEventNotFulfilledError extends Error {
+  constructor(
+    readonly reason: string,
+    readonly exceptionId: string | null,
+  ) {
+    super(`terminal_event_not_fulfilled:${reason}`);
+    this.name = "TerminalEventNotFulfilledError";
+  }
+}
+
+async function fulfillTerminalEventRegistration(params: {
+  supabase: SupabaseClient;
+  studioId: string;
+  paymentId: string;
+  registrationId: string;
+  paymentIntentId: string;
+  amount: number | string | null;
+  currency: string | null;
+  stripeAccountId: string | null;
+}) {
+  const { supabase, studioId, paymentId, registrationId, paymentIntentId } = params;
+  // The charge is never treated as proof of fulfilment: the registration is confirmed under its lock by the database,
+  // which re-checks capacity and records an exception instead when it cannot be fulfilled.
+  const { data: confirmation, error: confirmationError } = await supabase.rpc("confirm_terminal_event_registration", {
+    p_studio_id: studioId,
+    p_payment_id: paymentId,
+    p_registration_id: registrationId,
+    p_payment_intent_id: paymentIntentId,
+    p_amount_cents: dollarsToCents(params.amount),
+    p_currency: normalizeCurrency(params.currency),
+    p_stripe_account: params.stripeAccountId,
+  });
+  if (confirmationError) {
+    throw new Error(`Terminal payment event registration confirmation failed: ${confirmationError.message}`);
+  }
+  const result = (confirmation ?? {}) as { outcome?: string; reason?: string; exception_id?: string };
+  if (result.outcome !== "confirmed" && result.outcome !== "already_confirmed") {
+    console.error("terminal event sale charged but not fulfilled", result.reason ?? result.outcome);
+    throw new TerminalEventNotFulfilledError(result.reason ?? String(result.outcome), result.exception_id ?? null);
+  }
+
+  const { data: registration, error: registrationError } = await supabase
+    .from("event_registrations")
+    .select(
+      `
+        id,
+        event_id,
+        studio_id,
+        client_id,
+        ticket_type_id,
+        quantity,
+        attendee_first_name,
+        attendee_last_name,
+        attendee_email,
+        attendee_phone,
+        total_amount,
+        total_price,
+        currency
+      `,
+    )
+    .eq("id", registrationId)
+    .eq("studio_id", studioId)
+    .single<TerminalEventRegistration>();
+
+  if (registrationError || !registration) {
+    throw new Error(
+      `Terminal payment event registration fulfillment failed: ${
+        registrationError?.message ?? "registration not found"
+      }`,
+    );
+  }
+
+  const payment = { amount: params.amount, currency: params.currency };
+  const session = { stripe_account_id: params.stripeAccountId };
+
+  await ensureTerminalEventRegistrationFulfillment({
+    supabase,
+    studioId,
+    registration,
+  });
+
+  const { data: existingEventPayment, error: eventPaymentLookupError } =
+    await supabase
+      .from("event_payments")
+      .select("id")
+      .eq("registration_id", registrationId)
+      .eq("stripe_payment_intent_id", paymentIntentId)
+      .maybeSingle();
+
+  if (eventPaymentLookupError) {
+    throw new Error(
+      `Terminal payment event payment lookup failed: ${eventPaymentLookupError.message}`,
+    );
+  }
+
+  if (existingEventPayment?.id) {
+    const { error: eventPaymentUpdateError } = await supabase
+      .from("event_payments")
+      .update({
+        amount: Number(payment.amount ?? 0),
+        currency: payment.currency ?? registration.currency ?? "usd",
+        payment_method: "card",
+        status: "paid",
+        source: "terminal_ticket_sale",
+      })
+      .eq("id", existingEventPayment.id);
+
+    if (eventPaymentUpdateError) {
+      throw new Error(
+        `Terminal payment event payment update failed: ${eventPaymentUpdateError.message}`,
+      );
+    }
+
+    if (session.stripe_account_id) {
+      const { error: eventPaymentOwnerError } = await supabase
+        .from("event_payments")
+        .update({ stripe_account_id: session.stripe_account_id })
+        .eq("id", existingEventPayment.id)
+        .is("stripe_account_id", null);
+
+      if (eventPaymentOwnerError) {
+        throw new Error(
+          `Terminal payment event payment owner update failed: ${eventPaymentOwnerError.message}`,
+        );
+      }
+    }
+  } else {
+    const { error: eventPaymentInsertError } = await supabase
+      .from("event_payments")
+      .insert({
+        registration_id: registrationId,
+        amount: Number(payment.amount ?? 0),
+        currency: payment.currency ?? registration.currency ?? "usd",
+        payment_method: "card",
+        status: "paid",
+        source: "terminal_ticket_sale",
+        stripe_payment_intent_id: paymentIntentId,
+        // PAY-DC-2A: owner = the terminal session's account (the PaymentIntent's account).
+        stripe_account_id: session.stripe_account_id ?? null,
+      });
+
+    if (eventPaymentInsertError) {
+      throw new Error(
+        `Terminal payment event payment insert failed: ${eventPaymentInsertError.message}`,
+      );
+    }
+  }
+}
+
+/** PAY-WH-1A: frees the box-office terminal hold of a ticket sale whose reader payment did not happen. Best effort. */
+export async function releaseTerminalEventHold(params: { supabase: SupabaseClient; studioId: string; paymentId: string }) {
+  const { data: payment } = await params.supabase
+    .from("payments")
+    .select("payment_type, external_reference, status")
+    .eq("id", params.paymentId)
+    .eq("studio_id", params.studioId)
+    .maybeSingle();
+  if (payment?.payment_type !== "event_registration" || !payment.external_reference || payment.status === "paid") return;
+  const { error } = await params.supabase.rpc("release_terminal_event_registration_hold", {
+    p_studio_id: params.studioId,
+    p_registration_id: payment.external_reference,
+  });
+  if (error) console.error("terminal event hold release failed", error.message);
+}
+
 export async function fulfillTerminalPayment({
   supabase,
   studioId,
@@ -244,7 +414,7 @@ export async function fulfillTerminalPayment({
   const { data: payment, error: paymentLookupError } = await supabase
     .from("payments")
     .select(
-      "id, studio_id, amount, currency, status, client_package_id, payment_type, external_reference, commerce_order_id",
+      "id, studio_id, amount, currency, status, client_package_id, payment_type, external_reference, commerce_order_id, stripe_payment_intent_id",
     )
     .eq("id", paymentId)
     .eq("studio_id", studioId)
@@ -331,6 +501,25 @@ export async function fulfillTerminalPayment({
     if (conflictError) {
       throw new Error(`Terminal payment fulfillment failed: ${conflictError.message}`);
     }
+    // PAY-WH-1A: replay of an event ticket sale that is already paid by THIS PaymentIntent: make sure its tickets
+    // were issued (idempotent), or that the failure to issue them is recorded as a payment exception.
+    if (
+      payment.status === "paid" &&
+      payment.stripe_payment_intent_id === paymentIntentId &&
+      payment.external_reference &&
+      payment.payment_type === "event_registration"
+    ) {
+      await fulfillTerminalEventRegistration({
+        supabase,
+        studioId,
+        paymentId,
+        registrationId: payment.external_reference,
+        paymentIntentId,
+        amount: payment.amount,
+        currency: payment.currency,
+        stripeAccountId: session.stripe_account_id ?? null,
+      });
+    }
     return false;
   }
 
@@ -376,115 +565,16 @@ export async function fulfillTerminalPayment({
     payment.external_reference &&
     payment.payment_type === "event_registration"
   ) {
-    const { data: registration, error: registrationError } = await supabase
-      .from("event_registrations")
-      .update({
-        status: "confirmed",
-        payment_status: "paid",
-        stripe_payment_intent_id: paymentIntentId,
-      })
-      .eq("id", payment.external_reference)
-      .eq("studio_id", studioId)
-      .select(
-        `
-        id,
-        event_id,
-        studio_id,
-        client_id,
-        ticket_type_id,
-        quantity,
-        attendee_first_name,
-        attendee_last_name,
-        attendee_email,
-        attendee_phone,
-        total_amount,
-        total_price,
-        currency
-      `,
-      )
-      .single<TerminalEventRegistration>();
-
-    if (registrationError || !registration) {
-      throw new Error(
-        `Terminal payment event registration fulfillment failed: ${
-          registrationError?.message ?? "registration not found"
-        }`,
-      );
-    }
-
-    await ensureTerminalEventRegistrationFulfillment({
+    await fulfillTerminalEventRegistration({
       supabase,
       studioId,
-      registration,
+      paymentId,
+      registrationId: payment.external_reference,
+      paymentIntentId,
+      amount: payment.amount,
+      currency: payment.currency,
+      stripeAccountId: session.stripe_account_id ?? null,
     });
-
-    const { data: existingEventPayment, error: eventPaymentLookupError } =
-      await supabase
-        .from("event_payments")
-        .select("id")
-        .eq("registration_id", payment.external_reference)
-        .eq("stripe_payment_intent_id", paymentIntentId)
-        .maybeSingle();
-
-    if (eventPaymentLookupError) {
-      throw new Error(
-        `Terminal payment event payment lookup failed: ${eventPaymentLookupError.message}`,
-      );
-    }
-
-    if (existingEventPayment?.id) {
-      const { error: eventPaymentUpdateError } = await supabase
-        .from("event_payments")
-        .update({
-          amount: Number(payment.amount ?? 0),
-          currency: payment.currency ?? registration.currency ?? "usd",
-          payment_method: "card",
-          status: "paid",
-          source: "terminal_ticket_sale",
-        })
-        .eq("id", existingEventPayment.id);
-
-      if (eventPaymentUpdateError) {
-        throw new Error(
-          `Terminal payment event payment update failed: ${eventPaymentUpdateError.message}`,
-        );
-      }
-
-      if (session.stripe_account_id) {
-        const { error: eventPaymentOwnerError } = await supabase
-          .from("event_payments")
-          .update({ stripe_account_id: session.stripe_account_id })
-          .eq("id", existingEventPayment.id)
-          .is("stripe_account_id", null);
-
-        if (eventPaymentOwnerError) {
-          throw new Error(
-            `Terminal payment event payment owner update failed: ${eventPaymentOwnerError.message}`,
-          );
-        }
-      }
-    } else {
-      const { error: eventPaymentInsertError } = await supabase
-        .from("event_payments")
-        .insert({
-          event_id: registration.event_id,
-          registration_id: payment.external_reference,
-          amount: Number(payment.amount ?? 0),
-          currency: payment.currency ?? registration.currency ?? "usd",
-          payment_method: "card",
-          status: "paid",
-          source: "terminal_ticket_sale",
-          stripe_payment_intent_id: paymentIntentId,
-          // PAY-DC-2A: owner = the terminal session's account (the PaymentIntent's account).
-          stripe_account_id: session.stripe_account_id ?? null,
-        });
-
-      if (eventPaymentInsertError) {
-        throw new Error(
-          `Terminal payment event payment insert failed: ${eventPaymentInsertError.message}`,
-        );
-      }
-    }
   }
 
   if (payment.commerce_order_id) {

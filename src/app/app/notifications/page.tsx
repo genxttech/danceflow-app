@@ -43,6 +43,7 @@ type WorkspaceRow = {
 
 const studioNotificationTypeOptions: NotificationTypeOption[] = [
   { value: "event_registration", label: "Event Registration" },
+  { value: "payment_exception", label: "Payment Needs Review" },
   { value: "event_check_in", label: "Event Check-In" },
   { value: "public_intro_booking", label: "Public Intro" },
   { value: "booking_request_pending", label: "Booking Request" },

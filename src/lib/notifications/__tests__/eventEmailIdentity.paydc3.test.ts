@@ -104,7 +104,8 @@ describe("resolveEventEmailBranding (D-G)", () => {
 });
 
 describe("caller wiring (source guards)", () => {
-  const webhook = read("src", "app", "api", "payments", "webhook", "route.ts");
+  // PAY-WH-1 moved the event confirmation code verbatim from the webhook route into settlementSideEffects.ts.
+  const webhook = read("src", "app", "api", "payments", "webhook", "route.ts") + read("src", "lib", "events", "settlementSideEffects.ts");
   const resend = read("src", "app", "app", "events", "[id]", "registrations", "actions.ts");
   const reminders = read("src", "app", "api", "cron", "event-reminders", "route.ts");
 

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
-import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
+import { fulfillTerminalPayment, releaseTerminalEventHold, TerminalEventNotFulfilledError } from "@/lib/payments/terminal-fulfillment";
 import { finalizeTerminalMembership } from "@/lib/payments/terminal-membership-finalization";
 
 function getBaseUrl() {
@@ -213,6 +213,7 @@ export async function POST(request: NextRequest) {
         .eq("id", paymentId)
         .eq("studio_id", context.studioId)
         .neq("status", "paid");
+      await releaseTerminalEventHold({ supabase, studioId: context.studioId, paymentId });
 
       return NextResponse.redirect(
         terminalPaymentUrl(paymentId, { error: "terminal_payment_failed" }),
@@ -223,6 +224,10 @@ export async function POST(request: NextRequest) {
       terminalPaymentUrl(paymentId, { success: "terminal_payment_refreshed" }),
     );
   } catch (error) {
+    if (error instanceof TerminalEventNotFulfilledError) {
+      // The card was charged but the tickets could not be issued; a payment exception was recorded and staff alerted.
+      return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_ticket_not_fulfilled" }));
+    }
     console.error("Terminal payment refresh failed", error);
     return NextResponse.redirect(
       terminalPaymentUrl(paymentId, {

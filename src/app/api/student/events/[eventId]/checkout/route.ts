@@ -1,4 +1,10 @@
 import { randomUUID } from "crypto";
+import {
+  newEventCartHoldUntil,
+  releaseEventCartOrder,
+  releaseUnattemptedEventCartOrders,
+} from "@/lib/events/cartSettlement";
+import { getStripe } from "@/lib/payments/stripe";
 import { fromMinorUnits, ticketLineTotalCents } from "@/lib/events/ticketPricing";
 import { parseExpectedUnitPriceCents, priceNativeTicketSelections } from "@/lib/events/nativeTicketPricing";
 import { beginEventSigningCheckpoint } from "@/lib/documents/event-signing";
@@ -275,18 +281,20 @@ async function startSigningCheckpointIfRequired(params: {
  * as an orphaned pending event_orders row.
  */
 async function cancelPendingEventOrder(supabase: SupabaseClient, orderId: string) {
-  const nowIso = new Date().toISOString();
-
-  await supabase
-    .from("event_registrations")
-    .update({ status: "cancelled", payment_status: "failed", cancelled_at: nowIso })
-    .eq("order_id", orderId)
-    .eq("status", "pending");
-
-  await supabase
-    .from("event_orders")
-    .update({ status: "cancelled", payment_status: "failed", cancelled_at: nowIso })
-    .eq("id", orderId);
+  // PAY-WH-1: release through the two-phase lifecycle -- any Stripe attempt already created for this order is
+  // expired/canceled and read back first, so a payable PaymentIntent/Session is never orphaned by a cancel.
+  let stripe = null;
+  try {
+    stripe = getStripe();
+  } catch {
+    stripe = null;
+  }
+  try {
+    await releaseEventCartOrder({ admin: supabase, stripe, orderId, reason: "student_checkout_failed" });
+  } catch (error) {
+    // The hold lapses on its own and the reconcile sweeper retries the release.
+    console.error("student event checkout: release did not complete", error instanceof Error ? error.message : error);
+  }
 }
 
 async function getOrganizerPlatformFeePercent(supabase: SupabaseClient, studioId: string) {
@@ -618,7 +626,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   let totalAmount = 0;
   let totalAmountCents = 0;
   let currency = "USD";
-  const holdUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const holdUntil = newEventCartHoldUntil();
   const orderHoldToken = randomUUID();
   const orderItems: Record<string, unknown>[] = [];
   const paymentMode: "checkout" | "payment_sheet" = body.paymentMode === "payment_sheet" ? "payment_sheet" : "checkout";
@@ -768,21 +776,11 @@ export async function POST(request: NextRequest, { params }: Params) {
   // brand new order (so the filter is inert), but keeping it here makes
   // the query correct-by-construction rather than correct-by-coincidence.
   try {
-    const { error: staleRegistrationCleanupError } = await supabase
-      .from("event_registrations")
-      .update({
-        status: "cancelled",
-        payment_status: "failed",
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq("event_id", event.id)
-      .eq("attendee_email", buyerEmail)
-      .eq("status", "pending")
-      .eq("payment_status", "pending")
-      .not("order_id", "is", null)
-      .neq("order_id", order.id);
-
-    if (staleRegistrationCleanupError) {
+    // PAY-WH-1: only this buyer's earlier orders for this event that never reached Stripe are released; an order whose
+    // PaymentIntent/Session may still be paid is never cancelled from here.
+    try {
+      await releaseUnattemptedEventCartOrders(supabase, { eventId: event.id, buyerEmail, excludeOrderId: order.id });
+    } catch {
       throw new Error("A previous checkout attempt could not be cleared.");
     }
 
@@ -1013,24 +1011,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       error instanceof Error ? error.message : error,
     );
 
-    await supabase
-      .from("event_registrations")
-      .update({
-        status: "cancelled",
-        payment_status: "failed",
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq("order_id", order.id)
-      .eq("status", "pending");
-
-    await supabase
-      .from("event_orders")
-      .update({
-        status: "cancelled",
-        payment_status: "failed",
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq("id", order.id);
+    await cancelPendingEventOrder(supabase, order.id);
 
     return jsonError("Checkout could not be started. Please try again.");
   }

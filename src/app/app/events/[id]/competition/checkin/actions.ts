@@ -164,13 +164,11 @@ export async function recordCompetitionCheckinPaymentAction(formData: FormData):
   const amount = Number(text(formData, "amount"));
   if (!eventId || !sessionId || !Number.isFinite(amount) || amount <= 0 || !["cash", "check", "external_card", "other"].includes(paymentMethod)) throw new Error("Valid payment details are required.");
   const { supabase } = await requireEventManager(eventId);
-  const { data: session } = await supabase.from("event_competition_checkin_sessions").select("registration_id, order_id, balance_due, currency").eq("id", sessionId).eq("event_id", eventId).single();
-  if (!session?.registration_id || amount > Number(session.balance_due) + 0.001) throw new Error("Payment exceeds the current balance or registration is missing.");
-  const { error } = await supabase.from("event_payments").insert({ event_id: eventId, registration_id: session.registration_id, amount, currency: session.currency, payment_method: paymentMethod, status: "paid", source: "competition_checkin", notes: "Collected at competition registration-desk check-in." });
+  // PAY-WH-1A: one locked database operation re-checks the manager role, the competition source, the order/registration
+  // state and the live balance, writes the payment and the registration/order state, and records an audit row. Client
+  // roles cannot write payment rows of order-backed registrations directly.
+  const { error } = await supabase.rpc("record_competition_checkin_payment", { p_event_id: eventId, p_session_id: sessionId, p_amount: Math.round(amount * 100) / 100, p_payment_method: paymentMethod, p_notes: null });
   if (error) throw new Error(error.message);
-  const remaining = Number((Number(session.balance_due) - amount).toFixed(2));
-  await supabase.from("event_registrations").update({ payment_status: remaining <= 0 ? "paid" : "partial", status: remaining <= 0 ? "confirmed" : "pending" }).eq("id", session.registration_id);
-  if (session.order_id && remaining <= 0) await supabase.from("event_orders").update({ payment_status: "paid", status: "confirmed", paid_at: new Date().toISOString() }).eq("id", session.order_id);
   await recalculateSession(supabase, eventId, sessionId); refresh(eventId, sessionId);
 }
 

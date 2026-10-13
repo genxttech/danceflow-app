@@ -1,3 +1,4 @@
+import { fakeCartLifecycleRpc } from "./fakeCartLifecycleRpc";
 /**
  * Public Event Document-Checkpoint Remediation: minimal, purpose-built
  * chainable fake of the subset of the Supabase query-builder surface needed
@@ -26,7 +27,8 @@ type Filter =
   | { type: "eq"; col: string; val: unknown }
   | { type: "neq"; col: string; val: unknown }
   | { type: "in"; col: string; vals: unknown[] }
-  | { type: "not_is"; col: string; val: unknown };
+  | { type: "not_is"; col: string; val: unknown }
+  | { type: "is"; col: string; val: unknown };
 
 /**
  * Test-only, opt-in error injection for one table. Scoped by `op` so it
@@ -108,6 +110,11 @@ class FakeQuery {
     return this;
   }
 
+  is(col: string, val: unknown) {
+    this.filters.push({ type: "is", col, val });
+    return this;
+  }
+
   not(col: string, _op: "eq" | "is", val: unknown) {
     this.filters.push({ type: "not_is", col, val });
     return this;
@@ -128,6 +135,7 @@ class FakeQuery {
         if (f.type === "eq") return row[f.col] === f.val;
         if (f.type === "neq") return row[f.col] !== f.val;
         if (f.type === "in") return f.vals.includes(row[f.col]);
+        if (f.type === "is") return (row[f.col] ?? null) === f.val;
         return row[f.col] !== f.val;
       }),
     );
@@ -207,6 +215,8 @@ export function createFakeAdminClient(
         delete: () => new FakeQuery(t, "delete"),
       };
     },
+    // PAY-WH-1 lifecycle functions (in-memory model, see fakeCartLifecycleRpc.ts).
+    rpc: async (fn: string, args: Record<string, unknown> = {}) => fakeCartLifecycleRpc(tables, fn, args),
     storage: {
       from: () => ({
         upload: async () =>
