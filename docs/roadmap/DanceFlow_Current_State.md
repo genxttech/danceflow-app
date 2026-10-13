@@ -2,11 +2,87 @@
 
 Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
 
+**Last updated:** 2026-10-13 (roadmap v2.22: reconciled through PAY-WH-1B at main `24a37a15`; Phase 10 slices 10A–10D.1 and 10C.1–10C.5 recorded as released; Commerce Integrity lane added (CI-A, PAY-WH-1/1A/1B released; CI-B, CI-D open); Twilio TW-4 automated ISV onboarding recorded as the approved direction; near-term priority order proposed for owner review).
+
+> **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
+
+> **v2.22 restructure:** this file had accumulated full release histories, which the maintenance rule assigns to the Master Roadmap. The current snapshot is below; the complete v2.21 text is preserved unchanged (headings demoted one level) under [Historical release records](#historical-release-records-v221-snapshot-preserved) at the end. Nothing was deleted.
+
+## Release state
+
+| | |
+|---|---|
+| **CURRENT MAIN** | `24a37a15bb0daf6f2b2de48745e84bd862ad29d1` (PAY-WH-1B, PR #216, merged 2026-10-13 11:44Z) |
+| **CURRENT PROD DEPLOYMENT** | `dpl_5BjsJaSPqn1qA3D4fCDijZbRNqqK` (qfem; source `24a37a15`; promoted 2026-10-13 11:58Z; `www.idanceflow.com` and apex) |
+| **APPLICATION ROLLBACK** | App-only to `dpl_9GRhgfVhT6eDHyQooiqjXnEvpbj3` (PAY-WH-1, main `21ec7b6d`). Do **not** roll the application below PAY-WH-1 casually: the PAY-WH-1 SQL (M1–M5) stays in place, the pre-PAY-WH-1 app (`dpl_267ZZt…`) was verified compatible with the new schema at release, but any deeper rollback needs review. Earlier cautions still apply (not below 9C; never to the Phase 8C deployment) |
+| **SUPABASE DEV** | `epdrtzcydvnoidwrepqz` |
+| **SUPABASE PROD** | `hvsujyfbftfffxpfmlpb` |
+| **PRIMARY REPO LINK** | DEV (PROD only through a fresh scratch workdir, with authorization) |
+| **PENDING PROD MIGRATIONS** | None. Applied to PROD since v2.21: `20261107090000` (10A), `20261108090000` (10B), `20261109090000` (10C), `20261110090000` (10C.4), `20261111090000` (10D), `20261112090000` (10D.1), `20261113090000`/`20261114090000`/`20261115090000` (10C.5, one transaction 2026-10-12), `20261116090000`–`20261116094000` (PAY-WH-1 M1→M3→M2→M4→M5, 2026-10-13 10:30–10:31Z). 10C.1, 10C.2, CI-A, the #214 QA PR and PAY-WH-1B had no SQL |
+| **PUBLIC COMPETITION REGISTRATION** | **OFF / HELD** (`NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED` off in production) — see Holds below |
+| **PACKAGE REFUND HOLD** | Released / `false` (unchanged) |
+| **SMS** | Global status unchanged; no `studio_sms_registrations` row in PROD; every studio fail-closed |
+| **KNOWN HYGIENE DEBT** | Pre-existing repo-wide lint debt; seven legacy SQL suites; DEV/PROD/repo drift items; CI Playwright job skipped (no E2E environment); New Client `/n` display bug. All tracked in the Master Roadmap deferred register |
+
+Authenticated production smoke was intentionally omitted because prior production read-only verification attempts resulted in secret/key exposure. Authenticated behavior was instead validated in DEV/local before release.
+
+## Active work and next gates
+
+| | |
+|---|---|
+| **PROPOSED NEAR-TERM PRIORITY (owner review)** | 1 Marketing M-0 compliance remediation → 2 CI-B atomic event check-in → 3 CI-D ticket-attributed refund integrity → 4 Competition OS 10E → 10F → 5 TW-4 automated SMS onboarding → 6 Marketing Messages enhancements → 7 Web/Business UX audit and redesign (Phases 17 → 18) → 8 Student App readiness (20-R) and redesign (20-D) → 9 DanceFlow Communities V1. Priority does not renumber the 26 phases |
+| **NEXT ENGINEERING ITEM** | Marketing M-0 — campaign compliance remediation (send-time suppression, fail-closed lookup, one-click `List-Unsubscribe`, sender-separation verification). Not yet authorized |
+| **PHASE 10 — COMPETITION OS** | Released: 10A, 10B, 10C, 10C.1, 10C.2, 10C.4, 10D, 10D.1, 10C.5 (10C.3 audit). Next: **10E Officials + Immutable Ballots**, gated on the owner's Schedule & Heats walkthrough; then 10F. Current Simple profile `studio_simple@3` |
+| **COMMERCE INTEGRITY LANE** | Released: CI-A (#213), PAY-WH-1/1A (#215), PAY-WH-1B (#216; four legacy PROD orders reconciled to expired 2026-10-13 12:15Z). Open: CI-B, CI-D. Not run: CI-A historical impact query (needs PROD read authorization) |
+| **PHASE 2 — TWILIO** | TW-1/2/3 released. TW-4 automated ISV onboarding: product direction approved (D1–D7 established directions); implementation not started or authorized; Twilio verification questions Q1–Q5 drafted, not yet sent. TW-OPS manual track superseded; the ConfiDance pilot will use the real automated flow |
+| **PHASE 3 — BRANDING** | BR-6 parked awaiting the professional ARIA voice recording; BR-7 not started |
+| **PHASE 4** | PARTIAL by decision #8 (SMS direction set by TW-4 D7; amounts and payroll/marketplace/ARIA placement open) |
+
+## Release holds
+
+| Hold | Blocks | Status |
+|---|---|---|
+| CI-B duplicate/concurrent check-in | Public Competition registration | OPEN |
+| CI-D whole-payment refund allocation / no per-registration refund path | Public Competition registration | OPEN (unsafe staff refund for order-backed registrations is blocked by PAY-WH-1A) |
+| 10C.1 launch gates (live Connect webhook subscriptions; organizer and "this is me" walkthroughs; refund/waiver acceptance) | Public Competition registration | OPEN |
+| NDCA Multi-Dance registration hold | Registration into Multi-Dance categories | OPEN |
+| Owner Schedule & Heats walkthrough | Starting 10E | OPEN |
+| Twilio Q1–Q5 | TW-4 slices that create Twilio resources | OPEN |
+| ACH / delayed methods | Non-card checkout | Card-only by design |
+
+**Active engineering launch blockers for already-public features:** none newly identified. Marketing M-0 is a compliance remediation of live campaign behavior and is priority 1.
+
+## Current external dependencies
+
+- Twilio answers on ticket #29647095 (TW-4 Q1–Q5).
+- Migration Center real-studio pilot validation (per source).
+- Eventual pricing cutover business/configuration decision.
+- Banner vendor / stand selection (BR-5 follow-up, needed only before a banner print order).
+- Professional ARIA voice recording (BR-6).
+
+## Major product decisions still open
+
+See the Master Roadmap "Open product decisions (consolidated)" list (now 22 items, including the v2.22 additions: refund vs digital access, marketing sending domain and consent scope, custom roles, import sources, Communities V1 definition, SOC 2 window, Multi-Dance timing) and the separate "Technical verification gates" and "Owner business-acceptance gates" lists.
+
+## NEXT GATE
+
+Owner review of roadmap v2.22 (this documentation PR). After that, the first proposed slice is Marketing M-0, followed by CI-B and CI-D; 10E starts when the owner Schedule & Heats walkthrough is accepted. TW-4 starts with sending the Twilio questions and an implementation authorization for 4A.
+
+---
+
+## Historical release records (v2.21 snapshot, preserved)
+
+The text below is the complete Current State file as of v2.21 (2026-10-09), unchanged except that its headings are demoted one level. It is history, not current state: where it says "next slice 10A", "TW-OPS next", "no TW-4 is planned", main `67e735ca` or live `dpl_C5TYuEwJ…`, the snapshot above supersedes it.
+
+### (v2.21 snapshot title: DanceFlow Current State)
+
+Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roadmap.md`](DanceFlow_Master_Roadmap.md). Update this file whenever main, the PROD deployment, or the active slice changes.
+
 **Last updated:** 2026-10-09 (roadmap v2.21: Phase 10 — Organizer + Competition OS architecture approved, next slice 10A — Competition Foundation Reconciliation; Twilio TW-3 released (PR #202, `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy`), TW-OPS next; roadmap v2.20: Phase 9 — Payroll Prep v1 COMPLETE / CLOSED (9A–9E all released); roadmap v2.19: Phase 2 Twilio A2P status corrected to ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION; roadmap v2.18: Phase 8 — Documents Center COMPLETE / CLOSED; Phase 7, Phase 6 — GC-3.4 and Phase 5 COMPLETE / CLOSED; ENT-1 released and closed; BR-6 parked)
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
-## Release state
+### Release state
 
 | | |
 |---|---|
@@ -23,7 +99,7 @@ Short, operational snapshot. The authoritative roadmap is [`DanceFlow_Master_Roa
 
 BR-4 (Public Website & Launch Messaging) is merged and live. Public smoke of the live domains and the live attribution cookie passed; authenticated production smoke was intentionally omitted. BR-5 (Event / Print Collateral) is merged as PR #137.
 
-## BR-6 (active, parked)
+### BR-6 (active, parked)
 
 | | |
 |---|---|
@@ -32,7 +108,7 @@ BR-4 (Public Website & Launch Messaging) is merged and live. Public smoke of the
 | **Status** | ACTIVE / PARKED. The Rough Cut 3 visual system and motion engine are built; the owner locked a first-person master narrated by ARIA herself (`docs/brand/media/VOICEOVER_V4.md`). The next full master render waits for the professional ARIA voice recording (`media/_work/voice/aria-pro/`) |
 | **Not done** | No music sourced or licensed; no voice talent engaged by engineering; no short cuts; BR-7 not started; BR-6 is not complete |
 
-## ENT-1 (released and closed)
+### ENT-1 (released and closed)
 
 | | |
 |---|---|
@@ -45,7 +121,7 @@ BR-4 (Public Website & Launch Messaging) is merged and live. Public smoke of the
 
 The BR-6 branch is not main. Do not treat BR-6 as merged until its pull request is merged.
 
-## Twilio status
+### Twilio status
 
 **Phase 2 — Twilio A2P / SMS: ACTIVE — FINAL COMPLIANCE / PILOT SUBMISSION** (not blocked; runs in parallel with the engineering phases and does not block Phase 10). Reference: Twilio support ticket #29647095; latest controlling guidance from Sachin Singh, Twilio A2P 10DLC Appeals Team, 2026-10-06.
 
@@ -57,7 +133,7 @@ The BR-6 branch is not main. Do not treat BR-6 as merged until its pull request 
 - Compliance-engineering slices: **TW-1 (Advanced Opt-Out alignment) is COMPLETE / RELEASED** (PR #197). **TW-2 (consent integrity) is COMPLETE / RELEASED** (PR #199). **TW-3 (registration metadata and readiness) is COMPLETE / RELEASED 2026-10-09** (PR #202 → main `67e735c`; PROD SQL `20261106090000` applied 12:34Z; `dpl_C5TYuEwJR1S2Pqh6nUpDpvLZS2Zy` live; rollback: app first to `dpl_BTRcPJ3g6fuhpVUvNW3W91jTM3CA`, then the SQL rollback). TW-1/TW-2/TW-3 engineering is complete and no TW-4 is planned; the next Twilio work is **TW-OPS** (ConfiDance setup, pre-submission review, campaign submission, production SMS verification). Twilio is a separate parallel track.
 - Engineering for the per-studio A2P model is live (SMS-A2P-1 through 3C). No `studio_sms_registrations` row exists in PROD, the global SMS status has not been changed, and every studio is fail-closed until individually approved. The ConfiDance campaign is not yet submitted, approved or production-verified.
 
-## Current roadmap position
+### Current roadmap position
 
 **ACTIVE PHASE:** Phase 10 — Organizer + Competition OS (next primary engineering phase; Phase 9 — Payroll Prep v1 is COMPLETE / CLOSED, 2026-10-09). **Primary engineering phase: Phase 10 — Organizer + Competition OS. Next engineering slice: 10A — Competition Foundation Reconciliation.** Phase 2 Twilio continues as a separate parallel track (TW-3 released; TW-OPS next). Phase 3 — Branding Relaunch stays PARTIAL with BR-6 parked.
 
@@ -262,14 +338,14 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 - No SOC 2 certification or compliance claim.
 - No unrestricted ARIA autonomy claim, and no claims about unreleased automation.
 
-## Current external dependencies
+### Current external dependencies
 
 - None blocking from Twilio: Phase 2 campaign submission and approval is a DanceFlow-owned parallel compliance lane (final Twilio pre-submission review and approval are steps within it)
 - Migration Center real-studio pilot validation
 - Eventual pricing cutover business/configuration decision
 - Banner vendor / stand selection (BR-5 follow-up, needed only before a banner print order)
 
-## Major product decisions still open
+### Major product decisions still open
 
 - Featured Events governing/business model
 - Partner Match age, moderation, and future-monetization details
@@ -284,6 +360,6 @@ Boundaries unchanged: this-and-future series editing, whole-series editing and c
 - Demo-request / interest-capture storage (deferred; needs a storage decision)
 - Per-event print attribution (static QR codes cannot distinguish events; needs a per-event print run or a signup survey question)
 
-## NEXT GATE
+### NEXT GATE
 
 Phase 9 — Payroll Prep v1 is complete and fully released (as is Phase 8 — Documents Center). The next engineering phase is Phase 10 — Organizer + Competition OS, starting with slice 10A — Competition Foundation Reconciliation; Phase 2 Twilio continues in parallel as compliance / pilot submission work (TW-1, TW-2 and TW-3 released; TW-OPS next). BR-6 resumes when the professional ARIA voice recording arrives. Phases 5, 6, 7, 8 and 9 are COMPLETE / CLOSED. Remaining Phase 4 work waits on open decision #8.
