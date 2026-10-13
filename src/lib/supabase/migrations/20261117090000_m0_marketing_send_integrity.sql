@@ -1398,7 +1398,8 @@ drop function if exists public._mkt_outbound_automation_action_ok(uuid, uuid);
 
 -- The appointment notification payload, rebuilt from the database (same fields as the application producer in
 -- src/app/app/schedule/actions.ts). NULL unless the caller has a role in the studio and the recipient is the
--- appointment's client or partner (email, or the last 10 digits of the phone).
+-- appointment's client or partner (email, or the last 10 digits of the phone). Only fields the dispatcher renders are
+-- included (no notes). Instructor names come from instructors (appointments.instructor_id references instructors).
 create or replace function public._mkt_outbound_appointment_payload(
   p_studio_id uuid,
   p_appointment_id uuid,
@@ -1414,7 +1415,9 @@ security definer
 set search_path = public, pg_temp
 as $$
   with caller as (
-    select exists (select 1 from public.user_studio_roles usr where usr.user_id = auth.uid() and usr.studio_id = p_studio_id and usr.active = true)
+    -- the roles the outbound insert policy admits (never client-role accounts)
+    select exists (select 1 from public.user_studio_roles usr where usr.user_id = auth.uid() and usr.studio_id = p_studio_id and usr.active = true
+                   and usr.role = any (array['platform_admin'::app_role, 'studio_owner'::app_role, 'studio_admin'::app_role, 'front_desk'::app_role, 'instructor'::app_role]))
         or exists (select 1 from public.profiles p where p.id = auth.uid() and p.platform_role = 'platform_admin') as ok
   ),
   appt as (
@@ -1438,7 +1441,6 @@ as $$
     'startsAt', to_char(appt.starts_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
     'endsAt', to_char(appt.ends_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
     'studioTimeZone', coalesce(nullif(btrim(s.timezone), ''), 'America/New_York'),
-    'notes', appt.notes,
     'clientFirstName', pc.first_name, 'clientLastName', pc.last_name,
     'partnerFirstName', pp.first_name, 'partnerLastName', pp.last_name,
     'instructorFirstName', i.first_name, 'instructorLastName', i.last_name,
@@ -1478,7 +1480,8 @@ as $$
       )
   )
   and (
-    exists (select 1 from public.user_studio_roles usr where usr.user_id = auth.uid() and usr.studio_id = p_studio_id and usr.active = true)
+    exists (select 1 from public.user_studio_roles usr where usr.user_id = auth.uid() and usr.studio_id = p_studio_id and usr.active = true
+            and usr.role = any (array['platform_admin'::app_role, 'studio_owner'::app_role, 'studio_admin'::app_role, 'front_desk'::app_role, 'instructor'::app_role]))
     or exists (select 1 from public.profiles p where p.id = auth.uid() and p.platform_role = 'platform_admin')
   )
 $$;

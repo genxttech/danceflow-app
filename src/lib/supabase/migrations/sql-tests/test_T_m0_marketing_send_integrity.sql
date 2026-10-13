@@ -863,10 +863,18 @@ set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000ae000207');  -- instructor of studio A probing studio B
 insert into t_kv select 'oracle', (public._mkt_outbound_appointment_payload('00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000802', 'email', 'm0-a1@example.com', null, 'appointment_confirmed') is not null)::text;
 insert into t_kv select 'oracle-own', (public._mkt_outbound_appointment_payload('00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000801', 'email', 'm0-a1@example.com', null, 'appointment_confirmed') is not null)::text;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000206');  -- client-role account of studio A
+insert into t_kv select 'oracle-client', (public._mkt_outbound_appointment_payload('00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000801', 'email', 'm0-a1@example.com', null, 'appointment_confirmed') is not null)::text;
+insert into t_kv select 'oracle-client-aa', public._mkt_outbound_automation_recipient_ok('00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000701', 'm0-a1@example.com')::text;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000207');
 insert into t_kv select 'oracle-aa', public._mkt_outbound_automation_recipient_ok('00000000-0000-0000-0000-0000ae000002', '00000000-0000-0000-0000-0000ae000702', 'm0-a1@example.com')::text;
 reset role;
 select pg_temp.chk('D: the appointment helper reveals nothing about another studio (no participant oracle)', pg_temp.kv('oracle') = 'false' and pg_temp.kv('oracle-own') = 'true');
 select pg_temp.chk('D: the automation helper reveals nothing about another studio', pg_temp.kv('oracle-aa') = 'false');
+select pg_temp.chk('D: client-role accounts get nothing from the outbound helpers (no appointment details)',
+  pg_temp.kv('oracle-client') = 'false' and pg_temp.kv('oracle-client-aa') = 'false');
+select pg_temp.chk('D: the rebuilt appointment payload carries no notes',
+  not exists (select 1 from public.outbound_deliveries where dedupe_key like 'm0-d-%' and payload ? 'notes'));
 select pg_temp.chk('D: the helper functions refuse callers without a role in the studio',
   not has_function_privilege('anon', 'public._mkt_outbound_appointment_payload(uuid, uuid, text, text, text, text)', 'execute')
   and not has_function_privilege('anon', 'public._mkt_campaign_exists(text, uuid)', 'execute')

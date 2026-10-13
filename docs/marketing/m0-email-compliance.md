@@ -162,7 +162,7 @@ Fixed in two steps:
 - **Stage 1** (old-app compatible). Client-role inserts are limited to what the pre-M-0 application produces:
   - appointment notifications for an appointment of the row's studio, addressed to that appointment's client or partner.
     Subject, body, HTML and reply-to are cleared, and **the payload is rebuilt from the database**: appointment, title or
-    type label, times, notes, participants, instructor, room and studio time zone. No client-supplied text, sender display
+    type label, times, participants, instructor, room and studio time zone (no notes). No client-supplied text, sender display
     name or SMS consent subject survives; `recipientClientId` is the matched participant;
   - legacy automation emails for one of the studio's own automation actions, **addressed only to that action's client**
     (or its booking request's customer), with reply-to cleared, and forced to `studio_customized` so they are commercial.
@@ -193,14 +193,14 @@ sent. All results are for the final committed files, including the final-audit r
 
 | Area | Evidence | Result |
 |---|---|---|
-| SQL suite, stage 1 (`test_T_m0_marketing_send_integrity.sql`) | Lifecycle, generation, unsubscribe (all token kinds), C1, platform suppression, test sends, guards and RLS, privileges, old-app compatibility, plus remediation: freeze (claims, test sends, client-role visibility and writes, dispatcher hold and release, control row), B (owner, front desk, instructor, client role, other studio, platform admin, organizer, anon), C (legacy organizer page, legacy studio RPC tokens), D (appointment / automation / forbidden keys, tenant isolation, re-routing, helper oracles) | **PASS 214/214** on QA and on DEV (rolled back) |
+| SQL suite, stage 1 (`test_T_m0_marketing_send_integrity.sql`) | Lifecycle, generation, unsubscribe (all token kinds), C1, platform suppression, test sends, guards and RLS, privileges, old-app compatibility, plus remediation: freeze (claims, test sends, client-role visibility and writes, dispatcher hold and release, control row), B (owner, front desk, instructor, client role, other studio, platform admin, organizer, anon), C (legacy organizer page, legacy studio RPC tokens), D (appointment / automation / forbidden keys, tenant isolation, re-routing, helper oracles) | **PASS 216/216** on QA and on DEV (rolled back) |
 | SQL suite, stage 2 (`test_T_m0_recipient_write_lockdown.sql`) | No client-role recipient or outbound write by any path; reads kept; legacy RPC revoked; service pipeline and service-role outbound writes work | **PASS 54/54** on QA. Negative control: the suite fails at stage 1, as expected |
 | Preconditions (`m0_precondition_tests.sh`) | Unknown policy, altered policy definition, missing visibility policy and unexpected dispatcher function each make stage 1 refuse, changing nothing. The pre-M-0 fingerprint is unchanged, and the control applies. The stage-1 rollback refuses while stage 2 is applied, changing nothing | **PASS 15/15** |
 | Concurrency (`m0_concurrency.sh`) | Previous races, plus the legacy organizer page racing an M-0 one-click for the same address (one record, both requests counted) | **PASS 25/25** |
-| SQL mutation testing | 67 mutants (including payload rebuild, recipient binding, reply-to, cross-tenant action, anon grants): 66 caught by the suite, and email-lock removal caught by the concurrency harness. Separately, 4 precondition mutants are all caught; the unmutated control passes | **67/67 + 4/4** |
-| Migration cycles (QA) | Two cycles of pre → s1 → s2 → rb2 → rb1. Re-applying each stage is idempotent. The full rollback equals the original DEV pre-state under the original fingerprint (`9493285f…`/191) | **PASS**, deterministic: pre `50857fc3…`/201 → s1 `c4aea45f…`/338 → s2 `f7923df6…`/333 |
+| SQL mutation testing | 70 mutants (including payload rebuild, recipient binding, reply-to, cross-tenant action, anon grants, helper role scope, notes): 69 caught by the suite, and email-lock removal caught by the concurrency harness. Separately, 4 precondition mutants are all caught; the unmutated control passes | **70/70 + 4/4** |
+| Migration cycles (QA) | Two cycles of pre → s1 → s2 → rb2 → rb1. Re-applying each stage is idempotent. The full rollback equals the original DEV pre-state under the original fingerprint (`9493285f…`/191) | **PASS**, deterministic: pre `50857fc3…`/201 → s1 `dbe60d28…`/338 → s2 `ef211b24…`/333 |
 | PROD preflights (read-only, validated on QA) | At pre-M-0, A4–A9 show the documented baseline. The C1 repair preflight was validated with fixtures for every class | **PASS** (not run on PROD) |
-| DEV (`epdrtzcydvnoidwrepqz`) | It was stage 1 v1 (`ae4e6f28…`/307, identical to QA). The revised stage 1 (including review round 2) has been applied (LF), giving `c4aea45f…`/338, identical to QA. It is **frozen**. The suite passes 214/214 with no residue, and existing rows are unchanged. **Stage 2 is not applied** | **PASS (stage 1)** |
+| DEV (`epdrtzcydvnoidwrepqz`) | It was stage 1 v1 (`ae4e6f28…`/307, identical to QA). The revised stage 1 (including review round 2) has been applied (LF), giving `dbe60d28…`/338, identical to QA. It is **frozen**. The suite passes 216/216 with no residue, and existing rows are unchanged. **Stage 2 is not applied** | **PASS (stage 1)** |
 
 ### Application
 
@@ -262,6 +262,15 @@ The P3 findings:
   errs toward suppression, and stage 2 removes it. **Tracked.**
 - **P3-6** (suspected: after a rollback, the old organizer page can overwrite a row M-0 left `sending`): rare; the
   opt-out is still persisted. **Tracked.**
+
+Re-review of the round-2 fixes: all **FIXED**, and **GO for merge**. New P3 findings:
+- **P3-7:** the payload helper could return appointment notes and details to any studio role, including client-role
+  accounts. **Fixed:** notes are not included, and both helpers admit only the outbound insert-policy roles. Covered by
+  tests and 3 mutants.
+- **P3-8:** in S1, a participant phone with fewer than 10 digits makes the pre-M-0 batch insert fail, losing that
+  appointment's email too. This is edge data; the dispatcher would skip such an SMS anyway. **Tracked.**
+- **P3-9:** the SQL label uses `initcap`, and instructor names come from `instructors` (the FK target), whereas the old
+  producer queries a missing `staff` table and gets no names. This is cosmetic, S1 client-role rows only. **Tracked.**
 
 ## 3. Production preflight (read-only, prepared; NOT run)
 
@@ -391,7 +400,7 @@ Each step needs its own owner authorization. PROD is only ever accessed from a f
      within their action (≤ 1 batch).
 4. **Stage 1 SQL** (`20261117090000`).
    - It refuses on unknown policies or an unexpected dispatcher function, changing nothing.
-   - Verify that the fingerprint equals the QA value (`c4aea45f…`/338) and that `marketing_send_frozen()` is true.
+   - Verify that the fingerprint equals the QA value (`dbe60d28…`/338) and that `marketing_send_frozen()` is true.
    - State is now **S1**.
 5. **Promote the M-0 application.** State is now **S2**, still frozen.
 6. **Public smoke** (no authentication; it changes nothing):
@@ -400,7 +409,7 @@ Each step needs its own owner authorization. PROD is only ever accessed from a f
    - both confirmation pages render.
 7. **C1 historical repair** (separately authorized; class A only), before organizer campaigns resume.
 8. **Stage 2 SQL** (`20261117091000`), **while still frozen**. State is now **S3**. Verify the fingerprint
-   (`f7923df6…`/333). The M-0 application needs no client-role writes, so this costs nothing. It removes every client
+   (`ef211b24…`/333). The M-0 application needs no client-role writes, so this costs nothing. It removes every client
    write to recipients and `outbound_deliveries` before any marketing flows again.
 9. **Release the freeze:** `select public.marketing_set_send_freeze(false, '<operator>: M-0 verified')`. Every change is
    logged in `marketing_send_control_events`.
@@ -420,7 +429,7 @@ From S3 / S2:
 
 1. Freeze: `select public.marketing_set_send_freeze(true, '<operator>: rollback')`.
 2. If in S3, run `rollback/20261117091000_…`. The state is now S2. This is safe with the M-0 application still live, and
-   the fingerprint returns to `c4aea45f…`/338.
+   the fingerprint returns to `dbe60d28…`/338.
 3. Promote the rollback-compat build. The state is now S1, frozen.
 4. **Keep the freeze on** for as long as the pre-M-0 application is live. Marketing stays paused, and held commercial
    email stays queued. Transactional and operational email continue.
