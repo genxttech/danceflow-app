@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -110,28 +110,34 @@ describe("campaign send-site guards (BR-3B2 defects G: subject sanitizer + resul
     expect(source).toMatch(/const subject = sanitizeEmailSubject\(campaign\.subject\);/);
   });
 
-  it("both live send sites pass the resend.emails.send call the sanitized `subject` variable, not the raw campaign.subject", () => {
-    // Every `resend.emails.send({ ... subject, ... })` call site in this file must reference the local
-    // sanitized `subject` variable, never `campaign.subject` directly.
+  it("both live send sites send the sanitized `subject` variable, not the raw campaign.subject", () => {
+    // Test send: the direct provider call in this file. Live send (Marketing M-0): the shared send boundary sends what
+    // the per-recipient `render` returns, which must be the sanitized local `subject`.
     const sendCalls = source.match(/resend\.emails\.send\(\{[^}]*\}\)/g) ?? [];
-    expect(sendCalls.length).toBeGreaterThanOrEqual(2);
+    expect(sendCalls.length).toBeGreaterThanOrEqual(1);
     for (const call of sendCalls) {
       expect(call).not.toMatch(/subject:\s*campaign\.subject/);
       expect(call).not.toMatch(/subject:\s*`\[TEST\] \$\{campaign\.subject\}`/);
     }
+    const renderIndex = source.indexOf("render: ({ unsubscribeUrl }) => {");
+    expect(renderIndex).toBeGreaterThan(-1);
+    const renderBody = source.slice(renderIndex, source.indexOf("},\n      });", renderIndex));
+    expect(renderBody).toMatch(/return \{\s*subject,/);
+    expect(renderBody).not.toMatch(/subject:\s*campaign\.subject/);
   });
 
-  it("the bulk-send loop checks result.error and routes a failure through the existing failed-status handling before ever marking a recipient sent", () => {
-    const sendCallIndex = source.indexOf("const result = await resend.emails.send(");
-    expect(sendCallIndex).toBeGreaterThan(-1);
-    const afterSend = source.slice(sendCallIndex);
-    // Immediately following the send call, `result.error` must be checked and thrown/handled before any
-    // "status: sent" update -- i.e. the error-check must appear before the "sent" update in source order.
-    const errorCheckIndex = afterSend.indexOf("if (result.error)");
-    const sentUpdateIndex = afterSend.indexOf('status: "sent"');
-    expect(errorCheckIndex).toBeGreaterThan(-1);
-    expect(sentUpdateIndex).toBeGreaterThan(-1);
-    expect(errorCheckIndex).toBeLessThan(sentUpdateIndex);
+  it("a provider error is never recorded as sent (Marketing M-0 shared boundary: provider.ts + campaignDelivery.ts)", () => {
+    const provider = readFileSync(join(process.cwd(), "src/lib/marketing/compliance/provider.ts"), "utf8");
+    const afterSend = provider.slice(provider.indexOf("const result = await transport.send("));
+    // result.error is classified before a "sent" outcome can be returned
+    expect(afterSend.indexOf("if (result?.error)")).toBeGreaterThan(-1);
+    expect(afterSend.indexOf("if (result?.error)")).toBeLessThan(afterSend.indexOf('kind: "sent"'));
+    const delivery = readFileSync(join(process.cwd(), "src/lib/marketing/compliance/campaignDelivery.ts"), "utf8");
+    // the recipient is completed as sent only for a "sent" provider outcome
+    expect(delivery).toMatch(/if \(outcome\.kind === "sent"\) \{\s*await complete\(args\.admin, ids, "sent"/);
+    // and the live send site uses that boundary rather than its own provider loop
+    expect(source).toContain("await deliverCampaignBatch({");
+    expect(source).not.toContain("const result = await resend.emails.send(");
   });
 
   it("visible branding is resolved via the shared resolveStudioDisplayName helper at both send sites, not reinlined", () => {
@@ -141,12 +147,8 @@ describe("campaign send-site guards (BR-3B2 defects G: subject sanitizer + resul
   });
 });
 
-describe("dead campaigns/[id]/actions.ts is untouched (out of scope, confirmed unreferenced)", () => {
-  it("still contains the original contentHtml-based unsubscribe bug (left as pre-existing, unreachable dead code)", () => {
-    const deadSource = readFileSync(
-      join(process.cwd(), "src/app/app/marketing/campaigns/[id]/actions.ts"),
-      "utf8",
-    );
-    expect(deadSource).toContain("contentHtml: unsubscribeHtml || undefined");
+describe("dead campaigns/[id]/actions.ts is removed (Marketing M-0)", () => {
+  it("the unreferenced legacy action file with a non-compliant send path no longer exists", () => {
+    expect(existsSync(join(process.cwd(), "src/app/app/marketing/campaigns/[id]/actions.ts"))).toBe(false);
   });
 });

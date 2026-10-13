@@ -528,6 +528,8 @@ describe("stale 500-recipient batch reconciliation reads recipient state in safe
       if (table !== "marketing_campaign_recipients") return builder as never;
       const realIn = builder.in.bind(builder);
       builder.in = (col: string, values: unknown[]) => {
+        // Marketing M-0: the status filter is also an .in() ("sent" / "delivery_unknown"); only id chunks are measured.
+        if (col !== "id") return realIn(col, values);
         sizes.push(values.length);
         if (lookupDown && values[0] === BATCH[200]) return Promise.resolve({ data: null, error: { message: "chunk lookup failed" }, count: null });
         return realIn(col, values);

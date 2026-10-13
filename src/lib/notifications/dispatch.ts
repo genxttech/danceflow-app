@@ -21,6 +21,12 @@ import {
   renderPlainTextAsStudioEmail,
 } from "@/lib/notifications/email-branding";
 import { normalizeEmail, resolveOutboundFromEmail } from "@/lib/notifications/outbound";
+import { classifyOutboundEmail } from "@/lib/marketing/compliance/messageClassification";
+import {
+  prepareCommercialOutboundEmail,
+  type MarketingSkipReason,
+  type StudioPostalSettings,
+} from "@/lib/marketing/compliance/outboundCompliance";
 import {
   getAriaOutcomeExpectation,
   verifyPendingAriaOutcomes,
@@ -56,7 +62,7 @@ type DispatchResult =
   | { ok: true; providerMessageId?: string | null }
   | { ok: false; error: string };
 
-type SkippedDispatchResult = { ok: false; skipped: true; reason: SmsSkipReason };
+type SkippedDispatchResult = { ok: false; skipped: true; reason: SmsSkipReason | MarketingSkipReason };
 
 type SmsDispatchResult = DispatchResult | SkippedDispatchResult;
 
@@ -508,7 +514,7 @@ async function resolveReplyToEmail(row: OutboundDeliveryRow) {
   return fallback;
 }
 
-async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
+async function sendEmail(row: OutboundDeliveryRow): Promise<SmsDispatchResult> {
   if (!row.recipient_email) {
     return { ok: false, error: "Missing recipient email." };
   }
@@ -541,17 +547,52 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
 
   const replyTo = await resolveReplyToEmail(row);
 
+  // Marketing M-0 (D1): a commercial ARIA / automation email passes the marketing compliance controls here, at the
+  // dispatch boundary: suppression (fail closed), marketing sender, postal address, unsubscribe link and RFC 8058
+  // headers. Operational messages are sent exactly as before.
+  let sendFrom = from;
+  let sendHtml = bodyHtml;
+  let sendText = rendered.bodyText;
+  let sendHeaders: Record<string, string> | undefined;
+  if (classifyOutboundEmail(row.template_key, row.payload) === "commercial") {
+    const admin = createAdminClient();
+    const { data: studio, error: studioError } = await admin
+      .from("studios")
+      .select("name, public_name, address_line_1, address_line_2, city, state, postal_code, country")
+      .eq("id", row.studio_id)
+      .maybeSingle<StudioPostalSettings & { public_name: string | null }>();
+    if (studioError) return { ok: false, error: "marketing_studio_lookup_failed" };
+    const decision = await prepareCommercialOutboundEmail({
+      admin,
+      deliveryId: row.id,
+      studioId: row.studio_id,
+      recipientEmail: row.recipient_email,
+      senderDisplayName: studio ? resolveClientSenderDisplayName({ studio }) : null,
+      studio: studio ?? null,
+      studioDisplayName: resolveStudioDisplayName(studio),
+      html: bodyHtml,
+      text: rendered.bodyText,
+    });
+    if (decision.action === "skip") return { ok: false, skipped: true, reason: decision.reason };
+    if (decision.action === "fail") return { ok: false, error: decision.error };
+    sendFrom = decision.from;
+    sendHtml = decision.html;
+    sendText = decision.text;
+    sendHeaders = decision.headers;
+  }
+
   try {
     const resend = getResendClient();
 
     const response = await resend.emails.send(
       {
-        from,
+        from: sendFrom,
         to: [row.recipient_email],
         subject: sanitizeEmailSubject(rendered.subject),
-        text: appendEmailLegalText(rendered.bodyText),
-        html: bodyHtml,
+        text: appendEmailLegalText(sendText),
+        html: sendHtml,
         ...(replyTo ? { replyTo } : {}),
+        ...(sendHeaders ? { headers: sendHeaders } : {}),
       },
       // PAY-WH-1: a resend after an uncertain acknowledgement (worker interrupted after the provider accepted the
       // message) is de-duplicated by the provider for this delivery row.
@@ -752,7 +793,7 @@ async function markSent(id: string, providerMessageId?: string | null) {
 }
 
 /** Records an intentional non-send. `reason` is a fixed code: never a phone, body or consent detail. */
-async function markSkipped(id: string, reason: SmsSkipReason) {
+async function markSkipped(id: string, reason: SmsSkipReason | MarketingSkipReason) {
   const supabase = createAdminClient();
 
   const { error } = await supabase
@@ -894,7 +935,7 @@ async function syncAriaDigestRunStatus(params: {
 async function recordAriaActionDeliveryEvent(params: {
   studioId: string;
   actionId: string;
-  eventType: "delivery_sent" | "delivery_failed" | "delivery_requeued" | "delivery_exhausted";
+  eventType: "delivery_sent" | "delivery_failed" | "delivery_requeued" | "delivery_exhausted" | "execution_skipped";
   previousStatus: string | null;
   newStatus: string | null;
   note?: string | null;
@@ -923,7 +964,7 @@ async function recordAriaActionDeliveryEvent(params: {
 
 async function syncAriaActionDeliveryStatus(params: {
   row: OutboundDeliveryRow;
-  status: "sent" | "failed";
+  status: "sent" | "failed" | "skipped";
   errorMessage?: string | null;
   providerMessageId?: string | null;
 }) {
@@ -961,6 +1002,37 @@ async function syncAriaActionDeliveryStatus(params: {
   }
 
   const attemptCount = Number(action.execution_attempt_count ?? 0) + 1;
+
+  if (params.status === "skipped") {
+    // Marketing M-0: an intentional non-send (for example the client unsubscribed from the studio's marketing email).
+    // Terminal, never retried.
+    const { error } = await supabase
+      .from("automation_actions")
+      .update({
+        status: "skipped",
+        execution_delivery_id: params.row.id,
+        execution_status: "skipped",
+        execution_last_attempt_at: nowIso,
+        execution_next_attempt_at: null,
+        execution_error_message: params.errorMessage?.slice(0, 1000) ?? null,
+        outcome_status: "not_applicable",
+        updated_at: nowIso,
+        review_note: "ARIA did not send this follow-up: the client is not eligible for marketing email from this studio.",
+      })
+      .eq("id", action.id)
+      .eq("studio_id", action.studio_id);
+    if (error) throw new Error(`Failed to synchronize ARIA action skipped state: ${error.message}`);
+    await recordAriaActionDeliveryEvent({
+      studioId: action.studio_id,
+      actionId: action.id,
+      eventType: "execution_skipped",
+      previousStatus: action.status,
+      newStatus: "skipped",
+      note: params.errorMessage ?? "Not sent.",
+      metadata: { delivery_id: params.row.id },
+    });
+    return;
+  }
 
   if (params.status === "sent") {
     const outcomeExpectation = getAriaOutcomeExpectation(action.rule_key);
@@ -1272,6 +1344,7 @@ export async function dispatchQueuedOutboundDeliveries(
       if (isSkippedDispatchResult(result)) {
         skipped += 1;
         await markSkipped(row.id, result.reason);
+        await syncAriaActionDeliveryStatus({ row, status: "skipped", errorMessage: result.reason });
         continue;
       }
 

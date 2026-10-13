@@ -454,13 +454,16 @@ function countRecipientStatuses(recipients: RecipientRow[]) {
     (totals, recipient) => {
       const status = String(recipient.status ?? "pending").toLowerCase();
       if (status === "sent") totals.sent += 1;
-      else if (status === "failed") totals.failed += 1;
+      else if (status === "failed" || status === "delivery_unknown") totals.failed += 1;
       else if (status === "unsubscribed") totals.unsubscribed += 1;
-      else if (status === "skipped") totals.skipped += 1;
+      else if (status === "skipped" || status === "suppressed") totals.skipped += 1;
+      // Marketing M-0: claimed-but-unfinished recipients are retried by the next send; they are not part of the
+      // "SEND n" confirmation, which covers never-attempted (pending) recipients only.
+      else if (status === "sending") totals.sending += 1;
       else totals.pending += 1;
       return totals;
     },
-    { pending: 0, sent: 0, failed: 0, skipped: 0, unsubscribed: 0 },
+    { pending: 0, sent: 0, failed: 0, skipped: 0, unsubscribed: 0, sending: 0 },
   );
 }
 
