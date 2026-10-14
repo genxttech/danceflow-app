@@ -112,18 +112,20 @@ describe("plain-text coverage", () => {
   });
 
   it("automation_* client email (no stored HTML) is sent in the studio shell with the HTML legal footer (D-A)", async () => {
+    // Marketing M-0: an operational automation template with unmodified system content (commercial ones are covered,
+    // with their marketing footer, by commercialOutboundEmail.m0.test.ts).
     seed({
       id: "d-2",
       studio_id: STUDIO_ID,
       channel: "email",
-      template_key: "automation_lead_follow_up",
+      template_key: "automation_unsigned_document",
       recipient_email: "lead@example.com",
       subject: "Following up",
       body_text: "Hi Sam,\n\nWe wanted to follow up with you.",
       body_html: null,
       reply_to_email: null,
       status: "queued",
-      payload: null,
+      payload: { content_origin: "system_default" },
       created_at: "2026-10-01T00:00:00.000Z",
     });
     await dispatchQueuedOutboundDeliveries(10);

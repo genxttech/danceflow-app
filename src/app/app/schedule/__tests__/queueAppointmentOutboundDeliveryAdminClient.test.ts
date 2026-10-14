@@ -55,6 +55,7 @@ const USER_ID = "user-1";
 const INSTRUCTOR_ID = "instructor-1";
 
 const adminFromCalls: { table: string; id?: string; studioId?: string }[] = [];
+const adminInserts: { table: string; rows: Record<string, unknown>[] }[] = [];
 let adminClientRow: Record<string, unknown> | null = null;
 
 vi.mock("@/lib/supabase/admin", () => ({
@@ -62,6 +63,10 @@ vi.mock("@/lib/supabase/admin", () => ({
     from(table: string) {
       const call: { table: string; id?: string; studioId?: string } = { table };
       const chain: Record<string, unknown> = {
+        insert(rows: Record<string, unknown> | Record<string, unknown>[]) {
+          adminInserts.push({ table, rows: Array.isArray(rows) ? rows : [rows] });
+          return Promise.resolve({ data: null, error: null });
+        },
         select: () => chain,
         eq(column: string, value: string) {
           if (column === "id") call.id = value;
@@ -176,12 +181,39 @@ function digestUrl(error: unknown) {
 
 beforeEach(() => {
   adminFromCalls.length = 0;
+  adminInserts.length = 0;
   sessionFromCalls.length = 0;
   adminClientRow = { first_name: "Jane", last_name: "Doe", email: null, phone: null };
   requireFloorRentalAppointmentAccessMock.mockReset();
 });
 
 describe("queueAppointmentOutboundDelivery admin-client usage (via cancelAppointmentAction) -- FC-1B5D correction", () => {
+  it("Marketing M-0 (D): the appointment notification is queued with the admin client, never the session client", async () => {
+    requireFloorRentalAppointmentAccessMock.mockResolvedValue({
+      supabase: createSessionSupabase(),
+      studioId: STUDIO_ID,
+      user: { id: USER_ID },
+      studioRole: "instructor",
+    });
+    adminClientRow = { first_name: "Jane", last_name: "Doe", email: "jane@example.test", phone: null };
+
+    const error = await cancelAppointmentAction(formDataFor()).catch((e) => e);
+
+    expect(digestUrl(error)).toContain("success=appointment_cancelled");
+    const queued = adminInserts.filter((i) => i.table === "outbound_deliveries").flatMap((i) => i.rows);
+    expect(queued).toEqual([
+      expect.objectContaining({
+        studio_id: STUDIO_ID,
+        channel: "email",
+        template_key: "appointment_cancelled",
+        recipient_email: "jane@example.test",
+        related_table: "appointments",
+        status: "queued",
+      }),
+    ]);
+    expect(sessionFromCalls).not.toContain("outbound_deliveries:insert");
+  });
+
   it("an instructor-authorized cancellation composes the client via the admin client, never the session client", async () => {
     requireFloorRentalAppointmentAccessMock.mockResolvedValue({
       supabase: createSessionSupabase(),

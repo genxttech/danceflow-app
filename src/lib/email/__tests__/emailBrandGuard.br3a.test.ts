@@ -90,7 +90,7 @@ describe("escapeHtml ratchet", () => {
     "src/app/app/documents/actions.ts",
     // BR-3B2: src/app/app/documents/sign/actions.ts migrated onto the shared shell and its local
     // duplicate escapeHtml became genuinely unused, so it was removed -- shrinking this list.
-    "src/app/app/marketing/campaigns/[id]/actions.ts",
+    // Marketing M-0: the dead src/app/app/marketing/campaigns/[id]/actions.ts was deleted -- shrinking this list.
     "src/app/app/marketing/campaigns/actions.ts",
     "src/app/app/organizer-campaigns/[id]/actions.ts",
     // Not email code: a browser script held in a string (the escape helper is inside the string literal).
@@ -241,11 +241,14 @@ describe("subject sanitizer chokepoints", () => {
     expect(campaigns).toContain('import { resolveStudioDisplayName, sanitizeEmailSubject } from "@/lib/email/brand";');
     expect(campaigns).toMatch(/const subject = sanitizeEmailSubject\(`\[TEST\] \$\{campaign\.subject\}`\);/);
     expect(campaigns).toMatch(/const subject = sanitizeEmailSubject\(campaign\.subject\);/);
-    // Neither live send call passes the raw, unsanitized campaign.subject to Resend.
+    // Neither live send passes the raw, unsanitized campaign.subject to Resend: the test send calls Resend directly; the
+    // campaign send (Marketing M-0) goes through the shared send boundary with the sanitized subject from `render`.
     const sendCalls = campaigns.match(/resend\.emails\.send\(\{[^}]*\}\)/g) ?? [];
-    expect(sendCalls.length).toBe(2);
+    expect(sendCalls.length).toBe(1);
     for (const call of sendCalls) {
       expect(call).not.toMatch(/subject:\s*campaign\.subject/);
     }
+    expect(campaigns).toContain("await deliverCampaignBatch({");
+    expect(campaigns).not.toMatch(/subject:\s*campaign\.subject/);
   });
 });

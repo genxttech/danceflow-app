@@ -87,6 +87,9 @@ describe("live sender wiring (BR-3A defaults, PAY-DC-3 production dependency)", 
       .map((f) => f.slice(ROOT.length + 1).replace(/\\/g, "/"))
       .sort();
     expect(importers).toEqual([
+      // Marketing M-0: commercial ARIA / automation email is sent from the marketing address with the same sanitized
+      // display-name formatting (formatFrom / extractSenderAddress), never from a hand-built header.
+      "src/lib/marketing/compliance/outboundCompliance.ts",
       "src/lib/notifications/outbound.ts",
       "src/lib/notifications/senderIdentity.ts",
     ]);

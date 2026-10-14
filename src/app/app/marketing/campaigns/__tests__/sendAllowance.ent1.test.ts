@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createFakeDb, usedThisMonth, type FakeDb, type Row } from "@/lib/usage/__tests__/fakeCampaignDb";
+import { createFakeDb, seedToken, usedThisMonth, type FakeDb, type Row } from "@/lib/usage/__tests__/fakeCampaignDb";
 
 /**
  * ENT-1: studio campaign send path (sendMarketingCampaignAction) and the monthly recipient allowance.
@@ -52,7 +52,7 @@ function seed(campaigns: Array<{ id: string; pending: number }>, extra: Record<s
   const recipients: Row[] = [];
   for (const c of campaigns) {
     for (let i = 0; i < c.pending; i += 1) {
-      recipients.push({ id: `${c.id}-r${i}`, campaign_id: c.id, studio_id: STUDIO, status: "pending", email: `${c.id}-r${i}@example.test`, name: `R${i}`, unsubscribe_token: `tok-${c.id}-${i}` });
+      recipients.push({ id: `${c.id}-r${i}`, campaign_id: c.id, studio_id: STUDIO, status: "pending", email: `${c.id}-r${i}@example.test`, name: `R${i}`, unsubscribe_token: seedToken(recipients.length + 1) });
     }
   }
   db = createFakeDb({
@@ -161,28 +161,52 @@ describe("studio campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(campaignStatus("c1")).toBe("draft");
   });
 
-  it("failed recipients do not consume allowance (provider errors, rejected sends)", async () => {
+  it("rejected and uncertain recipients do not consume allowance; uncertain ones are retried once, with the same idempotency key (M-0)", async () => {
     seed([{ id: "c1", pending: 10 }]);
     h.send.mockImplementation(async (args: { to: string[] }) => {
       const email = args.to[0];
       if (email.includes("-r0@") || email.includes("-r1@") || email.includes("-r2@")) throw new Error("network down");
-      if (email.includes("-r3@")) return { data: null, error: { message: "rejected" } };
+      if (email.includes("-r3@")) return { data: null, error: { message: "rejected", name: "validation_error" } };
       return { data: { id: "ok" }, error: null };
     });
     const url = await send("c1");
     expect(url).toContain("campaign_sent=1");
-    expect(statuses("c1")).toEqual({ failed: 4, sent: 6 });
+    // a thrown error is NOT a definite failure: the message may have been accepted, so it stays claimed for a retry
+    expect(statuses("c1")).toEqual({ failed: 1, sending: 3, sent: 6 });
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(6);
-    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "finalized", quantity_reserved: 10, quantity_consumed: 6 });
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "reserved", quantity_consumed: 6 });
+    expect(campaignStatus("c1")).toBe("draft"); // still owed attempts
+
+    // the next send retries exactly the three uncertain recipients with the SAME idempotency keys
+    const firstKeys = h.send.mock.calls.filter((c) => /-r[0-2]@/.test(c[0].to[0])).map((c) => c[1].idempotencyKey);
+    h.send.mockReset();
+    h.send.mockResolvedValue({ data: { id: "ok" }, error: null });
+    await send("c1");
+    expect(h.send).toHaveBeenCalledTimes(3);
+    expect(h.send.mock.calls.map((c) => c[1].idempotencyKey).sort()).toEqual([...firstKeys].sort());
+    expect(statuses("c1")).toEqual({ failed: 1, sent: 9 });
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(9);
+    expect(campaignStatus("c1")).toBe("sent");
   });
 
-  it("when every recipient fails nothing is recorded and nothing stays committed", async () => {
+  it("when every recipient's outcome is uncertain nothing is recorded as used (M-0: they stay owed a retry)", async () => {
     seed([{ id: "c1", pending: 5 }]);
     h.send.mockRejectedValue(new Error("down"));
     await send("c1");
     expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
     expect(db.tables.usage_events).toHaveLength(0);
     expect(db.tables.usage_reservations[0]).toMatchObject({ status: "released", quantity_consumed: 0 });
+    expect(statuses("c1")).toEqual({ sending: 5 });
+  });
+
+  it("when every recipient is definitively rejected nothing is recorded and nothing stays committed", async () => {
+    seed([{ id: "c1", pending: 5 }]);
+    h.send.mockResolvedValue({ data: null, error: { message: "bad", name: "validation_error" } });
+    await send("c1");
+    expect(usedThisMonth(db, "studio_id", STUDIO)).toBe(0);
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "released", quantity_consumed: 0 });
+    expect(statuses("c1")).toEqual({ failed: 5 });
+    expect(campaignStatus("c1")).toBe("sent"); // nothing is owed an attempt
   });
 
   it("an unexpected error mid-send still finalizes with the recipients already mailed", async () => {

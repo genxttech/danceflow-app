@@ -222,8 +222,10 @@ describe("dispatch From per template", () => {
     expect(args.from).toBe('"Summer Swing Fest via DanceFlow" <notify@idanceflow.com>');
   });
 
-  it("applies to the automation_* prefix family", async () => {
-    seed(emailRow({ template_key: "automation_lead_follow_up" }));
+  it("applies to the automation_* prefix family (operational, unmodified system content)", async () => {
+    // Marketing M-0: a COMMERCIAL automation_* email is sent through the marketing controls and the marketing sender
+    // (commercialOutboundEmail.m0.test.ts); this keeps the PAY-DC-3 sender identity for operational ones.
+    seed(emailRow({ template_key: "automation_unsigned_document", payload: { content_origin: "system_default" } }));
     const args = await sentArgs();
     expect(args.from).toBe('"Harbor Dance via DanceFlow" <notify@idanceflow.com>');
   });

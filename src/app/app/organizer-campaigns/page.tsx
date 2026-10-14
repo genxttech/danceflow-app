@@ -15,6 +15,8 @@ import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip"
 import { canManageOrganizerCampaigns } from "@/lib/auth/permissions";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import { createOrganizerCampaignDraftAction } from "./actions";
+import { MarketingPausedBanner } from "../marketing/MarketingMaintenance";
+import { isMarketingSendPaused } from "@/lib/marketing/compliance/sendFreeze";
 import CampaignAIAssistant from "../marketing/campaigns/CampaignAIAssistant";
 
 type SearchParams = Promise<{
@@ -493,12 +495,12 @@ function OrganizerSuiteUpgradeCard() {
             Add Organizer Suite
           </a>
 
-          <a
+          <Link
             href="/app/events"
             className="rounded-full border border-[#E9D5FF] bg-white px-5 py-2.5 text-sm font-semibold text-[#5B21B6] hover:bg-[#F5F3FF]"
           >
             Back to Events
-          </a>
+          </Link>
         </div>
       </div>
     </main>
@@ -693,6 +695,8 @@ export default async function OrganizerCampaignsPage({
           Organizer campaign draft saved.
         </div>
       ) : null}
+
+      <MarketingPausedBanner paused={await isMarketingSendPaused(supabase)} />
 
       {resolvedSearchParams.campaign_error ? (
         <div className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-800">

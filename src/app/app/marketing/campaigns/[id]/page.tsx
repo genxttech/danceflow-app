@@ -12,6 +12,8 @@ import {
 } from "../actions";
 import CampaignAIAssistant from "../CampaignAIAssistant";
 import CampaignAllowancePanel from "../CampaignAllowancePanel";
+import { isMarketingSendPaused, MARKETING_PAUSED_NOTICE } from "@/lib/marketing/compliance/sendFreeze";
+import { MarketingMaintenancePanel } from "../../MarketingMaintenance";
 import {
   campaignAllowanceMessageFromQuery,
   evaluateCampaignAllowance,
@@ -129,6 +131,18 @@ function campaignErrorMessage(code?: string) {
       return "This campaign has already been sent.";
     case "send_failed":
       return "Campaign sending could not be completed. Check recipient statuses for details.";
+    case "test_recipient_not_allowed":
+      return "Test emails can only be sent to a verified email address of a member of this studio's team.";
+    case "test_send_rate_limited":
+      return "Too many test emails were sent in the last hour. Please wait before sending another.";
+    case "delivery_in_progress":
+      return "Some recipients are still being delivered. Finish sending before preparing the list again.";
+    case "eligibility_check_failed":
+      return "Sending stopped because unsubscribe and suppression status could not be confirmed. No further emails were sent; try again shortly.";
+    case "marketing_paused":
+      return "Marketing sends are paused for maintenance. Nothing was sent; recipients stay pending and can be sent once sending resumes.";
+    case "send_paused_provider":
+      return "Sending paused because the email provider did not accept more messages right now. Recipients not yet sent stay pending; try again later.";
     default:
       return null;
   }
@@ -615,6 +629,7 @@ export default async function MarketingCampaignDetailPage({
   if (!canViewCommunications(context.studioRole ?? "")) {
     redirect("/app");
   }
+  const marketingPaused = await isMarketingSendPaused(supabase);
 
   const studioId = context.studioId;
 
@@ -651,6 +666,9 @@ export default async function MarketingCampaignDetailPage({
   ]);
 
   if (error || !campaign) {
+    if (marketingPaused) {
+      return <MarketingMaintenancePanel backHref="/app/marketing/campaigns" backLabel="Back to campaigns" />;
+    }
     notFound();
   }
 
@@ -660,13 +678,14 @@ export default async function MarketingCampaignDetailPage({
     { count: failedRecipientCount },
     { count: unsubscribedRecipientCount },
     { count: skippedRecipientCount },
+    { count: unknownRecipientCount },
   ] = await Promise.all([
     supabase
       .from("marketing_campaign_recipients")
       .select("id", { count: "exact", head: true })
       .eq("campaign_id", resolvedParams.id)
       .eq("studio_id", studioId)
-      .eq("status", "pending"),
+      .in("status", ["pending", "sending"]),
     supabase
       .from("marketing_campaign_recipients")
       .select("id", { count: "exact", head: true })
@@ -690,7 +709,13 @@ export default async function MarketingCampaignDetailPage({
       .select("id", { count: "exact", head: true })
       .eq("campaign_id", resolvedParams.id)
       .eq("studio_id", studioId)
-      .eq("status", "skipped"),
+      .in("status", ["skipped", "suppressed"]),
+    supabase
+      .from("marketing_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", resolvedParams.id)
+      .eq("studio_id", studioId)
+      .eq("status", "delivery_unknown"),
   ]);
 
   const { data: selectedEvent } = campaign.audience_event_id
@@ -727,13 +752,15 @@ export default async function MarketingCampaignDetailPage({
     failed: failedRecipientCount ?? 0,
     unsubscribed: unsubscribedRecipientCount ?? 0,
     skipped: skippedRecipientCount ?? 0,
+    unknown: unknownRecipientCount ?? 0,
   };
   const totalPreparedRecipients =
     recipientStatusCounts.pending +
     recipientStatusCounts.sent +
     recipientStatusCounts.failed +
     recipientStatusCounts.unsubscribed +
-    recipientStatusCounts.skipped;
+    recipientStatusCounts.skipped +
+    recipientStatusCounts.unknown;
   const generatedRecipientSample = recipientRows.slice(0, 5);
   const hasGeneratedRecipients = totalPreparedRecipients > 0;
   const resultStatusCards = [
@@ -757,6 +784,16 @@ export default async function MarketingCampaignDetailPage({
       value: recipientStatusCounts.unsubscribed + recipientStatusCounts.skipped,
       className: "border-slate-200 bg-slate-50 text-slate-700",
     },
+    ...(recipientStatusCounts.unknown > 0
+      ? [
+          {
+            // Marketing M-0: an attempt whose outcome could not be confirmed in time; never re-sent automatically.
+            label: "Delivery unknown",
+            value: recipientStatusCounts.unknown,
+            className: "border-orange-200 bg-orange-50 text-orange-800",
+          },
+        ]
+      : []),
   ];
   const recipientDetailGroups = [
     {
@@ -839,6 +876,12 @@ export default async function MarketingCampaignDetailPage({
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
             Campaign sending finished. Check the recipient status summary for
             any failed emails.
+          </div>
+        ) : null}
+
+        {marketingPaused ? (
+          <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 shadow-sm">
+            {MARKETING_PAUSED_NOTICE}
           </div>
         ) : null}
 

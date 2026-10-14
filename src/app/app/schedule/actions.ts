@@ -702,7 +702,10 @@ async function queueAppointmentOutboundDelivery(params: {
 
     if (rows.length === 0) return;
 
-    const { error: insertError } = await supabase
+    // Marketing M-0 (D): queued notifications are written with the service role only (client roles cannot insert them
+    // once the M-0 lockdown is applied). studioId and the appointment were verified above; recipients come from the
+    // appointment's own client / partner rows.
+    const { error: insertError } = await notificationSupabase
       .from("outbound_deliveries")
       .insert(rows);
 

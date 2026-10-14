@@ -21,6 +21,8 @@ import {
 } from "./actions";
 import CampaignAIAssistant from "../../marketing/campaigns/CampaignAIAssistant";
 import CampaignAllowancePanel from "../../marketing/campaigns/CampaignAllowancePanel";
+import { isMarketingSendPaused, MARKETING_PAUSED_NOTICE } from "@/lib/marketing/compliance/sendFreeze";
+import { MarketingMaintenancePanel } from "../../marketing/MarketingMaintenance";
 import {
   campaignAllowanceMessageFromQuery,
   evaluateCampaignAllowance,
@@ -454,13 +456,16 @@ function countRecipientStatuses(recipients: RecipientRow[]) {
     (totals, recipient) => {
       const status = String(recipient.status ?? "pending").toLowerCase();
       if (status === "sent") totals.sent += 1;
-      else if (status === "failed") totals.failed += 1;
+      else if (status === "failed" || status === "delivery_unknown") totals.failed += 1;
       else if (status === "unsubscribed") totals.unsubscribed += 1;
-      else if (status === "skipped") totals.skipped += 1;
+      else if (status === "skipped" || status === "suppressed") totals.skipped += 1;
+      // Marketing M-0: claimed-but-unfinished recipients are retried by the next send; they are not part of the
+      // "SEND n" confirmation, which covers never-attempted (pending) recipients only.
+      else if (status === "sending") totals.sending += 1;
       else totals.pending += 1;
       return totals;
     },
-    { pending: 0, sent: 0, failed: 0, skipped: 0, unsubscribed: 0 },
+    { pending: 0, sent: 0, failed: 0, skipped: 0, unsubscribed: 0, sending: 0 },
   );
 }
 
@@ -655,6 +660,9 @@ export default async function OrganizerCampaignDetailPage({
     .maybeSingle();
 
   if (campaignError || !campaignData) {
+    if (await isMarketingSendPaused(supabase)) {
+      return <MarketingMaintenancePanel backHref="/app/organizer-campaigns" backLabel="Back to organizer campaigns" />;
+    }
     console.error("Failed to load organizer campaign detail", campaignError);
     notFound();
   }
@@ -945,6 +953,12 @@ export default async function OrganizerCampaignDetailPage({
         <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
           Organizer campaign send started. Refresh this page to review sent,
           failed, and suppressed recipients.
+        </div>
+      ) : null}
+
+      {(await isMarketingSendPaused(supabase)) ? (
+        <div role="status" className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+          {MARKETING_PAUSED_NOTICE}
         </div>
       ) : null}
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createFakeDb, usedThisMonth, type FakeDb, type Row } from "@/lib/usage/__tests__/fakeCampaignDb";
+import { createFakeDb, seedToken, usedThisMonth, type FakeDb, type Row } from "@/lib/usage/__tests__/fakeCampaignDb";
 
 /**
  * ENT-1: organizer campaign send path (sendOrganizerCampaignAction) and the monthly recipient allowance. Same
@@ -54,7 +54,7 @@ function seed(campaigns: Array<{ id: string; pending: number }>, extra: Record<s
   const recipients: Row[] = [];
   for (const c of campaigns) {
     for (let i = 0; i < c.pending; i += 1) {
-      recipients.push({ id: `${c.id}-r${i}`, campaign_id: c.id, organizer_id: ORG, status: "pending", email: `${c.id}-r${i}@example.test`, name: `R${i}`, unsubscribe_token: `tok-${c.id}-${i}` });
+      recipients.push({ id: `${c.id}-r${i}`, campaign_id: c.id, organizer_id: ORG, status: "pending", email: `${c.id}-r${i}@example.test`, name: `R${i}`, unsubscribe_token: seedToken(recipients.length + 1) });
     }
   }
   db = createFakeDb({
@@ -149,16 +149,17 @@ describe("organizer campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(h.send).not.toHaveBeenCalled();
   });
 
-  it("failed recipients do not consume allowance", async () => {
+  it("rejected and uncertain recipients do not consume allowance (M-0: an uncertain outcome stays owed a retry)", async () => {
     seed([{ id: "c1", pending: 10 }]);
     h.send.mockImplementation(async (args: { to: string[] }) => {
-      if (/-r[0-3]@/.test(args.to[0])) throw new Error("down");
+      if (/-r[0-1]@/.test(args.to[0])) return { data: null, error: { message: "bad", name: "validation_error" } };
+      if (/-r[2-3]@/.test(args.to[0])) throw new Error("down");
       return { data: { id: "ok" }, error: null };
     });
     expect(await send("c1")).toContain("campaign_sent=1");
-    expect(statuses("c1")).toEqual({ failed: 4, sent: 6 });
+    expect(statuses("c1")).toEqual({ failed: 2, sending: 2, sent: 6 });
     expect(usedThisMonth(db, "organizer_id", ORG)).toBe(6);
-    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "finalized", quantity_reserved: 10, quantity_consumed: 6 });
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "reserved", quantity_consumed: 6 });
   });
 
   // Provider contract (Resend SDK 6.x): send() does not throw on an API-level failure. It resolves a Response<T> that is
@@ -172,21 +173,23 @@ describe("organizer campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(statuses("c1")).toEqual({ failed: 3 });
     expect(usedThisMonth(db, "organizer_id", ORG)).toBe(0);
     expect(db.tables.usage_events).toHaveLength(0);
-    expect(db.tables.organizer_marketing_campaign_recipients.every((r) => r.error_message === "api error")).toBe(true);
+    // M-0: the provider's error code is recorded, never its free text (which can contain addresses)
+    expect(db.tables.organizer_marketing_campaign_recipients.every((r) => r.error_message === "validation_error")).toBe(true);
   });
 
   it("PROVIDER CONTRACT: an accepted send ({ data: { id }, error: null }) is sent and consumes allowance; mixed outcomes are counted per recipient", async () => {
     seed([{ id: "c1", pending: 6 }]);
     h.send.mockImplementation(async (args: { to: string[] }) => {
       const email = args.to[0];
-      if (/-r0@/.test(email)) return { data: null, error: { message: "rejected" } }; // resolved failure
-      if (/-r1@/.test(email)) throw new Error("network down"); // thrown failure
+      if (/-r0@/.test(email)) return { data: null, error: { message: "rejected" } }; // resolved error without a code: uncertain
+      if (/-r1@/.test(email)) throw new Error("network down"); // thrown: uncertain
       return { data: { id: "ok-" + email }, error: null }; // accepted
     });
     await send("c1");
-    expect(statuses("c1")).toEqual({ failed: 2, sent: 4 });
+    // M-0: neither outcome proves the message was NOT accepted, so neither is recorded as failed or sent
+    expect(statuses("c1")).toEqual({ sending: 2, sent: 4 });
     expect(usedThisMonth(db, "organizer_id", ORG)).toBe(4);
-    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "finalized", quantity_consumed: 4 });
+    expect(db.tables.usage_reservations[0]).toMatchObject({ status: "reserved", quantity_consumed: 4 });
   });
 
   it("a missing marketing footer after reserving releases the whole reservation and sends nothing", async () => {
@@ -223,19 +226,23 @@ describe("organizer campaign send: monthly recipient allowance (ENT-1)", () => {
     expect(statuses("c1")).toEqual({ sent: 600 });
   });
 
-  it("MULTI-BATCH: failures in the first batch release only their own share; the later batch still runs", async () => {
+  it("MULTI-BATCH: uncertain recipients in the first batch stay committed and are retried first by the later batch (M-0)", async () => {
     seed([{ id: "c1", pending: 700 }]);
     h.send.mockImplementation(async (args: { to: string[] }) => {
-      if (/-r[0-9]@/.test(args.to[0])) throw new Error("down"); // r0..r9 fail
+      if (/-r[0-9]@/.test(args.to[0])) throw new Error("down"); // r0..r9: outcome unknown
       return { data: { id: "ok" }, error: null };
     });
     await send("c1");
     expect(usedThisMonth(db, "organizer_id", ORG)).toBe(490);
     expect(db.tables.usage_reservations[0]).toMatchObject({ status: "reserved", quantity_consumed: 490 });
-    expect(Number(db.tables.usage_reservations[0].quantity_reserved) - 490).toBe(200); // only the still-pending 200 stay committed
+    // the 200 never attempted + the 10 uncertain stay committed
+    expect(Number(db.tables.usage_reservations[0].quantity_reserved) - 490).toBe(210);
+    h.send.mockReset();
     h.send.mockResolvedValue({ data: { id: "ok" }, error: null });
     await send("c1");
-    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(690);
+    expect(h.send).toHaveBeenCalledTimes(210);
+    expect(usedThisMonth(db, "organizer_id", ORG)).toBe(700);
+    expect(statuses("c1")).toEqual({ sent: 700 });
   });
 
   it("DURABLE: a settle outage never releases capacity or loses the successes; the next state read reconciles them once", async () => {

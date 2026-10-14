@@ -1,9 +1,22 @@
 "use server";
 
-import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  MarketingComplianceError,
+  countOpenCampaignRecipients,
+  deliverCampaignBatch,
+  emptyDeliverySummary,
+  isAbandonedSendingCampaign,
+  loadCampaignSendBatch,
+  syncCampaignRecipients,
+} from "@/lib/marketing/compliance/campaignDelivery";
+import { createResendMarketingTransport } from "@/lib/marketing/compliance/provider";
+import { authorizeCampaignTestSend, testSendRefusalCode } from "@/lib/marketing/compliance/testSend";
+import { isMarketingSendPaused } from "@/lib/marketing/compliance/sendFreeze";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewCommunications } from "@/lib/auth/permissions";
 import { requireStudioFeature } from "@/lib/billing/access";
@@ -36,6 +49,14 @@ const AUDIENCE_TYPES = new Set([
 ]);
 
 const MAX_CAMPAIGN_SENDS_PER_ACTION = 500;
+
+/** Marketing M-0: a refusal with a specific page message, redirected from the action's catch (outside its try body). */
+class CampaignActionError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "CampaignActionError";
+  }
+}
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -139,13 +160,6 @@ function plainTextToHtml(value: string) {
     .join("\n");
 }
 
-function getSiteUrl() {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(
-    /\/$/,
-    "",
-  );
-}
-
 function cleanFooterPart(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -210,8 +224,9 @@ async function getUnsubscribedEmails(params: {
     .eq("studio_id", studioId);
 
   if (error) {
+    // Marketing M-0 (C4): never treat a failed suppression lookup as "nobody unsubscribed".
     console.error("Failed to load marketing unsubscribes", error);
-    return new Set<string>();
+    throw new MarketingComplianceError("sync_failed", "Marketing unsubscribe list unavailable.");
   }
 
   return new Set(
@@ -801,6 +816,9 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
     }
 
     const supabase = await createClient();
+    if (await isMarketingSendPaused(supabase)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "marketing_paused"));
+    }
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
@@ -821,6 +839,18 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail)) {
       redirect(appendQueryParam(fallback, "campaign_error", "invalid_test_email"));
+    }
+
+    // Marketing M-0 (D3): test sends only to a verified address of this studio's staff, rate limited and recorded.
+    const testDecision = await authorizeCampaignTestSend(createAdminClient(), {
+      kind: "studio",
+      scopeId: studioId,
+      campaignId,
+      requestedBy: userResult.user.id,
+      email: testEmail,
+    });
+    if (!testDecision.allowed) {
+      throw new CampaignActionError(testSendRefusalCode(testDecision.reason));
     }
 
     const [{ data: campaign, error: campaignError }, { data: studio }] =
@@ -898,6 +928,11 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
       );
     }
   } catch (error) {
+    // A redirect thrown inside the try (campaign_locked, campaign_already_sent, ...) is the intended response.
+    if (isRedirectError(error)) throw error;
+    if (error instanceof CampaignActionError) {
+      redirect(appendQueryParam(fallback, "campaign_error", error.code));
+    }
     console.error("sendMarketingCampaignTestEmailAction failed", error);
     redirect(appendQueryParam(fallback, "campaign_error", "test_send_failed"));
   }
@@ -916,6 +951,9 @@ export async function generateMarketingCampaignRecipientsAction(
 
   try {
     const supabase = await createClient();
+    if (await isMarketingSendPaused(supabase)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "marketing_paused"));
+    }
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
@@ -954,51 +992,25 @@ export async function generateMarketingCampaignRecipientsAction(
           : null,
     });
 
-    const rows = recipients.map((recipient) => ({
-      campaign_id: campaign.id,
-      studio_id: studioId,
-      client_id: recipient.clientId,
-      email: recipient.email,
-      name: recipient.name || null,
-      status: recipient.unsubscribed ? "unsubscribed" : "pending",
-      unsubscribe_token: randomUUID(),
-      error_message: recipient.unsubscribed
-        ? "Suppressed by unsubscribe list"
-        : null,
-    }));
+    // Marketing M-0 (C2): one atomic database step replaces only never-mailed rows. Recipients already handed to the
+    // provider keep their status, provider id and delivered unsubscribe token, and are never mailed again; eligibility
+    // (scope unsubscribes + platform suppressions) is decided there, not here.
+    const synced = await syncCampaignRecipients(createAdminClient(), {
+      kind: "studio",
+      scopeId: studioId,
+      campaignId: campaign.id,
+      recipients: recipients.map((recipient) => ({
+        email: recipient.email,
+        name: recipient.name || null,
+        refId: recipient.clientId,
+      })),
+    });
 
-    const { error: deleteError } = await supabase
-      .from("marketing_campaign_recipients")
-      .delete()
-      .eq("campaign_id", campaign.id)
-      .eq("studio_id", studioId);
-
-    if (deleteError) {
-      console.error("delete existing campaign recipients failed", deleteError);
-      redirect(
-        appendQueryParam(
-          fallback,
-          "campaign_error",
-          "recipient_generate_failed",
-        ),
-      );
+    if (synced.outcome === "campaign_locked" || synced.outcome === "delivery_in_progress") {
+      throw new CampaignActionError(synced.outcome);
     }
-
-    if (rows.length > 0) {
-      const { error: insertError } = await supabase
-        .from("marketing_campaign_recipients")
-        .insert(rows);
-
-      if (insertError) {
-        console.error("insert campaign recipients failed", insertError);
-        redirect(
-          appendQueryParam(
-            fallback,
-            "campaign_error",
-            "recipient_generate_failed",
-          ),
-        );
-      }
+    if (synced.outcome !== "synced") {
+      throw new CampaignActionError(synced.outcome === "not_found" ? "not_found" : "recipient_generate_failed");
     }
 
     await supabase
@@ -1007,6 +1019,11 @@ export async function generateMarketingCampaignRecipientsAction(
       .eq("id", campaign.id)
       .eq("studio_id", studioId);
   } catch (error) {
+    // A redirect thrown inside the try (campaign_locked, campaign_already_sent, ...) is the intended response.
+    if (isRedirectError(error)) throw error;
+    if (error instanceof CampaignActionError) {
+      redirect(appendQueryParam(fallback, "campaign_error", error.code));
+    }
     console.error("generateMarketingCampaignRecipientsAction failed", error);
     redirect(
       appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"),
@@ -1039,6 +1056,9 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     const supabase = await createClient();
+    if (await isMarketingSendPaused(supabase)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "marketing_paused"));
+    }
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
@@ -1060,7 +1080,7 @@ export async function sendMarketingCampaignAction(formData: FormData) {
         supabase
           .from("marketing_campaigns")
           .select(
-            "id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status",
+            "id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status, updated_at",
           )
           .eq("id", campaignId)
           .eq("studio_id", studioId)
@@ -1089,7 +1109,15 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       );
     }
 
-    if (campaign.status === "sending") {
+    if (
+      campaign.status === "sending" &&
+      !(await isAbandonedSendingCampaign(createAdminClient(), {
+        kind: "studio",
+        scopeId: studioId,
+        campaignId: campaign.id,
+        updatedAt: campaign.updated_at,
+      }))
+    ) {
       redirect(appendQueryParam(fallback, "campaign_error", "campaign_locked"));
     }
 
@@ -1109,40 +1137,30 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       );
     }
 
-    const { data: pendingRecipients, error: recipientsError } = await supabase
-      .from("marketing_campaign_recipients")
-      .select("id, email, name, unsubscribe_token")
-      .eq("campaign_id", campaign.id)
-      .eq("studio_id", studioId)
-      .eq("status", "pending")
-      .limit(MAX_CAMPAIGN_SENDS_PER_ACTION);
+    // Marketing M-0: every recipient goes through the shared send boundary: final eligibility check + claim in the
+    // database (fail closed), provider call with a per-recipient idempotency key and RFC 8058 one-click headers, then
+    // completion. Recipients left claimed by an uncertain outcome are retried first, with the same idempotency key.
+    const admin = createAdminClient();
+    const scope = { kind: "studio" as const, scopeId: studioId, campaignId: campaign.id };
+    const batch = await loadCampaignSendBatch(admin, { ...scope, limit: MAX_CAMPAIGN_SENDS_PER_ACTION });
 
-    if (recipientsError) {
-      console.error("load pending campaign recipients failed", recipientsError);
-      redirect(appendQueryParam(fallback, "campaign_error", "send_failed"));
-    }
-
-    if (!pendingRecipients || pendingRecipients.length === 0) {
+    if (batch.ids.length === 0) {
       redirect(
         appendQueryParam(fallback, "campaign_error", "no_pending_recipients"),
       );
     }
 
-    // ENT-1: monthly recipient allowance. The eligible count is every pending recipient of this campaign (not just this
-    // action's batch): if it does not fit the remaining allowance NOTHING is sent. The reservation is atomic in the
-    // database, so concurrent sends cannot overshoot; it is finalized below with the recipients that actually succeeded.
-    const { count: eligiblePendingCount } = await supabase
-      .from("marketing_campaign_recipients")
-      .select("id", { count: "exact", head: true })
-      .eq("campaign_id", campaign.id)
-      .eq("studio_id", studioId)
-      .eq("status", "pending");
+    // ENT-1: monthly recipient allowance. The eligible count is every recipient of this campaign still owed an attempt
+    // (not just this action's batch): if it does not fit the remaining allowance NOTHING is sent. The reservation is
+    // atomic in the database, so concurrent sends cannot overshoot; it is settled below with the recipients the
+    // provider accepted (and any whose earlier uncertain attempt aged out: counted as consumed, conservatively).
+    const openCount = await countOpenCampaignRecipients(admin, scope);
 
     const reservation = await reserveCampaignSendAllowance({
       workspace: { type: "studio", studioId },
       campaignId: campaign.id,
-      eligibleTotal: Math.max(Number(eligiblePendingCount ?? 0), pendingRecipients.length),
-      batchRecipientIds: pendingRecipients.map((recipient) => recipient.id),
+      eligibleTotal: Math.max(openCount, batch.ids.length),
+      batchRecipientIds: batch.ids,
       userId: userResult.user.id,
       source: "marketing_campaign_send",
       relatedTable: "marketing_campaigns",
@@ -1152,7 +1170,7 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       throw new CampaignAllowanceBlockedError(reservation.query);
     }
 
-    let sentCount = 0;
+    const summary = emptyDeliverySummary();
 
     try {
       await supabase
@@ -1166,125 +1184,75 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       const footerNote = buildStudioMarketingFooterNote(studio);
       const replyTo = getStudioReplyToEmail(studio, userResult.user.email);
       const subject = sanitizeEmailSubject(campaign.subject);
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      for (const recipient of pendingRecipients) {
-        const unsubscribeUrl = `${getSiteUrl()}/unsubscribe/marketing/${recipient.unsubscribe_token}`;
 
-        const emailParams: CampaignEmailParams = {
-          studioName,
-          studioLogoUrl,
-          subject,
-          previewText: campaign.preview_text,
-          bodyText: campaign.body_text,
-          ctaLabel: campaign.cta_label,
-          ctaUrl: campaign.cta_url,
-          footerNote,
-          unsubscribeUrl,
-        };
-
-        const html = buildCampaignEmailHtml(emailParams);
-        const text = buildCampaignEmailText(emailParams);
-
-        try {
-          const result = await resend.emails.send({
-            from: fromEmail,
-            to: [recipient.email],
+      await deliverCampaignBatch({
+        summary,
+        admin,
+        transport: createResendMarketingTransport(),
+        ...scope,
+        recipientIds: batch.ids,
+        from: fromEmail,
+        replyTo,
+        render: ({ unsubscribeUrl }) => {
+          const emailParams: CampaignEmailParams = {
+            studioName,
+            studioLogoUrl,
             subject,
-            html,
-            text,
-            replyTo,
-          });
-
-          // Resend resolves (does not throw) on an API-level failure -- `result.error` must be checked
-          // explicitly, or a rejected send silently gets recorded as delivered.
-          if (result.error) {
-            throw new Error(result.error.message || "Send failed");
-          }
-
-          sentCount += 1; // the provider accepted this recipient: this is what consumes allowance
-
-          const messageId =
-            typeof result.data?.id === "string" ? result.data.id : null;
-
-          await supabase
-            .from("marketing_campaign_recipients")
-            .update({
-              status: "sent",
-              provider_message_id: messageId,
-              error_message: null,
-              sent_at: new Date().toISOString(),
-            })
-            .eq("id", recipient.id)
-            .eq("studio_id", studioId);
-        } catch (error) {
-          console.error("send campaign recipient failed", {
-            campaignId: campaign.id,
-            recipientId: recipient.id,
-            error,
-          });
-
-          await supabase
-            .from("marketing_campaign_recipients")
-            .update({
-              status: "failed",
-              error_message:
-                error instanceof Error ? error.message : "Send failed",
-            })
-            .eq("id", recipient.id)
-            .eq("studio_id", studioId);
-        }
-      }
+            previewText: campaign.preview_text,
+            bodyText: campaign.body_text,
+            ctaLabel: campaign.cta_label,
+            ctaUrl: campaign.cta_url,
+            footerNote,
+            unsubscribeUrl,
+          };
+          return {
+            subject,
+            html: buildCampaignEmailHtml(emailParams),
+            text: buildCampaignEmailText(emailParams),
+          };
+        },
+      });
     } finally {
-      // Successful recipients become usage and the commitment shrinks to what is still pending (also on an unexpected throw).
-      // If settling fails the capacity stays held and the batch is reconciled later: a successful send is never left uncounted.
-      let pendingAfter: number | null = null;
+      // Accepted recipients become usage and the commitment shrinks to what is still owed an attempt (also on an
+      // unexpected throw). If settling fails the capacity stays held and the batch is reconciled later: a successful
+      // send is never left uncounted. The campaign status is always restored, so a failed batch cannot leave it stuck.
+      let openAfter: number | null = null;
       try {
-        const { count } = await supabase
-          .from("marketing_campaign_recipients")
-          .select("id", { count: "exact", head: true })
-          .eq("campaign_id", campaign.id)
-          .eq("studio_id", studioId)
-          .eq("status", "pending");
-        pendingAfter = count === null || count === undefined ? null : Number(count);
+        openAfter = await countOpenCampaignRecipients(admin, scope);
       } catch (error) {
-        console.error("pending recipient count failed after send", error);
+        console.error("open recipient count failed after send", error);
       }
       await settleCampaignBatch({
         reservationId: reservation.reservationId,
-        sentCount,
-        pendingRemaining: pendingAfter,
-        metadata: { campaign_id: campaign.id, attempted: pendingRecipients.length },
+        sentCount: summary.sent + summary.unknown,
+        pendingRemaining: openAfter,
+        metadata: {
+          campaign_id: campaign.id,
+          attempted: summary.attempted,
+          failed: summary.failed,
+          uncertain: summary.uncertain,
+          suppressed: summary.suppressed,
+          unknown: summary.unknown,
+        },
       });
+      const nowIso = new Date().toISOString();
+      await supabase
+        .from("marketing_campaigns")
+        .update(
+          openAfter === 0
+            ? { status: "sent", sent_at: nowIso, updated_at: nowIso }
+            : { status: "draft", updated_at: nowIso },
+        )
+        .eq("id", campaign.id)
+        .eq("studio_id", studioId);
     }
 
-    const { count: remainingPendingCount } = await supabase
-      .from("marketing_campaign_recipients")
-      .select("id", { count: "exact", head: true })
-      .eq("campaign_id", campaign.id)
-      .eq("studio_id", studioId)
-      .eq("status", "pending");
-
-    if (Number(remainingPendingCount ?? 0) === 0) {
-      await supabase
-        .from("marketing_campaigns")
-        .update({
-          status: "sent",
-          sent_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", campaign.id)
-        .eq("studio_id", studioId);
-    } else {
-      await supabase
-        .from("marketing_campaigns")
-        .update({
-          status: "draft",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", campaign.id)
-        .eq("studio_id", studioId);
+    if (summary.stoppedReason) {
+      throw new CampaignActionError(summary.stoppedReason === "marketing_paused" ? "marketing_paused" : "send_paused_provider");
     }
   } catch (error) {
+    // A redirect thrown inside the try (campaign_locked, campaign_already_sent, ...) is the intended response.
+    if (isRedirectError(error)) throw error;
     if (error instanceof CampaignAllowanceBlockedError) {
       // Nothing was sent. Redirect from the catch (not the try body) so the structured limit result reaches the page.
       let blockedUrl = fallback;
@@ -1292,6 +1260,13 @@ export async function sendMarketingCampaignAction(formData: FormData) {
         blockedUrl = appendQueryParam(blockedUrl, key, String(value));
       }
       redirect(blockedUrl);
+    }
+    if (error instanceof CampaignActionError) {
+      redirect(appendQueryParam(fallback, "campaign_error", error.code));
+    }
+    if (error instanceof MarketingComplianceError) {
+      console.error("sendMarketingCampaignAction stopped (compliance)", error.code);
+      redirect(appendQueryParam(fallback, "campaign_error", "eligibility_check_failed"));
     }
     console.error("sendMarketingCampaignAction failed", error);
     redirect(appendQueryParam(fallback, "campaign_error", "send_failed"));

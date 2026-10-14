@@ -9,6 +9,7 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 import { buildAppUrl } from "@/lib/email/brand";
+import { CONTENT_ORIGIN_CUSTOMIZED, CONTENT_ORIGIN_SYSTEM } from "@/lib/marketing/compliance/messageClassification";
 import {
   ARIA_AUTOMATION_PACKS,
   getAriaAutomationCatalogItem,
@@ -4611,6 +4612,8 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
               body_text: bodyText,
               body_html: bodyHtml,
               updated_at: now,
+              // Marketing M-0: ARIA execution content is fixed in code (classification uses this stamp).
+              payload: { content_origin: CONTENT_ORIGIN_SYSTEM },
             })
             .eq("id", existingDelivery.id)
             .eq("studio_id", context.studioId)
@@ -4640,6 +4643,8 @@ export async function executeAriaApprovedActionsAction(formData: FormData) {
               dedupe_key: getAriaExecutionDedupeKey({ action, clientId: client.id }),
               status: "queued",
               updated_at: now,
+              // Marketing M-0: ARIA execution content is fixed in code (classification uses this stamp).
+              payload: { content_origin: CONTENT_ORIGIN_SYSTEM },
             })
             .select("id")
             .single<{ id: string }>();
@@ -5090,7 +5095,9 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
     template: (template ?? null) as AutomationEmailTemplateRow | null,
   });
 
-  const { error: deliveryError } = await supabase
+  // Marketing M-0: written server-side so content_origin is trustworthy (client-role inserts of automation-family
+  // rows are forced to "customized" by the database). studio_id comes from the verified studio context.
+  const { error: deliveryError } = await createAdminClient()
     .from("outbound_deliveries")
     .insert({
       studio_id: context.studioId,
@@ -5101,6 +5108,8 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
       subject: draft.subject,
       body_text: draft.bodyText,
       body_html: draft.bodyHtml,
+      // Marketing M-0: a studio-saved template is studio-authored content (classified conservatively).
+      payload: { content_origin: template ? CONTENT_ORIGIN_CUSTOMIZED : CONTENT_ORIGIN_SYSTEM },
       related_table: "automation_actions",
       related_id: actionId,
       dedupe_key: `automation:${actionId}:email-draft`,
@@ -5232,6 +5241,8 @@ export async function saveAutomationEmailDraftAction(formData: FormData) {
         subject,
         body_text: bodyText,
         body_html: null,
+        // Marketing M-0: staff-edited content is studio-authored (classified conservatively).
+        payload: { content_origin: CONTENT_ORIGIN_CUSTOMIZED },
         updated_at: new Date().toISOString(),
       })
       .eq("id", deliveryId)
@@ -5333,6 +5344,8 @@ export async function queueAutomationEmailDraftAction(formData: FormData) {
     updatePayload.subject = subject;
     updatePayload.body_text = bodyText;
     updatePayload.body_html = null;
+    // Marketing M-0: staff-edited content is studio-authored (classified conservatively).
+    updatePayload.payload = { content_origin: CONTENT_ORIGIN_CUSTOMIZED };
   }
 
   const adminSupabase = createAdminClient();
@@ -6564,7 +6577,8 @@ async function queueAutomaticAutomationEmailsForRun(params: {
     });
     const now = new Date().toISOString();
 
-    const { error: deliveryError } = await supabase
+    // Marketing M-0: server-side write so content_origin is trustworthy (see createAutomationEmailDraftAction).
+    const { error: deliveryError } = await createAdminClient()
       .from("outbound_deliveries")
       .insert({
         studio_id: studioId,
@@ -6575,6 +6589,8 @@ async function queueAutomaticAutomationEmailsForRun(params: {
         subject: rendered.subject,
         body_text: rendered.bodyText,
         body_html: rendered.bodyHtml,
+        // Marketing M-0: a studio-saved template is studio-authored content (classified conservatively).
+        payload: { content_origin: typedTemplate ? CONTENT_ORIGIN_CUSTOMIZED : CONTENT_ORIGIN_SYSTEM },
         related_table: "automation_actions",
         related_id: action.id,
         dedupe_key: `automation:${action.id}:email-auto-send`,
@@ -7384,6 +7400,8 @@ export async function runScheduledAriaOperationsForStudio(params: {
               body_text: bodyText,
               body_html: bodyHtml,
               updated_at: now,
+              // Marketing M-0: ARIA execution content is fixed in code (classification uses this stamp).
+              payload: { content_origin: CONTENT_ORIGIN_SYSTEM },
             })
             .eq("id", existingDelivery.id)
             .eq("studio_id", studioId)
@@ -7414,6 +7432,8 @@ export async function runScheduledAriaOperationsForStudio(params: {
               dedupe_key: getAriaExecutionDedupeKey({ action, clientId: client.id }),
               status: "queued",
               updated_at: now,
+              // Marketing M-0: ARIA execution content is fixed in code (classification uses this stamp).
+              payload: { content_origin: CONTENT_ORIGIN_SYSTEM },
             })
             .select("id")
             .single<{ id: string }>();

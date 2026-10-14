@@ -460,7 +460,9 @@ async function countSentRecipients(
       .select("id", { count: "exact", head: true })
       .eq(args.column, args.workspaceId)
       .eq("campaign_id", args.campaignId)
-      .eq("status", "sent")
+      // Marketing M-0: a recipient whose uncertain attempt aged out (delivery_unknown) is counted as consumed,
+      // conservatively, exactly as the send path settles it.
+      .in("status", ["sent", "delivery_unknown"])
       .in("id", chunk);
     if (error) return null;
     total += Number(count ?? 0);
@@ -501,7 +503,8 @@ export async function reconcileStaleCampaignBatches(workspace: CampaignWorkspace
         // cannot establish the truth (any chunk or the pending count failed): do not settle, do not count, stay conservative;
         // a later reconciliation retries the whole logical batch
         if (sentCount === null) continue;
-        const pending = await admin.from(table).select("id", { count: "exact", head: true }).eq(column, workspaceId).eq("campaign_id", row.related_id).eq("status", "pending");
+        // Marketing M-0: recipients still owed an attempt are pending or claimed-but-unfinished ('sending').
+        const pending = await admin.from(table).select("id", { count: "exact", head: true }).eq(column, workspaceId).eq("campaign_id", row.related_id).in("status", ["pending", "sending"]);
         if (pending.error) continue;
 
         // chunks are only for READING recipient state: the batch is settled once, with the aggregate

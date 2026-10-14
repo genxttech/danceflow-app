@@ -52,6 +52,10 @@ class Builder implements PromiseLike<{ data: unknown; error: unknown; count?: nu
     this.filters.push((row) => row[col] != null && String(row[col]) > String(value));
     return this;
   }
+  lte(col: string, value: unknown) {
+    this.filters.push((row) => row[col] != null && String(row[col]) <= String(value));
+    return this;
+  }
   lt(col: string, value: unknown) {
     this.filters.push((row) => row[col] != null && String(row[col]) < String(value));
     return this;
@@ -105,6 +109,10 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       // one tick, no awaits inside: serialized like the advisory lock
       if (name === "reserve_usage_allowance") return { data: reserve(db, args), error: null };
       if (name === "settle_usage_reservation") return { data: settle(db, args), error: null };
+      if (name === "marketing_claim_campaign_recipient") return { data: claimRecipient(db, args), error: null };
+      if (name === "marketing_complete_campaign_recipient") return { data: completeRecipient(db, args), error: null };
+      if (name === "marketing_sync_campaign_recipients") return { data: syncRecipients(db, args), error: null };
+      if (name === "marketing_authorize_test_send") return { data: { allowed: true }, error: null };
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },
   };
@@ -217,3 +225,128 @@ export function usedThisMonth(db: FakeDb, column: "studio_id" | "organizer_id", 
 }
 
 export { monthStart };
+
+/* ------------------------------------------------------------------------------------------------------------------
+ * Marketing M-0: the send-time claim / completion / generation functions (20261117090000), same semantics as the SQL
+ * (which the M-0 SQL suite and concurrency harness verify against a real database). Synchronous, like the locked SQL.
+ * ---------------------------------------------------------------------------------------------------------------- */
+
+const RECIPIENTS: Record<string, { table: string; scope: string }> = {
+  studio: { table: "marketing_campaign_recipients", scope: "studio_id" },
+  organizer: { table: "organizer_marketing_campaign_recipients", scope: "organizer_id" },
+};
+
+let claimSeq = 0;
+
+function suppressionStatus(db: FakeDb, kind: string, scopeId: unknown, email: string) {
+  const e = email.trim().toLowerCase();
+  if (!e.includes("@")) return "invalid";
+  if ((db.tables.marketing_email_suppressions ?? []).some((r) => String(r.email).toLowerCase() === e && r.active !== false)) return "suppressed";
+  if (kind === "studio") {
+    if ((db.tables.marketing_unsubscribes ?? []).some((r) => r.studio_id === scopeId && String(r.email).toLowerCase() === e)) return "unsubscribed";
+  } else {
+    if ((db.tables.organizer_marketing_unsubscribes ?? []).some((r) => r.organizer_id === scopeId && String(r.email).toLowerCase() === e)) return "unsubscribed";
+    if ((db.tables.organizer_contacts ?? []).some((r) => r.organizer_id === scopeId && String(r.email).toLowerCase() === e && r.status === "unsubscribed")) return "unsubscribed";
+  }
+  return "eligible";
+}
+
+function claimRecipient(db: FakeDb, args: Record<string, unknown>) {
+  const meta = RECIPIENTS[String(args.p_scope_kind)];
+  if (!meta) throw new Error("invalid scope");
+  const row = (db.tables[meta.table] ?? []).find(
+    (r) => r.id === args.p_recipient_id && r.campaign_id === args.p_campaign_id && r[meta.scope] === args.p_scope_id,
+  );
+  if (!row) return { outcome: "not_found" };
+  const now = db.now();
+  const wasSending = row.status === "sending";
+  if (wasSending) {
+    if (new Date(String(row.claim_expires_at)).getTime() > now.getTime()) return { outcome: "in_flight" };
+    if (new Date(String(row.first_attempt_at)).getTime() < now.getTime() - 23 * 3600 * 1000) {
+      Object.assign(row, { status: "delivery_unknown", claim_id: null, claim_expires_at: null });
+      return { outcome: "delivery_unknown" };
+    }
+  } else if (row.status !== "pending") {
+    return { outcome: "not_claimable", status: row.status };
+  }
+  const st = suppressionStatus(db, String(args.p_scope_kind), args.p_scope_id, String(row.email ?? ""));
+  if (st !== "eligible") {
+    row.status = wasSending ? "delivery_unknown" : st === "invalid" ? "skipped" : st;
+    row.claim_id = null;
+    return { outcome: wasSending ? "delivery_unknown" : st };
+  }
+  claimSeq += 1;
+  const claimId = `claim-${claimSeq}`;
+  Object.assign(row, {
+    status: "sending",
+    claim_id: claimId,
+    claim_expires_at: new Date(now.getTime() + Number(args.p_lease_seconds ?? 600) * 1000).toISOString(),
+    first_attempt_at: row.first_attempt_at ?? now.toISOString(),
+    attempt_count: Number(row.attempt_count ?? 0) + 1,
+  });
+  return {
+    outcome: "claimed",
+    claim_id: claimId,
+    retry: wasSending,
+    email: String(row.email).trim().toLowerCase(),
+    unsubscribe_token: row.unsubscribe_token,
+    idempotency_key: `mkt-${args.p_scope_kind}-${row.id}`,
+  };
+}
+
+function completeRecipient(db: FakeDb, args: Record<string, unknown>) {
+  const meta = RECIPIENTS[String(args.p_scope_kind)];
+  const row = (db.tables[meta.table] ?? []).find((r) => r.id === args.p_recipient_id && r[meta.scope] === args.p_scope_id);
+  if (!row || row.status !== "sending" || row.claim_id !== args.p_claim_id) return { outcome: "stale", status: row?.status ?? null };
+  const outcome = String(args.p_outcome);
+  if (outcome === "sent") {
+    Object.assign(row, { status: "sent", provider_message_id: args.p_provider_message_id, sent_at: db.now().toISOString(), error_message: null, claim_id: null, claim_expires_at: null });
+  } else if (outcome === "failed") {
+    Object.assign(row, { status: "failed", error_message: args.p_error ?? "Send failed", claim_id: null, claim_expires_at: null });
+  } else if (outcome === "released") {
+    const attempts = Number(row.attempt_count ?? 1);
+    Object.assign(row, { status: "pending", claim_id: null, claim_expires_at: null, attempt_count: Math.max(0, attempts - 1), first_attempt_at: attempts <= 1 ? null : row.first_attempt_at });
+  } else if (outcome === "uncertain") {
+    Object.assign(row, { claim_expires_at: db.now().toISOString(), last_attempt_error: args.p_error ?? null });
+  } else {
+    throw new Error("invalid completion");
+  }
+  return { outcome };
+}
+
+function syncRecipients(db: FakeDb, args: Record<string, unknown>) {
+  const kind = String(args.p_scope_kind);
+  const meta = RECIPIENTS[kind];
+  const campaigns = db.tables[kind === "studio" ? "marketing_campaigns" : "organizer_marketing_campaigns"] ?? [];
+  const campaign = campaigns.find((c) => c.id === args.p_campaign_id && c[meta.scope] === args.p_scope_id);
+  if (!campaign) return { outcome: "not_found" };
+  if (["sending", "sent", "cancelled"].includes(String(campaign.status))) return { outcome: "campaign_locked" };
+  const rows = (db.tables[meta.table] ??= []);
+  if (rows.some((r) => r.campaign_id === campaign.id && r.status === "sending")) return { outcome: "delivery_in_progress" };
+  db.tables[meta.table] = rows.filter((r) => !(r.campaign_id === campaign.id && ["pending", "unsubscribed", "skipped", "suppressed"].includes(String(r.status))));
+  const kept = new Set(db.tables[meta.table].filter((r) => r.campaign_id === campaign.id).map((r) => String(r.email).toLowerCase()));
+  const seen = new Set<string>();
+  for (const input of (args.p_recipients as Array<{ email: string; name?: string | null; ref_id?: string | null }>) ?? []) {
+    const email = String(input.email ?? "").trim().toLowerCase();
+    if (!email.includes("@") || seen.has(email) || kept.has(email)) continue;
+    seen.add(email);
+    const st = suppressionStatus(db, kind, args.p_scope_id, email);
+    claimSeq += 1;
+    db.tables[meta.table].push({
+      id: `gen-${claimSeq}`,
+      campaign_id: campaign.id,
+      [meta.scope]: args.p_scope_id,
+      email,
+      name: input.name ?? null,
+      status: st === "eligible" ? "pending" : st === "invalid" ? "skipped" : st,
+      unsubscribe_token: seedToken(100000 + claimSeq),
+    });
+  }
+  const mine = db.tables[meta.table].filter((r) => r.campaign_id === campaign.id);
+  return { outcome: "synced", pending: mine.filter((r) => r.status === "pending").length, preserved: kept.size };
+}
+
+/** A deterministic, valid unsubscribe token for seeded recipients. */
+export function seedToken(n: number) {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+}
