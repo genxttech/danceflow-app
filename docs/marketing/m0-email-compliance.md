@@ -108,8 +108,9 @@ deleted.
 
 `marketing_send_controls` is a service-role-only singleton, and every change is logged in `marketing_send_control_events`.
 It is set with `marketing_set_send_freeze(frozen, reason)`. **Stage 1 lands frozen**, and re-applying it never changes
-the current setting. No migration and no rollback script ever releases the freeze; only an explicit, separately
-authorized `marketing_set_send_freeze(false, …)` does. While frozen, **enforced by the database in either application
+the current setting. No migration and no rollback script sets it to false; only an explicit, separately authorized
+`marketing_set_send_freeze(false, …)` does. The one exception is the stage-1 rollback, which removes the freeze
+mechanism itself and therefore counts as releasing it (§6 "Stage-1 rollback"). While frozen, **enforced by the database in either application
 version**:
 - **campaigns are hidden from signed-in users** (a restrictive `m0 freeze hides campaigns` select policy on
   `marketing_campaigns` and `organizer_marketing_campaigns`). Every pre-M-0 campaign action (send, **test send**,
@@ -148,7 +149,10 @@ studio and organizer campaigns, `outbound_deliveries`). Per table, a signature c
 
 A first apply requires every signature to equal the known pre-M-0 state exactly; a re-apply requires the known stage-1
 state. Any drift, in either direction (an extra, altered, re-roled or missing policy, RLS toggled, a privilege added or
-revoked), aborts the whole migration and changes nothing. No unknown production policy is ever dropped or replaced. It
+revoked), aborts the whole migration and changes nothing. Because this migration's own policy names are excluded from the
+signature, their placement is checked separately: on a first apply none of them may exist on any of the seven tables, and
+on a re-apply each may exist only on the table this migration puts it on. No unknown production policy is ever dropped or
+replaced. It
 also requires the dispatcher claim function to be the PAY-WH-1 version (or the stage-1 version on re-apply). This is
 proven by `sql-tests/m0_precondition_tests.sh`, and the read-only PROD preflight (§3, A8) computes the identical signature
 (enforced by `preflightParity.m0.test.ts`).
@@ -213,12 +217,12 @@ preconditions, rollback-build gate, release order, DB-enforced campaign hiding w
 |---|---|---|
 | SQL suite, stage 1 (`test_T_m0_marketing_send_integrity.sql`) | Lifecycle, generation, unsubscribe (all token kinds), C1, platform suppression, test sends, guards and RLS, privileges, old-app compatibility; freeze (claims, test sends, client-role visibility and writes, **campaigns hidden from signed-in users and visible again on release, service role unaffected**, dispatcher hold and release, control row); B role probes: owner, studio admin, front desk, instructor, client role, other studio, platform admin (studio role and profile), organizer, anon; C; D, including appointment-payload helper role probes (owner, studio admin, front desk, platform admin allowed; client role denied) | **PASS 226/226** on QA (both cycles) and on DEV (rolled back) |
 | SQL suite, stage 2 (`test_T_m0_recipient_write_lockdown.sql`) | No client-role recipient or outbound write by any path; reads kept; legacy RPC revoked; service pipeline and service-role outbound writes work | **PASS 54/54** on QA (both cycles). Negative control: the suite fails at stage 1, as expected |
-| Preconditions and rollback guards (`m0_precondition_tests.sh`) | Stage 1 refuses, changing nothing, on: an unknown policy; an altered policy definition; a missing visibility policy; an unexpected dispatcher function; RLS disabled (organizer unsubscribes); RLS forced (`outbound_deliveries`); an unknown policy on organizer campaigns; changed policy roles (`outbound_deliveries`); an unknown policy with an M-0-like name; a **narrower** privilege (studio campaigns). The control applies and lands frozen. The stage-1 rollback refuses, changing nothing, while stage 2 is applied, while unfrozen, after a recipient was handed to the provider (also with the removed override set) and with an issued per-message token | **PASS 34/34** |
+| Preconditions and rollback guards (`m0_precondition_tests.sh`) | Stage 1 refuses, changing nothing, on: an unknown policy; an altered policy definition; a missing visibility policy; an unexpected dispatcher function; RLS disabled (organizer unsubscribes); RLS forced (`outbound_deliveries`); an unknown policy on organizer campaigns; changed policy roles (`outbound_deliveries`); an unknown policy with an M-0-like name; an M-0 policy name on a table M-0 does not put it on; an M-0 policy name already present before a first apply; a **narrower** privilege (studio campaigns). The control applies and lands frozen. The stage-1 rollback refuses, changing nothing, while stage 2 is applied, while unfrozen, after a recipient was handed to the provider (also with the removed override set) and with an issued per-message token | **PASS 38/38** |
 | Concurrency (`m0_concurrency.sh`) | Previous races, plus the legacy organizer page racing an M-0 one-click for the same address (one record, both requests counted) | **PASS 25/25** (both cycles) |
-| SQL mutation testing | 72 mutants, adding campaign hiding removed (studio, organizer): 71 caught by the suite, and email-lock removal caught by the concurrency harness (23/25). **Precondition mutants** (signature re-hashed with the mutated expression, so each is a genuinely weaker check): result ignored; `outbound_deliveries`, organizer unsubscribes or campaign tables skipped; first apply accepting the stage-1 state; claim function unchecked; roles, RLS forced flag, RLS flags, expressions, policy set or privileges not compared; any `m0 %` name excluded. Each was caught by its matching tamper case; the unmutated control passes | **72/72 + 13/13** |
+| SQL mutation testing | 72 mutants, adding campaign hiding removed (studio, organizer): 71 caught by the suite, and email-lock removal caught by the concurrency harness (23/25). **Precondition mutants** (signature re-hashed with the mutated expression, so each is a genuinely weaker check): result ignored; `outbound_deliveries`, organizer unsubscribes or campaign tables skipped; first apply accepting the stage-1 state; claim function unchecked; roles, RLS forced flag, RLS flags, expressions, policy set or privileges not compared; any `m0 %` name excluded; M-0 name placement unchecked; placement checked on re-apply only. Each was caught by its matching tamper case; the unmutated control passes | **72/72 + 15/15** |
 | Migration cycles (QA) | Starting at S3: the stage-1 rollback refuses (stage 2 first). Then two cycles of pre → s1 → s1 re-apply → s2 → s2 re-apply → rb2 → rb1, plus the final s1. Re-applying each stage is idempotent and keeps the freeze; rb2 leaves marketing frozen. The full rollback (unused M-0 only) equals the original DEV pre-state under the original fingerprint (`9493285f…`/191) | **PASS**, deterministic: pre `50857fc3…`/201 → s1 `5b377ef5…`/340 → s2 `56d4369d…`/335 |
-| PROD preflights (read-only, validated on QA) | At pre-M-0: A4–A7 show the documented baseline, **A8 shows `MATCH-PRE` for all seven tables**, A9 lists the details, and A9b shows no freeze table. Signature parity with the migration is enforced by `preflightParity.m0.test.ts`. The C1 repair preflight runs (11/11 rows) | **PASS** (not run on PROD) |
-| DEV (`epdrtzcydvnoidwrepqz`) | It was at stage 1 `dbe60d28…`/338 (frozen). The final stage 1 was re-applied (LF) through the re-apply precondition: `5b377ef5…`/340, identical to QA. It is **frozen**. The suite passes 226/226 with no residue (no fixtures, no control events), and existing rows are unchanged (9 sent). **Stage 2 is not applied** | **PASS (stage 1)** |
+| PROD preflights (read-only, validated on QA) | At pre-M-0: A4–A7 show the documented baseline, **A8 shows `MATCH-PRE` for all seven tables**, A8b shows no M-0-named policy, A9 lists the details, and A9b shows no freeze table. Signature parity with the migration is enforced by `preflightParity.m0.test.ts`. The C1 repair preflight runs (11/11 rows) | **PASS** (not run on PROD) |
+| DEV (`epdrtzcydvnoidwrepqz`) | It was at stage 1 `dbe60d28…`/338 (frozen). The final stage 1 (including the review fix F1) was re-applied (LF) through the re-apply precondition: `5b377ef5…`/340, identical to QA. It is **frozen**. The suite passes 226/226 with no residue (no fixtures, no control events), and existing rows are unchanged (9 sent). **Stage 2 is not applied** | **PASS (stage 1)** |
 
 ### Application
 
@@ -291,6 +295,27 @@ Re-review of the round-2 fixes: all **FIXED**, and **GO for merge**. New P3 find
 - **P3-9:** the SQL label uses `initcap`, and instructor names come from `instructors` (the FK target), whereas the old
   producer queries a missing `staff` table and gets no names. This is cosmetic, S1 client-role rows only. **Tracked.**
 
+### Independent review, final hardening (read-only reviewer, `d4d6957d`)
+
+**Verdict: GO for merge** (no P0 or P1). Items 2 (rollback build), 4 (DB campaign freeze) and 5 (stage-1 rollback refusals)
+pass. Items 1 and 3 were partial, with two P2 findings, both fixed in this PR:
+- **F1:** this migration's own policy names were excluded from the signature on every table and in both modes, so a
+  look-alike policy with an M-0 name on another table, or before a first apply, would go unnoticed. **Fixed:** their
+  placement is checked separately (§1 B), shown read-only as preflight A8b, and covered by two tamper cases and two
+  mutants.
+- **F2:** the stage-1 rollback removes the freeze mechanism, but the docs said no rollback releases the freeze. **Fixed
+  (documentation):** it is described as returning to S0 and equivalent to releasing the freeze, needing the same separate
+  authorization, with the application already below M-0 (§6 "Stage-1 rollback").
+
+Tracked P3 findings (not blocking):
+- **F3:** freezing during a running M-0 batch leaves the campaign in `sending`, because the final status update goes through
+  the session client. It is recoverable by the existing abandoned-send resume.
+- **F4:** creating a campaign is not freeze-guarded. The studio draft is created but hidden; organizer create shows a
+  generic error. There is no send risk.
+- **F5:** the smoke script cannot bind a URL to the recorded deployment; the runbook procedure does.
+- **F6:** column-level grants, policy helper bodies, triggers and views are outside the signature (mostly fail-closed).
+- **F7:** small gaps. Not every stage-1 rollback blocker has its own test, and the rollback drops the freeze audit table.
+
 ## 3. Production preflight (read-only, prepared; NOT run)
 
 `sql-tests/m0_prod_preflight_readonly.sql` runs in a single `begin transaction read only … rollback`. It returns aggregate counts
@@ -311,6 +336,7 @@ and schema hashes only: no addresses, names, tokens or content. It covers:
     `MISMATCH` with the computed and expected values. Any `MISMATCH` is a stop: stage 1 would refuse;
   - **A9:** the details behind A8 for review (RLS flags, every policy with command, permissive flag, roles and expression
     hashes, and the anon / authenticated / PUBLIC grants). Metadata only;
+  - **A8b:** no policy with one of this migration's own names exists yet (expect `none`); anything else is a stop;
   - **A9b:** no freeze table yet;
   - **A10:** the `outbound_deliveries` write policies.
 
@@ -404,7 +430,9 @@ recipients or write recipients, and the dispatcher claim holds commercial ARIA /
 Unsubscribe is never frozen.
 
 **Freeze rule.** No release, rollback or roll-forward step releases the freeze implicitly. Migrations and rollback scripts
-never set it to false (re-applying stage 1 keeps the current setting). The freeze is released only by the final,
+never set it to false (re-applying stage 1 keeps the current setting). The **stage-1 rollback** is the one script that
+removes the freeze (it drops the mechanism and returns to S0), so it needs the same separate authorization as releasing
+the freeze (§6 "Stage-1 rollback"). Otherwise the freeze is released only by the final,
 **separately authorized** step of a release or roll-forward.
 
 ### Rollback build verification gate (required before PROD stage 1)
@@ -505,7 +533,18 @@ Unsubscribe-link survival in S1 with the compat build, for emails M-0 sent (all 
 ### Stage-1 rollback (`rollback/20261117090000_…`)
 
 This is **not** a routine rollback step, and there is no override. It exists only to remove M-0 from a database where M-0
-was never used, for example an aborted release immediately after stage 1. It refuses, changing nothing, when:
+was never used, for example an aborted release immediately after stage 1.
+
+**It returns the database to S0 and is equivalent to releasing the freeze.** It drops the freeze, the campaign hiding,
+the dispatcher hold and the legacy unsubscribe compatibility, so marketing becomes sendable by the pre-M-0 application,
+commercial email held during S1 is dispatched, and C1–C7 are open again (as in today's production). Therefore:
+- it needs the **same separate owner authorization as releasing the freeze**, never just a rollback authorization;
+- the application must already be **below M-0** (the verified compat build or the pre-M-0 build). The M-0 application
+  must not be live, because it needs stage 1;
+- afterwards, the compat build's one-click endpoint answers 503 (stage 1 is gone). That is harmless only because the
+  refusals below guarantee that no M-0 token was ever issued.
+
+It refuses, changing nothing, when:
 - stage 2 is still applied (roll back `20261117091000` first);
 - marketing is not frozen, or the freeze is missing;
 - any studio or organizer recipient was ever handed to the provider (an attempt was recorded, or it is `sending`,
@@ -535,4 +574,5 @@ removed after M-0 was used, it is handled as a recovery incident, not a rollback
   build and stage 1 stays applied.
 - The stage-1 rollback restores the pre-M-0 state exactly (fingerprint `50857fc3…`/201), **but only** on a database where
   M-0 was never used; otherwise it refuses. It is not a way back from a release in which marketing was sent.
-- No rollback step releases the freeze.
+- No rollback step releases the freeze, except the stage-1 rollback, which removes it with stage 1 (returning to S0) and
+  is authorized as a freeze release.

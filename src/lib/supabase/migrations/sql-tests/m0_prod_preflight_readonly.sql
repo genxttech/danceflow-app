@@ -117,6 +117,16 @@ where g.table_schema = 'public' and g.grantee in ('anon', 'authenticated', 'PUBL
   and g.table_name in ('marketing_campaign_recipients', 'organizer_marketing_campaign_recipients', 'marketing_unsubscribes', 'organizer_marketing_unsubscribes', 'marketing_campaigns', 'organizer_marketing_campaigns', 'outbound_deliveries')
 group by g.table_name, g.grantee
 order by 1, 2;
+select 'A8b M-0-named policies present (expect none before M-0)' as check_name,
+       coalesce(string_agg(p.tablename || '.' || p.policyname, ' | ' order by p.tablename, p.policyname), 'none') as result
+from pg_policies p
+where p.schemaname = 'public'
+  and p.tablename in ('marketing_campaign_recipients', 'organizer_marketing_campaign_recipients', 'marketing_unsubscribes',
+                            'organizer_marketing_unsubscribes', 'marketing_campaigns', 'organizer_marketing_campaigns', 'outbound_deliveries')
+  and p.policyname in ('m0 marketing managers can view campaign recipients', 'm0 marketing managers can view unsubscribes',
+                             'm0 freeze hides pending recipients', 'm0 freeze blocks recipient inserts', 'm0 freeze blocks recipient updates',
+                             'm0 freeze blocks recipient deletes', 'm0 freeze hides campaigns');
+
 select 'A9b send-freeze table absent (expect absent)' as check_name,
        case when to_regclass('public.marketing_send_controls') is null then 'absent' else 'PRESENT' end as result;
 select 'A10 outbound_deliveries client write paths (insert policy roles; for D)' as check_name,

@@ -11,7 +11,8 @@
 #   3. the recipient visibility policy missing (creating one would grant new access);
 #   4. claim_outbound_deliveries not the PAY-WH-1 version;
 #   4b. drift on any of the seven tables: RLS disabled, RLS forced, an unknown policy on another table, changed policy
-#       roles, an unknown policy whose name merely looks like an M-0 policy, and a NARROWER privilege (drift in either
+#       roles, an unknown policy whose name merely looks like an M-0 policy, an M-0 policy name on the wrong table or before
+#       a first apply, and a NARROWER privilege (drift in either
 #       direction refuses);
 #   5. the stage-1 rollback run while stage 2 is still applied;
 #   6. the stage-1 rollback while unfrozen, after M-0 handed a recipient to the provider, with a per-message token, and
@@ -84,6 +85,12 @@ q "alter policy \"outbound_deliveries_insert\" on public.outbound_deliveries to 
 q "create policy \"m0 tamper lookalike\" on public.marketing_unsubscribes for select to authenticated using (true);" >/dev/null
 apply_expect_refusal "unknown policy with an M-0-like name"
 q "drop policy \"m0 tamper lookalike\" on public.marketing_unsubscribes;" >/dev/null
+q "create policy \"m0 freeze hides pending recipients\" on public.outbound_deliveries for select to authenticated using (true);" >/dev/null
+apply_expect_refusal "M-0 policy name on a table M-0 does not put it on"
+q "drop policy \"m0 freeze hides pending recipients\" on public.outbound_deliveries;" >/dev/null
+q "create policy \"m0 freeze hides campaigns\" on public.marketing_campaigns for select to authenticated using (true);" >/dev/null
+apply_expect_refusal "M-0 policy name already present before a first apply"
+q "drop policy \"m0 freeze hides campaigns\" on public.marketing_campaigns;" >/dev/null
 q "revoke select on public.marketing_campaigns from anon;" >/dev/null
 apply_expect_refusal "narrower privilege on studio campaigns"
 q "grant select on public.marketing_campaigns to anon;" >/dev/null

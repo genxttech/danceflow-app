@@ -15,6 +15,10 @@
 -- Any exceptional teardown after that is a separately authorized recovery procedure that must keep every issued
 -- unsubscribe link working (docs/marketing/m0-email-compliance.md §6).
 --
+-- It returns the database to S0: it removes the send freeze itself (campaign hiding, dispatcher hold), so marketing
+-- becomes sendable by the pre-M-0 application and held commercial email is dispatched. It therefore needs the same
+-- separate owner authorization as releasing the freeze, and the application must already be below M-0.
+--
 -- Unsubscribe records themselves are never deleted by this rollback.
 
 begin;

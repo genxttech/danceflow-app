@@ -1196,6 +1196,7 @@ declare
   v_bad text := '';
   v_claim text;
   v_reapply boolean;
+  v_m0_names text;
   k record;
 begin
   -- First application: every table must match its pre-M-0 state. Re-application (this migration's own visibility policy,
@@ -1242,6 +1243,34 @@ begin
     end if;
   end loop;
   -- M0-AUTH-SIGNATURES (end)
+  -- This migration's own policy names are excluded from the signatures by name, so their placement is checked here: on a
+  -- first apply none may exist on any of the seven tables; on a re-apply each may exist only where this migration puts it
+  -- (it drops and recreates those). A look-alike policy anywhere else is unknown drift.
+  select coalesce(string_agg(p.tablename || '."' || p.policyname || '"', ', ' order by p.tablename, p.policyname), '') into v_m0_names
+  from pg_policies p
+  where p.schemaname = 'public'
+    and p.tablename in ('marketing_campaign_recipients', 'organizer_marketing_campaign_recipients', 'marketing_unsubscribes',
+                            'organizer_marketing_unsubscribes', 'marketing_campaigns', 'organizer_marketing_campaigns', 'outbound_deliveries')
+    and p.policyname in ('m0 marketing managers can view campaign recipients', 'm0 marketing managers can view unsubscribes',
+                             'm0 freeze hides pending recipients', 'm0 freeze blocks recipient inserts', 'm0 freeze blocks recipient updates',
+                             'm0 freeze blocks recipient deletes', 'm0 freeze hides campaigns')
+    and (not v_reapply
+         or (p.tablename::text, p.policyname::text) not in (values
+                 ('marketing_campaign_recipients', 'm0 marketing managers can view campaign recipients'),
+                 ('marketing_unsubscribes', 'm0 marketing managers can view unsubscribes'),
+                 ('marketing_campaigns', 'm0 freeze hides campaigns'),
+                 ('organizer_marketing_campaigns', 'm0 freeze hides campaigns'),
+                 ('marketing_campaign_recipients', 'm0 freeze hides pending recipients'),
+                 ('marketing_campaign_recipients', 'm0 freeze blocks recipient inserts'),
+                 ('marketing_campaign_recipients', 'm0 freeze blocks recipient updates'),
+                 ('marketing_campaign_recipients', 'm0 freeze blocks recipient deletes'),
+                 ('organizer_marketing_campaign_recipients', 'm0 freeze hides pending recipients'),
+                 ('organizer_marketing_campaign_recipients', 'm0 freeze blocks recipient inserts'),
+                 ('organizer_marketing_campaign_recipients', 'm0 freeze blocks recipient updates'),
+                 ('organizer_marketing_campaign_recipients', 'm0 freeze blocks recipient deletes')));
+  if v_m0_names <> '' then
+    v_bad := v_bad || ' m0-named-policies=' || v_m0_names;
+  end if;
   if v_bad <> '' then
     raise exception 'M-0 precondition failed: unexpected authorization state on%; review before applying', v_bad
       using errcode = '55000';
