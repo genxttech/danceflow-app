@@ -17,6 +17,7 @@ import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip"
 import CommunicationsWorkspaceHeader from "@/components/app/communications/CommunicationsWorkspaceHeader";
 import CommunicationsWorkspaceEmptyState from "@/components/app/communications/CommunicationsWorkspaceEmptyState";
 import CommunicationsWorkspaceFeedback from "@/components/app/communications/CommunicationsWorkspaceFeedback";
+import { describeDeliveryNoteForStaff } from "@/lib/notifications/deliveryOutcome";
 
 type SearchParams = Promise<{ view?: string; success?: string; error?: string }>;
 
@@ -615,7 +616,7 @@ export default async function CommunicationsPage({
                       <p className="mt-2 font-medium text-slate-950">{delivery.subject || "No subject recorded"}</p>
                       <p className="mt-1 text-sm text-slate-600">{delivery.recipient_email || "No recipient recorded"}</p>
                       {delivery.error_message ? (
-                        <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm leading-6 text-rose-800">{delivery.error_message}</p>
+                        <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm leading-6 text-rose-800">{describeDeliveryNoteForStaff(delivery.error_message)}</p>
                       ) : null}
                       <p className="mt-2 text-xs text-slate-500">{formatDateTime(delivery.sent_at || delivery.created_at)}</p>
                     </div>

@@ -7,6 +7,11 @@ import {
   resendEventTicketConfirmationAction,
   updateEventRegistrationAttendeeAction,
 } from "../actions";
+import {
+  deliveryFailureNote,
+  describeDeliveryNoteForStaff,
+  isUncertainDeliveryOutcome,
+} from "@/lib/notifications/deliveryOutcome";
 
 type Params = Promise<{
   id: string;
@@ -260,7 +265,8 @@ function paymentSourceLabel(value: string | null | undefined) {
 
 function ticketEmailStatusText(email: TicketEmailAuditRow | null) {
   if (!email) return "Not sent from DanceFlow";
-  if (email.error_message || email.status === "failed") return "Failed";
+  if (isUncertainDeliveryOutcome(email.error_message)) return "Delivery uncertain";
+  if (deliveryFailureNote(email.error_message) || email.status === "failed") return "Failed";
   if (email.status === "sent" && email.sent_at) {
     return `Sent ${formatDateTime(email.sent_at)}`;
   }
@@ -571,7 +577,7 @@ export default async function EventRegistrationDetailPage({
   const ticketNeedsAttention =
     issuedTicketCount < expectedAttendees || !isRegistrationActiveForCheckIn(typedRegistration);
   const emailNeedsAttention =
-    !latestEmail || latestEmail.status === "failed" || Boolean(latestEmail.error_message);
+    !latestEmail || latestEmail.status === "failed" || Boolean(deliveryFailureNote(latestEmail.error_message));
   const documentNeedsAttention = requirementRows.length > 0 && !documentsComplete;
 
   return (
@@ -830,7 +836,7 @@ export default async function EventRegistrationDetailPage({
                         <span className="text-xs text-slate-500">{formatDateTime(email.sent_at ?? email.created_at)}</span>
                       </div>
                       <p className="mt-1 text-slate-600">To {email.recipient_email ?? "unknown recipient"}</p>
-                      {email.error_message ? <p className="mt-2 text-red-600">{email.error_message}</p> : null}
+                      {email.error_message ? <p className="mt-2 text-red-600">{describeDeliveryNoteForStaff(email.error_message)}</p> : null}
                     </div>
                   ))
                 )}

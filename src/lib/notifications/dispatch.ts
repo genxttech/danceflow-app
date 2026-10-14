@@ -38,6 +38,20 @@ import {
   recordTerminalAriaDigestFailure,
   sanitizeAriaDigestError,
 } from "@/lib/aria/digest-observability";
+import {
+  DISPATCHER_TIMEOUT_ERROR_NAME,
+  DISPATCH_LEASE_SECONDS,
+  DISPATCH_RUN_BUDGET_MS,
+  PROVIDER_CALL_TIMEOUT_MS,
+  classifyEmailProviderError,
+  isRequeueSafeFailure,
+  isRetryWindowExhausted,
+  nextRetryMarker,
+  parseRetryMarker,
+  retryWindowExhaustedCode,
+  terminalCodeAfterRetries,
+  sanitizeDeliveryErrorCode,
+} from "@/lib/notifications/deliveryOutcome";
 
 type OutboundPayload = Record<string, unknown> | null;
 
@@ -56,20 +70,47 @@ type OutboundDeliveryRow = {
   status: "queued" | "sent" | "failed" | "skipped";
   related_table: string | null;
   related_id: string | null;
+  /** Holds a T2 retry marker while a row is queued for an idempotent retry; otherwise a fixed reason code. */
+  error_message?: string | null;
 };
 
+/** `error` is a terminal failure; only its sanitized code is stored. */
 type DispatchResult =
   | { ok: true; providerMessageId?: string | null }
   | { ok: false; error: string };
 
-type SkippedDispatchResult = { ok: false; skipped: true; reason: SmsSkipReason | MarketingSkipReason };
+/** T2: no renderer exists for this row, so nothing is sent (never a generic fallback message). */
+type DispatchSkipReason = SmsSkipReason | MarketingSkipReason | "outbound_template_unsupported";
 
-type SmsDispatchResult = DispatchResult | SkippedDispatchResult;
+type SkippedDispatchResult = { ok: false; skipped: true; reason: DispatchSkipReason };
+
+/** T2: the provider may or may not have accepted the message; keep the row queued and retry with the same key. */
+type RetryDispatchResult = { ok: false; retry: true; code: string };
+
+type SmsDispatchResult = DispatchResult | SkippedDispatchResult | RetryDispatchResult;
 
 function isSkippedDispatchResult(
   result: SmsDispatchResult,
 ): result is SkippedDispatchResult {
   return !result.ok && "skipped" in result && result.skipped === true;
+}
+
+function isRetryDispatchResult(result: SmsDispatchResult): result is RetryDispatchResult {
+  return !result.ok && "retry" in result && result.retry === true;
+}
+
+/**
+ * T2: template keys that must never be sent from a stored body or a generic fallback. Intake email is rendered only
+ * by its own send-time renderer (NSI spec §22); until that renderer exists every `intake_*` row is skipped.
+ *
+ * ROLLBACK HAZARD: application versions before T2 have no such guard. They send any queued row that has a subject and
+ * body as stored, and fall back to a generic "DanceFlow Notification" email for a row without content. Never queue an
+ * `intake_*` row while a pre-T2 version could still be promoted or rolled back to, and drain or cancel queued `intake_*`
+ * rows before any rollback below T2. Also, pre-T2 staff pages show a still-queued row that carries a T2 retry marker in
+ * `error_message` as failed (or show the raw marker), which could prompt a manual resend with a new idempotency key.
+ */
+function isRendererOnlyTemplateKey(templateKey: string) {
+  return templateKey.startsWith("intake_");
 }
 
 type RenderedMessage = {
@@ -257,7 +298,14 @@ function renderAppointmentMessage(row: OutboundDeliveryRow): RenderedMessage | n
   return { subject, bodyText };
 }
 
-function renderMessage(row: OutboundDeliveryRow): RenderedMessage {
+/**
+ * Returns the message to send, or null when the row has no real content. T2 (S1): a row without a stored text body
+ * and without a dedicated renderer is never sent as a generic "You have a new notification" message; the caller skips
+ * it with `outbound_template_unsupported`. Rows with stored content and the appointment templates are unchanged.
+ */
+function renderMessage(row: OutboundDeliveryRow): RenderedMessage | null {
+  if (isRendererOnlyTemplateKey(row.template_key)) return null;
+
   if (row.subject && row.body_text) {
     return {
       subject: row.subject,
@@ -271,10 +319,12 @@ function renderMessage(row: OutboundDeliveryRow): RenderedMessage {
     return appointmentMessage;
   }
 
-  return {
-    subject: row.subject ?? "DanceFlow Notification",
-    bodyText: row.body_text ?? "You have a new notification from DanceFlow.",
-  };
+  // A stored text body without a subject keeps its previous behaviour (existing contract): real content, default subject.
+  if (row.body_text) {
+    return { subject: row.subject ?? "DanceFlow Notification", bodyText: row.body_text };
+  }
+
+  return null;
 }
 
 function getWelcomeEmailContent(params: {
@@ -515,16 +565,20 @@ async function resolveReplyToEmail(row: OutboundDeliveryRow) {
 }
 
 async function sendEmail(row: OutboundDeliveryRow): Promise<SmsDispatchResult> {
+  const rendered = renderMessage(row);
+  if (!rendered) {
+    return { ok: false, skipped: true, reason: "outbound_template_unsupported" };
+  }
+
   if (!row.recipient_email) {
-    return { ok: false, error: "Missing recipient email." };
+    return { ok: false, error: "missing_recipient_email" };
   }
 
   const from = await resolveDeliveryFrom(row);
   if (!from) {
-    return { ok: false, error: "Missing outbound from email." };
+    return { ok: false, error: "missing_sender_address" };
   }
 
-  const rendered = renderMessage(row);
   let bodyHtml = rendered.bodyHtml ?? null;
 
   if (!bodyHtml) {
@@ -581,40 +635,60 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<SmsDispatchResult> {
     sendHeaders = decision.headers;
   }
 
+  let resend: Resend;
   try {
-    const resend = getResendClient();
+    resend = getResendClient();
+  } catch {
+    // Nothing was sent; retried until configured or until the retry window ends.
+    return { ok: false, retry: true, code: "provider_not_configured" };
+  }
 
-    const response = await resend.emails.send(
-      {
-        from: sendFrom,
-        to: [row.recipient_email],
-        subject: sanitizeEmailSubject(rendered.subject),
-        text: appendEmailLegalText(sendText),
-        html: sendHtml,
-        ...(replyTo ? { replyTo } : {}),
-        ...(sendHeaders ? { headers: sendHeaders } : {}),
-      },
-      // PAY-WH-1: a resend after an uncertain acknowledgement (worker interrupted after the provider accepted the
-      // message) is de-duplicated by the provider for this delivery row.
-      { idempotencyKey: `outbound-delivery:${row.id}` },
-    );
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<{ data: null; error: { name: string; statusCode: null } }>((resolve) => {
+      timeoutHandle = setTimeout(
+        () => resolve({ data: null, error: { name: DISPATCHER_TIMEOUT_ERROR_NAME, statusCode: null } }),
+        PROVIDER_CALL_TIMEOUT_MS,
+      );
+    });
+
+    const response = await Promise.race([
+      resend.emails.send(
+        {
+          from: sendFrom,
+          to: [row.recipient_email],
+          subject: sanitizeEmailSubject(rendered.subject),
+          text: appendEmailLegalText(sendText),
+          html: sendHtml,
+          ...(replyTo ? { replyTo } : {}),
+          ...(sendHeaders ? { headers: sendHeaders } : {}),
+        },
+        // PAY-WH-1: a resend after an uncertain acknowledgement (worker interrupted after the provider accepted the
+        // message) is de-duplicated by the provider for this delivery row. T2: every retry of this row uses this same
+        // key. Content is re-rendered per attempt; if it changed, the provider rejects the key (idempotency mismatch).
+        { idempotencyKey: `outbound-delivery:${row.id}` },
+      ),
+      timeout,
+    ]);
 
     if (response.error) {
-      return {
-        ok: false,
-        error: response.error.message || "Resend send failed.",
-      };
+      // T2 (S3/S4): never store provider text; classify into a fixed code and decide retry vs terminal.
+      const outcome = classifyEmailProviderError(response.error);
+      return outcome.kind === "retry"
+        ? { ok: false, retry: true, code: outcome.code }
+        : { ok: false, error: outcome.code };
     }
 
     return {
       ok: true,
       providerMessageId: response.data?.id ?? null,
     };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Unknown email send error",
-    };
+  } catch {
+    // The SDK reports HTTP and network failures as `response.error`; a throw here is unexpected and its outcome
+    // unknown, so it is retried with the same idempotency key rather than recorded as a definite failure.
+    return { ok: false, retry: true, code: "provider_unreachable" };
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
   }
 }
 
@@ -708,6 +782,9 @@ async function sendSms(
     .maybeSingle<{ name: string | null }>();
 
   const rendered = renderMessage(row);
+  if (!rendered) {
+    return { ok: false, skipped: true, reason: "outbound_template_unsupported" };
+  }
   const finalBody = appendSmsOptOutFooter(rendered.bodyText, studio?.name ?? null);
 
   const { data: logRow, error: logError } = await supabase
@@ -773,57 +850,90 @@ async function sendSms(
   };
 }
 
-async function markSent(id: string, providerMessageId?: string | null) {
+/**
+ * T2 (S2): every state change made after a send attempt applies only while the row is still `queued` AND still leased
+ * to this dispatcher run (`claim_owner`). A run whose lease expired and was reclaimed by another worker can therefore
+ * never overwrite that worker's final state. `claimOwner` is null only on the legacy unleased path (claim function
+ * missing), where the `queued` condition alone applies. Returns whether the row was updated. Throws only on a database
+ * error, with a fixed message (no driver text).
+ */
+async function updateClaimedDelivery(
+  id: string,
+  claimOwner: string | null,
+  values: Record<string, unknown>,
+): Promise<boolean> {
   const supabase = createAdminClient();
-
-  const { error } = await supabase
+  let query = supabase
     .from("outbound_deliveries")
-    .update({
-      status: "sent",
-      provider_message_id: providerMessageId ?? null,
-      sent_at: new Date().toISOString(),
-      error_message: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+    .update({ ...values, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "queued");
+  if (claimOwner) query = query.eq("claim_owner", claimOwner);
 
+  const { data, error } = await query.select("id");
   if (error) {
-    throw new Error(`Failed to mark outbound delivery sent: ${error.message}`);
+    throw new Error("outbound_delivery_state_update_failed");
   }
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function markSent(id: string, claimOwner: string | null, providerMessageId?: string | null) {
+  return updateClaimedDelivery(id, claimOwner, {
+    status: "sent",
+    provider_message_id: providerMessageId ?? null,
+    sent_at: new Date().toISOString(),
+    error_message: null,
+  });
 }
 
 /** Records an intentional non-send. `reason` is a fixed code: never a phone, body or consent detail. */
-async function markSkipped(id: string, reason: SmsSkipReason | MarketingSkipReason) {
-  const supabase = createAdminClient();
+async function markSkipped(id: string, claimOwner: string | null, reason: DispatchSkipReason) {
+  return updateClaimedDelivery(id, claimOwner, {
+    status: "skipped",
+    error_message: sanitizeDeliveryErrorCode(reason),
+  });
+}
 
+/** Terminal failure. Only a sanitized reason code is stored (T2 S4). */
+async function markFailed(id: string, claimOwner: string | null, errorCode: string) {
+  return updateClaimedDelivery(id, claimOwner, {
+    status: "failed",
+    error_message: sanitizeDeliveryErrorCode(errorCode),
+  });
+}
+
+/**
+ * Keeps the row queued for an idempotent retry and records the reason and the first failed attempt. The lease is left
+ * to expire, which spaces the retry by up to one lease period; the next claim re-sends with the same idempotency key.
+ */
+async function markRetry(row: OutboundDeliveryRow, claimOwner: string | null, code: string, nowMs: number) {
+  return updateClaimedDelivery(row.id, claimOwner, {
+    error_message: nextRetryMarker(row.error_message, code, nowMs),
+  });
+}
+
+/** Rows claimed by this run but not attempted before the run budget ran out become claimable again immediately. */
+async function releaseUnattemptedClaims(ids: string[], claimOwner: string | null) {
+  if (!claimOwner || ids.length === 0) return;
+  const supabase = createAdminClient();
   const { error } = await supabase
     .from("outbound_deliveries")
-    .update({
-      status: "skipped",
-      error_message: reason,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-
+    .update({ claim_expires_at: new Date().toISOString() })
+    .in("id", ids)
+    .eq("status", "queued")
+    .eq("claim_owner", claimOwner);
   if (error) {
-    throw new Error(`Failed to mark outbound delivery skipped: ${error.message}`);
+    // Harmless: the lease simply expires on its own.
+    console.warn("[outbound] could not release unattempted claims", { count: ids.length });
   }
 }
 
-async function markFailed(id: string, errorMessage: string) {
-  const supabase = createAdminClient();
-
-  const { error } = await supabase
-    .from("outbound_deliveries")
-    .update({
-      status: "failed",
-      error_message: errorMessage,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-
-  if (error) {
-    throw new Error(`Failed to mark outbound delivery failed: ${error.message}`);
+/** Post-completion bookkeeping (ARIA run/action state) must never change the delivery row's own outcome. */
+async function runPostCompletion(label: string, deliveryId: string, task: () => Promise<void>) {
+  try {
+    await task();
+  } catch {
+    console.warn("[outbound] post-completion bookkeeping failed", { deliveryId, step: label });
   }
 }
 
@@ -831,6 +941,8 @@ async function syncAriaDigestRunStatus(params: {
   deliveryId: string;
   status: "sent" | "failed" | "queued";
   errorMessage?: string | null;
+  /** T2: false when the failure does not prove non-delivery; the run is then terminal and never retried. */
+  requeueSafe?: boolean;
 }) {
   const supabase = createAdminClient();
   const now = new Date();
@@ -849,7 +961,8 @@ async function syncAriaDigestRunStatus(params: {
     payload.next_attempt_at = null;
   } else if (params.status === "failed") {
     payload.processed_at = now.toISOString();
-    payload.next_attempt_at = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+    payload.next_attempt_at =
+      params.requeueSafe === false ? null : new Date(now.getTime() + 15 * 60 * 1000).toISOString();
   } else {
     payload.next_attempt_at = now.toISOString();
   }
@@ -894,10 +1007,13 @@ async function syncAriaDigestRunStatus(params: {
   if (params.status !== "failed") return;
 
   const failureError = new Error(params.errorMessage ?? "ARIA digest delivery failed");
-  const classification = classifyAriaDigestFailure({
-    retryCount: updatedRun.retry_count,
-    hasDeliveryId: updatedRun.delivery_id !== null,
-  });
+  const classification =
+    params.requeueSafe === false
+      ? "terminal"
+      : classifyAriaDigestFailure({
+          retryCount: updatedRun.retry_count,
+          hasDeliveryId: updatedRun.delivery_id !== null,
+        });
 
   logAriaDigestError(
     {
@@ -1110,7 +1226,9 @@ async function syncAriaActionDeliveryStatus(params: {
     return;
   }
 
-  const exhausted = attemptCount >= 3;
+  // T2: a failure that does not prove non-delivery is never retried automatically, whatever the attempt count.
+  const requeueSafe = isRequeueSafeFailure(params.errorMessage, params.row.channel);
+  const exhausted = attemptCount >= 3 || !requeueSafe;
   const nextAttemptAt = exhausted
     ? null
     : new Date(now.getTime() + 15 * 60 * 1000).toISOString();
@@ -1128,9 +1246,11 @@ async function syncAriaActionDeliveryStatus(params: {
       execution_next_attempt_at: nextAttemptAt,
       execution_error_message: params.errorMessage?.slice(0, 1000) ?? "Outbound delivery failed.",
       updated_at: nowIso,
-      review_note: exhausted
-        ? "ARIA delivery failed after three attempts and needs staff attention."
-        : "ARIA delivery failed and is scheduled for retry.",
+      review_note: !requeueSafe
+        ? UNCERTAIN_ARIA_DELIVERY_NOTE
+        : exhausted
+          ? "ARIA delivery failed after three attempts and needs staff attention."
+          : "ARIA delivery failed and is scheduled for retry.",
     })
     .eq("id", action.id)
     .eq("studio_id", action.studio_id);
@@ -1148,6 +1268,58 @@ async function syncAriaActionDeliveryStatus(params: {
       delivery_id: params.row.id,
       attempt_count: attemptCount,
       next_attempt_at: nextAttemptAt,
+    },
+  });
+}
+
+const UNCERTAIN_ARIA_DELIVERY_NOTE =
+  "ARIA could not confirm whether this follow-up was delivered, so it will not retry it automatically. Check with the client before resending.";
+
+type FailedAriaDelivery = { id: string; channel: string | null; error_message: string | null };
+
+/**
+ * T2: a failed ARIA action whose delivery failure does not prove non-delivery (see isRequeueSafeFailure) is closed
+ * for staff attention instead of being requeued. Guarded on the action still being `failed`, so a concurrent change wins.
+ */
+async function closeUncertainAriaActionDelivery(
+  action: { id: string; studio_id: string; status: string | null; execution_attempt_count: number | null },
+  delivery: FailedAriaDelivery,
+) {
+  const supabase = createAdminClient();
+  const now = new Date().toISOString();
+  const code = sanitizeDeliveryErrorCode(delivery.error_message);
+  const { data: closed, error } = await supabase
+    .from("automation_actions")
+    .update({
+      status: "failed",
+      execution_status: "exhausted",
+      execution_next_attempt_at: null,
+      execution_error_message: code,
+      review_note: UNCERTAIN_ARIA_DELIVERY_NOTE,
+      updated_at: now,
+    })
+    .eq("id", action.id)
+    .eq("studio_id", action.studio_id)
+    .eq("execution_status", "failed")
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error || !closed) {
+    if (error) console.warn("Failed to close uncertain ARIA action delivery", { actionId: action.id });
+    return;
+  }
+
+  await recordAriaActionDeliveryEvent({
+    studioId: action.studio_id,
+    actionId: action.id,
+    eventType: "delivery_exhausted",
+    previousStatus: action.status,
+    newStatus: "failed",
+    note: UNCERTAIN_ARIA_DELIVERY_NOTE,
+    metadata: {
+      delivery_id: delivery.id,
+      attempt_count: Number(action.execution_attempt_count ?? 0),
+      reason: code,
     },
   });
 }
@@ -1173,6 +1345,28 @@ async function requeueFailedAriaActionDeliveries(limit = 25) {
   for (const action of actions ?? []) {
     if (!action.execution_delivery_id) continue;
 
+    // T2: read the failure first; only a failure that proves non-delivery is requeued.
+    const { data: failedDelivery, error: lookupError } = await supabase
+      .from("outbound_deliveries")
+      .select("id, channel, error_message")
+      .eq("id", action.execution_delivery_id)
+      .eq("studio_id", action.studio_id)
+      .eq("related_table", "automation_actions")
+      .eq("related_id", action.id)
+      .eq("status", "failed")
+      .maybeSingle<FailedAriaDelivery>();
+
+    if (lookupError) {
+      console.warn("Failed to load ARIA action delivery for requeue", { actionId: action.id });
+      continue;
+    }
+    if (!failedDelivery) continue;
+
+    if (!isRequeueSafeFailure(failedDelivery.error_message, failedDelivery.channel)) {
+      await closeUncertainAriaActionDelivery(action, failedDelivery);
+      continue;
+    }
+
     const { data: delivery, error: deliveryError } = await supabase
       .from("outbound_deliveries")
       .update({ status: "queued", error_message: null, updated_at: now })
@@ -1181,6 +1375,8 @@ async function requeueFailedAriaActionDeliveries(limit = 25) {
       .eq("related_table", "automation_actions")
       .eq("related_id", action.id)
       .eq("status", "failed")
+      // Compare-and-set: the failure that was judged safe is the one being requeued.
+      .eq("error_message", failedDelivery.error_message as string)
       .select("id")
       .maybeSingle<{ id: string }>();
 
@@ -1224,7 +1420,7 @@ async function requeueFailedAriaDigestDeliveries(limit = 25) {
   const now = new Date().toISOString();
   const { data: runs, error } = await supabase
     .from("aria_digest_runs")
-    .select("id, delivery_id, retry_count")
+    .select("id, studio_id, digest_type, digest_date, delivery_id, retry_count")
     .eq("status", "failed")
     .not("delivery_id", "is", null)
     .lt("retry_count", 3)
@@ -1240,6 +1436,46 @@ async function requeueFailedAriaDigestDeliveries(limit = 25) {
   for (const run of runs ?? []) {
     if (!run.delivery_id) continue;
 
+    // T2: read the failure first; only a failure that proves non-delivery is requeued.
+    const { data: failedDelivery, error: lookupError } = await supabase
+      .from("outbound_deliveries")
+      .select("id, channel, error_message")
+      .eq("id", run.delivery_id)
+      .eq("status", "failed")
+      .maybeSingle<FailedAriaDelivery>();
+
+    if (lookupError) {
+      console.warn("[aria_digest] Failed to load digest delivery for requeue", { run_id: run.id });
+      continue;
+    }
+    if (!failedDelivery) continue;
+
+    if (!isRequeueSafeFailure(failedDelivery.error_message, failedDelivery.channel)) {
+      // Terminal: stop retrying (no next attempt) and raise the usual terminal digest alert.
+      const code = sanitizeDeliveryErrorCode(failedDelivery.error_message);
+      const { data: closed, error: closeError } = await supabase
+        .from("aria_digest_runs")
+        .update({ next_attempt_at: null, error_message: code })
+        .eq("id", run.id)
+        .eq("status", "failed")
+        .select("id")
+        .maybeSingle<{ id: string }>();
+      if (closeError) {
+        console.warn("[aria_digest] Failed to close uncertain digest delivery", { run_id: run.id });
+      } else if (closed) {
+        await recordTerminalAriaDigestFailure(supabase, {
+          runId: run.id,
+          studioId: run.studio_id,
+          digestType: run.digest_type,
+          digestDate: run.digest_date,
+          deliveryId: run.delivery_id,
+          retryCount: Number(run.retry_count ?? 0),
+          error: new Error(code),
+        });
+      }
+      continue;
+    }
+
     const { data: delivery, error: deliveryError } = await supabase
       .from("outbound_deliveries")
       .update({
@@ -1249,6 +1485,8 @@ async function requeueFailedAriaDigestDeliveries(limit = 25) {
       })
       .eq("id", run.delivery_id)
       .eq("status", "failed")
+      // Compare-and-set: the failure that was judged safe is the one being requeued.
+      .eq("error_message", failedDelivery.error_message as string)
       .select("id")
       .maybeSingle<{ id: string }>();
 
@@ -1295,12 +1533,14 @@ export async function dispatchQueuedOutboundDeliveries(
   // PAY-WH-1: lease the queued rows to this dispatcher so overlapping runs cannot send the same message twice.
   // Status values are unchanged for every other producer/reader. Before the claim function exists (database not yet
   // migrated) the previous unleased selection is used.
+  let claimOwner: string | null = randomUUID();
   let { data, error } = await supabase.rpc("claim_outbound_deliveries", {
-    p_owner: randomUUID(),
+    p_owner: claimOwner,
     p_limit: limit,
-    p_lease_seconds: 300,
+    p_lease_seconds: DISPATCH_LEASE_SECONDS,
   });
   if (error && (error.code === "PGRST202" || error.code === "42883")) {
+    claimOwner = null;
     ({ data, error } = await supabase
       .from("outbound_deliveries")
       .select(`
@@ -1317,7 +1557,8 @@ export async function dispatchQueuedOutboundDeliveries(
         payload,
         status,
         related_table,
-        related_id
+        related_id,
+        error_message
       `)
       .eq("status", "queued")
       .order("created_at", { ascending: true })
@@ -1333,66 +1574,135 @@ export async function dispatchQueuedOutboundDeliveries(
   let sent = 0;
   let failed = 0;
   let skipped = 0;
+  let retrying = 0;
+  let unconfirmed = 0;
+  let lostClaims = 0;
+  let deferred = 0;
 
-  for (const row of rows) {
+  const runStartedMs = Date.now();
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+
+    // T2 (S5): never start a send late in the run, so no claimed row can outlive this run's lease.
+    if (Date.now() - runStartedMs > DISPATCH_RUN_BUDGET_MS) {
+      const remaining = rows.slice(index).map((pending) => pending.id);
+      deferred = remaining.length;
+      await releaseUnattemptedClaims(remaining, claimOwner);
+      break;
+    }
+
     try {
-      const result: SmsDispatchResult =
-        row.channel === "email"
-          ? await sendEmail(row)
-          : await sendSms(row, { origin: options.origin });
+      // T2: a row that has been retrying for longer than the window ends without another provider call. If any
+      // attempt may have been accepted the outcome is unknown and it is never re-sent automatically (staff can resend as
+      // a new delivery); if every attempt was definitely refused, it ends as definitely not sent (retryable).
+      const retryMarker = parseRetryMarker(row.error_message);
+      if (retryMarker && isRetryWindowExhausted(retryMarker, Date.now())) {
+        const exhaustedCode = retryWindowExhaustedCode(retryMarker);
+        const applied = await markFailed(row.id, claimOwner, exhaustedCode);
+        if (!applied) {
+          lostClaims += 1;
+          continue;
+        }
+        failed += 1;
+        await syncFailedDelivery(row, exhaustedCode);
+        continue;
+      }
+
+      let result: SmsDispatchResult;
+      try {
+        result =
+          row.channel === "email"
+            ? await sendEmail(row)
+            : await sendSms(row, { origin: options.origin });
+      } catch {
+        // Unexpected exception. For email the provider call cannot throw (its outcome is classified above), so this is a
+        // lookup or rendering failure. For SMS the Twilio request itself can throw after Twilio received it, so the
+        // outcome may be unknown; either way the row ends as a terminal failure and is never re-sent automatically.
+        result = { ok: false, error: "dispatch_exception" };
+      }
 
       if (isSkippedDispatchResult(result)) {
+        const applied = await markSkipped(row.id, claimOwner, result.reason);
+        if (!applied) {
+          lostClaims += 1;
+          continue;
+        }
         skipped += 1;
-        await markSkipped(row.id, result.reason);
-        await syncAriaActionDeliveryStatus({ row, status: "skipped", errorMessage: result.reason });
+        const skipReason = result.reason;
+        await runPostCompletion("aria_action_skipped", row.id, () =>
+          syncAriaActionDeliveryStatus({ row, status: "skipped", errorMessage: skipReason }),
+        );
+        continue;
+      }
+
+      if (isRetryDispatchResult(result)) {
+        // Unknown or transient outcome: keep queued; the next claim retries with the same idempotency key.
+        const applied = await markRetry(row, claimOwner, result.code, Date.now());
+        if (!applied) lostClaims += 1;
+        else retrying += 1;
         continue;
       }
 
       if (!result.ok) {
-        failed += 1;
-        await markFailed(row.id, result.error);
-        if (row.template_key.startsWith("aria_digest_")) {
-          await syncAriaDigestRunStatus({
-            deliveryId: row.id,
-            status: "failed",
-            errorMessage: result.error,
-          });
+        // M1: after an attempt that may have been accepted, even a rejection does not prove non-delivery.
+        const code = terminalCodeAfterRetries(row.error_message, sanitizeDeliveryErrorCode(result.error), row.channel);
+        const applied = await markFailed(row.id, claimOwner, code);
+        if (!applied) {
+          lostClaims += 1;
+          continue;
         }
-        await syncAriaActionDeliveryStatus({
-          row,
-          status: "failed",
-          errorMessage: result.error,
-        });
+        failed += 1;
+        await syncFailedDelivery(row, code);
+        continue;
+      }
+
+      // T2 (S3): the provider accepted the message. A failure to record that is NOT a delivery failure.
+      let applied: boolean;
+      try {
+        applied = await markSent(row.id, claimOwner, result.providerMessageId ?? null);
+      } catch {
+        unconfirmed += 1;
+        if (row.channel === "sms") {
+          // SMS has no provider idempotency key: a retry would send a second text. Close the row instead.
+          try {
+            await markFailed(row.id, claimOwner, "sms_sent_outcome_unrecorded");
+          } catch {
+            console.warn("[outbound] sms sent but its outcome could not be recorded", { deliveryId: row.id });
+          }
+        } else {
+          // Email: leave the row queued. After the lease expires it is re-claimed and re-sent with the same idempotency
+          // key; the provider returns the original message id without sending again, and the row is then marked sent.
+          // Best effort: record that an attempt was accepted, so a later failure of this row is treated as uncertain.
+          try {
+            await markRetry(row, claimOwner, "provider_accepted_unrecorded", Date.now());
+          } catch {
+            // The database is still unavailable; the row stays queued as it is.
+          }
+          console.warn("[outbound] email accepted but not yet recorded; will reconcile on retry", { deliveryId: row.id });
+        }
+        continue;
+      }
+
+      if (!applied) {
+        // Another worker owns or has finished this row; its record stands.
+        lostClaims += 1;
         continue;
       }
 
       sent += 1;
-      await markSent(row.id, result.providerMessageId ?? null);
+      const providerMessageId = result.providerMessageId ?? null;
       if (row.template_key.startsWith("aria_digest_")) {
-        await syncAriaDigestRunStatus({ deliveryId: row.id, status: "sent" });
+        await runPostCompletion("aria_digest_sent", row.id, () =>
+          syncAriaDigestRunStatus({ deliveryId: row.id, status: "sent" }),
+        );
       }
-      await syncAriaActionDeliveryStatus({
-        row,
-        status: "sent",
-        providerMessageId: result.providerMessageId ?? null,
-      });
-    } catch (error) {
-      failed += 1;
-      const message =
-        error instanceof Error ? error.message : "Unknown outbound dispatch error";
-      await markFailed(row.id, message);
-      if (row.template_key.startsWith("aria_digest_")) {
-        await syncAriaDigestRunStatus({
-          deliveryId: row.id,
-          status: "failed",
-          errorMessage: message,
-        });
-      }
-      await syncAriaActionDeliveryStatus({
-        row,
-        status: "failed",
-        errorMessage: message,
-      });
+      await runPostCompletion("aria_action_sent", row.id, () =>
+        syncAriaActionDeliveryStatus({ row, status: "sent", providerMessageId }),
+      );
+    } catch {
+      // A state update itself failed (database unavailable). The row keeps its current state; nothing is guessed.
+      console.warn("[outbound] delivery state could not be updated", { deliveryId: row.id });
     }
   }
 
@@ -1404,8 +1714,28 @@ export async function dispatchQueuedOutboundDeliveries(
     sent,
     failed,
     skipped,
+    retrying,
+    unconfirmed,
+    lostClaims,
+    deferred,
     outcomes,
   };
+}
+
+async function syncFailedDelivery(row: OutboundDeliveryRow, code: string) {
+  if (row.template_key.startsWith("aria_digest_")) {
+    await runPostCompletion("aria_digest_failed", row.id, () =>
+      syncAriaDigestRunStatus({
+        deliveryId: row.id,
+        status: "failed",
+        errorMessage: code,
+        requeueSafe: isRequeueSafeFailure(code, row.channel),
+      }),
+    );
+  }
+  await runPostCompletion("aria_action_failed", row.id, () =>
+    syncAriaActionDeliveryStatus({ row, status: "failed", errorMessage: code }),
+  );
 }
 
 
