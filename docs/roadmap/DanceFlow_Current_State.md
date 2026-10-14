@@ -4,7 +4,7 @@ Short, operational snapshot. Update this file whenever main, the PROD deployment
 
 **Authority split (v2.22):** this file is authoritative only for **operational facts** — current main, current production deployment and rollback target, pending PROD migrations, which holds are open, and the next gate. The [Master Roadmap](DanceFlow_Master_Roadmap.md) is authoritative for **everything else** — scope, status of phases and slices, decisions, priorities, gate definitions and release history. This file does not restate those; it links to them. Release histories formerly kept here are archived, verbatim and non-authoritative, in [`archive/DanceFlow_Current_State_v2.21.md`](archive/DanceFlow_Current_State_v2.21.md).
 
-**Last updated:** 2026-10-13 (roadmap v2.22).
+**Last updated:** 2026-10-13 (roadmap v2.23; Next gate refreshed. Release state unchanged).
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -34,4 +34,12 @@ Authenticated production smoke was intentionally omitted because prior productio
 
 ## Next gate
 
-Owner merge review of roadmap v2.22 (PR #217). Then, per the provisionally accepted [near-term priority order](DanceFlow_Master_Roadmap.md#near-term-priority-order-v222): Marketing M-0 (not yet authorized).
+Roadmap v2.22 (PR #217) is merged. It is documentation-only and the production deployment above is unchanged.
+
+**Priority 1, per the provisionally accepted [near-term priority order](DanceFlow_Master_Roadmap.md#near-term-priority-order-v222): Marketing M-0 compliance remediation (PR #218).**
+- **Status:** OPEN — not merged, not released, live campaign behavior unchanged.
+- **Next step:** completion of its review and QA, then separate owner authorization for merge and for any SQL or promotion under its own release gates.
+
+**Parallel, documentation only:** roadmap v2.23, the Knowledgebase / Help Center track (PR #219). It awaits owner merge authorization. No KB implementation is authorized, and open questions D1–D7 remain undecided.
+
+**Then:** CI-B → CI-D, per the priority order.
