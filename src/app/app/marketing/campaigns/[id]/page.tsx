@@ -13,6 +13,7 @@ import {
 import CampaignAIAssistant from "../CampaignAIAssistant";
 import CampaignAllowancePanel from "../CampaignAllowancePanel";
 import { isMarketingSendPaused, MARKETING_PAUSED_NOTICE } from "@/lib/marketing/compliance/sendFreeze";
+import { MarketingMaintenancePanel } from "../../MarketingMaintenance";
 import {
   campaignAllowanceMessageFromQuery,
   evaluateCampaignAllowance,
@@ -665,6 +666,9 @@ export default async function MarketingCampaignDetailPage({
   ]);
 
   if (error || !campaign) {
+    if (marketingPaused) {
+      return <MarketingMaintenancePanel backHref="/app/marketing/campaigns" backLabel="Back to campaigns" />;
+    }
     notFound();
   }
 

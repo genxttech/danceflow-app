@@ -22,6 +22,7 @@ import {
 import CampaignAIAssistant from "../../marketing/campaigns/CampaignAIAssistant";
 import CampaignAllowancePanel from "../../marketing/campaigns/CampaignAllowancePanel";
 import { isMarketingSendPaused, MARKETING_PAUSED_NOTICE } from "@/lib/marketing/compliance/sendFreeze";
+import { MarketingMaintenancePanel } from "../../marketing/MarketingMaintenance";
 import {
   campaignAllowanceMessageFromQuery,
   evaluateCampaignAllowance,
@@ -659,6 +660,9 @@ export default async function OrganizerCampaignDetailPage({
     .maybeSingle();
 
   if (campaignError || !campaignData) {
+    if (await isMarketingSendPaused(supabase)) {
+      return <MarketingMaintenancePanel backHref="/app/organizer-campaigns" backLabel="Back to organizer campaigns" />;
+    }
     console.error("Failed to load organizer campaign detail", campaignError);
     notFound();
   }

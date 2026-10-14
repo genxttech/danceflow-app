@@ -200,7 +200,7 @@ test.describe(`Marketing M-0 unsubscribe link survival (app variant: ${VARIANT})
     expect(data?.status).toBe("unsubscribed");
   });
 
-  test("freeze: the pre-M-0 application cannot send a campaign (pending recipients hidden; a forced submit sends nothing)", async ({ page }) => {
+  test("freeze: the pre-M-0 application cannot send a campaign (a page loaded before the freeze, forced submit, sends nothing)", async ({ page }) => {
     test.skip(VARIANT === "m0", "the M-0 application's freeze is covered by marketing-m0-compliance.spec.ts");
     const port = Number(process.env.E2E_RESEND_MOCK_PORT ?? 0);
     test.skip(!port, "E2E_RESEND_MOCK_PORT is required (the app must point RESEND_BASE_URL at it)");
@@ -216,22 +216,56 @@ test.describe(`Marketing M-0 unsubscribe link survival (app variant: ${VARIANT})
       await rpc("marketing_sync_campaign_recipients", {
         p_scope_kind: "studio", p_scope_id: fixture.studioId, p_campaign_id: campaignId, p_recipients: addresses.map((email) => ({ email })),
       });
-      await setMarketingFreeze(config, true, "e2e unsubscribe survival: freeze vs pre-M-0 send");
       const url = `/app/marketing/campaigns/${campaignId}`;
       await signIn(page, fixture.owner, url);
-      await page.goto(url);
+      await page.goto(url); // loaded while sending is allowed
       const sendForm = page.locator("form").filter({ has: page.locator('input[name="confirmSend"]') });
-      await expect(sendForm.locator('button[type="submit"]')).toBeDisabled();
-      // force it: re-enable every control and submit the server action anyway
+      await expect(sendForm.locator('button[type="submit"]')).toBeEnabled();
+      await setMarketingFreeze(config, true, "e2e unsubscribe survival: freeze vs pre-M-0 send");
       await page.evaluate(() => document.querySelectorAll("[disabled]").forEach((el) => el.removeAttribute("disabled")));
       await sendForm.locator('input[name="confirmSend"]').check();
       await sendForm.locator('button[type="submit"]').click();
-      // the pre-M-0 action finds no pending recipient and stops before any provider call (it reports that as
-      // no_pending_recipients, or as send_failed because it swallows redirects thrown inside its try block)
-      await page.waitForURL(/campaign_error=(no_pending_recipients|send_failed)/);
+      // the pre-M-0 action cannot see the campaign while frozen and stops before any provider call
+      await page.waitForURL(/campaign_error=/);
       expect(mock.received).toHaveLength(0);
       const { data: rows } = await admin().from("marketing_campaign_recipients").select("status").eq("campaign_id", campaignId);
       expect((rows ?? []).map((r) => r.status)).toEqual(["pending", "pending"]);
+      // and a fresh load shows nothing to act on
+      const reload = await page.goto(url);
+      expect(reload?.status()).toBe(404);
+    } finally {
+      await setMarketingFreeze(config, false, "e2e unsubscribe survival: freeze released");
+      await mock.close();
+    }
+  });
+
+  test("freeze: the pre-M-0 application cannot send campaign TEST emails (studio and organizer)", async ({ page }) => {
+    test.skip(VARIANT === "m0", "the M-0 application's freeze is covered by marketing-m0-compliance.spec.ts");
+    const port = Number(process.env.E2E_RESEND_MOCK_PORT ?? 0);
+    test.skip(!port, "E2E_RESEND_MOCK_PORT is required (the app must point RESEND_BASE_URL at it)");
+    const mock = await startMockEmailProvider(port);
+    try {
+      // studio test send: form loaded while allowed, submitted while frozen
+      const studioUrl = `/app/marketing/campaigns/${fixture.campaignId}`;
+      await signIn(page, fixture.owner, studioUrl);
+      await page.goto(studioUrl);
+      await page.locator("#testEmail").fill(fixture.owner.email);
+      await setMarketingFreeze(config, true, "e2e unsubscribe survival: freeze vs pre-M-0 studio test send");
+      await page.getByRole("button", { name: "Send Test Email" }).click();
+      await page.waitForURL(/campaign_error=/);
+      expect(page.url()).not.toContain("test_sent=1");
+      expect(mock.received).toHaveLength(0);
+      await setMarketingFreeze(config, false, "e2e unsubscribe survival: released");
+
+      // organizer test send
+      const orgUrl = `/app/organizer-campaigns/${fixture.organizerCampaign2Id}`;
+      await page.goto(orgUrl);
+      await page.locator('input[name="testEmail"]').fill(fixture.owner.email);
+      await setMarketingFreeze(config, true, "e2e unsubscribe survival: freeze vs pre-M-0 organizer test send");
+      await page.getByRole("button", { name: "Send test email", exact: true }).click();
+      await page.waitForURL(/campaign_error=/);
+      expect(page.url()).not.toContain("test_sent=1");
+      expect(mock.received).toHaveLength(0);
     } finally {
       await setMarketingFreeze(config, false, "e2e unsubscribe survival: freeze released");
       await mock.close();

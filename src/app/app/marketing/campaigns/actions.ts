@@ -16,6 +16,7 @@ import {
 } from "@/lib/marketing/compliance/campaignDelivery";
 import { createResendMarketingTransport } from "@/lib/marketing/compliance/provider";
 import { authorizeCampaignTestSend, testSendRefusalCode } from "@/lib/marketing/compliance/testSend";
+import { isMarketingSendPaused } from "@/lib/marketing/compliance/sendFreeze";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canViewCommunications } from "@/lib/auth/permissions";
 import { requireStudioFeature } from "@/lib/billing/access";
@@ -815,6 +816,9 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
     }
 
     const supabase = await createClient();
+    if (await isMarketingSendPaused(supabase)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "marketing_paused"));
+    }
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
@@ -947,6 +951,9 @@ export async function generateMarketingCampaignRecipientsAction(
 
   try {
     const supabase = await createClient();
+    if (await isMarketingSendPaused(supabase)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "marketing_paused"));
+    }
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 
@@ -1049,6 +1056,9 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     const supabase = await createClient();
+    if (await isMarketingSendPaused(supabase)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "marketing_paused"));
+    }
     const context = await getCurrentStudioContext();
     const studioId = context.studioId;
 

@@ -8,6 +8,8 @@ import { requireStudioFeature } from "@/lib/billing/access";
 import { createMarketingCampaignDraftAction, getLowPackageCreditClientIds } from "./actions";
 import CampaignAIAssistant from "./CampaignAIAssistant";
 import MarketingCampaignList from "./MarketingCampaignList";
+import { MarketingPausedBanner } from "../MarketingMaintenance";
+import { isMarketingSendPaused } from "@/lib/marketing/compliance/sendFreeze";
 
 type SearchParams = Promise<{
   campaign_saved?: string;
@@ -510,6 +512,7 @@ export default async function MarketingCampaignsPage({
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.09),transparent_28%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.10),transparent_26%),linear-gradient(180deg,#fff7ed_0%,var(--brand-page-bg)_32%,#ffffff_100%)] px-4 py-6 text-[var(--brand-text)] sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+        <MarketingPausedBanner paused={await isMarketingSendPaused(supabase)} />
         {resolvedSearchParams.campaign_saved ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
             Campaign draft saved.

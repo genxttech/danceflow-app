@@ -24,6 +24,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: { getUser: async () => ({ data: { user: { id: "user-1", email: "owner@example.test" } }, error: null }) },
     from: (table: string) => h.db.from(table),
+    rpc: (name: string, args: Record<string, unknown>) => h.rpcOverride?.(name, args) ?? h.db.rpc(name, args),
   }),
 }));
 vi.mock("@/lib/supabase/admin", () => ({
@@ -46,7 +47,7 @@ vi.mock("resend", () => ({
   },
 }));
 
-const { sendMarketingCampaignAction, sendMarketingCampaignTestEmailAction } = await import("../actions");
+const { sendMarketingCampaignAction, sendMarketingCampaignTestEmailAction, generateMarketingCampaignRecipientsAction } = await import("../actions");
 
 const STUDIO = "studio-a";
 let db: FakeDb;
@@ -248,6 +249,23 @@ describe("studio campaign send: marketing freeze (release / rollback transition)
     h.rpcOverride = null; // released: the same campaign sends normally
     expect(await send()).toContain("campaign_sent=1");
     expect(h.send).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("studio campaign actions while marketing is frozen (campaigns hidden from the session client)", () => {
+  it("send, test send and send-list preparation answer marketing_paused before touching anything", async () => {
+    seed(2);
+    h.rpcOverride = (name) =>
+      name === "marketing_send_frozen" ? Promise.resolve({ data: true, error: null }) : null;
+    expect(await send()).toContain("campaign_error=marketing_paused");
+    expect(await run(sendMarketingCampaignTestEmailAction, { campaignId: "c1", testEmail: "owner@example.test" })).toContain(
+      "campaign_error=marketing_paused",
+    );
+    expect(await run(generateMarketingCampaignRecipientsAction, { campaignId: "c1" })).toContain("campaign_error=marketing_paused");
+    expect(h.send).not.toHaveBeenCalled();
+    expect(statuses()).toEqual({ pending: 2 });
+    expect(db.tables.usage_reservations ?? []).toHaveLength(0);
+    expect(campaignStatus()).toBe("draft");
   });
 });
 

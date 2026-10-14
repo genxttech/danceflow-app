@@ -237,8 +237,9 @@ $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- While frozen no marketing message is dispatched by either application version:
 --  * new application: campaign claims return 'frozen' (the batch stops) and campaign test sends are refused;
---  * pre-M-0 application: client roles cannot see 'pending' recipients (its send finds nothing and redirects
---    'no_pending_recipients') and cannot write recipients (its regenerate fails closed instead of duplicating rows);
+--  * pre-M-0 application: client roles cannot see campaigns (its campaign test send and send stop with 'not_found'
+--    before any provider call), cannot see 'pending' recipients and cannot write recipients (its regenerate fails
+--    closed instead of duplicating rows);
 --  * both: the outbound dispatcher's claim (claim_outbound_deliveries) leaves commercial ARIA / automation email
 --    queued (held, not dropped); operational and transactional email is unaffected.
 -- Unsubscribe is never frozen. The first application of this migration lands FROZEN, so marketing stays paused through
@@ -1169,8 +1170,10 @@ create trigger organizer_contacts_00_m0_unsubscribe_guard
   for each row execute function public._mkt_guard_contact_unsubscribe();
 
 -- ---------------------------------------------------------------------------------------------------------------
--- 10a. Preconditions (fail closed): this migration only ever narrows recipient / unsubscribe visibility and only
---      replaces the dispatcher claim function it knows. Any other state aborts the whole migration for review.
+-- 10a. Preconditions (fail closed): this migration runs only on the exact known authorization state of the seven
+--      tables it touches (see the signatures below) and only replaces the dispatcher claim function it knows. Any other
+--      state -- an unknown, wider or narrower policy, RLS disabled or forced differently, changed privileges -- aborts
+--      the whole migration for review. It never silently replaces an unknown production policy.
 -- ---------------------------------------------------------------------------------------------------------------
 create or replace function public._mkt_can_view_studio_marketing(p_studio_id uuid)
 returns boolean
@@ -1189,43 +1192,65 @@ $$;
 
 do $$
 declare
-  v_unknown text;
-  v_view_recipients integer;
-  v_view_unsubscribes integer;
+  v_sig text;
+  v_bad text := '';
   v_claim text;
+  v_reapply boolean;
+  k record;
 begin
-  -- Every existing policy on the two studio tables must be a known pre-M-0 policy (exact definition) or an M-0 policy.
-  select string_agg(p.tablename || '.' || p.policyname, ', ') into v_unknown
-  from pg_policies p
-  where p.schemaname = 'public' and p.tablename in ('marketing_campaign_recipients', 'marketing_unsubscribes')
-    and p.policyname not like 'm0 %'
-    and (p.tablename || '|' || p.policyname || '|' || p.cmd || '|' || p.permissive || '|' || md5(coalesce(p.qual, '')) || '|' || md5(coalesce(p.with_check, ''))) not in (
-      'marketing_campaign_recipients|studio members can view marketing campaign recipients|SELECT|PERMISSIVE|f50ff73df5a6762543cf9fd384c8a549|d41d8cd98f00b204e9800998ecf8427e',
-      'marketing_campaign_recipients|studio staff manage marketing campaign recipients|ALL|PERMISSIVE|10f040ae00f1673e9695bfd71f92d962|10f040ae00f1673e9695bfd71f92d962',
-      'marketing_unsubscribes|studio members can view marketing unsubscribes|SELECT|PERMISSIVE|f50ff73df5a6762543cf9fd384c8a549|d41d8cd98f00b204e9800998ecf8427e',
-      'marketing_unsubscribes|studio staff manage marketing unsubscribes|ALL|PERMISSIVE|e98c38e5f4794f0e03401202a506ce73|e98c38e5f4794f0e03401202a506ce73'
-    );
-  if v_unknown is not null then
-    raise exception 'M-0 precondition failed: unexpected marketing policies (%); review before applying', v_unknown
+  -- First application: every table must match its pre-M-0 state. Re-application (this migration's own visibility policy,
+  -- created only after this check, already exists): every table must match the stage-1 state. A state that merely
+  -- resembles stage 1 without M-0 installed (e.g. a deleted pre-M-0 policy) is refused.
+  v_reapply := exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'marketing_campaign_recipients'
+                       and policyname = 'm0 marketing managers can view campaign recipients');
+  -- M0-AUTH-SIGNATURES (begin). Every table M-0 touches must be in its exact known pre-M-0 state ({pre, stage-1} below), or
+  -- in this migration's own stage-1 state on a re-apply: RLS enabled / forced, every policy that is not this migration's own (name, command,
+  -- permissive, roles, USING and WITH CHECK expressions) and the anon / authenticated / PUBLIC table privileges.
+  -- Anything else -- wider or narrower -- aborts the whole migration, changing nothing.
+  for k in
+    select * from (values
+      ('marketing_campaign_recipients', array['5823c0836141ec35a90ed8e19405da74', '5495c691247214f387adc5781f2adaae']),
+      ('organizer_marketing_campaign_recipients', array['c982224e6fad5a051db26be275940115', 'c982224e6fad5a051db26be275940115']),
+      ('marketing_unsubscribes', array['aa4b495e4d629f452cbc6488f6ef6dba', '2c167583ce9e66ce71a0bc3a2486d63d']),
+      ('organizer_marketing_unsubscribes', array['d8146791ccb632d55f3150e7782d7f62', '7ec5b1ba7d41f8f057f77e24379a987d']),
+      ('marketing_campaigns', array['c01650bf177593bfb13933b164e3f7d3', 'c01650bf177593bfb13933b164e3f7d3']),
+      ('organizer_marketing_campaigns', array['12f6e63cf2756a3c4b99cd671096f3e9', '12f6e63cf2756a3c4b99cd671096f3e9']),
+      ('outbound_deliveries', array['0a979302c19343dd2a1bf1b2e2cebc97', '0a979302c19343dd2a1bf1b2e2cebc97'])
+    ) as v(name, allowed)
+  loop
+    select md5(
+      coalesce((select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
+                where c.oid = to_regclass('public.' || k.name)), 'missing')
+      || '|' || coalesce((select string_agg(p.policyname || ':' || p.cmd || ':' || p.permissive || ':'
+                                      || array_to_string(array(select r from unnest(p.roles) r order by 1), ',') || ':'
+                                      || md5(coalesce(p.qual, '')) || ':' || md5(coalesce(p.with_check, '')), ';' order by p.policyname)
+                          from pg_policies p
+                          where p.schemaname = 'public' and p.tablename = k.name
+                            and p.policyname not in ('m0 marketing managers can view campaign recipients',
+                                'm0 marketing managers can view unsubscribes',
+                                'm0 freeze hides pending recipients',
+                                'm0 freeze blocks recipient inserts',
+                                'm0 freeze blocks recipient updates',
+                                'm0 freeze blocks recipient deletes',
+                                'm0 freeze hides campaigns')), '')
+      || '|' || coalesce((select string_agg(g.grantee || ':' || g.privilege_type, ',' order by g.grantee, g.privilege_type)
+                          from information_schema.role_table_grants g
+                          where g.table_schema = 'public' and g.table_name = k.name
+                            and g.grantee in ('anon', 'authenticated', 'PUBLIC')), '')) into v_sig;
+    if v_sig is distinct from (case when v_reapply then k.allowed[2] else k.allowed[1] end) then
+      v_bad := v_bad || ' ' || k.name || '=' || v_sig;
+    end if;
+  end loop;
+  -- M0-AUTH-SIGNATURES (end)
+  if v_bad <> '' then
+    raise exception 'M-0 precondition failed: unexpected authorization state on%; review before applying', v_bad
       using errcode = '55000';
   end if;
 
-  -- A visibility policy must already exist (pre-M-0 or M-0): creating one where none existed would grant new access.
-  select count(*) into v_view_recipients from pg_policies
-  where schemaname = 'public' and tablename = 'marketing_campaign_recipients'
-    and policyname in ('studio members can view marketing campaign recipients', 'm0 marketing managers can view campaign recipients');
-  select count(*) into v_view_unsubscribes from pg_policies
-  where schemaname = 'public' and tablename = 'marketing_unsubscribes'
-    and policyname in ('studio members can view marketing unsubscribes', 'm0 marketing managers can view unsubscribes');
-  if v_view_recipients = 0 or v_view_unsubscribes = 0 then
-    raise exception 'M-0 precondition failed: missing recipient/unsubscribe visibility policy; review before applying'
-      using errcode = '55000';
-  end if;
-
-  -- The dispatcher claim function must be the PAY-WH-1 version (or this migration's own version on a re-apply).
+  -- The dispatcher claim function must be exactly the PAY-WH-1 version, or exactly this migration's own version.
   select replace(prosrc, E'\r\n', E'\n') into v_claim
   from pg_proc where oid = to_regprocedure('public.claim_outbound_deliveries(uuid,integer,integer)');
-  if v_claim is null or (md5(v_claim) <> 'd3179a2f46f603111b1bad5293ae6857' and position('marketing_send_frozen' in v_claim) = 0) then
+  if v_claim is null or md5(v_claim) not in ('d3179a2f46f603111b1bad5293ae6857', 'aa4c7c08da017acd2d09ade1ca11c8f1') then
     raise exception 'M-0 precondition failed: claim_outbound_deliveries is missing or not the expected version; review before applying'
       using errcode = '55000';
   end if;
@@ -1294,6 +1319,14 @@ do $$
 declare
   t text;
 begin
+  -- Campaign rows: while frozen, client roles cannot read campaigns. The pre-M-0 application's campaign test send and send
+  -- look the campaign up with the signed-in client first and stop ('not_found') before any provider call; the M-0
+  -- pages show a maintenance notice instead. Server code (service role) is unaffected.
+  foreach t in array array['marketing_campaigns', 'organizer_marketing_campaigns'] loop
+    execute format('drop policy if exists "m0 freeze hides campaigns" on public.%I', t);
+    execute format('create policy "m0 freeze hides campaigns" on public.%I as restrictive for select to anon, authenticated '
+                   'using (not public.marketing_send_frozen())', t);
+  end loop;
   foreach t in array array['marketing_campaign_recipients', 'organizer_marketing_campaign_recipients'] loop
     execute format('drop policy if exists "m0 freeze hides pending recipients" on public.%I', t);
     execute format('create policy "m0 freeze hides pending recipients" on public.%I as restrictive for select to anon, authenticated '

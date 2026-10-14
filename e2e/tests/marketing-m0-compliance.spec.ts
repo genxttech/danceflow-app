@@ -85,32 +85,33 @@ test.describe("Marketing M-0 email compliance (local QA stack, mock provider)", 
     mock.clear();
   });
 
-  test("marketing freeze (release / rollback transition): sending is paused with nothing mailed; once released it is available again", async ({ page }) => {
+  test("marketing freeze (release / rollback transition): campaigns show a maintenance state, nothing is mailed; once released all is available again", async ({ page }) => {
     mock.clear();
     await signIn(page, fixture.owner, campaignUrl());
     await page.goto(campaignUrl());
     await page.getByRole("button", { name: /^(Prepare Send List|Refresh Send List)$/ }).click();
     await page.waitForURL(/recipients_generated=1/);
+    await page.locator("#testEmail").fill(fixture.owner.email); // a form loaded before the freeze
     await setMarketingFreeze(config, true, "e2e: freeze scenario");
     try {
-      await page.goto(campaignUrl());
-      // staff are told why; the pending list is hidden from client roles and Send cannot be confirmed
-      await expect(page.getByRole("status").filter({ hasText: "Marketing sends are paused for maintenance." })).toBeVisible();
-      await expect(page.locator('input[name="confirmSend"]')).toBeDisabled();
+      await page.getByRole("button", { name: "Send Test Email" }).click();
+      await page.waitForURL(/campaign_error=marketing_paused/);
       expect(mock.received).toHaveLength(0);
+      // while frozen the campaign is hidden from signed-in users: a maintenance state, not a 404
+      await page.goto(campaignUrl());
+      await expect(page.getByRole("heading", { name: "Marketing maintenance" })).toBeVisible();
+      await expect(page.getByText("Marketing sends are paused for maintenance.").first()).toBeVisible();
+      await page.goto("/app/marketing/campaigns");
+      await expect(page.getByRole("status").filter({ hasText: "Marketing sends are paused for maintenance." })).toBeVisible();
       for (const client of [fixture.clients.a, fixture.clients.b, fixture.clients.c]) {
         expect((await recipient(client.email))?.status).toBe("pending");
       }
-      // a test send is refused too
-      await page.goto(campaignUrl());
-      await page.locator("#testEmail").fill(fixture.owner.email);
-      await page.getByRole("button", { name: "Send Test Email" }).click();
-      await page.waitForURL(/campaign_error=marketing_paused/);
       expect(mock.received).toHaveLength(0);
     } finally {
       await setMarketingFreeze(config, false, "e2e: freeze scenario released");
     }
     await page.goto(campaignUrl());
+    await expect(page.getByRole("heading", { name: "Marketing maintenance" })).toHaveCount(0);
     await expect(page.getByText("Marketing sends are paused for maintenance.")).toHaveCount(0);
     await expect(page.locator('input[name="confirmSend"]')).toBeEnabled();
     const { data: campaign } = await admin().from("marketing_campaigns").select("status").eq("id", fixture.campaignId).single();

@@ -20,6 +20,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: { getUser: async () => ({ data: { user: { id: "user-1", email: "owner@example.test" } }, error: null }) },
     from: (table: string) => h.db.from(table),
+    rpc: (name: string, args: Record<string, unknown>) => h.rpcOverride?.(name, args) ?? h.db.rpc(name, args),
   }),
 }));
 vi.mock("@/lib/supabase/admin", () => ({
@@ -45,7 +46,12 @@ vi.mock("resend", () => ({
   },
 }));
 
-const { sendOrganizerCampaignAction, updateOrganizerCampaignDraftAction, sendOrganizerCampaignTestEmailAction } = await import(
+const {
+  sendOrganizerCampaignAction,
+  updateOrganizerCampaignDraftAction,
+  sendOrganizerCampaignTestEmailAction,
+  generateOrganizerCampaignRecipientsAction,
+} = await import(
   "../[id]/actions"
 );
 
@@ -167,6 +173,27 @@ describe("organizer campaign send: marketing freeze", () => {
     expect(h.send).not.toHaveBeenCalled();
     expect(statuses()).toEqual({ pending: 2 });
     expect(db.tables.organizer_marketing_campaigns[0].status).toBe("draft");
+  });
+});
+
+describe("organizer campaign actions while marketing is frozen", () => {
+  it("send, test send, list preparation and draft edits answer marketing_paused before touching anything", async () => {
+    seed(pending(2));
+    h.rpcOverride = (name) =>
+      name === "marketing_send_frozen" ? Promise.resolve({ data: true, error: null }) : null;
+    expect(await run(sendOrganizerCampaignAction, { campaignId: "c1", confirmSend: "yes", confirmSendPhrase: "SEND 2" })).toContain(
+      "campaign_error=marketing_paused",
+    );
+    expect(await run(sendOrganizerCampaignTestEmailAction, { campaignId: "c1", testEmail: "owner@example.test" })).toContain(
+      "campaign_error=marketing_paused",
+    );
+    expect(await run(updateOrganizerCampaignDraftAction, { campaignId: "c1", name: "c1", subject: "Changed", bodyText: "Body" })).toContain(
+      "campaign_error=marketing_paused",
+    );
+    expect(await run(generateOrganizerCampaignRecipientsAction, { campaignId: "c1" })).toContain("campaign_error=marketing_paused");
+    expect(h.send).not.toHaveBeenCalled();
+    expect(statuses()).toEqual({ pending: 2 });
+    expect(db.tables.organizer_marketing_campaigns[0]).toMatchObject({ status: "draft", subject: "Hello" });
   });
 });
 

@@ -1,17 +1,20 @@
 -- Rollback of 20261117090000_m0_marketing_send_integrity.sql: restores the exact pre-M-0 schema (verified with
 -- sql-tests/m0_marketing_fingerprint.sql), including the PAY-WH-1 dispatcher claim function.
 --
--- NOT part of a normal application rollback. Stage 1 is compatible with the pre-M-0 application and should stay in
--- place: it carries the send freeze, the legacy unsubscribe compatibility (organizer page persistence, per-message
--- tokens on the legacy studio RPC) and the client-write guards. Run this only on an explicit decision to remove M-0
--- entirely, after 20261117091000 (stage 2) has been rolled back, with the application already below M-0 and marketing
--- frozen. Removing stage 1 also removes the freeze and the legacy unsubscribe compatibility.
+-- NOT part of a normal application rollback. Stage 1 is compatible with the pre-M-0 application and stays in place:
+-- it carries the send freeze, the legacy unsubscribe compatibility (organizer page persistence, per-message tokens on
+-- the legacy studio RPC) and the client-write guards, and the rollback-compat build's one-click endpoint depends on it.
 --
--- Refuses (changing nothing) while M-0 data would be lost or a send is unresolved:
---   * a recipient in 'sending', 'suppressed' or 'delivery_unknown' (the pre-M-0 status constraint cannot hold them);
---   * any platform suppression, per-message unsubscribe token or test-send record;
---   * any unsubscribe audit detail recorded by M-0 (source / last_source / campaign_id / recipient_id / repeat count).
--- To discard that data deliberately: `set local m0.allow_data_loss = 'yes';` inside the same transaction, first.
+-- This file removes M-0 only when NOTHING depends on it. It refuses (changing nothing) unless all of these hold, and it
+-- has NO override:
+--   * stage 2 (20261117091000) has been rolled back;
+--   * marketing sends are frozen;
+--   * no recipient was ever handed to the email provider by M-0 (first_attempt_at) and none is in an M-0-only status;
+--   * no per-message unsubscribe token, platform suppression, test-send record or M-0 unsubscribe audit detail exists.
+-- Once M-0 has sent anything, its unsubscribe links depend on this infrastructure, so this file can no longer run.
+-- Any exceptional teardown after that is a separately authorized recovery procedure that must keep every issued
+-- unsubscribe link working (docs/marketing/m0-email-compliance.md §6).
+--
 -- Unsubscribe records themselves are never deleted by this rollback.
 
 begin;
@@ -20,18 +23,17 @@ do $$
 declare
   v_blockers text := '';
 begin
-  -- Stage 2 must be rolled back first (it is never combined with a pre-M-0 schema).
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'outbound_deliveries' and policyname = 'outbound_deliveries_insert')
      or not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'marketing_campaign_recipients'
                     and policyname = 'studio staff manage marketing campaign recipients') then
     raise exception 'M-0 rollback refused: roll back 20261117091000 (stage 2) first';
   end if;
-  if coalesce(current_setting('m0.allow_data_loss', true), '') = 'yes' then
-    return;
+  if to_regproc('public.marketing_send_frozen') is null or not public.marketing_send_frozen() then
+    raise exception 'M-0 rollback refused: marketing sends must be frozen first';
   end if;
-  if exists (select 1 from public.marketing_campaign_recipients where status in ('sending', 'suppressed', 'delivery_unknown'))
-     or exists (select 1 from public.organizer_marketing_campaign_recipients where status in ('sending', 'suppressed', 'delivery_unknown')) then
-    v_blockers := v_blockers || ' recipients-in-m0-status';
+  if exists (select 1 from public.marketing_campaign_recipients where first_attempt_at is not null or status in ('sending', 'suppressed', 'delivery_unknown'))
+     or exists (select 1 from public.organizer_marketing_campaign_recipients where first_attempt_at is not null or status in ('sending', 'suppressed', 'delivery_unknown')) then
+    v_blockers := v_blockers || ' recipients-mailed-by-m0';
   end if;
   if exists (select 1 from public.marketing_email_suppressions) then v_blockers := v_blockers || ' platform-suppressions'; end if;
   if exists (select 1 from public.marketing_message_unsubscribe_tokens) then v_blockers := v_blockers || ' message-tokens'; end if;
@@ -41,16 +43,10 @@ begin
     v_blockers := v_blockers || ' unsubscribe-audit';
   end if;
   if v_blockers <> '' then
-    raise exception 'M-0 rollback refused (data would be lost):%', v_blockers;
+    raise exception 'M-0 rollback refused (M-0 is in use; issued unsubscribe links depend on it):%', v_blockers;
   end if;
 end;
 $$;
-
--- Recipients in M-0 statuses (only reachable with the override): move them to the closest pre-M-0 status first.
-update public.marketing_campaign_recipients set status = case status when 'suppressed' then 'skipped' else 'failed' end
-where status in ('sending', 'suppressed', 'delivery_unknown');
-update public.organizer_marketing_campaign_recipients set status = case status when 'suppressed' then 'skipped' else 'failed' end
-where status in ('sending', 'suppressed', 'delivery_unknown');
 
 drop trigger if exists marketing_unsubscribes_00_m0_guard on public.marketing_unsubscribes;
 drop trigger if exists organizer_marketing_unsubscribes_00_m0_guard on public.organizer_marketing_unsubscribes;
@@ -61,6 +57,8 @@ drop trigger if exists outbound_deliveries_00_m0_content_origin_guard on public.
 drop trigger if exists marketing_campaigns_00_m0_delete_guard on public.marketing_campaigns;
 drop trigger if exists organizer_marketing_campaigns_00_m0_delete_guard on public.organizer_marketing_campaigns;
 drop trigger if exists organizer_marketing_campaign_recipients_10_m0_legacy_unsubscribe on public.organizer_marketing_campaign_recipients;
+drop policy if exists "m0 freeze hides campaigns" on public.marketing_campaigns;
+drop policy if exists "m0 freeze hides campaigns" on public.organizer_marketing_campaigns;
 drop trigger if exists outbound_deliveries_01_m0_client_write_guard on public.outbound_deliveries;
 
 -- Freeze and visibility policies (section 10 / 12 of the migration).

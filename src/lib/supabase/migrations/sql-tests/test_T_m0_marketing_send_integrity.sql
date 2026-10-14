@@ -547,15 +547,18 @@ select pg_temp.chk('P2-2: staff can still delete a never-mailed draft campaign',
 insert into auth.users (id, email, email_confirmed_at) values
   ('00000000-0000-0000-0000-0000ae000207', 'm0-instructor@example.com', now()),
   ('00000000-0000-0000-0000-0000ae000208', 'm0-frontdesk@example.com', now()),
-  ('00000000-0000-0000-0000-0000ae000209', 'm0-platform@example.com', now());
+  ('00000000-0000-0000-0000-0000ae000209', 'm0-platform@example.com', now()),
+  ('00000000-0000-0000-0000-0000ae000210', 'm0-studio-admin@example.com', now());
 insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-0000ae000210', 'm0-studio-admin@example.com'),
   ('00000000-0000-0000-0000-0000ae000207', 'm0-instructor@example.com'),
   ('00000000-0000-0000-0000-0000ae000208', 'm0-frontdesk@example.com'),
   ('00000000-0000-0000-0000-0000ae000209', 'm0-platform@example.com');
 update public.profiles set platform_role = 'platform_admin' where id = '00000000-0000-0000-0000-0000ae000209';
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('00000000-0000-0000-0000-0000ae000207', '00000000-0000-0000-0000-0000ae000001', 'instructor', true),
-  ('00000000-0000-0000-0000-0000ae000208', '00000000-0000-0000-0000-0000ae000001', 'front_desk', true);
+  ('00000000-0000-0000-0000-0000ae000208', '00000000-0000-0000-0000-0000ae000001', 'front_desk', true),
+  ('00000000-0000-0000-0000-0000ae000210', '00000000-0000-0000-0000-0000ae000001', 'studio_admin', true);
 
 -- B. Recipient / unsubscribe visibility (direct PostgREST access = role authenticated + JWT claims)
 create temp table t_vis (who text, recipients bigint, tokens bigint, unsubscribes bigint, org_recipients bigint) on commit drop;
@@ -566,6 +569,9 @@ insert into t_vis select 'owner', (select count(*) from public.marketing_campaig
   (select count(*) from public.marketing_unsubscribes), (select count(*) from public.organizer_marketing_campaign_recipients);
 select pg_temp.as_user('00000000-0000-0000-0000-0000ae000208');
 insert into t_vis select 'front_desk', (select count(*) from public.marketing_campaign_recipients), (select count(unsubscribe_token) from public.marketing_campaign_recipients),
+  (select count(*) from public.marketing_unsubscribes), (select count(*) from public.organizer_marketing_campaign_recipients);
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000210');
+insert into t_vis select 'studio_admin', (select count(*) from public.marketing_campaign_recipients), (select count(unsubscribe_token) from public.marketing_campaign_recipients),
   (select count(*) from public.marketing_unsubscribes), (select count(*) from public.organizer_marketing_campaign_recipients);
 select pg_temp.as_user('00000000-0000-0000-0000-0000ae000207');
 insert into t_vis select 'instructor', (select count(*) from public.marketing_campaign_recipients), (select count(unsubscribe_token) from public.marketing_campaign_recipients),
@@ -595,6 +601,8 @@ insert into t_kv select 'org101_recipients', count(*)::text from public.organize
 select pg_temp.chk('B: studio owner sees the studio''s recipients, tokens and unsubscribes',
   (select recipients = pg_temp.kv('studioA_recipients')::bigint and tokens > 0 and unsubscribes = pg_temp.kv('studioA_unsubs')::bigint from t_vis where who = 'owner'),
   (select row(t.*)::text from t_vis t where who = 'owner'));
+select pg_temp.chk('B: studio admin (campaign manager) sees them',
+  (select recipients = pg_temp.kv('studioA_recipients')::bigint and tokens > 0 and unsubscribes = pg_temp.kv('studioA_unsubs')::bigint from t_vis where who = 'studio_admin'));
 select pg_temp.chk('B: front desk (campaign manager) sees them too',
   (select recipients = pg_temp.kv('studioA_recipients')::bigint and unsubscribes = pg_temp.kv('studioA_unsubs')::bigint from t_vis where who = 'front_desk'));
 select pg_temp.chk('B: instructor sees no recipient, token or unsubscribe (FC-1B5D)',
@@ -647,6 +655,11 @@ select pg_temp.chk('A: held email stays queued (not dropped)',
 
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000ae000201');
+select pg_temp.chk('A: frozen -> client roles cannot read studio campaigns (pre-M-0 test send / send stop at not_found)',
+  (select count(*) from public.marketing_campaigns) = 0);
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000204');
+select pg_temp.chk('A: frozen -> client roles cannot read organizer campaigns', (select count(*) from public.organizer_marketing_campaigns) = 0);
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000201');
 select pg_temp.chk('A: frozen -> the pre-M-0 send path (client role) sees no pending recipient',
   (select count(*) from public.marketing_campaign_recipients where status = 'pending') = 0
   and (select count(*) from public.marketing_campaign_recipients where status <> 'pending') > 0);
@@ -660,6 +673,8 @@ update public.marketing_campaign_recipients set name = 'changed while frozen' wh
 reset role;
 select pg_temp.chk('A: frozen -> client roles cannot delete or change visible never-mailed rows either',
   exists (select 1 from public.marketing_campaign_recipients where id = pg_temp.kv('rid:fzu')::uuid and name is distinct from 'changed while frozen'));
+select pg_temp.chk('A: frozen -> server code (service role) still reads campaigns',
+  (select count(*) from public.marketing_campaigns where studio_id = '00000000-0000-0000-0000-0000ae000001') > 0);
 select pg_temp.chk('A: frozen -> client-role update/delete of the pending row had no effect',
   exists (select 1 from public.marketing_campaign_recipients where id = pg_temp.kv('rid:fz')::uuid and status = 'pending'));
 
@@ -678,6 +693,14 @@ delete from t_claimed;
 insert into t_claimed select dedupe_key from public.claim_outbound_deliveries('00000000-0000-0000-0000-0000ae0009f2', 200, 300) where dedupe_key like 'm0-fz-%';
 select pg_temp.chk('A: unfrozen -> held commercial email is released to the dispatcher',
   (select count(*) from t_claimed where dedupe_key in ('m0-fz-commercial', 'm0-fz-customized', 'm0-fz-aria')) = 3, (select string_agg(dedupe_key, ',') from t_claimed));
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000201');
+insert into t_kv select 'campaigns-visible-after-release', (select count(*) from public.marketing_campaigns)::text;
+select pg_temp.as_user('00000000-0000-0000-0000-0000ae000204');
+insert into t_kv select 'org-campaigns-visible-after-release', (select count(*) from public.organizer_marketing_campaigns)::text;
+reset role;
+select pg_temp.chk('A: unfrozen -> campaigns are visible to their managers again',
+  pg_temp.kv('campaigns-visible-after-release')::int > 0 and pg_temp.kv('org-campaigns-visible-after-release')::int > 0);
 select pg_temp.chk('A: unfrozen -> the campaign claim works again',
   public.marketing_claim_campaign_recipient('studio', '00000000-0000-0000-0000-0000ae000001', '00000000-0000-0000-0000-0000ae000409', pg_temp.kv('rid:fz')::uuid, 600) ->> 'outcome' = 'claimed');
 select pg_temp.chk('A: every freeze change is logged', (select count(*) from public.marketing_send_control_events where reason like 'suite:%') = 2);
@@ -822,6 +845,33 @@ select pg_temp.expect_msg('D: legacy automation SMS is refused',
      values ('00000000-0000-0000-0000-0000ae000001', 'sms', 'automation_low_package_balance', '+19195550101', 'B', 'automation_actions', '00000000-0000-0000-0000-0000ae000701', 'queued')$q$, 'cannot be created by a signed-in user');
 reset role;
 
+-- every role the outbound insert policy admits can still queue a legitimate appointment notice; client roles cannot
+create temp table t_role_inserts (who text, ok boolean, detail text) on commit drop;
+grant all on t_role_inserts to authenticated;
+create or replace function pg_temp.try_appointment_notice(p_who text, p_user text) returns void
+language plpgsql as $f$
+begin
+  perform pg_temp.as_user(p_user);
+  begin
+    insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, related_table, related_id, status, dedupe_key)
+    values ('00000000-0000-0000-0000-0000ae000001', 'email', 'appointment_rescheduled', 'm0-a1@example.com', 'appointments',
+            '00000000-0000-0000-0000-0000ae000801', 'queued', 'm0-d-role-' || p_who);
+    insert into t_role_inserts values (p_who, true, 'ok');
+  exception when others then
+    insert into t_role_inserts values (p_who, false, sqlstate || ' ' || sqlerrm);
+  end;
+end $f$;
+set local role authenticated;
+select pg_temp.try_appointment_notice('owner', '00000000-0000-0000-0000-0000ae000201');
+select pg_temp.try_appointment_notice('studio_admin', '00000000-0000-0000-0000-0000ae000210');
+select pg_temp.try_appointment_notice('front_desk', '00000000-0000-0000-0000-0000ae000208');
+select pg_temp.try_appointment_notice('platform_admin', '00000000-0000-0000-0000-0000ae000209');
+select pg_temp.try_appointment_notice('client_role', '00000000-0000-0000-0000-0000ae000206');
+reset role;
+select pg_temp.chk(format('D: %s can queue a legitimate appointment notice', who), ok, detail)
+from t_role_inserts where who in ('owner', 'studio_admin', 'front_desk', 'platform_admin');
+select pg_temp.chk('D: a client-role account cannot queue any notification', not ok and detail like '42501%', detail)
+from t_role_inserts where who = 'client_role';
 select pg_temp.chk('D: accepted appointment rows carry no client-supplied subject, body, html or reply-to',
   (select count(*) from public.outbound_deliveries where dedupe_key in ('m0-d-ok-email', 'm0-d-ok-partner', 'm0-d-ok-sms')
      and subject is null and body_text is null and body_html is null and reply_to_email is null) = 3);

@@ -15,6 +15,7 @@ import {
 } from "@/lib/marketing/compliance/campaignDelivery";
 import { createResendMarketingTransport } from "@/lib/marketing/compliance/provider";
 import { authorizeCampaignTestSend, testSendRefusalCode } from "@/lib/marketing/compliance/testSend";
+import { isMarketingSendPaused } from "@/lib/marketing/compliance/sendFreeze";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { reserveCampaignSendAllowance, settleCampaignBatch } from "@/lib/usage/campaignAllowance";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
@@ -590,6 +591,9 @@ export async function updateOrganizerCampaignDraftAction(formData: FormData) {
   }
 
   const supabase = await createClient();
+  if (await isMarketingSendPaused(supabase)) {
+    redirect(appendQuery(fallback, "campaign_error", "marketing_paused"));
+  }
   const campaign = await getCampaignForAction(supabase, campaignId);
   await requireOrganizerAccess(supabase, campaign.organizer_id);
 
@@ -675,6 +679,9 @@ export async function sendOrganizerCampaignTestEmailAction(formData: FormData) {
   }
 
   const supabase = await createClient();
+  if (await isMarketingSendPaused(supabase)) {
+    redirect(appendQuery(fallback, "campaign_error", "marketing_paused"));
+  }
   const campaign = await getCampaignForAction(supabase, campaignId);
   const { user } = await requireOrganizerAccess(
     supabase,
@@ -794,6 +801,9 @@ export async function generateOrganizerCampaignRecipientsAction(
   }
 
   const supabase = await createClient();
+  if (await isMarketingSendPaused(supabase)) {
+    redirect(appendQuery(fallback, "campaign_error", "marketing_paused"));
+  }
   const campaign = await getCampaignForAction(supabase, campaignId);
   await requireOrganizerAccess(supabase, campaign.organizer_id);
 
@@ -876,6 +886,9 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
   const confirmSendPhrase = getString(formData, "confirmSendPhrase").toUpperCase();
 
   const supabase = await createClient();
+  if (await isMarketingSendPaused(supabase)) {
+    redirect(appendQuery(fallback, "campaign_error", "marketing_paused"));
+  }
   const campaign = await getCampaignForAction(supabase, campaignId);
   const { user } = await requireOrganizerAccess(
     supabase,
