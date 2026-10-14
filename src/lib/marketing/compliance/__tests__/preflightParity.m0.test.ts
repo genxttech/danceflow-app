@@ -67,6 +67,20 @@ describe("M-0 stage-1 precondition and PROD preflight parity", () => {
     expect(inMigration).toContain("role_table_grants");
   });
 
+  it("the signature exclusions, the migration's placement check and preflight A8b name the same M-0 policies", () => {
+    const names = (text: string) => [...text.matchAll(/'(m0 [a-z ]+)'/g)].map((m) => m[1]);
+    const unique = (list: string[]) => [...new Set(list)].sort();
+    const excluded = unique(names(signatureExpression(migration, "M0-AUTH-SIGNATURES (begin)", "k.name")));
+    const placementBlock = migration.slice(migration.indexOf("M0-AUTH-SIGNATURES (end)"), migration.indexOf("if v_m0_names <> ''"));
+    const a8b = preflight.slice(preflight.indexOf("select 'A8b "), preflight.indexOf("select 'A9b "));
+    expect(excluded).toHaveLength(7);
+    expect(unique(names(placementBlock))).toEqual(excluded);
+    expect(unique(names(a8b))).toEqual(excluded);
+    // every name the migration creates is one of them
+    const created = unique([...migration.matchAll(/create policy "(m0 [a-z ]+)"/g)].map((m) => m[1]));
+    expect(created).toEqual(excluded);
+  });
+
   it("only this migration's own policies are excluded from the signature, by exact name", () => {
     const expression = signatureExpression(migration, "M0-AUTH-SIGNATURES (begin)", "k.name");
     expect(expression).toContain("p.policyname not in (");

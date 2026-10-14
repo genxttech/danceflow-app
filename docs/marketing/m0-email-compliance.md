@@ -466,7 +466,7 @@ Each step needs its own owner authorization. PROD is only ever accessed from a f
 1. **Rollback build verification gate** (above).
 2. **Read-only preflights** (`sql-tests/m0_prod_preflight_readonly.sql`, then
    `sql-tests/m0_c1_repair_preflight_readonly.sql`). Stop on any of:
-   - A7 not the PAY-WH-1 hash, or **any A8 `MISMATCH`** (stage 1 would refuse; review A9 and stop, never "fix" a policy
+   - A7 not the PAY-WH-1 hash, A8b not `none`, or **any A8 `MISMATCH`** (stage 1 would refuse; review A9 and stop, never "fix" a policy
      to make it match without separate review);
    - B8 / B9 / B10 not zero;
    - B5 campaigns stuck in `sending`.
