@@ -10,6 +10,7 @@ import {
   repairStudioPortalLinksAction,
 } from "@/app/platform/actions";
 import { getBillingPlan } from "@/lib/billing/plans";
+import { describeDeliveryNoteForStaff } from "@/lib/notifications/deliveryOutcome";
 
 type Params = Promise<{
   id: string;
@@ -1059,7 +1060,7 @@ export default async function PlatformStudioDetailPage({
                           <p className="font-mono text-slate-500">provider {shortId(item.latestDelivery.provider_message_id)}</p>
                         ) : null}
                         {item.latestDelivery.error_message ? (
-                          <p className="text-red-700">{item.latestDelivery.error_message}</p>
+                          <p className="text-red-700">{describeDeliveryNoteForStaff(item.latestDelivery.error_message)}</p>
                         ) : null}
                       </div>
                     ) : (

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canManageSettings } from "@/lib/auth/permissions";
+import { isRequeueSafeFailure } from "@/lib/notifications/deliveryOutcome";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
 import { buildAppUrl } from "@/lib/email/brand";
@@ -4784,6 +4785,27 @@ export async function retryAriaAutomationActionDeliveryAction(formData: FormData
     redirect(appendActionResult(returnTo, "error", "aria_retry_not_available"));
   }
 
+  // T2: a retry re-sends the same delivery with the same provider idempotency key. It is allowed only when the recorded
+  // failure proves the message was not delivered; an unknown outcome, an expired retry window or a payload mismatch is
+  // refused here on the server (the page also hides the button), so staff cannot cause a duplicate send.
+  const { data: failedDelivery, error: failedDeliveryError } = await adminSupabase
+    .from("outbound_deliveries")
+    .select("id, channel, error_message")
+    .eq("id", action.execution_delivery_id)
+    .eq("studio_id", context.studioId)
+    .eq("related_table", "automation_actions")
+    .eq("related_id", action.id)
+    .eq("status", "failed")
+    .maybeSingle<{ id: string; channel: string | null; error_message: string | null }>();
+
+  if (failedDeliveryError || !failedDelivery) {
+    redirect(appendActionResult(returnTo, "error", "aria_retry_failed"));
+  }
+
+  if (!isRequeueSafeFailure(failedDelivery.error_message, failedDelivery.channel)) {
+    redirect(appendActionResult(returnTo, "error", "aria_retry_delivery_uncertain"));
+  }
+
   const now = new Date().toISOString();
   const { data: delivery, error: deliveryError } = await adminSupabase
     .from("outbound_deliveries")
@@ -4793,6 +4815,8 @@ export async function retryAriaAutomationActionDeliveryAction(formData: FormData
     .eq("related_table", "automation_actions")
     .eq("related_id", action.id)
     .eq("status", "failed")
+    // Compare-and-set: requeue only the failure that was judged safe above.
+    .eq("error_message", failedDelivery.error_message as string)
     .select("id")
     .maybeSingle<{ id: string }>();
 

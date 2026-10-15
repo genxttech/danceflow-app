@@ -20,6 +20,8 @@ export function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
   );
   const mutations: FakeMutation[] = [];
   let idSequence = 0;
+  /** Test hook: an update on `table` whose values match `predicate` fails with a database error and changes nothing. */
+  const updateFailures: Array<{ table: string; predicate: (values: FakeRow) => boolean; remaining: number }> = [];
 
   function table(name: string) {
     if (!tables.has(name)) tables.set(name, []);
@@ -49,9 +51,18 @@ export function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
 
         if (!returning && mode === "many") return { data: null, error: null };
       } else if (op === "update") {
+        const failure = updateFailures.find(
+          (entry) => entry.table === name && entry.remaining > 0 && entry.predicate(values as FakeRow),
+        );
+        if (failure) {
+          failure.remaining -= 1;
+          return { data: null, error: { message: "injected database error" } };
+        }
         result = rows.filter((row) => filters.every((filter) => filter(row)));
         result.forEach((row) => Object.assign(row, values as FakeRow));
         mutations.push({ table: name, op, values, ids: result.map((row) => String(row.id)) });
+        // Like PostgREST: an update returns no rows unless `.select()` asked for them.
+        if (!returning && mode === "many") return { data: null, error: null };
       } else if (op === "delete") {
         result = rows.filter((row) => filters.every((filter) => filter(row)));
         tables.set(name, rows.filter((row) => !result.includes(row)));
@@ -285,6 +296,10 @@ export function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
     },
     rows(name: string) {
       return table(name);
+    },
+    /** Make the next `times` matching updates on `name` fail with a database error. */
+    failUpdates(name: string, predicate: (values: FakeRow) => boolean, times = 1) {
+      updateFailures.push({ table: name, predicate, remaining: times });
     },
   };
 }

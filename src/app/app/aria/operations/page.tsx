@@ -36,6 +36,11 @@ import {
   refreshAriaActionWordingForStudio,
 } from "@/app/app/automations/actions";
 import { isEventPast } from "@/lib/events/eventTiming";
+import {
+  describeDeliveryNoteForStaff,
+  isRequeueSafeFailure,
+  isUncertainDeliveryOutcome,
+} from "@/lib/notifications/deliveryOutcome";
 import { reconcileAriaActionsForStudio } from "@/lib/aria/actionReconciliation";
 
 type PriorityTone = "urgent" | "warning" | "info" | "success";
@@ -1589,12 +1594,17 @@ function AriaActionReviewQueue({
                     <div className={`mt-3 rounded-xl border px-3 py-3 text-xs leading-5 ${
                       action.execution_status === "sent"
                         ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                        : action.execution_status === "failed" || action.execution_status === "exhausted"
+                        : isUncertainDeliveryOutcome(action.execution_error_message)
+                          ? "border-amber-300 bg-amber-50 text-amber-900"
+                          : action.execution_status === "failed" || action.execution_status === "exhausted"
                           ? "border-red-200 bg-red-50 text-red-800"
                           : "border-amber-200 bg-amber-50 text-amber-800"
                     }`}>
                       <p className="font-semibold">
-                        Delivery: {action.execution_status.replaceAll("_", " ")}
+                        Delivery:{" "}
+                        {isUncertainDeliveryOutcome(action.execution_error_message)
+                          ? "uncertain"
+                          : action.execution_status.replaceAll("_", " ")}
                       </p>
                       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                         <span>Attempts: {Number(action.execution_attempt_count ?? 0)} of 3</span>
@@ -1609,7 +1619,7 @@ function AriaActionReviewQueue({
                         ) : null}
                       </div>
                       {action.execution_error_message ? (
-                        <p className="mt-2 break-words">{action.execution_error_message}</p>
+                        <p className="mt-2 break-words">{describeDeliveryNoteForStaff(action.execution_error_message)}</p>
                       ) : null}
                     </div>
                   ) : null}
@@ -1717,7 +1727,8 @@ function AriaActionReviewQueue({
                         </button>
                       </form>
                     ) : null}
-                    {["failed", "exhausted"].includes(action.execution_status ?? "") ? (
+                    {["failed", "exhausted"].includes(action.execution_status ?? "") &&
+                    isRequeueSafeFailure(action.execution_error_message, "email") ? (
                       <form action={retryAriaAutomationActionDeliveryAction}>
                         <input type="hidden" name="actionId" value={action.id} />
                         <input type="hidden" name="returnTo" value="/app/aria/operations" />

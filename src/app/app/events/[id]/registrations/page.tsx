@@ -14,6 +14,11 @@ import {
   upsertEventAttendanceAction,
 } from "./actions";
 import PaymentExceptionsPanel from "./PaymentExceptionsPanel";
+import {
+  deliveryFailureNote,
+  describeDeliveryNoteForStaff,
+  isUncertainDeliveryOutcome,
+} from "@/lib/notifications/deliveryOutcome";
 
 type Params = Promise<{
   id: string;
@@ -300,7 +305,8 @@ function paymentSourceLabel(value: string | null | undefined) {
 
 function ticketEmailStatusText(email: TicketEmailAuditRow | null) {
   if (!email) return "Not sent from DanceFlow";
-  if (email.error_message || email.status === "failed") return "Failed";
+  if (isUncertainDeliveryOutcome(email.error_message)) return "Delivery uncertain";
+  if (deliveryFailureNote(email.error_message) || email.status === "failed") return "Failed";
   if (email.status === "sent" && email.sent_at) {
     return `Sent ${formatDateTime(email.sent_at)}`;
   }
@@ -1087,7 +1093,7 @@ export default async function EventRegistrationsPage({
     }
     if (activeFilter === "email_attention") {
       const latestEmail = (ticketEmailsByRegistrationId.get(registration.id) ?? [])[0] ?? null;
-      return !latestEmail || latestEmail.status === "failed" || Boolean(latestEmail.error_message);
+      return !latestEmail || latestEmail.status === "failed" || Boolean(deliveryFailureNote(latestEmail.error_message));
     }
     if (activeFilter === "ticket_attention") {
       const attendeeRows = registration.event_registration_attendees ?? [];
@@ -1141,7 +1147,7 @@ export default async function EventRegistrationsPage({
   }).length;
   const emailAttentionCount = typedRegistrations.filter((registration) => {
     const latestEmail = (ticketEmailsByRegistrationId.get(registration.id) ?? [])[0] ?? null;
-    return !latestEmail || latestEmail.status === "failed" || Boolean(latestEmail.error_message);
+    return !latestEmail || latestEmail.status === "failed" || Boolean(deliveryFailureNote(latestEmail.error_message));
   }).length;
 
   const unpaidPendingCount = typedRegistrations.filter((registration) =>
@@ -1677,7 +1683,7 @@ export default async function EventRegistrationsPage({
             const emailNeedsAttention =
               !latestTicketEmail ||
               latestTicketEmail.status === "failed" ||
-              Boolean(latestTicketEmail.error_message);
+              Boolean(deliveryFailureNote(latestTicketEmail.error_message));
             const ticketNeedsAttention =
               issuedTicketCount < expectedAttendees || !ticketCodesAreActive;
             const documentNeedsAttention =
@@ -2019,7 +2025,7 @@ export default async function EventRegistrationsPage({
                       </p>
                       {latestTicketEmail?.error_message ? (
                         <p className="mt-2 text-xs text-red-600">
-                          {latestTicketEmail.error_message}
+                          {describeDeliveryNoteForStaff(latestTicketEmail.error_message)}
                         </p>
                       ) : latestTicketEmail?.recipient_email ? (
                         <p className="mt-2 text-xs text-slate-500">
