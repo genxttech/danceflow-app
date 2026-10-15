@@ -4,13 +4,19 @@
  *
  * Outcomes:
  *  - terminal: the row is finished (`failed`), and only a fixed reason code is stored;
- *  - retry: the provider may or may not have accepted the message (timeout, network error, 5xx, rate limit, a
- *    concurrent request with the same idempotency key). The row stays `queued`, its lease is left to expire, and the
- *    next claim re-sends with the SAME provider idempotency key, so a message the provider already accepted is not sent
- *    again. Retries are bounded by RETRY_WINDOW_MS from the first failed attempt (half the provider's 24-hour
- *    idempotency window), after which the row ends as an unknown outcome and the dispatcher does not send it again.
- *    Caveat: the ARIA digest/action requeue paths in dispatch.ts set some failed rows back to `queued` and clear
- *    `error_message`, which restarts this window; a T4 attempt/first-attempt column is needed to bound that.
+ *  - retry: a transient or unknown outcome. Either the provider may have accepted the message (timeout, network
+ *    error, 5xx, a concurrent request with the same idempotency key, an acceptance we could not record), or it
+ *    definitely refused it (not configured, rejected API key, rate limit or quota). The row stays `queued`, its lease is
+ *    left to expire, and the next claim re-sends with the SAME provider idempotency key, so a message the provider
+ *    already accepted is not sent again. The retry marker keeps the time of the first recorded attempt (normally when
+ *    the first outcome is recorded; the attempt-started marker written just before each provider call sets it if that
+ *    outcome is lost) and whether every attempt so far was definitely refused. Retries are bounded by RETRY_WINDOW_MS
+ *    from that time (half the provider's 24-hour idempotency window). The row then ends as an unknown outcome
+ *    (`provider_retry_window_exhausted`), or as definitely not sent (`provider_retry_window_exhausted_unsent`) when every
+ *    attempt was refused.
+ *  - A failed row is set back to `queued` (ARIA requeue paths, staff "Retry now") only for failures that prove
+ *    non-delivery; see isRequeueSafeFailure. A requeue clears the marker, which restarts the window; that is safe only
+ *    because nothing earlier could have been accepted. A T4 attempt/first-attempt column would make this durable.
  *  - Retried email is re-rendered from current studio data. If branding, sender or Reply-To changed between attempts the
  *    provider rejects the reused key (`invalid_idempotent_request`) and the row ends as `provider_idempotency_mismatch`
  *    (outcome unknown: the first attempt may have been delivered). It is never re-sent with a new key automatically.
@@ -94,6 +100,12 @@ const RETRY_MARKER = /^retry:([a-z0-9_]{1,60}):(\d{13})(:n)?$/;
  */
 const DEFINITELY_UNSENT_RETRY_CODES = new Set(["provider_not_configured", "provider_auth_error", "provider_rate_limited"]);
 
+/**
+ * Written just before an email is handed to the provider. It is not a definitely-unsent code, so if the run stops or the
+ * outcome cannot be recorded, the row is treated as possibly accepted from then on (fail closed).
+ */
+export const PROVIDER_ATTEMPT_STARTED = "provider_attempt_started";
+
 export type RetryMarker = {
   code: string;
   firstAttemptMs: number;
@@ -102,7 +114,7 @@ export type RetryMarker = {
 };
 
 /**
- * Stored on a still-queued row after a retryable attempt: the latest reason, the time of the first failed attempt, and
+ * Stored on a still-queued row after a retryable attempt: the latest reason, the time of the first recorded attempt, and
  * the `:n` flag when no attempt so far could have been accepted.
  */
 export function buildRetryMarker(code: string, firstAttemptMs: number, unsentOnly = false): string {
@@ -167,9 +179,10 @@ const PRE_PROVIDER_FAILURE_CODES = new Set([
 /**
  * Whether a `failed` delivery may be set back to `queued`: by the automatic ARIA digest/action requeue paths AND by a
  * staff "Retry now" (enforced on the server; a requeue reuses the same provider idempotency key). Only
- * failures that prove the message was NOT delivered qualify: a pre-provider failure, or a definite provider rejection of
- * an email. A definite rejection within the provider's 24-hour idempotency window also proves no earlier attempt with
- * the same key was accepted (the provider would have replayed that acceptance instead).
+ * failures that prove the message was NOT delivered qualify: a pre-provider failure, a definite provider rejection of
+ * an email, or a retry window in which every attempt was refused. A rejection proves only that THAT attempt was not
+ * accepted, not that an earlier one was not: the dispatcher therefore records any failure that follows a possibly-accepted
+ * attempt as `failed_after_uncertain_attempt` (see terminalCodeAfterRetries) before this check ever sees it.
  *
  * Everything else fails closed and is never requeued, automatically or by staff: an unknown outcome
  * (`provider_retry_window_exhausted`), a failure after an earlier attempt that may have been accepted
@@ -215,10 +228,12 @@ export const UNCERTAIN_DELIVERY_STAFF_TEXT =
 /** Staff-facing text for a stored delivery note. Retry markers and uncertain outcomes are explained, never shown raw. */
 export function describeDeliveryNoteForStaff(value: string | null | undefined): string | null {
   if (!value) return null;
-  if (parseRetryMarker(value)) return "Temporary delivery problem. DanceFlow is retrying automatically.";
+  const marker = parseRetryMarker(value);
+  if (marker?.code === PROVIDER_ATTEMPT_STARTED) return "Sending in progress.";
+  if (marker) return "Temporary delivery problem. DanceFlow is retrying automatically.";
   if (isUncertainDeliveryOutcome(value)) return UNCERTAIN_DELIVERY_STAFF_TEXT;
   if (value === "provider_retry_window_exhausted_unsent") {
-    return "Not delivered: the email provider was unavailable or not configured, and nothing was sent. It can be retried.";
+    return "Not delivered: every attempt was refused or never reached the email provider (email sending not configured, credentials rejected, or rate limit reached). It can be retried.";
   }
   return value;
 }

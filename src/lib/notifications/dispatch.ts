@@ -45,6 +45,7 @@ import {
   PROVIDER_CALL_TIMEOUT_MS,
   classifyEmailProviderError,
   isRequeueSafeFailure,
+  PROVIDER_ATTEMPT_STARTED,
   isRetryWindowExhausted,
   nextRetryMarker,
   parseRetryMarker,
@@ -87,12 +88,22 @@ type SkippedDispatchResult = { ok: false; skipped: true; reason: DispatchSkipRea
 /** T2: the provider may or may not have accepted the message; keep the row queued and retry with the same key. */
 type RetryDispatchResult = { ok: false; retry: true; code: string };
 
-type SmsDispatchResult = DispatchResult | SkippedDispatchResult | RetryDispatchResult;
+/**
+ * T2: the email was not handed to the provider because the attempt could not be recorded first: the claim was lost to
+ * another worker, or the database write failed. Nothing is written; the row keeps its state until its lease expires.
+ */
+type NotStartedDispatchResult = { ok: false; notStarted: true; reason: "claim_lost" | "attempt_marker_unavailable" };
+
+type SmsDispatchResult = DispatchResult | SkippedDispatchResult | RetryDispatchResult | NotStartedDispatchResult;
 
 function isSkippedDispatchResult(
   result: SmsDispatchResult,
 ): result is SkippedDispatchResult {
   return !result.ok && "skipped" in result && result.skipped === true;
+}
+
+function isNotStartedDispatchResult(result: SmsDispatchResult): result is NotStartedDispatchResult {
+  return !result.ok && "notStarted" in result && result.notStarted === true;
 }
 
 function isRetryDispatchResult(result: SmsDispatchResult): result is RetryDispatchResult {
@@ -564,7 +575,13 @@ async function resolveReplyToEmail(row: OutboundDeliveryRow) {
   return fallback;
 }
 
-async function sendEmail(row: OutboundDeliveryRow): Promise<SmsDispatchResult> {
+async function sendEmail(
+  row: OutboundDeliveryRow,
+  options: {
+    /** Records the attempt; called only when the provider is about to be called. Returns false if the claim was lost. */
+    beforeProviderCall?: () => Promise<boolean>;
+  } = {},
+): Promise<SmsDispatchResult> {
   const rendered = renderMessage(row);
   if (!rendered) {
     return { ok: false, skipped: true, reason: "outbound_template_unsupported" };
@@ -641,6 +658,17 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<SmsDispatchResult> {
   } catch {
     // Nothing was sent; retried until configured or until the retry window ends.
     return { ok: false, retry: true, code: "provider_not_configured" };
+  }
+
+  // T2: every check that can stop the send has passed; record the attempt before the provider can accept anything.
+  if (options.beforeProviderCall) {
+    let started: boolean;
+    try {
+      started = await options.beforeProviderCall();
+    } catch {
+      return { ok: false, notStarted: true, reason: "attempt_marker_unavailable" };
+    }
+    if (!started) return { ok: false, notStarted: true, reason: "claim_lost" };
   }
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -1048,6 +1076,21 @@ async function syncAriaDigestRunStatus(params: {
   }
 }
 
+/**
+ * Review note for a skipped ARIA follow-up. A marketing skip keeps its existing wording; another skip reason (for example
+ * an unsupported template) is not described as a marketing-eligibility decision. When an earlier attempt of the same
+ * delivery may already have been accepted by the provider, the note says so instead of claiming nothing was sent.
+ */
+function ariaSkipReviewNote(reason: string | null | undefined, earlierAttemptUncertain: boolean) {
+  if (earlierAttemptUncertain) {
+    return "ARIA stopped this follow-up, but an earlier delivery attempt may already have reached the client. Check before contacting them again.";
+  }
+  if (reason?.startsWith("marketing_")) {
+    return "ARIA did not send this follow-up: the client is not eligible for marketing email from this studio.";
+  }
+  return "ARIA did not send this follow-up.";
+}
+
 async function recordAriaActionDeliveryEvent(params: {
   studioId: string;
   actionId: string;
@@ -1083,6 +1126,8 @@ async function syncAriaActionDeliveryStatus(params: {
   status: "sent" | "failed" | "skipped";
   errorMessage?: string | null;
   providerMessageId?: string | null;
+  /** T2: on a skip, an earlier attempt of this delivery may already have been delivered. */
+  earlierAttemptUncertain?: boolean;
 }) {
   if (
     params.row.related_table !== "automation_actions" ||
@@ -1133,7 +1178,7 @@ async function syncAriaActionDeliveryStatus(params: {
         execution_error_message: params.errorMessage?.slice(0, 1000) ?? null,
         outcome_status: "not_applicable",
         updated_at: nowIso,
-        review_note: "ARIA did not send this follow-up: the client is not eligible for marketing email from this studio.",
+        review_note: ariaSkipReviewNote(params.errorMessage, params.earlierAttemptUncertain === true),
       })
       .eq("id", action.id)
       .eq("studio_id", action.studio_id);
@@ -1145,7 +1190,10 @@ async function syncAriaActionDeliveryStatus(params: {
       previousStatus: action.status,
       newStatus: "skipped",
       note: params.errorMessage ?? "Not sent.",
-      metadata: { delivery_id: params.row.id },
+      metadata: {
+        delivery_id: params.row.id,
+        ...(params.earlierAttemptUncertain ? { earlier_attempt_uncertain: true } : {}),
+      },
     });
     return;
   }
@@ -1609,17 +1657,33 @@ export async function dispatchQueuedOutboundDeliveries(
         continue;
       }
 
+      // T2 (re-review MAJOR 1): immediately before an email is handed to the provider (after every check that can stop
+      // it), record that an attempt is starting. The marker has no "definitely unsent" flag, so if this run dies or its
+      // outcome write is lost, the row is treated as possibly accepted (fail closed). The outcome write below replaces it
+      // with the accurate history, computed from the state loaded at claim time (`row.error_message`), so a
+      // definitely-refused attempt keeps its flag. If this write fails or the claim was lost, the provider is not called.
+      const recordAttemptStarted = () =>
+        updateClaimedDelivery(row.id, claimOwner, {
+          error_message: nextRetryMarker(row.error_message, PROVIDER_ATTEMPT_STARTED, Date.now()),
+        });
+
       let result: SmsDispatchResult;
       try {
         result =
           row.channel === "email"
-            ? await sendEmail(row)
+            ? await sendEmail(row, { beforeProviderCall: recordAttemptStarted })
             : await sendSms(row, { origin: options.origin });
       } catch {
         // Unexpected exception. For email the provider call cannot throw (its outcome is classified above), so this is a
         // lookup or rendering failure. For SMS the Twilio request itself can throw after Twilio received it, so the
         // outcome may be unknown; either way the row ends as a terminal failure and is never re-sent automatically.
         result = { ok: false, error: "dispatch_exception" };
+      }
+
+      if (isNotStartedDispatchResult(result)) {
+        if (result.reason === "claim_lost") lostClaims += 1;
+        else console.warn("[outbound] attempt could not be recorded; not sent", { deliveryId: row.id });
+        continue;
       }
 
       if (isSkippedDispatchResult(result)) {
@@ -1630,8 +1694,10 @@ export async function dispatchQueuedOutboundDeliveries(
         }
         skipped += 1;
         const skipReason = result.reason;
+        // An earlier attempt of this row may already have been delivered: the skip must not claim nothing was sent.
+        const earlierAttemptUncertain = Boolean(retryMarker && !retryMarker.unsentOnly);
         await runPostCompletion("aria_action_skipped", row.id, () =>
-          syncAriaActionDeliveryStatus({ row, status: "skipped", errorMessage: skipReason }),
+          syncAriaActionDeliveryStatus({ row, status: "skipped", errorMessage: skipReason, earlierAttemptUncertain }),
         );
         continue;
       }

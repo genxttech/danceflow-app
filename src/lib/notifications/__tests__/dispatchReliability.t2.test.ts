@@ -225,7 +225,9 @@ describe("T2 S2: lease expiry, reclaim and stale completion", () => {
     });
     const workerA = await dispatchQueuedOutboundDeliveries(10);
     expect(workerA).toMatchObject({ failed: 0, lostClaims: 1 });
-    expect(row()).toMatchObject({ status: "queued", claim_owner: "worker-b", error_message: null });
+    expect(row()).toMatchObject({ status: "queued", claim_owner: "worker-b" });
+    // Worker A's pre-attempt marker stays: its attempt may have been accepted, so worker B treats the row as uncertain.
+    expect(parseRetryMarker(row().error_message)).toMatchObject({ code: "provider_attempt_started", unsentOnly: false });
   });
 
   it("a stale worker's success after reclaim does not double-record either", async () => {
@@ -359,7 +361,8 @@ describe("T2: retries use the same provider idempotency key", () => {
     seed([emailRow()]);
     await dispatchQueuedOutboundDeliveries(10);
     expect(row().status).toBe("queued");
-    expect(parseRetryMarker(row().error_message)?.code).toBe("provider_not_configured");
+    // Nothing could have been sent (no API key, so no provider call): the attempt keeps the definitely-unsent flag.
+    expect(parseRetryMarker(row().error_message)).toMatchObject({ code: "provider_not_configured", unsentOnly: true });
   });
 });
 
@@ -991,5 +994,223 @@ describe("T2 MINOR 2: retry window ends as definitely-unsent only when no attemp
     const result = await dispatchQueuedOutboundDeliveries(10);
     expect(result).toMatchObject({ requeued: 1, sent: 1 });
     expect(sendMock.mock.calls[0][1]).toEqual({ idempotencyKey: "outbound-delivery:aria-n" });
+  });
+});
+
+describe("T2 re-review MAJOR 1: a pre-attempt marker means a lost outcome write is treated as possibly accepted", () => {
+  const isOutcomeWrite = (prefix: string) => (values: FakeRow) =>
+    typeof values.error_message === "string" && values.error_message.startsWith(prefix);
+
+  it("writes an attempt-started marker (no unsent flag) before the provider is called", async () => {
+    seed([emailRow()]);
+    let seenDuringCall: unknown;
+    sendMock.mockImplementationOnce(async () => {
+      seenDuringCall = row().error_message;
+      return accepted();
+    });
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(parseRetryMarker(seenDuringCall)).toMatchObject({ code: "provider_attempt_started", unsentOnly: false });
+    expect(row()).toMatchObject({ status: "sent", error_message: null });
+  });
+
+  it("scenario A: refused attempts, then a timeout whose outcome write is lost, then the window ends: unknown outcome", async () => {
+    const elevenHoursAgo = Date.now() - 11 * 60 * 60 * 1000;
+    const db = seed([emailRow({ error_message: buildRetryMarker("provider_rate_limited", elevenHoursAgo, true) })]);
+    db.failUpdates("outbound_deliveries", isOutcomeWrite("retry:provider_timeout:"));
+    sendMock.mockResolvedValueOnce(providerError("dispatcher_timeout", null));
+    await dispatchQueuedOutboundDeliveries(10);
+    // Without the pre-attempt marker the row would still carry the stale `:n` (all-unsent) marker here.
+    expect(parseRetryMarker(row().error_message)).toMatchObject({ code: "provider_attempt_started", unsentOnly: false });
+    expect(parseRetryMarker(row().error_message)?.firstAttemptMs).toBe(elevenHoursAgo);
+
+    expireLeases();
+    const realNow = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + 2 * 60 * 60 * 1000);
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(row()).toMatchObject({ status: "failed", error_message: "provider_retry_window_exhausted" });
+  });
+
+  it("scenario B: a fresh row's timeout outcome write is lost, then a rejection: uncertain", async () => {
+    const db = seed([emailRow()]);
+    db.failUpdates("outbound_deliveries", isOutcomeWrite("retry:provider_timeout:"));
+    sendMock
+      .mockResolvedValueOnce(providerError("dispatcher_timeout", null))
+      .mockResolvedValueOnce(providerError("validation_error", 422));
+    await dispatchQueuedOutboundDeliveries(10);
+    expireLeases();
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(row()).toMatchObject({ status: "failed", error_message: "failed_after_uncertain_attempt" });
+  });
+
+  it("a definitely-refused attempt still keeps the unsent flag (the outcome write replaces the pre-attempt marker)", async () => {
+    seed([emailRow()]);
+    sendMock.mockResolvedValueOnce(providerError("rate_limit_exceeded", 429));
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(parseRetryMarker(row().error_message)).toMatchObject({ code: "provider_rate_limited", unsentOnly: true });
+  });
+
+  it("if the pre-attempt marker cannot be written, the provider is not called and the row is untouched", async () => {
+    const db = seed([emailRow()]);
+    db.failUpdates("outbound_deliveries", isOutcomeWrite("retry:provider_attempt_started:"));
+    const result = await dispatchQueuedOutboundDeliveries(10);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ sent: 0, failed: 0 });
+    expect(row()).toMatchObject({ status: "queued", error_message: null });
+  });
+
+  it("if the claim was lost before the attempt started, the provider is not called", async () => {
+    const db = seed([emailRow()]);
+    db.overrideRpc("claim_outbound_deliveries", (args) => {
+      const target = db.rows("outbound_deliveries")[0];
+      const copy = { ...target, claim_owner: args.p_owner };
+      target.claim_owner = "another-worker"; // reclaimed after this run loaded it
+      target.claim_expires_at = new Date(Date.now() + 300_000).toISOString();
+      return { data: [copy], error: null };
+    });
+    const result = await dispatchQueuedOutboundDeliveries(10);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ lostClaims: 1, sent: 0 });
+  });
+
+  it("a first-attempt rejection is still a definite (retryable) rejection", async () => {
+    seed([emailRow()]);
+    sendMock.mockResolvedValueOnce(providerError("validation_error", 422));
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(row()).toMatchObject({ status: "failed", error_message: "provider_rejected:validation_error" });
+  });
+
+  /** Updates that wrote an attempt-started marker (checked on the recorded writes, not the final row state). */
+  const attemptMarkerWrites = () =>
+    fake.current!.mutations.filter(
+      (mutation) =>
+        mutation.table === "outbound_deliveries" &&
+        mutation.op === "update" &&
+        String((mutation.values as FakeRow | null)?.error_message ?? "").startsWith("retry:provider_attempt_started:"),
+    );
+
+  it("SMS rows never get an attempt marker (no provider idempotency; behaviour unchanged)", async () => {
+    seed([emailRow({ channel: "sms", template_key: "intake_invitation_student", recipient_phone: "+15550100123" })]);
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(attemptMarkerWrites()).toHaveLength(0);
+    expect(row()).toMatchObject({ status: "skipped", error_message: "sms_template_not_permitted" });
+  });
+
+  it("an email send attempt writes exactly one attempt marker", async () => {
+    seed([emailRow()]);
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(attemptMarkerWrites()).toHaveLength(1);
+  });
+
+  it.each([
+    ["no provider key", () => delete process.env.RESEND_API_KEY, {}],
+    ["missing recipient", () => undefined, { recipient_email: null }],
+    ["unsupported template", () => undefined, { template_key: "intake_invitation_student" }],
+  ])("%s: stops before the provider, so no attempt marker is written", async (_label, arrange, over) => {
+    arrange();
+    seed([emailRow(over as FakeRow)]);
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(attemptMarkerWrites()).toHaveLength(0);
+  });
+
+  it("an M-0 suppression skip stops before the provider, so no attempt marker is written", async () => {
+    process.env.MARKETING_FROM_EMAIL = "DanceFlow <news@mail.idanceflow.com>";
+    try {
+      fake.current = createFakeSupabase({
+        outbound_deliveries: [
+          emailRow({ template_key: "automation_low_package_balance", payload: { content_origin: "system_default" } }),
+        ],
+        studios: [{ ...studio, address_line_1: "1 Harbor Way", city: "Wilmington", state: "NC", postal_code: "28401", country: "US" }],
+      });
+      installClaim(fake.current);
+      fake.current.overrideRpc("marketing_suppression_status", () => ({ data: "suppressed", error: null }));
+      await dispatchQueuedOutboundDeliveries(10);
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(attemptMarkerWrites()).toHaveLength(0);
+      expect(row()).toMatchObject({ status: "skipped", error_message: "marketing_suppressed" });
+    } finally {
+      delete process.env.MARKETING_FROM_EMAIL;
+    }
+  });
+
+  it("a pre-provider stop whose outcome write is lost does not make a later rejection uncertain", async () => {
+    delete process.env.RESEND_API_KEY;
+    const db = seed([emailRow()]);
+    db.failUpdates("outbound_deliveries", isOutcomeWrite("retry:provider_not_configured:"));
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(row().error_message).toBeNull(); // nothing recorded, and nothing could have been sent
+    process.env.RESEND_API_KEY = "re_test_not_a_real_key";
+    sendMock.mockResolvedValueOnce(providerError("validation_error", 422));
+    expireLeases();
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(row()).toMatchObject({ status: "failed", error_message: "provider_rejected:validation_error" });
+  });
+
+  it("staff see an in-flight first attempt as sending, not as a delivery problem", async () => {
+    const { describeDeliveryNoteForStaff, deliveryFailureNote } = await import("@/lib/notifications/deliveryOutcome");
+    const marker = buildRetryMarker("provider_attempt_started", Date.now());
+    expect(describeDeliveryNoteForStaff(marker)).toBe("Sending in progress.");
+    expect(deliveryFailureNote(marker)).toBeNull();
+    expect(describeDeliveryNoteForStaff("provider_retry_window_exhausted_unsent")).toMatch(
+      /^Not delivered: every attempt was refused/,
+    );
+  });
+});
+
+describe("T2 re-review MINOR: a skip after a possibly-accepted attempt does not claim nothing was sent", () => {
+  const TOKEN = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+  function seedAriaCommercial(errorMessage: string | null) {
+    fake.current = createFakeSupabase({
+      outbound_deliveries: [
+        emailRow({
+          id: "aria-s",
+          template_key: "aria_execution_aria_low_package_balance",
+          payload: { content_origin: "system_default" },
+          related_table: "automation_actions",
+          related_id: "action-s",
+          error_message: errorMessage,
+        }),
+      ],
+      studios: [{ ...studio, address_line_1: "1 Harbor Way", city: "Wilmington", state: "NC", postal_code: "28401", country: "US" }],
+      automation_actions: [
+        { id: "action-s", studio_id: STUDIO_ID, rule_key: "aria_low_package_balance", status: "queued", execution_attempt_count: 1 },
+      ],
+    });
+    installClaim(fake.current);
+    fake.current.overrideRpc("marketing_suppression_status", () => ({ data: "unsubscribed", error: null }));
+    fake.current.overrideRpc("marketing_issue_message_unsubscribe_token", () => ({ data: TOKEN, error: null }));
+  }
+  beforeEach(() => {
+    process.env.MARKETING_FROM_EMAIL = "DanceFlow <news@mail.idanceflow.com>";
+  });
+  afterEach(() => {
+    delete process.env.MARKETING_FROM_EMAIL;
+  });
+  const action = () => fake.current!.rows("automation_actions")[0];
+  const skipEvent = () => fake.current!.rows("automation_action_events").find((e) => e.event_type === "execution_skipped");
+
+  it("after an earlier possibly-accepted attempt, the note warns it may already have reached the client", async () => {
+    seedAriaCommercial(buildRetryMarker("provider_unavailable", Date.now() - 60_000));
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(row("aria-s")).toMatchObject({ status: "skipped", error_message: "marketing_unsubscribed" });
+    expect(String(action().review_note)).toMatch(/may already have reached the client/);
+    expect((skipEvent()!.metadata as Record<string, unknown>).earlier_attempt_uncertain).toBe(true);
+  });
+
+  it("without an uncertain earlier attempt, the marketing wording is unchanged", async () => {
+    seedAriaCommercial(null);
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(action().review_note).toBe(
+      "ARIA did not send this follow-up: the client is not eligible for marketing email from this studio.",
+    );
+    expect((skipEvent()!.metadata as Record<string, unknown>).earlier_attempt_uncertain).toBeUndefined();
+  });
+
+  it("after only definitely-refused attempts, the marketing wording is unchanged", async () => {
+    seedAriaCommercial(buildRetryMarker("provider_rate_limited", Date.now() - 60_000, true));
+    await dispatchQueuedOutboundDeliveries(10);
+    expect(String(action().review_note)).toMatch(/not eligible for marketing email/);
   });
 });
