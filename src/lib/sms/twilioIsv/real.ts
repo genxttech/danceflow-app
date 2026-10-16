@@ -23,7 +23,7 @@ const TRUSTHUB = "https://trusthub.twilio.com/v1";
 const MESSAGING = "https://messaging.twilio.com/v1";
 const API = "https://api.twilio.com/2010-04-01";
 const TIMEOUT_MS = 20_000;
-const MAX_PAGES = 5;
+const MAX_PAGES = 10;
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; text(): Promise<string> }>;
 
@@ -95,6 +95,9 @@ export class RealIsvAdapter implements IsvAdapter {
       const meta = (json.meta ?? {}) as Record<string, unknown>;
       url = typeof meta.next_page_url === "string" && meta.next_page_url.startsWith(host) ? meta.next_page_url : null;
     }
+    // A lookup that stopped with pages still to read cannot prove that a resource does NOT exist, and these lookups guard paid and
+    // duplicate-prone creates: treat it as an unknown outcome so the run stops instead of creating.
+    if (url) throw new IsvApiError("transient", null, null, "list too long to search safely");
     return rows;
   }
 

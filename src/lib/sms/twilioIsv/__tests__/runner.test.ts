@@ -5,6 +5,7 @@ import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
 import type { RunnerInputs } from "../payloads";
 import { refreshBrandStatus, runBrandSubmission, STEPS } from "../runner";
+import { RunnerStoreError } from "../store";
 import { MemoryRunnerStore } from "./memoryStore";
 
 const STUDIO = "a5700000-0000-4000-8000-00000000000a";
@@ -433,5 +434,46 @@ describe("review fixes: unclear outcomes, lookups before creating, one brand, th
     store.windowOpen = true;
     expect((await run()).outcome).toBe("brand_submitted"); // reopening lets the next run continue where it stopped
     expect(adapter.count("createCustomerProfile")).toBe(1);
+  });
+});
+
+describe("PR review fixes: state sync after S11, and store failures after the paid brand", () => {
+  it("a crash between recording S11 and moving the onboarding to profile_review heals on the next run: the brand is recorded and the studio ends in brand_pending (no thrown error)", async () => {
+    await run({ confirmFee: false });
+    expect(store.state).toBe("profile_review");
+    store.state = "submitted_for_checks"; // simulate the lost state change; the ledger still has S11 succeeded
+    const result = await run({ confirmFee: true });
+    expect(result.outcome).toBe("brand_submitted");
+    expect(store.state).toBe("brand_pending");
+    expect(store.registration?.brand_status).toBe("in_review");
+    expect(adapter.count("submitCustomerProfile")).toBe(1);
+  });
+  it("a heal also works when the brand is already approved at Twilio: submitted_for_checks -> profile_review -> brand_pending -> service_setup, EIN erased", async () => {
+    await run();
+    store.state = "submitted_for_checks";
+    adapter.setBrandStatus([...adapter.brands.keys()][0], "APPROVED");
+    const refreshed = await run();
+    expect(refreshed.outcome).toBe("brand_approved");
+    expect(store.state).toBe("service_setup");
+    expect(store.einPurged).toBe(true);
+  });
+  it("when the step limit ends the run right after S11, the state still moves to profile_review", async () => {
+    const result = await run({ maxSteps: 11 });
+    expect(result.outcome).toBe("retry_later");
+    expect(result.stepsRun.at(-1)).toBe("S11");
+    expect(store.state).toBe("profile_review");
+  });
+  it("if the database refuses to record a brand that Twilio already created, the run reports an exception with a code instead of throwing, and the ledger still holds the brand", async () => {
+    const original = store.recordBrand.bind(store);
+    store.recordBrand = async () => {
+      throw new RunnerStoreError("22023");
+    };
+    const result = await run();
+    store.recordBrand = original;
+    expect(result.outcome).toBe("exception");
+    expect(result.detail).toBe("brand_mirror_failed:22023");
+    expect(store.ledger.find((row) => row.step_key === "B1")?.status).toBe("succeeded");
+    expect(adapter.brands.size).toBe(1);
+    expect(store.leaseOwner).toBeNull();
   });
 });

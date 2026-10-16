@@ -215,16 +215,19 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
     const move = async (to: RunnerTransitionState, step: string, code: string | null, field: string | null) => {
       state = await store.transition(onboardingId, leaseOwner, to, step, code, field);
     };
-    const stop = async (to: RunnerTransitionState, step: IsvStepKey, code: string, field: string | null): Promise<void> => {
-      await move(to, step, code, field);
+    // The onboarding moves to profile_review once the profile is submitted (S11), whether this run executed S11 or an earlier run did
+    // (skip after a crash between the ledger write and the state change): the 4A graph only allows profile_review -> brand_pending.
+    const syncReview = async () => {
+      if (ctx.sids.S11 && state === "submitted_for_checks") await move("profile_review", "S11", null, null);
     };
 
     for (const step of STEPS) {
+      await syncReview();
       if (ctx.sids[step.key]) continue;
       if (stepsRun.length >= maxSteps) break;
       for (const dependency of step.requires) {
         if (!ctx.sids[dependency]) {
-          await stop("exception", step.key, "dependency_missing", null);
+          await move("exception", step.key, "dependency_missing", null);
           return { outcome: "exception", stepsRun, detail: `dependency:${dependency}`, state };
         }
       }
@@ -243,7 +246,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         }
         if (error instanceof RunnerStoreError && error.code === "55000") {
           // the studio already has a brand (or an unresolved attempt): never buy a second one; a human decides
-          await stop("exception", step.key, "brand_exists", null);
+          await move("exception", step.key, "brand_exists", null);
           return { outcome: "exception", stepsRun, detail: `${step.key}:brand_exists`, state };
         }
         throw error;
@@ -273,11 +276,11 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
           if (found.length > 1 || step.fee) {
             // Several candidates, or a paid step whose outcome is still unknown: never guess, never re-create.
             await store.finishStep(onboardingId, leaseOwner, step.key, { status: "unknown_outcome", errorCode: found.length > 1 ? "ambiguous_match" : "ambiguous_fee_step", errorDetail: `candidates:${found.length}` });
-            await stop("exception", step.key, found.length > 1 ? "ambiguous_match" : "ambiguous_fee_step", null);
+            await move("exception", step.key, found.length > 1 ? "ambiguous_match" : "ambiguous_fee_step", null);
             return { outcome: "exception", stepsRun, detail: `${step.key}:${found.length > 1 ? "ambiguous_match" : "ambiguous_fee_step"}`, state };
           }
         } else if (step.fee) {
-          await stop("exception", step.key, "ambiguous_fee_step", null);
+          await move("exception", step.key, "ambiguous_fee_step", null);
           return { outcome: "exception", stepsRun, detail: `${step.key}:ambiguous_fee_step`, state };
         }
         // nothing found for a free step: it is safe to execute it again
@@ -301,7 +304,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         }
         if (existing.length > 1) {
           await store.finishStep(onboardingId, leaseOwner, step.key, { status: "unknown_outcome", errorCode: "ambiguous_match", errorDetail: `candidates:${existing.length}` });
-          await stop("exception", step.key, "ambiguous_match", null);
+          await move("exception", step.key, "ambiguous_match", null);
           return { outcome: "exception", stepsRun, detail: `${step.key}:ambiguous_match`, state };
         }
       }
@@ -313,7 +316,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         const detail = sanitizedDetail(error);
         if (error instanceof PayloadError) {
           await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: "payload", errorDetail: detail });
-          await stop("needs_info", step.key, "payload", safeField(error.field));
+          await move("needs_info", step.key, "payload", safeField(error.field));
           return { outcome: "needs_info", stepsRun, detail: `${step.key}:${detail}`, state };
         }
         // Only a DEFINITE refusal (a parsed 4xx, bad credentials) or a failure that happened before anything was sent (our own EIN
@@ -325,7 +328,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
           return { outcome: "retry_later", stepsRun, detail: `${step.key}:${detail}`, state };
         }
         await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: ambiguous ? "ambiguous_rejected" : "api", errorDetail: detail });
-        await stop("exception", step.key, ambiguous ? "ambiguous_rejected" : "api", null);
+        await move("exception", step.key, ambiguous ? "ambiguous_rejected" : "api", null);
         return { outcome: "exception", stepsRun, detail: `${step.key}:${detail}`, state };
       }
 
@@ -333,10 +336,10 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         const field = firstWizardField(result.failedFields);
         await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: "noncompliant", errorDetail: `fields:${result.failedFields.join(",").slice(0, 400)}` });
         if (field) {
-          await stop("needs_info", step.key, "noncompliant", safeField(field));
+          await move("needs_info", step.key, "noncompliant", safeField(field));
           return { outcome: "needs_info", stepsRun, detail: `${step.key}:noncompliant:${field}`, state };
         }
-        await stop("exception", step.key, "noncompliant_unmapped", null);
+        await move("exception", step.key, "noncompliant_unmapped", null);
         return { outcome: "exception", stepsRun, detail: `${step.key}:noncompliant_unmapped`, state };
       }
 
@@ -344,9 +347,9 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
       ctx.sids[step.key] = result.sid;
       stepsRun.push(step.key);
 
-      if (step.key === "S11") await move("profile_review", "S11", null, null);
     }
 
+    await syncReview();
     if (!ctx.sids.B1) return { outcome: "retry_later", stepsRun, detail: "step_limit", state };
 
     // The brand exists: mirror it, and follow it.
@@ -378,22 +381,28 @@ async function followBrand(args: {
     return { outcome: args.justCreated ? "brand_submitted" : "brand_in_review", stepsRun, detail: "mock_brand", state };
   }
   const mapped = BRAND_MAP[rawStatus] ?? null;
-  if (!mapped) {
-    await store.transition(onboardingId, leaseOwner, "exception", "B1", "brand_unexpected_status", null);
-    return { outcome: "exception", stepsRun, detail: "brand:unexpected_status", state: "exception" };
+  try {
+    if (!mapped) {
+      await store.transition(onboardingId, leaseOwner, "exception", "B1", "brand_unexpected_status", null);
+      return { outcome: "exception", stepsRun, detail: "brand:unexpected_status", state: "exception" };
+    }
+    await store.recordBrand(onboardingId, leaseOwner, brandSid, mapped);
+    if (mapped === "approved") {
+      await store.transition(onboardingId, leaseOwner, "brand_pending", "B1", null, null); // idempotent; the first pass is still profile_review
+      const state = await store.brandApproved(onboardingId, leaseOwner);
+      return { outcome: "brand_approved", stepsRun, state };
+    }
+    if (mapped === "rejected" || mapped === "suspended") {
+      await store.transition(onboardingId, leaseOwner, "exception", "B1", mapped === "rejected" ? "brand_rejected" : "brand_suspended", null);
+      return { outcome: "exception", stepsRun, detail: `brand:${mapped}`, state: "exception" };
+    }
+    const state = await store.transition(onboardingId, leaseOwner, "brand_pending", "B1", null, null);
+    return { outcome: args.justCreated ? "brand_submitted" : "brand_in_review", stepsRun, state };
+  } catch (error) {
+    // The paid brand exists at Twilio but we could not record it: say so plainly (the ledger already holds its sid) instead of throwing.
+    if (error instanceof RunnerStoreError) return { outcome: "exception", stepsRun, detail: `brand_mirror_failed:${error.code}`, state: args.state };
+    throw error;
   }
-  await store.recordBrand(onboardingId, leaseOwner, brandSid, mapped);
-  if (mapped === "approved") {
-    await store.transition(onboardingId, leaseOwner, "brand_pending", "B1", null, null); // idempotent; first pass is still profile_review
-    const state = await store.brandApproved(onboardingId, leaseOwner);
-    return { outcome: "brand_approved", stepsRun, state };
-  }
-  if (mapped === "rejected" || mapped === "suspended") {
-    await store.transition(onboardingId, leaseOwner, "exception", "B1", mapped === "rejected" ? "brand_rejected" : "brand_suspended", null);
-    return { outcome: "exception", stepsRun, detail: `brand:${mapped}`, state: "exception" };
-  }
-  const state = await store.transition(onboardingId, leaseOwner, "brand_pending", "B1", null, null);
-  return { outcome: args.justCreated ? "brand_submitted" : "brand_in_review", stepsRun, state };
 }
 
 /** "Check brand status": GET-only. Mirrors the brand into the registration row and finishes the onboarding step when approved. */

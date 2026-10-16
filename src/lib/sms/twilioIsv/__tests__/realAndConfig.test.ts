@@ -197,6 +197,21 @@ describe("the real adapter's request shapes (injected fetch, no network)", () =>
     expect(await adapter.findCustomerProfile("target")).toEqual([`BU${"2".repeat(32)}`]);
     expect(calls.map((c) => new URL(c.url).hostname)).toEqual(["trusthub.twilio.com", "trusthub.twilio.com"]);
   });
+  it("a lookup that stops with pages still unread is an UNKNOWN outcome, never 'nothing found' (a missed brand would be created twice)", async () => {
+    const page = (n: number) => ({ status: 200, body: { data: [{ sid: `BN${String(n).padStart(32, "0")}`, customer_profile_bundle_sid: "x", a2p_profile_bundle_sid: "y" }], meta: { next_page_url: `https://messaging.twilio.com/v1/a2p/BrandRegistrations?Page=${n + 1}` } } });
+    const { adapter, calls } = adapterWith(Array.from({ length: 10 }, (_, i) => page(i)));
+    const error = await adapter.findBrand({ customerProfileSid: `BU${"a".repeat(32)}`, trustProductSid: `BU${"9".repeat(32)}` }).catch((e) => e);
+    expect(error).toMatchObject({ kind: "transient" });
+    expect(calls).toHaveLength(10);
+    const profiles = adapterWith(Array.from({ length: 10 }, (_, i) => ({ status: 200, body: { results: [], meta: { next_page_url: `https://trusthub.twilio.com/v1/CustomerProfiles?Page=${i + 1}` } } })));
+    expect(await profiles.adapter.findCustomerProfile("target").catch((e) => e)).toMatchObject({ kind: "transient" });
+  });
+  it("a lookup that reads its last page (no next link) within the limit is complete and returns normally", async () => {
+    const pages = Array.from({ length: 10 }, (_, i) => ({ status: 200, body: { data: [], meta: i < 9 ? { next_page_url: `https://messaging.twilio.com/v1/a2p/BrandRegistrations?Page=${i + 1}` } : {} } }));
+    const { adapter, calls } = adapterWith(pages);
+    expect(await adapter.findBrand({ customerProfileSid: `BU${"a".repeat(32)}`, trustProductSid: `BU${"9".repeat(32)}` })).toEqual([]);
+    expect(calls).toHaveLength(10);
+  });
   it("the Primary profile lookup returns its status and policy", async () => {
     const { adapter } = adapterWith([{ status: 200, body: { status: "twilio-approved", policy_sid: `RN${"4".repeat(32)}` } }]);
     expect(await adapter.getCustomerProfile(`BU${"e".repeat(32)}`)).toEqual({ status: "twilio-approved", policySid: `RN${"4".repeat(32)}` });
