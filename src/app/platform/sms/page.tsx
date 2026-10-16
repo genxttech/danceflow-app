@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
+import SmsOnboardingPilot from "./SmsOnboardingPilot";
+import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
 import StudioSmsRegistrations, {
   type StudioOption,
   type StudioSmsRegistrationRow,
@@ -182,6 +184,14 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
     supabase.from("studios").select("id, name").order("name", { ascending: true }).limit(1000),
   ]);
 
+  let onboardingRows: PlatformOnboardingRow[] = [];
+  let onboardingUnavailable = false;
+  try {
+    onboardingRows = await listOnboardings(supabase);
+  } catch {
+    onboardingUnavailable = true; // migration not applied in this environment yet
+  }
+
   const logs = (logsResult.data ?? []) as SmsMessageLogRow[];
   const consentRows = (consentResult.data ?? []) as SmsConsentRow[];
   const registrations = (registrationsResult.data ?? []) as StudioSmsRegistrationRow[];
@@ -357,6 +367,16 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
           </p>
         </section>
       ) : null}
+
+      <SmsOnboardingPilot
+        studios={studios}
+        rows={onboardingRows}
+        unavailable={onboardingUnavailable}
+        notice={firstParam(params.pilot) === "saved"}
+        error={firstParam(params.pilot_error)}
+        runnerNotice={firstParam(params.runner)}
+        runnerError={firstParam(params.runner_error)}
+      />
 
       <StudioSmsRegistrations
         studios={studios}

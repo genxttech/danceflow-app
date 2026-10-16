@@ -6,6 +6,7 @@ import { updateStudioMarketingFooterAction } from "./actions";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { studioHasFeature } from "@/lib/billing/access";
+import { getStudioSmsStatus } from "@/lib/sms/onboarding/client";
 
 type StudioRow = {
   id: string;
@@ -306,6 +307,15 @@ export default async function SettingsPage() {
     cancelAtPeriodEnd: Boolean(studioSubscription?.cancel_at_period_end),
   };
 
+  // TW-4A: the Texting entry exists only for studios the platform switched the pilot on for (database-enforced, default off).
+  // Any failure (migration not applied yet, wrong role) simply hides the entry.
+  let smsOnboardingAvailable = false;
+  try {
+    smsOnboardingAvailable = (await getStudioSmsStatus(supabase, context.studioId)).available;
+  } catch {
+    smsOnboardingAvailable = false;
+  }
+
   return (
     <div className="space-y-6">
       <section className="overflow-hidden rounded-3xl border border-white/15 bg-[linear-gradient(135deg,#2D0B45_0%,#4C1D95_55%,#7C2D92_100%)] p-6 text-white shadow-sm md:p-8">
@@ -360,6 +370,22 @@ export default async function SettingsPage() {
               →
             </span>
           </Link>
+          {smsOnboardingAvailable ? (
+            <Link
+              href="/app/settings/sms"
+              className="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-violet-50/60 md:px-5"
+            >
+              <span>
+                <span className="block font-semibold text-slate-950">Texting</span>
+                <span className="mt-1 block text-sm text-slate-600">
+                  Set up appointment texts for your clients and follow the approval progress.
+                </span>
+              </span>
+              <span aria-hidden="true" className="text-xl font-semibold text-violet-600">
+                →
+              </span>
+            </Link>
+          ) : null}
         </div>
 
         <SettingsForm

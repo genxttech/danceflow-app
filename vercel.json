@@ -32,6 +32,10 @@
     {
       "path": "/api/cron/event-cart-orders",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-onboarding-purge",
+      "schedule": "17 3 * * *"
     }
   ]
 }

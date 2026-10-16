@@ -1,0 +1,87 @@
+import "server-only";
+import type { IsvEnvName } from "./types";
+
+/**
+ * TW-4 R1: configuration and the "may this process call Twilio's registration APIs at all?" gate.
+ *
+ * Design rule (TW-4 §15): DEV and preview environments NEVER call Trust Hub / A2P create endpoints. The gate below allows the
+ * real adapter only when BOTH the deployment is production AND `TW4_ISV_REAL_CALLS=on` is set deliberately. Nothing in the
+ * application sets it. The fake adapter is allowed everywhere except production.
+ */
+
+type Env = Record<string, string | undefined>;
+
+export type IsvConfig = {
+  accountSid: string;
+  authToken: string;
+  primaryProfileSid: string;
+  /** The Trust Hub policy of the ISV Primary profile; the preflight requires the Primary profile to carry exactly this policy. */
+  primaryProfilePolicySid: string;
+  secondaryProfilePolicySid: string;
+  a2pPolicySid: string;
+  complianceEmail: string;
+  envName: IsvEnvName;
+  /** Register as a Twilio MOCK brand (no fee, for a controlled dry run). Defaults to false. */
+  mockBrand: boolean;
+};
+
+const SID = (prefix: string) => new RegExp(`^${prefix}[0-9a-fA-F]{32}$`);
+
+export function isvEnvName(env: Env = process.env): IsvEnvName {
+  const vercel = String(env.VERCEL_ENV ?? "").toLowerCase();
+  if (vercel === "production") return "production";
+  if (vercel === "preview") return "preview";
+  if (String(env.NODE_ENV ?? "") === "test") return "test";
+  return "development";
+}
+
+export type RealCallsGate = { allowed: true } | { allowed: false; reason: string };
+
+export function realCallsAllowed(env: Env = process.env): RealCallsGate {
+  if (isvEnvName(env) !== "production") return { allowed: false, reason: "Twilio registration calls are disabled outside production." };
+  // A production build only: a local `next dev` with pulled production variables has NODE_ENV=development and is refused.
+  if (String(env.NODE_ENV ?? "") !== "production") return { allowed: false, reason: "Twilio registration calls are disabled outside a production build." };
+  if (String(env.TW4_ISV_REAL_CALLS ?? "") !== "on") return { allowed: false, reason: "Twilio registration calls are switched off." };
+  return { allowed: true };
+}
+
+/** The fake writes fake SIDs into the ledger and registration rows, so it may only run against a LOCAL database. */
+function localDatabase(env: Env): boolean {
+  try {
+    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(String(env.NEXT_PUBLIC_SUPABASE_URL ?? "")).hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function fakeAdapterAllowed(env: Env = process.env): boolean {
+  return isvEnvName(env) !== "production" && String(env.TW4_ISV_FAKE ?? "") === "on" && localDatabase(env);
+}
+
+export type IsvConfigResult = { ok: true; config: IsvConfig } | { ok: false; missing: string[] };
+
+/** Names of missing or malformed variables only; values are never echoed. */
+export function loadIsvConfig(env: Env = process.env): IsvConfigResult {
+  const missing: string[] = [];
+  const need = (name: string, pattern?: RegExp) => {
+    const value = String(env[name] ?? "").trim();
+    if (!value || (pattern && !pattern.test(value))) missing.push(name);
+    return value;
+  };
+  const accountSid = need("TWILIO_ACCOUNT_SID", SID("AC"));
+  const authToken = need("TWILIO_AUTH_TOKEN");
+  const primaryProfileSid = need("TWILIO_ISV_PRIMARY_PROFILE_SID", SID("BU"));
+  const primaryProfilePolicySid = need("TWILIO_ISV_PRIMARY_POLICY_SID", SID("RN"));
+  const secondaryProfilePolicySid = need("TWILIO_ISV_SECONDARY_POLICY_SID", SID("RN"));
+  const a2pPolicySid = need("TWILIO_ISV_A2P_POLICY_SID", SID("RN"));
+  const complianceEmail = need("TWILIO_ISV_COMPLIANCE_EMAIL", /^[^@\s]+@[^@\s]+\.[^@\s]+$/);
+  if (missing.length > 0) return { ok: false, missing };
+  return {
+    ok: true,
+    config: {
+      accountSid, authToken, primaryProfileSid, primaryProfilePolicySid, secondaryProfilePolicySid, a2pPolicySid, complianceEmail,
+      envName: isvEnvName(env),
+      mockBrand: String(env.TW4_ISV_MOCK_BRAND ?? "") === "on",
+    },
+  };
+}

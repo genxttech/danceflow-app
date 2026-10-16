@@ -4,6 +4,10 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { setPilotAccess } from "@/lib/sms/onboarding/client";
+import { buildRunnerRuntime, buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
+import { describeOutcome } from "@/lib/sms/twilioIsv/outcomes";
+import { refreshBrandStatus, runBrandSubmission } from "@/lib/sms/twilioIsv/runner";
 import {
   SMS_CAMPAIGN_USE_CASES,
   SMS_PROVIDER_REVIEW_STATUSES,
@@ -134,4 +138,95 @@ export async function saveStudioSmsRegistrationAction(formData: FormData) {
 
   revalidatePath(RETURN_PATH);
   done({ saved: true });
+}
+
+/**
+ * TW-4A: platform admins switch a studio's SMS onboarding pilot access ON/OFF (default OFF for every studio). The database
+ * re-checks platform_role inside `set_sms_onboarding_access`, so this is the second check, not the only one.
+ */
+export async function setSmsOnboardingAccessAction(formData: FormData) {
+  await requirePlatformAdmin();
+
+  const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
+  const reasonResult = cleanTextValue(rawFormString(formData, "reason"), { fieldLabel: "Reason", maxLength: 500, allowNewlines: false });
+  const enabled = rawFormString(formData, "enabled") === "on";
+  const back = (query: string): never => redirect(`${RETURN_PATH}?${query}#onboarding-pilot`);
+
+  if (!studioIdResult.ok) back(`pilot_error=${encodeURIComponent(studioIdResult.error)}`);
+  if (!studioIdResult.ok || !studioIdResult.value) back(`pilot_error=${encodeURIComponent("Choose a studio.")}`);
+  if (!reasonResult.ok || reasonResult.value.trim().length < 3) back(`pilot_error=${encodeURIComponent("Give a short reason (3+ characters).")}`);
+
+  try {
+    await setPilotAccess(
+      await createClient(),
+      String(studioIdResult.ok ? studioIdResult.value : ""),
+      enabled,
+      reasonResult.ok ? reasonResult.value.trim() : "",
+    );
+  } catch {
+    back(`pilot_error=${encodeURIComponent("The pilot switch could not be changed.")}`);
+  }
+  revalidatePath(RETURN_PATH);
+  back("pilot=saved");
+}
+
+/**
+ * TW-4 R1: a platform admin runs the brand submission steps for ONE studio ("Run next steps"), or checks the brand's status
+ * ("Check brand status", GET-only). Nothing runs on a schedule. The paid brand step needs the fee confirmation ticked on every
+ * run. The database re-checks the platform-admin actor and the pilot switch inside the claim. In DEV/preview the real adapter
+ * cannot be built (only the fake, if TW4_ISV_FAKE=on); in production it needs TW4_ISV_REAL_CALLS=on.
+ */
+export async function runSmsOnboardingAction(formData: FormData) {
+  const admin = await requirePlatformAdmin();
+
+  const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
+  const intent = rawFormString(formData, "intent") === "refresh" ? "refresh" : "run";
+  const confirmFee = rawFormString(formData, "confirmFee") === "on";
+  const back = (query: string): never => redirect(`${RETURN_PATH}?${query}#onboarding-pilot`);
+
+  if (!studioIdResult.ok || !studioIdResult.value) back(`runner_error=${encodeURIComponent("Choose a studio.")}`);
+  const studioId = String(studioIdResult.ok ? studioIdResult.value : "");
+
+  const runtime = buildRunnerRuntime();
+  if (!runtime.ok) back(`runner_error=${encodeURIComponent(runtime.reason)}`);
+  if (!runtime.ok) return;
+
+  let message: string;
+  try {
+    const result =
+      intent === "refresh"
+        ? await refreshBrandStatus({ store: runtime.store, adapter: runtime.adapter, studioId, actorId: admin.id })
+        : await runBrandSubmission({ store: runtime.store, adapter: runtime.adapter, config: runtime.config, studioId, actorId: admin.id, confirmFee });
+    message = describeOutcome(result.outcome, result.detail);
+  } catch {
+    back(`runner_error=${encodeURIComponent("The run failed unexpectedly. Nothing was repeated; check the step list before running again.")}`);
+    return;
+  }
+  revalidatePath(RETURN_PATH);
+  back(`runner=${encodeURIComponent(message)}`);
+}
+
+/**
+ * TW-4 R1: the database kill switch. A platform admin opens a time-limited runner window (1-72 hours, 0 closes) for ONE studio; the run
+ * action refuses to create anything outside an open window. The database re-checks the platform-admin actor.
+ */
+export async function setSmsRunnerWindowAction(formData: FormData) {
+  const admin = await requirePlatformAdmin();
+
+  const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
+  const reasonResult = cleanTextValue(rawFormString(formData, "reason"), { fieldLabel: "Reason", maxLength: 300, allowNewlines: false });
+  const hours = Number.parseInt(rawFormString(formData, "hours"), 10);
+  const back = (query: string): never => redirect(`${RETURN_PATH}?${query}#onboarding-pilot`);
+
+  if (!studioIdResult.ok || !studioIdResult.value) back(`runner_error=${encodeURIComponent("Choose a studio.")}`);
+  if (!reasonResult.ok || reasonResult.value.trim().length < 3) back(`runner_error=${encodeURIComponent("Give a short reason (3+ characters).")}`);
+  if (!Number.isInteger(hours) || hours < 0 || hours > 72) back(`runner_error=${encodeURIComponent("Hours must be between 0 (close) and 72.")}`);
+
+  try {
+    await buildRunnerStore().setWindow(String(studioIdResult.ok ? studioIdResult.value : ""), admin.id, hours, reasonResult.ok ? reasonResult.value.trim() : "");
+  } catch {
+    back(`runner_error=${encodeURIComponent("The runner window could not be changed.")}`);
+  }
+  revalidatePath(RETURN_PATH);
+  back(`runner=${encodeURIComponent(hours === 0 ? "Runner window closed." : `Runner window open for ${hours} hour(s).`)}`);
 }
