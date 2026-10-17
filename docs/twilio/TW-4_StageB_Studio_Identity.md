@@ -72,3 +72,19 @@ Owning both businesses does not make ConfiDance a distinct Secondary-profile sub
 | Does the entity's legal name contain "GenX" or "TotalTech"? | the name | the checker and launcher refuse it by design |
 
 A single-member LLC has its own entity and normally its own EIN, so it qualifies. A disregarded or unregistered business that uses your SSN or GenX's EIN does not, and Stage B on ConfiDance would not be valid.
+
+## 5b. What the ISV-identity guard is, and is not
+
+The refusals in the checker and the launcher (legal name containing `genx`/`totaltech`, a `@idanceflow.com` representative) are an **accidental-reuse safeguard**. They catch the mistake of filling in the ISV's own details. They are **not** an authorization control, **not** a legal-identity verification and **not** a security boundary: they cannot prove who a business is, and the operator controls both the file and the EIN prompt.
+
+Known limitations, recorded as follow-ups (not implemented; this PR is not expanded):
+
+| # | Limitation | Follow-up |
+|---|---|---|
+| F1 | A studio whose legal name merely contains "genx" or "totaltech" (for example "Genxtreme Dance LLC") is refused (false positive) | Replace the substring rule with a word-boundary or exact-entity rule when a real case appears |
+| F2 | Evasions pass: leetspeak ("Tota1Tech"), a lone lookalike character ("GenΧ" using a Greek letter), a subdomain email such as `x@mail.idanceflow.com` | Normalize confusables and match subdomains if the guard is ever promoted beyond a typo check |
+| F3 | The launcher never holds the ISV's EIN, so it cannot detect the ISV's EIN typed at the hidden prompt | A read-only comparison of the typed EIN's last four with the Primary profile's last four (Stage A already reports it) inside the authorized window. It touches the real Twilio boundary and needs an Opus review first |
+
+## 5c. Mandatory prerequisite before any real Stage B run
+
+The manual legal-entity and EIN verification in §5a is **mandatory**: ConfiDance must be confirmed from documents as its own legal entity with its own EIN (different from GenX TotalTech LLC's) before Stage B is authorized. Passing the checker or the launcher does not satisfy it, and neither does the guard in §5b. Stage B and Stage C remain unauthorized.
