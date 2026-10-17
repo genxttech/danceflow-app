@@ -94,3 +94,40 @@ describe("stage-aware request fence (review P2-1: the S10 boundary is also enfor
     }
   });
 });
+
+describe("fence cannot be bypassed by the shape of the fetch call (code review)", () => {
+  const P = "https://trusthub.twilio.com/v1";
+  const BU = `BU${"a".repeat(32)}`;
+  it("a Request object carries its own method and body: a POST Request is judged as a POST, not as a GET", async () => {
+    const { describeRequest, requestAllowed } = await import("../../../../../scripts/tw4-validation/fence");
+    const submit = new Request(`${P}/CustomerProfiles/${BU}`, { method: "POST", body: "Status=pending-review" });
+    const described = describeRequest(submit);
+    expect(described.method).toBe("POST");
+    expect(requestAllowed(described.url, described, "real", "B")).toBe(false); // submit-for-review is not a stage B request
+    const draft = new Request(`${P}/CustomerProfiles`, { method: "POST", body: "FriendlyName=x" });
+    const d2 = describeRequest(draft);
+    expect(d2.method).toBe("POST");
+    expect(requestAllowed(d2.url, d2, "real", "B")).toBe(false); // a Request body is a stream the fence cannot read: refused even on an allowed path
+    const get = describeRequest(new Request(`${P}/Policies`));
+    expect(requestAllowed(get.url, get, "real", "B")).toBe(true);
+  });
+  it("init overrides the Request, and a plain string URL defaults to GET", async () => {
+    const { describeRequest } = await import("../../../../../scripts/tw4-validation/fence");
+    expect(describeRequest(new Request(`${P}/Policies`), { method: "POST" }).method).toBe("POST");
+    expect(describeRequest(`${P}/Policies`).method).toBe("GET");
+    expect(describeRequest(new URL(`${P}/Policies`)).url).toBe(`${P}/Policies`);
+  });
+  it("URLSearchParams bodies are inspected like strings; any other body type (FormData, Blob, stream, buffer) is refused for Twilio POSTs", async () => {
+    const { requestAllowed } = await import("../../../../../scripts/tw4-validation/fence");
+    const url = `${P}/CustomerProfiles/${BU}`;
+    expect(requestAllowed(url, { method: "POST", body: new URLSearchParams({ Status: "pending-review" }) }, "real", "B")).toBe(false);
+    expect(requestAllowed(url, { method: "POST", body: new URLSearchParams({ Status: "pending-review" }) }, "real", "C")).toBe(true);
+    expect(requestAllowed(`${P}/CustomerProfiles`, { method: "POST", body: new URLSearchParams({ FriendlyName: "x" }) }, "real", "B")).toBe(true);
+    expect(requestAllowed(`${P}/CustomerProfiles`, { method: "POST", body: new URLSearchParams({ FriendlyName: "x", Status: "pending-review" }) }, "real", "B")).toBe(false);
+    for (const body of [new FormData(), new Blob(["Status=pending-review"]), new Uint8Array([1, 2]), new ReadableStream()]) {
+      expect(requestAllowed(`${P}/CustomerProfiles`, { method: "POST", body }, "real", "B")).toBe(false);
+    }
+    // the local database is untouched by these rules
+    expect(requestAllowed("http://127.0.0.1:55321/rest/v1/rpc/x", { method: "POST", body: new Blob(["{}"]) }, "real", "B")).toBe(true);
+  });
+});

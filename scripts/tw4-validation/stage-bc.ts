@@ -36,6 +36,7 @@ import { cancelOnboarding, saveOnboardingDraft, setPilotAccess, storeEinCipherte
 import { encryptEin } from "@/lib/sms/onboarding/ein";
 import { DRAFT_FIELD_KEYS, normalizeEin, validateDraftFields } from "@/lib/sms/onboarding/fields";
 import { loadIsvConfig, type IsvConfig } from "@/lib/sms/twilioIsv/config";
+import { isLoopbackHost } from "@/lib/sms/twilioIsv/loopback";
 import { FakeIsvAdapter } from "@/lib/sms/twilioIsv/fake";
 import { createRealIsvAdapter } from "@/lib/sms/twilioIsv/real";
 import { SupabaseRunnerStore } from "@/lib/sms/twilioIsv/store";
@@ -102,7 +103,7 @@ function requireLocalStack() {
   } catch {
     /* handled below */
   }
-  if (!URL_ || !JWT_SECRET || !PG || !["127.0.0.1", "localhost", "[::1]"].includes(host)) {
+  if (!URL_ || !JWT_SECRET || !PG || !isLoopbackHost(host)) {
     throw new Error("Set TW4A_LOCAL_URL (loopback), TW4A_LOCAL_JWT_SECRET and TW4A_LOCAL_DB_CONTAINER for the LOCAL QA stack.");
   }
   // The database is reached through `docker exec`, so the URL check alone does not protect it: pin the container to the local QA stack and
@@ -276,9 +277,11 @@ async function run() {
   const store = new SupabaseRunnerStore(client(null, service()));
   const reports: StageReport[] = [];
   // Ctrl-C mid-run: close the window before exiting (the database expiry is only the backstop).
-  process.once("SIGINT", () => {
+  const closeWindowAndExit = () => {
     void store.setWindow(STUDIO, PADMIN, 0, "tw4 validation interrupted").catch(() => undefined).finally(() => process.exit(130));
-  });
+  };
+  // Ctrl-C, a closed console window, Ctrl-Break (Windows) and a termination request all close the window before exiting.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"] as const) process.once(signal, closeWindowAndExit);
   for (const stage of stages) {
     stageStarted = true;
     const outcome = await runValidationStage({

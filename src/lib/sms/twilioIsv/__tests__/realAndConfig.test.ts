@@ -120,6 +120,15 @@ describe("Standard API key authentication for the registration APIs (decision D1
     expect(JSON.stringify(calls)).not.toContain(Buffer.from(`${config.accountSid}:must-never-be-used`).toString("base64"));
     expect(String((error as Error).message)).not.toContain("must-never-be-used");
   });
+  it("a key SID without its secret fails closed at construction (no request is ever signed with an empty password)", () => {
+    const noFetch = async () => {
+      throw new Error("must not be called");
+    };
+    expect(() => new RealIsvAdapter({ ...config, authToken: "", apiKeySid: KEY_SID }, noFetch)).toThrow("without its secret");
+    expect(() => new RealIsvAdapter({ ...config, authToken: "", apiKeySid: KEY_SID, apiKeySecret: "" }, noFetch)).toThrow("without its secret");
+    expect(() => new RealIsvAdapter({ ...config, authToken: "", apiKeySid: KEY_SID, apiKeySecret: KEY_SECRET }, noFetch)).not.toThrow();
+    expect(() => new RealIsvAdapter(config, noFetch)).not.toThrow(); // token-only configuration (production) is unaffected
+  });
   it("production behavior is unchanged: without a key the header is account SID + auth token", async () => {
     const plain = adapterWith([{ status: 200, body: { status: "twilio-approved", policy_sid: "RN" } }]);
     await plain.adapter.getCustomerProfile(`BU${"e".repeat(32)}`);
@@ -360,7 +369,7 @@ describe("payload mapping", () => {
 describe("only real.ts can reach Twilio", () => {
   const dir = join(__dirname, "..");
   const files = readdirSync(dir).filter((name) => name.endsWith(".ts") && statSync(join(dir, name)).isFile());
-  it("covers the slice's files", () => expect(files.sort()).toEqual(["config.ts", "factory.ts", "fake.ts", "outcomes.ts", "payloads.ts", "real.ts", "runner.ts", "store.ts", "types.ts"]));
+  it("covers the slice's files", () => expect(files.sort()).toEqual(["config.ts", "factory.ts", "fake.ts", "loopback.ts", "outcomes.ts", "payloads.ts", "real.ts", "runner.ts", "store.ts", "types.ts"]));
   it.each(files.filter((name) => name !== "real.ts"))("%s has no network call, Twilio host or credential read", (name) => {
     const code = readFileSync(join(dir, name), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
     expect(code).not.toMatch(/\bfetch\s*\(/);

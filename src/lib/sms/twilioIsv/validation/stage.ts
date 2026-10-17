@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { fakeAdapterAllowed, realCallsAllowed, type IsvConfig } from "../config";
+import { isLoopbackUrl } from "../loopback";
 import { runBrandSubmission, type RunResult } from "../runner";
 import type { RunnerStore } from "../store";
 import { ISV_STEP_KEYS, type IsvAdapter } from "../types";
@@ -36,13 +37,7 @@ export type StageGuardInput = {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function loopbackUrl(url: string): boolean {
-  try {
-    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(url).hostname);
-  } catch {
-    return false;
-  }
-}
+export const loopbackUrl = isLoopbackUrl;
 
 export function checkStageGuards(input: StageGuardInput): { ok: true } | { ok: false; reason: string } {
   const refuse = (reason: string) => ({ ok: false as const, reason });

@@ -1,4 +1,5 @@
 import "server-only";
+import { isLoopbackUrl } from "./loopback";
 import type { IsvEnvName } from "./types";
 
 /**
@@ -55,11 +56,7 @@ export function realCallsAllowed(env: Env = process.env): RealCallsGate {
 
 /** The fake writes fake SIDs into the ledger and registration rows, so it may only run against a LOCAL database. */
 function localDatabase(env: Env): boolean {
-  try {
-    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(String(env.NEXT_PUBLIC_SUPABASE_URL ?? "")).hostname);
-  } catch {
-    return false;
-  }
+  return isLoopbackUrl(String(env.NEXT_PUBLIC_SUPABASE_URL ?? ""));
 }
 
 export function fakeAdapterAllowed(env: Env = process.env): boolean {

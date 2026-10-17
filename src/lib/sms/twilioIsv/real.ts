@@ -35,7 +35,10 @@ function classify(status: number): IsvApiError["kind"] {
 }
 
 export class RealIsvAdapter implements IsvAdapter {
-  constructor(private readonly config: IsvConfig, private readonly fetchImpl: FetchLike) {}
+  constructor(private readonly config: IsvConfig, private readonly fetchImpl: FetchLike) {
+    // A key SID without its secret would sign every request with an empty password. Fail loudly here instead (never fall back to the token).
+    if (config.apiKeySid && !config.apiKeySecret) throw new IsvApiError("account", null, null, "an API key SID is configured without its secret");
+  }
 
   /**
    * HTTP Basic. With an ISV API key: username = key SID, password = key secret (Twilio's documented API-key authentication; the Account SID
