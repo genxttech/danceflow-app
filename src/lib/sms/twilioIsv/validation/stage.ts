@@ -2,7 +2,7 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { fakeAdapterAllowed, realCallsAllowed, type IsvConfig } from "../config";
 import { isLoopbackUrl } from "../loopback";
-import { runBrandSubmission, type RunResult } from "../runner";
+import { classifyEvaluation, runBrandSubmission, safeFieldNames, type RunResult } from "../runner";
 import type { RunnerStore } from "../store";
 import { ISV_STEP_KEYS, type IsvAdapter } from "../types";
 
@@ -66,9 +66,13 @@ export function checkStageGuards(input: StageGuardInput): { ok: true } | { ok: f
   return { ok: true };
 }
 
-/** Records which adapter methods ran and how they ended; never arguments or results (those can hold business data or the EIN). */
-export function recordingAdapter(inner: IsvAdapter): { adapter: IsvAdapter; calls: { method: string; ok: boolean; errorKind?: string }[] } {
+/**
+ * Records which adapter methods ran and how they ended; never arguments or results (those can hold business data or the EIN). The one
+ * exception is an evaluation: its sanitized verdict (status + failing Twilio field NAMES) is recorded in `evaluations`.
+ */
+export function recordingAdapter(inner: IsvAdapter): { adapter: IsvAdapter; calls: { method: string; ok: boolean; errorKind?: string }[]; evaluations: EvaluationRecord[] } {
   const calls: { method: string; ok: boolean; errorKind?: string }[] = [];
+  const evaluations: EvaluationRecord[] = [];
   const adapter = new Proxy(inner, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver);
@@ -77,6 +81,7 @@ export function recordingAdapter(inner: IsvAdapter): { adapter: IsvAdapter; call
         try {
           const result = await (value as (...a: unknown[]) => unknown).apply(target, args);
           calls.push({ method: prop, ok: true });
+          if (prop === "evaluateCustomerProfile" || prop === "evaluateTrustProduct") evaluations.push(sanitizedEvaluation(prop, result));
           return result;
         } catch (error) {
           calls.push({ method: prop, ok: false, errorKind: String((error as { kind?: string }).kind ?? "error") });
@@ -85,7 +90,22 @@ export function recordingAdapter(inner: IsvAdapter): { adapter: IsvAdapter; call
       };
     },
   });
-  return { adapter, calls };
+  return { adapter, calls, evaluations };
+}
+
+/** What an evaluation call established, with only the Twilio field NAMES that failed (never a value, never the request). */
+export type EvaluationRecord = {
+  method: "evaluateCustomerProfile" | "evaluateTrustProduct";
+  evaluationSid: string | null;
+  status: "compliant" | "noncompliant" | "unrecognized";
+  failedFields: string[];
+};
+
+export function sanitizedEvaluation(method: EvaluationRecord["method"], reply: unknown): EvaluationRecord {
+  const body = reply !== null && typeof reply === "object" ? (reply as { evaluationSid?: unknown; result?: unknown }) : {};
+  const verdict = classifyEvaluation(body.result);
+  const sid = typeof body.evaluationSid === "string" && /^EL[0-9a-fA-F]{32}$/.test(body.evaluationSid) ? body.evaluationSid : null;
+  return { method, evaluationSid: sid, status: verdict.kind, failedFields: safeFieldNames(verdict.failedFields) };
 }
 
 /* ---- Stage C authorization: an executable gate, not a label ------------------------------------------------------------------ */
@@ -209,6 +229,8 @@ export type StageReport = {
   einOnFile: boolean | null;
   ledger: { step: string; status: string; feeBearing: boolean; feeConfirmed: boolean; errorCode: string | null }[];
   adapterCalls: { method: string; ok: boolean; errorKind?: string }[];
+  /** The actual evaluation verdicts (S10 profile, T5 trust product): status plus failing Twilio field names only. Empty if no evaluation ran. */
+  evaluations: EvaluationRecord[];
 };
 
 export async function runValidationStage(input: {
@@ -286,6 +308,7 @@ export async function runValidationStage(input: {
       einOnFile: status ? status.ein_on_file : null,
       ledger: (status?.steps ?? []).map((row) => ({ step: row.step_key, status: row.status, feeBearing: row.fee_bearing, feeConfirmed: row.fee_confirmed, errorCode: row.error_code })),
       adapterCalls: recorded.calls,
+      evaluations: recorded.evaluations,
     },
   };
 }

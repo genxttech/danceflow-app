@@ -60,10 +60,38 @@ type Ctx = {
   config: IsvConfig;
   inputs: RunnerInputs;
   sids: Partial<Record<IsvStepKey, string>>;
+  /** Evaluations that returned an explicit compliant verdict IN THIS PROCESS. A ledger row from an earlier run never counts as one. */
+  verified: Partial<Record<"S10" | "T5", true>>;
   readEin: () => Promise<string>;
 };
 
-type StepResult = { sid: string; failedFields?: string[] };
+/**
+ * What an evaluation really established. A successful API call (an EL sid came back) is NOT a successful evaluation: only an explicit
+ * "compliant" with no failing field lets the step succeed, which is the only way S11 / T6 (submission) can become runnable. Everything
+ * else fails closed, including "noncompliant" with no named field and any missing, malformed, unknown or contradictory status.
+ */
+export type EvaluationVerdict =
+  | { kind: "compliant"; failedFields: [] }
+  | { kind: "noncompliant"; failedFields: string[] }
+  | { kind: "unrecognized"; failedFields: string[] };
+
+export function classifyEvaluation(raw: unknown): EvaluationVerdict {
+  const reply = raw !== null && typeof raw === "object" ? (raw as { status?: unknown; failedFields?: unknown }) : {};
+  const listed = Array.isArray(reply.failedFields) ? reply.failedFields : null;
+  const names = listed ? listed.filter((field): field is string => typeof field === "string") : [];
+  const wellFormed = listed !== null && names.length === listed.length;
+  if (reply.status === "compliant" && wellFormed && names.length === 0) return { kind: "compliant", failedFields: [] };
+  if (reply.status === "noncompliant") return { kind: "noncompliant", failedFields: names };
+  return { kind: "unrecognized", failedFields: names };
+}
+
+const TWILIO_FIELD_NAME = /^[A-Za-z][A-Za-z0-9_.[\]-]{0,79}$/;
+/** Keeps only plain Twilio field NAMES (start with a letter; no spaces, @, or all-digit strings such as an EIN) for the ledger and the report. */
+export function safeFieldNames(names: readonly string[]): string[] {
+  return names.filter((name) => TWILIO_FIELD_NAME.test(name)).slice(0, 50);
+}
+
+type StepResult = { sid: string; evaluation?: EvaluationVerdict };
 
 type StepDef = {
   key: IsvStepKey;
@@ -114,7 +142,7 @@ export const STEPS: readonly StepDef[] = [
     key: "S10", fee: false, requires: ["S6", "S7", "S8", "S9"],
     run: async (ctx) => {
       const { evaluationSid, result } = await ctx.adapter.evaluateCustomerProfile(need(ctx, "S1"));
-      return { sid: evaluationSid, failedFields: result.status === "compliant" ? undefined : result.failedFields };
+      return { sid: evaluationSid, evaluation: classifyEvaluation(result) };
     },
   },
   { key: "S11", fee: false, requires: ["S10"], run: async (ctx) => ({ sid: await ctx.adapter.submitCustomerProfile(need(ctx, "S1")) }) },
@@ -136,7 +164,7 @@ export const STEPS: readonly StepDef[] = [
     key: "T5", fee: false, requires: ["T3", "T4"],
     run: async (ctx) => {
       const { evaluationSid, result } = await ctx.adapter.evaluateTrustProduct(need(ctx, "T1"));
-      return { sid: evaluationSid, failedFields: result.status === "compliant" ? undefined : result.failedFields };
+      return { sid: evaluationSid, evaluation: classifyEvaluation(result) };
     },
   },
   { key: "T6", fee: false, requires: ["T5"], run: async (ctx) => ({ sid: await ctx.adapter.submitTrustProduct(need(ctx, "T1")) }) },
@@ -208,7 +236,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
     }
 
     const ctx: Ctx = {
-      adapter, config, inputs, sids: {},
+      adapter, config, inputs, sids: {}, verified: {},
       readEin: async () => {
         const row = await store.getEin(onboardingId, leaseOwner, actorId);
         // the key id stored beside the token must be the one inside it (the token is <keyId>.<iv>.<tag>.<data>)
@@ -237,6 +265,35 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         if (!ctx.sids[dependency]) {
           await move("exception", step.key, "dependency_missing", null);
           return { outcome: "exception", stepsRun, detail: `dependency:${dependency}`, state };
+        }
+      }
+      if (step.key === "S11" || step.key === "T6") {
+        // Submission is irreversible. A `succeeded` S10 / T5 row from an EARLIER run (or older code) records only that an evaluation call
+        // finished, never its verdict, so it cannot authorize a submission: unless this process just got an explicit compliant verdict,
+        // evaluate again right now and refuse unless the answer is an explicit compliant.
+        // Follow-ups (Opus review, accepted P3s): (A) a refused re-check moves the onboarding state but leaves the frozen S10/T5 ledger row
+        // `succeeded`; read the state, last_error_code and the stage report `evaluations`, not the ledger alone. (B) a crashed S11/T6 attempt
+        // (in_flight / unknown_outcome) is re-checked before reconciliation; a noncompliant answer then needs a human to decide whether the
+        // submission went through.
+        const evalKey = step.key === "S11" ? "S10" : "T5";
+        if (!ctx.verified[evalKey]) {
+          let reply: { result: unknown };
+          try {
+            reply = step.key === "S11" ? await adapter.evaluateCustomerProfile(need(ctx, "S1")) : await adapter.evaluateTrustProduct(need(ctx, "T1"));
+          } catch (error) {
+            return { outcome: "retry_later", stepsRun, detail: `preverify:${step.key}:${sanitizedDetail(error)}`, state };
+          }
+          const check = classifyEvaluation((reply as { result?: unknown } | null | undefined)?.result);
+          if (check.kind !== "compliant") {
+            const field = check.kind === "noncompliant" ? firstWizardField(check.failedFields) : null;
+            if (field) {
+              await move("needs_info", evalKey, "noncompliant", safeField(field));
+              return { outcome: "needs_info", stepsRun, detail: `${step.key}:preverify_noncompliant:${field}`, state };
+            }
+            await move("exception", evalKey, check.kind === "noncompliant" ? "noncompliant_unmapped" : "evaluation_unrecognized", null);
+            return { outcome: "exception", stepsRun, detail: `${step.key}:preverify_${check.kind}`, state };
+          }
+          ctx.verified[evalKey] = true;
         }
       }
       if (step.fee && !input.confirmFee) {
@@ -340,9 +397,18 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         return { outcome: "exception", stepsRun, detail: `${step.key}:${detail}`, state };
       }
 
-      if (result.failedFields && result.failedFields.length > 0) {
-        const field = firstWizardField(result.failedFields);
-        await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: "noncompliant", errorDetail: `fields:${result.failedFields.join(",").slice(0, 400)}` });
+      // An evaluation step can only succeed on an explicit "compliant" verdict; a step that returned no verdict at all is unrecognized too.
+      const verdict: EvaluationVerdict | undefined = step.key === "S10" || step.key === "T5" ? (result.evaluation ?? { kind: "unrecognized", failedFields: [] }) : result.evaluation;
+      if (verdict && verdict.kind === "unrecognized") {
+        // The call succeeded but did not establish compliance (missing / malformed / unknown / contradictory status): fail closed, for a human.
+        await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: "evaluation_unrecognized", errorDetail: `status:unrecognized;fields:${safeFieldNames(verdict.failedFields).join(",").slice(0, 380) || "none"}` });
+        await move("exception", step.key, "evaluation_unrecognized", null);
+        return { outcome: "exception", stepsRun, detail: `${step.key}:evaluation_unrecognized`, state };
+      }
+      if (verdict && verdict.kind === "noncompliant") {
+        const failedFields = verdict.failedFields;
+        const field = firstWizardField(failedFields);
+        await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: "noncompliant", errorDetail: `fields:${safeFieldNames(failedFields).join(",").slice(0, 400) || "none"}` });
         if (field) {
           await move("needs_info", step.key, "noncompliant", safeField(field));
           return { outcome: "needs_info", stepsRun, detail: `${step.key}:noncompliant:${field}`, state };
@@ -353,6 +419,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
 
       await store.finishStep(onboardingId, leaseOwner, step.key, { status: "succeeded", providerSid: result.sid });
       ctx.sids[step.key] = result.sid;
+      if (step.key === "S10" || step.key === "T5") ctx.verified[step.key] = true; // only reachable with an explicit compliant verdict
       stepsRun.push(step.key);
 
     }

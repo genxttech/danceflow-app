@@ -32,7 +32,12 @@ export class IsvApiError extends Error {
 }
 
 export type EvaluationResult = {
-  status: "compliant" | "noncompliant";
+  /**
+   * `compliant` ONLY when Twilio's own `status` is exactly "compliant" and no failing field is reported. `noncompliant` is Twilio's
+   * explicit "noncompliant" (failedFields may be empty if the reply named none). Anything else (missing, malformed, unknown value,
+   * contradictory) is `unrecognized` and is treated as NOT compliant everywhere: a successful API call is not a successful evaluation.
+   */
+  status: "compliant" | "noncompliant" | "unrecognized";
   /** Names of the Twilio fields that failed (e.g. `business_name`, `email`); never their values. */
   failedFields: string[];
 };

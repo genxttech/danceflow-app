@@ -158,8 +158,6 @@ export class RealIsvAdapter implements IsvAdapter {
 
   private evaluation(json: Record<string, unknown>): { evaluationSid: string; result: EvaluationResult } {
     const evaluationSid = this.sid(json, /^EL[0-9a-fA-F]{32}$/);
-    const status = String(json.status ?? "");
-    if (status === "compliant") return { evaluationSid, result: { status: "compliant", failedFields: [] } };
     const failed = new Set<string>();
     const results = Array.isArray(json.results) ? (json.results as Record<string, unknown>[]) : [];
     for (const result of results) {
@@ -168,7 +166,12 @@ export class RealIsvAdapter implements IsvAdapter {
         if (field.passed === false && typeof field.object_field === "string") failed.add(field.object_field);
       }
     }
-    return { evaluationSid, result: { status: "noncompliant", failedFields: [...failed] } };
+    // Fail closed: only Twilio's exact "compliant" with no failing field is compliant; only its exact "noncompliant" is noncompliant;
+    // a missing, non-string, unknown or contradictory status is "unrecognized" (never success).
+    const status = json.status;
+    if (status === "compliant" && failed.size === 0) return { evaluationSid, result: { status: "compliant", failedFields: [] } };
+    if (status === "noncompliant") return { evaluationSid, result: { status: "noncompliant", failedFields: [...failed] } };
+    return { evaluationSid, result: { status: "unrecognized", failedFields: [...failed] } };
   }
 
   async evaluateCustomerProfile(profileSid: string) {

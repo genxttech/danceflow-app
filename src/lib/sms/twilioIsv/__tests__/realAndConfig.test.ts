@@ -384,3 +384,28 @@ describe("only real.ts can reach Twilio", () => {
     expect(code).not.toMatch(/messages\.create|sendTwilioSms|MessagingService|Usa2p|IncomingPhoneNumbers|AvailablePhoneNumbers|createCampaign|purchaseNumber/i);
   });
 });
+
+describe("real adapter evaluation parsing fails closed", () => {
+  const profile = `BU${"a".repeat(32)}`;
+  const evaluate = async (body: unknown) => (await adapterWith([{ status: 201, body }]).adapter.evaluateCustomerProfile(profile)).result;
+  const sid = `EL${"f".repeat(32)}`;
+  it("explicit compliant with no failing field is compliant", async () => {
+    expect(await evaluate({ sid, status: "compliant", results: [{ fields: [{ object_field: "email", passed: true }] }] })).toEqual({ status: "compliant", failedFields: [] });
+  });
+  it("explicit noncompliant keeps failing field names, and with none named stays noncompliant (never compliant)", async () => {
+    expect(await evaluate({ sid, status: "noncompliant", results: [{ fields: [{ object_field: "email", passed: false }] }] })).toEqual({ status: "noncompliant", failedFields: ["email"] });
+    expect(await evaluate({ sid, status: "noncompliant", results: [] })).toEqual({ status: "noncompliant", failedFields: [] });
+    expect(await evaluate({ sid, status: "noncompliant" })).toEqual({ status: "noncompliant", failedFields: [] });
+  });
+  it("missing, malformed, unknown, wrong-case or contradictory statuses are unrecognized", async () => {
+    for (const body of [
+      { sid }, { sid, status: null }, { sid, status: "" }, { sid, status: "Compliant" }, { sid, status: "COMPLIANT" }, { sid, status: 1 }, { sid, status: { a: 1 } },
+      { sid, status: "pending" }, { sid, status: "compliant", results: [{ fields: [{ object_field: "email", passed: false }] }] },
+    ]) {
+      expect((await evaluate(body)).status, JSON.stringify(body)).toBe("unrecognized");
+    }
+  });
+  it("a reply without an evaluation SID is an error, not an evaluation", async () => {
+    await expect(adapterWith([{ status: 201, body: { status: "compliant" } }]).adapter.evaluateCustomerProfile(profile)).rejects.toBeInstanceOf(IsvApiError);
+  });
+});
