@@ -167,5 +167,6 @@ _tmp/
 scripts/tw4-validation/private/
 *.private.json
 genx-business*.json
+*-business.json
 tw4-stage-*-evidence*.json
 tw4-stage-a-*.json

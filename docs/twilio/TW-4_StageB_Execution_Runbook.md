@@ -6,17 +6,17 @@ No step in this document contacts Twilio, creates a resource, or touches DEV/PRO
 
 ## 1. What Stage B is
 
-Stage B runs the real ISV adapter against Twilio for steps **S1–S10 only**, with the GenX TotalTech LLC test entity under the approved Primary (ISV) profile, in an isolated local database. It creates **draft** Trust Hub resources and asks Twilio to **evaluate** them. It never submits anything for review (S11 and later belong to Stage C, which is mock-brand only and separately authorized). Purpose: prove that key-signed writes, the payload shapes and the evaluation response work against the real service before any real studio is onboarded.
+Stage B runs the real ISV adapter against Twilio for steps **S1–S10 only**, for ONE studio's legal identity under the approved Primary (ISV) profile, in an isolated local database. **The subject is a studio, never the ISV** (correction 2026-10-17, see `TW-4_StageB_Studio_Identity.md`; the earlier GenX same-EIN plan is withdrawn and the tooling refuses the ISV's identity). It creates **draft** Trust Hub resources and asks Twilio to **evaluate** them. It never submits anything for review (S11 and later belong to Stage C, which is mock-brand only and separately authorized). Purpose: prove that key-signed writes, the payload shapes and the evaluation response work against the real service before any real studio is onboarded.
 
 ## 2. Owner-filled business file
 
 1. Create a private copy outside the repository (restricted to your Windows user; refuses to overwrite):
-   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tw4-validation\new-business-file.ps1`
-   Default location: `%LOCALAPPDATA%\tw4-validation\private\genx-business.json`.
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tw4-validation\new-business-file.ps1 -Studio <short-name>`
+   Location: `%LOCALAPPDATA%\tw4-validation\private\<short-name>-business.json`. There is no default studio; `-Studio` is required and `genx`/`totaltech` are refused.
 2. Edit it and replace every `<placeholder>`.
 3. Check it (local only; prints field names and rules, never values, so the output is safe to paste into a chat):
-   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tw4-validation\check-business-file.ps1`
-4. The launcher re-validates the same rules and refuses a file located inside the repository, a file holding a placeholder, an unknown field, or an `ein` field.
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tw4-validation\check-business-file.ps1 -Studio <short-name>`
+4. The launcher re-validates the same rules and refuses a file located inside the repository, a file holding a placeholder, an unknown field, an `ein` field, the ISV's own legal name, or a `@idanceflow.com` representative email.
 
 ### Fields and rules (same code as the onboarding wizard: `validateDraftFields`)
 
@@ -47,20 +47,20 @@ The read-only Stage A probe confirmed the Primary profile is `twilio-approved` u
 
 | Verifiable from the Primary profile | Supplied independently by the owner |
 |---|---|
-| Profile exists, status `twilio-approved`, correct policy | Exact legal name as on the IRS letter (Twilio shows "Genx TotalTech LLC"; capitalization may differ from the IRS letter) |
-| Name shown at Twilio (compared by Stage A `-CompareLegal` without printing) | EIN (the probe can only report match / no match, never the number) |
-| Business type "Limited Liability Corporation" and industry TECHNOLOGY on the profile | Physical street address, city, state, ZIP |
+| Profile exists, status `twilio-approved`, correct policy | |
+| The Primary profile is the ISV's OWN identity (GenX TotalTech LLC): it proves the ISV is approved, it is **not** a source for the studio's values and is never the subject | Exact legal name as on the studio's IRS letter, and its EIN (hidden prompt, never the ISV's) |
+| | Physical street address, city, state, ZIP |
 | | Authorized representative: name, title, position, business email, US mobile |
 | | Website choice and URL |
 | | Preferred area code |
-| | Industry for the wizard (EDUCATION or CONSUMER; Primary says TECHNOLOGY) |
+| | Industry for the wizard (EDUCATION or CONSUMER) |
 | | Confirmation that `compliance@idanceflow.com` exists and is monitored (decision D3) |
 
 ## 4. Handling sensitive values locally
 
 - **EIN**: hidden prompt only. Never in the JSON file, chat, command line, environment file, log or commit. After pasting it, clear the clipboard and Windows clipboard history (Win+V). The runner decrypts it at S2 only, to send it to Twilio inside the draft business EndUser.
 - **API key secret**: hidden prompt only, never a file or argument. Use a Standard API key (decision D1). There is **no automatic Auth Token fallback**; any Auth Token use needs separate authorization. Delete the key in the Twilio Console when Stage B is finished.
-- **Business file**: lives outside the repository; `.gitignore` also excludes `genx-business*.json`, `*.private.json`, `scripts/tw4-validation/private/` and evidence/report filenames.
+- **Business file**: lives outside the repository; `.gitignore` also excludes `*-business.json`, `genx-business*.json`, `*.private.json`, `scripts/tw4-validation/private/` and evidence/report filenames.
 - **Evidence and reports** contain resource SIDs and counts, not the EIN or the key; keep them outside the repository anyway.
 - Never paste the contents of the business file, the key secret, the EIN or the authorization phrase into a chat. Pasting the output of `check-business-file.ps1` is safe.
 
@@ -101,7 +101,7 @@ About 10 POSTs plus lookup GETs. A `noncompliant` evaluation is a valid Stage B 
 ## 8. Persistence and cleanup limits
 
 - The adapter has **no delete**. The local cleanup removes only the throwaway local database rows; it does **not** touch Twilio.
-- Drafts persist at Twilio after the run, including the EIN inside the draft business EndUser. Deleting drafts through the Console is unverified; assume they may remain. They are not submitted, no fee is expected for drafts (confirm in the Console billing if in doubt), and they do not affect the approved Primary profile, but the same-EIN test entity means they sit beside the real GenX records.
+- Drafts persist at Twilio after the run, including the EIN inside the draft business EndUser. Deleting drafts through the Console is unverified; assume they may remain. They are not submitted, no fee is expected for drafts (confirm in the Console billing if in doubt), and they do not affect the approved Primary profile, and they carry a real studio's identity: see `TW-4_StageB_Studio_Identity.md` §5 (the studio's written consent, and drafts named for the throwaway local studio are not the studio's later production onboarding).
 - The evidence file lists the SIDs created; keep it so any draft can be located or removed later.
 - A re-run creates new drafts (new sequence number); it does not reuse the previous ones.
 

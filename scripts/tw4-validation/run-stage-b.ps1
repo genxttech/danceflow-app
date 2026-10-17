@@ -90,6 +90,9 @@ function Test-BusinessFile([string]$Path) {
     if ($v.TrimStart().StartsWith("<") -or $v -match 'TODO') { return "Field '$f' still holds a placeholder." }
   }
   foreach ($f in $names) { if (($RequiredBusinessFields + $OptionalBusinessFields) -notcontains $f) { return "Unknown field '$f'." } }
+  # The subject of a Secondary profile is a STUDIO; the ISV's own legal identity (GenX TotalTech LLC / DanceFlow) is never accepted.
+  if (([string]$j.legal_name).ToLowerInvariant() -replace '[^a-z0-9]', '' -match 'genx|totaltech') { return "legal_name is the ISV's own legal identity; a Secondary profile must describe a studio (a different legal entity)." }
+  if (([string]$j.rep_email).ToLowerInvariant() -match '@idanceflow\.com$') { return "rep_email is a DanceFlow address; the representative must be the studio's own authorized person." }
   if ($EntityTypes -notcontains [string]$j.entity_type) { return "entity_type must be one of: $($EntityTypes -join ', ')." }
   if ($Industries -notcontains [string]$j.industry) { return "industry must be one of: $($Industries -join ', ')." }
   if ($Positions -notcontains [string]$j.rep_position) { return "rep_position must be one of: $($Positions -join ', ')." }
@@ -218,7 +221,7 @@ try {
     if ($null -eq $mailboxConfirm) { throw "Cancelled by you (Esc); nothing was sent." }
   }
   if ($mailboxConfirm -cne "CONFIRMED") { throw "REFUSED (exit code 2): the mailbox was not confirmed as existing and monitored (decision D3); nothing was sent." }
-  $einPlain = Read-Validated -Prompt "EIN of the test business (hidden)" -TestVar "TW4_LAUNCHER_TEST_EIN" -DryDefault $Dry.Ein -Secret -NoClipboardTrack -Check {
+  $einPlain = Read-Validated -Prompt "EIN of the studio in the business file (its own EIN, never the ISV's; hidden)" -TestVar "TW4_LAUNCHER_TEST_EIN" -DryDefault $Dry.Ein -Secret -NoClipboardTrack -Check {
     param($v)
     if ($v -notmatch '^\d{2}-?\d{7}$') { return "The EIN must be 9 digits, for example 12-3456789." }
     return $null
