@@ -80,7 +80,9 @@ Run-Scenario "invalid email three times: refused" ($front + @("burst:$S", "enter
 # 5 invalid EIN 3x
 Run-Scenario "invalid EIN three times: refused" ($front + @("burst:$S", "enter", "text:compliance@example.test", "enter", "text:CONFIRMED", "enter", "text:123", "enter", "text:456", "enter", "text:789", "enter")) -ExpectExit 2 -Expect @("must be 9 digits")
 # 6 business file with a placeholder (template): refused before seeding
-Run-Scenario "business file is the unfilled template: refused" ($front + @("burst:$S", "enter", "text:compliance@example.test", "enter", "text:CONFIRMED", "enter", "text:987654321", "enter", "text:$repo\scripts\tw4-validation\stage-b-business.template.json", "enter")) -ExpectExit 2 -Expect @("placeholder")
+$tplCopy = Join-Path $sp "unfilled-template.json"; Copy-Item -LiteralPath "$repo\scripts\tw4-validation\stage-b-business.template.json" -Destination $tplCopy -Force
+Run-Scenario "business file is the unfilled template: refused" ($front + @("burst:$S", "enter", "text:compliance@example.test", "enter", "text:CONFIRMED", "enter", "text:987654321", "enter", "text:$tplCopy", "enter")) -ExpectExit 2 -Expect @("placeholder")
+Run-Scenario "business file inside the repository: refused" ($front + @("burst:$S", "enter", "text:compliance@example.test", "enter", "text:CONFIRMED", "enter", "text:987654321", "enter", "text:$repo\scripts\tw4-validation\stage-b-business.template.json", "enter")) -ExpectExit 2 -Expect @("inside the repository")
 # 7 Esc at the secret prompt
 Run-Scenario "Esc cancels the secret prompt" ($front + @("esc")) -ExpectExit 2 -Expect @("Cancelled by you (Esc)")
 # 8 operator answers n at the seed confirmation: nothing seeded, nothing sent

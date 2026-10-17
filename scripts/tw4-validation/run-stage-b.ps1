@@ -237,6 +237,11 @@ try {
     $BusinessFile = $BusinessFile.Trim('"')
   }
   if ($BusinessFile -match '[&|<>^"%!]' -or $BusinessFile.TrimStart().StartsWith("-")) { throw "REFUSED (exit code 2): the business file path contains characters that are unsafe to pass to a command shim (& | < > ^ a double quote % !) or starts with '-'; move the file to a plain path. Nothing was sent." }
+  if (-not $UseDryRunDefaults -and (Test-Path -LiteralPath $BusinessFile)) {
+    $repoRootNorm = ((Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path.TrimEnd('\') + '\').ToLowerInvariant()
+    $bizNorm = (Resolve-Path -LiteralPath $BusinessFile).Path.ToLowerInvariant()
+    if ($bizNorm.StartsWith($repoRootNorm)) { throw "REFUSED (exit code 2): the business file is inside the repository, where it could be committed. Create a private copy outside it with scripts\tw4-validation\new-business-file.ps1 and use that one. Nothing was sent." }
+  }
   $businessProblem = Test-BusinessFile $BusinessFile
   if ($businessProblem) { throw "REFUSED (exit code 2): business file: $businessProblem Nothing was sent." }
   $business = Get-Content -LiteralPath $BusinessFile -Raw | ConvertFrom-Json

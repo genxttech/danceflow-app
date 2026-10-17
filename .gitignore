@@ -162,3 +162,10 @@ mobile/student/google-services.json
 
 # local scratch / brand import staging (never commit)
 _tmp/
+
+# TW-4 validation: owner-filled business details, evidence and reports never belong in the repo
+scripts/tw4-validation/private/
+*.private.json
+genx-business*.json
+tw4-stage-*-evidence*.json
+tw4-stage-a-*.json
