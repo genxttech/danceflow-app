@@ -13,7 +13,15 @@ type Env = Record<string, string | undefined>;
 
 export type IsvConfig = {
   accountSid: string;
+  /** The account auth token. EMPTY when an ISV API key is configured: the two are mutually exclusive and the token is then never read. */
   authToken: string;
+  /**
+   * Standard API key for the registration APIs (TWILIO_ISV_API_KEY_SID / TWILIO_ISV_API_KEY_SECRET). When present, every request is signed with
+   * the key and the auth token plays no part: there is NO fallback from the key to the token. Absent = the original behavior (account
+   * SID + auth token), which is what production uses today.
+   */
+  apiKeySid?: string;
+  apiKeySecret?: string;
   primaryProfileSid: string;
   /** The Trust Hub policy of the ISV Primary profile; the preflight requires the Primary profile to carry exactly this policy. */
   primaryProfilePolicySid: string;
@@ -69,7 +77,17 @@ export function loadIsvConfig(env: Env = process.env): IsvConfigResult {
     return value;
   };
   const accountSid = need("TWILIO_ACCOUNT_SID", SID("AC"));
-  const authToken = need("TWILIO_AUTH_TOKEN");
+  // Credentials: either an ISV API key (both variables) or the account auth token, never both. With a key, TWILIO_AUTH_TOKEN is not read at all.
+  const apiKeySid = String(env.TWILIO_ISV_API_KEY_SID ?? "").trim();
+  const apiKeySecret = String(env.TWILIO_ISV_API_KEY_SECRET ?? "").trim();
+  const useApiKey = apiKeySid !== "" || apiKeySecret !== "";
+  let authToken = "";
+  if (useApiKey) {
+    if (!SID("SK").test(apiKeySid)) missing.push("TWILIO_ISV_API_KEY_SID");
+    if (!/^[A-Za-z0-9]{32}$/.test(apiKeySecret)) missing.push("TWILIO_ISV_API_KEY_SECRET");
+  } else {
+    authToken = need("TWILIO_AUTH_TOKEN");
+  }
   const primaryProfileSid = need("TWILIO_ISV_PRIMARY_PROFILE_SID", SID("BU"));
   const primaryProfilePolicySid = need("TWILIO_ISV_PRIMARY_POLICY_SID", SID("RN"));
   const secondaryProfilePolicySid = need("TWILIO_ISV_SECONDARY_POLICY_SID", SID("RN"));
@@ -79,7 +97,7 @@ export function loadIsvConfig(env: Env = process.env): IsvConfigResult {
   return {
     ok: true,
     config: {
-      accountSid, authToken, primaryProfileSid, primaryProfilePolicySid, secondaryProfilePolicySid, a2pPolicySid, complianceEmail,
+      accountSid, authToken, ...(useApiKey ? { apiKeySid, apiKeySecret } : {}), primaryProfileSid, primaryProfilePolicySid, secondaryProfilePolicySid, a2pPolicySid, complianceEmail,
       envName: isvEnvName(env),
       mockBrand: String(env.TW4_ISV_MOCK_BRAND ?? "") === "on",
     },

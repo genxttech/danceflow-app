@@ -24,6 +24,109 @@ function adapterWith(responses: { status: number; body: unknown }[]) {
 }
 const form = (call: Recorded) => Object.fromEntries(new URLSearchParams(call.body ?? ""));
 
+describe("a mock run must never silently become a paid brand (review P2)", () => {
+  const mockConfig = { ...config, mockBrand: true };
+  const mockAdapter = (responses: { status: number; body: unknown }[]) => {
+    const queue = [...responses];
+    const calls: Recorded[] = [];
+    const adapter = new RealIsvAdapter(mockConfig, async (url, init) => {
+      calls.push({ url, method: init.method, headers: init.headers, body: init.body, signal: init.signal });
+      const next = queue.shift() ?? { status: 200, body: {} };
+      return { status: next.status, text: async () => JSON.stringify(next.body) };
+    });
+    return { adapter, calls };
+  };
+  const brandInput = { customerProfileSid: `BU${"a".repeat(32)}`, trustProductSid: `BU${"9".repeat(32)}`, brandType: "STANDARD" as const, skipAutomaticSecVet: false, mock: true };
+  const sid = `BN${"1".repeat(32)}`;
+  it("createBrand: Twilio must echo mock=true, otherwise the outcome is unknown (the brand exists) and the run stops", async () => {
+    const ok = mockAdapter([{ status: 201, body: { sid, mock: true } }]);
+    expect(await ok.adapter.createBrand(brandInput)).toBe(sid);
+    for (const body of [{ sid }, { sid, mock: false }, { sid, mock: "true" }]) {
+      const bad = mockAdapter([{ status: 201, body }]);
+      expect(await bad.adapter.createBrand(brandInput).catch((e) => e)).toMatchObject({ kind: "transient" });
+    }
+  });
+  it("findBrand and getBrandStatus refuse to treat a non-mock brand as the mock run's brand", async () => {
+    const bu = `BU${"a".repeat(32)}`;
+    const tp = `BU${"9".repeat(32)}`;
+    const row = (mock: unknown) => ({ status: 200, body: { data: [{ sid, customer_profile_bundle_sid: bu, a2p_profile_bundle_sid: tp, ...(mock === undefined ? {} : { mock }) }], meta: {} } });
+    expect(await mockAdapter([row(true)]).adapter.findBrand({ customerProfileSid: bu, trustProductSid: tp })).toEqual([sid]);
+    for (const mock of [false, undefined]) {
+      expect(await mockAdapter([row(mock)]).adapter.findBrand({ customerProfileSid: bu, trustProductSid: tp }).catch((e) => e)).toMatchObject({ kind: "transient" });
+    }
+    expect(await mockAdapter([{ status: 200, body: { status: "IN_REVIEW", mock: true } }]).adapter.getBrandStatus(sid)).toBe("IN_REVIEW");
+    expect(await mockAdapter([{ status: 200, body: { status: "IN_REVIEW" } }]).adapter.getBrandStatus(sid).catch((e) => e)).toMatchObject({ kind: "transient" });
+  });
+  it("a non-mock configuration is unaffected", async () => {
+    const plain = adapterWith([{ status: 200, body: { status: "APPROVED" } }]);
+    expect(await plain.adapter.getBrandStatus(sid)).toBe("APPROVED");
+  });
+});
+
+describe("Standard API key authentication for the registration APIs (decision D1)", () => {
+  const KEY_SID = `SK${"3".repeat(32)}`;
+  const KEY_SECRET = "k".repeat(32);
+  const base: Record<string, string> = {
+    TWILIO_ACCOUNT_SID: `AC${"1".repeat(32)}`, TWILIO_ISV_PRIMARY_PROFILE_SID: `BU${"e".repeat(32)}`, TWILIO_ISV_PRIMARY_POLICY_SID: `RN${"4".repeat(32)}`,
+    TWILIO_ISV_SECONDARY_POLICY_SID: `RN${"2".repeat(32)}`, TWILIO_ISV_A2P_POLICY_SID: `RN${"3".repeat(32)}`, TWILIO_ISV_COMPLIANCE_EMAIL: "compliance@example.test",
+  };
+  const basic = (pair: string) => `Basic ${Buffer.from(pair).toString("base64")}`;
+
+  it("config: a key (both variables) loads WITHOUT reading TWILIO_AUTH_TOKEN, even when the token is present in the environment", () => {
+    const loaded = loadIsvConfig({ ...base, TWILIO_ISV_API_KEY_SID: KEY_SID, TWILIO_ISV_API_KEY_SECRET: KEY_SECRET, TWILIO_AUTH_TOKEN: "ambient-token" });
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.config).toMatchObject({ apiKeySid: KEY_SID, apiKeySecret: KEY_SECRET, authToken: "" });
+    expect(JSON.stringify(loaded.config)).not.toContain("ambient-token");
+  });
+  it("config: a key needs no TWILIO_AUTH_TOKEN at all; without a key the original token behavior is unchanged (production)", () => {
+    expect(loadIsvConfig({ ...base, TWILIO_ISV_API_KEY_SID: KEY_SID, TWILIO_ISV_API_KEY_SECRET: KEY_SECRET }).ok).toBe(true);
+    const token = loadIsvConfig({ ...base, TWILIO_AUTH_TOKEN: "t".repeat(32) });
+    expect(token.ok && token.config).toMatchObject({ authToken: "t".repeat(32) });
+    expect(token.ok && token.config.apiKeySid).toBeUndefined();
+    expect(loadIsvConfig({ ...base })).toMatchObject({ ok: false, missing: ["TWILIO_AUTH_TOKEN"] });
+  });
+  it("config: a half-configured or malformed key is reported by NAME and never silently replaced by the token", () => {
+    const withToken = { ...base, TWILIO_AUTH_TOKEN: "t".repeat(32) };
+    expect(loadIsvConfig({ ...withToken, TWILIO_ISV_API_KEY_SID: KEY_SID })).toMatchObject({ ok: false, missing: ["TWILIO_ISV_API_KEY_SECRET"] });
+    expect(loadIsvConfig({ ...withToken, TWILIO_ISV_API_KEY_SECRET: KEY_SECRET })).toMatchObject({ ok: false, missing: ["TWILIO_ISV_API_KEY_SID"] });
+    expect(loadIsvConfig({ ...withToken, TWILIO_ISV_API_KEY_SID: `AC${"3".repeat(32)}`, TWILIO_ISV_API_KEY_SECRET: KEY_SECRET })).toMatchObject({ ok: false, missing: ["TWILIO_ISV_API_KEY_SID"] });
+    expect(loadIsvConfig({ ...withToken, TWILIO_ISV_API_KEY_SID: KEY_SID, TWILIO_ISV_API_KEY_SECRET: "short" })).toMatchObject({ ok: false, missing: ["TWILIO_ISV_API_KEY_SECRET"] });
+  });
+  it("adapter: every request is signed with the key SID and secret (never the account SID or token), for reads and for writes", async () => {
+    const calls: Recorded[] = [];
+    const keyed = new RealIsvAdapter({ ...config, authToken: "", apiKeySid: KEY_SID, apiKeySecret: KEY_SECRET }, async (url, init) => {
+      calls.push({ url, method: init.method, headers: init.headers, body: init.body, signal: init.signal });
+      const sid = url.includes("Addresses.json") ? `AD${"a".repeat(32)}` : `BU${"a".repeat(32)}`;
+      return { status: 201, text: async () => JSON.stringify({ sid, status: "draft" }) };
+    });
+    await keyed.getCustomerProfile(`BU${"e".repeat(32)}`);
+    await keyed.createCustomerProfile({ friendlyName: "df:test:x:S1:1", email: "a@b.example" });
+    await keyed.createAddress({ customerName: "A", street: "1 St", streetSecondary: "", city: "C", region: "OR", postalCode: "97201", isoCountry: "US" });
+    expect(calls.map((c) => c.method)).toEqual(["GET", "POST", "POST"]);
+    for (const call of calls) expect(call.headers.Authorization).toBe(basic(`${KEY_SID}:${KEY_SECRET}`));
+    expect(calls[2].url).toContain(`/Accounts/${config.accountSid}/Addresses.json`); // the Account SID is still the URL path, not the credential
+  });
+  it("NO FALLBACK: a rejected key produces ONE request and an error; the auth token is never tried, even when a token value exists", async () => {
+    const calls: Recorded[] = [];
+    const rejecting = new RealIsvAdapter({ ...config, authToken: "must-never-be-used", apiKeySid: KEY_SID, apiKeySecret: KEY_SECRET }, async (url, init) => {
+      calls.push({ url, method: init.method, headers: init.headers, body: init.body, signal: init.signal });
+      return { status: 401, text: async () => JSON.stringify({ code: 20003, message: "Permission Denied" }) };
+    });
+    const error = await rejecting.createCustomerProfile({ friendlyName: "df:test:x:S1:1", email: "a@b.example" }).catch((e) => e);
+    expect(error).toMatchObject({ kind: "account", httpStatus: 401 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].headers.Authorization).toBe(basic(`${KEY_SID}:${KEY_SECRET}`));
+    expect(JSON.stringify(calls)).not.toContain(Buffer.from(`${config.accountSid}:must-never-be-used`).toString("base64"));
+    expect(String((error as Error).message)).not.toContain("must-never-be-used");
+  });
+  it("production behavior is unchanged: without a key the header is account SID + auth token", async () => {
+    const plain = adapterWith([{ status: 200, body: { status: "twilio-approved", policy_sid: "RN" } }]);
+    await plain.adapter.getCustomerProfile(`BU${"e".repeat(32)}`);
+    expect(plain.calls[0].headers.Authorization).toBe(basic(`${config.accountSid}:${config.authToken}`));
+  });
+});
+
 describe("the real-calls gate", () => {
   it("is closed everywhere except production with the explicit switch", () => {
     expect(realCallsAllowed({ VERCEL_ENV: "production", NODE_ENV: "production", TW4_ISV_REAL_CALLS: "on" })).toEqual({ allowed: true });
@@ -125,7 +228,7 @@ describe("the real adapter's request shapes (injected fetch, no network)", () =>
     expect(calls[1].url).toBe(`https://trusthub.twilio.com/v1/TrustProducts/BU${"9".repeat(32)}`);
   });
   it("the brand request: STANDARD, vetting left on by default, mock only when asked", async () => {
-    const { adapter, calls } = adapterWith([{ status: 201, body: { sid: `BN${"1".repeat(32)}` } }, { status: 201, body: { sid: `BN${"2".repeat(32)}` } }]);
+    const { adapter, calls } = adapterWith([{ status: 201, body: { sid: `BN${"1".repeat(32)}` } }, { status: 201, body: { sid: `BN${"2".repeat(32)}`, mock: true } }]);
     await adapter.createBrand({ customerProfileSid: `BU${"a".repeat(32)}`, trustProductSid: `BU${"9".repeat(32)}`, brandType: "STANDARD", skipAutomaticSecVet: false, mock: false });
     await adapter.createBrand({ customerProfileSid: `BU${"a".repeat(32)}`, trustProductSid: `BU${"9".repeat(32)}`, brandType: "STANDARD", skipAutomaticSecVet: false, mock: true });
     expect(calls[0].url).toBe("https://messaging.twilio.com/v1/a2p/BrandRegistrations");
