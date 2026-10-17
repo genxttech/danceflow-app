@@ -51,6 +51,8 @@ export type RunInput = {
   confirmFee: boolean;
   decrypt?: (studioId: string, ciphertext: string) => string;
   maxSteps?: number;
+  /** Never start a step positioned after this one (positional, unlike maxSteps which counts steps executed in this run). Used by the staged validation. */
+  stopAfter?: IsvStepKey;
 };
 
 type Ctx = {
@@ -152,6 +154,8 @@ export const STEPS: readonly StepDef[] = [
 ];
 
 if (STEPS.map((step) => step.key).join(",") !== ISV_STEP_KEYS.join(",")) throw new Error("runner step list and ISV_STEP_KEYS disagree");
+STEPS.forEach((step) => Object.freeze(step));
+Object.freeze(STEPS);
 
 const BRAND_MAP: Record<string, "in_review" | "approved" | "rejected" | "suspended" | null> = {
   PENDING: "in_review", IN_REVIEW: "in_review", APPROVED: "approved", FAILED: "rejected", SUSPENDED: "suspended",
@@ -168,6 +172,9 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
   const { store, adapter, config, studioId, actorId } = input;
   const decrypt = input.decrypt ?? decryptEin;
   const maxSteps = input.maxSteps ?? STEPS.length;
+  const stopAfterIndex = input.stopAfter === undefined ? -1 : STEPS.findIndex((step) => step.key === input.stopAfter);
+  // A stop point that is not a real step would otherwise mean "no limit": refuse before anything is claimed or called.
+  if (input.stopAfter !== undefined && stopAfterIndex < 0) return { outcome: "not_runnable", stepsRun: [], detail: "unknown_stop_after" };
   const leaseOwner = `run-${randomUUID().slice(0, 8)}`;
   const stepsRun: IsvStepKey[] = [];
 
@@ -225,6 +232,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
       await syncReview();
       if (ctx.sids[step.key]) continue;
       if (stepsRun.length >= maxSteps) break;
+      if (stopAfterIndex >= 0 && STEPS.indexOf(step) > stopAfterIndex) break;
       for (const dependency of step.requires) {
         if (!ctx.sids[dependency]) {
           await move("exception", step.key, "dependency_missing", null);

@@ -1,0 +1,19 @@
+{
+  "legal_name": "<EXACT legal name as on the IRS letter>",
+  "entity_type": "llc",
+  "industry": "EDUCATION",
+  "website_choice": "danceflow",
+  "website_url": "",
+  "address_line1": "<street address>",
+  "address_line2": "",
+  "city": "<city>",
+  "region": "<2-letter state>",
+  "postal_code": "<ZIP>",
+  "rep_first_name": "<representative first name>",
+  "rep_last_name": "<representative last name>",
+  "rep_title": "<representative title>",
+  "rep_position": "ceo",
+  "rep_email": "<representative email>",
+  "rep_phone": "<representative phone, e.g. (503) 555-0100>",
+  "preferred_area_code": "<3-digit area code>"
+}

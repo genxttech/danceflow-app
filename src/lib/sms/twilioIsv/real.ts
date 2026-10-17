@@ -35,10 +35,20 @@ function classify(status: number): IsvApiError["kind"] {
 }
 
 export class RealIsvAdapter implements IsvAdapter {
-  constructor(private readonly config: IsvConfig, private readonly fetchImpl: FetchLike) {}
+  constructor(private readonly config: IsvConfig, private readonly fetchImpl: FetchLike) {
+    // A key SID without its secret would sign every request with an empty password. Fail loudly here instead (never fall back to the token).
+    if (config.apiKeySid && !config.apiKeySecret) throw new IsvApiError("account", null, null, "an API key SID is configured without its secret");
+  }
 
+  /**
+   * HTTP Basic. With an ISV API key: username = key SID, password = key secret (Twilio's documented API-key authentication; the Account SID
+   * then only appears in URL paths). Otherwise the original account SID + auth token. The choice is made once, from configuration:
+   * a rejected key is NEVER retried with the auth token.
+   */
   private authHeader() {
-    return `Basic ${Buffer.from(`${this.config.accountSid}:${this.config.authToken}`).toString("base64")}`;
+    const c = this.config;
+    const pair = c.apiKeySid ? `${c.apiKeySid}:${c.apiKeySecret ?? ""}` : `${c.accountSid}:${c.authToken}`;
+    return `Basic ${Buffer.from(pair).toString("base64")}`;
   }
 
   private async request(method: "GET" | "POST", url: string, form?: Record<string, string | undefined>): Promise<Record<string, unknown>> {
@@ -200,9 +210,10 @@ export class RealIsvAdapter implements IsvAdapter {
   // --- brand --------------------------------------------------------------------------------------------------------
   async findBrand(input: { customerProfileSid: string; trustProductSid: string }): Promise<string[]> {
     const rows = await this.listAll(`${MESSAGING}/a2p/BrandRegistrations?PageSize=50`, MESSAGING, "data");
-    return rows
-      .filter((row) => row.customer_profile_bundle_sid === input.customerProfileSid && row.a2p_profile_bundle_sid === input.trustProductSid)
-      .map((row) => String(row.sid));
+    const matches = rows.filter((row) => row.customer_profile_bundle_sid === input.customerProfileSid && row.a2p_profile_bundle_sid === input.trustProductSid);
+    // In a mock run, an existing brand for this profile that is not a mock brand is a real (paid) one: stop, never adopt it.
+    if (this.config.mockBrand && matches.some((row) => row.mock !== true)) throw new IsvApiError("transient", null, null, "an existing brand is not confirmed as a mock brand");
+    return matches.map((row) => String(row.sid));
   }
 
   async createBrand(input: Parameters<IsvAdapter["createBrand"]>[0]): Promise<string> {
@@ -210,11 +221,16 @@ export class RealIsvAdapter implements IsvAdapter {
       CustomerProfileBundleSid: input.customerProfileSid, A2PProfileBundleSid: input.trustProductSid, BrandType: input.brandType,
       SkipAutomaticSecVet: input.skipAutomaticSecVet ? "true" : undefined, Mock: input.mock ? "true" : undefined,
     });
-    return this.sid(json, /^BN[0-9a-fA-F]{32}$/);
+    const sid = this.sid(json, /^BN[0-9a-fA-F]{32}$/);
+    // A MOCK run must never silently be a real, paid brand: Twilio's own answer has to say the brand is a mock. If it does not, the
+    // outcome is "unknown" (the brand exists), so the runner stops and reconciles instead of carrying on.
+    if (input.mock && json.mock !== true) throw new IsvApiError("transient", null, null, "brand mock flag not confirmed by Twilio");
+    return sid;
   }
 
   async getBrandStatus(brandSid: string): Promise<BrandStatus> {
     const json = await this.request("GET", `${MESSAGING}/a2p/BrandRegistrations/${encodeURIComponent(brandSid)}`);
+    if (this.config.mockBrand && json.mock !== true) throw new IsvApiError("transient", null, null, "brand is not confirmed as a mock brand");
     return String(json.status ?? "unknown");
   }
 }
