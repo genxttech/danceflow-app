@@ -71,6 +71,8 @@ Case "invalid EIN" @{ TW4_LAUNCHER_TEST_EIN = "12345" } "-DryRun" 2 @("must be 9
 Case "business file missing" @{ TW4_LAUNCHER_TEST_BUSINESS = "$tmp\nope.json" } "-DryRun" 2 @("does not exist", "Nothing was sent")
 Case "business file with placeholders" @{ TW4_LAUNCHER_TEST_BUSINESS = "$repo\scripts\tw4-validation\stage-b-business.template.json" } "-DryRun" 2 @("placeholder")
 Case "business: industry TECHNOLOGY not offered" @{ TW4_LAUNCHER_TEST_BUSINESS = (Write-Business "badind" { param($o) $o.industry = "TECHNOLOGY" }) } "-DryRun" 2 @("industry must be one of")
+Case "business: ISV's own legal identity refused" @{ TW4_LAUNCHER_TEST_BUSINESS = (Write-Business "isvname" { param($o) $o.legal_name = "GenX TotalTech, L.L.C." }) } "-DryRun" 2 @("ISV's own legal identity", "Nothing was sent")
+Case "business: DanceFlow address as representative refused" @{ TW4_LAUNCHER_TEST_BUSINESS = (Write-Business "isvmail" { param($o) $o.rep_email = "compliance@idanceflow.com" }) } "-DryRun" 2 @("DanceFlow address", "Nothing was sent")
 Case "business: unknown field" @{ TW4_LAUNCHER_TEST_BUSINESS = (Write-Business "extra" { param($o) $o.ein = "123456789" }) } "-DryRun" 2 @("Unknown field 'ein'")
 Case "business: bad ZIP" @{ TW4_LAUNCHER_TEST_BUSINESS = (Write-Business "zip" { param($o) $o.postal_code = "9720" }) } "-DryRun" 2 @("postal_code")
 Case "failure after seed: dry run cleans up after itself" @{ TW4_LAUNCHER_TEST_FAIL_AFTER_SEED = "1" } "-DryRun" 2 @("simulated failure after seeding")

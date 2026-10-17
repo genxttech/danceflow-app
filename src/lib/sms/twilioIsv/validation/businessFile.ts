@@ -8,9 +8,18 @@ import { DRAFT_FIELD_KEYS, FIELD_LABELS, missingRequired, validateDraftFields, t
  * What the file must NOT contain: the EIN (it is typed into a hidden prompt at run time and is never stored in a file) and any secret.
  */
 
-/** The name Twilio shows on the approved Primary (ISV) profile, as recorded by the read-only Stage A probe. Not sensitive. */
+/**
+ * The name Twilio shows on the approved Primary (ISV) profile, as recorded by the read-only Stage A probe. Not sensitive.
+ * The Primary profile is DanceFlow's OWN identity. A Secondary profile belongs to a studio (a different legal entity), so a business file
+ * that names the ISV is refused: it is never a valid Secondary-profile subject (see TW-4_StageB_Studio_Identity.md).
+ */
 export const PRIMARY_PROFILE_NAME_ON_TWILIO = "Genx TotalTech LLC";
-export const PRIMARY_PROFILE_INDUSTRY_ON_TWILIO = "TECHNOLOGY";
+/** Words that identify the ISV's own legal entity; a studio legal name containing any of them is refused. */
+const ISV_NAME_MARKERS = ["genx", "totaltech"];
+/** Domain of the ISV's own mailboxes; the representative must be the studio's, so an ISV address is refused. */
+const ISV_EMAIL_DOMAINS = ["idanceflow.com"];
+
+const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 export type BusinessFileFinding = { field: string; label: string; message: string };
 export type BusinessFileReport = {
@@ -74,7 +83,25 @@ export function checkBusinessFile(parsed: unknown): BusinessFileReport {
   for (const [key, message] of Object.entries(validation.warnings)) add(report.warnings, key, String(message));
   for (const key of missingRequired(validation.fields, true)) add(report.missing, key, "Required and empty.");
 
-  // 4. per-field status
+  // 4. the subject must be the STUDIO, never the ISV (no values are echoed)
+  const name = (validation.fields.legal_name ?? "").trim();
+  if (name) {
+    const flat = squash(name);
+    if (flat === squash(PRIMARY_PROFILE_NAME_ON_TWILIO) || ISV_NAME_MARKERS.some((marker) => flat.includes(marker))) {
+      add(report.errors, "legal_name", "This is the ISV's own legal identity (the approved Primary profile). A Secondary profile must describe the studio, a different legal entity with its own EIN; the ISV's identity is refused.");
+    }
+  }
+  const emailDomain = (validation.fields.rep_email ?? "").split("@")[1] ?? "";
+  if (ISV_EMAIL_DOMAINS.includes(emailDomain)) {
+    add(report.errors, "rep_email", "The representative must be the studio's authorized person with the studio's own email, not an ISV (DanceFlow) address. The ISV compliance mailbox is entered separately by the launcher.");
+  }
+  if (validation.fields.entity_type) report.notes.push(`entity_type "${validation.fields.entity_type}" must be what the studio's IRS letter / formation documents show; a studio without an EIN (for example a sole proprietor) cannot use this path.`);
+  if (validation.fields.website_choice === "danceflow") {
+    report.notes.push('website_choice "danceflow": the website becomes a DanceFlow page for the throwaway LOCAL test studio, which does not exist publicly. Use "own" with the studio\'s real https:// page for a studio whose profile Twilio will evaluate.');
+  }
+  if (validation.fields.website_choice === "own") report.notes.push('website_choice "own": the website_url you gave is sent as the profile\'s website.');
+
+  // 5. per-field status (after every check, so a field refused above shows as an error)
   const errorFields = new Set(report.errors.map((e) => e.field));
   const missingFields = new Set(report.missing.map((m) => m.field));
   for (const key of DRAFT_FIELD_KEYS) {
@@ -83,25 +110,6 @@ export function checkBusinessFile(parsed: unknown): BusinessFileReport {
     else if (!validation.fields[key] && OPTIONAL.includes(key)) report.fields[key] = "optional-empty";
     else report.fields[key] = validation.fields[key] ? "ok" : "missing";
   }
-
-  // 5. facts about this specific test business (no values)
-  const name = (validation.fields.legal_name ?? "").trim();
-  if (name) {
-    if (name === PRIMARY_PROFILE_NAME_ON_TWILIO) report.notes.push("legal_name is identical to the name on the approved Primary profile at Twilio.");
-    else if (name.toLowerCase() === PRIMARY_PROFILE_NAME_ON_TWILIO.toLowerCase()) {
-      add(report.warnings, "legal_name", `Differs from the Primary profile at Twilio ("${PRIMARY_PROFILE_NAME_ON_TWILIO}") only in capitalization. Use exactly what the IRS letter shows; Twilio's review compares names.`);
-    } else {
-      add(report.warnings, "legal_name", `Does not match the name on the Primary profile at Twilio ("${PRIMARY_PROFILE_NAME_ON_TWILIO}"). That is expected only if this test uses a different legal entity.`);
-    }
-  }
-  if (validation.fields.entity_type === "llc") report.notes.push('entity_type "llc" is sent to Twilio as "Limited Liability Corporation", the same value the Primary profile carries.');
-  if (validation.fields.industry && validation.fields.industry !== PRIMARY_PROFILE_INDUSTRY_ON_TWILIO) {
-    report.notes.push(`industry: the Primary profile lists ${PRIMARY_PROFILE_INDUSTRY_ON_TWILIO} for the same business; the wizard only offers EDUCATION or CONSUMER. Acceptable for a Stage B DRAFT (nothing is submitted); it needs a decision before any submission.`);
-  }
-  if (validation.fields.website_choice === "danceflow") {
-    report.notes.push('website_choice "danceflow": the profile\'s website becomes a DanceFlow studio page for the throwaway test studio, which does not exist publicly. Fine for a draft; use "own" with the company\'s real https:// site for anything Twilio will review.');
-  }
-  if (validation.fields.website_choice === "own") report.notes.push('website_choice "own": the website_url you gave is sent as the profile\'s website.');
 
   report.ok = report.errors.length === 0 && report.missing.length === 0;
   return report;

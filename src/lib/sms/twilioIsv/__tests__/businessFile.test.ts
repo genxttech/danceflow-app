@@ -53,13 +53,31 @@ describe("Stage B business file check", () => {
     expect(checkBusinessFile(null).ok).toBe(false);
     expect(checkBusinessFile({ ...good, city: 5 }).fields.city).toBe("error");
   });
-  it("notes the Primary-profile name and industry facts without blocking", () => {
-    const same = checkBusinessFile({ ...good, legal_name: "Genx TotalTech LLC" });
-    expect(same.ok).toBe(true);
-    expect(same.notes.join(" ")).toContain("identical");
-    expect(same.notes.join(" ")).toContain("TECHNOLOGY");
-    const cap = checkBusinessFile({ ...good, legal_name: "GenX TotalTech LLC" });
-    expect(cap.warnings.some((w) => w.field === "legal_name")).toBe(true);
+  it("refuses the ISV's own legal identity as a Secondary-profile subject, in any spelling", () => {
+    for (const legal_name of ["Genx TotalTech LLC", "GenX TotalTech LLC", "GENX TOTALTECH, L.L.C.", "Gen-X Total Tech LLC", "TotalTech Dance Co", "GenX Dance Holdings"]) {
+      const r = checkBusinessFile({ ...good, legal_name });
+      expect(r.ok, legal_name).toBe(false);
+      expect(r.fields.legal_name, legal_name).toBe("error");
+    }
+    expect(JSON.stringify(checkBusinessFile({ ...good, legal_name: "Genx TotalTech LLC" }))).not.toContain("Genx TotalTech LLC");
+  });
+  it("accepts a studio entity of any supported type and does not compare it to the Primary profile", () => {
+    for (const entity_type of ["llc", "corporation", "partnership", "non_profit", "cooperative"]) {
+      const r = checkBusinessFile({ ...good, legal_name: "Another Studio Inc", entity_type });
+      expect(r.ok, entity_type).toBe(true);
+      expect(r.warnings.some((w) => w.field === "legal_name")).toBe(false);
+      expect(r.notes.join(" ")).not.toMatch(/TECHNOLOGY|Primary profile/);
+    }
+  });
+  it("refuses an ISV (DanceFlow) address as the representative's email", () => {
+    const r = checkBusinessFile({ ...good, rep_email: "compliance@idanceflow.com" });
+    expect(r.ok).toBe(false);
+    expect(r.fields.rep_email).toBe("error");
+  });
+  it("is studio-neutral: no studio is named in the committed template or the checker's output", () => {
+    const tpl = readFileSync(resolve(__dirname, "../../../../../scripts/tw4-validation/stage-b-business.template.json"), "utf8");
+    expect(tpl).not.toMatch(/genx|confidance/i);
+    expect(JSON.stringify(checkBusinessFile(good))).not.toMatch(/genx|confidance/i);
   });
   it("detects paths inside the repository", () => {
     expect(isInsideDirectory("C:\\Dev\\studioapp-tw4a\\x\\a.json", "C:/Dev/studioapp-tw4a")).toBe(true);

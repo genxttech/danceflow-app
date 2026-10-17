@@ -1,5 +1,7 @@
 # TW-4 Stage B decision memo and checklist
 
+> **Correction 2026-10-17 (owner):** the GenX TotalTech LLC same-EIN Secondary profile (decision D2 below and §2, §7) is **withdrawn**. GenX is the ISV Primary profile only; Stage B's subject is a studio (ConfiDance is intended). Tooling now refuses the ISV's identity. See `TW-4_StageB_Studio_Identity.md`. Stage B and C remain unauthorized.
+
 Date 2026-10-16. Planning only: no Twilio call, no hosted-environment change, nothing created. Stage B and Stage C are **not authorized**.
 Inputs: Stage A report `tw4-stage-a-20261016-092029.json` (13 GET-only reads, 0 problems), `TW-4_Mock_Brand_Validation_Plan.md`, the local diff of `runner.ts` / `real.ts`.
 
