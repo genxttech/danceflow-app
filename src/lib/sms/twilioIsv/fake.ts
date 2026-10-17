@@ -21,6 +21,8 @@ export class FakeIsvAdapter implements IsvAdapter {
   primaryStatus: BundleStatus = "twilio-approved";
   /** Failed fields per evaluation target (`profile` | `trustProduct`); empty = compliant. */
   evaluationFailures: Record<"profile" | "trustProduct", string[]> = { profile: [], trustProduct: [] };
+  /** Test seam: a verbatim evaluation reply (even a malformed one) returned instead of the one built from `evaluationFailures`. */
+  evaluationRaw: Record<"profile" | "trustProduct", EvaluationResult | null> = { profile: null, trustProduct: null };
   private counter = 0;
   private failures: { method: Method; failure: Failure }[] = [];
 
@@ -124,7 +126,7 @@ export class FakeIsvAdapter implements IsvAdapter {
 
   async evaluateCustomerProfile(profileSid: string) {
     return this.guarded("evaluateCustomerProfile", { profileSid }, () => {
-      const result = this.evaluation(this.evaluationFailures.profile);
+      const result = this.evaluationRaw.profile ?? this.evaluation(this.evaluationFailures.profile);
       return { evaluationSid: this.sid("EL"), result };
     });
   }
@@ -161,7 +163,7 @@ export class FakeIsvAdapter implements IsvAdapter {
   }
 
   async evaluateTrustProduct(trustProductSid: string) {
-    return this.guarded("evaluateTrustProduct", { trustProductSid }, () => ({ evaluationSid: this.sid("EL"), result: this.evaluation(this.evaluationFailures.trustProduct) }));
+    return this.guarded("evaluateTrustProduct", { trustProductSid }, () => ({ evaluationSid: this.sid("EL"), result: this.evaluationRaw.trustProduct ?? this.evaluation(this.evaluationFailures.trustProduct) }));
   }
 
   async submitTrustProduct(trustProductSid: string) {

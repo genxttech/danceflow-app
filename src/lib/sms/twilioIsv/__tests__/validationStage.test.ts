@@ -428,3 +428,54 @@ describe("review round 2: token encoding, stage C binding, empty secret, freeze"
     }).toThrow();
   });
 });
+
+describe("sanitized evaluation evidence: the stage report records the real evaluation status", () => {
+  it("a compliant S10 is recorded as compliant with the evaluation SID and no field names", async () => {
+    const out = await go();
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.report.evaluations).toHaveLength(1);
+    expect(out.report.evaluations[0]).toMatchObject({ method: "evaluateCustomerProfile", status: "compliant", failedFields: [] });
+    expect(out.report.evaluations[0].evaluationSid).toMatch(/^EL[0-9a-f]{32}$/i);
+  });
+  it("noncompliant (even with no named field) is recorded as noncompliant and the stage does not end cleanly", async () => {
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: [] };
+    const out = await go();
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.report.evaluations[0]).toMatchObject({ status: "noncompliant", failedFields: [] });
+    expect(out.report.result.outcome).not.toBe("retry_later");
+    expect(out.report.result.stepsRun).not.toContain("S10");
+  });
+  it("an unrecognized reply is recorded as unrecognized, and only plain Twilio field NAMES are kept (never values)", async () => {
+    adapter.evaluationRaw.profile = { status: "weird", failedFields: ["email", "bad value with spaces and @sign", "a".repeat(200)] } as never;
+    const out = await go();
+    if (!out.ok) throw new Error(out.reason);
+    expect(out.report.evaluations[0].status).toBe("unrecognized");
+    expect(out.report.evaluations[0].failedFields).toEqual(["email"]);
+  });
+  it("the report holds no EIN, email or business value", async () => {
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: ["business_name"] };
+    const out = await go();
+    if (!out.ok) throw new Error(out.reason);
+    const text = JSON.stringify(out.report);
+    for (const secret of [EIN, "pat@validation.example", "Validation Test LLC", "12 Harbor Way"]) expect(text).not.toContain(secret);
+  });
+  it("recordingAdapter captures evaluations from both profile and trust product calls", async () => {
+    const recorded = recordingAdapter(adapter);
+    await recorded.adapter.evaluateCustomerProfile(`BU${"1".repeat(32)}`);
+    await recorded.adapter.evaluateTrustProduct(`BU${"2".repeat(32)}`);
+    expect(recorded.evaluations.map((e) => `${e.method}:${e.status}`)).toEqual(["evaluateCustomerProfile:compliant", "evaluateTrustProduct:compliant"]);
+  });
+});
+
+describe("evaluation evidence never carries an EIN-shaped or value-shaped field name (Opus review P3)", () => {
+  it("drops all-digit, hyphenated-digit, spaced and email-like names from the report", async () => {
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: ["business_name", "123456789", "12-3456789", "Validation Test LLC", "pat@validation.example"] };
+    const out = await go();
+    if (!out.ok) throw new Error(out.reason);
+    expect(out.report.evaluations[0].failedFields).toEqual(["business_name"]);
+    const text = JSON.stringify(out.report);
+    for (const secret of ["123456789", "3456789", "Validation Test LLC", "pat@validation.example"]) expect(text).not.toContain(secret);
+  });
+});

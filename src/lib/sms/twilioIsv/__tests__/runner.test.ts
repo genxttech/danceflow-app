@@ -4,7 +4,7 @@ import { encryptEin } from "@/lib/sms/onboarding/ein";
 import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
 import type { RunnerInputs } from "../payloads";
-import { refreshBrandStatus, runBrandSubmission, STEPS } from "../runner";
+import { classifyEvaluation, refreshBrandStatus, runBrandSubmission, safeFieldNames, STEPS } from "../runner";
 import { RunnerStoreError } from "../store";
 import { MemoryRunnerStore } from "./memoryStore";
 
@@ -475,5 +475,169 @@ describe("PR review fixes: state sync after S11, and store failures after the pa
     expect(store.ledger.find((row) => row.step_key === "B1")?.status).toBe("succeeded");
     expect(adapter.brands.size).toBe(1);
     expect(store.leaseOwner).toBeNull();
+  });
+});
+
+describe("evaluation status integrity: only an explicit compliant evaluation lets a profile or trust product be submitted", () => {
+  const bad = (status: unknown, failedFields: unknown = []) => ({ status, failedFields }) as never;
+  const submits = () => adapter.count("submitCustomerProfile") + adapter.count("createTrustProduct") + adapter.count("submitTrustProduct") + adapter.count("createBrand");
+
+  it("an explicitly compliant evaluation is the only thing that proceeds to submission", async () => {
+    const result = await run();
+    expect(result.outcome).toBe("brand_submitted");
+    expect(adapter.count("evaluateCustomerProfile")).toBe(1);
+    expect(store.ledger.find((row) => row.step_key === "S10")).toMatchObject({ status: "succeeded" });
+    expect(store.ledger.find((row) => row.step_key === "S11")).toMatchObject({ status: "succeeded" });
+  });
+  it("noncompliant WITH named fields keeps the actionable field and submits nothing", async () => {
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: ["email"] };
+    const result = await run();
+    expect(result.outcome).toBe("needs_info");
+    expect(store.lastErrorField).toBe("rep_email");
+    expect(store.ledger.find((row) => row.step_key === "S10")).toMatchObject({ status: "failed", error_code: "noncompliant" });
+    expect(submits()).toBe(0);
+  });
+  it("noncompliant with ZERO named fields is NOT success: it fails closed for a human and submits nothing (the Stage B defect)", async () => {
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: [] };
+    const result = await run();
+    expect(result.outcome).toBe("exception");
+    expect(store.state).toBe("exception");
+    expect(result.stepsRun).not.toContain("S10");
+    expect(store.ledger.find((row) => row.step_key === "S10")).toMatchObject({ status: "failed", error_code: "noncompliant" });
+    expect(store.ledger.some((row) => row.step_key === "S11")).toBe(false);
+    expect(submits()).toBe(0);
+  });
+  it.each([
+    ["missing status", bad(undefined)],
+    ["null status", bad(null)],
+    ["empty status", bad("")],
+    ["wrong case", bad("Compliant")],
+    ["unknown status", bad("pending")],
+    ["non-string status", bad(1)],
+    ["object status", bad({ status: "compliant" })],
+    ["compliant but names failing fields (contradictory)", bad("compliant", ["email"])],
+    ["compliant with failedFields missing", { status: "compliant" } as never],
+    ["compliant with malformed failedFields", bad("compliant", [1, null])],
+  ])("%s is unrecognized: exception, nothing submitted", async (_label, reply) => {
+    adapter.evaluationRaw.profile = reply;
+    const result = await run();
+    expect(result.outcome).toBe("exception");
+    expect(result.detail).toBe("S10:evaluation_unrecognized");
+    expect(store.ledger.find((row) => row.step_key === "S10")).toMatchObject({ status: "failed", error_code: "evaluation_unrecognized" });
+    expect(submits()).toBe(0);
+  });
+  it("a malformed reply (not an object) is unrecognized too", async () => {
+    for (const reply of ["compliant", []]) {
+      setup();
+      adapter.evaluationRaw.profile = reply as never;
+      expect((await run()).outcome).toBe("exception");
+      expect(submits()).toBe(0);
+    }
+  });
+  it("API success (an evaluation SID came back) does not establish compliance", async () => {
+    adapter.evaluationRaw.profile = bad("in-progress");
+    await run();
+    expect(adapter.count("evaluateCustomerProfile")).toBe(1);
+    expect(store.ledger.find((row) => row.step_key === "S10")?.status).not.toBe("succeeded");
+    expect(submits()).toBe(0);
+  });
+  it("the same rule guards the TrustProduct (T5) before its submission", async () => {
+    adapter.evaluationRaw.trustProduct = { status: "noncompliant", failedFields: [] };
+    const result = await run();
+    expect(result.outcome).toBe("exception");
+    expect(store.ledger.find((row) => row.step_key === "T5")).toMatchObject({ status: "failed" });
+    expect(adapter.count("submitTrustProduct")).toBe(0);
+    expect(adapter.count("createBrand")).toBe(0);
+    setup();
+    adapter.evaluationRaw.trustProduct = bad(undefined);
+    const second = await run();
+    expect(second.detail).toBe("T5:evaluation_unrecognized");
+    expect(adapter.count("createBrand")).toBe(0);
+  });
+  it("a failed evaluation is not retried automatically", async () => {
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: [] };
+    await run();
+    expect(adapter.count("evaluateCustomerProfile")).toBe(1);
+    expect(adapter.count("createCustomerProfile")).toBe(1);
+  });
+  it("classifyEvaluation: only exact compliant with no failing field is compliant", () => {
+    expect(classifyEvaluation({ status: "compliant", failedFields: [] })).toEqual({ kind: "compliant", failedFields: [] });
+    expect(classifyEvaluation({ status: "noncompliant", failedFields: ["a", 1] })).toEqual({ kind: "noncompliant", failedFields: ["a"] });
+    expect(classifyEvaluation({ status: "noncompliant" })).toEqual({ kind: "noncompliant", failedFields: [] });
+    for (const value of [undefined, null, "compliant", 1, [], {}, { status: "COMPLIANT", failedFields: [] }, { status: "compliant" }, { status: "compliant", failedFields: ["x"] }]) {
+      expect(classifyEvaluation(value).kind, JSON.stringify(value)).toBe("unrecognized");
+    }
+  });
+});
+
+describe("submission re-verifies the evaluation when the S10 / T5 row comes from an earlier run (Opus review P2-1)", () => {
+  const upToS10 = () => runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, stopAfter: "S10" });
+  const submits = () => adapter.count("submitCustomerProfile") + adapter.count("createTrustProduct") + adapter.count("submitTrustProduct") + adapter.count("createBrand");
+
+  it("a stale 'succeeded' S10 row does not authorize S11: a fresh noncompliant answer (even with no named field) stops before submission", async () => {
+    const first = await upToS10();
+    expect(first.stepsRun).toContain("S10");
+    expect(store.ledger.find((row) => row.step_key === "S10")?.status).toBe("succeeded");
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: [] };
+    const second = await run();
+    expect(second.outcome).toBe("exception");
+    expect(second.detail).toBe("S11:preverify_noncompliant");
+    expect(adapter.count("evaluateCustomerProfile")).toBe(2);
+    expect(submits()).toBe(0);
+    expect(store.ledger.some((row) => row.step_key === "S11")).toBe(false);
+  });
+  it("an unrecognized fresh answer stops before submission too", async () => {
+    await upToS10();
+    adapter.evaluationRaw.profile = { status: "weird", failedFields: [] } as never;
+    const second = await run();
+    expect(second.detail).toBe("S11:preverify_unrecognized");
+    expect(submits()).toBe(0);
+  });
+  it("a named failing field sends the owner back instead of submitting", async () => {
+    await upToS10();
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: ["email"] };
+    const second = await run();
+    expect(second.outcome).toBe("needs_info");
+    expect(store.lastErrorField).toBe("rep_email");
+    expect(submits()).toBe(0);
+  });
+  it("a fresh explicit compliant answer proceeds (one extra evaluation, not one per step)", async () => {
+    await upToS10();
+    const second = await run();
+    expect(second.outcome).toBe("brand_submitted");
+    expect(adapter.count("evaluateCustomerProfile")).toBe(2);
+    expect(adapter.count("submitCustomerProfile")).toBe(1);
+  });
+  it("a failed verification call stops without submitting and without any automatic retry", async () => {
+    await upToS10();
+    adapter.failNext("evaluateCustomerProfile", { kind: "transient" });
+    const second = await run();
+    expect(second.outcome).toBe("retry_later");
+    expect(adapter.count("evaluateCustomerProfile")).toBe(2);
+    expect(submits()).toBe(0);
+  });
+  it("a stale T5 row is re-verified before the TrustProduct is submitted", async () => {
+    const first = await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: false, stopAfter: "T5" });
+    expect(first.stepsRun).toContain("T5");
+    expect(adapter.count("submitTrustProduct")).toBe(0);
+    adapter.evaluationRaw.trustProduct = { status: "noncompliant", failedFields: [] };
+    const second = await run();
+    expect(second.detail).toBe("T6:preverify_noncompliant");
+    expect(adapter.count("submitTrustProduct")).toBe(0);
+    expect(adapter.count("createBrand")).toBe(0);
+  });
+  it("safeFieldNames keeps plain Twilio field names only (no EIN-shaped, spaced or emailed strings)", () => {
+    expect(safeFieldNames(["business_name", "email", "authorized_representative_1.first_name", "123456789", "12-3456789", "a b", "x@y.z", "a".repeat(90), ""])).toEqual(["business_name", "email", "authorized_representative_1.first_name"]);
+  });
+});
+
+describe("pre-submission verification tolerates a non-object adapter reply (Opus re-review P3-C)", () => {
+  it.each([["undefined", undefined], ["null", null], ["a string", "compliant"]])("%s reply: no throw, no submission", async (_label, reply) => {
+    await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, stopAfter: "S10" });
+    adapter.evaluateCustomerProfile = (async () => reply) as never;
+    const second = await run();
+    expect(second.outcome).toBe("exception");
+    expect(second.detail).toBe("S11:preverify_unrecognized");
+    expect(adapter.count("submitCustomerProfile") + adapter.count("createTrustProduct") + adapter.count("createBrand")).toBe(0);
   });
 });
