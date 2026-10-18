@@ -3,12 +3,13 @@ import type { PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
 import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { STATE_LABELS, type OnboardingDisplayState } from "@/lib/sms/onboarding/stateMachine";
 import { runSmsOnboardingAction, setSmsOnboardingAccessAction, setSmsRunnerWindowAction } from "./actions";
+import SmsCampaignPackage from "./SmsCampaignPackage";
 import SmsStepEvidence from "./SmsStepEvidence";
 
 const RUNNABLE_STATES = new Set(["submitted_for_checks", "profile_review", "brand_pending"]);
 const ATTENTION_STATES = new Set(["needs_info", "blocked", "exception", "suspended"]);
 
-type StudioOption = { id: string; name: string | null };
+type StudioOption = { id: string; name: string | null; slug?: string | null; public_name?: string | null };
 
 /** TW-4A: pilot switch for self-service SMS onboarding (default OFF for every studio) and a read-only status list. */
 export default function SmsOnboardingPilot({
@@ -20,6 +21,7 @@ export default function SmsOnboardingPilot({
   runnerNotice = null,
   runnerError = null,
   evidence = {},
+  origin = "https://www.idanceflow.com",
 }: {
   studios: StudioOption[];
   rows: PlatformOnboardingRow[];
@@ -30,6 +32,8 @@ export default function SmsOnboardingPilot({
   runnerError?: string | null;
   /** Read-only run evidence per studio id (ledger, verdicts, confirmations); absent when nothing has run or it could not be loaded. */
   evidence?: Record<string, RunnerStatus>;
+  /** Public origin used to build the studio links in the campaign package. */
+  origin?: string;
 }) {
   return (
     <section id="onboarding-pilot" className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -149,9 +153,14 @@ export default function SmsOnboardingPilot({
                         )}
                       </td>
                     </tr>
-                    {evidence[row.studioId] ? (
+                    {evidence[row.studioId] || row.accessEnabled ? (
                       <tr>
-                        <td colSpan={6} className="pb-3"><SmsStepEvidence status={evidence[row.studioId]!} /></td>
+                        <td colSpan={6} className="space-y-2 pb-3">
+                          {evidence[row.studioId] ? <SmsStepEvidence status={evidence[row.studioId]!} /> : null}
+                          {row.accessEnabled ? (
+                            <SmsCampaignPackage studioName={studios.find((studio) => studio.id === row.studioId)?.name ?? row.studioName} publicName={studios.find((studio) => studio.id === row.studioId)?.public_name ?? null} slug={studios.find((studio) => studio.id === row.studioId)?.slug ?? null} origin={origin} />
+                          ) : null}
+                        </td>
                       </tr>
                     ) : null}
                     </Fragment>
