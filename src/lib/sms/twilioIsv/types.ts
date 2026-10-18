@@ -64,6 +64,8 @@ export interface IsvAdapter {
   assignToTrustProduct(trustProductSid: string, objectSid: string): Promise<string>;
   evaluateTrustProduct(trustProductSid: string): Promise<{ evaluationSid: string; result: EvaluationResult }>;
   submitTrustProduct(trustProductSid: string): Promise<string>;
+  /** Read-only (GET): where Twilio's review of the trust product stands. Never writes. */
+  getTrustProductStatus(trustProductSid: string): Promise<{ status: BundleStatus }>;
 
   // --- A2P brand ---
   findBrand(input: { customerProfileSid: string; trustProductSid: string }): Promise<string[]>;

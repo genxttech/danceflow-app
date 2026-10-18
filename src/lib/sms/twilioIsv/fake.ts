@@ -86,6 +86,21 @@ export class FakeIsvAdapter implements IsvAdapter {
     });
   }
 
+  async getTrustProductStatus(trustProductSid: string) {
+    return this.guarded("getTrustProductStatus", { trustProductSid }, () => ({ status: this.trustProducts.get(trustProductSid)?.status ?? "unknown" }));
+  }
+
+  /** Test helpers: Twilio's reviewers decided about the profile / trust product. */
+  setProfileStatus(profileSid: string, status: BundleStatus) {
+    const profile = this.profiles.get(profileSid);
+    if (profile) profile.status = status;
+  }
+
+  setTrustProductStatus(trustProductSid: string, status: BundleStatus) {
+    const trustProduct = this.trustProducts.get(trustProductSid);
+    if (trustProduct) trustProduct.status = status;
+  }
+
   async findCustomerProfile(friendlyName: string) {
     return this.guarded("findCustomerProfile", { friendlyName }, () => [...this.profiles.entries()].filter(([, p]) => p.friendlyName === friendlyName).map(([sid]) => sid));
   }

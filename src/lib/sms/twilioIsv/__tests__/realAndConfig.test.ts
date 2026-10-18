@@ -369,7 +369,7 @@ describe("payload mapping", () => {
 describe("only real.ts can reach Twilio", () => {
   const dir = join(__dirname, "..");
   const files = readdirSync(dir).filter((name) => name.endsWith(".ts") && statSync(join(dir, name)).isFile());
-  it("covers the slice's files", () => expect(files.sort()).toEqual(["config.ts", "factory.ts", "fake.ts", "loopback.ts", "outcomes.ts", "payloads.ts", "real.ts", "runner.ts", "store.ts", "types.ts"]));
+  it("covers the slice's files", () => expect(files.sort()).toEqual(["config.ts", "errorCatalog.ts", "factory.ts", "fake.ts", "loopback.ts", "outcomes.ts", "payloads.ts", "real.ts", "runner.ts", "store.ts", "types.ts"]));
   it.each(files.filter((name) => name !== "real.ts"))("%s has no network call, Twilio host or credential read", (name) => {
     const code = readFileSync(join(dir, name), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
     expect(code).not.toMatch(/\bfetch\s*\(/);
@@ -407,5 +407,21 @@ describe("real adapter evaluation parsing fails closed", () => {
   });
   it("a reply without an evaluation SID is an error, not an evaluation", async () => {
     await expect(adapterWith([{ status: 201, body: { status: "compliant" } }]).adapter.evaluateCustomerProfile(profile)).rejects.toBeInstanceOf(IsvApiError);
+  });
+});
+
+describe("real adapter: read-only trust product status", () => {
+  const sid = `BU${"9".repeat(32)}`;
+  it("GETs the trust product and returns its status text, sending no body", async () => {
+    const { adapter, calls } = adapterWith([{ status: 200, body: { sid, status: "twilio-approved", email: "x@example.test" } }]);
+    expect(await adapter.getTrustProductStatus(sid)).toEqual({ status: "twilio-approved" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("GET");
+    expect(calls[0].url).toBe(`https://trusthub.twilio.com/v1/TrustProducts/${sid}`);
+    expect(calls[0].body).toBeUndefined();
+  });
+  it("a reply without a status is reported as unknown, not as approved", async () => {
+    const { adapter } = adapterWith([{ status: 200, body: { sid } }]);
+    expect((await adapter.getTrustProductStatus(sid)).status).toBe("unknown");
   });
 });

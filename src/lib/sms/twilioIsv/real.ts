@@ -205,6 +205,11 @@ export class RealIsvAdapter implements IsvAdapter {
     return this.evaluation(await this.request("POST", `${TRUSTHUB}/TrustProducts/${encodeURIComponent(trustProductSid)}/Evaluations`, { PolicySid: this.config.a2pPolicySid }));
   }
 
+  async getTrustProductStatus(trustProductSid: string): Promise<{ status: BundleStatus }> {
+    const json = await this.request("GET", `${TRUSTHUB}/TrustProducts/${encodeURIComponent(trustProductSid)}`);
+    return { status: String(json.status ?? "unknown") };
+  }
+
   async submitTrustProduct(trustProductSid: string): Promise<string> {
     const json = await this.request("POST", `${TRUSTHUB}/TrustProducts/${encodeURIComponent(trustProductSid)}`, { Status: "pending-review" });
     return this.sid(json, /^BU[0-9a-fA-F]{32}$/);

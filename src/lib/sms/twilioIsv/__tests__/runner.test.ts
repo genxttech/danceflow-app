@@ -6,7 +6,7 @@ import { encryptEin } from "@/lib/sms/onboarding/ein";
 import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
 import type { RunnerInputs } from "../payloads";
-import { classifyEvaluation, refreshBrandStatus, runBrandSubmission, safeFieldNames, STEPS, SUBMISSION_STEPS, type RunResult, type SubmissionStepKey } from "../runner";
+import { checkRegistrationStatus, classifyBundleStatus, classifyEvaluation, refreshBrandStatus, runBrandSubmission, safeFieldNames, STEPS, SUBMISSION_STEPS, type RunResult, type SubmissionStepKey } from "../runner";
 import { describeOutcome } from "../outcomes";
 import { RunnerStoreError } from "../store";
 import { MemoryRunnerStore } from "./memoryStore";
@@ -901,5 +901,92 @@ describe("TW-4F-1b: gate evidence (verdicts, confirmations, stale evaluations, u
     expect(next.detail).toBe("S11:attempt_unresolved");
     expect(describeOutcome(next.outcome, next.detail)).toContain("may already have reached Twilio");
     expect(count("submitCustomerProfile")).toBe(1);
+  });
+});
+
+describe("TW-4F-2b: read-only registration status check", () => {
+  const check = () => checkRegistrationStatus({ store, adapter, studioId: STUDIO, actorId: ADMIN });
+  const writes = () => ["createCustomerProfile", "createEndUser", "createAddress", "createSupportingDocument", "assignToCustomerProfile", "submitCustomerProfile", "createTrustProduct", "assignToTrustProduct", "submitTrustProduct", "createBrand"].reduce((n, m) => n + adapter.count(m as never), 0);
+  const profileSid = () => store.ledger.find((row) => row.step_key === "S1")!.provider_sid!;
+  const trustSid = () => store.ledger.find((row) => row.step_key === "T1")!.provider_sid!;
+  /** The admin journey up to and including the profile submission (the trust product is built, T6 not yet confirmed). */
+  const submittedProfile = async () => {
+    await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, stopAfter: "S10" });
+    await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, confirmSubmit: ["S11"] });
+  };
+
+  it("classifies bundle statuses from a closed set; anything else is unknown", () => {
+    expect(["draft", "pending-review", "in-review", "twilio-approved", "twilio-rejected"].map(classifyBundleStatus)).toEqual(["draft", "pending-review", "in-review", "twilio-approved", "twilio-rejected"]);
+    expect(classifyBundleStatus(" Twilio-Approved ")).toBe("twilio-approved");
+    for (const odd of [undefined, null, "", "approved", "weird", 7, {}]) expect(classifyBundleStatus(odd)).toBe("unknown");
+  });
+  it("with nothing created yet there is nothing to check", async () => {
+    expect((await check()).outcome).toBe("not_runnable");
+    expect(writes()).toBe(0);
+  });
+  it("reports where the review of the profile and the trust product stands, and creates, submits and pays nothing", async () => {
+    await submittedProfile();
+    const before = writes();
+    adapter.setProfileStatus(profileSid(), "in-review");
+    adapter.setTrustProductStatus(trustSid(), "pending-review");
+    const result = await check();
+    expect(result.outcome).toBe("status_checked");
+    expect(result.detail).toBe("profile=in-review;trust_product=pending-review");
+    expect(writes()).toBe(before);
+    expect(describeOutcome(result.outcome, result.detail)).toContain("Nothing was created, submitted or paid");
+    expect(store.claimModes.at(-1)).toBe("refresh"); // needs no runner window
+    expect(store.leaseOwner).toBeNull();
+  });
+  it("an approved or unknown status changes nothing", async () => {
+    await submittedProfile();
+    const state = store.state;
+    adapter.setProfileStatus(profileSid(), "twilio-approved");
+    adapter.setTrustProductStatus(trustSid(), "something-new");
+    const result = await check();
+    expect(result.detail).toBe("profile=twilio-approved;trust_product=unknown");
+    expect(store.state).toBe(state);
+  });
+  it("a REJECTED profile or trust product sends the setup to a human (exception) and resubmits nothing", async () => {
+    await submittedProfile();
+    adapter.setProfileStatus(profileSid(), "twilio-rejected");
+    const before = writes();
+    const result = await check();
+    expect(result.outcome).toBe("exception");
+    expect(result.detail).toContain("profile_rejected");
+    expect(store.state).toBe("exception");
+    expect(writes()).toBe(before);
+    expect(describeOutcome(result.outcome, result.detail)).toContain("Next: Read Twilio's reason");
+    setup();
+    await submittedProfile();
+    adapter.setTrustProductStatus(trustSid(), "twilio-rejected");
+    const second = await check();
+    expect(second.detail).toContain("trust_product_rejected");
+    expect(store.state).toBe("exception");
+  });
+  it("a read failure stops cleanly: retry later, no state change", async () => {
+    await submittedProfile();
+    const state = store.state;
+    adapter.failNext("getCustomerProfile", { kind: "transient" });
+    const result = await check();
+    expect(result.outcome).toBe("retry_later");
+    expect(store.state).toBe(state);
+    expect(store.leaseOwner).toBeNull();
+  });
+  it("with a brand it follows the brand as before and lists what it saw about the profile and the trust product", async () => {
+    await run();
+    adapter.setProfileStatus(profileSid(), "twilio-approved");
+    adapter.setTrustProductStatus(trustSid(), "twilio-approved");
+    const result = await check();
+    expect(result.outcome).toBe("brand_in_review");
+    expect(result.detail).toBe("profile=twilio-approved;trust_product=twilio-approved");
+    adapter.setBrandStatus([...adapter.brands.keys()][0], "APPROVED");
+    expect((await check()).outcome).toBe("brand_approved");
+  });
+  it("only read methods are ever called by a status check", async () => {
+    await run();
+    const callsBefore = adapter.calls.length;
+    await check();
+    const used = new Set(adapter.calls.slice(callsBefore).map((call) => call.method));
+    expect([...used].every((method) => ["getCustomerProfile", "getTrustProductStatus", "getBrandStatus"].includes(method))).toBe(true);
   });
 });

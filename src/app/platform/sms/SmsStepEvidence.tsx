@@ -1,3 +1,4 @@
+import { explainCode } from "@/lib/sms/twilioIsv/errorCatalog";
 import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 
 /**
@@ -53,7 +54,10 @@ export default function SmsStepEvidence({ status }: { status: Status }) {
                 <td className="py-1 pr-3 font-medium">{step.step_key} {STEP_LABELS[step.step_key] ?? ""}</td>
                 <td className="py-1 pr-3">{step.status}</td>
                 <td className="py-1 pr-3">{step.evaluation_verdict ? VERDICT_TEXT[step.evaluation_verdict] ?? step.evaluation_verdict : "—"}</td>
-                <td className="py-1 pr-3">{step.error_code ?? "—"}</td>
+                <td className="py-1 pr-3">
+                  {step.error_code ?? "—"}
+                  {step.error_code && explainCode(step.error_code) ? <span className="block font-normal text-slate-500">{explainCode(step.error_code)!.summary} {explainCode(step.error_code)!.action}</span> : null}
+                </td>
               </tr>
             ))}
           </tbody>

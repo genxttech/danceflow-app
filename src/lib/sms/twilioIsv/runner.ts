@@ -31,6 +31,7 @@ export type RunOutcome =
   | "brand_in_review"
   | "brand_approved"
   | "waiting_fee_confirmation"
+  | "status_checked"
   | "waiting_submission_confirmation"
   | "needs_info"
   | "exception"
@@ -532,6 +533,69 @@ async function followBrand(args: {
     // The paid brand exists at Twilio but we could not record it: say so plainly (the ledger already holds its sid) instead of throwing.
     if (error instanceof RunnerStoreError) return { outcome: "exception", stepsRun, detail: `brand_mirror_failed:${error.code}`, state: args.state };
     throw error;
+  }
+}
+
+/** How Twilio's review of a bundle (customer profile / trust product) reads: a closed set, anything else is "unknown". */
+export type BundleReviewState = "draft" | "pending-review" | "in-review" | "twilio-approved" | "twilio-rejected" | "unknown";
+export function classifyBundleStatus(raw: unknown): BundleReviewState {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  return (["draft", "pending-review", "in-review", "twilio-approved", "twilio-rejected"] as const).find((state) => state === value) ?? "unknown";
+}
+
+/**
+ * "Check status": GET-only observation of where Twilio's review of the profile, the trust product and the brand stands. Nothing is
+ * created, submitted or paid. The one thing it may do is move a setup whose profile or trust product Twilio REJECTED to `exception`
+ * (a human decides; nothing is resubmitted automatically). With a brand it also follows the brand exactly as "Check brand status" did.
+ * The result detail lists what was observed, e.g. `profile=in-review;trust_product=twilio-approved`.
+ */
+export async function checkRegistrationStatus(input: Pick<RunInput, "store" | "adapter" | "studioId" | "actorId">): Promise<RunResult> {
+  const { store, adapter, studioId, actorId } = input;
+  const leaseOwner = `status-${randomUUID().slice(0, 8)}`;
+  let claim;
+  try {
+    claim = await store.claim(studioId, actorId, leaseOwner, 120, "refresh");
+  } catch (error) {
+    const code = error instanceof RunnerStoreError ? error.code : "unknown";
+    return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", stepsRun: [], detail: code };
+  }
+  try {
+    const sid = (key: IsvStepKey) => claim.steps.find((step) => step.step_key === key && step.status === "succeeded" && step.provider_sid)?.provider_sid ?? null;
+    const profileSid = sid("S1");
+    const trustProductSid = sid("T1");
+    const brand = claim.steps.find((step) => step.step_key === "B1" && step.status === "succeeded" && step.provider_sid);
+    if (!profileSid && !trustProductSid && !brand?.provider_sid) return { outcome: "not_runnable", stepsRun: [], detail: "nothing_to_check" };
+
+    const observed: string[] = [];
+    let profile: BundleReviewState | null = null;
+    let trustProduct: BundleReviewState | null = null;
+    try {
+      if (profileSid) profile = classifyBundleStatus((await adapter.getCustomerProfile(profileSid)).status);
+      if (trustProductSid) trustProduct = classifyBundleStatus((await adapter.getTrustProductStatus(trustProductSid)).status);
+    } catch (error) {
+      return { outcome: "retry_later", stepsRun: [], detail: `status:${sanitizedDetail(error)}`, state: claim.state };
+    }
+    if (profile) observed.push(`profile=${profile}`);
+    if (trustProduct) observed.push(`trust_product=${trustProduct}`);
+
+    // a rejected bundle is for a human: never resubmitted or recreated here (the paid brand step is never reached for it)
+    const rejected = profile === "twilio-rejected" ? "profile_rejected" : trustProduct === "twilio-rejected" ? "trust_product_rejected" : null;
+    if (rejected && claim.state !== "exception") {
+      const state = await store.transition(claim.onboarding_id, leaseOwner, "exception", rejected === "profile_rejected" ? "S11" : "T6", rejected, null);
+      return { outcome: "exception", stepsRun: [], detail: [rejected, ...observed].join(";"), state };
+    }
+
+    if (brand?.provider_sid) {
+      const followed = await followBrand({ store, adapter, onboardingId: claim.onboarding_id, leaseOwner, brandSid: brand.provider_sid, stepsRun: [], state: claim.state, justCreated: false, mock: Boolean(brand.mock) });
+      return { ...followed, detail: [followed.detail, ...observed].filter(Boolean).join(";") || undefined };
+    }
+    return { outcome: "status_checked", stepsRun: [], detail: observed.join(";"), state: claim.state };
+  } finally {
+    try {
+      await store.release(claim.onboarding_id, leaseOwner);
+    } catch {
+      /* lease expires */
+    }
   }
 }
 

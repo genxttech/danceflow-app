@@ -20,7 +20,7 @@ import { encryptEin } from "@/lib/sms/onboarding/ein";
 import { validateDraftFields } from "@/lib/sms/onboarding/fields";
 import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
-import { runBrandSubmission, type RunResult } from "../runner";
+import { checkRegistrationStatus, runBrandSubmission, type RunResult } from "../runner";
 import { RunnerStoreError, SupabaseRunnerStore } from "../store";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
@@ -110,6 +110,7 @@ describe.skipIf(!enabled)("TW-4F-1b gate evidence against the local QA stack (re
   let store: SupabaseRunnerStore;
   let admin: SupabaseClient;
   let adapter: FakeIsvAdapter;
+  let adapterCLast: FakeIsvAdapter | null = null;
 
   const onboardingId = (studio: string) => psql(`select id from public.studio_sms_onboarding where studio_id = '${studio}' and state <> 'cancelled'`);
   const stepRow = (studio: string, step: string, column: string) =>
@@ -373,10 +374,30 @@ describe.skipIf(!enabled)("TW-4F-1b gate evidence against the local QA stack (re
     const resubmitted = await submitOnboarding(as("owner_c") as never, C, { authorized: true, accurate: true, opt_in_only: true, fees_terms: true });
     expect(resubmitted.submitted).toBe(true);
     const adapterC2 = fakeAdapter();
+    adapterCLast = adapterC2;
     const next = await runBrandSubmission({ store, adapter: adapterC2, config, studioId: C, actorId: U.padmin, confirmFee: true, confirmSubmit: ["S11", "T6"] });
     expect(next.detail).toBe("S11:review");
     expect(stepRow(C, "S10", "evaluation_verdict")).toBe("compliant");
     expect(adapterC2.count("submitCustomerProfile")).toBe(0);
+  });
+
+  it("the read-only status check against the real database: it observes, and a rejected profile sends the setup to a human (studio C)", async () => {
+    expect(adapterCLast).not.toBeNull();
+    const fake = adapterCLast as unknown as FakeIsvAdapter;
+    const profileSid = stepRow(C, "S1", "provider_sid");
+    const before = fake.calls.length;
+    const observed = await checkRegistrationStatus({ store, adapter: fake, studioId: C, actorId: U.padmin });
+    expect(observed.outcome).toBe("status_checked");
+    expect(observed.detail).toBe("profile=draft");
+    expect(fake.calls.slice(before).map((call) => call.method)).toEqual(["getCustomerProfile"]);
+    expect(psql(`select state from public.studio_sms_onboarding where studio_id = '${C}' and state <> 'cancelled'`)).toBe("submitted_for_checks");
+    fake.setProfileStatus(profileSid, "twilio-rejected");
+    const rejected = await checkRegistrationStatus({ store, adapter: fake, studioId: C, actorId: U.padmin });
+    expect(rejected.outcome).toBe("exception");
+    expect(rejected.detail).toContain("profile_rejected");
+    expect(psql(`select state || ':' || coalesce(last_error_code, '') from public.studio_sms_onboarding where studio_id = '${C}' and state <> 'cancelled'`)).toBe("exception:profile_rejected");
+    expect(count(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${C}' and action = 'state_changed' and to_state = 'exception'`)).toBeGreaterThanOrEqual(1);
+    expect(fake.count("submitCustomerProfile")).toBe(0);
   });
 
   it("the status shows only the current attempt's evaluation events; TRUNCATE and the older rollbacks are refused while this migration is applied", async () => {
