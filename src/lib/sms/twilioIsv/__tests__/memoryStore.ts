@@ -3,13 +3,15 @@ import type { RunnerInputs } from "../payloads";
 import { RunnerStoreError, type BeginResult, type Claim, type LedgerStep, type RunnerStatus, type RunnerStore, type RunnerTransitionState } from "../store";
 import type { IsvStepKey } from "../types";
 
+type Confirmation = { step: "S11" | "T6"; seq: number; by: string; owner: string; at: number; consumed: boolean; expired: boolean };
+
 /**
  * Test double for `RunnerStore` that mirrors the semantics of the SQL functions (lease, ledger protocol, fee confirmation,
  * state graph, brand mirror, EIN purge on brand approval). The real functions are tested separately in
  * `test_T_twilio_tw4_r1_runner.sql` and against a real schema in `localStack.tw4_r1.test.ts`.
  */
 
-type Row = { mock: boolean; step_key: IsvStepKey; seq: number; status: LedgerStep["status"]; provider_sid: string | null; fee_bearing: boolean; fee_confirmed_by: string | null; error_code: string | null; error_detail: string | null };
+type Row = { verdict?: string | null; finishedAt?: number; mock: boolean; step_key: IsvStepKey; seq: number; status: LedgerStep["status"]; provider_sid: string | null; fee_bearing: boolean; fee_confirmed_by: string | null; error_code: string | null; error_detail: string | null };
 
 export class MemoryRunnerStore implements RunnerStore {
   state: OnboardingState = "submitted_for_checks";
@@ -28,6 +30,12 @@ export class MemoryRunnerStore implements RunnerStore {
   /** An earlier brand attempt for this studio that is not a definite failure (another generation). */
   priorBrandAttempt = false;
   claimModes: string[] = [];
+  /** Mirrors studio_sms_submission_confirmations (TW-4F-1b). */
+  confirmations: Confirmation[] = [];
+  /** Mirrors the audit trail for the evaluation evidence: one line per event. */
+  evaluationEvents: string[] = [];
+  private clock = 0;
+  private stateEvents: { n: number; to: string }[] = [];
 
   constructor(public inputs: RunnerInputs, einCiphertext: string | null, public readonly studioId = inputs.studio_id) {
     this.einCiphertext = einCiphertext;
@@ -85,6 +93,13 @@ export class MemoryRunnerStore implements RunnerStore {
     if (!this.windowOpen) throw new RunnerStoreError("TW001"); // R1.1: every step needs an open window when it begins
     const row = this.current(step);
     if (row?.status === "succeeded") return { action: "skip", provider_sid: row.provider_sid };
+    if (step === "S11" || step === "T6") {
+      // (parity with the SQL, in order) a submission (also its reconcile / retry) needs a fresh confirmation held by THIS lease, consumed once (SQLSTATE TW003 without)
+      const confirmation = this.confirmations.filter((c) => c.step === step && c.seq === this.seq && c.owner === owner && !c.consumed && !c.expired).at(-1);
+      if (!confirmation) throw new RunnerStoreError("TW003");
+      if (this.submissionCheck(step) !== "ok") throw new RunnerStoreError("TW002");
+      confirmation.consumed = true;
+    }
     if (row && (row.status === "in_flight" || row.status === "unknown_outcome")) return { action: "reconcile", provider_sid: row.provider_sid, status: row.status };
     if (fee && !(confirmedBy && this.platformAdmins.has(confirmedBy))) throw new RunnerStoreError("42501");
     if (fee) {
@@ -92,7 +107,7 @@ export class MemoryRunnerStore implements RunnerStore {
       if (this.registration?.brand_sid || otherAttempt) throw new RunnerStoreError("55000");
     }
     if (row) {
-      Object.assign(row, { status: "in_flight", fee_bearing: fee, fee_confirmed_by: fee ? confirmedBy : null, error_code: null, error_detail: null, mock });
+      Object.assign(row, { verdict: null, status: "in_flight", fee_bearing: fee, fee_confirmed_by: fee ? confirmedBy : null, error_code: null, error_detail: null, mock });
     } else {
       this.ledger.push({ step_key: step, seq: this.seq, status: "in_flight", provider_sid: null, fee_bearing: fee, fee_confirmed_by: fee ? confirmedBy : null, error_code: null, error_detail: null, mock });
     }
@@ -105,10 +120,12 @@ export class MemoryRunnerStore implements RunnerStore {
     if (!row) throw new RunnerStoreError("22023");
     if (row.status !== "in_flight" && row.status !== "unknown_outcome") throw new RunnerStoreError("22023");
     if (outcome.status === "succeeded" && !/^[A-Za-z]{2}[0-9a-fA-F]{32}$/.test(String(outcome.providerSid ?? ""))) throw new RunnerStoreError("22023");
+    if (outcome.status === "succeeded" && (step === "S10" || step === "T5") && row.verdict !== "compliant") throw new RunnerStoreError("22023");
     row.status = outcome.status;
     row.provider_sid = outcome.providerSid ?? row.provider_sid;
     row.error_code = outcome.errorCode ?? null;
     row.error_detail = outcome.errorDetail ?? null;
+    row.finishedAt = ++this.clock;
     this.audit.push(`runner_step:${step}:${outcome.status}`);
   }
 
@@ -118,6 +135,7 @@ export class MemoryRunnerStore implements RunnerStore {
     if (!canTransition(this.state, to)) throw new RunnerStoreError("22023");
     this.state = to;
     this.lastErrorField = field;
+    this.stateEvents.push({ n: ++this.clock, to });
     this.audit.push(`state:${to}`);
     return this.state;
   }
@@ -139,6 +157,48 @@ export class MemoryRunnerStore implements RunnerStore {
     this.einCiphertext = null;
     this.einPurged = true;
     return this.state;
+  }
+
+  /** Mirrors public._tw4f1b_submission_check. */
+  private submissionCheck(step: "S11" | "T6"): "ok" | "state" | "missing" | "unverified" | "stale" {
+    if (this.state !== (step === "S11" ? "submitted_for_checks" : "profile_review")) return "state";
+    const pre = this.current(step === "S11" ? "S10" : "T5");
+    if (!pre || pre.status !== "succeeded") return "missing";
+    if (pre.verdict !== "compliant" || pre.finishedAt === undefined) return "unverified";
+    if (this.stateEvents.some((event) => (event.to === "needs_info" || event.to === "exception") && event.n >= (pre.finishedAt ?? 0))) return "stale";
+    return "ok";
+  }
+
+  async confirmSubmission(_id: string, owner: string, step: "S11" | "T6", actorId: string) {
+    this.lease(owner);
+    if (!this.platformAdmins.has(actorId)) throw new RunnerStoreError("42501");
+    if (step !== "S11" && step !== "T6") throw new RunnerStoreError("22023");
+    if (!this.windowOpen) throw new RunnerStoreError("TW001");
+    const check = this.submissionCheck(step);
+    if (check === "missing") throw new RunnerStoreError("22023");
+    if (check !== "ok") throw new RunnerStoreError("TW002");
+    this.confirmations.push({ step, seq: this.seq, by: actorId, owner, at: ++this.clock, consumed: false, expired: false });
+    this.audit.push(`submission_confirmed:${step}`);
+  }
+
+  async recordEvaluation(_id: string, owner: string, step: "S10" | "T5", verdict: "compliant" | "noncompliant" | "unrecognized", context: "step" | "preverify") {
+    this.lease(owner);
+    if (context === "step") {
+      const row = this.current(step);
+      if (!row || (row.status !== "in_flight" && row.status !== "unknown_outcome")) throw new RunnerStoreError("22023");
+      row.verdict = verdict;
+    }
+    this.evaluationEvents.push(`${step}:${verdict}:${context}`);
+  }
+
+  /** Test helper: the onboarding was sent back (needs_info / exception) AFTER the evaluation, as the audit trail would show. */
+  sendBackAfterEvaluation(to: "needs_info" | "exception") {
+    this.stateEvents.push({ n: ++this.clock, to });
+  }
+
+  /** Test helper: the 15-minute freshness window of the SQL function has passed for every unconsumed confirmation. */
+  expireConfirmations() {
+    for (const c of this.confirmations) if (!c.consumed) c.expired = true;
   }
 
   async status(): Promise<RunnerStatus> {

@@ -290,7 +290,9 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         // Gate 1: this exact submission must have been confirmed for this run (checked before anything else, so a missing confirmation
         // causes no Twilio call and no ledger write).
         if (!(input.confirmSubmit ?? []).includes(step.key)) {
-          return { outcome: "waiting_submission_confirmation", stepsRun, detail: step.key, state };
+          // A previous attempt at THIS submission that never finished cleanly may already have reached Twilio: say so (the admin must check).
+          const unresolved = claim.steps.some((row) => row.step_key === step.key && (row.status === "in_flight" || row.status === "unknown_outcome"));
+          return { outcome: "waiting_submission_confirmation", stepsRun, detail: unresolved ? `${step.key}:attempt_unresolved` : step.key, state };
         }
         // Gate 1b: the confirmation must follow an evaluation that already existed when the run began (see allowSubmitInSameRunAsEvaluation).
         if (!input.allowSubmitInSameRunAsEvaluation && !evaluatedBeforeRun[step.key === "S11" ? "S10" : "T5"]) {
@@ -312,6 +314,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
             return { outcome: "retry_later", stepsRun, detail: `preverify:${step.key}:${sanitizedDetail(error)}`, state };
           }
           const check = classifyEvaluation((reply as { result?: unknown } | null | undefined)?.result);
+          await store.recordEvaluation(onboardingId, leaseOwner, evalKey, check.kind, "preverify");
           if (check.kind !== "compliant") {
             const field = check.kind === "noncompliant" ? firstWizardField(check.failedFields) : null;
             if (field) {
@@ -322,6 +325,22 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
             return { outcome: "exception", stepsRun, detail: `${step.key}:preverify_${check.kind}`, state };
           }
           ctx.verified[evalKey] = true;
+        }
+      }
+      if (step.key === "S11" || step.key === "T6") {
+        // The database records the confirmation (who, when, for this lease and generation) and refuses a submission without it: begin_step
+        // consumes it. It also refuses an evaluation that has no recorded compliant verdict or that the onboarding was sent back after.
+        try {
+          await store.confirmSubmission(onboardingId, leaseOwner, step.key, actorId);
+        } catch (error) {
+          if (error instanceof RunnerStoreError && error.code === "TW002") {
+            // The evaluation cannot authorize this submission (no recorded compliant verdict, sent back after it, or the onboarding is not in the
+            // submission state). Fail closed AND send the setup back to the owner: resubmitting starts a fresh generation with a fresh evaluation.
+            await move("needs_info", step.key, "evaluation_stale", null);
+            return { outcome: "needs_info", stepsRun, detail: `${step.key}:evaluation_stale`, state };
+          }
+          if (error instanceof RunnerStoreError && error.code === "TW001") return { outcome: "runner_closed", stepsRun, state };
+          throw error;
         }
       }
       if (step.fee && !input.confirmFee) {
@@ -336,6 +355,10 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         if (error instanceof RunnerStoreError && error.code === "TW001") {
           // the runner window was closed while this run was in progress: stop before the next step (and before any paid one)
           return { outcome: "runner_closed", stepsRun, state };
+        }
+        if (error instanceof RunnerStoreError && (error.code === "TW002" || error.code === "TW003")) {
+          // the database refused the submission at the moment it began (no fresh confirmation, or the evaluation went stale): nothing was sent
+          return { outcome: "exception", stepsRun, detail: `${step.key}:${error.code === "TW002" ? "evaluation_stale" : "confirmation_missing"}`, state };
         }
         if (error instanceof RunnerStoreError && error.code === "55000") {
           // the studio already has a brand (or an unresolved attempt): never buy a second one; a human decides
@@ -427,6 +450,10 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
 
       // An evaluation step can only succeed on an explicit "compliant" verdict; a step that returned no verdict at all is unrecognized too.
       const verdict: EvaluationVerdict | undefined = step.key === "S10" || step.key === "T5" ? (result.evaluation ?? { kind: "unrecognized", failedFields: [] }) : result.evaluation;
+      if (step.key === "S10" || step.key === "T5") {
+        // The verdict is written onto the still-open ledger row BEFORE the step is finished, so a succeeded S10 / T5 always carries it.
+        await store.recordEvaluation(onboardingId, leaseOwner, step.key, verdict?.kind ?? "unrecognized", "step");
+      }
       if (verdict && verdict.kind === "unrecognized") {
         // The call succeeded but did not establish compliance (missing / malformed / unknown / contradictory status): fail closed, for a human.
         await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: "evaluation_unrecognized", errorDetail: `status:unrecognized;fields:${safeFieldNames(verdict.failedFields).join(",").slice(0, 380) || "none"}` });

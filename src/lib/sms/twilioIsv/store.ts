@@ -22,6 +22,8 @@ export type BeginResult = { action: "skip" | "reconcile" | "execute"; provider_s
 
 export type RunnerTransitionState = "profile_review" | "brand_pending" | "needs_info" | "exception";
 
+export type EvaluationVerdictName = "compliant" | "noncompliant" | "unrecognized";
+
 export type RunnerStatus = {
   onboarding_id: string;
   state: string;
@@ -29,8 +31,13 @@ export type RunnerStatus = {
   submission_seq: number;
   ein_on_file: boolean;
   leased: boolean;
+  window_open?: boolean;
   brand_status: string | null;
-  steps: { step_key: string; status: string; fee_bearing: boolean; fee_confirmed: boolean; error_code: string | null }[];
+  steps: { step_key: string; status: string; fee_bearing: boolean; fee_confirmed: boolean; error_code: string | null; evaluation_verdict?: EvaluationVerdictName | null; finished_at?: string | null }[];
+  /** Platform-admin confirmations of S11 / T6 in the current generation (who is an id, never a name). */
+  confirmations?: { step_key: string; confirmed_by: string; confirmed_at: string; consumed: boolean }[];
+  /** The newest evaluation events (audit note format: step=S10;verdict=compliant;context=step;seq=1). */
+  evaluations?: { at: string; note: string }[];
 } | null;
 
 export interface RunnerStore {
@@ -50,6 +57,10 @@ export interface RunnerStore {
   transition(onboardingId: string, leaseOwner: string, to: RunnerTransitionState, step: string, errorCode: string | null, errorField: string | null): Promise<string>;
   recordBrand(onboardingId: string, leaseOwner: string, brandSid: string, status: "in_review" | "approved" | "rejected" | "suspended"): Promise<void>;
   brandApproved(onboardingId: string, leaseOwner: string): Promise<string>;
+  /** Records a platform admin's confirmation of ONE irreversible submission (S11 / T6) for this lease. The database refuses a stale or unverdicted evaluation (TW002) and consumes the confirmation when the step begins (TW003 without it). */
+  confirmSubmission(onboardingId: string, leaseOwner: string, step: "S11" | "T6", actorId: string): Promise<void>;
+  /** Records an evaluation verdict: on the open S10 / T5 ledger row (context "step") or as audit evidence of the fresh re-check (context "preverify"). */
+  recordEvaluation(onboardingId: string, leaseOwner: string, step: "S10" | "T5", verdict: EvaluationVerdictName, context: "step" | "preverify"): Promise<void>;
   status(studioId: string, actorId: string): Promise<RunnerStatus>;
 }
 
@@ -112,6 +123,14 @@ export class SupabaseRunnerStore implements RunnerStore {
   async brandApproved(onboardingId: string, leaseOwner: string): Promise<string> {
     const row = await this.call<{ state: string }>("tw4_runner_brand_approved", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner });
     return String(row?.state ?? "");
+  }
+
+  async confirmSubmission(onboardingId: string, leaseOwner: string, step: "S11" | "T6", actorId: string): Promise<void> {
+    await this.call("tw4_runner_confirm_submission", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_step_key: step, p_actor: actorId });
+  }
+
+  async recordEvaluation(onboardingId: string, leaseOwner: string, step: "S10" | "T5", verdict: EvaluationVerdictName, context: "step" | "preverify"): Promise<void> {
+    await this.call("tw4_runner_record_evaluation", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_step_key: step, p_verdict: verdict, p_context: context });
   }
 
   async status(studioId: string, actorId: string): Promise<RunnerStatus> {

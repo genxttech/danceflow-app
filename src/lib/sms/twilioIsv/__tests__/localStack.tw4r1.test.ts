@@ -12,6 +12,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+// real SQL over HTTP and a multi-pass admin journey: more than the 5 s default per test
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+
 const state = vi.hoisted(() => ({ ctx: null as null | { supabase: unknown; user: { id: string }; studioId: string; studioRole: string | null; isPlatformAdmin: boolean }, admin: null as unknown }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/serverRoleGuard", () => ({ getCurrentUserStudioContext: async () => state.ctx }));
@@ -21,7 +24,7 @@ import { saveSmsSetupAction, submitSmsSetupAction } from "@/app/app/settings/sms
 import { getStudioSmsStatus, setPilotAccess } from "@/lib/sms/onboarding/client";
 import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
-import { refreshBrandStatus, runBrandSubmission, STEPS } from "../runner";
+import { refreshBrandStatus, runBrandSubmission, STEPS, type RunResult } from "../runner";
 import { SupabaseRunnerStore } from "../store";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
@@ -116,8 +119,18 @@ describe.skipIf(!enabled)("TW-4 R1 runner against the local QA stack (real SQL f
     delete process.env.SMS_EIN_ENCRYPTION_KEY;
   });
 
-  const run = (over: { confirmFee?: boolean; actor?: string; studio?: string } = {}) =>
-    runBrandSubmission({ store, adapter, config, studioId: over.studio ?? A, actorId: over.actor ?? U.padmin, confirmFee: over.confirmFee ?? true });
+  // The production runner stops once at each submission (TW-4F-1) so the admin can read the evaluation: this helper plays the admin,
+  // re-running with the same confirmations after every ":review" stop and merging the steps run.
+  const run = async (over: { confirmFee?: boolean; actor?: string; studio?: string } = {}) => {
+    const merged: RunResult["stepsRun"] = [];
+    let result!: RunResult;
+    for (let pass = 0; pass < 4; pass++) {
+      result = await runBrandSubmission({ store, adapter, config, studioId: over.studio ?? A, actorId: over.actor ?? U.padmin, confirmFee: over.confirmFee ?? true, confirmSubmit: ["S11", "T6"] });
+      merged.push(...result.stepsRun);
+      if (result.outcome !== "waiting_submission_confirmation" || !String(result.detail).endsWith(":review")) break;
+    }
+    return { ...result, stepsRun: merged };
+  };
 
   it("the runner functions are service-role only: the API roles cannot call them", async () => {
     for (const c of [client(null), as("owner_a"), as("padmin")]) {
