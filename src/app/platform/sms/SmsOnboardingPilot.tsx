@@ -124,7 +124,7 @@ export default function SmsOnboardingPilot({
                             {row.state === "brand_pending" ? (
                               <>
                                 <input type="hidden" name="intent" value="refresh" />
-                                <button type="submit" className="rounded-lg border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50">Check brand status</button>
+                                <button type="submit" className="rounded-lg border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50">Check status</button>
                               </>
                             ) : (
                               <>
@@ -145,6 +145,7 @@ export default function SmsOnboardingPilot({
                                   </label>
                                 </fieldset>
                                 <button type="submit" className="rounded-lg bg-violet-700 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-800">Run next steps</button>
+                                <button type="submit" name="intent" value="refresh" className="rounded-lg border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50" title="Read-only: asks Twilio where the review stands; nothing is created, submitted or paid">Check status</button>
                               </>
                             )}
                           </form>

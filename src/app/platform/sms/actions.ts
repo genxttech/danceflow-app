@@ -7,7 +7,7 @@ import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { setPilotAccess } from "@/lib/sms/onboarding/client";
 import { buildRunnerRuntime, buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
 import { describeOutcome } from "@/lib/sms/twilioIsv/outcomes";
-import { refreshBrandStatus, runBrandSubmission, type SubmissionStepKey } from "@/lib/sms/twilioIsv/runner";
+import { checkRegistrationStatus, runBrandSubmission, type SubmissionStepKey } from "@/lib/sms/twilioIsv/runner";
 import {
   SMS_CAMPAIGN_USE_CASES,
   SMS_PROVIDER_REVIEW_STATUSES,
@@ -207,7 +207,7 @@ export async function runSmsOnboardingAction(formData: FormData) {
   try {
     const result =
       intent === "refresh"
-        ? await refreshBrandStatus({ store: runtime.store, adapter: runtime.adapter, studioId, actorId: admin.id })
+        ? await checkRegistrationStatus({ store: runtime.store, adapter: runtime.adapter, studioId, actorId: admin.id })
         : await runBrandSubmission({ store: runtime.store, adapter: runtime.adapter, config: runtime.config, studioId, actorId: admin.id, confirmFee, confirmSubmit });
     message = describeOutcome(result.outcome, result.detail);
     if (confirmSubmit.length > 0) {

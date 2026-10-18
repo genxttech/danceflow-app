@@ -40,7 +40,7 @@ const refreshCalls: Record<string, unknown>[] = [];
 let runImpl: () => Promise<{ outcome: string; detail?: string }> = async () => ({ outcome: "brand_submitted" });
 vi.mock("@/lib/sms/twilioIsv/runner", () => ({
   runBrandSubmission: async (input: Record<string, unknown>) => { runCalls.push(input); return runImpl(); },
-  refreshBrandStatus: async (input: Record<string, unknown>) => { refreshCalls.push(input); return { outcome: "brand_in_review" }; },
+  checkRegistrationStatus: async (input: Record<string, unknown>) => { refreshCalls.push(input); return { outcome: "brand_in_review" }; },
 }));
 
 import { runSmsOnboardingAction, setSmsRunnerWindowAction } from "../actions";
@@ -128,18 +128,18 @@ describe("registration controls on the platform panel", () => {
     const html = render([{ ...base, accessEnabled: true, state: "submitted_for_checks" }]);
     expect(html).toContain("Run next steps");
     expect(html).toContain("I confirm the Twilio brand fee");
-    expect(html).not.toContain("Check brand status");
+    expect(html).toContain("Check status"); // the read-only status check sits beside it
   });
   it("a brand in review offers only the GET-only status check", () => {
     const html = render([{ ...base, accessEnabled: true, state: "brand_pending" }]);
-    expect(html).toContain("Check brand status");
+    expect(html).toContain("Check status");
     expect(html).not.toContain("I confirm the Twilio brand fee");
   });
   it("offers nothing when the pilot switch is off or the setup is not in a runnable state", () => {
     for (const row of [{ ...base, accessEnabled: false, state: "submitted_for_checks" }, { ...base, accessEnabled: true, state: "draft" }, { ...base, accessEnabled: true, state: "exception" }, { ...base, accessEnabled: true, state: "service_setup" }]) {
       const html = render([row]);
       expect(html).not.toContain("Run next steps");
-      expect(html).not.toContain("Check brand status");
+      expect(html).not.toContain("Check status");
     }
   });
   it("shows the run result and errors, and still never an EIN or SID", () => {
