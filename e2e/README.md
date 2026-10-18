@@ -315,3 +315,33 @@ event page fields render publicly; `studio_simple@2` programs are untouched.
   the Slice 3 query-string-preservation bugfix and its banner.
 - `.github/workflows/e2e-public-event-registration.yml` -- the CI release
   gate (see "CI" above).
+
+## Self-service SMS onboarding specs (TW-4F-5)
+
+`e2e/tests/sms-onboarding-wizard.spec.ts` (the studio owner's Texting setup) and `e2e/tests/sms-platform-runner.spec.ts` (the platform admin's
+registration runner) drive the real UI against a **local** stack. Nothing in them can reach Twilio, send an SMS or an email, or touch payments.
+
+What makes that safe, and what they need:
+
+- **The Twilio adapter is an in-process fake.** Start the dev server with `TW4_ISV_FAKE=on` (non-production). The real adapter cannot be built
+  there (it needs `NODE_ENV=production` and `TW4_ISV_REAL_CALLS=on`). Do not set Twilio, Stripe, Resend or Mux keys for this server.
+- **The dev server and the fixtures use the same local Supabase stack** (`E2E_SUPABASE_URL`, loopback only, validated by `src/lib/e2e/guards.ts`) with
+  the TW-4A, 4A.1, R1, R1.1 and TW-4F-1b migrations applied. The server also needs `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+  `SUPABASE_SERVICE_ROLE_KEY` for that stack, `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_SITE_URL` / `APP_URL` for its own origin and a random
+  `SMS_EIN_ENCRYPTION_KEY`. Pass them in the shell that starts `npx next dev`; never reuse a `.env.local` that points at a hosted project.
+- **The local auth service must have authenticator (TOTP) MFA enabled**, because platform admin pages require it (`[auth.mfa.totp] enroll_enabled =
+  true` and `verify_enabled = true` in the Supabase CLI `config.toml`, then restart the stack). The helper enrols a factor through the auth API and
+  answers the sign-in challenge with a computed RFC 6238 code (`src/lib/e2e/totp.ts`, unit-tested against the RFC vectors).
+- **Run one worker** (`--workers=1`): both specs are serial and share one dev server and one in-memory fake adapter.
+- Fixtures are run-scoped (random ids) and removed in `afterAll`; if a run is killed, delete rows whose email is `e2e-sms-*@e2e.test` and studios
+  whose slug starts with `e2e-sms-` from the local database.
+- In a git worktree whose `node_modules` is a symlink, Turbopack refuses to start; point `turbopack.root` at the parent folder temporarily and revert.
+
+Coverage: the pilot switch (off by default, per studio), the role and tenant matrix (owner, front desk, another studio's owner, studio owner on the
+platform panel), validation (invalid EIN, missing attestations), draft persistence (the EIN is never shown again), the read-only submitted and paused
+states, cancelling, and the admin journey on the platform page: no open runner window, stop before each irreversible submission, the exact `SUBMIT`
+phrase, one confirmation never covering another, the read-only status check, the fee and trust product confirmations, the step evidence view and the
+campaign package for the Twilio pre-review.
+
+Known limits: the first-time platform MFA *setup* page is not driven (see `docs/twilio/TW-4F_Smoke_Checklist.md`, finding F-3), and the browser tests
+cannot read the registration tables (they have no API privileges), so state is asserted through the UI.
