@@ -5,6 +5,7 @@ const TEXT: Record<RunOutcome, string> = {
   brand_submitted: "Profile, trust product and brand were submitted to Twilio. The brand is now in review.",
   brand_in_review: "The brand is still in review at Twilio. Nothing was created.",
   brand_approved: "The brand is approved. The studio's EIN was erased. Next: campaign and number (slice R2).",
+  waiting_submission_confirmation: "Stopped before an irreversible submission to Twilio (S11 = the business profile, T6 = the A2P trust product). Nothing was submitted. A run that has just performed the evaluation always stops here first; if the code shows :review, the evaluation passed. Tick that confirmation, type SUBMIT and run again.",
   waiting_fee_confirmation: "Stopped before the paid brand step. Tick the fee confirmation and run again to continue.",
   needs_info: "Twilio's checks need a correction. The studio owner has been asked to fix the highlighted field.",
   exception: "Stopped for a human to look at. See the step list; nothing further will run automatically.",

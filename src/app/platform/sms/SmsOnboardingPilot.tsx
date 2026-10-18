@@ -120,6 +120,19 @@ export default function SmsOnboardingPilot({
                                 <label className="flex items-center gap-1 text-xs text-slate-700">
                                   <input type="checkbox" name="confirmFee" /> I confirm the Twilio brand fee
                                 </label>
+                                <fieldset className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1">
+                                  <legend className="px-1 text-[11px] font-semibold uppercase tracking-wide text-rose-800">Irreversible submissions (each run)</legend>
+                                  <label className="flex items-center gap-1 text-xs text-slate-800">
+                                    <input type="checkbox" name="confirmSubmitProfile" /> Submit the business profile for Twilio review
+                                  </label>
+                                  <label className="flex items-center gap-1 text-xs text-slate-800">
+                                    <input type="checkbox" name="confirmSubmitTrustProduct" /> Submit the A2P trust product
+                                  </label>
+                                  <label className="flex items-center gap-1 text-xs text-slate-800">
+                                    Type SUBMIT
+                                    <input name="submitPhrase" autoComplete="off" aria-label="Type SUBMIT to confirm the submissions ticked" className="w-24 rounded border border-slate-300 px-1 py-0.5 text-xs" />
+                                  </label>
+                                </fieldset>
                                 <button type="submit" className="rounded-lg bg-violet-700 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-800">Run next steps</button>
                               </>
                             )}

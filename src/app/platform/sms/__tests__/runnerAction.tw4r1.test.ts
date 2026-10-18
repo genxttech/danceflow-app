@@ -197,3 +197,101 @@ describe("the runner window form on the platform panel", () => {
     expect(html).toContain("does nothing outside an open window");
   });
 });
+
+describe("TW-4F-1: the run action passes explicit submission confirmations only", () => {
+  const logs: string[] = [];
+  beforeEach(() => {
+    logs.length = 0;
+    vi.spyOn(console, "info").mockImplementation((line: unknown) => { logs.push(String(line)); });
+  });
+  const confirmations = () => (runCalls[0]?.confirmSubmit ?? null) as string[] | null;
+
+  it("without any submission box nothing is confirmed", async () => {
+    await go({ studioId: STUDIO, confirmFee: "on" });
+    expect(runCalls).toHaveLength(1);
+    expect(confirmations()).toEqual([]);
+    expect(runCalls[0].confirmFee).toBe(true);
+    expect(logs).toEqual([]);
+  });
+  it("the fee confirmation does not confirm any submission", async () => {
+    await go({ studioId: STUDIO, confirmFee: "on", submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual([]);
+  });
+  it("each box confirms only its own submission, and the trail records who and which", async () => {
+    await go({ studioId: STUDIO, confirmSubmitProfile: "on", submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual(["S11"]);
+    expect(JSON.parse(logs[0])).toEqual({ event: "sms_runner_submission_requested", studioId: STUDIO, actorId: "padmin-1", steps: ["S11"] });
+    expect(JSON.parse(logs[1])).toEqual({ event: "sms_runner_submission_result", studioId: STUDIO, actorId: "padmin-1", requested: ["S11"], submitted: [], outcome: "brand_submitted" });
+    runCalls.length = 0;
+    await go({ studioId: STUDIO, confirmSubmitTrustProduct: "on", submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual(["T6"]);
+    runCalls.length = 0;
+    await go({ studioId: STUDIO, confirmSubmitProfile: "on", confirmSubmitTrustProduct: "on", submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual(["S11", "T6"]);
+  });
+  it.each([[""], ["submit"], ["Submit"], ["SUBMIT NOW"], ["YES"]])("a ticked submission with the phrase %j runs nothing and builds no runtime", async (phrase) => {
+    const message = await go({ studioId: STUDIO, confirmSubmitProfile: "on", submitPhrase: phrase });
+    expect(message).toContain("type SUBMIT exactly");
+    expect(runCalls).toHaveLength(0);
+    expect(built).toBe(0);
+    expect(logs).toEqual([]);
+  });
+  it("surrounding spaces around the phrase are tolerated, nothing else", async () => {
+    await go({ studioId: STUDIO, confirmSubmitProfile: "on", submitPhrase: "  SUBMIT " });
+    expect(confirmations()).toEqual(["S11"]);
+  });
+  it("the typed phrase alone confirms nothing", async () => {
+    await go({ studioId: STUDIO, submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual([]);
+  });
+  it("a status check ignores submission boxes entirely", async () => {
+    await go({ studioId: STUDIO, intent: "refresh", confirmSubmitProfile: "on", confirmSubmitTrustProduct: "on", submitPhrase: "SUBMIT" });
+    expect(refreshCalls).toHaveLength(1);
+    expect(runCalls).toHaveLength(0);
+    expect(logs).toEqual([]);
+  });
+  it("a platform-admin refusal still happens first", async () => {
+    platformAdmin = false;
+    await expect(runSmsOnboardingAction(form({ studioId: STUDIO, confirmSubmitProfile: "on", submitPhrase: "SUBMIT" }))).rejects.toThrow("NOT_PLATFORM_ADMIN");
+    expect(runCalls).toHaveLength(0);
+  });
+  it("the result trail says what was actually submitted, not just what was requested", async () => {
+    runImpl = async () => ({ outcome: "waiting_submission_confirmation", detail: "T6", stepsRun: ["S11", "T1"] } as never);
+    await go({ studioId: STUDIO, confirmSubmitProfile: "on", confirmSubmitTrustProduct: "on", submitPhrase: "SUBMIT" });
+    expect(JSON.parse(logs[1])).toMatchObject({ event: "sms_runner_submission_result", requested: ["S11", "T6"], submitted: ["S11"], outcome: "waiting_submission_confirmation" });
+  });
+  it("the waiting outcome is explained in plain words", async () => {
+    runImpl = async () => ({ outcome: "waiting_submission_confirmation", detail: "S11" });
+    const message = await go({ studioId: STUDIO });
+    expect(message).toContain("irreversible submission");
+    expect(message).toContain("type SUBMIT");
+    expect(message).toContain("Nothing was submitted");
+    expect(message).toContain("the evaluation passed");
+  });
+});
+
+describe("TW-4F-1: the platform panel shows the irreversible-submission confirmations", () => {
+  const html = renderToStaticMarkup(createElement(SmsOnboardingPilot, {
+    studios: [{ id: STUDIO, name: "Harbor Dance" }],
+    rows: [{ studioId: STUDIO, studioName: "Harbor Dance", submissionSeq: 1, submittedAt: "2026-10-15T12:00:00Z", updatedAt: null, einStored: true, accessEnabled: true, state: "submitted_for_checks" }] as never,
+    unavailable: false, notice: false, error: null,
+  }));
+  it("offers a separate unticked box for each submission and a typed phrase", () => {
+    expect(html).toContain('name="confirmSubmitProfile"');
+    expect(html).toContain('name="confirmSubmitTrustProduct"');
+    expect(html).toContain('name="submitPhrase"');
+    expect(html).toContain("Irreversible submissions");
+    expect(html).not.toMatch(/name="confirmSubmit(Profile|TrustProduct)"[^>]*checked/);
+  });
+  it("keeps the fee confirmation separate", () => {
+    expect(html).toContain('name="confirmFee"');
+  });
+  it("a brand already in review offers none of the submission controls", () => {
+    const review = renderToStaticMarkup(createElement(SmsOnboardingPilot, {
+      studios: [{ id: STUDIO, name: "Harbor Dance" }],
+      rows: [{ studioId: STUDIO, studioName: "Harbor Dance", submissionSeq: 1, submittedAt: null, updatedAt: null, einStored: false, accessEnabled: true, state: "brand_pending" }] as never,
+      unavailable: false, notice: false, error: null,
+    }));
+    expect(review).not.toContain("confirmSubmitProfile");
+  });
+});

@@ -281,6 +281,10 @@ export async function runValidationStage(input: {
       studioId,
       actorId: input.actorId,
       confirmFee: stage === "C",
+      // Stage C is the submission stage: its own authorization token (checked above) is the explicit confirmation of both submissions.
+      confirmSubmit: stage === "C" ? ["S11", "T6"] : undefined,
+      // Stage C is one authorized pass over S11..B1 after the owner read the Stage B report: the same-run rule is lifted for it alone.
+      allowSubmitInSameRunAsEvaluation: stage === "C",
       stopAfter: stage === "B" ? STAGE_B_LAST_STEP : undefined,
       decrypt: input.decrypt,
     });
