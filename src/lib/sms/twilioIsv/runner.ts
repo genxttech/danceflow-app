@@ -31,6 +31,7 @@ export type RunOutcome =
   | "brand_in_review"
   | "brand_approved"
   | "waiting_fee_confirmation"
+  | "waiting_submission_confirmation"
   | "needs_info"
   | "exception"
   | "retry_later"
@@ -38,6 +39,10 @@ export type RunOutcome =
   | "runner_closed"
   | "not_runnable"
   | "config_missing";
+
+/** The steps whose Twilio call cannot be undone (a submission for review). Each needs its own explicit confirmation on every run. */
+export const SUBMISSION_STEPS = ["S11", "T6"] as const;
+export type SubmissionStepKey = (typeof SUBMISSION_STEPS)[number];
 
 export type RunResult = { outcome: RunOutcome; stepsRun: IsvStepKey[]; detail?: string; state?: string };
 
@@ -53,6 +58,19 @@ export type RunInput = {
   maxSteps?: number;
   /** Never start a step positioned after this one (positional, unlike maxSteps which counts steps executed in this run). Used by the staged validation. */
   stopAfter?: IsvStepKey;
+  /**
+   * The irreversible submissions the platform admin explicitly confirmed for THIS run only (S11 = submit the profile for Twilio review,
+   * T6 = submit the A2P trust product). Default: none. A submission step that is not listed never starts: the run stops with
+   * `waiting_submission_confirmation` before any Twilio call or ledger write for that step. Nothing here is stored or reused by a later run.
+   */
+  confirmSubmit?: readonly SubmissionStepKey[];
+  /**
+   * Default false (safe): a confirmation is honoured only if the evaluation it relies on (S10 for S11, T5 for T6) was ALREADY `succeeded`
+   * in the ledger when this run started, so the confirming click always follows an evaluation a human could read. A run that has to
+   * perform that evaluation itself stops at the submission with `waiting_submission_confirmation` (detail `S11:review`), even if confirmed.
+   * Only the staged validation harness (Stage C, behind its own authorization token) sets this to true. The platform action never does.
+   */
+  allowSubmitInSameRunAsEvaluation?: boolean;
 };
 
 type Ctx = {
@@ -245,6 +263,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
       },
     };
     for (const step of claim.steps) if (step.status === "succeeded" && step.provider_sid) ctx.sids[step.step_key] = step.provider_sid;
+    const evaluatedBeforeRun = { S10: Boolean(ctx.sids.S10), T5: Boolean(ctx.sids.T5) };
 
     let state = claim.state;
     const move = async (to: RunnerTransitionState, step: string, code: string | null, field: string | null) => {
@@ -268,7 +287,16 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         }
       }
       if (step.key === "S11" || step.key === "T6") {
-        // Submission is irreversible. A `succeeded` S10 / T5 row from an EARLIER run (or older code) records only that an evaluation call
+        // Gate 1: this exact submission must have been confirmed for this run (checked before anything else, so a missing confirmation
+        // causes no Twilio call and no ledger write).
+        if (!(input.confirmSubmit ?? []).includes(step.key)) {
+          return { outcome: "waiting_submission_confirmation", stepsRun, detail: step.key, state };
+        }
+        // Gate 1b: the confirmation must follow an evaluation that already existed when the run began (see allowSubmitInSameRunAsEvaluation).
+        if (!input.allowSubmitInSameRunAsEvaluation && !evaluatedBeforeRun[step.key === "S11" ? "S10" : "T5"]) {
+          return { outcome: "waiting_submission_confirmation", stepsRun, detail: `${step.key}:review`, state };
+        }
+        // Gate 2: submission is irreversible. A `succeeded` S10 / T5 row from an EARLIER run (or older code) records only that an evaluation call
         // finished, never its verdict, so it cannot authorize a submission: unless this process just got an explicit compliant verdict,
         // evaluate again right now and refuse unless the answer is an explicit compliant.
         // Follow-ups (Opus review, accepted P3s): (A) a refused re-check moves the onboarding state but leaves the frozen S10/T5 ledger row

@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { encryptEin } from "@/lib/sms/onboarding/ein";
 import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
 import type { RunnerInputs } from "../payloads";
-import { classifyEvaluation, refreshBrandStatus, runBrandSubmission, safeFieldNames, STEPS } from "../runner";
+import { classifyEvaluation, refreshBrandStatus, runBrandSubmission, safeFieldNames, STEPS, SUBMISSION_STEPS, type RunResult, type SubmissionStepKey } from "../runner";
 import { RunnerStoreError } from "../store";
 import { MemoryRunnerStore } from "./memoryStore";
 
@@ -40,8 +42,18 @@ function setup(over: Partial<RunnerInputs> = {}) {
   store.platformAdmins.add(ADMIN);
 }
 
-const run = (over: { confirmFee?: boolean; maxSteps?: number; config?: IsvConfig; studioId?: string; actorId?: string } = {}) =>
-  runBrandSubmission({ store, adapter, config: over.config ?? config, studioId: over.studioId ?? STUDIO, actorId: over.actorId ?? ADMIN, confirmFee: over.confirmFee ?? true, maxSteps: over.maxSteps });
+const run = async (over: { confirmFee?: boolean; maxSteps?: number; config?: IsvConfig; studioId?: string; actorId?: string; confirmSubmit?: readonly SubmissionStepKey[] } = {}) => {
+  // The production runner stops once at each submission so the admin can read the evaluation; these older tests want the whole journey,
+  // so the helper plays the admin: it re-runs with the same confirmations after every "review" stop and merges the steps run.
+  const merged: RunResult["stepsRun"] = [];
+  let result!: RunResult;
+  for (let pass = 0; pass < 4; pass++) {
+    result = await runBrandSubmission({ store, adapter, config: over.config ?? config, studioId: over.studioId ?? STUDIO, actorId: over.actorId ?? ADMIN, confirmFee: over.confirmFee ?? true, maxSteps: over.maxSteps, confirmSubmit: over.confirmSubmit ?? ["S11", "T6"] });
+    merged.push(...result.stepsRun);
+    if (result.outcome !== "waiting_submission_confirmation" || !String(result.detail).endsWith(":review")) break;
+  }
+  return { ...result, stepsRun: merged };
+};
 
 beforeEach(() => setup());
 
@@ -458,7 +470,8 @@ describe("PR review fixes: state sync after S11, and store failures after the pa
     expect(store.einPurged).toBe(true);
   });
   it("when the step limit ends the run right after S11, the state still moves to profile_review", async () => {
-    const result = await run({ maxSteps: 11 });
+    await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, stopAfter: "S10" }); // evaluation first (the admin reads it)
+    const result = await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, maxSteps: 1, confirmSubmit: ["S11"] });
     expect(result.outcome).toBe("retry_later");
     expect(result.stepsRun.at(-1)).toBe("S11");
     expect(store.state).toBe("profile_review");
@@ -485,7 +498,7 @@ describe("evaluation status integrity: only an explicit compliant evaluation let
   it("an explicitly compliant evaluation is the only thing that proceeds to submission", async () => {
     const result = await run();
     expect(result.outcome).toBe("brand_submitted");
-    expect(adapter.count("evaluateCustomerProfile")).toBe(1);
+    expect(adapter.count("evaluateCustomerProfile")).toBe(2); // S10, then the fresh re-check on the confirming run
     expect(store.ledger.find((row) => row.step_key === "S10")).toMatchObject({ status: "succeeded" });
     expect(store.ledger.find((row) => row.step_key === "S11")).toMatchObject({ status: "succeeded" });
   });
@@ -617,7 +630,8 @@ describe("submission re-verifies the evaluation when the S10 / T5 row comes from
     expect(submits()).toBe(0);
   });
   it("a stale T5 row is re-verified before the TrustProduct is submitted", async () => {
-    const first = await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: false, stopAfter: "T5" });
+    await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: false, stopAfter: "S10" });
+    const first = await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: false, stopAfter: "T5", confirmSubmit: ["S11"] });
     expect(first.stepsRun).toContain("T5");
     expect(adapter.count("submitTrustProduct")).toBe(0);
     adapter.evaluationRaw.trustProduct = { status: "noncompliant", failedFields: [] };
@@ -639,5 +653,125 @@ describe("pre-submission verification tolerates a non-object adapter reply (Opus
     expect(second.outcome).toBe("exception");
     expect(second.detail).toBe("S11:preverify_unrecognized");
     expect(adapter.count("submitCustomerProfile") + adapter.count("createTrustProduct") + adapter.count("createBrand")).toBe(0);
+  });
+});
+
+describe("TW-4F-1: each irreversible submission needs its own confirmation on every run, and follows a visible evaluation", () => {
+  const count = (method: string) => adapter.count(method as never);
+  const ledgerHas = (step: string) => store.ledger.some((row) => row.step_key === step);
+  const production = (confirmSubmit?: readonly SubmissionStepKey[], confirmFee = true) =>
+    runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee, ...(confirmSubmit ? { confirmSubmit } : {}) });
+  /** The admin's first pass: the profile is evaluated and the run stops at the submission. */
+  const evaluated = async () => {
+    const first = await production(["S11", "T6"]);
+    expect(first.detail).toBe("S11:review");
+    return first;
+  };
+
+  it("the submission steps are exactly S11 (profile) and T6 (trust product)", () => {
+    expect([...SUBMISSION_STEPS]).toEqual(["S11", "T6"]);
+  });
+  it("a first run that has to perform the evaluation stops at S11 even if confirmed: the admin must see the evaluation first", async () => {
+    const result = await production(["S11", "T6"]);
+    expect(result.outcome).toBe("waiting_submission_confirmation");
+    expect(result.detail).toBe("S11:review");
+    expect(result.stepsRun).toContain("S10");
+    expect(result.stepsRun).not.toContain("S11");
+    expect(count("submitCustomerProfile")).toBe(0);
+    expect(count("createTrustProduct")).toBe(0);
+    expect(count("createBrand")).toBe(0);
+    expect(count("evaluateCustomerProfile")).toBe(1); // S10 only: no extra re-check before the gate
+    expect(ledgerHas("S11")).toBe(false);
+    expect(store.state).toBe("submitted_for_checks");
+  });
+  it("with no confirmation (the default) a run after the evaluation stops at S11: nothing submitted, no ledger row, no extra Twilio call", async () => {
+    await evaluated();
+    const result = await production();
+    expect(result.outcome).toBe("waiting_submission_confirmation");
+    expect(result.detail).toBe("S11");
+    expect(count("submitCustomerProfile")).toBe(0);
+    expect(count("evaluateCustomerProfile")).toBe(1);
+    expect(ledgerHas("S11")).toBe(false);
+  });
+  it("an empty confirmation list behaves exactly like none", async () => {
+    await evaluated();
+    const result = await production([]);
+    expect(result.detail).toBe("S11");
+    expect(count("submitCustomerProfile")).toBe(0);
+  });
+  it("confirming only the profile submits it, builds and evaluates the trust product, then stops at T6 for review", async () => {
+    await evaluated();
+    const result = await production(["S11"]);
+    expect(result.outcome).toBe("waiting_submission_confirmation");
+    expect(result.detail).toBe("T6"); // not confirmed in this run
+    expect(count("submitCustomerProfile")).toBe(1);
+    expect(count("createTrustProduct")).toBe(1);
+    expect(count("submitTrustProduct")).toBe(0);
+    expect(count("createBrand")).toBe(0);
+    expect(ledgerHas("T6")).toBe(false);
+  });
+  it("confirming only the trust product does not submit the profile: S11 comes first and is unconfirmed", async () => {
+    await evaluated();
+    const result = await production(["T6"]);
+    expect(result.detail).toBe("S11");
+    expect(count("submitCustomerProfile")).toBe(0);
+    expect(count("createTrustProduct")).toBe(0);
+    expect(count("submitTrustProduct")).toBe(0);
+  });
+  it("the admin journey: evaluate, confirm the profile, confirm the trust product; each submission happens exactly once", async () => {
+    await evaluated();
+    expect((await production(["S11"])).detail).toBe("T6");
+    const last = await production(["T6"]);
+    expect(last.outcome).toBe("brand_submitted");
+    expect(count("submitCustomerProfile")).toBe(1);
+    expect(count("submitTrustProduct")).toBe(1);
+    expect(count("createBrand")).toBe(1);
+  });
+  it("a confirmation covers one run only: the next run without it stops at the next submission again", async () => {
+    await evaluated();
+    await production(["S11"]);
+    const second = await production([]);
+    expect(second.outcome).toBe("waiting_submission_confirmation");
+    expect(second.detail).toBe("T6");
+    expect(count("submitTrustProduct")).toBe(0);
+  });
+  it("the fee is still its own gate after both submissions", async () => {
+    await evaluated();
+    await production(["S11"]);
+    const result = await production(["T6"], false);
+    expect(result.outcome).toBe("waiting_fee_confirmation");
+    expect(count("submitTrustProduct")).toBe(1);
+    expect(count("createBrand")).toBe(0);
+  });
+  it("anything that is not exactly S11 or T6 confirms nothing", async () => {
+    await evaluated();
+    const result = await production(["S10", "B1", "s11", "T5", ""] as never);
+    expect(result.outcome).toBe("waiting_submission_confirmation");
+    expect(result.detail).toBe("S11");
+    expect(count("submitCustomerProfile")).toBe(0);
+  });
+  it("the gate comes before the evaluation re-check, and a confirmation does not bypass the re-check", async () => {
+    await evaluated();
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: [] };
+    const unconfirmed = await production([]);
+    expect(unconfirmed.detail).toBe("S11"); // stopped by the gate, no extra evaluation
+    expect(count("evaluateCustomerProfile")).toBe(1);
+    const confirmed = await production(["S11", "T6"]);
+    expect(confirmed.outcome).toBe("exception");
+    expect(confirmed.detail).toBe("S11:preverify_noncompliant");
+    expect(count("submitCustomerProfile")).toBe(0);
+  });
+  it("only the validation harness can lift the same-run rule, and it still needs the confirmations", async () => {
+    const withoutList = await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, allowSubmitInSameRunAsEvaluation: true });
+    expect(withoutList.detail).toBe("S11");
+    expect(count("submitCustomerProfile")).toBe(0);
+    const single = await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, confirmSubmit: ["S11", "T6"], allowSubmitInSameRunAsEvaluation: true });
+    expect(single.outcome).toBe("brand_submitted");
+    expect(count("submitCustomerProfile")).toBe(1);
+    expect(count("submitTrustProduct")).toBe(1);
+  });
+  it("the platform action never lifts the same-run rule", () => {
+    const source = readFileSync(resolve(__dirname, "../../../../app/platform/sms/actions.ts"), "utf8");
+    expect(source).not.toContain("allowSubmitInSameRunAsEvaluation");
   });
 });
