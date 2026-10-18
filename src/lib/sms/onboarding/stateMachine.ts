@@ -79,7 +79,7 @@ export const STATE_DETAILS: Record<OnboardingDisplayState, string> = {
   not_started: "Texting is not set up for your studio yet.",
   draft: "Your answers are saved. Finish the form and submit when you are ready.",
   submitted_for_checks: "We have your information. DanceFlow will check it and tell you what happens next.",
-  needs_info: "One more detail is needed. Fix the highlighted field and submit again.",
+  needs_info: "Something needs another look. Check your answers, correct anything that is out of date, and submit again. If nothing needs to change, just submit again.",
   profile_review: "Your business details are being verified.",
   brand_pending: "Your business brand is being reviewed by the carriers. This can take from minutes to a few business days.",
   service_setup: "Your approved brand is being connected to messaging.",

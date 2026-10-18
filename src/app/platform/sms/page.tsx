@@ -183,7 +183,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
       )
       .order("updated_at", { ascending: false })
       .limit(500),
-    supabase.from("studios").select("id, name").order("name", { ascending: true }).limit(1000),
+    supabase.from("studios").select("id, name, slug, public_name").order("name", { ascending: true }).limit(1000),
   ]);
 
   let onboardingRows: PlatformOnboardingRow[] = [];
@@ -400,6 +400,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         runnerNotice={firstParam(params.runner)}
         runnerError={firstParam(params.runner_error)}
         evidence={evidence}
+        origin={(process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/+$/, "")}
       />
 
       <StudioSmsRegistrations
