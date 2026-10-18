@@ -1,6 +1,9 @@
+import { Fragment } from "react";
 import type { PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
+import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { STATE_LABELS, type OnboardingDisplayState } from "@/lib/sms/onboarding/stateMachine";
 import { runSmsOnboardingAction, setSmsOnboardingAccessAction, setSmsRunnerWindowAction } from "./actions";
+import SmsStepEvidence from "./SmsStepEvidence";
 
 const RUNNABLE_STATES = new Set(["submitted_for_checks", "profile_review", "brand_pending"]);
 const ATTENTION_STATES = new Set(["needs_info", "blocked", "exception", "suspended"]);
@@ -16,6 +19,7 @@ export default function SmsOnboardingPilot({
   error,
   runnerNotice = null,
   runnerError = null,
+  evidence = {},
 }: {
   studios: StudioOption[];
   rows: PlatformOnboardingRow[];
@@ -24,6 +28,8 @@ export default function SmsOnboardingPilot({
   error: string | null;
   runnerNotice?: string | null;
   runnerError?: string | null;
+  /** Read-only run evidence per studio id (ledger, verdicts, confirmations); absent when nothing has run or it could not be loaded. */
+  evidence?: Record<string, RunnerStatus>;
 }) {
   return (
     <section id="onboarding-pilot" className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -97,7 +103,8 @@ export default function SmsOnboardingPilot({
                   <tr><td colSpan={6} className="py-3 text-slate-500">No studio has pilot access yet.</td></tr>
                 ) : (
                   rows.map((row) => (
-                    <tr key={row.studioId}>
+                    <Fragment key={row.studioId}>
+                    <tr>
                       <td className="py-2 pr-4 font-medium text-slate-900">{row.studioName}</td>
                       <td className="py-2 pr-4">{row.accessEnabled ? "On" : row.state ? "Off (setup paused)" : "Off"}</td>
                       <td className="py-2 pr-4">
@@ -142,6 +149,12 @@ export default function SmsOnboardingPilot({
                         )}
                       </td>
                     </tr>
+                    {evidence[row.studioId] ? (
+                      <tr>
+                        <td colSpan={6} className="pb-3"><SmsStepEvidence status={evidence[row.studioId]!} /></td>
+                      </tr>
+                    ) : null}
+                    </Fragment>
                   ))
                 )}
               </tbody>

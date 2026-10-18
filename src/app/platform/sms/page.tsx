@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
 import SmsOnboardingPilot from "./SmsOnboardingPilot";
+import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
+import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
 import StudioSmsRegistrations, {
   type StudioOption,
@@ -156,7 +158,7 @@ function firstParam(value: string | string[] | undefined) {
 }
 
 export default async function PlatformSmsPage({ searchParams }: { searchParams: SearchParams }) {
-  await requirePlatformAdmin();
+  const admin = await requirePlatformAdmin();
 
   const params = await searchParams;
   const supabase = await createClient();
@@ -190,6 +192,27 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
     onboardingRows = await listOnboardings(supabase);
   } catch {
     onboardingUnavailable = true; // migration not applied in this environment yet
+  }
+
+  // TW-4F-1b: read-only run evidence for studios whose setup is in flight (never throws: the panel works without it)
+  const evidence: Record<string, RunnerStatus> = {};
+  if (!onboardingUnavailable) {
+    const live = onboardingRows.filter((row) => row.accessEnabled && row.state && row.state !== "draft").slice(0, 20);
+    try {
+      const store = buildRunnerStore();
+      await Promise.all(
+        live.map(async (row) => {
+          try {
+            const status = await store.status(row.studioId, admin.id);
+            if (status) evidence[row.studioId] = status;
+          } catch {
+            /* evidence is optional */
+          }
+        }),
+      );
+    } catch {
+      /* evidence is optional */
+    }
   }
 
   const logs = (logsResult.data ?? []) as SmsMessageLogRow[];
@@ -376,6 +399,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         error={firstParam(params.pilot_error)}
         runnerNotice={firstParam(params.runner)}
         runnerError={firstParam(params.runner_error)}
+        evidence={evidence}
       />
 
       <StudioSmsRegistrations

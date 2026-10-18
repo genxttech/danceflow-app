@@ -17,7 +17,12 @@ const TEXT: Record<RunOutcome, string> = {
 };
 
 export function describeOutcome(outcome: string, detail?: string | null): string {
-  const base = (TEXT as Record<string, string>)[outcome] ?? "Unknown result.";
-  const code = String(detail ?? "").replace(/[^A-Za-z0-9_:,.\-]/g, "").slice(0, 80);
+  const code = String(detail ?? "").replace(/[^A-Za-z0-9_:,.-]/g, "").slice(0, 80);
+  let base = (TEXT as Record<string, string>)[outcome] ?? "Unknown result.";
+  if (outcome === "waiting_submission_confirmation" && code.endsWith(":attempt_unresolved")) {
+    base = "A previous attempt at this submission did not finish cleanly and may already have reached Twilio. Check the status at Twilio before confirming again. Nothing was submitted by this run.";
+  } else if ((outcome === "exception" || outcome === "needs_info") && code.endsWith(":evaluation_stale")) {
+    base = "The evaluation can no longer authorize a submission (it has no recorded passing verdict, or the setup was sent back after it). The setup was sent back to the studio owner, who must resubmit so a fresh evaluation is made (nothing needs to be edited). Nothing was submitted.";
+  }
   return code ? `${base} (${code})` : base;
 }

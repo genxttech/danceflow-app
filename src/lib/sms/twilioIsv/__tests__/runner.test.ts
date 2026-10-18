@@ -7,6 +7,7 @@ import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
 import type { RunnerInputs } from "../payloads";
 import { classifyEvaluation, refreshBrandStatus, runBrandSubmission, safeFieldNames, STEPS, SUBMISSION_STEPS, type RunResult, type SubmissionStepKey } from "../runner";
+import { describeOutcome } from "../outcomes";
 import { RunnerStoreError } from "../store";
 import { MemoryRunnerStore } from "./memoryStore";
 
@@ -773,5 +774,132 @@ describe("TW-4F-1: each irreversible submission needs its own confirmation on ev
   it("the platform action never lifts the same-run rule", () => {
     const source = readFileSync(resolve(__dirname, "../../../../app/platform/sms/actions.ts"), "utf8");
     expect(source).not.toContain("allowSubmitInSameRunAsEvaluation");
+  });
+});
+
+describe("TW-4F-1b: gate evidence (verdicts, confirmations, stale evaluations, unresolved attempts)", () => {
+  const count = (method: string) => adapter.count(method as never);
+  const production = (confirmSubmit?: readonly SubmissionStepKey[]) =>
+    runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, ...(confirmSubmit ? { confirmSubmit } : {}) });
+  const evaluateFirst = () => runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, stopAfter: "S10" });
+  const verdictOf = (step: string) => store.ledger.find((row) => row.step_key === step)?.verdict;
+
+  it("every evaluation step records its verdict on its ledger row, and every fresh re-check is recorded as evidence", async () => {
+    const result = await run();
+    expect(result.outcome).toBe("brand_submitted");
+    expect(verdictOf("S10")).toBe("compliant");
+    expect(verdictOf("T5")).toBe("compliant");
+    expect(store.evaluationEvents).toEqual(expect.arrayContaining(["S10:compliant:step", "T5:compliant:step", "S10:compliant:preverify", "T5:compliant:preverify"]));
+  });
+  it("a noncompliant or unrecognized evaluation records that verdict on the failed row", async () => {
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: [] };
+    await run();
+    expect(verdictOf("S10")).toBe("noncompliant");
+    setup();
+    adapter.evaluationRaw.profile = { status: "mystery", failedFields: [] } as never;
+    await run();
+    expect(verdictOf("S10")).toBe("unrecognized");
+    expect(store.ledger.find((row) => row.step_key === "S11")).toBeUndefined();
+  });
+  it("each submission leaves a confirmation record (who, which step), consumed once", async () => {
+    await run();
+    expect(store.confirmations.map((c) => `${c.step}:${c.by}:${c.consumed}`)).toEqual([`S11:${ADMIN}:true`, `T6:${ADMIN}:true`]);
+  });
+  it("a refused fresh re-check is recorded as evidence and nothing is confirmed or submitted", async () => {
+    await evaluateFirst();
+    adapter.evaluationRaw.profile = { status: "noncompliant", failedFields: [] };
+    const result = await production(["S11"]);
+    expect(result.detail).toBe("S11:preverify_noncompliant");
+    expect(store.evaluationEvents).toContain("S10:noncompliant:preverify");
+    expect(store.confirmations).toHaveLength(0);
+    expect(count("submitCustomerProfile")).toBe(0);
+  });
+  it("a succeeded evaluation row with no recorded compliant verdict (older code) cannot authorize a submission", async () => {
+    await evaluateFirst();
+    store.ledger.find((row) => row.step_key === "S10")!.verdict = null;
+    const result = await production(["S11"]);
+    expect(result.outcome).toBe("needs_info"); // sent back to the owner: resubmitting starts a fresh generation and evaluation
+    expect(store.state).toBe("needs_info");
+    expect(result.detail).toBe("S11:evaluation_stale");
+    expect(describeOutcome(result.outcome, result.detail)).toContain("can no longer authorize a submission");
+    expect(count("submitCustomerProfile")).toBe(0);
+    expect(store.confirmations).toHaveLength(0);
+  });
+  it("an evaluation followed by a send-back is stale: the runner refuses, the confirmation is never recorded", async () => {
+    await evaluateFirst();
+    store.sendBackAfterEvaluation("needs_info");
+    const result = await production(["S11"]);
+    expect(result.detail).toBe("S11:evaluation_stale");
+    expect(store.state).toBe("needs_info");
+    expect(count("submitCustomerProfile")).toBe(0);
+    expect(store.confirmations).toHaveLength(0);
+  });
+  it("after a stale send-back the owner resubmits (new generation): a fresh evaluation is made and the journey proceeds", async () => {
+    await evaluateFirst();
+    store.ledger.find((row) => row.step_key === "S10")!.verdict = null;
+    expect((await production(["S11"])).outcome).toBe("needs_info");
+    store.seq = 2; // the owner's resubmission bumps the generation
+    store.state = "submitted_for_checks";
+    const first = await production(["S11", "T6"]);
+    expect(first.detail).toBe("S11:review"); // the new evaluation is made, then the run stops for review
+    const second = await production(["S11", "T6"]);
+    expect(second.detail).toBe("T6:review");
+    const third = await production(["S11", "T6"]);
+    expect(third.outcome).toBe("brand_submitted");
+    expect(count("submitCustomerProfile")).toBe(1);
+  });
+  it("a window closed between the checks and the confirmation stops the run without submitting", async () => {
+    await evaluateFirst();
+    store.confirmSubmission = async () => { throw new RunnerStoreError("TW001"); };
+    const result = await production(["S11"]);
+    expect(result.outcome).toBe("runner_closed");
+    expect(count("submitCustomerProfile")).toBe(0);
+  });
+  it("an unexpected confirmation failure is not swallowed", async () => {
+    await evaluateFirst();
+    store.confirmSubmission = async () => { throw new RunnerStoreError("XX000"); };
+    await expect(production(["S11"])).rejects.toThrow("runner store failure (XX000)");
+    expect(count("submitCustomerProfile")).toBe(0);
+  });
+  it("if the evidence cannot be recorded the run fails closed: nothing is submitted", async () => {
+    await evaluateFirst();
+    store.recordEvaluation = async () => { throw new RunnerStoreError("XX001"); };
+    await expect(production(["S11"])).rejects.toThrow("runner store failure (XX001)");
+    expect(count("submitCustomerProfile")).toBe(0);
+  });
+  it("an evaluation step cannot finish as succeeded without a recorded compliant verdict, and a re-begun step loses its old verdict (parity of the SQL functions)", async () => {
+    await store.claim(STUDIO, ADMIN, "owner-2");
+    await store.beginStep("onb-1", "owner-2", "S10", "df:x", false, null);
+    await expect(store.finishStep("onb-1", "owner-2", "S10", { status: "succeeded", providerSid: `EL${"a".repeat(32)}` })).rejects.toThrow("(22023)");
+    await store.recordEvaluation("onb-1", "owner-2", "S10", "noncompliant", "step");
+    await expect(store.finishStep("onb-1", "owner-2", "S10", { status: "succeeded", providerSid: `EL${"a".repeat(32)}` })).rejects.toThrow("(22023)");
+    await store.finishStep("onb-1", "owner-2", "S10", { status: "failed", errorCode: "noncompliant" });
+    await store.beginStep("onb-1", "owner-2", "S10", "df:x", false, null);
+    expect(verdictOf("S10")).toBeNull();
+    await store.recordEvaluation("onb-1", "owner-2", "S10", "compliant", "step");
+    await expect(store.finishStep("onb-1", "owner-2", "S10", { status: "succeeded", providerSid: `EL${"a".repeat(32)}` })).resolves.toBeUndefined();
+    await store.release("onb-1", "owner-2");
+  });
+  it("the database refuses S11 / T6 without a confirmation held by the same lease, once, even if the runner asked (parity of the SQL functions)", async () => {
+    await evaluateFirst();
+    const claim = await store.claim(STUDIO, ADMIN, "owner-1");
+    await expect(store.beginStep("onb-1", "owner-1", "S11", "df:x", false, null)).rejects.toThrow("(TW003)");
+    await store.confirmSubmission("onb-1", "owner-1", "S11", ADMIN);
+    expect(claim.steps.length).toBeGreaterThan(0);
+    await expect(store.beginStep("onb-1", "owner-1", "S11", "df:x", false, null)).resolves.toEqual({ action: "execute" });
+    await expect(store.beginStep("onb-1", "owner-1", "S11", "df:x", false, null)).rejects.toThrow("(TW003)"); // a retry needs a new confirmation
+    await store.release("onb-1", "owner-1");
+  });
+  it("a previous submission attempt that never finished is called out instead of looking like a fresh submission", async () => {
+    await evaluateFirst();
+    adapter.failNext("submitCustomerProfile", { kind: "transient" });
+    const crashed = await production(["S11"]);
+    expect(crashed.outcome).toBe("retry_later");
+    expect(store.ledger.find((row) => row.step_key === "S11")?.status).toBe("unknown_outcome");
+    const next = await production([]);
+    expect(next.outcome).toBe("waiting_submission_confirmation");
+    expect(next.detail).toBe("S11:attempt_unresolved");
+    expect(describeOutcome(next.outcome, next.detail)).toContain("may already have reached Twilio");
+    expect(count("submitCustomerProfile")).toBe(1);
   });
 });
