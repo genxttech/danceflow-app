@@ -8,6 +8,7 @@ import {
 import { getStripe } from "@/lib/payments/stripe";
 import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
 import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
+import { handleSmsCreditStripeEvent } from "@/lib/billing/smsCreditPurchases";
 import {
   handleChargeDisputeEvent,
   resolveStudioIdForStripeAccount,
@@ -3335,7 +3336,10 @@ export async function POST(request: Request) {
   const claim: WebhookClaim = { eventId: event.id, owner: claimOwner };
 
   try {
-    switch (event.type) {
+    // TW-4F-3b-pay: events about prepaid SMS credit purchases (our own Checkout Sessions / PaymentIntents, platform-scoped only) are handled exclusively here;
+    // the database decides what is ours. Anything else falls through to the handlers below unchanged.
+    const smsCredit = await handleSmsCreditStripeEvent({ admin: supabase, event });
+    switch (smsCredit.handled ? "sms_credit_handled" : event.type) {
       case "checkout.session.completed":
       case "checkout.session.async_payment_succeeded": {
         // PKG-P1: async_payment_succeeded (delayed-settlement methods, e.g.
