@@ -19,7 +19,7 @@ function admin() {
   return createSupabaseAdmin(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-const STATUS: Record<string, number> = { not_authorized: 403, no_legal_business: 409, invalid_pack: 400, ceiling: 409, unavailable: 503 };
+const STATUS: Record<string, number> = { not_authorized: 403, no_legal_business: 409, invalid_pack: 400, ceiling: 409, on_hold: 423, unavailable: 503 };
 
 export async function POST(request: NextRequest) {
   if (!smsCreditPurchasesEnabled()) return new NextResponse(null, { status: 404 });

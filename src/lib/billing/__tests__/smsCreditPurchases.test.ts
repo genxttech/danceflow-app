@@ -57,7 +57,7 @@ function fakeStripe(options: { createFails?: boolean; noUrl?: boolean } = {}) {
   return { stripe, created, expired };
 }
 
-const context = { tw4_credit_checkout_context: { legal_entity_id: ENTITY } };
+const context = { tw4_credit_checkout_context: { legal_entity_id: ENTITY, hold: false } };
 
 describe("pack and flag rules", () => {
   it("accepts exactly the $25, $50 and $100 packs", () => {
@@ -111,13 +111,31 @@ describe("createSmsCreditCheckout", () => {
   });
 
   it("a user who is not an owner or administrator, or a studio without a verified legal business, gets nothing: no Stripe call, no pending row", async () => {
-    for (const [code, expected] of [["42501", "not_authorized"], ["TW010", "no_legal_business"], ["57014", "unavailable"]] as const) {
+    for (const [code, expected] of [["42501", "not_authorized"], ["TW010", "no_legal_business"], ["TW007", "on_hold"], ["57014", "unavailable"]] as const) {
       const { admin, fns } = fakeAdmin({ tw4_credit_checkout_context: () => ({ error: { code } }) });
       const { stripe, created } = fakeStripe();
       await expect(createSmsCreditCheckout(input(admin, stripe))).rejects.toMatchObject({ code: expected });
       expect(created).toHaveLength(0);
       expect(fns()).toEqual(["tw4_credit_checkout_context"]);
     }
+  });
+
+  it("an account on hold, or one whose hold status is not positively known, is sold nothing: no Stripe session, no pending row", async () => {
+    // the hold flag must be exactly false; a missing field (older function), true, null or any other shape fails closed
+    for (const answer of [{ legal_entity_id: ENTITY }, { legal_entity_id: ENTITY, hold: true }, { legal_entity_id: ENTITY, hold: null }, { legal_entity_id: ENTITY, hold: "false" }, { hold: false }, null, "x"]) {
+      const { admin, fns } = fakeAdmin({ tw4_credit_checkout_context: answer });
+      const { stripe, created } = fakeStripe();
+      await expect(createSmsCreditCheckout(input(admin, stripe))).rejects.toMatchObject({ code: "unavailable" });
+      expect(created).toHaveLength(0);
+      expect(fns()).toEqual(["tw4_credit_checkout_context"]);
+    }
+  });
+
+  it("a hold placed between the context read and the registration expires the session at once and tells the user", async () => {
+    const { admin } = fakeAdmin({ ...context, tw4_credit_topup_pending: () => ({ error: { code: "TW007" } }) });
+    const { stripe, expired } = fakeStripe();
+    await expect(createSmsCreditCheckout(input(admin, stripe))).rejects.toMatchObject({ code: "on_hold" });
+    expect(expired).toEqual([SESSION]);
   });
 
   it("when the $500 ceiling would be exceeded the session is expired at once and the user is told why", async () => {
