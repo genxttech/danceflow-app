@@ -24,8 +24,12 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({ rpc: async (fn: string, args: Record<string, unknown>) => { adminRpc.push({ fn, args }); return { data: "2026-10-16T00:00:00Z", error: adminRpcError }; } }),
 }));
 
-type RuntimeResult = { ok: true; adapter: object; config: object; store: object; mode: "fake" } | { ok: false; reason: string };
-let runtime: RuntimeResult = { ok: true, adapter: {}, config: {}, store: {}, mode: "fake" };
+const SUB = `AC${"7".repeat(32)}`;
+let entity: Record<string, unknown> = { legal_entity_id: "ent-1", account_status: "active", account_sid: SUB };
+const adapterRequests: string[] = [];
+const okRuntime = () => ({ ok: true as const, adapter: undefined, config: {}, store: {}, mode: "fake" as const, entities: { entityForStudio: async () => entity }, adapterFor: async (sid: string) => { adapterRequests.push(sid); return { accountSid: sid }; } });
+type RuntimeResult = ReturnType<typeof okRuntime> | { ok: false; reason: string };
+let runtime: RuntimeResult = okRuntime();
 let built = 0;
 vi.mock("@/lib/sms/twilioIsv/factory", async () => {
   const { SupabaseRunnerStore } = await import("@/lib/sms/twilioIsv/store");
@@ -69,7 +73,9 @@ beforeEach(() => {
   refreshCalls.length = 0;
   built = 0;
   platformAdmin = true;
-  runtime = { ok: true, adapter: {}, config: {}, store: {}, mode: "fake" };
+  runtime = okRuntime();
+  entity = { legal_entity_id: "ent-1", account_status: "active", account_sid: SUB };
+  adapterRequests.length = 0;
   runImpl = async () => ({ outcome: "brand_submitted" });
 });
 
@@ -293,5 +299,34 @@ describe("TW-4F-1: the platform panel shows the irreversible-submission confirma
       unavailable: false, notice: false, error: null,
     }));
     expect(review).not.toContain("confirmSubmitProfile");
+  });
+});
+
+describe("TW-4F-3a (D2): the run action only ever uses the studio's own Twilio subaccount", () => {
+  it("builds the adapter for the subaccount recorded for the studio's legal entity", async () => {
+    await go({ studioId: STUDIO });
+    expect(adapterRequests).toEqual([SUB]);
+    expect(runCalls).toHaveLength(1);
+    expect((runCalls[0].adapter as { accountSid: string }).accountSid).toBe(SUB);
+  });
+  it("without a legal entity or an active subaccount nothing is built or run, for both intents", async () => {
+    for (const shape of [{ legal_entity_id: null }, { legal_entity_id: "ent-1", account_status: null, account_sid: null }, { legal_entity_id: "ent-1", account_status: "creating", account_sid: null }, { legal_entity_id: "ent-1", account_status: "unknown", account_sid: SUB }]) {
+      entity = shape;
+      for (const intent of ["run", "refresh"]) {
+        runCalls.length = 0;
+        refreshCalls.length = 0;
+        const message = await go({ studioId: STUDIO, intent, confirmFee: "on" });
+        expect(message).toMatch(/no Twilio subaccount yet/i);
+        expect(adapterRequests).toEqual([]);
+        expect(runCalls).toHaveLength(0);
+        expect(refreshCalls).toHaveLength(0);
+      }
+    }
+  });
+  it("a failing account lookup runs nothing", async () => {
+    runtime = { ...okRuntime(), entities: { entityForStudio: async () => { throw new Error("db down"); } } };
+    const message = await go({ studioId: STUDIO });
+    expect(message).toMatch(/could not be looked up/i);
+    expect(runCalls).toHaveLength(0);
   });
 });

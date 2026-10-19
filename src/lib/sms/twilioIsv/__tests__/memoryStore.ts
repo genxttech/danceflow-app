@@ -1,6 +1,7 @@
 import { canTransition, type OnboardingState } from "@/lib/sms/onboarding/stateMachine";
 import type { RunnerInputs } from "../payloads";
-import { RunnerStoreError, type BeginResult, type Claim, type LedgerStep, type RunnerStatus, type RunnerStore, type RunnerTransitionState } from "../store";
+import { DEFAULT_FAKE_ACCOUNT_SID } from "../fake";
+import { RunnerStoreError, type BeginResult, type Claim, type LedgerStep, type RunnerAccount, type RunnerStatus, type RunnerStore, type RunnerTransitionState, type SpendKind } from "../store";
 import type { IsvStepKey } from "../types";
 
 type Confirmation = { step: "S11" | "T6"; seq: number; by: string; owner: string; at: number; consumed: boolean; expired: boolean };
@@ -203,5 +204,24 @@ export class MemoryRunnerStore implements RunnerStore {
 
   async status(): Promise<RunnerStatus> {
     return null;
+  }
+
+  /** TW-4F-3a: the studio's legal entity and active subaccount (the default account of a FakeIsvAdapter). Set to nulls to model "not provisioned". */
+  account: RunnerAccount = { legalEntityId: "ent-1", accountSid: DEFAULT_FAKE_ACCOUNT_SID, status: "active" };
+  /** TW-4F-3a: whether the owner authorized (and the cap allows) the brand fee. */
+  spendAuthorized = true;
+  spendReservations: string[] = [];
+
+  async getAccount(_id: string, owner: string): Promise<RunnerAccount> {
+    this.lease(owner);
+    return { ...this.account };
+  }
+
+  async reserveSpend(_id: string, owner: string, kind: SpendKind) {
+    this.lease(owner);
+    if (!this.spendAuthorized) throw new RunnerStoreError("TW004");
+    const key = `${this.seq}:${kind}`;
+    if (!this.spendReservations.includes(key)) this.spendReservations.push(key);
+    return { spendEventId: `spend-${key}`, amountCents: 1000 };
   }
 }

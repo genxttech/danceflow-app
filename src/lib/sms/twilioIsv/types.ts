@@ -47,6 +47,12 @@ export type BundleStatus = "draft" | "pending-review" | "in-review" | "twilio-re
 export type BrandStatus = "PENDING" | "IN_REVIEW" | "APPROVED" | "FAILED" | "SUSPENDED" | "DELETION_PENDING" | "DELETION_FAILED" | string;
 
 export interface IsvAdapter {
+  /**
+   * TW-4F-3a (D2): the Twilio account (a studio legal entity's SUBACCOUNT, AC...) every call of this adapter runs in. An adapter is built for exactly
+   * one account; the runner refuses to use it unless this equals the account recorded in the database for the studio's legal entity.
+   */
+  readonly accountSid: string;
+
   // --- Trust Hub: Secondary Customer Profile ---
   getCustomerProfile(profileSid: string): Promise<{ status: BundleStatus; policySid: string | null }>;
   findCustomerProfile(friendlyName: string): Promise<string[]>;
@@ -71,6 +77,17 @@ export interface IsvAdapter {
   findBrand(input: { customerProfileSid: string; trustProductSid: string }): Promise<string[]>;
   createBrand(input: { customerProfileSid: string; trustProductSid: string; brandType: "STANDARD"; skipAutomaticSecVet: boolean; mock: boolean }): Promise<string>;
   getBrandStatus(brandSid: string): Promise<BrandStatus>;
+}
+
+/**
+ * TW-4F-3a: the parent (ISV) account's account-management surface. It can find and create subaccounts and read a subaccount's auth token, and
+ * NOTHING else: it carries no registration methods, so parent credentials can never be used for Trust Hub or A2P calls.
+ */
+export interface IsvParentAdapter {
+  findSubaccount(friendlyName: string): Promise<string[]>;
+  createSubaccount(friendlyName: string): Promise<string>;
+  /** The subaccount's auth token, fetched at call time. Callers keep it in memory only (see SubaccountTokenProvider). */
+  getSubaccountToken(accountSid: string): Promise<string>;
 }
 
 export type EndUserType = "customer_profile_business_information" | "authorized_representative_1" | "us_a2p_messaging_profile_information";

@@ -6,6 +6,7 @@ import {
   cleanupSmsFixture,
   createSmsFixture,
   openPlatformAdmin,
+  provisionFakeSubaccount,
   ownerSubmitsSetup,
   setPilotAccess,
   setRunnerWindow,
@@ -57,6 +58,8 @@ test.beforeAll(async ({ browser }) => {
   } finally {
     await owner.close();
   }
+  // TW-4F-3a: the runner only works inside the studio's own (fake) Twilio subaccount
+  await provisionFakeSubaccount(config, fixture);
 });
 test.afterAll(async () => {
   await adminContext?.close();

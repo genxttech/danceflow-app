@@ -1,4 +1,7 @@
-import { IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter } from "./types";
+import { IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter, type IsvParentAdapter } from "./types";
+
+/** The account of a FakeIsvAdapter built without one (single-account tests and the MemoryRunnerStore default). */
+export const DEFAULT_FAKE_ACCOUNT_SID = `AC${"1".repeat(32)}`;
 
 /**
  * TW-4 R1: an in-memory Twilio stand-in. It is the ONLY implementation used by tests and by non-production environments.
@@ -30,7 +33,11 @@ export class FakeIsvAdapter implements IsvAdapter {
    * @param options.captureSensitive keep the EIN in the recorded calls and end users. OFF by default so a demo/local fake never holds a
    *   plaintext EIN in process memory; the runner's EIN-handling tests turn it on deliberately.
    */
-  constructor(public readonly primaryProfileSid: string, private readonly options: { captureSensitive?: boolean; primaryPolicySid?: string } = {}) {
+  /** The account this adapter runs in. Resources (and their SIDs) exist only inside one account, like at Twilio. */
+  readonly accountSid: string;
+
+  constructor(public readonly primaryProfileSid: string, private readonly options: { captureSensitive?: boolean; primaryPolicySid?: string; accountSid?: string } = {}) {
+    this.accountSid = options.accountSid ?? DEFAULT_FAKE_ACCOUNT_SID;
     this.profiles.set(primaryProfileSid, {
       friendlyName: "primary", status: "twilio-approved", assigned: [], submitted: true, email: "isv@example.test",
       policySid: options.primaryPolicySid ?? `RN${"a".repeat(32)}`,
@@ -220,5 +227,75 @@ export class FakeIsvAdapter implements IsvAdapter {
 
   private evaluation(failedFields: string[]): EvaluationResult {
     return failedFields.length > 0 ? { status: "noncompliant", failedFields: [...failedFields] } : { status: "compliant", failedFields: [] };
+  }
+}
+
+type ParentMethod = keyof IsvParentAdapter;
+
+/**
+ * TW-4F-3a: an in-memory stand-in for the PARENT account. It creates subaccounts (each a separate FakeIsvAdapter, so a SID from one account is
+ * unknown in another, exactly like Twilio) and hands out fake auth tokens. Like FakeIsvAdapter it can inject failures, including a lost response.
+ * ASSUMPTION (Q1b, unverified at Twilio): the ISV Primary profile can be assigned from inside a subaccount, so every fake account knows it.
+ */
+export class FakeIsvParent implements IsvParentAdapter {
+  readonly calls: { method: ParentMethod; input: unknown }[] = [];
+  readonly accounts = new Map<string, { friendlyName: string; token: string; adapter: FakeIsvAdapter }>();
+  private counter = 0;
+  private failures: { method: ParentMethod; failure: { kind: "validation" | "transient" | "account"; lostResponse?: boolean } }[] = [];
+
+  constructor(private readonly primaryProfileSid: string, private readonly options: { primaryPolicySid?: string; captureSensitive?: boolean } = {}) {}
+
+  failNext(method: ParentMethod, failure: { kind: "validation" | "transient" | "account"; lostResponse?: boolean }) {
+    this.failures.push({ method, failure });
+  }
+
+  count(method: ParentMethod) {
+    return this.calls.filter((call) => call.method === method).length;
+  }
+
+  private enter(method: ParentMethod, input: unknown) {
+    this.calls.push({ method, input });
+    const index = this.failures.findIndex((entry) => entry.method === method);
+    return index < 0 ? null : this.failures.splice(index, 1)[0].failure;
+  }
+
+  private fail(failure: { kind: "validation" | "transient" | "account" }): never {
+    throw new IsvApiError(failure.kind, failure.kind === "validation" ? 400 : failure.kind === "account" ? 401 : 503, null, `fake ${failure.kind} failure`);
+  }
+
+  /** Test seam: an account that exists "at Twilio" (created outside the app, or by a lost response). */
+  seedAccount(accountSid: string, friendlyName: string) {
+    const adapter = new FakeIsvAdapter(this.primaryProfileSid, { ...this.options, accountSid });
+    this.accounts.set(accountSid, { friendlyName, token: `fake-token-${accountSid.slice(2, 10)}`, adapter });
+    return adapter;
+  }
+
+  /** The adapter for one account; an unknown SID is created on demand (a dev server process may see SIDs the database recorded earlier). */
+  adapterFor(accountSid: string): FakeIsvAdapter {
+    return this.accounts.get(accountSid)?.adapter ?? this.seedAccount(accountSid, "fake-seeded");
+  }
+
+  async findSubaccount(friendlyName: string) {
+    const failure = this.enter("findSubaccount", { friendlyName });
+    if (failure) this.fail(failure);
+    return [...this.accounts.entries()].filter(([, a]) => a.friendlyName === friendlyName).map(([sid]) => sid);
+  }
+
+  async createSubaccount(friendlyName: string) {
+    const failure = this.enter("createSubaccount", { friendlyName });
+    if (failure && !failure.lostResponse) this.fail(failure);
+    this.counter += 1;
+    const sid = `AC${"c".repeat(16)}${this.counter.toString(16).padStart(16, "0")}`;
+    this.seedAccount(sid, friendlyName);
+    if (failure) this.fail(failure);
+    return sid;
+  }
+
+  async getSubaccountToken(accountSid: string) {
+    const failure = this.enter("getSubaccountToken", { accountSid });
+    if (failure) this.fail(failure);
+    const account = this.accounts.get(accountSid);
+    if (!account) throw new IsvApiError("validation", 404, "20404", "fake: subaccount not found");
+    return account.token;
   }
 }
