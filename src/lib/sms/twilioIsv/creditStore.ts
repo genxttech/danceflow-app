@@ -15,11 +15,14 @@ export type CreditVerification = { balance_cents: number; reserved_cents: number
 export interface CreditStore {
   setPrice(kind: SpendKind, customerCents: number, providerCents: number, description: string, actorId: string): Promise<string>;
   /** Checkout creation: packs of $25 / $50 / $100 only, and never above the $500 balance ceiling (balance + pending + this pack). Not spendable. */
-  topupPending(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number): Promise<void>;
+  topupPending(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number, expiresAt?: string | null): Promise<void>;
   /** The Stripe webhook calls this once a payment is SETTLED. Replays (same provider ref) credit nothing again. */
-  settleTopup(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number, eventId: string): Promise<{ replayed: boolean }>;
+  settleTopup(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number, eventId: string, paymentIntent?: string | null, requirePending?: boolean): Promise<{ replayed: boolean }>;
   topupFailed(providerRef: string, eventId: string): Promise<void>;
-  reverseTopup(providerRef: string, amountCents: number, eventId: string, reason: string): Promise<{ replayed: boolean }>;
+  /** A refund: the CUMULATIVE refunded amount of the payment (Stripe's own figure); repeated and out-of-order events change nothing. `paymentRef` is the Checkout Session id or the PaymentIntent. */
+  applyRefund(paymentRef: string, cumulativeRefundedCents: number, eventId: string, reason: string): Promise<{ replayed: boolean }>;
+  /** A dispute: "withdrawn" takes the disputed amount once per dispute id; "reinstated" (won) gives back exactly what that dispute withdrew, once. */
+  applyDispute(paymentRef: string, disputeId: string, amountCents: number, action: "withdrawn" | "reinstated", eventId: string): Promise<{ replayed: boolean }>;
   adjust(entityId: string, amountCents: number, key: string, note: string, actorId: string): Promise<{ replayed: boolean }>;
   /**
    * The founder-authorized pilot exception (ConfiDance Unlimited, LLC only): a NON-SPENDABLE ceiling (at most $150 and at most the entity spend cap), not credit.
@@ -60,17 +63,20 @@ export class SupabaseCreditStore implements CreditStore {
     const row = await this.call<{ price_id: string }>("tw4_price_set", { p_kind: kind, p_customer_cents: customerCents, p_provider_cents: providerCents, p_description: description, p_actor: actorId });
     return row.price_id;
   }
-  async topupPending(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number) {
-    await this.call("tw4_credit_topup_pending", { p_entity_id: entityId, p_paid_by_studio_id: paidByStudioId, p_provider_ref: providerRef, p_amount_cents: amountCents });
+  async topupPending(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number, expiresAt: string | null = null) {
+    await this.call("tw4_credit_topup_pending", { p_entity_id: entityId, p_paid_by_studio_id: paidByStudioId, p_provider_ref: providerRef, p_amount_cents: amountCents, p_expires_at: expiresAt });
   }
-  async settleTopup(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number, eventId: string) {
-    return this.replayed(await this.call("tw4_credit_settle_topup", { p_entity_id: entityId, p_paid_by_studio_id: paidByStudioId, p_provider_ref: providerRef, p_amount_cents: amountCents, p_event_id: eventId }));
+  async settleTopup(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number, eventId: string, paymentIntent: string | null = null, requirePending = false) {
+    return this.replayed(await this.call("tw4_credit_settle_topup", { p_entity_id: entityId, p_paid_by_studio_id: paidByStudioId, p_provider_ref: providerRef, p_amount_cents: amountCents, p_event_id: eventId, p_payment_intent: paymentIntent, p_require_pending: requirePending }));
   }
   async topupFailed(providerRef: string, eventId: string) {
     await this.call("tw4_credit_topup_failed", { p_provider_ref: providerRef, p_event_id: eventId });
   }
-  async reverseTopup(providerRef: string, amountCents: number, eventId: string, reason: string) {
-    return this.replayed(await this.call("tw4_credit_reverse_topup", { p_provider_ref: providerRef, p_amount_cents: amountCents, p_event_id: eventId, p_reason: reason }));
+  async applyRefund(paymentRef: string, cumulativeRefundedCents: number, eventId: string, reason: string) {
+    return this.replayed(await this.call("tw4_credit_apply_refund", { p_payment_ref: paymentRef, p_cumulative_refunded_cents: cumulativeRefundedCents, p_event_id: eventId, p_reason: reason }));
+  }
+  async applyDispute(paymentRef: string, disputeId: string, amountCents: number, action: "withdrawn" | "reinstated", eventId: string) {
+    return this.replayed(await this.call("tw4_credit_apply_dispute", { p_payment_ref: paymentRef, p_dispute_id: disputeId, p_amount_cents: amountCents, p_action: action, p_event_id: eventId }));
   }
   async adjust(entityId: string, amountCents: number, key: string, note: string, actorId: string) {
     return this.replayed(await this.call("tw4_credit_adjust", { p_entity_id: entityId, p_amount_cents: amountCents, p_key: key, p_note: note, p_actor: actorId }));

@@ -137,8 +137,8 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
   it("every credit function is executable by the service role only (the three read functions by studio managers), and the tables have no API privileges", () => {
     // Asserted from the catalog: a permission-denied call by anon / authenticated crashes the supautils hint hook of this local image.
     const admin = [
-      "tw4_price_set(text, int, int, text, uuid)", "tw4_credit_topup_pending(uuid, uuid, text, int)", "tw4_credit_settle_topup(uuid, uuid, text, int, text)",
-      "tw4_credit_reverse_topup(text, int, text, text)", "tw4_credit_topup_failed(text, text)", "tw4_credit_adjust(uuid, bigint, text, text, uuid)",
+      "tw4_price_set(text, int, int, text, uuid)", "tw4_credit_topup_pending(uuid, uuid, text, int, timestamptz)", "tw4_credit_settle_topup(uuid, uuid, text, int, text, text, boolean)",
+      "tw4_credit_apply_refund(text, int, text, text)", "tw4_credit_apply_dispute(text, text, int, text, text)", "tw4_credit_topup_failed(text, text)", "tw4_credit_adjust(uuid, bigint, text, text, uuid)",
       "tw4_pilot_exception_create(uuid, int, text, uuid)", "tw4_credit_set_hold(uuid, boolean, text, uuid)", "tw4_credit_set_threshold(uuid, int, uuid)",
       "tw4_credit_debit_usage(uuid, uuid, int, text, text)", "tw4_credit_refund_usage(uuid, int, text, text)", "tw4_credit_record_provider_charge(uuid, uuid, text, text, int, uuid)",
       "tw4_credit_verify(uuid)", "tw4_spend_settle(uuid, text, text, text, text)", "tw4_spend_reserve(uuid, text, text)", "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid)",
@@ -263,16 +263,19 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
     await credits.adjust(E1, -2_500, "undo-fail-test", "remove the late settled test payment from the balance", U.padmin);
   });
 
-  it("a reversal takes the credit back once per payment event, can make the balance negative, and a negative balance blocks all spending until funded again", async () => {
-    await credits.reverseTopup("pi_e1_1", 3_000, "evt_refund_1", "customer refund");
-    await credits.reverseTopup("pi_e1_1", 3_000, "evt_refund_1", "customer refund (retry)");
+  it("a refund (cumulative) or a lost dispute takes the credit back once, can make the balance negative, and a negative balance blocks all spending until funded again", async () => {
+    await credits.applyRefund("pi_e1_1", 3_000, "evt_refund_1", "customer refund");
+    await credits.applyRefund("pi_e1_1", 3_000, "evt_refund_1", "customer refund (retry)");
     expect(account(E1)).toBe("1650:0");
-    expect(await code(credits.reverseTopup("pi_e1_1", 2_500, "evt_refund_2", "more than was paid"))).toBe("22023"); // 3000 + 2500 > 5000
-    expect(await code(credits.reverseTopup("pi_e1_1", 100, "", "no event id"))).toBe("22023");
-    expect(await credits.reverseTopup("pi_e2_race", 50, "evt_refund_1", "other business, same event id")).toEqual({ replayed: false }); // the key includes the payment
+    await credits.applyRefund("pi_e1_1", 2_000, "evt_refund_0", "an older, lower cumulative figure arriving late changes nothing");
+    expect(account(E1)).toBe("1650:0");
+    expect(await code(credits.applyRefund("pi_e1_1", 5_500, "evt_refund_2", "more than was paid"))).toBe("22023"); // above the payment
+    expect(await code(credits.applyRefund("pi_e1_1", 100, "", "no event id"))).toBe("22023");
+    expect(await code(credits.applyRefund("pi_unknown", 100, "evt_x", "no such payment"))).toBe("22023");
+    expect(await credits.applyRefund("pi_e2_race", 50, "evt_refund_1", "other business, same event id")).toEqual({ replayed: false }); // the key is per payment
     await credits.adjust(E2, 50, "restore-after-reuse-test", "restore the test balance after the reversal", U.padmin);
     await credits.debitUsage(E1, X1, 1_600, "use-x", "m");
-    await credits.reverseTopup("pi_e1_1", 2_000, "evt_dispute", "lost dispute");
+    expect(await credits.applyDispute("pi_e1_1", "dp_test_1", 2_000, "withdrawn", "evt_dispute")).toEqual({ replayed: false });
     expect(account(E1)).toBe("-1950:0");
     expect(await code(credits.debitUsage(E1, X2, 1, "blocked-neg", "m"))).toBe("TW007"); // BOTH locations are blocked by the shared balance
     expect(await code(credits.debitUsage(E1, X1, 1, "blocked-neg-2", "m"))).toBe("TW007");
