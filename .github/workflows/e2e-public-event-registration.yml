@@ -32,6 +32,9 @@ on:
       - "src/app/api/payments/**"
       - "src/app/api/billing/**"
       - "src/lib/billing/**"
+      - "src/lib/payment-harness/**"
+      - "src/lib/memberships/**"
+      - "src/lib/accounting/**"
       - "src/lib/sms/**"
       - "src/lib/supabase/migrations/**"
       # Phase 10C.5: Competition setup wizard / registration isolation browser coverage
