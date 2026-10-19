@@ -5,6 +5,7 @@ import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
 import SmsOnboardingPilot from "./SmsOnboardingPilot";
 import SmsCreditAdmin from "./SmsCreditAdmin";
 import { getAdminCreditOverview } from "@/lib/billing/smsCreditView";
+import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
 import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
 import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
@@ -165,6 +166,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   const params = await searchParams;
   const supabase = await createClient();
   const creditOverview = await getAdminCreditOverview(supabase).catch(() => null);
+  const recurringOverview = await getRecurringAdminOverview(supabase).catch(() => null);
 
   const [logsResult, consentResult, registrationsResult, studiosResult] = await Promise.all([
     supabase
@@ -394,7 +396,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         </section>
       ) : null}
 
-      <SmsCreditAdmin overview={creditOverview} />
+      <SmsCreditAdmin overview={creditOverview} recurring={recurringOverview} />
 
       <SmsOnboardingPilot
         studios={studios}
