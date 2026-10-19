@@ -230,6 +230,7 @@ declare
   t public.studio_sms_credit_topups;
   r jsonb;
   v_delta int;
+  v_debit int;
 begin
   if p_event_id is null or char_length(btrim(p_event_id)) < 3 or p_cumulative_refunded_cents is null or p_cumulative_refunded_cents <= 0 then
     raise exception 'a refund needs the provider event id and a positive cumulative amount' using errcode = '22023';
@@ -244,14 +245,23 @@ begin
     return jsonb_build_object('replayed', true, 'noop', true);
   end if;
   v_delta := p_cumulative_refunded_cents - t.refunded_cents;
-  if t.refunded_cents + t.disputed_cents + v_delta > t.amount_cents then
+  if p_cumulative_refunded_cents > t.amount_cents then
     raise exception 'more than the payment was reversed' using errcode = '22023';
   end if;
-  r := public._tw4c_post(t.legal_entity_id, t.paid_by_studio_id, 'topup_reversed', -v_delta, 0, 'refund:' || t.id || ':' || p_cumulative_refunded_cents, null, t.provider_ref, null,
-         left('refund;event=' || p_event_id || ';' || coalesce(p_reason, ''), 280));
-  update public.studio_sms_credit_topups set refunded_cents = p_cumulative_refunded_cents, reversed_cents = reversed_cents + v_delta where id = t.id;
+  -- a dispute may already have taken back what this refund also returns (the refund event can arrive late): only the still-unreversed part is debited,
+  -- and the excess moves from the dispute's share to the refund's share so a later reinstatement cannot return money that was refunded
+  v_debit := least(v_delta, t.amount_cents - t.refunded_cents - t.disputed_cents);
+  if v_debit > 0 then
+    r := public._tw4c_post(t.legal_entity_id, t.paid_by_studio_id, 'topup_reversed', -v_debit, 0, 'refund:' || t.id || ':' || p_cumulative_refunded_cents, null, t.provider_ref, null,
+           left('refund;event=' || p_event_id || ';' || coalesce(p_reason, ''), 280));
+  else
+    r := jsonb_build_object('replayed', false);
+  end if;
+  update public.studio_sms_credit_topups
+     set refunded_cents = p_cumulative_refunded_cents, disputed_cents = disputed_cents - (v_delta - v_debit), reversed_cents = reversed_cents + v_debit
+   where id = t.id;
   insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
-  values (public._tw4c_any_location(t.legal_entity_id), null, 'system', null, 'credit_reversal', left('refund;cents=' || v_delta || ';ref=' || t.provider_ref, 300));
+  values (public._tw4c_any_location(t.legal_entity_id), null, 'system', null, 'credit_reversal', left('refund;cents=' || v_delta || ';debited=' || v_debit || ';ref=' || t.provider_ref, 300));
   return r || jsonb_build_object('noop', false);
 end $$;
 
@@ -309,7 +319,13 @@ begin
   if w.id is null then
     raise exception 'this dispute withdrew nothing from the payment' using errcode = '22023';
   end if;
-  v_amount := -w.balance_delta_cents;
+  if exists (select 1 from public.studio_sms_credit_ledger l where l.legal_entity_id = t.legal_entity_id and l.idempotency_key = 'dispute_r:' || t.id || ':' || p_dispute_id) then
+    return jsonb_build_object('replayed', true); -- already reinstated; a replay must not recompute against a changed balance of the dispute
+  end if;
+  v_amount := least(-w.balance_delta_cents, t.disputed_cents); -- never more than the dispute still holds (a later refund may have taken part of it)
+  if v_amount <= 0 then
+    return jsonb_build_object('replayed', true, 'capped_to_zero', true);
+  end if;
   r := public._tw4c_post(t.legal_entity_id, t.paid_by_studio_id, 'adjustment', v_amount, 0, 'dispute_r:' || t.id || ':' || p_dispute_id, null, t.provider_ref, null,
          left('dispute reinstated;event=' || p_event_id, 280));
   if not (r->>'replayed')::boolean then

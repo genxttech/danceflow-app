@@ -286,6 +286,22 @@ describe.skipIf(!enabled)("TW-4F-3b-pay credit purchases: real SQL functions, re
     expect((await credits.verify(EA)).ok).toBe(true);
   });
 
+  it("a refund that arrives after a dispute took the whole payment is recorded, and a won dispute then returns only what was not refunded", async () => {
+    const ref = `cs_dfr_${RUN}`;
+    const pi = `pi_dfr_${RUN}`;
+    await credits.settleTopup(EA, PA2, ref, 2_500, `evt_f0_${RUN}`, pi);
+    const start = balance(EA);
+    await credits.applyDispute(pi, `dp_${RUN}_f`, 2_500, "withdrawn", `evt_f1_${RUN}`);
+    expect(balance(EA)).toBe(start - 2_500);
+    await credits.applyRefund(pi, 500, `evt_f2_${RUN}`, "late partial refund"); // would exceed the payment if added on top of the dispute
+    expect(balance(EA)).toBe(start - 2_500); // nothing more to take
+    expect(topupRow(ref)).toBe("settled:2500:500:2000:2500");
+    await credits.applyDispute(pi, `dp_${RUN}_f`, 2_500, "reinstated", `evt_f3_${RUN}`);
+    expect(balance(EA)).toBe(start - 500); // the 500 that was refunded is not given back
+    expect(topupRow(ref)).toBe("settled:2500:500:0:500");
+    expect((await credits.verify(EA)).ok).toBe(true);
+  });
+
   it("a refund or lost dispute can drive the business negative, which blocks every location's spending until funded again; the other business is untouched", async () => {
     const before = account(EB);
     const ref = `cs_neg_${RUN}`;

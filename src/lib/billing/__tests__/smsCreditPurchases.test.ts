@@ -299,6 +299,8 @@ describe("handleSmsCreditStripeEvent: refunds and disputes", () => {
     expect(await handleSmsCreditStripeEvent({ admin: a.admin, event: event("charge.refunded", charge()) })).toEqual({ handled: false });
     expect(await handleSmsCreditStripeEvent({ admin: a.admin, event: event("charge.dispute.created", dispute()) })).toEqual({ handled: false });
     expect(await handleSmsCreditStripeEvent({ admin: a.admin, event: event("refund.created", { id: "re_1", object: "refund", payment_intent: PI, amount: 1 }) })).toEqual({ handled: false });
+    const staleCharge = fakeAdmin({ tw4_credit_topup_lookup: missing });
+    await expect(handleSmsCreditStripeEvent({ admin: staleCharge.admin, event: event("charge.refunded", charge({ metadata: { df_purpose: "sms_credit_topup" } })) })).rejects.toBeInstanceOf(SmsCreditError); // our own flagged charge is retried, never dropped
     const flaky = fakeAdmin({ tw4_credit_topup_lookup: () => ({ error: { code: "57014" } }) });
     await expect(handleSmsCreditStripeEvent({ admin: flaky.admin, event: event("charge.refunded", charge()) })).rejects.toBeTruthy(); // a transient error is retried, not guessed
   });

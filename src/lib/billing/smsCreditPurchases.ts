@@ -136,8 +136,9 @@ const idOf = (value: unknown): string | null => {
   return null;
 };
 
-/** Postgres 42883 / PostgREST PGRST202: the credit functions are not installed in this environment (the app can ship before the migration). */
-const NOT_INSTALLED = new Set(["42883", "PGRST202", "42P01"]);
+/** PostgREST PGRST202 (function not in the schema cache) / Postgres 42883 / 42P01: the credit objects are not installed in this environment (the app can ship before the migration,
+ *  and then the other refund and dispute handlers must keep working). Known gap: for a moment right after the migration PostgREST may still answer PGRST202; Supabase reloads the cache on DDL. */
+const NOT_INSTALLED = new Set(["PGRST202", "42883", "42P01"]);
 
 async function lookup(admin: SmsCreditAdmin, ref: string): Promise<TopupLookup> {
   return rpc<TopupLookup>(admin, "tw4_credit_topup_lookup", { p_payment_ref: ref });
