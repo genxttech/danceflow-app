@@ -256,7 +256,7 @@ export async function provisionFakeSubaccount(config: E2EConfig, fixture: SmsFix
   await call("tw4_entity_set_spend_cap", { p_entity_id: entity, p_cents: 15_000, p_actor: actor });
   // TW-4F-3b-0: the brand has a published price, and the studio has funded its prepaid credit through a (synthetic) SETTLED payment
   await call("tw4_price_set", { p_kind: "brand", p_customer_cents: 1_000, p_provider_cents: 400, p_description: "Brand registration (e2e)", p_actor: actor });
-  await call("tw4_credit_settle_topup", { p_studio_id: fixture.studioA.id, p_provider_ref: `pi_e2e_${fixture.runId}`, p_amount_cents: 5_000, p_event_id: `evt_e2e_${fixture.runId}` });
+  await call("tw4_credit_settle_topup", { p_entity_id: entity, p_paid_by_studio_id: fixture.studioA.id, p_provider_ref: `pi_e2e_${fixture.runId}`, p_amount_cents: 5_000, p_event_id: `evt_e2e_${fixture.runId}` });
   await call("tw4_spend_authorize", { p_entity_id: entity, p_kind: "brand", p_amount_cents: 1_000, p_approval_ref: "E2E fixture approval", p_actor: actor });
   await call("tw4_subaccount_confirm", { p_entity_id: entity, p_actor: actor });
   await call("tw4_subaccount_begin", { p_entity_id: entity, p_actor: actor, p_friendly_name: `df:e2e:${entity}`, p_environment: "development" });

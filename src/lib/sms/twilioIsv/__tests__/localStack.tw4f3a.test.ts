@@ -91,11 +91,11 @@ const CLEANUP = `
 begin;
 set local session_replication_role = replica;
 delete from public.studio_sms_spend_events where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
-delete from public.studio_sms_credit_ledger where studio_id in ('${A}', '${B}', '${C}');
-delete from public.studio_sms_credit_reservations where studio_id in ('${A}', '${B}', '${C}');
-delete from public.studio_sms_credit_topups where studio_id in ('${A}', '${B}', '${C}');
-delete from public.studio_sms_provider_charges where studio_id in ('${A}', '${B}', '${C}');
-delete from public.studio_sms_credit_accounts where studio_id in ('${A}', '${B}', '${C}');
+delete from public.studio_sms_credit_ledger where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
+delete from public.studio_sms_credit_reservations where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
+delete from public.studio_sms_credit_topups where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
+delete from public.studio_sms_provider_charges where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
+delete from public.studio_sms_credit_accounts where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
 delete from public.studio_sms_price_list where created_by = '${U.padmin}';
 delete from public.studio_sms_subaccount_confirmations where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
 delete from public.studio_sms_twilio_accounts where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
@@ -392,34 +392,35 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     const unfunded = await journey(A, sidOne, true);
     expect(unfunded.outcome).toBe("insufficient_credit");
     expect(parent.adapterFor(sidOne).count("createBrand")).toBe(0);
-    await credits.settleTopup(A, "pi_test_f3a_a", 5_000, "evt_test_f3a_a");
+    await credits.settleTopup(entityOne, A, "pi_test_f3a_a", 5_000, "evt_test_f3a_a");
     // concurrent and repeated reservations of ONE operation bind one authorization and hold the credit once; a release frees it and needs a fresh authorization
     const lease = "f3b-race";
     const claim = await store.claim(A, U.padmin, lease, 120, "run");
     try {
       const reserved = await Promise.all(Array.from({ length: 5 }, () => store.reserveSpend(claim.onboarding_id, lease, "brand")));
       expect(new Set(reserved.map((r) => r.spendEventId)).size).toBe(1);
-      expect(psql(`select balance_cents || ':' || reserved_cents from public.studio_sms_credit_accounts where studio_id = '${A}'`)).toBe("5000:1000");
+      expect(psql(`select balance_cents || ':' || reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entityOne}'`)).toBe("5000:1000");
       await store.settleSpend(claim.onboarding_id, lease, "brand", "released", "test");
       await store.settleSpend(claim.onboarding_id, lease, "brand", "released", "test"); // idempotent
-      expect(psql(`select balance_cents || ':' || reserved_cents from public.studio_sms_credit_accounts where studio_id = '${A}'`)).toBe("5000:0");
+      expect(psql(`select balance_cents || ':' || reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entityOne}'`)).toBe("5000:0");
       expect(await code(store.reserveSpend(claim.onboarding_id, lease, "brand"))).toBe("TW004"); // the released authorization is gone: the owner must approve again
       const second = await entities.authorizeSpend(entityOne, "brand", 1000, "owner re-approval after release", U.padmin);
       // a reservation no run can settle any more (another generation, a crash) is resolved by a platform admin, with a written reason
       await store.reserveSpend(claim.onboarding_id, lease, "brand");
-      const open = await credits.openReservations(A, U.padmin);
+      const open = await credits.openReservations(entityOne, U.padmin);
       expect(open).toHaveLength(1);
       expect(await code(credits.resolveReservation(open[0].id, "released", "short", U.padmin))).toBe("22023");
       expect(await code(credits.resolveReservation(open[0].id, "released", "the setup was cancelled before Twilio was called", U.owner_a))).toBe("42501");
       expect(await credits.resolveReservation(open[0].id, "released", "the setup was cancelled before Twilio was called", U.padmin)).toEqual({ replayed: false });
       expect(await credits.resolveReservation(open[0].id, "released", "the setup was cancelled before Twilio was called", U.padmin)).toEqual({ replayed: true });
       expect(await code(credits.resolveReservation(open[0].id, "captured", "cannot capture what was released", U.padmin))).toBe("22023");
-      expect(psql(`select balance_cents || ':' || reserved_cents from public.studio_sms_credit_accounts where studio_id = '${A}'`)).toBe("5000:0");
+      expect(psql(`select balance_cents || ':' || reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entityOne}'`)).toBe("5000:0");
       expect(psql(`select status from public.studio_sms_spend_events where id = '${second}'`)).toBe("void"); // released = authorization voided, cap freed
       // an authorization that was never used can be withdrawn; a used one cannot
       const unused = await entities.authorizeSpend(entityOne, "brand", 1000, "owner approval to be withdrawn", U.padmin);
       expect(await code(credits.withdrawAuthorization(unused, "short", U.padmin))).toBe("22023");
       await credits.withdrawAuthorization(unused, "the owner changed their mind before any run", U.padmin);
+      expect(count(`select count(*) from public.studio_sms_onboarding_audit where action = 'spend_withdrawn' and note like 'event=${unused};%'`)).toBe(1); // a withdrawal leaves a record
       expect(await code(credits.withdrawAuthorization(unused, "the owner changed their mind before any run", U.padmin))).toBe("22023");
       await entities.authorizeSpend(entityOne, "brand", 1000, "final owner approval for the real run", U.padmin);
     } finally {
@@ -435,8 +436,8 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     expect(parent.adapterFor(sidOne).count("createBrand")).toBe(1);
     // a reserved authorization is final
     expect(psqlError(`update public.studio_sms_spend_events set status = 'void', reservation_key = null, reserved_at = null where legal_entity_id = '${entityOne}'`)).toContain("final");
-    expect(psql(`select balance_cents || ':' || reserved_cents from public.studio_sms_credit_accounts where studio_id = '${A}'`)).toBe("4000:0"); // 5000 funded, 1000 captured
-    expect((await credits.verify(A)).ok).toBe(true);
+    expect(psql(`select balance_cents || ':' || reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entityOne}'`)).toBe("4000:0"); // 5000 funded, 1000 captured
+    expect((await credits.verify(entityOne)).ok).toBe(true);
     expect(psqlError(`update public.studio_sms_spend_events set amount_cents = 1 where legal_entity_id = '${entityOne}'`)).toContain("cannot be edited");
   });
 
