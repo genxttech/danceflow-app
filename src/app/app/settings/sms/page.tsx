@@ -6,7 +6,10 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getOnboardingDraft, getStudioSmsStatus, type OnboardingDraft, type StudioSmsStatus } from "@/lib/sms/onboarding/client";
 import { emptyDraft, prefillDraft, type DraftFields } from "@/lib/sms/onboarding/fields";
 import { buildCampaignPackage } from "@/lib/sms/onboarding/campaignTemplate";
+import { getSmsCreditView } from "@/lib/billing/smsCreditView";
+import { smsCreditPurchasesEnabled } from "@/lib/billing/smsCreditPurchases";
 import SmsCancelSetup from "./SmsCancelSetup";
+import SmsCreditPanel from "./SmsCreditPanel";
 import SmsSetupWizard from "./SmsSetupWizard";
 import SmsStatusTracker from "./SmsStatusTracker";
 
@@ -16,7 +19,9 @@ function appOrigin() {
   return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
 }
 
-export default async function SmsSettingsPage() {
+export default async function SmsSettingsPage({ searchParams }: { searchParams?: Promise<Record<string, string | undefined>> }) {
+  const query = (await searchParams) ?? {};
+  const returned = query.credit === "success" || query.credit === "cancelled" ? query.credit : null;
   const context = await getCurrentStudioContext();
 
   // Settings managers only; the page does not exist for anyone else, nor for studios the pilot flag is off for.
@@ -32,6 +37,13 @@ export default async function SmsSettingsPage() {
   if (!status.available) redirect("/app/settings");
 
   const isOwner = status.role === "studio_owner";
+  // Prepaid credit: the database returns it only to an owner or administrator of this studio, and only for this studio's legal business.
+  let creditView: Awaited<ReturnType<typeof getSmsCreditView>> = null;
+  try {
+    creditView = await getSmsCreditView(supabase, context.studioId);
+  } catch {
+    creditView = null;
+  }
   // Paused: a platform admin switched the pilot off after this setup started. The setup stays visible (status only) and the
   // owner can still cancel; the draft RPC is switch-gated, so nothing else is fetched.
   const paused = status.paused;
@@ -99,6 +111,8 @@ export default async function SmsSettingsPage() {
       </div>
 
       <SmsStatusTracker state={status.state} textingOn={status.textingOn} />
+
+      {creditView ? <SmsCreditPanel view={creditView} purchasesEnabled={smsCreditPurchasesEnabled()} returned={returned} /> : null}
 
       {paused ? (
         <p role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
