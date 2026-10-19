@@ -82,6 +82,10 @@ export default function SmsCreditAdmin({ overview, recurring = null }: { overvie
           <summary className="cursor-pointer text-sm font-semibold text-violet-800">
             Recurring charges ({recurring.activeAuthorizations} active, {recurring.needsAttention.length} not charged)
           </summary>
+          <p className="mt-2 text-sm text-slate-700">
+            Scheduler switch: <span className="font-semibold">{recurring.schedulerEnabled ? "on" : "off"}</span> · reconciliation gaps: <span className="font-semibold">{recurring.reconciliationGaps}</span>
+            {recurring.recentRuns[0] ? ` · last run: ${recurring.recentRuns[0].status} (${recurring.recentRuns[0].startedAt.slice(0, 16).replace("T", " ")})` : " · no runs yet"}
+          </p>
           {recurring.needsAttention.length ? (
             <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200 text-sm">
               {recurring.needsAttention.map((r, i) => (

@@ -754,8 +754,8 @@ async function sendSms(
   // the global platform status is only the emergency master switch inside the resolver.
   const senderResult = await resolveStudioSmsSender(supabase, row.studio_id);
   if (!senderResult.ok) {
-    if (senderResult.reason === "sms_registration_lookup_failed") {
-      return { ok: false, error: "sms_registration_lookup_failed" };
+    if (senderResult.reason === "sms_registration_lookup_failed" || senderResult.reason === "sms_service_check_failed") {
+      return { ok: false, error: senderResult.reason };
     }
     return skipSms(senderResult.reason);
   }

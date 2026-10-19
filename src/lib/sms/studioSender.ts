@@ -9,6 +9,9 @@ import { isSmsSendingApproved, normalizeSmsPhone } from "@/lib/sms/compliance";
  * `studio_sms_registrations` is platform-admin-only under RLS, so callers pass a
  * trusted server (service-role) client. Registration identifiers never leave the server.
  * The platform status flag (`DANCEFLOW_SMS_STATUS`) is only an emergency master switch.
+ *
+ * This is the ONLY resolver for OUTBOUND texts, so it is also where a suspended recurring-charge state stops new chargeable sends. Inbound handling
+ * (resolveStudioFromInboundSender below) never consults it: STOP / START / HELP processing and Twilio's own opt-out replies continue for a suspended business.
  */
 
 export type StudioSmsSender = {
@@ -22,8 +25,11 @@ export type StudioSmsSenderResult =
   | { ok: true; sender: StudioSmsSender }
   | {
       ok: false;
-      reason: "sms_not_approved" | "sms_studio_not_approved" | "sms_registration_lookup_failed";
+      reason: "sms_not_approved" | "sms_studio_not_approved" | "sms_registration_lookup_failed" | "sms_service_suspended" | "sms_service_check_failed";
     };
+
+/** PostgREST PGRST202 / Postgres 42883: the recurring-charge state function is not installed in this environment. */
+const SERVICE_STATE_NOT_INSTALLED = new Set(["PGRST202", "42883"]);
 
 const MESSAGING_SERVICE_SID_PATTERN = /^MG[0-9a-fA-F]{32}$/;
 const CAMPAIGN_SID_PATTERN = /^QE[0-9a-fA-F]{32}$/;
@@ -68,6 +74,17 @@ export async function resolveStudioSmsSender(
     !data.sender_e164
   ) {
     return { ok: false, reason: "sms_studio_not_approved" };
+  }
+
+  // Recurring service charges: a business whose monthly charge is overdue past the grace window cannot START new outbound texts. The check fails closed (an unreadable
+  // state blocks the send), except where the feature is not installed at all (this code can ship before its migration): there is no state to enforce.
+  const service = await supabase.rpc("tw4_recurring_service_state", { p_studio_id: studioId });
+  if (service.error) {
+    if (!SERVICE_STATE_NOT_INSTALLED.has(String(service.error.code ?? ""))) return { ok: false, reason: "sms_service_check_failed" };
+  } else if (service.data === "suspended") {
+    return { ok: false, reason: "sms_service_suspended" };
+  } else if (service.data !== "none" && service.data !== "active" && service.data !== "past_due") {
+    return { ok: false, reason: "sms_service_check_failed" }; // an answer this code does not understand is not permission to send
   }
 
   return {

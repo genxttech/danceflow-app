@@ -101,7 +101,7 @@ describe("parsers", () => {
     expect(parseRecurringOverview(raw({ service_issue: "nonsense" })).serviceIssue).toBeNull();
     const parsed = parseRecurringOverview(raw({ authorizations: [{ id: "x", kind: "sms_usage", status: "active" }, { id: "y", kind: "number", status: "pending" }, { kind: "number", status: "active" }, ...raw().authorizations] }));
     expect(parsed.authorizations.map((a) => a.id)).toEqual(["a1", "a2", "a3"]);
-    expect(parseRecurringAdminOverview(undefined)).toEqual({ activeAuthorizations: 0, needsAttention: [] });
+    expect(parseRecurringAdminOverview(undefined)).toEqual({ schedulerEnabled: false, reconciliationGaps: 0, recentRuns: [], activeAuthorizations: 0, needsAttention: [] });
   });
   it("a refused or missing read is null, so the screen shows nothing", async () => {
     const fake = (error: { code: string } | null) => ({ rpc: async () => ({ data: raw(), error }) }) as never;
@@ -159,7 +159,7 @@ describe("runDueRecurringCharges", () => {
     });
     const summary = await runDueRecurringCharges(client, new Date("2026-10-19T10:00:00Z"));
     // the previous month is asked first (an unpaid one is retried once credit arrives), then the current one; the fake answers the same for both
-    expect(summary).toEqual({ period: "2026-10", periods: ["2026-09", "2026-10"], due: 10, charged: 2, unfunded: 2, held: 2, refused: 2, replayed: 0, errors: 2 });
+    expect(summary).toEqual({ period: "2026-10", periods: ["2026-09", "2026-10"], runId: null, due: 10, charged: 2, unfunded: 2, held: 2, refused: 2, replayed: 0, errors: 2 });
     expect(calls.slice(0, 7)).toEqual(["tw4_recurring_due", "tw4_recurring_charge:a:2026-09", "tw4_recurring_charge:b:2026-09", "tw4_recurring_charge:c:2026-09", "tw4_recurring_charge:d:2026-09", "tw4_recurring_charge:e:2026-09", "tw4_recurring_due"]);
     expect(calls[7]).toBe("tw4_recurring_charge:a:2026-10");
   });
@@ -271,7 +271,7 @@ describe("recurring panel", () => {
   it("the form shows price, term, total limit and the plain promises, requires the checkbox, and is disabled while the flag is off or nothing is chosen", () => {
     const filled = html({ authorizations: [] }, { initialOpen: true, initialKind: "monthly", initialTerm: 6 });
     // the owner reads, word for word, the statement the database will store
-    expect(filled).toContain(buildAuthorizationStatement({ kind: "monthly", priceCents: 1500, termMonths: 6, totalLimitCents: 9000 }).replace("legal business's", "legal business&#x27;s"));
+    expect(filled).toContain(buildAuthorizationStatement({ kind: "monthly", priceCents: 1500, termMonths: 6, totalLimitCents: 9000 }).replace(/'/g, "&#x27;"));
     expect(filled).toContain("up to 6 months and no more than $90.00 in total");
     expect(filled).toContain("No card is charged, no credit is added automatically");
     expect(filled).toContain("Final prices and terms are pending approval");

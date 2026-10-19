@@ -11,9 +11,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 
 import { getRecurringAdminOverview, getRecurringOverview, authorizeRecurring, revokeRecurring, runDueRecurringCharges, periodKeyFor, buildAuthorizationStatement, RecurringError } from "@/lib/billing/smsRecurring";
+import { acquireSuiteLock } from "./localStackLock";
 import { SupabaseCreditStore } from "@/lib/sms/twilioIsv/creditStore";
 import { RunnerStoreError } from "@/lib/sms/twilioIsv/store";
 
@@ -158,7 +159,9 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
   const rowOf = (id: string, period = NOW) => psql(`select status || ':' || attempts || ':' || coalesce(reason, '') from public.studio_sms_recurring_charges where authorization_id = '${id}' and period_key = '${period}'`);
   const ledgerKinds = (entity: string) => psql(`select coalesce(string_agg(kind, ',' order by seq), '') from public.studio_sms_credit_ledger where legal_entity_id = '${entity}'`);
 
+  let releaseLock: (() => void) | null = null;
   beforeAll(async () => {
+    releaseLock = await acquireSuiteLock("recurring-scheduler"); // these two suites share the global scheduler's data: one at a time
     admin = createClient(URL_, serviceKey(), { auth: { persistSession: false, autoRefreshToken: false } });
     credits = new SupabaseCreditStore(admin);
     psqlFile(FIXTURES);
@@ -175,6 +178,7 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
     } catch {
       /* best effort */
     }
+    releaseLock?.();
   });
 
   it("privileges: no table is reachable by API roles; owner functions are for signed-in users only; the charge functions are service-role only", () => {
@@ -186,15 +190,15 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       expect(psql(`select has_function_privilege('authenticated', 'public.${fn}', 'execute')`)).toBe("t");
     }
     // authorizing, revoking and charging are service-role only: no studio user can reach them through the API, whatever the application's flag says
-    for (const fn of ["tw4_recurring_authorize(uuid, uuid, text, int, int, int)", "tw4_recurring_revoke(uuid, uuid)", "tw4_recurring_charge(uuid, text)", "tw4_recurring_due(text)", "tw4_recurring_service_state(uuid)"]) {
+    for (const fn of ["tw4_recurring_authorize(uuid, uuid, text, int, int, int)", "tw4_recurring_revoke(uuid, uuid)", "tw4_recurring_charge(uuid, text, uuid)", "tw4_recurring_due(text)", "tw4_recurring_service_state(uuid)"]) {
       expect(psql(`select has_function_privilege('anon', 'public.${fn}', 'execute') or has_function_privilege('authenticated', 'public.${fn}', 'execute')`)).toBe("f");
       expect(psql(`select has_function_privilege('service_role', 'public.${fn}', 'execute')`)).toBe("t");
     }
     for (const fn of ["_tw4rc_guard()", "_tw4rc_service_state(uuid)", "_tw4rc_service_issue(uuid)", "_tw4rc_usd(bigint)"]) {
       expect(psql(`select has_function_privilege('anon', 'public.${fn}', 'execute') or has_function_privilege('authenticated', 'public.${fn}', 'execute') or has_function_privilege('service_role', 'public.${fn}', 'execute')`)).toBe("f");
     }
-    // the charge path never touches a card, a top-up, the pilot or a release: its source says so
-    expect(psql(`select count(*) from pg_proc where proname in ('tw4_recurring_charge', 'tw4_recurring_due', '_tw4rc_service_state', 'tw4_recurring_service_state') and (prosrc ilike '%pilot%' or prosrc ilike '%topup%' or prosrc ilike '%stripe%' or prosrc ilike '%release%')`)).toBe("0");
+    // the charge path never touches a card, a top-up, a release or the pilot's funding (it only REFUSES a pilot business): its source says so
+    expect(psql(`select count(*) from pg_proc where proname in ('tw4_recurring_charge', 'tw4_recurring_due', '_tw4rc_service_state', 'tw4_recurring_service_state') and (prosrc ilike '%topup%' or prosrc ilike '%stripe%' or prosrc ilike '%release%' or prosrc ilike '%funding%pilot%')`)).toBe("0");
   });
 
   describe("authorization (owner only, at the current price, with limits)", () => {
@@ -680,7 +684,7 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       const made = await authorizeRecurring(admin as never, { ...base, userId: U.owner_a });
       // the database wrote the acknowledgement; it is exactly the text the application shows
       expect(psql(`select statement from public.studio_sms_recurring_authorizations where id = '${made.authorizationId}'`)).toBe(
-        "I authorize DanceFlow to deduct $15.00 per month for monthly texting service from my legal business's prepaid texting credit, for up to 3 months and no more than $45.00 in total, whichever comes first. The charge is taken only if enough settled credit is available. No card is charged, no credit is added automatically, and I can revoke this at any time. Final prices and terms are pending approval.",
+        "I authorize DanceFlow to deduct $15.00 per month for monthly texting service from my legal business's prepaid texting credit, for up to 3 months and no more than $45.00 in total, whichever comes first. The charge is taken only if enough settled credit is available and it fits within my business's spending limit. No card is charged, no credit is added automatically, and I can revoke this at any time. Final prices and terms are pending approval.",
       );
       expect(await code(authorizeRecurring(admin as never, { ...base, userId: U.owner_a }))).toBe("already_authorized");
       expect(await code(revokeRecurring(admin as never, made.authorizationId, U.owner_b))).toBe("not_authorized");
