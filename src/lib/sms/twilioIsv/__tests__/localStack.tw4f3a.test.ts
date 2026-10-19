@@ -85,23 +85,24 @@ const FIELDS = (legalName: string, email: string): Record<string, string> => ({
   rep_first_name: "Pat", rep_last_name: "Morgan", rep_title: "Owner", rep_position: "ceo", rep_email: email, rep_phone: "(503) 555-0123", preferred_area_code: "503",
 });
 const NAME_1 = "F3A Dance Group LLC";
-const NAME_2 = "F3A Other Business LLC";
+const NAME_2 = "ConfiDance Unlimited, LLC"; // the verified pilot business (synthetic local copy)
 
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
-delete from public.studio_sms_spend_events where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
-delete from public.studio_sms_credit_ledger where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
-delete from public.studio_sms_credit_reservations where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
-delete from public.studio_sms_credit_topups where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
-delete from public.studio_sms_provider_charges where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
-delete from public.studio_sms_credit_accounts where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
+delete from public.studio_sms_spend_events where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
+delete from public.studio_sms_credit_ledger where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
+delete from public.studio_sms_credit_reservations where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
+delete from public.studio_sms_credit_topups where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
+delete from public.studio_sms_provider_charges where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
+delete from public.studio_sms_credit_accounts where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
 delete from public.studio_sms_price_list where created_by = '${U.padmin}';
-delete from public.studio_sms_subaccount_confirmations where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
-delete from public.studio_sms_twilio_accounts where legal_entity_id in (select id from public.studio_sms_legal_entities where legal_name like 'F3A %');
+delete from public.studio_sms_subaccount_confirmations where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
+delete from public.studio_sms_twilio_accounts where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
 delete from public.studio_sms_entity_studios where studio_id in ('${A}', '${B}', '${C}');
 delete from public.studio_sms_location_requests where studio_id in ('${A}', '${B}', '${C}');
-delete from public.studio_sms_legal_entities where legal_name like 'F3A %';
+delete from public.studio_sms_pilot_exceptions where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
+delete from public.studio_sms_legal_entities where created_by = '${U.padmin}';
 commit;
 begin;
 delete from public.studio_sms_registrations where studio_id in ('${A}', '${B}', '${C}');
@@ -190,7 +191,7 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     // Asserted from the catalog on purpose: a permission-denied call by anon / authenticated crashes the supautils hint hook of this local image.
     const fns = [
       "tw4_entity_create_for_studio(uuid, uuid, text)", "tw4_entity_decide_link(uuid, uuid, uuid, boolean, text)", "tw4_entity_set_spend_cap(uuid, int, uuid)",
-      "tw4_spend_authorize(uuid, text, int, text, uuid)", "tw4_spend_reserve(uuid, text, text)", "tw4_subaccount_confirm(uuid, uuid)",
+      "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid)", "tw4_spend_reserve(uuid, text, text)", "tw4_subaccount_confirm(uuid, uuid)",
       "tw4_subaccount_begin(uuid, uuid, text, text)", "tw4_subaccount_finish(uuid, uuid, text, text)", "tw4_runner_account(uuid, text)", "tw4_entity_for_studio(uuid, uuid)",
       "_tw4f3a_name_key(text)", "_tw4f3a_steps_account_guard()", "_tw4f3a_audit(uuid, uuid, text, text)", "_tw4f3a_committed(uuid)", "_tw4f3a_evidence_guard()",
     ];
@@ -446,6 +447,69 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     psqlFile(`begin; set local session_replication_role = replica; insert into public.studio_sms_provisioning_steps (onboarding_id, studio_id, step_key, submission_seq, status) values ('${onboarding}', '${B}', 'S4', 1, 'in_flight'); commit;`);
     expect(psqlError(`update public.studio_sms_provisioning_steps set status = 'failed' where onboarding_id = '${onboarding}' and step_key = 'S4'`)).toContain("predates the studio");
     psqlFile(`begin; set local session_replication_role = replica; delete from public.studio_sms_provisioning_steps where onboarding_id = '${onboarding}' and step_key = 'S4'; commit;`);
+  });
+
+  it("the ConfiDance pilot exception is a non-spendable ceiling: no credit, per-operation authorization still required, cumulative ceiling over outstanding AND captured, never for messaging", async () => {
+    const sidTwo = psql(`select twilio_account_sid from public.studio_sms_twilio_accounts where legal_entity_id = '${entityTwo}'`);
+    const refText = "founder approved the ConfiDance pilot exception in writing";
+    // only the verified ConfiDance business, only an admin, never above $150 / the entity cap
+    expect(await code(credits.createPilotException(entityOne, 2_000, refText, U.padmin))).toBe("22023");
+    expect(await code(credits.createPilotException(entityTwo, 2_000, refText, U.owner_c))).toBe("42501");
+    expect(await code(credits.createPilotException(entityTwo, 15_001, refText, U.padmin))).toBe("22023");
+    expect(await code(credits.createPilotException(entityTwo, 2_000, "short", U.padmin))).toBe("22023");
+    expect(await credits.createPilotException(entityTwo, 2_000, refText, U.padmin)).toEqual({ replayed: false });
+    expect(await credits.createPilotException(entityTwo, 2_000, refText, U.padmin)).toEqual({ replayed: true });
+    expect(await code(credits.createPilotException(entityTwo, 3_000, refText, U.padmin))).toBe("23505");
+    // it is NOT credit: no ledger entry, no balance, no payment, and messaging can never be paid from it
+    const balanceRows = () => count(`select count(*) from public.studio_sms_credit_accounts where legal_entity_id = '${entityTwo}' and (balance_cents <> 0 or reserved_cents <> 0)`);
+    const ledgerRows = () => count(`select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${entityTwo}'`);
+    expect(balanceRows()).toBe(0);
+    expect(ledgerRows()).toBe(0);
+    expect(count(`select count(*) from public.studio_sms_credit_topups where legal_entity_id = '${entityTwo}'`)).toBe(0);
+    expect(await code(credits.debitUsage(entityTwo, C, 1, "pilot-usage", "m"))).toBe("TW007");
+    // no operation-specific authorization => no reservation, with or without the ceiling
+    const noAuth = await journey(C, sidTwo, true);
+    expect(noAuth.outcome).toBe("spend_blocked");
+    expect(parent.adapterFor(sidTwo).count("createBrand")).toBe(0);
+    // the approver chooses the funding source on the authorization: a CREDIT-funded one never falls back to the ceiling
+    const creditOnly = await entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the brand registration, paid from prepaid credit", U.padmin);
+    const noFallback = await journey(C, sidTwo, true);
+    expect(noFallback.outcome).toBe("insufficient_credit");
+    expect(parent.adapterFor(sidTwo).count("createBrand")).toBe(0);
+    // (the unbound credit-funded authorization stays open on purpose: the location-bound pilot authorization must be the one this run uses)
+    // a pilot-funded authorization needs the location, a written reference of 10+ characters, and a reference is used once
+    expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "short", U.padmin, "pilot", C))).toBe("22023");
+    expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", null))).toBe("22023");
+    expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", A))).not.toBe("ok"); // a location of another business
+    expect(await code(entities.authorizeSpend(entityOne, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", A))).toBe("22023"); // no exception for that business
+    await entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", C);
+    expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "Owner approved the REAL brand registration in writing", U.padmin, "pilot", C))).toBe("23505"); // the same approval twice
+    // the pilot business spend cap can never be raised above the $150 maximum
+    expect(await code(entities.setSpendCap(entityTwo, 20_000, U.padmin))).toBe("22023");
+    const done = await journey(C, sidTwo, true);
+    expect(done.outcome).toBe("brand_submitted");
+    expect(parent.adapterFor(sidTwo).count("createBrand")).toBe(1);
+    expect(psql(`select funding || ':' || status from public.studio_sms_credit_reservations where legal_entity_id = '${entityTwo}'`)).toBe("pilot:captured");
+    expect(balanceRows()).toBe(0);
+    expect(ledgerRows()).toBe(0);
+    expect(psql(`select status from public.studio_sms_spend_events where id = '${creditOnly}'`)).toBe("authorized"); // not consumed by the pilot run
+    await credits.withdrawAuthorization(creditOnly, "the owner chose the pilot ceiling instead of prepaid credit", U.padmin);
+    expect(await credits.verify(entityTwo)).toMatchObject({ ok: true, pilot_used_cents: 1_000 });
+    // cumulative: 1000 captured + 1500 requested > 2000 ceiling, however many concurrent attempts
+    await credits.setPrice("campaign_vetting", 1_500, 1_500, "Campaign vetting (test)", U.padmin);
+    await entities.authorizeSpend(entityTwo, "campaign_vetting", 1_500, "owner approved campaign vetting in writing", U.padmin, "pilot", C);
+    const claim = await store.claim(C, U.padmin, "f3b-pilot", 120, "run");
+    try {
+      const attempts = await Promise.all(Array.from({ length: 5 }, () => code(store.reserveSpend(claim.onboarding_id, "f3b-pilot", "campaign_vetting"))));
+      expect(attempts.every((r) => r === "TW007")).toBe(true);
+    } finally {
+      await store.release(claim.onboarding_id, "f3b-pilot");
+    }
+    expect(await credits.verify(entityTwo)).toMatchObject({ ok: true, pilot_used_cents: 1_000 });
+    expect(count(`select count(*) from public.studio_sms_credit_reservations where legal_entity_id = '${entityTwo}' and kind = 'campaign_vetting'`)).toBe(0);
+    // the overview shows the owner the ceiling and what was used
+    const overview = await as("owner_c").rpc("sms_credit_overview", { p_studio_id: C });
+    expect(overview.data).toMatchObject({ pilot_ceiling_cents: 2_000, pilot_used_cents: 1_000, balance_cents: 0 });
   });
 
   it("evidence cannot be edited or deleted, and the rollback refuses while it exists", () => {

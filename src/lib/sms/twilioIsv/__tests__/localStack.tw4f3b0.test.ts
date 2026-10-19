@@ -76,6 +76,7 @@ delete from public.studio_sms_credit_ledger where legal_entity_id in ('${E1}', '
 delete from public.studio_sms_credit_reservations where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_credit_topups where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_provider_charges where legal_entity_id in ('${E1}', '${E2}');
+delete from public.studio_sms_pilot_exceptions where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_credit_accounts where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_price_list where created_by = '${U.padmin}';
 delete from public.studio_sms_entity_studios where legal_entity_id in ('${E1}', '${E2}');
@@ -138,9 +139,9 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
     const admin = [
       "tw4_price_set(text, int, int, text, uuid)", "tw4_credit_topup_pending(uuid, uuid, text, int)", "tw4_credit_settle_topup(uuid, uuid, text, int, text)",
       "tw4_credit_reverse_topup(text, int, text, text)", "tw4_credit_topup_failed(text, text)", "tw4_credit_adjust(uuid, bigint, text, text, uuid)",
-      "tw4_credit_grant_pilot(uuid, int, text, uuid)", "tw4_credit_set_hold(uuid, boolean, text, uuid)", "tw4_credit_set_threshold(uuid, int, uuid)",
+      "tw4_pilot_exception_create(uuid, int, text, uuid)", "tw4_credit_set_hold(uuid, boolean, text, uuid)", "tw4_credit_set_threshold(uuid, int, uuid)",
       "tw4_credit_debit_usage(uuid, uuid, int, text, text)", "tw4_credit_refund_usage(uuid, int, text, text)", "tw4_credit_record_provider_charge(uuid, uuid, text, text, int, uuid)",
-      "tw4_credit_verify(uuid)", "tw4_spend_settle(uuid, text, text, text, text)", "tw4_spend_reserve(uuid, text, text)", "tw4_spend_authorize(uuid, text, int, text, uuid)",
+      "tw4_credit_verify(uuid)", "tw4_spend_settle(uuid, text, text, text, text)", "tw4_spend_reserve(uuid, text, text)", "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid)",
       "tw4_credit_resolve_reservation(uuid, text, uuid, text)", "tw4_credit_open_reservations(uuid, uuid)", "tw4_spend_withdraw(uuid, uuid, text)",
       "_tw4c_lock(uuid)", "_tw4c_post(uuid, uuid, text, bigint, bigint, text, uuid, text, uuid, text)", "_tw4c_admin(uuid)", "_tw4c_any_location(uuid)", "_tw4c_immutable_guard()",
     ];
@@ -154,7 +155,7 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
       checks.push(`select case when not has_function_privilege('authenticated', 'public.${fn}', 'execute') then 'authenticated may not execute ${fn}' end`);
       checks.push(`select case when has_function_privilege('anon', 'public.${fn}', 'execute') then 'anon may execute ${fn}' end`);
     }
-    for (const table of ["studio_sms_price_list", "studio_sms_credit_accounts", "studio_sms_credit_reservations", "studio_sms_credit_ledger", "studio_sms_credit_topups", "studio_sms_provider_charges"]) {
+    for (const table of ["studio_sms_price_list", "studio_sms_credit_accounts", "studio_sms_credit_reservations", "studio_sms_credit_ledger", "studio_sms_credit_topups", "studio_sms_provider_charges", "studio_sms_pilot_exceptions"]) {
       for (const role of ["anon", "authenticated", "service_role"]) checks.push(`select case when has_table_privilege('${role}', 'public.${table}', 'select,insert,update,delete') then '${role} has privileges on ${table}' end`);
       checks.push(`select case when not (select relrowsecurity from pg_class where oid = 'public.${table}'::regclass) then 'RLS off on ${table}' end`);
     }
@@ -314,25 +315,16 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
     await credits.setThreshold(E2, 1_000, U.padmin);
   });
 
-  it("the founder-authorized pilot exception: one time, platform admin only, written approval, never above $150 or the entity spend cap, ordinary ledger credit", async () => {
-    expect(await code(credits.grantPilot(E1, 15_000, "founder approved the ConfiDance pilot exception", U.owner_x))).toBe("42501");
-    expect(await code(credits.grantPilot(E1, 15_001, "founder approved the ConfiDance pilot exception", U.padmin))).toBe("22023"); // above $150
-    expect(await code(credits.grantPilot(E1, 5_000, "short", U.padmin))).toBe("22023"); // approval reference required
-    // a business whose recorded cap is below the grant cannot receive it
-    psqlFile(`begin; set local session_replication_role = replica; update public.studio_sms_legal_entities set spend_cap_cents = 5000 where id = '${E2}'; commit;`);
-    expect(await code(credits.grantPilot(E2, 10_000, "founder approved the ConfiDance pilot exception", U.padmin))).toBe("22023");
-    psqlFile(`begin; set local session_replication_role = replica; update public.studio_sms_legal_entities set spend_cap_cents = 15000 where id = '${E2}'; commit;`);
-    const before = account(E2);
-    expect(await credits.grantPilot(E2, 15_000, "founder approved the ConfiDance pilot exception", U.padmin)).toEqual({ replayed: false });
-    expect(await credits.grantPilot(E2, 15_000, "founder approved the ConfiDance pilot exception", U.padmin)).toEqual({ replayed: true });
-    expect(await code(credits.grantPilot(E2, 5_000, "founder approved the ConfiDance pilot exception", U.padmin))).toBe("23505"); // not a second, different grant
-    expect(Number(account(E2).split(":")[0]) - Number(before.split(":")[0])).toBe(15_000);
-    expect(count(`select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${E2}' and kind = 'pilot_grant'`)).toBe(1);
-    // the exception exists ONCE in the whole system: no other business can receive a pilot grant (a second pilot needs a reviewed migration)
-    expect(await code(credits.grantPilot(E1, 5_000, "founder approved the ConfiDance pilot exception", U.padmin))).toBe("23505");
-    expect(count(`select count(*) from public.studio_sms_credit_ledger where kind = 'pilot_grant'`)).toBe(1);
-    expect(count(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${Y}' and action = 'credit_pilot_grant'`)).toBe(1);
-    expect((await credits.verify(E2)).ok).toBe(true);
+  it("the pilot exception is not available to any other legal business, nor to a non-admin, and creates no credit, payment or ledger entry", async () => {
+    const before = [account(E1), account(E2), ledgerCount(E1), ledgerCount(E2)];
+    for (const entity of [E1, E2]) {
+      expect(await code(credits.createPilotException(entity, 15_000, "founder approved the ConfiDance pilot exception", U.padmin))).toBe("22023"); // not the ConfiDance legal business
+    }
+    expect(await code(credits.createPilotException(E1, 15_000, "founder approved the ConfiDance pilot exception", U.owner_x))).toBe("42501");
+    expect([account(E1), account(E2), ledgerCount(E1), ledgerCount(E2)]).toEqual(before);
+    expect(count("select count(*) from public.studio_sms_pilot_exceptions where legal_entity_id in ('" + E1 + "', '" + E2 + "')")).toBe(0);
+    // the ledger has no kind that could represent a free grant
+    expect(psqlError("insert into public.studio_sms_credit_ledger (legal_entity_id, seq, kind, balance_delta_cents, idempotency_key) values ('" + E1 + "', 9100, 'pilot_grant', 15000, 'sql-grant')")).toContain("kind_check");
   });
 
   it("reconciliation records the actual Twilio charge idempotently and flags a variance without re-debiting the business", async () => {

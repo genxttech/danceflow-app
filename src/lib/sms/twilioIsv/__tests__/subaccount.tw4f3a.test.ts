@@ -108,7 +108,7 @@ class MemoryEntityStore implements EntityStore {
   async createEntityForStudio() { return ENTITY; }
   async decideLink() {}
   async setSpendCap(_e: string, cents: number) { this.capCents = cents; }
-  async authorizeSpend() { return "spend-1"; }
+  async authorizeSpend(): Promise<string> { return "spend-1"; }
   async confirmSubaccount(_e: string, actor: string) {
     if (!this.admins.has(actor)) throw new RunnerStoreError("42501");
     if (this.capCents <= 0) throw new RunnerStoreError("TW004");

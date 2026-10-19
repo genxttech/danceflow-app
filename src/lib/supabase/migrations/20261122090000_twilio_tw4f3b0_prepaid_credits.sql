@@ -10,8 +10,12 @@
 --   studio_sms_credit_reservations   a hold for ONE fee-bearing operation of one location; captured (charged) or released; never both
 --   studio_sms_credit_topups         funding payments (Stripe; packs $25/$50/$100, balance ceiling $500): pending until SETTLED; only a settled payment becomes credit
 --   studio_sms_provider_charges      actual Twilio charges recorded for reconciliation (variance flagged, the customer is never re-debited for a variance)
--- Decision 10 (founder-authorized ConfiDance pilot exception): tw4_credit_grant_pilot, one time per entity, platform admin, written approval, at most the
--- $150 cumulative pilot cap, never a generalized bypass; every real fee-bearing operation still needs its own authorization at the published price.
+-- Decision 10 (founder-authorized ConfiDance pilot exception): NOT credit, NOT a deposit, NOT a gift balance and NOT a spending authorization. It is a
+-- non-spendable CEILING (at most $150 and at most the entity spend cap) that lets a fee-bearing reservation of the ConfiDance legal business proceed without
+-- settled prepaid credit. Every pilot-funded operation still needs its own durable, operation-specific authorization (a spend event at the published price,
+-- with a written approval reference and the approving admin), is counted cumulatively against the ceiling while outstanding AND after capture, creates no
+-- ledger credit, no payment record and no revenue, and can never pay for messaging usage. The exception exists once, for the verified ConfiDance Unlimited, LLC
+-- legal business only (tw4_pilot_exception_create).
 -- Replaces (create or replace) tw4_spend_authorize (needs a published price), tw4_spend_reserve (also reserves the ENTITY's credit, atomically) and the 3a
 -- evidence guard; adds tw4_spend_settle. The spend cap and per-operation owner authorization of TW-4F-3a stay in force: credit is the means of payment,
 -- never the permission to spend.
@@ -41,7 +45,7 @@ alter table public.studio_sms_onboarding_audit add constraint studio_sms_onboard
   'runner_step', 'runner_ein_read', 'runner_lease', 'runner_window', 'runner_submission_confirmed', 'runner_evaluation',
   'entity_created', 'location_attested', 'location_decided', 'spend_cap_set', 'spend_authorized', 'spend_reserved',
   'subaccount_confirmed', 'runner_subaccount',
-  'credit_topup', 'credit_reversal', 'credit_adjustment', 'credit_hold', 'credit_reserved', 'credit_captured', 'credit_released', 'price_set', 'credit_pilot_grant', 'spend_withdrawn'));
+  'credit_topup', 'credit_reversal', 'credit_adjustment', 'credit_hold', 'credit_reserved', 'credit_captured', 'credit_released', 'price_set', 'credit_pilot_exception', 'spend_withdrawn'));
 
 -- a location link is addressable together with its entity (composite foreign keys below make cross-entity attribution impossible)
 alter table public.studio_sms_entity_studios add constraint studio_sms_entity_studios_location_entity unique (studio_id, legal_entity_id);
@@ -79,6 +83,7 @@ create table public.studio_sms_credit_reservations (
   studio_id uuid not null,   -- the LOCATION the operation is for
   kind text not null check (kind in ('brand', 'campaign_vetting', 'number', 'monthly', 'sms_usage')),
   amount_cents int not null check (amount_cents > 0),
+  funding text not null default 'credit' check (funding in ('credit', 'pilot')),   -- 'pilot' = the founder-authorized ceiling, no ledger credit involved
   status text not null default 'reserved' check (status in ('reserved', 'captured', 'released')),
   reservation_key text not null check (char_length(reservation_key) <= 160),
   created_at timestamptz not null default now(),
@@ -92,7 +97,7 @@ create table public.studio_sms_credit_ledger (
   id uuid primary key default gen_random_uuid(),
   legal_entity_id uuid not null references public.studio_sms_legal_entities(id) on delete restrict,
   seq bigint not null check (seq > 0),
-  kind text not null check (kind in ('topup_settled', 'topup_reversed', 'reserve', 'release', 'capture', 'usage_charge', 'usage_refund', 'adjustment', 'pilot_grant')),
+  kind text not null check (kind in ('topup_settled', 'topup_reversed', 'reserve', 'release', 'capture', 'usage_charge', 'usage_refund', 'adjustment')),
   balance_delta_cents bigint not null,
   reserved_delta_cents bigint not null default 0,
   idempotency_key text not null check (char_length(idempotency_key) between 3 and 200),
@@ -117,13 +122,19 @@ create table public.studio_sms_credit_ledger (
       when 'capture' then balance_delta_cents < 0 and reserved_delta_cents = balance_delta_cents
       when 'usage_charge' then balance_delta_cents < 0 and reserved_delta_cents = 0
       when 'usage_refund' then balance_delta_cents > 0 and reserved_delta_cents = 0
-      when 'pilot_grant' then balance_delta_cents > 0 and reserved_delta_cents = 0
       else balance_delta_cents <> 0 and reserved_delta_cents = 0
     end)
 );
 
--- the founder-authorized pilot exception exists ONCE (ConfiDance); a second pilot business needs a new, reviewed migration (no generalized bypass)
-create unique index studio_sms_credit_ledger_one_pilot_grant on public.studio_sms_credit_ledger ((true)) where kind = 'pilot_grant';
+-- the founder-authorized pilot exception: a non-spendable ceiling, ONE row in the whole system (a second pilot business needs a reviewed migration)
+create table public.studio_sms_pilot_exceptions (
+  legal_entity_id uuid primary key references public.studio_sms_legal_entities(id) on delete restrict,
+  ceiling_cents int not null check (ceiling_cents between 1 and 15000),
+  approval_ref text not null check (char_length(btrim(approval_ref)) between 10 and 200),   -- the founder's written authorization
+  approved_by uuid not null,
+  created_at timestamptz not null default now()
+);
+create unique index studio_sms_pilot_exceptions_only_one on public.studio_sms_pilot_exceptions ((true));
 
 create table public.studio_sms_credit_topups (
   id uuid primary key default gen_random_uuid(),
@@ -158,17 +169,26 @@ create table public.studio_sms_provider_charges (
 );
 
 revoke all on public.studio_sms_price_list, public.studio_sms_credit_accounts, public.studio_sms_credit_reservations, public.studio_sms_credit_ledger,
-  public.studio_sms_credit_topups, public.studio_sms_provider_charges from public, anon, authenticated, service_role;
+  public.studio_sms_credit_topups, public.studio_sms_provider_charges, public.studio_sms_pilot_exceptions from public, anon, authenticated, service_role;
 alter table public.studio_sms_price_list enable row level security;
 alter table public.studio_sms_credit_accounts enable row level security;
 alter table public.studio_sms_credit_reservations enable row level security;
 alter table public.studio_sms_credit_ledger enable row level security;
 alter table public.studio_sms_credit_topups enable row level security;
 alter table public.studio_sms_provider_charges enable row level security;
+alter table public.studio_sms_pilot_exceptions enable row level security;
 
 -- a spend authorization remembers its credit reservation; 'void' is a released or withdrawn authorization
 alter table public.studio_sms_spend_events drop constraint studio_sms_spend_events_reserved;
 alter table public.studio_sms_spend_events add column credit_reservation_id uuid null references public.studio_sms_credit_reservations(id);
+-- The approver chooses how the operation is paid FOR EACH authorization ('credit' = settled prepaid credit only; 'pilot' = the founder-authorized ceiling) and, for a
+-- pilot-funded one, the location it is for. There is no silent fallback from credit to the ceiling, and an approval cannot be used by another location.
+alter table public.studio_sms_spend_events add column funding text not null default 'credit' check (funding in ('credit', 'pilot'));
+alter table public.studio_sms_spend_events add column studio_id uuid null;
+alter table public.studio_sms_spend_events add constraint studio_sms_spend_events_location foreign key (studio_id, legal_entity_id) references public.studio_sms_entity_studios (studio_id, legal_entity_id);
+alter table public.studio_sms_spend_events add constraint studio_sms_spend_events_pilot_location check (funding <> 'pilot' or studio_id is not null);
+-- one approval reference authorizes one operation (a void approval frees its reference)
+create unique index studio_sms_spend_events_one_approval on public.studio_sms_spend_events (legal_entity_id, lower(btrim(approval_ref))) where status in ('authorized', 'reserved');
 alter table public.studio_sms_spend_events add constraint studio_sms_spend_events_reserved check (
   (status = 'authorized' and reservation_key is null and reserved_at is null and credit_reservation_id is null)
   or (status = 'reserved' and reservation_key is not null and reserved_at is not null and credit_reservation_id is not null)
@@ -193,7 +213,7 @@ begin
   if tg_table_name = 'studio_sms_credit_reservations' and tg_op = 'UPDATE' then
     if old.status <> 'reserved' or new.legal_entity_id is distinct from old.legal_entity_id or new.studio_id is distinct from old.studio_id or new.kind is distinct from old.kind
        or new.amount_cents is distinct from old.amount_cents or new.reservation_key is distinct from old.reservation_key or new.created_at is distinct from old.created_at
-       or new.status = 'reserved' then
+       or new.funding is distinct from old.funding or new.status = 'reserved' then
       raise exception 'a closed reservation is final' using errcode = '42501';
     end if;
     return new;
@@ -220,6 +240,7 @@ create trigger studio_sms_credit_reservations_guard before update or delete on p
 create trigger studio_sms_credit_topups_guard before update or delete on public.studio_sms_credit_topups for each row execute function public._tw4c_immutable_guard();
 create trigger studio_sms_credit_accounts_guard before update or delete on public.studio_sms_credit_accounts for each row execute function public._tw4c_immutable_guard();
 create trigger studio_sms_price_list_guard before update or delete on public.studio_sms_price_list for each row execute function public._tw4c_immutable_guard();
+create trigger studio_sms_pilot_exceptions_guard before update or delete on public.studio_sms_pilot_exceptions for each row execute function public._tw4c_immutable_guard();
 create or replace function public._tw4c_truncate_guard()
 returns trigger language plpgsql
 set search_path = pg_catalog, public, pg_temp
@@ -227,6 +248,20 @@ as $$ begin raise exception 'credit evidence is never truncated' using errcode =
 create trigger studio_sms_credit_ledger_truncate before truncate on public.studio_sms_credit_ledger for each statement execute function public._tw4c_truncate_guard();
 create trigger studio_sms_credit_topups_truncate before truncate on public.studio_sms_credit_topups for each statement execute function public._tw4c_truncate_guard();
 create trigger studio_sms_credit_reservations_truncate before truncate on public.studio_sms_credit_reservations for each statement execute function public._tw4c_truncate_guard();
+create trigger studio_sms_pilot_exceptions_truncate before truncate on public.studio_sms_pilot_exceptions for each statement execute function public._tw4c_truncate_guard();
+
+-- the pilot business's spend cap can never be raised above the $150 pilot maximum while the exception exists
+create or replace function public._tw4c_pilot_cap_guard()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if new.spend_cap_cents > 15000 and new.spend_cap_cents is distinct from old.spend_cap_cents and exists (select 1 from public.studio_sms_pilot_exceptions p where p.legal_entity_id = new.id) then
+    raise exception 'the pilot business spend cap cannot exceed $150' using errcode = '22023';
+  end if;
+  return new;
+end $$;
+create trigger studio_sms_legal_entities_pilot_cap before update on public.studio_sms_legal_entities for each row execute function public._tw4c_pilot_cap_guard();
 
 -- the spend-event guard (3a) now also allows `reserved -> void` / `authorized -> void` while a credit function is running (and nothing else)
 create or replace function public._tw4f3a_evidence_guard()
@@ -253,7 +288,7 @@ begin
       raise exception 'the subaccount sid is final' using errcode = '42501';
     end if;
   elsif tg_table_name = 'studio_sms_spend_events' then
-    if new.legal_entity_id is distinct from old.legal_entity_id or new.kind is distinct from old.kind
+    if new.legal_entity_id is distinct from old.legal_entity_id or new.kind is distinct from old.kind or new.funding is distinct from old.funding or new.studio_id is distinct from old.studio_id
        or new.amount_cents is distinct from old.amount_cents or new.approval_ref is distinct from old.approval_ref or new.authorized_by is distinct from old.authorized_by
        or old.status = 'void' then
       raise exception 'a spend authorization cannot be edited; a released one is final' using errcode = '42501';
@@ -503,30 +538,44 @@ begin
   return r;
 end $$;
 
--- The ConfiDance pilot exception: a ONE-TIME, founder-authorized grant, never more than the entity's recorded spend cap and never more than $150 in total.
--- It is not a bypass: the grant is ordinary credit in the ledger, fee steps still need their own authorization at the published price and a reservation.
-create or replace function public.tw4_credit_grant_pilot(p_entity_id uuid, p_cents int, p_approval_ref text, p_actor uuid)
+-- The ConfiDance pilot exception (decision 10): a non-spendable CEILING, created once, for the verified ConfiDance Unlimited, LLC legal business only. It posts
+-- NOTHING to the ledger and records no payment: it only lets a fee-bearing reservation proceed without settled credit, up to the ceiling cumulatively.
+create or replace function public.tw4_pilot_exception_create(p_entity_id uuid, p_ceiling_cents int, p_approval_ref text, p_actor uuid)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
   e public.studio_sms_legal_entities;
-  r jsonb;
+  pe public.studio_sms_pilot_exceptions;
 begin
   perform public._tw4c_admin(p_actor);
-  select * into e from public.studio_sms_legal_entities x where x.id = p_entity_id for no key update;
-  if e.id is null or p_cents is null or p_cents <= 0 or p_cents > 15000 or p_cents > e.spend_cap_cents then
-    raise exception 'the pilot grant must be positive, within the entity spend cap and at most $150' using errcode = '22023';
+  select * into e from public.studio_sms_legal_entities y where y.id = p_entity_id for no key update;
+  if e.id is null or e.legal_name_key <> public._tw4f3a_name_key('ConfiDance Unlimited, LLC') then
+    raise exception 'the pilot exception exists only for the verified ConfiDance Unlimited, LLC legal business' using errcode = '22023';
+  end if;
+  if (select count(*) from public.studio_sms_legal_entities y where y.legal_name_key = e.legal_name_key) <> 1 then
+    raise exception 'more than one legal business has this name: resolve the duplicate before creating the pilot exception' using errcode = '22023';
+  end if;
+  if e.spend_cap_cents > 15000 then
+    raise exception 'lower the spend cap to at most $150 before creating the pilot exception' using errcode = '22023';
+  end if;
+  if p_ceiling_cents is null or p_ceiling_cents <= 0 or p_ceiling_cents > 15000 or p_ceiling_cents > e.spend_cap_cents then
+    raise exception 'the pilot ceiling must be positive, within the entity spend cap and at most $150 cumulative' using errcode = '22023';
   end if;
   if p_approval_ref is null or char_length(btrim(p_approval_ref)) < 10 then
     raise exception 'record the founder authorization (10+ characters)' using errcode = '22023';
   end if;
-  r := public._tw4c_post(p_entity_id, null, 'pilot_grant', p_cents, 0, 'pilot_grant', null, left(btrim(p_approval_ref), 200), p_actor, 'founder-authorized pilot exception');
-  if not (r->>'replayed')::boolean then
-    insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
-    values (public._tw4c_any_location(p_entity_id), null, 'platform_admin', p_actor, 'credit_pilot_grant', left('cents=' || p_cents, 300));
+  select * into pe from public.studio_sms_pilot_exceptions y where y.legal_entity_id = p_entity_id;
+  if pe.legal_entity_id is not null then
+    if pe.ceiling_cents <> p_ceiling_cents then
+      raise exception 'the pilot exception already exists with another ceiling' using errcode = '23505';
+    end if;
+    return jsonb_build_object('ceiling_cents', pe.ceiling_cents, 'replayed', true);
   end if;
-  return r;
+  insert into public.studio_sms_pilot_exceptions (legal_entity_id, ceiling_cents, approval_ref, approved_by) values (p_entity_id, p_ceiling_cents, btrim(p_approval_ref), p_actor);
+  insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
+  values (public._tw4c_any_location(p_entity_id), null, 'platform_admin', p_actor, 'credit_pilot_exception', left('ceiling_cents=' || p_ceiling_cents, 300));
+  return jsonb_build_object('ceiling_cents', p_ceiling_cents, 'replayed', false);
 end $$;
 
 create or replace function public.tw4_credit_set_hold(p_entity_id uuid, p_hold boolean, p_reason text, p_actor uuid)
@@ -650,15 +699,16 @@ declare
 begin
   select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = p_entity_id;
   select coalesce(sum(balance_delta_cents), 0), coalesce(sum(reserved_delta_cents), 0) into v_b, v_r from public.studio_sms_credit_ledger where legal_entity_id = p_entity_id;
-  select coalesce(sum(amount_cents), 0) into v_open from public.studio_sms_credit_reservations where legal_entity_id = p_entity_id and status = 'reserved';
-  return jsonb_build_object('balance_cents', coalesce(a.balance_cents, 0), 'reserved_cents', coalesce(a.reserved_cents, 0), 'ledger_balance_cents', v_b, 'ledger_reserved_cents', v_r,
+  select coalesce(sum(amount_cents), 0) into v_open from public.studio_sms_credit_reservations where legal_entity_id = p_entity_id and status = 'reserved' and funding = 'credit';
+  return jsonb_build_object('pilot_used_cents', (select coalesce(sum(r.amount_cents), 0) from public.studio_sms_credit_reservations r where r.legal_entity_id = p_entity_id and r.funding = 'pilot' and r.status in ('reserved', 'captured')),'balance_cents', coalesce(a.balance_cents, 0), 'reserved_cents', coalesce(a.reserved_cents, 0), 'ledger_balance_cents', v_b, 'ledger_reserved_cents', v_r,
     'open_reservations_cents', v_open, 'ok', coalesce(a.balance_cents, 0) = v_b and coalesce(a.reserved_cents, 0) = v_r and v_r = v_open);
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- replaced 3a functions: an authorization needs the published price; a reservation also holds the ENTITY's credit (attributed to the location)
 -- ---------------------------------------------------------------------------------------------------------------
-create or replace function public.tw4_spend_authorize(p_entity_id uuid, p_kind text, p_amount_cents int, p_approval_ref text, p_actor uuid)
+drop function public.tw4_spend_authorize(uuid, text, int, text, uuid);
+create or replace function public.tw4_spend_authorize(p_entity_id uuid, p_kind text, p_amount_cents int, p_approval_ref text, p_actor uuid, p_funding text default 'credit', p_studio_id uuid default null)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
@@ -671,8 +721,15 @@ begin
     raise exception 'actor must be a platform admin' using errcode = '42501';
   end if;
   select * into e from public.studio_sms_legal_entities x where x.id = p_entity_id for update;
-  if e.id is null or p_kind is null or p_amount_cents is null or p_amount_cents <= 0 then
+  if e.id is null or p_kind is null or p_amount_cents is null or p_amount_cents <= 0 or p_funding is null or p_funding not in ('credit', 'pilot') then
     raise exception 'invalid authorization' using errcode = '22023';
+  end if;
+  -- a pilot-funded operation is approved for ONE location, with a written approval reference (10+ characters), and only while the exception exists
+  if p_funding = 'pilot' then
+    if p_studio_id is null or p_approval_ref is null or char_length(btrim(p_approval_ref)) < 10
+       or not exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = e.id) then
+      raise exception 'a pilot-funded authorization needs the pilot exception, a location and a written approval reference' using errcode = '22023';
+    end if;
   end if;
   -- the authorized amount IS the published customer price: no price, no authorization; no other amount
   select * into p from public.studio_sms_price_list x where x.kind = p_kind and x.active;
@@ -685,9 +742,9 @@ begin
   if public._tw4f3a_committed(e.id) + p_amount_cents > e.spend_cap_cents then
     raise exception 'this authorization would exceed the spend cap' using errcode = 'TW004';
   end if;
-  insert into public.studio_sms_spend_events (legal_entity_id, kind, amount_cents, approval_ref, authorized_by)
-  values (e.id, p_kind, p_amount_cents, p_approval_ref, p_actor) returning id into v_id;
-  perform public._tw4f3a_audit(public._tw4c_any_location(e.id), p_actor, 'spend_authorized', 'entity=' || e.id || ';kind=' || p_kind || ';cents=' || p_amount_cents);
+  insert into public.studio_sms_spend_events (legal_entity_id, kind, amount_cents, approval_ref, authorized_by, funding, studio_id)
+  values (e.id, p_kind, p_amount_cents, p_approval_ref, p_actor, p_funding, p_studio_id) returning id into v_id;
+  perform public._tw4f3a_audit(public._tw4c_any_location(e.id), p_actor, 'spend_authorized', 'entity=' || e.id || ';kind=' || p_kind || ';cents=' || p_amount_cents || ';funding=' || p_funding);
   return jsonb_build_object('spend_event_id', v_id);
 end $$;
 
@@ -711,6 +768,9 @@ declare
   v_key text;
   v_n int;
   v_res uuid;
+  v_funding text;
+  v_pilot_used bigint;
+  pe public.studio_sms_pilot_exceptions;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
   if p_kind is null or p_kind not in ('brand', 'campaign_vetting', 'number', 'monthly', 'sms_usage') then
@@ -729,18 +789,35 @@ begin
   end if;
   v_n := (select count(*) from public.studio_sms_spend_events x where x.legal_entity_id = v_entity and x.reservation_key like v_base || ':%') + 1;
   v_key := v_base || ':' || v_n;
-  select * into s from public.studio_sms_spend_events x where x.legal_entity_id = v_entity and x.kind = p_kind and x.status = 'authorized' order by x.authorized_at limit 1 for update;
+  select * into s from public.studio_sms_spend_events x where x.legal_entity_id = v_entity and x.kind = p_kind and x.status = 'authorized' and (x.studio_id is null or x.studio_id = o.studio_id) order by (x.studio_id is null), x.authorized_at limit 1 for update;
   if s.id is null then
     raise exception 'no authorized spend for % within the cap', p_kind using errcode = 'TW004';
   end if;
-  -- the legal business's settled credit is held in the same transaction as the authorization is bound (attributed to the location this onboarding belongs to)
+  -- The funding source is the one the APPROVER chose on this authorization (no fallback), checked in the same transaction as the authorization is bound,
+  -- under the entity and account locks (so concurrent operations and retries cannot both pass). 'credit': the legal business's settled credit.
+  -- 'pilot': the founder-authorized ceiling, cumulative over outstanding reservations AND captured ones (a released one frees its share); never while the
+  -- account is on hold or negative.
   a := public._tw4c_lock(v_entity);
-  perform public._tw4c_require_funds(a, s.amount_cents);
-  insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, reservation_key) values (v_entity, o.studio_id, p_kind, s.amount_cents, v_key) returning id into v_res;
-  perform public._tw4c_post(v_entity, o.studio_id, 'reserve', 0, s.amount_cents, 'reserve:' || v_key, v_res, 'spend_event=' || s.id, null, null);
+  v_funding := s.funding;
+  if v_funding = 'credit' then
+    perform public._tw4c_require_funds(a, s.amount_cents);
+  else
+    select * into pe from public.studio_sms_pilot_exceptions y where y.legal_entity_id = v_entity;
+    if pe.legal_entity_id is null or a.hold or a.balance_cents < 0 then
+      raise exception 'the pilot exception cannot fund this operation' using errcode = 'TW007';
+    end if;
+    select coalesce(sum(r.amount_cents), 0) into v_pilot_used from public.studio_sms_credit_reservations r where r.legal_entity_id = v_entity and r.funding = 'pilot' and r.status in ('reserved', 'captured');
+    if v_pilot_used + s.amount_cents > pe.ceiling_cents then
+      raise exception 'the pilot ceiling would be exceeded' using errcode = 'TW007';
+    end if;
+  end if;
+  insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, reservation_key) values (v_entity, o.studio_id, p_kind, s.amount_cents, v_funding, v_key) returning id into v_res;
+  if v_funding = 'credit' then
+    perform public._tw4c_post(v_entity, o.studio_id, 'reserve', 0, s.amount_cents, 'reserve:' || v_key, v_res, 'spend_event=' || s.id, null, null);
+  end if;
   update public.studio_sms_spend_events set status = 'reserved', reservation_key = v_key, reserved_at = now(), credit_reservation_id = v_res where id = s.id;
-  perform public._tw4f3a_audit(o.studio_id, null, 'spend_reserved', 'entity=' || v_entity || ';kind=' || p_kind || ';cents=' || s.amount_cents);
-  return jsonb_build_object('spend_event_id', s.id, 'amount_cents', s.amount_cents, 'credit_reservation_id', v_res, 'replayed', false);
+  perform public._tw4f3a_audit(o.studio_id, null, 'spend_reserved', 'entity=' || v_entity || ';kind=' || p_kind || ';cents=' || s.amount_cents || ';funding=' || v_funding);
+  return jsonb_build_object('spend_event_id', s.id, 'amount_cents', s.amount_cents, 'credit_reservation_id', v_res, 'funding', v_funding, 'replayed', false);
 end $$;
 
 -- the outcome of the fee-bearing operation: 'captured' charges the reservation (the operation happened), 'released' frees it (it definitely did not).
@@ -782,11 +859,15 @@ begin
     raise exception 'the reservation is already %', r.status using errcode = '22023';
   end if;
   if p_outcome = 'captured' then
-    perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'capture', -r.amount_cents, -r.amount_cents, 'capture:' || r.reservation_key, r.id, p_ref, null, null);
+    if r.funding = 'credit' then
+      perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'capture', -r.amount_cents, -r.amount_cents, 'capture:' || r.reservation_key, r.id, p_ref, null, null);
+    end if;
     update public.studio_sms_credit_reservations set status = 'captured', closed_at = now() where id = r.id;
     perform public._tw4f3a_audit(o.studio_id, null, 'credit_captured', 'kind=' || p_kind || ';cents=' || r.amount_cents);
   else
-    perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'release', 0, -r.amount_cents, 'release:' || r.reservation_key, r.id, p_ref, null, null);
+    if r.funding = 'credit' then
+      perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'release', 0, -r.amount_cents, 'release:' || r.reservation_key, r.id, p_ref, null, null);
+    end if;
     update public.studio_sms_credit_reservations set status = 'released', closed_at = now() where id = r.id;
     perform set_config('tw4.credit_settle', 'on', true);
     update public.studio_sms_spend_events set status = 'void' where id = s.id;
@@ -825,10 +906,14 @@ begin
     raise exception 'the reservation is already %', r.status using errcode = '22023';
   end if;
   if p_outcome = 'captured' then
-    perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'capture', -r.amount_cents, -r.amount_cents, 'capture:' || r.reservation_key, r.id, 'admin', p_actor, btrim(p_note));
+    if r.funding = 'credit' then
+      perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'capture', -r.amount_cents, -r.amount_cents, 'capture:' || r.reservation_key, r.id, 'admin', p_actor, btrim(p_note));
+    end if;
     update public.studio_sms_credit_reservations set status = 'captured', closed_at = now() where id = r.id;
   else
-    perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'release', 0, -r.amount_cents, 'release:' || r.reservation_key, r.id, 'admin', p_actor, btrim(p_note));
+    if r.funding = 'credit' then
+      perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'release', 0, -r.amount_cents, 'release:' || r.reservation_key, r.id, 'admin', p_actor, btrim(p_note));
+    end if;
     update public.studio_sms_credit_reservations set status = 'released', closed_at = now() where id = r.id;
     select * into s from public.studio_sms_spend_events x where x.credit_reservation_id = r.id;
     if s.id is not null then
@@ -848,7 +933,7 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 begin
   perform public._tw4c_admin(p_actor);
-  return coalesce((select jsonb_agg(jsonb_build_object('id', r.id, 'studio_id', r.studio_id, 'kind', r.kind, 'amount_cents', r.amount_cents, 'created_at', r.created_at) order by r.created_at)
+  return coalesce((select jsonb_agg(jsonb_build_object('id', r.id, 'studio_id', r.studio_id, 'kind', r.kind, 'amount_cents', r.amount_cents, 'funding', r.funding, 'created_at', r.created_at) order by r.created_at)
                      from public.studio_sms_credit_reservations r where r.legal_entity_id = p_entity_id and r.status = 'reserved'), '[]'::jsonb);
 end $$;
 
@@ -901,7 +986,9 @@ begin
     'on_hold', coalesce(a.hold, false), 'low_balance', a.low_balance_flagged_at is not null, 'low_balance_threshold_cents', coalesce(a.low_balance_threshold_cents, 1000),
     'pending_topups_cents', coalesce((select sum(t.amount_cents) from public.studio_sms_credit_topups t where t.legal_entity_id = v_entity and t.status = 'pending'), 0),
     'this_location_net_charges_cents', coalesce((select -sum(l.balance_delta_cents) from public.studio_sms_credit_ledger l
-        where l.legal_entity_id = v_entity and l.studio_id = p_studio_id and l.kind in ('capture', 'usage_charge', 'usage_refund')), 0));
+        where l.legal_entity_id = v_entity and l.studio_id = p_studio_id and l.kind in ('capture', 'usage_charge', 'usage_refund')), 0),
+    'pilot_ceiling_cents', (select x.ceiling_cents from public.studio_sms_pilot_exceptions x where x.legal_entity_id = v_entity),
+    'pilot_used_cents', coalesce((select sum(r.amount_cents) from public.studio_sms_credit_reservations r where r.legal_entity_id = v_entity and r.funding = 'pilot' and r.status in ('reserved', 'captured')), 0));
 end $$;
 
 create or replace function public.sms_credit_history(p_studio_id uuid, p_limit int default 50, p_before_seq bigint default null)
@@ -939,21 +1026,24 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- grants
 -- ---------------------------------------------------------------------------------------------------------------
+revoke all on function public._tw4c_pilot_cap_guard() from public, anon, authenticated, service_role;
 revoke all on function public._tw4c_immutable_guard(), public._tw4c_truncate_guard(), public._tw4c_lock(uuid), public._tw4c_any_location(uuid),
   public._tw4c_post(uuid, uuid, text, bigint, bigint, text, uuid, text, uuid, text), public._tw4c_admin(uuid), public._tw4c_require_funds(public.studio_sms_credit_accounts, bigint)
   from public, anon, authenticated, service_role;
 revoke all on function public.tw4_price_set(text, int, int, text, uuid), public.tw4_credit_topup_pending(uuid, uuid, text, int), public.tw4_credit_settle_topup(uuid, uuid, text, int, text),
   public.tw4_credit_reverse_topup(text, int, text, text), public.tw4_credit_topup_failed(text, text), public.tw4_credit_adjust(uuid, bigint, text, text, uuid),
-  public.tw4_credit_grant_pilot(uuid, int, text, uuid), public.tw4_credit_set_hold(uuid, boolean, text, uuid), public.tw4_credit_set_threshold(uuid, int, uuid),
+  public.tw4_pilot_exception_create(uuid, int, text, uuid), public.tw4_credit_set_hold(uuid, boolean, text, uuid), public.tw4_credit_set_threshold(uuid, int, uuid),
   public.tw4_credit_debit_usage(uuid, uuid, int, text, text), public.tw4_credit_refund_usage(uuid, int, text, text),
   public.tw4_credit_record_provider_charge(uuid, uuid, text, text, int, uuid), public.tw4_credit_verify(uuid), public.tw4_spend_settle(uuid, text, text, text, text),
-  public.tw4_credit_resolve_reservation(uuid, text, uuid, text), public.tw4_credit_open_reservations(uuid, uuid), public.tw4_spend_withdraw(uuid, uuid, text) from public, anon, authenticated;
+  public.tw4_credit_resolve_reservation(uuid, text, uuid, text), public.tw4_credit_open_reservations(uuid, uuid), public.tw4_spend_withdraw(uuid, uuid, text),
+  public.tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid) from public, anon, authenticated;
 grant execute on function public.tw4_price_set(text, int, int, text, uuid), public.tw4_credit_topup_pending(uuid, uuid, text, int), public.tw4_credit_settle_topup(uuid, uuid, text, int, text),
   public.tw4_credit_reverse_topup(text, int, text, text), public.tw4_credit_topup_failed(text, text), public.tw4_credit_adjust(uuid, bigint, text, text, uuid),
-  public.tw4_credit_grant_pilot(uuid, int, text, uuid), public.tw4_credit_set_hold(uuid, boolean, text, uuid), public.tw4_credit_set_threshold(uuid, int, uuid),
+  public.tw4_pilot_exception_create(uuid, int, text, uuid), public.tw4_credit_set_hold(uuid, boolean, text, uuid), public.tw4_credit_set_threshold(uuid, int, uuid),
   public.tw4_credit_debit_usage(uuid, uuid, int, text, text), public.tw4_credit_refund_usage(uuid, int, text, text),
   public.tw4_credit_record_provider_charge(uuid, uuid, text, text, int, uuid), public.tw4_credit_verify(uuid), public.tw4_spend_settle(uuid, text, text, text, text),
-  public.tw4_credit_resolve_reservation(uuid, text, uuid, text), public.tw4_credit_open_reservations(uuid, uuid), public.tw4_spend_withdraw(uuid, uuid, text) to service_role;
+  public.tw4_credit_resolve_reservation(uuid, text, uuid, text), public.tw4_credit_open_reservations(uuid, uuid), public.tw4_spend_withdraw(uuid, uuid, text),
+  public.tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid) to service_role;
 revoke all on function public.sms_credit_overview(uuid), public.sms_credit_history(uuid, int, bigint), public.sms_price_list() from public, anon;
 grant execute on function public.sms_credit_overview(uuid), public.sms_credit_history(uuid, int, bigint), public.sms_price_list() to authenticated;
 

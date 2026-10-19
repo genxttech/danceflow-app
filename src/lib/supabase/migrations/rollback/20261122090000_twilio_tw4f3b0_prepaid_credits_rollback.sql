@@ -11,14 +11,22 @@ begin
     raise exception 'TW-4F-3b-0 rollback: not applied';
   end if;
   if exists (select 1 from public.studio_sms_price_list) or exists (select 1 from public.studio_sms_credit_accounts) or exists (select 1 from public.studio_sms_credit_ledger)
-     or exists (select 1 from public.studio_sms_credit_reservations) or exists (select 1 from public.studio_sms_credit_topups) or exists (select 1 from public.studio_sms_provider_charges)
-     or exists (select 1 from public.studio_sms_onboarding_audit where action in ('credit_topup', 'credit_reversal', 'credit_adjustment', 'credit_hold', 'credit_reserved', 'credit_captured', 'credit_released', 'price_set', 'credit_pilot_grant', 'spend_withdrawn')) then
+     or exists (select 1 from public.studio_sms_credit_reservations) or exists (select 1 from public.studio_sms_credit_topups) or exists (select 1 from public.studio_sms_provider_charges) or exists (select 1 from public.studio_sms_pilot_exceptions)
+     or exists (select 1 from public.studio_sms_onboarding_audit where action in ('credit_topup', 'credit_reversal', 'credit_adjustment', 'credit_hold', 'credit_reserved', 'credit_captured', 'credit_released', 'price_set', 'credit_pilot_exception', 'spend_withdrawn')) then
     raise exception 'TW-4F-3b-0 rollback refused: prices, credit accounts, ledger entries, reservations, payments or provider charges exist' using errcode = '55000';
   end if;
 end $$;
 
 alter table public.studio_sms_spend_events drop constraint studio_sms_spend_events_reserved;
+drop trigger studio_sms_legal_entities_pilot_cap on public.studio_sms_legal_entities;
+drop function public._tw4c_pilot_cap_guard();
+drop index public.studio_sms_spend_events_one_approval;
+alter table public.studio_sms_spend_events drop constraint studio_sms_spend_events_pilot_location;
+alter table public.studio_sms_spend_events drop constraint studio_sms_spend_events_location;
+alter table public.studio_sms_spend_events drop column studio_id;
+alter table public.studio_sms_spend_events drop column funding;
 alter table public.studio_sms_spend_events drop column credit_reservation_id;
+drop function public.tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid);
 alter table public.studio_sms_spend_events add constraint studio_sms_spend_events_reserved check ((status = 'reserved') = (reservation_key is not null and reserved_at is not null));
 
 create or replace function public._tw4f3a_evidence_guard()
@@ -119,14 +127,14 @@ end $$;
 drop function public.tw4_credit_resolve_reservation(uuid, text, uuid, text), public.tw4_credit_open_reservations(uuid, uuid), public.tw4_spend_withdraw(uuid, uuid, text), public.tw4_credit_topup_failed(text, text),
   public.tw4_spend_settle(uuid, text, text, text, text), public.sms_credit_overview(uuid), public.sms_credit_history(uuid, int, bigint), public.sms_price_list(),
   public.tw4_price_set(text, int, int, text, uuid), public.tw4_credit_topup_pending(uuid, uuid, text, int), public.tw4_credit_settle_topup(uuid, uuid, text, int, text),
-  public.tw4_credit_reverse_topup(text, int, text, text), public.tw4_credit_adjust(uuid, bigint, text, text, uuid), public.tw4_credit_grant_pilot(uuid, int, text, uuid),
+  public.tw4_credit_reverse_topup(text, int, text, text), public.tw4_credit_adjust(uuid, bigint, text, text, uuid), public.tw4_pilot_exception_create(uuid, int, text, uuid),
   public.tw4_credit_set_hold(uuid, boolean, text, uuid), public.tw4_credit_set_threshold(uuid, int, uuid), public.tw4_credit_debit_usage(uuid, uuid, int, text, text),
   public.tw4_credit_refund_usage(uuid, int, text, text), public.tw4_credit_record_provider_charge(uuid, uuid, text, text, int, uuid), public.tw4_credit_verify(uuid);
 
 drop function public._tw4c_require_funds(public.studio_sms_credit_accounts, bigint);
 drop function public._tw4c_post(uuid, uuid, text, bigint, bigint, text, uuid, text, uuid, text), public._tw4c_lock(uuid);
 drop table public.studio_sms_credit_ledger, public.studio_sms_credit_reservations, public.studio_sms_credit_topups, public.studio_sms_provider_charges,
-  public.studio_sms_credit_accounts, public.studio_sms_price_list;
+  public.studio_sms_credit_accounts, public.studio_sms_price_list, public.studio_sms_pilot_exceptions;
 drop function public._tw4c_any_location(uuid), public._tw4c_admin(uuid), public._tw4c_immutable_guard(), public._tw4c_truncate_guard();
 
 alter table public.studio_sms_entity_studios drop constraint studio_sms_entity_studios_location_entity;
@@ -137,5 +145,9 @@ alter table public.studio_sms_onboarding_audit add constraint studio_sms_onboard
   'runner_step', 'runner_ein_read', 'runner_lease', 'runner_window', 'runner_submission_confirmed', 'runner_evaluation',
   'entity_created', 'location_attested', 'location_decided', 'spend_cap_set', 'spend_authorized', 'spend_reserved',
   'subaccount_confirmed', 'runner_subaccount'));
+
+-- the restored 3a function is a NEW object: it must not stay executable by the API roles (3a granted it to the service role only)
+revoke all on function public.tw4_spend_authorize(uuid, text, int, text, uuid) from public, anon, authenticated;
+grant execute on function public.tw4_spend_authorize(uuid, text, int, text, uuid) to service_role;
 
 commit;
