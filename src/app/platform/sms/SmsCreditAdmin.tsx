@@ -1,10 +1,11 @@
 import { PRICE_LABEL, formatUsd, type AdminCreditOverview } from "@/lib/billing/smsCreditView";
+import type { RecurringAdminOverview } from "@/lib/billing/smsRecurring";
 
 /**
  * Platform-admin monitoring of prepaid SMS credit: read only. Prices (with DanceFlow's provider cost), accounts that need attention, purchases stuck pending,
  * reconciliation variances and the ConfiDance pilot ceiling. Nothing here changes a balance, a price or a hold.
  */
-export default function SmsCreditAdmin({ overview }: { overview: AdminCreditOverview | null }) {
+export default function SmsCreditAdmin({ overview, recurring = null }: { overview: AdminCreditOverview | null; recurring?: RecurringAdminOverview | null }) {
   if (!overview) return null;
   const attention = overview.accounts.filter((a) => a.attention);
 
@@ -75,6 +76,26 @@ export default function SmsCreditAdmin({ overview }: { overview: AdminCreditOver
           </div>
         </div>
       </details>
+
+      {recurring ? (
+        <details open={recurring.needsAttention.length > 0}>
+          <summary className="cursor-pointer text-sm font-semibold text-violet-800">
+            Recurring charges ({recurring.activeAuthorizations} active, {recurring.needsAttention.length} not charged)
+          </summary>
+          {recurring.needsAttention.length ? (
+            <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200 text-sm">
+              {recurring.needsAttention.map((r, i) => (
+                <li key={`${r.periodKey}-${i}`} className="flex justify-between gap-2 px-3 py-2">
+                  <span className="text-slate-900">{r.legalName} · {PRICE_LABEL[r.kind] ?? r.kind} · {r.periodKey}</span>
+                  <span className="text-slate-700">{formatUsd(r.amountCents)} · {r.status}{r.reason ? ` (${r.reason})` : ""} · {r.attempts} attempt{r.attempts === 1 ? "" : "s"}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-slate-600">Nothing needs attention.</p>
+          )}
+        </details>
+      ) : null}
 
       <details>
         <summary className="cursor-pointer text-sm font-semibold text-violet-800">Published prices and provider cost</summary>

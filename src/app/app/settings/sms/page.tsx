@@ -9,7 +9,9 @@ import { buildCampaignPackage } from "@/lib/sms/onboarding/campaignTemplate";
 import { getSmsCreditView } from "@/lib/billing/smsCreditView";
 import { smsCreditPurchasesEnabled } from "@/lib/billing/smsCreditPurchases";
 import SmsCancelSetup from "./SmsCancelSetup";
+import { getRecurringOverview, smsRecurringAuthorizationEnabled } from "@/lib/billing/smsRecurring";
 import SmsCreditPanel from "./SmsCreditPanel";
+import SmsRecurringPanel from "./SmsRecurringPanel";
 import SmsSetupWizard from "./SmsSetupWizard";
 import SmsStatusTracker from "./SmsStatusTracker";
 
@@ -43,6 +45,15 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
     creditView = await getSmsCreditView(supabase, context.studioId);
   } catch {
     creditView = null;
+  }
+  // Recurring service charges: read through the same user session; a failure only hides the card
+  let recurringView: Awaited<ReturnType<typeof getRecurringOverview>> = null;
+  if (creditView) {
+    try {
+      recurringView = await getRecurringOverview(supabase, context.studioId);
+    } catch {
+      recurringView = null;
+    }
   }
   // Paused: a platform admin switched the pilot off after this setup started. The setup stays visible (status only) and the
   // owner can still cancel; the draft RPC is switch-gated, so nothing else is fetched.
@@ -113,6 +124,8 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
       <SmsStatusTracker state={status.state} textingOn={status.textingOn} />
 
       {creditView ? <SmsCreditPanel view={creditView} purchasesEnabled={smsCreditPurchasesEnabled()} returned={returned} /> : null}
+
+      {creditView && recurringView ? <SmsRecurringPanel overview={recurringView} prices={creditView.prices} isOwner={isOwner} enabled={smsRecurringAuthorizationEnabled()} /> : null}
 
       {paused ? (
         <p role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
