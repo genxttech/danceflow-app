@@ -218,6 +218,7 @@ export type SmsSkipReason =
   | "sms_template_not_permitted"
   | "sms_not_approved"
   | "sms_studio_not_approved"
+  | "sms_service_suspended"
   | "sms_invalid_phone"
   | "sms_no_consent"
   | "sms_opted_out";

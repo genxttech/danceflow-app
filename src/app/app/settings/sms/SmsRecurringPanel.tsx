@@ -9,6 +9,7 @@ import { formatUsd, type CreditPrice } from "@/lib/billing/smsCreditView";
 const ISSUE_ACTION: Record<string, string> = {
   unfunded: "There is not enough credit to cover it. Add credit so it can be taken.",
   held: "Your credit is on hold by DanceFlow, so it cannot be taken. Contact support.",
+  cap: "Your business's spending limit has been reached, so it cannot be taken. Contact support.",
   limit: "The amount you authorized has been used up. Authorize again to continue.",
   price: "The price changed since you authorized. Review the new price and authorize again.",
   waiting: "It has not been taken yet.",
@@ -63,7 +64,7 @@ export default function SmsRecurringPanel({
     };
   }, [open]);
 
-  if (!overview.legalBusiness || (!enabled && overview.authorizations.length === 0)) return null; // nothing to show while the feature is off and nothing exists
+  if (!overview.legalBusiness || (!enabled && overview.authorizations.length === 0 && !overview.pilotBusiness)) return null; // nothing to show while the feature is off and nothing exists
 
   const price = prices.find((p) => p.kind === kind) ?? null;
   const limit = price ? price.customerPriceCents * term : 0;
@@ -161,13 +162,17 @@ export default function SmsRecurringPanel({
                 )}
               </div>
 
-              {isOwner ? (
+              {overview.pilotBusiness ? (
+                <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
+                  Your business is in the DanceFlow pilot. Each recurring fee is approved one at a time by DanceFlow with your explicit approval, and nothing is charged by a schedule. The pilot allowance is not credit and cannot pay for texting.
+                </p>
+              ) : isOwner ? (
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-slate-800">Authorize a monthly charge for this location</h4>
                   <div className="grid gap-2">
                     {(["number", "monthly"] as const).map((k) => {
                       const p = prices.find((x) => x.kind === k);
-                      const taken = overview.authorizations.some((a) => a.kind === k && a.status === "active" && a.thisLocation);
+                      const taken = overview.authorizations.some((a) => a.kind === k && a.status === "active" && a.thisLocation && new Date(a.expiresAt).getTime() > Date.now()); // an ended term can be renewed
                       const disabled = !p || taken;
                       return (
                         <label key={k} className={`flex items-center justify-between rounded-xl border px-3 py-3 text-sm ${kind === k ? "border-violet-600 bg-violet-50" : "border-slate-200"} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>

@@ -162,10 +162,17 @@ export async function POST(request: Request) {
     const senderResult = await resolveStudioSmsSender(createAdminClient(), studioId);
 
     if (!senderResult.ok) {
-      if (senderResult.reason === "sms_registration_lookup_failed") {
+      if (senderResult.reason === "sms_registration_lookup_failed" || senderResult.reason === "sms_service_check_failed") {
         return NextResponse.json(
           { ok: false, error: "Text messaging could not be verified. Please try again." },
           { status: 500 },
+        );
+      }
+
+      if (senderResult.reason === "sms_service_suspended") {
+        return NextResponse.json(
+          { ok: false, error: "Texting is paused because a monthly charge was not covered. Add credit or contact DanceFlow support; replies like STOP and HELP still work for your contacts." },
+          { status: 503 },
         );
       }
 
