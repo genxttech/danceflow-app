@@ -23,13 +23,15 @@ export const SMS_CREDIT_CHECKOUT_MINUTES = 35;
 type RpcResult = PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>;
 export type SmsCreditAdmin = { rpc(fn: string, args: Record<string, unknown>): RpcResult };
 
-export type SmsCreditErrorCode = "not_authorized" | "no_legal_business" | "invalid_pack" | "ceiling" | "unavailable" | "mismatch" | "unexpected_event";
+export type SmsCreditErrorCode = "not_authorized" | "no_legal_business" | "invalid_pack" | "ceiling" | "on_hold" | "unavailable" | "mismatch" | "unexpected_event";
 export class SmsCreditError extends Error {
   constructor(public readonly code: SmsCreditErrorCode, message: string) {
     super(message);
     this.name = "SmsCreditError";
   }
 }
+
+const HOLD_MESSAGE = "Your texting credit is on hold, so credit cannot be added right now. Contact support.";
 
 class RpcFailure extends Error {
   constructor(public readonly code: string) {
@@ -66,12 +68,15 @@ export async function createSmsCreditCheckout(input: {
 
   let entityId: string;
   try {
-    const context = await rpc<{ legal_entity_id: string }>(admin, "tw4_credit_checkout_context", { p_studio_id: studioId, p_user_id: userId });
+    const context = await rpc<{ legal_entity_id?: unknown; hold?: unknown } | null>(admin, "tw4_credit_checkout_context", { p_studio_id: studioId, p_user_id: userId });
+    // fail closed: the answer must positively say the account is NOT on hold (an older function version, a missing field or any other value is "unknown")
+    if (!context || typeof context.legal_entity_id !== "string" || context.hold !== false) throw new RpcFailure("unknown");
     entityId = context.legal_entity_id;
   } catch (error) {
     const code = error instanceof RpcFailure ? error.code : "unknown";
     if (code === "42501") throw new SmsCreditError("not_authorized", "Only a studio owner or administrator can buy SMS credit.");
     if (code === "TW010") throw new SmsCreditError("no_legal_business", "SMS credit is available once your legal business is verified.");
+    if (code === "TW007") throw new SmsCreditError("on_hold", HOLD_MESSAGE);
     throw new SmsCreditError("unavailable", "SMS credit is not available right now.");
   }
 
@@ -122,6 +127,7 @@ export async function createSmsCreditCheckout(input: {
   } catch (error) {
     await expire();
     const code = error instanceof RpcFailure ? error.code : "unknown";
+    if (code === "TW007") throw new SmsCreditError("on_hold", HOLD_MESSAGE); // a hold placed after the context was read
     if (code === "TW009") throw new SmsCreditError("ceiling", "This would take your SMS credit balance above $500. Choose a smaller pack or use some credit first.");
     throw new SmsCreditError("unavailable", "We could not start the payment. Nothing was charged.");
   }

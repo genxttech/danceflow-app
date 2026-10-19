@@ -170,7 +170,7 @@ describe.skipIf(!enabled)("TW-4F-3b-pay credit purchases: real SQL functions, re
     expect(await ok(PA1, null)).toBe("42501");
     expect(await ok(PX, U.owner_x)).toBe("TW010"); // authorized, but no verified legal business yet
     const entity = await rpc("tw4_credit_checkout_context", { p_studio_id: PA2, p_user_id: U.owner_a });
-    expect(entity.data).toEqual({ legal_entity_id: EA });
+    expect(entity.data).toMatchObject({ legal_entity_id: EA });
   });
 
   it("checkout registration: packs only, a sane expiry, and the $500 ceiling over live pending payments holds under concurrency", async () => {
