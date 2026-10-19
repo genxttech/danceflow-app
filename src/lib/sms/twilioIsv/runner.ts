@@ -45,7 +45,11 @@ export type RunOutcome =
   /** TW-4F-3a: the adapter belongs to a different Twilio account than the studio's legal entity subaccount. Nothing was called. */
   | "account_mismatch"
   /** TW-4F-3a: a fee-bearing step has no owner-approved spend within the legal entity's cap. Nothing was called. */
-  | "spend_blocked";
+  | "spend_blocked"
+  /** TW-4F-3b-0: the funding studio's settled prepaid credit cannot cover a fee-bearing step (or the account is on hold / negative). Nothing was called or charged. */
+  | "insufficient_credit"
+  /** TW-4F-3b-0: Twilio performed (or definitely did not perform) a fee step but the credit settlement could not be recorded. The reservation stays held for a human. */
+  | "settlement_failed";
 
 /** The steps whose Twilio call cannot be undone (a submission for review). Each needs its own explicit confirmation on every run. */
 export const SUBMISSION_STEPS = ["S11", "T6"] as const;
@@ -303,9 +307,29 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
       if (ctx.sids.S11 && state === "submitted_for_checks") await move("profile_review", "S11", null, null);
     };
 
+    // TW-4F-3b-0: closes the credit reservation of a fee step. A paid operation that happened is CAPTURED; one that definitely did not is RELEASED;
+    // an unknown outcome is neither (it stays held until a human reconciles). A settlement that cannot be recorded stops the run for a human.
+    const settleFee = async (stepKey: IsvStepKey, outcome: "captured" | "released", ref: string): Promise<RunResult | null> => {
+      if (stepKey !== "B1" || config.mockBrand) return null;
+      try {
+        await store.settleSpend(onboardingId, leaseOwner, "brand", outcome, ref);
+      } catch (error) {
+        return { outcome: "settlement_failed", stepsRun, detail: `${stepKey}:${outcome}:${error instanceof RunnerStoreError ? error.code : "unknown"}`, state };
+      }
+      return null;
+    };
+
     for (const step of STEPS) {
       await syncReview();
-      if (ctx.sids[step.key]) continue;
+      if (ctx.sids[step.key]) {
+        // TW-4F-3b-0: a fee step that already SUCCEEDED (an earlier run died, or its settlement failed, after Twilio accepted it) must be captured:
+        // idempotent, a no-op when it already was. A studio from before credits has no reservation, which is fine.
+        if (step.fee) {
+          const stale = await settleFee(step.key, "captured", ctx.sids[step.key]!);
+          if (stale && !stale.detail?.endsWith(":TW004")) return stale;
+        }
+        continue;
+      }
       if (stepsRun.length >= maxSteps) break;
       if (stopAfterIndex >= 0 && STEPS.indexOf(step) > stopAfterIndex) break;
       for (const dependency of step.requires) {
@@ -382,6 +406,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
           await store.reserveSpend(onboardingId, leaseOwner, "brand");
         } catch (error) {
           if (error instanceof RunnerStoreError && error.code === "TW004") return { outcome: "spend_blocked", stepsRun, detail: `${step.key}:no_authorized_spend`, state };
+          if (error instanceof RunnerStoreError && error.code === "TW007") return { outcome: "insufficient_credit", stepsRun, detail: `${step.key}:insufficient_credit`, state };
           throw error;
         }
       }
@@ -393,6 +418,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
       } catch (error) {
         if (error instanceof RunnerStoreError && error.code === "TW001") {
           // the runner window was closed while this run was in progress: stop before the next step (and before any paid one)
+          await settleFee(step.key, "released", "window_closed");
           return { outcome: "runner_closed", stepsRun, state };
         }
         if (error instanceof RunnerStoreError && (error.code === "TW002" || error.code === "TW003")) {
@@ -401,6 +427,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         }
         if (error instanceof RunnerStoreError && error.code === "55000") {
           // the studio already has a brand (or an unresolved attempt): never buy a second one; a human decides
+          await settleFee(step.key, "released", "brand_exists");
           await move("exception", step.key, "brand_exists", null);
           return { outcome: "exception", stepsRun, detail: `${step.key}:brand_exists`, state };
         }
@@ -426,6 +453,8 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
             await store.finishStep(onboardingId, leaseOwner, step.key, { status: "succeeded", providerSid: found[0] });
             ctx.sids[step.key] = found[0];
             stepsRun.push(step.key);
+            const unsettledFound = await settleFee(step.key, "captured", found[0]);
+            if (unsettledFound) return unsettledFound;
             continue;
           }
           if (found.length > 1 || step.fee) {
@@ -455,6 +484,8 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
           await store.finishStep(onboardingId, leaseOwner, step.key, { status: "succeeded", providerSid: existing[0] });
           ctx.sids[step.key] = existing[0];
           stepsRun.push(step.key);
+          const unsettledExisting = await settleFee(step.key, "captured", existing[0]);
+          if (unsettledExisting) return unsettledExisting;
           continue;
         }
         if (existing.length > 1) {
@@ -471,6 +502,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         const detail = sanitizedDetail(error);
         if (error instanceof PayloadError) {
           await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: "payload", errorDetail: detail });
+          await settleFee(step.key, "released", "payload");
           await move("needs_info", step.key, "payload", safeField(error.field));
           return { outcome: "needs_info", stepsRun, detail: `${step.key}:${detail}`, state };
         }
@@ -483,6 +515,8 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
           return { outcome: "retry_later", stepsRun, detail: `${step.key}:${detail}`, state };
         }
         await store.finishStep(onboardingId, leaseOwner, step.key, { status: "failed", errorCode: ambiguous ? "ambiguous_rejected" : "api", errorDetail: detail });
+        // a DEFINITE refusal for an operation that was never accepted (not an ambiguous retry): the reservation is freed
+        if (!ambiguous) await settleFee(step.key, "released", "api");
         await move("exception", step.key, ambiguous ? "ambiguous_rejected" : "api", null);
         return { outcome: "exception", stepsRun, detail: `${step.key}:${detail}`, state };
       }
@@ -513,6 +547,8 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
 
       await store.finishStep(onboardingId, leaseOwner, step.key, { status: "succeeded", providerSid: result.sid });
       ctx.sids[step.key] = result.sid;
+      const unsettledCreated = await settleFee(step.key, "captured", result.sid);
+      if (unsettledCreated) return unsettledCreated;
       if (step.key === "S10" || step.key === "T5") ctx.verified[step.key] = true; // only reachable with an explicit compliant verdict
       stepsRun.push(step.key);
 

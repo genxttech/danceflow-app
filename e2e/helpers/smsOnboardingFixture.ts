@@ -71,6 +71,7 @@ export async function cleanupSmsFixture(config: E2EConfig, fixture: SmsFixture |
   const accounts = [fixture.owner, fixture.frontDesk, fixture.otherOwner, fixture.platformAdmin];
   // the onboarding, ledger, audit, window, confirmation and registration rows cascade from the studios
   await admin.from("user_studio_roles").delete().in("studio_id", studioIds);
+  // a studio with credit history cannot be hard-deleted (ON DELETE RESTRICT keeps financial evidence); such studios stay until the local database is reset
   await admin.from("studios").delete().in("id", studioIds);
   await admin.from("profiles").delete().in("id", accounts.map((a) => a.id));
   for (const a of accounts) await admin.auth.admin.deleteUser(a.id);
@@ -253,6 +254,9 @@ export async function provisionFakeSubaccount(config: E2EConfig, fixture: SmsFix
   const created = await call<{ legal_entity_id: string }>("tw4_entity_create_for_studio", { p_studio_id: fixture.studioA.id, p_actor: actor, p_verification_note: "E2E fixture: synthetic legal entity" });
   const entity = created.legal_entity_id;
   await call("tw4_entity_set_spend_cap", { p_entity_id: entity, p_cents: 15_000, p_actor: actor });
+  // TW-4F-3b-0: the brand has a published price, and the studio has funded its prepaid credit through a (synthetic) SETTLED payment
+  await call("tw4_price_set", { p_kind: "brand", p_customer_cents: 1_000, p_provider_cents: 400, p_description: "Brand registration (e2e)", p_actor: actor });
+  await call("tw4_credit_settle_topup", { p_entity_id: entity, p_paid_by_studio_id: fixture.studioA.id, p_provider_ref: `pi_e2e_${fixture.runId}`, p_amount_cents: 5_000, p_event_id: `evt_e2e_${fixture.runId}` });
   await call("tw4_spend_authorize", { p_entity_id: entity, p_kind: "brand", p_amount_cents: 1_000, p_approval_ref: "E2E fixture approval", p_actor: actor });
   await call("tw4_subaccount_confirm", { p_entity_id: entity, p_actor: actor });
   await call("tw4_subaccount_begin", { p_entity_id: entity, p_actor: actor, p_friendly_name: `df:e2e:${entity}`, p_environment: "development" });

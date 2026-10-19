@@ -66,9 +66,11 @@ export interface RunnerStore {
   getAccount(onboardingId: string, leaseOwner: string): Promise<RunnerAccount>;
   /** TW-4F-3a: reserves the owner-approved spend for ONE fee step (idempotent for the same onboarding, generation and kind). TW004 = nothing authorized within the cap. */
   reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind): Promise<{ spendEventId: string; amountCents: number }>;
+  /** TW-4F-3b-0: closes the reservation of a fee step: `captured` charges the studio's credit (the operation happened), `released` frees it (it definitely did not). Idempotent. */
+  settleSpend(onboardingId: string, leaseOwner: string, kind: SpendKind, outcome: "captured" | "released", ref: string): Promise<void>;
 }
 
-export type SpendKind = "brand" | "campaign_vetting" | "number" | "monthly";
+export type SpendKind = "brand" | "campaign_vetting" | "number" | "monthly" | "sms_usage";
 export type RunnerAccount = { legalEntityId: string | null; accountSid: string | null; status: string | null };
 
 type Client = Pick<SupabaseClient, "rpc">;
@@ -147,6 +149,10 @@ export class SupabaseRunnerStore implements RunnerStore {
   async getAccount(onboardingId: string, leaseOwner: string): Promise<RunnerAccount> {
     const row = await this.call<{ legal_entity_id: string | null; account_sid: string | null; status: string | null }>("tw4_runner_account", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner });
     return { legalEntityId: row?.legal_entity_id ?? null, accountSid: row?.account_sid ?? null, status: row?.status ?? null };
+  }
+
+  async settleSpend(onboardingId: string, leaseOwner: string, kind: SpendKind, outcome: "captured" | "released", ref: string) {
+    await this.call("tw4_spend_settle", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_kind: kind, p_outcome: outcome, p_ref: ref });
   }
 
   async reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind) {

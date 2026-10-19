@@ -15,6 +15,9 @@ export class LegacyAccountStore extends SupabaseRunnerStore {
   async getAccount(): Promise<RunnerAccount> {
     return { legalEntityId: "legacy-suite-entity", accountSid: DEFAULT_FAKE_ACCOUNT_SID, status: "active" };
   }
+  async settleSpend(): Promise<void> {
+    /* nothing was reserved by this shim */
+  }
   async reserveSpend(_onboardingId: string, _leaseOwner: string, kind: SpendKind) {
     return { spendEventId: `legacy-${kind}`, amountCents: 0 };
   }

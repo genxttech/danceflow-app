@@ -18,6 +18,8 @@ const TEXT: Record<RunOutcome, string> = {
   config_missing: "Twilio registration is not configured in this environment.",
   needs_subaccount: "This studio has no Twilio subaccount yet (its legal business must be set up, a spend cap recorded and the subaccount created in its own confirmed step). Nothing was called.",
   account_mismatch: "Safety stop: the Twilio account in use is not the studio's own subaccount. Nothing was called. Do not retry; a developer must look at this.",
+  insufficient_credit: "Stopped before the paid step: the studio's settled prepaid SMS credit does not cover it (or its credit account is on hold). Nothing was called or charged. The studio funds its credit first; credit counts only after the payment has settled.",
+  settlement_failed: "The paid step ran but its credit settlement could not be recorded. The reservation stays held. Do not run again; a platform admin must reconcile the credit ledger first.",
   spend_blocked: "Stopped before the paid brand step: no owner-approved spend is available for it within this legal business's spend cap. Nothing was called or charged.",
 };
 

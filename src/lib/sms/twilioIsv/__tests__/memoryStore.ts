@@ -90,6 +90,7 @@ export class MemoryRunnerStore implements RunnerStore {
 
   async beginStep(_id: string, owner: string, step: IsvStepKey, _friendly: string, fee: boolean, confirmedBy: string | null, mock = false): Promise<BeginResult> {
     this.lease(owner);
+    if (this.failBegin?.step === step) throw new RunnerStoreError(this.failBegin.code);
     if (fee !== (step === "B1") || (mock && step !== "B1")) throw new RunnerStoreError("22023");
     if (!this.windowOpen) throw new RunnerStoreError("TW001"); // R1.1: every step needs an open window when it begins
     const row = this.current(step);
@@ -211,6 +212,19 @@ export class MemoryRunnerStore implements RunnerStore {
   /** TW-4F-3a: whether the owner authorized (and the cap allows) the brand fee. */
   spendAuthorized = true;
   spendReservations: string[] = [];
+  /** TW-4F-3b-0: the funding studio's settled credit cannot cover the fee. */
+  insufficientCredit = false;
+  settlements: string[] = [];
+  failSettlement = false;
+  /** Test seam: beginStep of this step fails with this SQLSTATE (after the credit was reserved). */
+  failBegin: { step: IsvStepKey; code: string } | null = null;
+
+  async settleSpend(_id: string, owner: string, kind: SpendKind, outcome: "captured" | "released") {
+    this.lease(owner);
+    if (this.failSettlement) throw new RunnerStoreError("57014");
+    const entry = `${this.seq}:${kind}:${outcome}`;
+    if (!this.settlements.includes(entry)) this.settlements.push(entry);
+  }
 
   async getAccount(_id: string, owner: string): Promise<RunnerAccount> {
     this.lease(owner);
@@ -220,6 +234,7 @@ export class MemoryRunnerStore implements RunnerStore {
   async reserveSpend(_id: string, owner: string, kind: SpendKind) {
     this.lease(owner);
     if (!this.spendAuthorized) throw new RunnerStoreError("TW004");
+    if (this.insufficientCredit) throw new RunnerStoreError("TW007");
     const key = `${this.seq}:${kind}`;
     if (!this.spendReservations.includes(key)) this.spendReservations.push(key);
     return { spendEventId: `spend-${key}`, amountCents: 1000 };

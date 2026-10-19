@@ -108,7 +108,7 @@ class MemoryEntityStore implements EntityStore {
   async createEntityForStudio() { return ENTITY; }
   async decideLink() {}
   async setSpendCap(_e: string, cents: number) { this.capCents = cents; }
-  async authorizeSpend() { return "spend-1"; }
+  async authorizeSpend(): Promise<string> { return "spend-1"; }
   async confirmSubaccount(_e: string, actor: string) {
     if (!this.admins.has(actor)) throw new RunnerStoreError("42501");
     if (this.capCents <= 0) throw new RunnerStoreError("TW004");
@@ -411,5 +411,107 @@ describe("account isolation in the fake (a SID from one account is unknown in an
     const sid = await parent.createSubaccount("df:test:x");
     expect(await parent.getSubaccountToken(sid)).toMatch(/^fake-token-/);
     await expect(parent.getSubaccountToken(SUB_B)).rejects.toMatchObject({ httpStatus: 404 });
+  });
+});
+
+describe("TW-4F-3b-0: prepaid credit around the fee step", () => {
+  const baseInputs: RunnerInputs = {
+    studio_id: STUDIO, submission_seq: 1, state: "submitted_for_checks", studio_name: "E2E Studio", studio_slug: "confidance-studio", studio_public_name: null,
+    legal_name: "ConfiDance Test LLC", entity_type: "llc", industry: "EDUCATION", website_choice: "danceflow", website_url: null,
+    address_line1: "12 Harbor Way", address_line2: null, city: "Portland", region: "OR", postal_code: "97201", country: "US",
+    rep_first_name: "Pat", rep_last_name: "Morgan", rep_title: "Owner", rep_position: "ceo", rep_email: "pat@confidance.example", rep_phone: "+15035550123",
+    preferred_area_code: "503", ein_last4: "4321", missing: [],
+  };
+  const config: IsvConfig = {
+    accountSid: PARENT_SID, authToken: "t".repeat(32), primaryProfileSid: PRIMARY, primaryProfilePolicySid: PRIMARY_POLICY,
+    secondaryProfilePolicySid: `RN${"2".repeat(32)}`, a2pPolicySid: `RN${"3".repeat(32)}`, complianceEmail: "sms-compliance@isv.example", envName: "test", mockBrand: false,
+  };
+  let store: MemoryRunnerStore;
+  let adapter: FakeIsvAdapter;
+  beforeEach(() => {
+    process.env.SMS_EIN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+    delete process.env.SMS_EIN_ENCRYPTION_KEY_ID;
+    adapter = new FakeIsvAdapter(PRIMARY, { primaryPolicySid: PRIMARY_POLICY, accountSid: SUB_A });
+    store = new MemoryRunnerStore(baseInputs, encryptEin(STUDIO, { digits: "987654321", last4: "4321" }).ciphertext);
+    store.platformAdmins.add(ADMIN);
+    store.account = { legalEntityId: ENTITY, accountSid: SUB_A, status: "active" };
+  });
+  const journey = async () => {
+    let result;
+    for (let pass = 0; pass < 6; pass++) {
+      result = await runBrandSubmission({ store, adapter, config, studioId: STUDIO, actorId: ADMIN, confirmFee: true, confirmSubmit: ["S11", "T6"] });
+      if (result.outcome !== "waiting_submission_confirmation" || !String(result.detail).endsWith(":review")) break;
+    }
+    return result!;
+  };
+
+  it("insufficient settled credit stops before the brand: no Twilio call, no ledger row for the brand, nothing settled", async () => {
+    store.insufficientCredit = true;
+    const result = await journey();
+    expect(result.outcome).toBe("insufficient_credit");
+    expect(adapter.count("createBrand")).toBe(0);
+    expect(store.ledger.some((row) => row.step_key === "B1")).toBe(false);
+    expect(store.settlements).toHaveLength(0);
+    expect(describeOutcome("insufficient_credit")).toMatch(/settled prepaid SMS credit/);
+  });
+
+  it("a brand that was created is CAPTURED exactly once, even when the run is repeated", async () => {
+    expect((await journey()).outcome).toBe("brand_submitted");
+    expect(store.settlements).toEqual(["1:brand:captured"]);
+    await journey();
+    expect(store.settlements).toEqual(["1:brand:captured"]);
+    expect(adapter.count("createBrand")).toBe(1);
+  });
+
+  it("a definite refusal by Twilio RELEASES the reservation; an unknown outcome leaves it held", async () => {
+    adapter.failNext("createBrand", { kind: "validation" });
+    expect((await journey()).outcome).toBe("exception");
+    expect(store.settlements).toEqual(["1:brand:released"]);
+  });
+
+  it("a lost response (the brand may exist) is neither captured nor released", async () => {
+    adapter.failNext("createBrand", { kind: "transient", lostResponse: true });
+    const result = await journey();
+    expect(result.outcome).toBe("retry_later");
+    expect(store.settlements).toHaveLength(0);
+  });
+
+  it("a settlement that cannot be recorded stops the run for a human (the paid brand exists, the reservation stays held)", async () => {
+    store.failSettlement = true;
+    const result = await journey();
+    expect(result.outcome).toBe("settlement_failed");
+    expect(adapter.count("createBrand")).toBe(1);
+    expect(describeOutcome("settlement_failed")).toMatch(/reservation stays held/);
+  });
+
+  it("a fee step that already succeeded is captured by the next run even if the earlier settlement was lost", async () => {
+    expect((await journey()).outcome).toBe("brand_submitted");
+    store.settlements.length = 0; // the earlier run died after Twilio accepted the brand, before its settlement was recorded
+    await journey();
+    expect(store.settlements).toEqual(["1:brand:captured"]);
+    expect(adapter.count("createBrand")).toBe(1);
+  });
+
+  it("a reservation made before a refused begin is released: closed window and an already existing brand", async () => {
+    store.failBegin = { step: "B1", code: "TW001" };
+    expect((await journey()).outcome).toBe("runner_closed");
+    expect(store.settlements).toEqual(["1:brand:released"]);
+    store.settlements.length = 0;
+    store.failBegin = { step: "B1", code: "55000" };
+    const exists = await journey();
+    expect(exists.outcome).toBe("exception");
+    expect(exists.detail).toBe("B1:brand_exists");
+    expect(store.settlements).toEqual(["1:brand:released"]);
+    expect(adapter.count("createBrand")).toBe(0);
+  });
+
+  it("a free Twilio mock brand reserves and settles nothing", async () => {
+    const mock = { ...config, mockBrand: true };
+    for (let pass = 0; pass < 6; pass++) {
+      const result = await runBrandSubmission({ store, adapter, config: mock, studioId: STUDIO, actorId: ADMIN, confirmFee: true, confirmSubmit: ["S11", "T6"] });
+      if (result.outcome !== "waiting_submission_confirmation" || !String(result.detail).endsWith(":review")) break;
+    }
+    expect(store.settlements).toHaveLength(0);
+    expect(store.spendReservations).toHaveLength(0);
   });
 });
