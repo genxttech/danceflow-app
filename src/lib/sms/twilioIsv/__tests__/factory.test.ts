@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc: async () => ({ data: null, error: null }) }) }));
 
 import { buildRunnerRuntime } from "../factory";
-import { FakeIsvAdapter } from "../fake";
-import { RealIsvAdapter } from "../real";
+import { FakeIsvAdapter, FakeIsvParent } from "../fake";
+import { RealIsvParent } from "../real";
 
 const full = {
   TWILIO_ACCOUNT_SID: `AC${"1".repeat(32)}`, TWILIO_AUTH_TOKEN: "tok", TWILIO_ISV_PRIMARY_PROFILE_SID: `BU${"e".repeat(32)}`,
@@ -33,11 +33,13 @@ describe("buildRunnerRuntime", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.mode).toBe("real");
-      expect(result.adapter).toBeInstanceOf(RealIsvAdapter);
+      expect(result.parent).toBeInstanceOf(RealIsvParent);
+      expect("adapter" in result).toBe(false); // TW-4F-3a: no adapter for the parent account exists, only adapterFor(subaccountSid)
+      expect(typeof result.adapterFor).toBe("function");
       expect(result.config.mockBrand).toBe(false);
     }
   });
-  it("the fake is available only outside production and only when asked for, and it is shared within the process", () => {
+  it("the fake is available only outside production and only when asked for, and it is shared within the process", async () => {
     const local = { NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321" };
     expect(buildRunnerRuntime({ ...local, VERCEL_ENV: "production", TW4_ISV_FAKE: "on" }).ok).toBe(false);
     expect(buildRunnerRuntime({ NEXT_PUBLIC_SUPABASE_URL: "https://shared-dev.supabase.co", NODE_ENV: "development", TW4_ISV_FAKE: "on" }).ok).toBe(false); // never against a shared database
@@ -46,8 +48,14 @@ describe("buildRunnerRuntime", () => {
     expect(a.ok && b.ok).toBe(true);
     if (a.ok && b.ok) {
       expect(a.mode).toBe("fake");
-      expect(a.adapter).toBeInstanceOf(FakeIsvAdapter);
-      expect(a.adapter).toBe(b.adapter);
+      expect(a.parent).toBeInstanceOf(FakeIsvParent);
+      expect(a.parent).toBe(b.parent);
+      const one = await a.adapterFor(`AC${"a".repeat(32)}`);
+      const two = await a.adapterFor(`AC${"b".repeat(32)}`);
+      expect(one).toBeInstanceOf(FakeIsvAdapter);
+      expect(one.accountSid).toBe(`AC${"a".repeat(32)}`);
+      expect(await b.adapterFor(`AC${"a".repeat(32)}`)).toBe(one); // the same account is the same fake account
+      expect(two).not.toBe(one); // different accounts are isolated
       expect(a.config.mockBrand).toBe(false);
     }
   });

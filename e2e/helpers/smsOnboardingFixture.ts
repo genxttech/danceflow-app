@@ -236,3 +236,27 @@ export async function openPlatformAdmin(browser: Browser, account: SmsAccount, c
   await signInPlatformAdmin(page, account);
   return { context, page };
 }
+
+/**
+ * TW-4F-3a: gives studio A a legal entity, a $150 spend cap, one authorized brand spend and an ACTIVE (fake) Twilio subaccount, through the real
+ * service-role SQL functions. No Twilio call is involved: the dev server's fake parent account creates the matching fake account on demand.
+ * The evidence tables have no API privileges, so this fixture cannot delete the rows it creates; see e2e/README.md for the local cleanup.
+ */
+export async function provisionFakeSubaccount(config: E2EConfig, fixture: SmsFixture): Promise<{ legalEntityId: string; accountSid: string }> {
+  const admin = e2eAdminClient(config);
+  const actor = fixture.platformAdmin.id;
+  const call = async <T>(fn: string, args: Record<string, unknown>): Promise<T> => {
+    const { data, error } = await admin.rpc(fn, args);
+    if (error) throw new Error(`${fn} failed (${error.code ?? "unknown"})`);
+    return data as T;
+  };
+  const created = await call<{ legal_entity_id: string }>("tw4_entity_create_for_studio", { p_studio_id: fixture.studioA.id, p_actor: actor, p_verification_note: "E2E fixture: synthetic legal entity" });
+  const entity = created.legal_entity_id;
+  await call("tw4_entity_set_spend_cap", { p_entity_id: entity, p_cents: 15_000, p_actor: actor });
+  await call("tw4_spend_authorize", { p_entity_id: entity, p_kind: "brand", p_amount_cents: 1_000, p_approval_ref: "E2E fixture approval", p_actor: actor });
+  await call("tw4_subaccount_confirm", { p_entity_id: entity, p_actor: actor });
+  await call("tw4_subaccount_begin", { p_entity_id: entity, p_actor: actor, p_friendly_name: `df:e2e:${entity}`, p_environment: "development" });
+  const accountSid = `AC${randomBytes(16).toString("hex")}`;
+  await call("tw4_subaccount_finish", { p_entity_id: entity, p_actor: actor, p_status: "active", p_account_sid: accountSid });
+  return { legalEntityId: entity, accountSid };
+}

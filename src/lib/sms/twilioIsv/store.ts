@@ -62,7 +62,14 @@ export interface RunnerStore {
   /** Records an evaluation verdict: on the open S10 / T5 ledger row (context "step") or as audit evidence of the fresh re-check (context "preverify"). */
   recordEvaluation(onboardingId: string, leaseOwner: string, step: "S10" | "T5", verdict: EvaluationVerdictName, context: "step" | "preverify"): Promise<void>;
   status(studioId: string, actorId: string): Promise<RunnerStatus>;
+  /** TW-4F-3a: the Twilio account this onboarding's studio may use (its legal entity's active subaccount). All nulls = no entity / no subaccount yet. */
+  getAccount(onboardingId: string, leaseOwner: string): Promise<RunnerAccount>;
+  /** TW-4F-3a: reserves the owner-approved spend for ONE fee step (idempotent for the same onboarding, generation and kind). TW004 = nothing authorized within the cap. */
+  reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind): Promise<{ spendEventId: string; amountCents: number }>;
 }
+
+export type SpendKind = "brand" | "campaign_vetting" | "number" | "monthly";
+export type RunnerAccount = { legalEntityId: string | null; accountSid: string | null; status: string | null };
 
 type Client = Pick<SupabaseClient, "rpc">;
 
@@ -135,5 +142,15 @@ export class SupabaseRunnerStore implements RunnerStore {
 
   async status(studioId: string, actorId: string): Promise<RunnerStatus> {
     return this.call<RunnerStatus>("tw4_runner_status", { p_studio_id: studioId, p_actor: actorId });
+  }
+
+  async getAccount(onboardingId: string, leaseOwner: string): Promise<RunnerAccount> {
+    const row = await this.call<{ legal_entity_id: string | null; account_sid: string | null; status: string | null }>("tw4_runner_account", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner });
+    return { legalEntityId: row?.legal_entity_id ?? null, accountSid: row?.account_sid ?? null, status: row?.status ?? null };
+  }
+
+  async reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind) {
+    const row = await this.call<{ spend_event_id: string; amount_cents: number }>("tw4_spend_reserve", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_kind: kind });
+    return { spendEventId: row.spend_event_id, amountCents: Number(row.amount_cents) };
   }
 }

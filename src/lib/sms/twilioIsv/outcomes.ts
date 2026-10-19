@@ -16,6 +16,9 @@ const TEXT: Record<RunOutcome, string> = {
   runner_closed: "The runner window for this studio is closed. Open a window (up to 72 hours) before running; nothing was created.",
   not_runnable: "This studio is not in a state the runner can work on (it must be submitted, with the pilot switch on).",
   config_missing: "Twilio registration is not configured in this environment.",
+  needs_subaccount: "This studio has no Twilio subaccount yet (its legal business must be set up, a spend cap recorded and the subaccount created in its own confirmed step). Nothing was called.",
+  account_mismatch: "Safety stop: the Twilio account in use is not the studio's own subaccount. Nothing was called. Do not retry; a developer must look at this.",
+  spend_blocked: "Stopped before the paid brand step: no owner-approved spend is available for it within this legal business's spend cap. Nothing was called or charged.",
 };
 
 export function describeOutcome(outcome: string, detail?: string | null): string {

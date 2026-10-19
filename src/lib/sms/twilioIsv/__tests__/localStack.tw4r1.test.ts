@@ -26,6 +26,7 @@ import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
 import { refreshBrandStatus, runBrandSubmission, STEPS, type RunResult } from "../runner";
 import { SupabaseRunnerStore } from "../store";
+import { LegacyAccountStore } from "./legacyAccountStore";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -102,7 +103,7 @@ describe.skipIf(!enabled)("TW-4 R1 runner against the local QA stack (real SQL f
     process.env.SMS_EIN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     delete process.env.SMS_EIN_ENCRYPTION_KEY_ID;
     state.admin = client(null, serviceKey());
-    store = new SupabaseRunnerStore(state.admin as SupabaseClient);
+    store = new LegacyAccountStore(state.admin as SupabaseClient);
     psqlFile(readFileSync(join(__dirname, "localStackFixturesR1.sql"), "utf8"));
     await setPilotAccess(as("padmin") as never, A, true, "R1 local e2e");
     await store.setWindow(A, U.padmin, 24, "R1 local e2e");

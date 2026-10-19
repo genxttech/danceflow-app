@@ -45,6 +45,7 @@ import { FakeIsvAdapter } from "../fake";
 import { createRealIsvAdapter } from "../real";
 import { refreshBrandStatus, runBrandSubmission, STEPS, type RunResult } from "../runner";
 import { RunnerStoreError, SupabaseRunnerStore } from "../store";
+import { LegacyAccountStore } from "./legacyAccountStore";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -149,7 +150,7 @@ describe.skipIf(!enabled)("TW-4 R1 dry run (fake Twilio, real SQL, synthetic non
     process.env.SMS_EIN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     delete process.env.SMS_EIN_ENCRYPTION_KEY_ID;
     state.admin = client(null, serviceKey());
-    store = new SupabaseRunnerStore(state.admin as SupabaseClient);
+    store = new LegacyAccountStore(state.admin as SupabaseClient);
     psqlFile(readFileSync(join(__dirname, "dryRunFixtures.sql"), "utf8"));
   });
   afterAll(() => {

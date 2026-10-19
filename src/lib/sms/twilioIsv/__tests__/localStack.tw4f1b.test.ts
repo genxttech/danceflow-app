@@ -22,6 +22,7 @@ import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
 import { checkRegistrationStatus, runBrandSubmission, type RunResult } from "../runner";
 import { RunnerStoreError, SupabaseRunnerStore } from "../store";
+import { LegacyAccountStore } from "./legacyAccountStore";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -152,7 +153,7 @@ describe.skipIf(!enabled)("TW-4F-1b gate evidence against the local QA stack (re
     process.env.SMS_EIN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     delete process.env.SMS_EIN_ENCRYPTION_KEY_ID;
     admin = client(null, serviceKey());
-    store = new SupabaseRunnerStore(admin);
+    store = new LegacyAccountStore(admin);
     adapter = fakeAdapter();
     psqlFile(FIXTURES);
     await prepare(A, "owner_a");
@@ -418,7 +419,7 @@ describe.skipIf(!enabled)("TW-4F-1b gate evidence against the local QA stack (re
       }
       expect(error, file).toContain("rollback refused: TW-4F-1b");
     }
-    expect(count("select count(*) from pg_proc where proname like 'tw4_runner_%'")).toBe(13);
+    expect(count("select count(*) from pg_proc where proname like 'tw4_runner_%'")).toBe(14);
   });
 
   it("the rollback script refuses once confirmations or evaluation evidence exist, and drops nothing", () => {

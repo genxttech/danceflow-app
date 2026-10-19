@@ -1,11 +1,11 @@
 import "server-only";
 import { realCallsAllowed, type IsvConfig } from "./config";
 import {
-  IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter,
+  IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter, type IsvParentAdapter,
 } from "./types";
 
 /**
- * TW-4 R1: the REAL Twilio adapter (parent account, REST, form-encoded, HTTP Basic). It is the only code in the application that can
+ * TW-4 R1: the REAL Twilio adapter (REST, one account per instance; TW-4F-3a: a studio legal entity's subaccount, form-encoded, HTTP Basic). It is the only code in the application that can
  * reach Twilio's registration APIs, and `createRealIsvAdapter` refuses to build one unless `realCallsAllowed()` is true
  * (production build on a production deployment AND TW4_ISV_REAL_CALLS=on).
  *
@@ -34,8 +34,11 @@ function classify(status: number): IsvApiError["kind"] {
   return "transient"; // 1xx/3xx: not an answer we understand
 }
 
-export class RealIsvAdapter implements IsvAdapter {
-  constructor(private readonly config: IsvConfig, private readonly fetchImpl: FetchLike) {
+type Credentials = Pick<IsvConfig, "accountSid" | "authToken" | "apiKeySid" | "apiKeySecret">;
+
+/** The HTTP machinery shared by the registration adapter (one account) and the parent account-management client. It exposes no Twilio operation itself. */
+abstract class TwilioRest<C extends Credentials> {
+  constructor(protected readonly config: C, protected readonly fetchImpl: FetchLike) {
     // A key SID without its secret would sign every request with an empty password. Fail loudly here instead (never fall back to the token).
     if (config.apiKeySid && !config.apiKeySecret) throw new IsvApiError("account", null, null, "an API key SID is configured without its secret");
   }
@@ -45,13 +48,13 @@ export class RealIsvAdapter implements IsvAdapter {
    * then only appears in URL paths). Otherwise the original account SID + auth token. The choice is made once, from configuration:
    * a rejected key is NEVER retried with the auth token.
    */
-  private authHeader() {
+  protected authHeader() {
     const c = this.config;
     const pair = c.apiKeySid ? `${c.apiKeySid}:${c.apiKeySecret ?? ""}` : `${c.accountSid}:${c.authToken}`;
     return `Basic ${Buffer.from(pair).toString("base64")}`;
   }
 
-  private async request(method: "GET" | "POST", url: string, form?: Record<string, string | undefined>): Promise<Record<string, unknown>> {
+  protected async request(method: "GET" | "POST", url: string, form?: Record<string, string | undefined>): Promise<Record<string, unknown>> {
     const body = form
       ? new URLSearchParams(Object.entries(form).filter((entry): entry is [string, string] => entry[1] !== undefined)).toString()
       : undefined;
@@ -88,14 +91,14 @@ export class RealIsvAdapter implements IsvAdapter {
   }
 
   /** A 2xx response that carries no valid SID: the resource may exist, the outcome is unknown. */
-  private sid(json: Record<string, unknown>, pattern: RegExp): string {
+  protected sid(json: Record<string, unknown>, pattern: RegExp): string {
     const value = String(json.sid ?? "");
     if (!pattern.test(value)) throw new IsvApiError("transient", null, null, "response carried no valid sid");
     return value;
   }
 
   /** GET a list, following Twilio's own next-page links (host-checked) for a bounded number of pages. */
-  private async listAll(firstUrl: string, host: string, rowsKey: "results" | "data"): Promise<Record<string, unknown>[]> {
+  protected async listAll(firstUrl: string, host: string, rowsKey: "results" | "data"): Promise<Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = [];
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_PAGES && url; page += 1) {
@@ -109,6 +112,13 @@ export class RealIsvAdapter implements IsvAdapter {
     // duplicate-prone creates: treat it as an unknown outcome so the run stops instead of creating.
     if (url) throw new IsvApiError("transient", null, null, "list too long to search safely");
     return rows;
+  }
+}
+
+/** One account's registration adapter. TW-4F-3a: built for a studio legal entity's SUBACCOUNT (its SID and its own credentials), never the parent. */
+export class RealIsvAdapter extends TwilioRest<IsvConfig> implements IsvAdapter {
+  get accountSid(): string {
+    return this.config.accountSid;
   }
 
   // --- customer profile ---------------------------------------------------------------------------------------------
@@ -248,4 +258,50 @@ export function createRealIsvAdapter(config: IsvConfig, env: Record<string, stri
   const gate = realCallsAllowed(env);
   if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
   return new RealIsvAdapter(config, fetchImpl ?? ((url, init) => fetch(url, init)));
+}
+
+/**
+ * TW-4F-3a: the PARENT account's account-management client. Parent credentials (account SID + auth token, or a Main API key) are needed to list,
+ * create and read subaccounts; they are never used for Trust Hub or A2P calls (this class has no such method). Request shapes follow Twilio's public
+ * Accounts documentation and are pinned by unit tests with an injected `fetch`; they have NOT been run against live Twilio.
+ */
+export class RealIsvParent extends TwilioRest<Credentials> implements IsvParentAdapter {
+  async findSubaccount(friendlyName: string): Promise<string[]> {
+    const rows = await this.listAll(`${API}/Accounts.json?FriendlyName=${encodeURIComponent(friendlyName)}&PageSize=50`, API, "results");
+    // closed accounts are gone for good: they never count as the studio's subaccount
+    return rows.filter((row) => row.friendly_name === friendlyName && row.status !== "closed").map((row) => String(row.sid));
+  }
+
+  async createSubaccount(friendlyName: string): Promise<string> {
+    const json = await this.request("POST", `${API}/Accounts.json`, { FriendlyName: friendlyName });
+    return this.sid(json, /^AC[0-9a-fA-F]{32}$/);
+  }
+
+  async getSubaccountToken(accountSid: string): Promise<string> {
+    if (!/^AC[0-9a-fA-F]{32}$/.test(accountSid) || accountSid === this.config.accountSid) throw new IsvApiError("validation", null, null, "not a subaccount sid");
+    const json = await this.request("GET", `${API}/Accounts/${encodeURIComponent(accountSid)}.json`);
+    const token = json.auth_token;
+    // a reply without a usable token is not a credential: fail closed (never an empty password)
+    if (typeof token !== "string" || !/^[0-9a-zA-Z]{32}$/.test(token)) throw new IsvApiError("transient", null, null, "response carried no valid credential");
+    return token;
+  }
+}
+
+/** The parent client. Same production gate as the registration adapter. */
+export function createRealIsvParent(config: IsvConfig, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike): RealIsvParent {
+  const gate = realCallsAllowed(env);
+  if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+  return new RealIsvParent(config, fetchImpl ?? ((url, init) => fetch(url, init)));
+}
+
+/**
+ * A registration adapter for ONE studio legal entity's subaccount: authenticated with the subaccount's own SID and auth token (Trust Hub and Messaging
+ * are separate Twilio hosts and need the subaccount's credentials). The parent's API key is deliberately dropped: it must never sign a subaccount call.
+ */
+export function createScopedRealAdapter(config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike): RealIsvAdapter {
+  const gate = realCallsAllowed(env);
+  if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+  if (!/^AC[0-9a-fA-F]{32}$/.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
+  if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
+  return new RealIsvAdapter({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl ?? ((url, init) => fetch(url, init)));
 }

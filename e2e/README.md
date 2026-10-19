@@ -345,3 +345,7 @@ campaign package for the Twilio pre-review.
 
 Known limits: the first-time platform MFA *setup* page is not driven (see `docs/twilio/TW-4F_Smoke_Checklist.md`, finding F-3), and the browser tests
 cannot read the registration tables (they have no API privileges), so state is asserted through the UI.
+
+TW-4F-3a note: the platform runner spec now gives studio A a fake legal entity, subaccount and authorized spend through the real SQL functions
+(`provisionFakeSubaccount`). Those evidence tables have no API privileges, so the spec cannot delete its rows; after a local run clean them with
+`docker exec -i <db container> psql -U postgres -c "begin; set local session_replication_role = replica; delete from public.studio_sms_spend_events; delete from public.studio_sms_subaccount_confirmations; delete from public.studio_sms_twilio_accounts; delete from public.studio_sms_legal_entities where legal_name like 'E2E %'; commit;"` (local database only).

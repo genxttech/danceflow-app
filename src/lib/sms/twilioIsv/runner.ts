@@ -39,7 +39,13 @@ export type RunOutcome =
   | "lease_busy"
   | "runner_closed"
   | "not_runnable"
-  | "config_missing";
+  | "config_missing"
+  /** TW-4F-3a: the studio has no legal entity or its entity has no active Twilio subaccount yet. Nothing was called. */
+  | "needs_subaccount"
+  /** TW-4F-3a: the adapter belongs to a different Twilio account than the studio's legal entity subaccount. Nothing was called. */
+  | "account_mismatch"
+  /** TW-4F-3a: a fee-bearing step has no owner-approved spend within the legal entity's cap. Nothing was called. */
+  | "spend_blocked";
 
 /** The steps whose Twilio call cannot be undone (a submission for review). Each needs its own explicit confirmation on every run. */
 export const SUBMISSION_STEPS = ["S11", "T6"] as const;
@@ -215,6 +221,24 @@ function sanitizedDetail(error: unknown): string {
   return "unexpected";
 }
 
+/**
+ * TW-4F-3a (D2): every Twilio-touching operation runs only in the Twilio SUBACCOUNT of the studio's legal entity, as recorded in the database
+ * under this lease. Fail closed: no entity, no active subaccount, a lookup failure or an adapter built for any other account (including the
+ * parent) ends the operation BEFORE the first Twilio call or ledger write.
+ */
+async function accountRefusal(store: RunnerStore, adapter: IsvAdapter, onboardingId: string, leaseOwner: string, state: string): Promise<RunResult | null> {
+  let account;
+  try {
+    account = await store.getAccount(onboardingId, leaseOwner);
+  } catch (error) {
+    return { outcome: "exception", stepsRun: [], detail: `account:${error instanceof RunnerStoreError ? error.code : "unknown"}`, state };
+  }
+  if (!account.legalEntityId) return { outcome: "needs_subaccount", stepsRun: [], detail: "no_legal_entity", state };
+  if (!account.accountSid) return { outcome: "needs_subaccount", stepsRun: [], detail: "no_subaccount", state };
+  if (adapter.accountSid !== account.accountSid) return { outcome: "account_mismatch", stepsRun: [], detail: "adapter_account_differs", state };
+  return null;
+}
+
 export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
   const { store, adapter, config, studioId, actorId } = input;
   const decrypt = input.decrypt ?? decryptEin;
@@ -237,6 +261,9 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
   const onboardingId = claim.onboarding_id;
 
   try {
+    const refused = await accountRefusal(store, adapter, onboardingId, leaseOwner, claim.state);
+    if (refused) return { ...refused, stepsRun };
+
     // Preflight: nothing is created unless the ISV Primary profile is Twilio-approved right now.
     let primary: { status: string; policySid: string | null };
     try {
@@ -346,6 +373,17 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
       }
       if (step.fee && !input.confirmFee) {
         return { outcome: "waiting_fee_confirmation", stepsRun, state };
+      }
+      if (step.fee && !config.mockBrand) {
+        // (a Twilio MOCK brand is a free dry run and consumes no authorization)
+        // TW-4F-3a: the owner-approved spend for THIS fee step must exist within the legal entity's cap; it is reserved (once, idempotently) before
+        // any Twilio call. No authorization, no fee: the run stops here without a ledger write.
+        try {
+          await store.reserveSpend(onboardingId, leaseOwner, "brand");
+        } catch (error) {
+          if (error instanceof RunnerStoreError && error.code === "TW004") return { outcome: "spend_blocked", stepsRun, detail: `${step.key}:no_authorized_spend`, state };
+          throw error;
+        }
       }
 
       const friendly = stepFriendlyName(config.envName, studioId, step.key, claim.submission_seq);
@@ -560,6 +598,8 @@ export async function checkRegistrationStatus(input: Pick<RunInput, "store" | "a
     return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", stepsRun: [], detail: code };
   }
   try {
+    const refused = await accountRefusal(store, adapter, claim.onboarding_id, leaseOwner, claim.state);
+    if (refused) return refused;
     const sid = (key: IsvStepKey) => claim.steps.find((step) => step.step_key === key && step.status === "succeeded" && step.provider_sid)?.provider_sid ?? null;
     const profileSid = sid("S1");
     const trustProductSid = sid("T1");
@@ -611,6 +651,8 @@ export async function refreshBrandStatus(input: Pick<RunInput, "store" | "adapte
     return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", stepsRun: [], detail: code };
   }
   try {
+    const refused = await accountRefusal(store, adapter, claim.onboarding_id, leaseOwner, claim.state);
+    if (refused) return refused;
     const brand = claim.steps.find((step) => step.step_key === "B1" && step.status === "succeeded" && step.provider_sid);
     if (!brand?.provider_sid) return { outcome: "not_runnable", stepsRun: [], detail: "no_brand" };
     return await followBrand({ store, adapter, onboardingId: claim.onboarding_id, leaseOwner, brandSid: brand.provider_sid, stepsRun: [], state: claim.state, justCreated: false, mock: Boolean(brand.mock) });

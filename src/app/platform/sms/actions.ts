@@ -203,12 +203,30 @@ export async function runSmsOnboardingAction(formData: FormData) {
     // Interim trail until a ledger column exists (needs a migration, tracked as a 4F follow-up): who confirmed which submission, for which studio.
     console.info(JSON.stringify({ event: "sms_runner_submission_requested", studioId, actorId: admin.id, steps: confirmSubmit }));
   }
+  // TW-4F-3a (D2): everything runs in the studio's own Twilio subaccount. The SID comes from the database (the studio's legal entity); with none,
+  // no adapter is built and nothing is called. (Resolved before the run's try block: a redirect inside it would be swallowed by the catch.)
+  let accountSid: string | null = null;
+  let noAccountDetail = "no_legal_entity";
+  try {
+    const entity = await runtime.entities.entityForStudio(studioId, admin.id);
+    if (entity.legal_entity_id) noAccountDetail = "no_subaccount";
+    if (entity.legal_entity_id && entity.account_status === "active" && entity.account_sid) accountSid = entity.account_sid;
+  } catch {
+    back(`runner_error=${encodeURIComponent("The studio's Twilio account could not be looked up. Nothing was run.")}`);
+    return;
+  }
+  if (!accountSid) {
+    revalidatePath(RETURN_PATH);
+    back(`runner=${encodeURIComponent(describeOutcome("needs_subaccount", noAccountDetail))}`);
+    return;
+  }
   let message: string;
   try {
+    const adapter = await runtime.adapterFor(accountSid);
     const result =
       intent === "refresh"
-        ? await checkRegistrationStatus({ store: runtime.store, adapter: runtime.adapter, studioId, actorId: admin.id })
-        : await runBrandSubmission({ store: runtime.store, adapter: runtime.adapter, config: runtime.config, studioId, actorId: admin.id, confirmFee, confirmSubmit });
+        ? await checkRegistrationStatus({ store: runtime.store, adapter, studioId, actorId: admin.id })
+        : await runBrandSubmission({ store: runtime.store, adapter, config: runtime.config, studioId, actorId: admin.id, confirmFee, confirmSubmit });
     message = describeOutcome(result.outcome, result.detail);
     if (confirmSubmit.length > 0) {
       const done = (result.stepsRun ?? []).filter((step): step is SubmissionStepKey => step === "S11" || step === "T6");
