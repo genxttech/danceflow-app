@@ -6,7 +6,7 @@ import {
   type RunnerInputs,
 } from "./payloads";
 import { RunnerStoreError, type RunnerStore, type RunnerTransitionState } from "./store";
-import { paidBrandSupported, registrationPath, type RegistrationPath } from "./registrationPath";
+import { needsPathReadiness, paidBrandRefusal, registrationPath, type RegistrationPath } from "./registrationPath";
 import { IsvApiError, ISV_STEP_KEYS, type IsvAdapter, type IsvStepKey, type PrimaryProfileReader } from "./types";
 
 /**
@@ -52,7 +52,9 @@ export type RunOutcome =
   /** TW-4F-3b-0: Twilio performed (or definitely did not perform) a fee step but the credit settlement could not be recorded. The reservation stays held for a human. */
   | "settlement_failed"
   /** TW-4F provider integration: the paid brand of this registration tier has no published price yet (Low-Volume Standard). Nothing was reserved or called. */
-  | "tier_unpriced";
+  | "tier_unpriced"
+  /** TW-4F financial integrity: the location is not on a VERIFIED Low-Volume Standard path (eligibility, EIN) or the database disagrees with the run's path. Nothing was reserved or called. */
+  | "tier_ineligible";
 
 /** The steps whose Twilio call cannot be undone (a submission for review). Each needs its own explicit confirmation on every run. */
 export const SUBMISSION_STEPS = ["S11", "T6"] as const;
@@ -303,10 +305,20 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
     } catch (error) {
       return { outcome: "exception", stepsRun, detail: error instanceof RunnerStoreError ? `tier:${error.code}` : "tier:unknown", state: claim.state };
     }
-    // A paid run of a tier with no published brand price stops HERE, before any Twilio write, rather than after the irreversible S11/T6 submissions.
-    // An onboarding whose brand already exists (B1 succeeded, e.g. as a mock) is not blocked: nothing is bought again.
-    if (!config.mockBrand && !paidBrandSupported(path) && !claim.steps.some((row) => row.step_key === "B1" && row.status === "succeeded")) {
-      return { outcome: "tier_unpriced", stepsRun, detail: `B1:${path.tier}`, state: claim.state };
+    // A paid Low-Volume Standard run stops HERE, before any Twilio write (rather than after the irreversible S11/T6 submissions), unless the DATABASE
+    // reports the same verified path and a published brand price for it. An onboarding whose brand already exists (B1 succeeded, e.g. as a mock) is
+    // not blocked: nothing is bought again. The Standard path is unchanged (its brand price is checked when the owner's approval is recorded).
+    let paidBrandReady = true;
+    if (!config.mockBrand && needsPathReadiness(path) && !claim.steps.some((row) => row.step_key === "B1" && row.status === "succeeded")) {
+      let refusal: "ineligible" | "unpriced" | null;
+      try {
+        refusal = paidBrandRefusal(path, await store.getFeeKinds(onboardingId, leaseOwner));
+      } catch (error) {
+        return { outcome: "exception", stepsRun, detail: error instanceof RunnerStoreError ? `fee_kinds:${error.code}` : "fee_kinds:unknown", state: claim.state };
+      }
+      if (refusal) return { outcome: refusal === "unpriced" ? "tier_unpriced" : "tier_ineligible", stepsRun, detail: `B1:${path.tier}`, state: claim.state };
+    } else if (!config.mockBrand && needsPathReadiness(path)) {
+      paidBrandReady = false;   // B1 already succeeded: no paid brand step will run in this generation
     }
 
     const ctx: Ctx = {
@@ -336,7 +348,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
     const settleFee = async (stepKey: IsvStepKey, outcome: "captured" | "released", ref: string): Promise<RunResult | null> => {
       if (stepKey !== "B1" || config.mockBrand) return null;
       try {
-        await store.settleSpend(onboardingId, leaseOwner, "brand", outcome, ref);
+        await store.settleSpend(onboardingId, leaseOwner, path.brandPriceKind, outcome, ref);
       } catch (error) {
         return { outcome: "settlement_failed", stepsRun, detail: `${stepKey}:${outcome}:${error instanceof RunnerStoreError ? error.code : "unknown"}`, state };
       }
@@ -419,9 +431,9 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
           throw error;
         }
       }
-      // A paid brand of a tier with no published price would be reserved and captured at the wrong (Standard) price: refuse before asking for the
-      // fee confirmation, before any reservation and before any Twilio call. A MOCK brand is free and may use either tier.
-      if (step.fee && !config.mockBrand && !paidBrandSupported(ctx.path)) {
+      // Defensive: a paid Low-Volume Standard brand runs only after the readiness check above passed in THIS run (never at another path's price).
+      // A MOCK brand is free and may use either tier.
+      if (step.fee && !config.mockBrand && needsPathReadiness(ctx.path) && !paidBrandReady) {
         return { outcome: "tier_unpriced", stepsRun, detail: `${step.key}:${ctx.path.tier}`, state };
       }
       if (step.fee && !input.confirmFee) {
@@ -432,10 +444,11 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
         // TW-4F-3a: the owner-approved spend for THIS fee step must exist within the legal entity's cap; it is reserved (once, idempotently) before
         // any Twilio call. No authorization, no fee: the run stops here without a ledger write.
         try {
-          await store.reserveSpend(onboardingId, leaseOwner, "brand");
+          await store.reserveSpend(onboardingId, leaseOwner, ctx.path.brandPriceKind);
         } catch (error) {
           if (error instanceof RunnerStoreError && error.code === "TW004") return { outcome: "spend_blocked", stepsRun, detail: `${step.key}:no_authorized_spend`, state };
           if (error instanceof RunnerStoreError && error.code === "TW007") return { outcome: "insufficient_credit", stepsRun, detail: `${step.key}:insufficient_credit`, state };
+          if (error instanceof RunnerStoreError && error.code === "TW020") return { outcome: "tier_ineligible", stepsRun, detail: `${step.key}:path_mismatch`, state };
           throw error;
         }
       }

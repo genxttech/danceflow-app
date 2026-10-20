@@ -1,6 +1,6 @@
 import type { EntityStore } from "./entityStore";
 import { LVS_CHECKLIST, looksLikeEin, panelErrorMessage, type PanelStore } from "./panel";
-import { isRegistrationTier, paidBrandSupported, registrationPath } from "./registrationPath";
+import { isRegistrationTier, registrationPath } from "./registrationPath";
 import { provisionSubaccount, type SubaccountResult } from "./subaccount";
 import type { IsvEnvName, IsvParentAdapter } from "./types";
 
@@ -88,12 +88,13 @@ export async function setSpendCap(store: PanelStore, actorId: string, form: Form
   return good(`Setup budget set to $${(cents / 100).toFixed(2)}. It is a ceiling only: every fee still needs its own owner approval.`);
 }
 
-const FEE_KINDS = new Set(["brand", "campaign_vetting", "number"]);
+const FEE_KINDS = new Set(["brand", "brand_low_volume", "campaign_vetting", "number"]);
+const BRAND_KINDS = new Set(["brand", "brand_low_volume"]);
 
 /**
  * Records the OWNER's written approval of ONE fee-bearing operation, at the published price, for one location. The database refuses an amount
- * other than the published price, an approval reference used before for an open approval (one approval = one operation, so a double submit or a
- * replay cannot create a second authorization), anything beyond the setup budget, and a pilot-funded approval outside the pilot exception.
+ * other than the published price, an approval reference used before (ever: one written approval = one operation, so a double submit returns the
+ * same unused authorization and a replay after withdrawal, release or use is refused), a fee of the other registration path, anything beyond the setup budget, and a pilot-funded approval outside the pilot exception.
  */
 export async function authorizeFee(store: PanelStore, actorId: string, form: FormData, context: { studioTier: string | null; onboardingFound?: boolean }): Promise<CommandResult> {
   if (einInForm(form)) return bad(EIN_REFUSAL);
@@ -110,15 +111,24 @@ export async function authorizeFee(store: PanelStore, actorId: string, form: For
   if (!approvalRef) return bad("Record the owner's written approval (10-120 characters: who, when, where, e.g. 'Owner email 2026-10-20 approving brand $46').");
   if (!checked(form, "ownerApproved")) return bad("Confirm the owner approved this specific operation and amount in writing. Nothing was authorized.");
   // fail closed: a brand fee is approved only for a location whose registration path could be read (a missing onboarding is not "Standard")
-  if (kind === "brand" && context.onboardingFound === false) return bad("This location's registration path could not be read, so no brand fee can be approved for it. Nothing was authorized.");
-  if (kind === "brand" && isRegistrationTier(context.studioTier) && !paidBrandSupported(registrationPath(context.studioTier))) {
-    return bad("This location is on Low-Volume Standard, which has no published brand price yet. A Standard-price approval would be wrong. Nothing was authorized.");
+  if (BRAND_KINDS.has(kind) && context.onboardingFound === false) return bad("This location's registration path could not be read, so no brand fee can be approved for it. Nothing was authorized.");
+  // the brand fee follows the location's registration path (the database refuses a mismatch too, and checks the path is VERIFIED for a low-volume kind)
+  if (BRAND_KINDS.has(kind)) {
+    const expected = registrationPath(isRegistrationTier(context.studioTier) ? context.studioTier : "standard").brandPriceKind;
+    if (kind !== expected) {
+      return bad(expected === "brand_low_volume"
+        ? "This location is on Low-Volume Standard: a Standard-price brand approval would be wrong. Nothing was authorized."
+        : "This location is on the Standard path: a Low-Volume Standard brand approval does not apply. Nothing was authorized.");
+    }
   }
+  let replayed = false;
   try {
-    await store.authorizeSpend({ entityId, kind, cents, approvalRef, actorId, funding, studioId });
+    ({ replayed } = await store.authorizeSpend({ entityId, kind, cents, approvalRef, actorId, funding, studioId }));
   } catch (error) {
     return bad(panelErrorMessage("spend", error));
   }
+  // an identical resubmission of a still-unused approval: the database returned the SAME authorization, nothing new was recorded
+  if (replayed) return good("This owner approval was already recorded (unused). Nothing new was authorized.");
   return good(`Owner approval recorded for one ${kind.replaceAll("_", " ")} fee of $${(cents / 100).toFixed(2)} (${funding === "pilot" ? "pilot ceiling" : "prepaid credit"}). It is reserved only when that step runs.`);
 }
 

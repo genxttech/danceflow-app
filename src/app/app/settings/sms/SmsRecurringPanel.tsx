@@ -170,9 +170,11 @@ export default function SmsRecurringPanel({
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-slate-800">Authorize a monthly charge for this location</h4>
                   <div className="grid gap-2">
-                    {(["number", "monthly"] as const).map((k) => {
+                    {(overview.campaignMonthlyKind ? (["number", overview.campaignMonthlyKind] as const) : (["number"] as const)).map((k) => {
                       const p = prices.find((x) => x.kind === k);
-                      const taken = overview.authorizations.some((a) => a.kind === k && a.status === "active" && a.thisLocation && new Date(a.expiresAt).getTime() > Date.now()); // an ended term can be renewed
+                      // one campaign fee per location, whichever registration path it was authorized on
+                      const sameFee = (a: RecurringKind) => a === k || (k !== "number" && a !== "number");
+                      const taken = overview.authorizations.some((a) => sameFee(a.kind) && a.status === "active" && a.thisLocation && new Date(a.expiresAt).getTime() > Date.now()); // an ended term can be renewed
                       const disabled = !p || taken;
                       return (
                         <label key={k} className={`flex items-center justify-between rounded-xl border px-3 py-3 text-sm ${kind === k ? "border-violet-600 bg-violet-50" : "border-slate-200"} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>

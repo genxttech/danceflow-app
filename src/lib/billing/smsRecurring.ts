@@ -6,11 +6,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 type Client = Pick<SupabaseClient, "rpc">;
 
-export const RECURRING_KINDS = ["number", "monthly"] as const;
+// monthly = the Standard (MIXED) campaign fee; monthly_low_volume = the Low Volume Mixed campaign fee. A location uses the one its registration path
+// needs (`campaignMonthlyKind` in the overview); the database refuses the other.
+export const RECURRING_KINDS = ["number", "monthly", "monthly_low_volume"] as const;
 export type RecurringKind = (typeof RECURRING_KINDS)[number];
 export const RECURRING_TERMS = [1, 3, 6, 12] as const;
 
-export const RECURRING_KIND_LABEL: Record<RecurringKind, string> = { number: "texting phone number rent", monthly: "monthly texting service" };
+export const RECURRING_KIND_LABEL: Record<RecurringKind, string> = { number: "texting phone number rent", monthly: "monthly texting service", monthly_low_volume: "monthly texting service" };
 
 export function smsRecurringAuthorizationEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return String(env.SMS_RECURRING_AUTHORIZATION ?? "").trim().toLowerCase() === "on";
@@ -35,7 +37,7 @@ export function buildAuthorizationStatement(input: { kind: RecurringKind; priceC
   ].join(" ");
 }
 
-export type RecurringErrorCode = "not_authorized" | "no_legal_business" | "price_changed" | "already_authorized" | "invalid" | "pilot_business" | "monthly_limit" | "insufficient_credit" | "unavailable";
+export type RecurringErrorCode = "not_authorized" | "no_legal_business" | "price_changed" | "already_authorized" | "invalid" | "pilot_business" | "monthly_limit" | "insufficient_credit" | "wrong_path" | "unavailable";
 export class RecurringError extends Error {
   constructor(public readonly code: RecurringErrorCode, message: string) {
     super(message);
@@ -74,6 +76,8 @@ export type RecurringOverview = {
   serviceState: RecurringServiceState;
   serviceIssue: RecurringServiceIssue;
   authorizations: RecurringAuthorization[];
+  /** The campaign monthly-fee kind this location's registration path uses; null when the path is not verified yet (no campaign fee can be authorized). */
+  campaignMonthlyKind: "monthly" | "monthly_low_volume" | null;
 };
 
 const SERVICE_STATES = new Set<string>(["none", "active", "past_due", "suspended"]);
@@ -93,6 +97,7 @@ export function parseRecurringOverview(data: unknown): RecurringOverview {
     pilotBusiness: o.pilot_business === true,
     serviceState: SERVICE_STATES.has(String(o.service_state)) ? (o.service_state as RecurringServiceState) : "none",
     serviceIssue: SERVICE_ISSUES.has(String(o.service_issue)) ? (o.service_issue as RecurringServiceIssue) : null,
+    campaignMonthlyKind: o.campaign_monthly_kind === "monthly_low_volume" ? "monthly_low_volume" : o.campaign_monthly_kind === "monthly" || o.campaign_monthly_kind === undefined ? "monthly" : null,
     authorizations: list.flatMap((row) => {
       const r = obj(row);
       if (!isRecurringKind(r.kind) || (r.status !== "active" && r.status !== "revoked") || typeof r.id !== "string") return [];
@@ -119,7 +124,10 @@ export function parseRecurringOverview(data: unknown): RecurringOverview {
 export async function getRecurringOverview(supabase: Client, studioId: string): Promise<RecurringOverview | null> {
   const { data, error } = await supabase.rpc("sms_recurring_overview", { p_studio_id: studioId });
   if (error) return null;
-  return parseRecurringOverview(data);
+  // the location's campaign-fee kind (20261202090000). Unreadable = no campaign fee offered (fail closed); number rent is path-neutral.
+  const fees = await supabase.rpc("sms_location_fee_kinds", { p_studio_id: studioId });
+  const kind = fees.error ? null : (fees.data as { campaign_monthly_kind?: unknown } | null)?.campaign_monthly_kind ?? null;
+  return parseRecurringOverview({ ...(data as object), campaign_monthly_kind: kind });
 }
 
 const CODE_MAP: Record<string, [RecurringErrorCode, string]> = {
@@ -131,6 +139,7 @@ const CODE_MAP: Record<string, [RecurringErrorCode, string]> = {
   TW011: ["pilot_business", "Your business is in the DanceFlow pilot: each recurring fee needs its own approval from DanceFlow. Nothing is charged automatically."],
   TW012: ["monthly_limit", "Set a monthly spending limit that covers your recurring charges first (Settings, Texting, Monthly spending limit)."],
   TW007: ["insufficient_credit", "Add credit first: the first month's charge is set aside from your prepaid credit when you authorize."],
+  TW020: ["wrong_path", "This monthly fee does not match this location's texting registration path. Reload the page and authorize the fee shown."],
 };
 const failure = (error: { code?: string } | null): RecurringError => {
   const mapped = CODE_MAP[String(error?.code ?? "")];

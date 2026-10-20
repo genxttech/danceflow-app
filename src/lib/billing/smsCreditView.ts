@@ -134,9 +134,11 @@ export const PURCHASE_LABEL: Record<CreditPurchaseStatus, string> = {
 
 export const PRICE_LABEL: Record<string, string> = {
   brand: "Business registration",
+  brand_low_volume: "Business registration (low volume)",
   campaign_vetting: "Messaging registration review",
   number: "Texting phone number",
   monthly: "Monthly service",
+  monthly_low_volume: "Monthly service (low volume)",
   sms_usage: "Per text message",
 };
 
