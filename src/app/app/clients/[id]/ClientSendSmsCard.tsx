@@ -37,6 +37,16 @@ function sendDisabledReason(args: {
   return null;
 }
 
+/** One key per composed message: a resend of the SAME message (after a network error) is recognized by the server and never texts twice. */
+function newSendKey(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function ClientSendSmsCard({
   clientId,
   phone,
@@ -48,6 +58,7 @@ export function ClientSendSmsCard({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [sendKey, setSendKey] = useState(newSendKey);
 
   const normalizedPhone = phone ? normalizeSmsPhone(phone) : null;
   const disabledReason = useMemo(
@@ -74,12 +85,19 @@ export function ClientSendSmsCard({
         body: JSON.stringify({
           clientId,
           body: message,
+          idempotencyKey: sendKey,
         }),
       });
 
       const payload = await response.json().catch(() => null) as
-        | { ok?: boolean; message?: string; error?: string }
+        | { ok?: boolean; message?: string; error?: string; uncertain?: boolean }
         | null;
+
+      if (payload?.uncertain) {
+        // the text may have gone out: keep the message and its key, so pressing Send again cannot text twice
+        setStatusMessage(payload.error ?? "We could not confirm whether this text was sent. Do not send it again.");
+        return;
+      }
 
       if (!response.ok || !payload?.ok) {
         setErrorMessage(payload?.error ?? "The text could not be sent.");
@@ -87,6 +105,7 @@ export function ClientSendSmsCard({
       }
 
       setMessage("");
+      setSendKey(newSendKey());
       setStatusMessage(payload.message ?? "Text queued for sending.");
     } catch {
       setErrorMessage("The text could not be sent. Please try again.");
@@ -136,7 +155,10 @@ export function ClientSendSmsCard({
           Message
           <textarea
             value={message}
-            onChange={(event) => setMessage(event.target.value)}
+            onChange={(event) => {
+              setMessage(event.target.value);
+              setSendKey(newSendKey());
+            }}
             rows={4}
             maxLength={1200}
             placeholder="Example: Hi! This is a quick reminder about your lesson tomorrow."

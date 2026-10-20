@@ -129,7 +129,7 @@ describe("the outbound sender resolver", () => {
   it("the earlier gates still decide first: no registration, or the platform switch off, is refused without asking about recurring charges", async () => {
     const db = createFakeSupabase({ studio_sms_registrations: [] });
     expect(await resolveStudioSmsSender(db.client as never, STUDIO_A)).toEqual({ ok: false, reason: "sms_studio_not_approved" });
-    expect(db.rpcCalls).toHaveLength(0);
+    expect(db.rpcCalls.filter((c) => c.name === "tw4_recurring_service_state")).toHaveLength(0); // (the billing mode is asked first: a legacy studio here)
     process.env.DANCEFLOW_SMS_STATUS = "paused";
     const paused = seed("suspended");
     expect(await resolveStudioSmsSender(paused.client as never, STUDIO_A)).toEqual({ ok: false, reason: "sms_not_approved" });

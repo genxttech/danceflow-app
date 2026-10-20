@@ -16,6 +16,8 @@ import {
 } from "@/lib/sms/compliance";
 import { resolveStudioSmsSender } from "@/lib/sms/studioSender";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
+import { replayMeaning, sendBilledSms, smsUsageBillingEnabled, type BilledSendRefusal } from "@/lib/sms/usageBilling";
+import { billedSmsProviderFromEnv } from "@/lib/sms/usageProvider";
 import {
   renderDanceFlowSystemEmail,
   renderPlainTextAsStudioEmail,
@@ -753,11 +755,17 @@ async function sendSms(
   // SMS-A2P-2: the studio's own approved registration supplies the Messaging Service;
   // the global platform status is only the emergency master switch inside the resolver.
   const senderResult = await resolveStudioSmsSender(supabase, row.studio_id);
-  if (!senderResult.ok) {
-    if (senderResult.reason === "sms_registration_lookup_failed" || senderResult.reason === "sms_service_check_failed") {
+  // TW-4F: a studio of a verified legal business texts only through the billed path (below, after the consent checks)
+  const billed = !senderResult.ok && senderResult.reason === "sms_billed_studio";
+  if (!senderResult.ok && !billed) {
+    if (
+      senderResult.reason === "sms_registration_lookup_failed" ||
+      senderResult.reason === "sms_service_check_failed" ||
+      senderResult.reason === "sms_billing_check_failed"
+    ) {
       return { ok: false, error: senderResult.reason };
     }
-    return skipSms(senderResult.reason);
+    return skipSms(senderResult.reason as SmsSkipReason);
   }
 
   const phoneE164 = normalizeSmsPhone(row.recipient_phone ?? "");
@@ -814,6 +822,10 @@ async function sendSms(
     return { ok: false, skipped: true, reason: "outbound_template_unsupported" };
   }
   const finalBody = appendSmsOptOutFooter(rendered.bodyText, studio?.name ?? null);
+
+  if (billed || !senderResult.ok) {
+    return sendBilledDelivery(row, { phoneE164, recipientClientId, finalBody, origin: options.origin ?? null });
+  }
 
   const { data: logRow, error: logError } = await supabase
     .from("sms_message_logs")
@@ -876,6 +888,64 @@ async function sendSms(
     ok: true,
     providerMessageId: sendResult.sid ?? null,
   };
+}
+
+const BILLED_SKIP: Partial<Record<BilledSendRefusal, SmsSkipReason>> = {
+  insufficient_credit: "sms_insufficient_credit",
+  monthly_limit: "sms_monthly_limit",
+  no_billed_sender: "sms_no_billed_sender",
+  not_billed: "sms_no_billed_sender",
+  suspended: "sms_service_suspended",
+  switched_off: "sms_billing_unavailable",
+  no_price: "sms_billing_unavailable",
+};
+
+/**
+ * TW-4F: the billed send of an automated text. The delivery row is the source, so a reclaimed or retried delivery is a replay in the database and can never
+ * text twice. A refusal before any provider call is a skip (nothing sent, nothing reserved); a database outage before the call is retried (still nothing
+ * sent); an uncertain provider answer is a terminal failure that is never resent (the reconciler or an admin settles its money).
+ */
+async function sendBilledDelivery(
+  row: OutboundDeliveryRow,
+  input: { phoneE164: string; recipientClientId: string; finalBody: string; origin: string | null },
+): Promise<SmsDispatchResult> {
+  if (!smsUsageBillingEnabled()) return skipSms("sms_billing_unavailable");
+  const provider = billedSmsProviderFromEnv();
+  if (!provider) return skipSms("sms_billing_unavailable");
+
+  const result = await sendBilledSms(createAdminClient(), provider, {
+    source: { kind: "delivery", id: row.id },
+    studioId: row.studio_id,
+    clientId: input.recipientClientId,
+    phoneE164: input.phoneE164,
+    body: input.finalBody,
+    messageType: row.template_key,
+    relatedTable: row.related_table,
+    relatedId: row.related_id,
+    sentBy: null,
+    statusCallbackBase: buildSmsStatusCallbackUrl(input.origin),
+  });
+
+  switch (result.outcome) {
+    case "sent":
+      return { ok: true, providerMessageId: result.providerSid };
+    case "replay": {
+      const meaning = replayMeaning(result.state);
+      if (meaning === "accepted") return { ok: true, providerMessageId: result.providerSid };
+      // not handed to the provider yet: keep the row queued; the next claim replays and sees how it ended (nothing can be sent twice)
+      if (meaning === "not_yet") return { ok: false, retry: true, code: "sms_not_dispatched" };
+      return { ok: false, error: meaning === "not_sent" ? "sms_not_sent" : "sms_outcome_unknown" };
+    }
+    case "uncertain":
+      return { ok: false, error: "sms_outcome_unknown" };
+    case "rejected":
+      return { ok: false, error: `sms_send_failed:${result.code}` };
+    case "refused": {
+      if (result.reason === "unavailable") return { ok: false, retry: true, code: "sms_billing_unavailable" };
+      const skip = BILLED_SKIP[result.reason];
+      return skip ? skipSms(skip) : { ok: false, error: `sms_billed_${result.reason}` };
+    }
+  }
 }
 
 /**

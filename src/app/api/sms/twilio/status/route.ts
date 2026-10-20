@@ -9,6 +9,10 @@ import { cleanTextValue } from "@/lib/validation/forms";
 import { hasValidSecret } from "@/lib/security/cron";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** PostgREST PGRST202 / Postgres 42883: the usage-billing functions are not installed in this environment. */
+const USAGE_NOT_INSTALLED = new Set(["PGRST202", "42883"]);
+
 function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -112,6 +116,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Status callback is temporarily unavailable." }, { status: 503 });
   }
 
+  // TW-4F usage billing: a billed text's callback carries its attempt id (the StatusCallback URL). The signer must be the attempt's own subaccount; the callback
+  // binds the provider SID when the send's own record of it was lost, and records the status. It never moves money (the reconciler settles from evidence).
+  const attemptParam = url.searchParams.get("attempt");
+  const attemptId = attemptParam && UUID.test(attemptParam) ? attemptParam : null;
+  if (attemptParam !== null && !attemptId) {
+    return NextResponse.json({ ok: false, error: "Invalid status payload." }, { status: 400 });
+  }
+  let billedVerified = false;
+  const usage = await supabase.rpc("tw4_usage_record_callback", {
+    p_attempt_id: attemptId,
+    p_provider_sid: messageSid,
+    p_signer_account: signer.kind === "subaccount" ? signer.accountSid : null,
+    p_status: messageStatus,
+    p_error_code: errorCode || null,
+  });
+  if (usage.error) {
+    const code = String(usage.error.code ?? "");
+    if (code === "42501") {
+      console.warn("sms_status_usage_account_mismatch");
+      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    }
+    // a legacy message (no attempt id) is unaffected when billing is not installed or its SID is not a billable one
+    const legacyUnaffected = !attemptId && (USAGE_NOT_INSTALLED.has(code) || code === "22023");
+    if (!legacyUnaffected) {
+      console.error("Twilio status callback usage record failed", code || "unknown");
+      return NextResponse.json({ ok: false, error: "Status callback could not be processed." }, { status: code === "22023" ? 400 : 500 });
+    }
+  } else {
+    billedVerified = Boolean(usage.data && typeof usage.data === "object" && (usage.data as { billed?: unknown }).billed === true);
+  }
+
   const mappedStatus = mapTwilioStatusToSmsLogStatus(messageStatus);
   const timestamp = new Date().toISOString();
 
@@ -160,7 +195,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
-  if (logRow.studio_id) {
+  // a billed text was already tied to its subaccount above; its sender is that subaccount's own service, not a legacy registration
+  if (logRow.studio_id && !billedVerified) {
     const { data: registration, error: registrationError } = await supabase
       .from("studio_sms_registrations")
       .select("messaging_service_sid")
