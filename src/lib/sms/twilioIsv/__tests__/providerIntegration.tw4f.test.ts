@@ -7,7 +7,7 @@ import { FakeIsvParent, type FakeIsvAdapter } from "../fake";
 import { describeOutcome } from "../outcomes";
 import type { RunnerInputs } from "../payloads";
 import { createRealIsvParent, createWebhookTokenParent, RealIsvAdapter, RealIsvParent } from "../real";
-import { paidBrandSupported, registrationPath, REGISTRATION_TIERS } from "../registrationPath";
+import { needsPathReadiness, paidBrandRefusal, parseLocationFeeKinds, registrationPath, REGISTRATION_TIERS } from "../registrationPath";
 import { rotatingSubaccountAdapter } from "../rotation";
 import { runBrandSubmission } from "../runner";
 import { RunnerStoreError } from "../store";
@@ -107,14 +107,29 @@ describe("registration paths (provider-confirmed semantics)", () => {
     const path = registrationPath("standard");
     expect(path.brand).toEqual({ brandType: "STANDARD", skipAutomaticSecVet: false });
     expect(path.campaignUseCase).toBe("MIXED");
-    expect(paidBrandSupported(path)).toBe(true);
+    expect(path).toMatchObject({ brandPriceKind: "brand", campaignMonthlyPriceKind: "monthly" });
+    expect(needsPathReadiness(path)).toBe(false);
   });
 
-  it("Low-Volume Standard: still a STANDARD brand, skips automatic secondary vetting, LOW_VOLUME campaign, no published price yet", () => {
+  it("Low-Volume Standard: still a STANDARD brand, skips automatic secondary vetting, LOW_VOLUME campaign, its own price kinds", () => {
     const path = registrationPath("low_volume_standard");
     expect(path.brand).toEqual({ brandType: "STANDARD", skipAutomaticSecVet: true });
     expect(path.campaignUseCase).toBe("LOW_VOLUME");
-    expect(paidBrandSupported(path)).toBe(false);
+    expect(path).toMatchObject({ brandPriceKind: "brand_low_volume", campaignMonthlyPriceKind: "monthly_low_volume" });
+    expect(needsPathReadiness(path)).toBe(true);
+  });
+
+  it("a paid brand needs the database to report the SAME verified path and a published price for its kind (fail closed on anything else)", () => {
+    const lvs = registrationPath("low_volume_standard");
+    const fees = (o: Record<string, unknown>) => parseLocationFeeKinds(o);
+    expect(paidBrandRefusal(lvs, fees({ path: "low_volume_standard", brand_kind: "brand_low_volume", brand_price_cents: 700 }))).toBeNull();
+    expect(paidBrandRefusal(lvs, fees({ path: "low_volume_standard", brand_kind: "brand_low_volume", brand_price_cents: null }))).toBe("unpriced");
+    expect(paidBrandRefusal(lvs, fees({ path: "low_volume_unverified", brand_kind: null, brand_price_cents: null }))).toBe("ineligible");
+    expect(paidBrandRefusal(lvs, fees({ path: "standard", brand_kind: "brand", brand_price_cents: 4600 }))).toBe("ineligible");
+    expect(paidBrandRefusal(lvs, fees({ path: "low_volume_standard", brand_kind: "brand", brand_price_cents: 4600 }))).toBe("ineligible");
+    for (const junk of [null, undefined, "x", [], { path: "LOW_VOLUME_STANDARD" }, { path: "low_volume_standard", brand_kind: "brand_low_volume", brand_price_cents: "700" }]) {
+      expect(paidBrandRefusal(lvs, parseLocationFeeKinds(junk))).not.toBeNull();
+    }
   });
 
   it("anything else is refused (never guessed) and the paths are frozen", () => {
@@ -208,6 +223,7 @@ describe("the runner in a subaccount: Primary read through the parent, Primary a
     store.tier = "low_volume_standard";
     const result = await toBrand();
     expect(result).toMatchObject({ outcome: "tier_unpriced", detail: "B1:low_volume_standard", stepsRun: [] });
+    expect(store.feeKindReads).toBeGreaterThan(0);
     expect(adapter.calls).toHaveLength(0);
     expect(store.spendReservations).toHaveLength(0);
     expect(store.ledger).toHaveLength(0);
@@ -231,6 +247,57 @@ describe("the runner in a subaccount: Primary read through the parent, Primary a
     expect(after.outcome).not.toBe("tier_unpriced");
     expect(adapter.count("createBrand")).toBe(1);
     expect(store.spendReservations).toHaveLength(0);
+  });
+
+  it("Low-Volume Standard, paid, verified and priced: reserves and captures the LOW-VOLUME brand kind (never the Standard price)", async () => {
+    store.tier = "low_volume_standard";
+    store.prices.brand_low_volume = 700;
+    const result = await toBrand();
+    expect(result.outcome).toBe("brand_submitted");
+    const brand = adapter.calls.find((call) => call.method === "createBrand")?.input as { skipAutomaticSecVet: boolean; mock: boolean };
+    expect(brand).toMatchObject({ skipAutomaticSecVet: true, mock: false });
+    expect(store.spendReservations).toEqual([expect.stringMatching(/:brand_low_volume$/)]);
+    expect(store.settlements.length).toBeGreaterThan(0);
+    expect(store.settlements.every((s) => s.includes(":brand_low_volume:"))).toBe(true);
+  });
+
+  it("Low-Volume Standard, paid, priced but NOT verified (no complete eligibility record): stopped before any Twilio write", async () => {
+    store.tier = "low_volume_standard";
+    store.prices.brand_low_volume = 700;
+    store.lvsVerified = false;
+    const result = await toBrand();
+    expect(result).toMatchObject({ outcome: "tier_ineligible", detail: "B1:low_volume_standard", stepsRun: [] });
+    expect(adapter.calls).toHaveLength(0);
+    expect(store.spendReservations).toHaveLength(0);
+    expect(store.ledger).toHaveLength(0);
+    expect(describeOutcome("tier_ineligible")).toMatch(/Nothing was reserved, called or charged/);
+  });
+
+  it("Low-Volume Standard: an unreadable fee path fails closed before any Twilio write", async () => {
+    store.tier = "low_volume_standard";
+    store.prices.brand_low_volume = 700;
+    store.feeKindsError = "57014";
+    expect(await toBrand()).toMatchObject({ outcome: "exception", detail: "fee_kinds:57014" });
+    expect(adapter.calls).toHaveLength(0);
+    expect(store.ledger).toHaveLength(0);
+  });
+
+  it("the database refusing the reservation's path (TW020) stops before the brand call, with nothing reserved", async () => {
+    store.tier = "low_volume_standard";
+    store.prices.brand_low_volume = 700;
+    store.pathMismatch = true;
+    const result = await toBrand();
+    expect(result).toMatchObject({ outcome: "tier_ineligible", detail: "B1:path_mismatch" });
+    expect(adapter.count("createBrand")).toBe(0);
+    expect(store.spendReservations).toHaveLength(0);
+  });
+
+  it("Standard is unchanged: no fee-path read, the Standard brand kind is reserved and captured", async () => {
+    const result = await toBrand();
+    expect(result.outcome).toBe("brand_submitted");
+    expect(store.feeKindReads).toBe(0);
+    expect(store.spendReservations).toEqual([expect.stringMatching(/:brand$/)]);
+    expect(store.settlements.every((s) => s.includes(":brand:"))).toBe(true);
   });
 
   it("an unreadable or unknown tier stops the run before any Twilio write", async () => {

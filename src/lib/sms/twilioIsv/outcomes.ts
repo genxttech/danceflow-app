@@ -21,6 +21,7 @@ const TEXT: Record<RunOutcome, string> = {
   insufficient_credit: "Stopped before the paid step: the studio's settled prepaid SMS credit does not cover it (or its credit account is on hold). Nothing was called or charged. The studio funds its credit first; credit counts only after the payment has settled.",
   settlement_failed: "The paid step ran but its credit settlement could not be recorded. The reservation stays held. Do not run again; a platform admin must reconcile the credit ledger first.",
   tier_unpriced: "Stopped before the paid brand step: this studio is set to the Low-Volume Standard registration tier, which has no published brand price yet. Nothing was reserved, called or charged. Use the Standard tier, or wait until the Low-Volume Standard price is published.",
+  tier_ineligible: "Stopped before the paid brand step: this location is not on a verified Low-Volume Standard registration path (the eligibility checklist and the legal business EIN must be on record), or its fee approval belongs to the other path. Nothing was reserved, called or charged. Record the tier decision with the full checklist, or use the Standard tier.",
   spend_blocked: "Stopped before the paid brand step: no owner-approved spend is available for it within this legal business's spend cap. Nothing was called or charged.",
 };
 

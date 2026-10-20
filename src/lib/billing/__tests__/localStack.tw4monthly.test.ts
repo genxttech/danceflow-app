@@ -83,7 +83,7 @@ delete from public.studio_sms_recurring_authorizations where legal_entity_id in 
 delete from public.studio_sms_monthly_limits where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_entity_timezones where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_limit_ceilings where legal_entity_id in (${ENTITIES}) or (scope = 'platform' and approved_by = '${U.padmin}');
-delete from public.studio_sms_spend_events where legal_entity_id in (${ENTITIES});
+delete from public.studio_sms_approval_refs where legal_entity_id in (${ENTITIES}); delete from public.studio_sms_spend_events where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_ledger where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_reservations where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_disputes where topup_id in (select id from public.studio_sms_credit_topups where legal_entity_id in (${ENTITIES}));
@@ -152,7 +152,7 @@ describe.skipIf(!enabled)("monthly spending limits: months in the business's tim
   const clearLimits = () => aged(`delete from public.studio_sms_monthly_limits where legal_entity_id in (${ENTITIES}); delete from public.studio_sms_limit_ceilings where legal_entity_id in (${ENTITIES}) or (scope = 'platform' and approved_by = '${U.padmin}');`);
   const resetMoney = async (entity: string) => {
     aged(`delete from public.studio_sms_recurring_charges where legal_entity_id = '${entity}'; delete from public.studio_sms_recurring_authorizations where legal_entity_id = '${entity}';
-          delete from public.studio_sms_spend_events where legal_entity_id = '${entity}'; delete from public.studio_sms_credit_ledger where legal_entity_id = '${entity}';
+          delete from public.studio_sms_approval_refs where legal_entity_id = '${entity}'; delete from public.studio_sms_spend_events where legal_entity_id = '${entity}'; delete from public.studio_sms_credit_ledger where legal_entity_id = '${entity}';
           delete from public.studio_sms_credit_reservations where legal_entity_id = '${entity}'; delete from public.studio_sms_credit_disputes where topup_id in (select id from public.studio_sms_credit_topups where legal_entity_id = '${entity}');
           delete from public.studio_sms_credit_topups where legal_entity_id = '${entity}'; delete from public.studio_sms_credit_accounts where legal_entity_id = '${entity}';`);
   };
@@ -600,7 +600,7 @@ describe.skipIf(!enabled)("monthly spending limits: months in the business's tim
       expect(Number(psql(`select public._tw4f3a_committed('${EA}')`))).toBe(5_000);
       expect(spend(EA)).toBe(1_500); // and the setup fee is not a routine cost of the month
       await rpc("tw4_spend_withdraw", { p_spend_event_id: (event.data as { spend_event_id: string }).spend_event_id, p_actor: U.padmin, p_note: "fixture: withdraw the setup authorization" });
-      aged(`delete from public.studio_sms_spend_events where legal_entity_id = '${EA}'; delete from public.studio_sms_price_list where kind = 'brand' and created_by = '${U.padmin}';`);
+      aged(`delete from public.studio_sms_approval_refs where legal_entity_id = '${EA}'; delete from public.studio_sms_spend_events where legal_entity_id = '${EA}'; delete from public.studio_sms_price_list where kind = 'brand' and created_by = '${U.padmin}';`);
       await resetMoney(EA);
       clearAuths();
     });

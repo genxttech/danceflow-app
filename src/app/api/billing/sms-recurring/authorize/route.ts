@@ -18,7 +18,7 @@ function admin() {
   return createSupabaseAdmin(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-const STATUS: Record<string, number> = { not_authorized: 403, no_legal_business: 409, price_changed: 409, already_authorized: 409, invalid: 400, pilot_business: 409, monthly_limit: 409, insufficient_credit: 409, unavailable: 503 };
+const STATUS: Record<string, number> = { not_authorized: 403, no_legal_business: 409, price_changed: 409, already_authorized: 409, invalid: 400, pilot_business: 409, monthly_limit: 409, insufficient_credit: 409, wrong_path: 409, unavailable: 503 };
 
 export async function POST(request: NextRequest) {
   if (!smsRecurringAuthorizationEnabled()) return new NextResponse(null, { status: 404 });

@@ -7,6 +7,7 @@ Status 2026-10-19. **Nothing here is approved or published.** Owner decision 2 a
 | Item | Cost | Frequency | Source / confidence |
 |---|---|---|---|
 | Standard brand registration (includes secondary vetting of $41.50) | $46.00 | one time | Twilio pricing and fees help article ([support.twilio.com](https://support.twilio.com/hc/en-us/articles/1260803965530-Pricing-and-Fees-for-A2P-10DLC-Service)); an older marketing page shows $44, so treat $46 as current. Confirm on the invoice. |
+| Low-Volume Standard brand registration (no automatic secondary vetting) | $4.50 (to verify) | one time | Brand registration fee without the $41.50 secondary vetting (Twilio pricing article above; Low-Volume Standard brands skip automatic secondary vetting, ticket #29647095 answer 6). **Must be confirmed on the Twilio invoice before pricing.** |
 | Campaign vetting | $15.00 | one time per campaign, non-refundable | Campaign vetting FAQ ([help.twilio.com](https://help.twilio.com/articles/11587910480155-A2P-10DLC-Campaign-Vetting-FAQ)) |
 | Campaign monthly fee, MIXED, low-volume | $1.50 | monthly, billed at approval then each month | same pricing article |
 | Campaign monthly fee, MIXED, standard | $10.00 | monthly | same article. **Which tier a Standard-brand MIXED campaign falls into must be confirmed with Twilio before pricing**; the table below uses $10 (conservative). The FAQ gives a $1.50 to $10 range by use case. |
@@ -25,6 +26,7 @@ Every fee is shown to the studio as its own line (decision 2). The margin column
 | Item | Cost | Option A: cost + 25% | Option B: cost + 40% | Option C: flat per-item markup |
 |---|---|---|---|---|
 | Brand registration (one time) | $46.00 | $58.00 | $65.00 | $56.00 (+$10) |
+| Brand registration, Low-Volume Standard (one time, if confirmed) | $4.50 | $6.00 | $6.50 | $14.50 (+$10) |
 | Campaign vetting (one time) | $15.00 | $19.00 | $21.00 | $19.00 (+$4) |
 | Campaign, monthly (standard MIXED, if confirmed) | $10.00 | $12.50 | $14.00 | $12.00 |
 | Campaign, monthly (low-volume MIXED, if confirmed) | $1.50 | $2.00 | $2.25 | $2.50 |
@@ -49,3 +51,19 @@ DanceFlow absorbs ordinary provider-cost variances against the published price. 
 2. Per-segment price and whether Stripe processing is built into it.
 3. Fee presentation: separate lines (recommended by decision 2) and the wording for each.
 4. Tax treatment (accountant).
+
+## 5. Price-list kinds (20261202090000, DRAFT: nothing published)
+
+Each registration path has its own price-list kind, so a Low-Volume Standard studio is never reserved or charged the Standard (secondary-vetted) price. All rows above stay DRAFT until the owner approves exact prices; the migration publishes none.
+
+| Row above | Price-list kind | Path |
+|---|---|---|
+| Brand registration | `brand` | Standard |
+| Brand registration, Low-Volume Standard | `brand_low_volume` | Low-Volume Standard (verified) |
+| Campaign vetting | `campaign_vetting` | both (one vetting fee per campaign) |
+| Campaign, monthly (standard MIXED) | `monthly` | Standard |
+| Campaign, monthly (low-volume MIXED) | `monthly_low_volume` | Low-Volume Standard (verified) |
+| Phone number, monthly | `number` | both |
+| SMS per segment | `sms_usage` | both |
+
+Publishing a low-volume price is a separate owner approval (`tw4_price_set`, platform admin). Without it, every low-volume authorization is refused (TW008) and a paid Low-Volume Standard run stops before any Twilio write (`tier_unpriced`).

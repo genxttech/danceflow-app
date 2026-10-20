@@ -41,6 +41,7 @@ import {
   periodKeyFor,
   revokeRecurring,
   runDueRecurringCharges,
+  isRecurringKind,
   smsRecurringAuthorizationEnabled,
   type RecurringOverview,
 } from "../smsRecurring";
@@ -339,5 +340,62 @@ describe("overview type guard used by the page", () => {
   it("a null overview hides the card (the page renders it only when both reads succeeded)", () => {
     const overview: RecurringOverview | null = null;
     expect(overview).toBeNull();
+  });
+});
+
+describe("campaign monthly-fee kind follows the location's registration path (20261202)", () => {
+  const base = { legal_business: true, authorizations: [] };
+  const client = (fees: { data?: unknown; error?: unknown }) => ({
+    rpc: async (fn: string) => (fn === "sms_recurring_overview" ? { data: base, error: null } : { data: fees.data ?? null, error: fees.error ?? null }),
+  });
+
+  it("reads the kind the database reports; anything unrecognized offers no campaign fee", async () => {
+    expect(parseRecurringOverview({ ...base, campaign_monthly_kind: "monthly_low_volume" }).campaignMonthlyKind).toBe("monthly_low_volume");
+    expect(parseRecurringOverview({ ...base, campaign_monthly_kind: "monthly" }).campaignMonthlyKind).toBe("monthly");
+    expect(parseRecurringOverview({ ...base, campaign_monthly_kind: null }).campaignMonthlyKind).toBeNull();
+    expect(parseRecurringOverview({ ...base, campaign_monthly_kind: "MONTHLY" }).campaignMonthlyKind).toBeNull();
+    expect((await getRecurringOverview(client({ data: { path: "low_volume_standard", campaign_monthly_kind: "monthly_low_volume" } }) as never, "s"))?.campaignMonthlyKind).toBe("monthly_low_volume");
+    expect((await getRecurringOverview(client({ data: { path: "low_volume_unverified", campaign_monthly_kind: null } }) as never, "s"))?.campaignMonthlyKind).toBeNull();
+    // an unreadable path fails closed: no campaign fee is offered (number rent is path-neutral)
+    expect((await getRecurringOverview(client({ error: { code: "42501" } }) as never, "s"))?.campaignMonthlyKind).toBeNull();
+  });
+
+  it("the Low Volume Mixed fee is a recurring kind with the owner wording the database builds for it", () => {
+    expect(isRecurringKind("monthly_low_volume")).toBe(true);
+    expect(buildAuthorizationStatement({ kind: "monthly_low_volume", priceCents: 250, termMonths: 3, totalLimitCents: 750 }))
+      .toBe(buildAuthorizationStatement({ kind: "monthly", priceCents: 250, termMonths: 3, totalLimitCents: 750 }));
+  });
+});
+
+describe("owner panel offers the campaign fee of the location's path only", () => {
+  const lvsPrices = [...prices, { kind: "monthly_low_volume", customerPriceCents: 250, description: "Monthly texting service (low volume)" }];
+  const render = (kind: unknown) =>
+    renderToStaticMarkup(createElement(SmsRecurringPanel, { overview: parseRecurringOverview(raw({ authorizations: [], campaign_monthly_kind: kind })), prices: lvsPrices, isOwner: true, enabled: true, initialOpen: true }));
+
+  it("Low-Volume Standard: the low-volume price, never the Standard one", () => {
+    const out = render("monthly_low_volume");
+    expect(out).toContain('value="monthly_low_volume"');
+    expect(out).not.toContain('value="monthly"');
+    expect(out).toContain("$2.50 / month");
+    expect(out).not.toContain("$15.00 / month");
+  });
+
+  it("Standard: unchanged", () => {
+    const out = render("monthly");
+    expect(out).toContain('value="monthly"');
+    expect(out).not.toContain('value="monthly_low_volume"');
+    expect(out).toContain("$15.00 / month");
+  });
+
+  it("unverified or unreadable path: only number rent is offered", () => {
+    const out = render(null);
+    expect(out).toContain('value="number"');
+    expect(out).not.toMatch(/value="monthly/);
+  });
+
+  it("an active campaign fee of either path counts as already authorized", () => {
+    const out = renderToStaticMarkup(createElement(SmsRecurringPanel, {
+      overview: parseRecurringOverview(raw({ campaign_monthly_kind: "monthly_low_volume" })), prices: lvsPrices, isOwner: true, enabled: true, initialOpen: true }));
+    expect(out).toMatch(/\$2\.50 \/ month · authorized/);
   });
 });
