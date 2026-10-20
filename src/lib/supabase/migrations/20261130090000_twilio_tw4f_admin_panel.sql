@@ -60,7 +60,8 @@ create trigger studio_sms_panel_requests_20_no_truncate before truncate on publi
 --  - a key used for another studio's business or by another admin is refused;
 --  - nothing is recorded when nothing would consume it: an account that is active, suspended or closed (55000), or a creation started less than
 --    10 minutes ago (TW006, the same window tw4_subaccount_begin uses; after it, an interrupted 'creating' attempt is reconciled by lookup);
---  - an open, fresh confirmation by the same admin is reused instead of adding a second one ({reused: true}).
+--  - an open confirmation by the same admin from the last 10 minutes is reused instead of adding a second one ({reused: true}); the window is
+--    shorter than begin's 15-minute freshness, so a reused confirmation is still valid when provisioning consumes it.
 create or replace function public.tw4_panel_subaccount_confirm(p_request_key uuid, p_studio_id uuid, p_actor uuid)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -97,7 +98,7 @@ begin
   end if;
   insert into public.studio_sms_panel_requests (request_key, action, legal_entity_id, actor) values (p_request_key, 'subaccount_confirm', v_entity, p_actor);
   if exists (select 1 from public.studio_sms_subaccount_confirmations c where c.legal_entity_id = v_entity and c.confirmed_by = p_actor
-             and c.consumed_at is null and c.confirmed_at > now() - interval '15 minutes') then
+             and c.consumed_at is null and c.confirmed_at > now() - interval '10 minutes') then
     return jsonb_build_object('replayed', false, 'reused', true, 'legal_entity_id', v_entity);
   end if;
   perform public.tw4_subaccount_confirm(v_entity, p_actor);

@@ -58,13 +58,16 @@ export async function panelAuthorizeFeeAction(formData: FormData) {
   const panelStore = store();
   // the location's registration tier comes from the database, never from the form
   let studioTier: string | null = null;
+  let onboardingFound = false;
   try {
     const studioId = String(formData.get("studioId") ?? "");
-    studioTier = (await panelStore.overview(admin.id)).onboardings.find((o) => o.studioId === studioId)?.tier ?? null;
+    const onboarding = (await panelStore.overview(admin.id)).onboardings.find((o) => o.studioId === studioId);
+    onboardingFound = Boolean(onboarding);
+    studioTier = onboarding?.tier ?? null;
   } catch {
     await finish({ ok: false, message: "The studio's registration path could not be read. Nothing was authorized." }, formData);
   }
-  await finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier }), formData);
+  await finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier, onboardingFound }), formData);
 }
 
 export async function panelWithdrawFeeAction(formData: FormData) {

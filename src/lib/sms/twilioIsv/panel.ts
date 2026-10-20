@@ -136,9 +136,12 @@ export function canConfirmSubaccount(entity: PanelEntity, now: number): boolean 
   return !account || account.status === "unknown" || account.status === "failed" || (account.status === "creating" && creatingIsStale(account.updatedAt, now));
 }
 
-/** Text that looks like a full EIN: nn-nnnnnnn with any dash or spacing, or nine digits in a row. Free text must never carry one. */
+/**
+ * Text that looks like a full EIN: exactly nine digits (2 + 3 + 4), optionally split by one space, dash, dot or slash after the 2nd and 5th digit, and
+ * not part of a longer run of digits (so phone numbers, dates and ticket numbers are not refused). Free text must never carry one.
+ */
 export function looksLikeEin(text: string): boolean {
-  return /\d{2}[\s\-‐-―]*\d{7}/.test(text) || /\d{9}/.test(text);
+  return /(?<!\d)\d{2}[\s\-‐-―./]?\d{3}[\s\-‐-―./]?\d{4}(?!\d)/.test(text);
 }
 
 export function deriveStudioPanel(

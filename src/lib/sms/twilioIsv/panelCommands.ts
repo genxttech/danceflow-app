@@ -95,7 +95,7 @@ const FEE_KINDS = new Set(["brand", "campaign_vetting", "number"]);
  * other than the published price, an approval reference used before for an open approval (one approval = one operation, so a double submit or a
  * replay cannot create a second authorization), anything beyond the setup budget, and a pilot-funded approval outside the pilot exception.
  */
-export async function authorizeFee(store: PanelStore, actorId: string, form: FormData, context: { studioTier: string | null }): Promise<CommandResult> {
+export async function authorizeFee(store: PanelStore, actorId: string, form: FormData, context: { studioTier: string | null; onboardingFound?: boolean }): Promise<CommandResult> {
   if (einInForm(form)) return bad(EIN_REFUSAL);
   const entityId = field(form, "entityId");
   const studioId = field(form, "studioId");
@@ -109,6 +109,8 @@ export async function authorizeFee(store: PanelStore, actorId: string, form: For
   if (!Number.isInteger(cents) || cents <= 0) return bad("The published price is missing: reload the page.");
   if (!approvalRef) return bad("Record the owner's written approval (10-120 characters: who, when, where, e.g. 'Owner email 2026-10-20 approving brand $46').");
   if (!checked(form, "ownerApproved")) return bad("Confirm the owner approved this specific operation and amount in writing. Nothing was authorized.");
+  // fail closed: a brand fee is approved only for a location whose registration path could be read (a missing onboarding is not "Standard")
+  if (kind === "brand" && context.onboardingFound === false) return bad("This location's registration path could not be read, so no brand fee can be approved for it. Nothing was authorized.");
   if (kind === "brand" && isRegistrationTier(context.studioTier) && !paidBrandSupported(registrationPath(context.studioTier))) {
     return bad("This location is on Low-Volume Standard, which has no published brand price yet. A Standard-price approval would be wrong. Nothing was authorized.");
   }
@@ -184,6 +186,8 @@ export async function createSubaccount(store: PanelStore, actorId: string, form:
     return bad(panelErrorMessage("subaccount", error));
   }
   const result = await provisionSubaccount({ entities: deps.entities, parent: deps.parent, studioId, actorId, envName: deps.envName });
+  // another admin's creation is running right now: nothing was called or recorded by this attempt
+  if (result.outcome === "retry_later" && result.detail === "creation_in_progress") return bad("Another creation for this legal business is running right now. Nothing was called or recorded; check again in a few minutes.");
   const text = SUBACCOUNT_TEXT[result.outcome];
   const detail = result.detail ? ` (${result.detail.replace(/[^A-Za-z0-9_:.-]/g, "").slice(0, 80)})` : "";
   return { ok: result.outcome === "subaccount_created" || result.outcome === "subaccount_exists", message: `${text}${detail}` };
