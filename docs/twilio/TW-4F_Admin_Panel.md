@@ -53,7 +53,7 @@ The runner refuses the paid brand step in any case (`tier_unpriced`).
 
 The new page `/app/settings/sms/location` (owner only, pilot studios only) lets an owner send the attestation "this location belongs to my existing business": legal name, EIN last four and a confirmation. It creates a pending request only.
 
-It is not linked from the Texting settings page yet. That page is being changed by the monthly spending-limit work, so the link is added after that merges.
+The Texting settings page links to it in one click ("Another location of a business already texting with DanceFlow?", **Link this location**). The link is shown only to the owner, only while the setup is not paused, and only while the location does not belong to a legal business. That last check reads the existing credit overview; when that read is unavailable the link stays, and the page and the database re-check. The owner cannot read a pending request, so after sending one the link stays; a second request is refused with "already waiting for review".
 
 ## Database (`20261130090000_twilio_tw4f_admin_panel.sql`)
 
@@ -66,9 +66,37 @@ It is not linked from the Texting settings page yet. That page is being changed 
 
 ## Dependencies on the monthly spending-limit work (documented, not done here)
 
-1. **Monthly limits on the panel.** Monthly limits are not on main. The panel shows the cumulative setup budget and each owner fee approval, with a note that monthly limits arrive with that work. Display them once its read functions are released.
+1. **Monthly limits on the panel.** Done in the UI follow-up (see below).
 2. **Low-Volume Standard brand price.** This needs a tier-specific price kind, already listed as a financial follow-up. Once it exists, enable the brand approval for Low-Volume Standard locations (`registrationPath.ts`, `brandPriceKind`).
-3. **Settings link** to the location attestation page (shared file `src/app/app/settings/sms/page.tsx`).
+3. **Settings link** to the location attestation page. Done in the UI follow-up (see Owner side).
+
+## UI follow-up: monthly limit on the panel, attestation link, chevrons
+
+- **Monthly spending limit.** It sits inside "Setup budget and fee approvals", above the budget forms. It shows:
+  - the owner-approved limit, and the ceiling cap when it binds;
+  - what has been used this month and what remains;
+  - the business's timezone, and next month's when it changes.
+
+  Its status is *Approved*, *Not set* (no limit, so SMS usage and monthly fees are refused) or *Used up*. A chevron disclosure holds the usage / recurring / set-aside breakdown, the month's dates in the business's timezone, the platform ceiling, next month's limit and the last five limit changes. The block is read-only: only the owner sets the limit, on the Texting screen. When the read is unavailable the block says so; it never shows `$0` or *Not set* in that case.
+- **Read path** (`20261202150000_twilio_tw4f_panel_monthly_limits.sql`). `tw4_panel_monthly_limits(actor)` needs a platform-admin actor, is callable by the service role only, and is STABLE.
+  - It computes every figure with the same `_tw4ml_*` helpers as the owner's `sms_monthly_limit_overview`, and returns the same keys plus `legal_entity_id`.
+  - The app parses it with the owner screen's parser (`src/lib/billing/smsPanelMonthlyLimits.ts`).
+  - It never records a timezone.
+  - Rollback: application first, then drop the function.
+- **Performance fix** (`20261202140000_twilio_tw4ml_default_tz_perf.sql`).
+  - The problem: `_tw4ml_default_tz` ran the `pg_timezone_names` check (about 130 ms) on every studio, before joining to the business's own locations. Every monthly-limit read for a business with no recorded timezone row paid studios × 130 ms several times, and so did its first charge, under the account lock.
+  - The fix: it now checks only the business's own locations. The answers are the same: checks D01–D05 of the SQL suite pass against both the old and the new body.
+  - Locally, ten such businesses went from more than 400 s to 24.5 s. What remains is the zone check itself, about 2.4 s per business without a timezone row on the local Docker stack. A business gets a timezone row once a limit or timezone is set.
+- **Chevrons.** Every `<details>` on the panel shows a chevron that turns when it opens, and so does the owner's "View the information on file". Each uses a named Tailwind group, so nested disclosures never turn each other's chevrons.
+- **QA**
+  - Unit: 21 new tests covering the parser, loader refusals, rendering, the read-only block, per-business separation, chevrons, and the owner link's visibility by role, link state and pause.
+  - SQL suite `test_T_twilio_tw4f_panel_monthly_limits.sql`, 18 checks:
+    - the panel row equals the owner overview;
+    - refusals for an owner, a plain user, and a null or unknown actor;
+    - privileges;
+    - no timezone write;
+    - default-timezone equivalence.
+  - Browser E2E: the panel spec gains two tests. One checks the monthly block in the real page, including the chevron turning; the other checks that an owner whose location is linked sees no link. The attestation test now starts from the Texting page link.
 
 ## QA summary
 
