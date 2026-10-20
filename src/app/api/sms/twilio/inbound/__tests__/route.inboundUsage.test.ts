@@ -248,6 +248,16 @@ describe("usage recording when SMS_INBOUND_RECORDING=on", () => {
     });
   });
 
+  it.each(["STOP", "START"])("%s whose consent change failed is NOT recorded, so the reconciler recovers it (a STOP is then applied: fail closed)", async (word) => {
+    fake.current = createFakeSupabase();
+    fake.current.overrideRpc("record_sms_inbound_opt_event", () => ({ data: null, error: { code: "57014" } }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await POST(inboundRequest(word));
+    expect(response.status).toBe(200); // the texter still gets the STOP confirmation / an answer
+    expect(calls("record_sms_inbound_opt_event")).toHaveLength(1);
+    expect(calls("tw4_inbound_record")).toHaveLength(0);
+  });
+
   it("HELP records as compliance with the help reply", async () => {
     fake.current = createFakeSupabase();
     await POST(inboundRequest("HELP"));

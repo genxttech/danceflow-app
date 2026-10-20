@@ -65,7 +65,8 @@ describe("UsageReconciliation", () => {
       { ...base, inbound: { keywords_unseen: [{ provider_sid: "SM123", recovered_at: "2026-10-20T08:00:00Z" }] } },
       { error: "not_resolvable", notice: true },
     );
-    expect(html).toContain("DanceFlow may not have applied the consent change");
+    expect(html).toContain("Opt-outs are applied automatically");
+    expect(html).toContain("A recovered START is never applied");
     expect(html).toContain("SM123");
     expect(html).toContain("cannot be resolved now");
     expect(html).toContain("The attempt was resolved.");

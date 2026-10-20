@@ -99,11 +99,19 @@ describe("evidence failures are classified, never released", () => {
 
 describe("recovered inbound classification fails safe", () => {
   it("keywords in any spelling are compliance; short, keyword-bearing, empty or missing bodies and unknown senders are uncertain; only the rest is ordinary", () => {
-    for (const body of ["STOP", " help ", "unstop", "Stop!!", "STOP 🛑", "Stop,", "stop all", "S.T.O.P", "cancel."]) {
-      expect(classifyRecoveredBody(body), body).toEqual({ classification: "compliance", keyword: true });
+    const kinds: Record<string, string> = {
+      STOP: "stop", " help ": "help", unstop: "start", "Stop!!": "stop", "STOP 🛑": "stop", "Stop,": "stop", "stop all": "stop", "S.T.O.P": "stop", "cancel.": "stop",
+      "START": "start", "yes": "start", "info": "help", "HELP STOP": "stop", // an opt-out wins: consent fails closed
+    };
+    for (const [body, keywordKind] of Object.entries(kinds)) {
+      expect(classifyRecoveredBody(body), body).toEqual({ classification: "compliance", keyword: true, keywordKind });
     }
-    for (const body of [null, "   ", "ARRET", "Parar!", "stop please", "please stop texting", "ok thanks", "Running late sorry", "can you STOP these messages please"]) {
+    for (const body of [null, "   ", "ARRET", "Parar!", "ok thanks", "Running late sorry", "help me find the schedule"]) {
       expect(classifyRecoveredBody(body), String(body)).toEqual({ classification: "uncertain", keyword: false });
+    }
+    // an opt-out word inside a longer text: never charged, not applied, listed for a person
+    for (const body of ["stop please", "please stop texting", "can you STOP these messages please", "unsubscribe me from this"]) {
+      expect(classifyRecoveredBody(body), body).toEqual({ classification: "uncertain", keyword: false, possibleOptOut: true });
     }
     expect(classifyRecoveredBody("See you at six tonight")).toEqual({ classification: "ordinary", keyword: false });
     expect(classifyRecoveredBody("Running ten minutes late, sorry")).toEqual({ classification: "ordinary", keyword: false });
@@ -139,10 +147,11 @@ describe("inbound recovery", () => {
     expect(summary).toMatchObject({ accounts: 1, scanned: 3, recovered: 2, recoveredOrdinary: 1, keywordsUnseen: 1, alreadyRecorded: 1, errors: 0 });
     const sent = calls.filter((c) => c.fn === "tw4_inbound_recover").map((c) => c.args?.p_evidence as Record<string, unknown>);
     expect(sent.map((e) => e.sid)).toEqual([sidOf(2), sidOf(1)]);   // oldest first
-    for (const ev of sent) {
-      expect(ev).not.toHaveProperty("body");
-      expect(ev).not.toHaveProperty("from");
-    }
+    for (const ev of sent) expect(ev).not.toHaveProperty("body");
+    // the texter's number reaches the database only for an opt-out (where the canonical STOP is applied to it)
+    expect(sent[0]).toMatchObject({ keyword: true, keyword_kind: "stop", from: "+15125550142" });
+    expect(sent[1]).not.toHaveProperty("from");
+    expect(sent[1]).not.toHaveProperty("keyword_kind");
     const advance = calls.find((c) => c.fn === "tw4_inbound_scan_advance");
     expect(advance?.args).toEqual({ p_run_id: RUN, p_account_sid: ACCOUNT, p_through: new Date(now.getTime() - INBOUND_GRACE_MS).toISOString() });
   });

@@ -37,12 +37,16 @@ Before resolving, establish the facts **in the Twilio Console for the attempt's 
 - **A provider message exists but is not billable** (failed MMS, carrier rejection before send): **Close without charge**.
 - Write what you checked in the reason (at least 10 characters; it is stored in the audit trail). The outcome is final, so never guess. If Twilio cannot be consulted, leave the attempt open; the reservation stays held, which is the safe state.
 
-## 4. Unseen keywords
+## 4. Recovered keywords
 
-The text was recorded as compliance (never charged), but DanceFlow did not apply the consent change. Twilio Advanced Opt-Out has already blocked or unblocked the number at the carrier.
+The text was recorded as compliance (never charged).
 
-1. Find the client (the panel shows the studio, not the number).
-2. Apply the change only if no later keyword from the same number exists.
+- **Opt-outs (STOP, …):** applied automatically (fail closed), so the number is blocked for the studio. Rows with "consent not applied" had no usable sender number: confirm the opt-out in the Twilio Console and record it by hand.
+- **START:** never applied by recovery. If the panel shows a recovered START, the person must text START again; staff never restore consent on their behalf.
+- **HELP:** nothing to do.
+- **"Consent not applied" because a later START exists:** the person opted back in after this STOP. Nothing to do unless the studio knows otherwise.
+- **Possible opt-outs** (an opt-out word inside a longer text): read the conversation with the studio. If the person meant to opt out, record it on the client (Texting consent).
+- **Unresolved `…_stop`:** an opt-out recovery the database refused. Confirm the opt-out in Twilio and record it by hand.
 
 ## 5. Incidents
 

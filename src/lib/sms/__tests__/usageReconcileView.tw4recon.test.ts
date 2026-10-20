@@ -42,7 +42,7 @@ describe("parseReconcileOverview", () => {
       expect(o.running).toBeNull();
       expect(o.runs).toEqual([]);
       expect(o.exceptions).toEqual([]);
-      expect(o.inbound).toEqual({ cursors: [], unscannedAccounts: 0, recovered7d: {}, keywordsUnseen: [], unresolved7d: {}, unresolved: [] });
+      expect(o.inbound).toEqual({ cursors: [], unscannedAccounts: 0, recovered7d: {}, keywordsUnseen: [], possibleOptOuts: [], unresolved7d: {}, unresolved: [] });
       expect(o.usageGaps).toBe(0);
     }
   });
@@ -78,12 +78,12 @@ describe("parseReconcileOverview: inbound recovery evidence", () => {
   it("parses keyword recoveries with whether the webhook was seen, and the unresolved evidence; drops malformed rows", () => {
     const o = parseReconcileOverview({
       inbound: {
-        keywords_unseen: [{ provider_sid: "SMa", studio_id: "s1", recovered_at: "2026-10-20T10:00:00Z", webhook_seen: true }, { studio_id: "x" }],
+        keywords_unseen: [{ provider_sid: "SMa", studio_id: "s1", recovered_at: "2026-10-20T10:00:00Z", webhook_seen: true, consent_applied: false }, { studio_id: "x" }],
         unresolved_7d: { unrouted: 2, refused: "1" },
         unresolved: [{ provider_sid: "SMb", account_sid: "ACx", reason: "refused", code: "42501", noted_at: "2026-10-20T11:00:00Z" }, null, { reason: "unrouted" }],
       },
     });
-    expect(o.inbound.keywordsUnseen).toEqual([{ providerSid: "SMa", studioId: "s1", recoveredAt: "2026-10-20T10:00:00Z", webhookSeen: true }]);
+    expect(o.inbound.keywordsUnseen).toEqual([{ providerSid: "SMa", studioId: "s1", recoveredAt: "2026-10-20T10:00:00Z", webhookSeen: true, consentApplied: false }]);
     expect(o.inbound.unresolved7d).toEqual({ unrouted: 2, refused: 1 });
     expect(o.inbound.unresolved).toEqual([{ providerSid: "SMb", accountSid: "ACx", reason: "refused", code: "42501", notedAt: "2026-10-20T11:00:00Z" }]);
   });

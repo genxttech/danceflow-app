@@ -82,6 +82,8 @@ delete from public.studio_sms_approval_refs where legal_entity_id in (${ENTITIES
 delete from public.studio_sms_billed_senders where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_usage_switch_log where changed_by = '${U.padmin}';
 delete from public.sms_message_logs where studio_id in (${STUDIOS});
+delete from public.sms_consent_history where studio_id in (${STUDIOS});
+delete from public.sms_contact_permissions where studio_id in (${STUDIOS});
 delete from public.studio_sms_monthly_limits where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_entity_timezones where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_ledger where legal_entity_id in (${ENTITIES});
@@ -283,9 +285,18 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
     const late = sid();
     expect((await rpc("tw4_usage_submitted", { p_attempt_id: unk.attempt_id, p_provider_sid: late })).error).toBeNull();
     expect(state(unk.attempt_id)).toBe("submitted");
-    // the written admin resolution closes the other one
-    expect((await rpc("tw4_usage_resolve", { p_attempt_id: sub.attempt_id, p_actor: U.padmin, p_outcome: "released", p_segments: null, p_reason: "fixture: confirmed in Twilio console not sent" })).error).toBeNull();
+    // the written admin resolution closes the other one: platform admin only, a written reason, audited immutably, and final
+    const resolve = (actor: string, reason: string) => rpc("tw4_usage_resolve", { p_attempt_id: sub.attempt_id, p_actor: actor, p_outcome: "released", p_segments: null, p_reason: reason });
+    expect((await resolve(U.owner_a, "fixture: confirmed in Twilio console not sent")).error?.code).toBe("42501"); // a studio owner is not a platform admin
+    expect((await resolve(U.padmin, "too short")).error?.code).toBe("22023"); // a written reason (10+ characters) is required
+    expect(state(sub.attempt_id)).toBe("submitting");
+    expect((await resolve(U.padmin, "fixture: confirmed in Twilio console not sent")).error).toBeNull();
     expect(state(sub.attempt_id)).toBe("released");
+    expect(psql(`select count(*) from public.studio_sms_onboarding_audit where action = 'usage_resolved' and actor_user_id = '${U.padmin}' and note like 'attempt=${sub.attempt_id};outcome=released;%confirmed in Twilio console%'`)).toBe("1");
+    expect(psql(`select facts->>'resolved_by' || ':' || (facts->>'resolved_outcome') from public.studio_sms_usage_attempt_events where attempt_id = '${sub.attempt_id}' and to_state = 'released'`)).toBe(`${U.padmin}:released`);
+    expect(psqlError(`update public.studio_sms_onboarding_audit set note = 'x' where action = 'usage_resolved' and actor_user_id = '${U.padmin}'`)).toContain("append-only");
+    expect((await resolve(U.padmin, "fixture: a retried admin action must not apply twice")).error?.code).toBe("22023"); // retried: refused, nothing moves
+    expect(psql(`select count(*) from public.studio_sms_credit_ledger where idempotency_key like 'release:sms:${sub.attempt_id}'`)).toBe("1");
     expect(gaps()).toBe("0");
   });
 
@@ -440,6 +451,15 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
     expect(results.filter((r) => (r.data as { replayed?: boolean }).replayed === false)).toHaveLength(1);
     expect(usageCharges(u.attempt_id)).toBe(1);
     expect((await rpc("tw4_usage_record_callback", { p_attempt_id: u.attempt_id, p_provider_sid: bound, p_signer_account: ACC_A, p_status: "undelivered", p_error_code: null })).data).toMatchObject({ needs_reconcile: false });
+    // nothing reverses a settled outcome: later 'failed' evidence is a replay, a failure note is skipped, an admin cannot resolve it, a direct write is refused
+    const charged = att(u.attempt_id).charged_cents;
+    expect((await settle(u.attempt_id, { ...evidence, status: "failed" })).data).toMatchObject({ outcome: "settled", replayed: true, charged_cents: charged });
+    expect((await rpc("tw4_usage_evidence_failed", { p_attempt_id: u.attempt_id, p_code: "usage_evidence_http_404", p_definite: true })).data).toMatchObject({ outcome: "skipped" });
+    aged(`update public.studio_sms_usage_attempts set created_at = now() - interval '1 hour', submitting_at = now() - interval '1 hour' where id = '${u.attempt_id}'`);
+    expect((await rpc("tw4_usage_resolve", { p_attempt_id: u.attempt_id, p_actor: U.padmin, p_outcome: "not_charged", p_segments: null, p_reason: "fixture: trying to undo a settled charge" })).error?.code).toBe("22023");
+    expect(psqlError(`begin; select set_config('tw4.usage_write', 'on', true); update public.studio_sms_usage_attempts set charged_cents = 0 where id = '${u.attempt_id}'; rollback;`)).toContain("final");
+    expect(att(u.attempt_id)).toMatchObject({ state: "settled", charged_cents: charged });
+    expect(usageCharges(u.attempt_id)).toBe(1);
     // a callback signed by another business's subaccount is refused
     const v = await submitted(SA);
     expect((await rpc("tw4_usage_record_callback", { p_attempt_id: v.attempt_id, p_provider_sid: v.sid, p_signer_account: ACC_B, p_status: "delivered", p_error_code: null })).error?.code).toBe("42501");
@@ -855,6 +875,59 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
       expect(o.inbound.unresolved_7d.unrouted).toBeGreaterThanOrEqual(1);
       expect(psqlError(`delete from public.studio_sms_inbound_unresolved where provider_sid = '${stray.sid}'`)).toContain("append-only");
       expect((await rpc("tw4_inbound_unrecorded", { p_account_sid: ACC_A, p_sids: [fine.sid, sid(), "junk"] })).data).toHaveLength(1);
+    });
+
+    it("R5 consent fails CLOSED: a recovered opt-out applies the canonical STOP (every send path then refuses the number); a recovered START never restores consent", async () => {
+      await ready(EA, SA);
+      const texter = "+15125550177";
+      aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'`);
+      const consent = () => psql(`select coalesce(string_agg(consent_status || ':' || coalesce(opted_out_source, '-'), ',' order by consent_status), 'none') from public.sms_contact_permissions where studio_id = '${SA}' and phone_e164 = '${texter}'`);
+      expect(consent()).toBe("none");
+      const stop = inboundMsg({ body: "Stop!!" });
+      const r = await withRun((runId) => rpc("tw4_inbound_recover", { p_run_id: runId, p_account_sid: ACC_A, p_evidence: { ...stop, body: undefined, classification: "compliance", keyword: true, keyword_kind: "stop", from: texter } }));
+      expect(r.data).toMatchObject({ outcome: "recovered", basis: "keyword", keyword_kind: "stop", consent_applied: true, classification: "compliance" });
+      expect(consent()).toBe("opted_out:twilio_inbound_stop"); // the studio+phone block both send paths honour (resolveEffectiveSmsConsent: blocked_by_text_stop)
+      expect(psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}'`)).not.toBe("0");
+      // a recovered START is recorded (never charged) but NEVER applied: consent stays blocked until the person texts START again
+      const start = inboundMsg({ body: "START" });
+      const s2 = await withRun((runId) => rpc("tw4_inbound_recover", { p_run_id: runId, p_account_sid: ACC_A, p_evidence: { ...start, body: undefined, classification: "compliance", keyword: true, keyword_kind: "start", from: texter } }));
+      expect(s2.data).toMatchObject({ outcome: "recovered", keyword_kind: "start", consent_applied: null });
+      expect(consent()).toBe("opted_out:twilio_inbound_stop");
+      // an opt-out whose sender number is unusable cannot be applied: it is listed for a person (Twilio Advanced Opt-Out still blocks at the carrier)
+      const blind = inboundMsg({ body: "STOP", from: null });
+      const s3 = await withRun((runId) => rpc("tw4_inbound_recover", { p_run_id: runId, p_account_sid: ACC_A, p_evidence: { ...blind, body: undefined, classification: "compliance", keyword: true, keyword_kind: "stop" } }));
+      expect(s3.data).toMatchObject({ consent_applied: false });
+      const o = (await rpc("tw4_usage_reconcile_overview", { p_actor: U.padmin, p_limit: 200 })).data as { inbound: { keywords_unseen: Array<{ provider_sid: string; consent_applied: boolean | null }> } };
+      expect(o.inbound.keywords_unseen.find((k) => k.provider_sid === blind.sid)?.consent_applied).toBe(false);
+      expect(JSON.stringify(o)).not.toContain(texter);
+      expect(psql(`select count(*) from public.studio_sms_inbound_recoveries where studio_id = '${SA}' and row_to_json(studio_sms_inbound_recoveries)::text like '%${texter}%'`)).toBe("0");
+      // end to end through the library: the provider's record ("STOP 🛑" from the texter) blocks the number
+      aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'; delete from public.studio_sms_inbound_scan_cursors where account_sid in ('${ACC_A}', '${ACC_B}')`);
+      const old = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+      const fake = new FakeBilledSmsProvider().setInbound(ACC_A, [inboundMsg({ body: "STOP 🛑", from: texter, date_created: old })]).setInbound(ACC_B, []);
+      const summary = await withRun((runId) => recoverInboundUsage(admin, ownLister(fake), { runId }));
+      expect(summary).toMatchObject({ recovered: 1, optOutsApplied: 1 });
+      expect(consent()).toBe("opted_out:twilio_inbound_stop");
+      expect(psql(`select count(*) from public.studio_sms_inbound_usage where studio_id = '${SA}' and classification = 'compliance' and charged_cents > 0`)).toBe("0");
+    });
+
+    it("R6 a recovered STOP older than a START the webhook already processed does not re-block; a text with an opt-out word is listed, not applied", async () => {
+      await ready(EA, SA);
+      const texter = "+15125550178";
+      aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'`);
+      // the webhook processed STOP then START (both now); the recovered STOP was received two hours ago, before that START
+      psql(`select public.record_sms_inbound_opt_event('${SA}', '${texter}', 'stop'); select public.record_sms_inbound_opt_event('${SA}', '${texter}', 'start')`);
+      const stopsBefore = psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}' and event_type in ('inbound_stop', 'unknown_phone_stop')`);
+      const old = inboundMsg({ body: "STOP" });
+      const r = await withRun((runId) => rpc("tw4_inbound_recover", { p_run_id: runId, p_account_sid: ACC_A, p_evidence: { ...old, body: undefined, classification: "compliance", keyword: true, keyword_kind: "stop", from: texter } }));
+      expect(r.data).toMatchObject({ outcome: "recovered", consent_applied: false });
+      expect(psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}' and event_type in ('inbound_stop', 'unknown_phone_stop')`)).toBe(stopsBefore);
+      // an opt-out word inside a longer text: compliance (never charged), no consent change, listed for a person
+      const vague = inboundMsg({ body: "please stop texting me" });
+      const v = await withRun((runId) => rpc("tw4_inbound_recover", { p_run_id: runId, p_account_sid: ACC_A, p_evidence: { ...vague, body: undefined, classification: "uncertain", keyword: false, possible_opt_out: true } }));
+      expect(v.data).toMatchObject({ outcome: "recovered", classification: "compliance", basis: "uncertain" });
+      const o = (await rpc("tw4_usage_reconcile_overview", { p_actor: U.padmin, p_limit: 200 })).data as { inbound: { possible_opt_outs: Array<{ provider_sid: string }> } };
+      expect(o.inbound.possible_opt_outs.some((x) => x.provider_sid === vague.sid)).toBe(true);
     });
 
     it("R4 a repeated read that learns nothing new adds no history row", async () => {

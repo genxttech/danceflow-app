@@ -44,7 +44,7 @@ The checks below run before the 20261201 status table. An identity mismatch goes
 - Window: [checkpoint − 1 h overlap, min(now − 30 min grace, checkpoint + 24 h)]. The grace period lets a late webhook, which knows `OptOutType`, win. The provider list is read with the subaccount's own credentials (`DateSent>=` / `DateSent<=` with a day of margin, next pages only under the same account's Messages path) and filtered to inbound inside the window.
 - `tw4_inbound_recover(run, account, evidence)` routes by `tw4_inbound_studio_for` (the number decides, on the signing account), the same as the webhook. It then records through **`tw4_inbound_record(..., 'reconciler')`**, so the $10 negative-balance ceiling, pilot no-debt, the recurring set-aside and one-month protection, compliance exclusions and month attribution by received time are exactly the webhook's rules. A text the webhook already recorded is a replay (`already_recorded`), never a second charge or a reclassification.
 - **Fail-safe classification.** The app classifies the body in memory. The body is never sent to the database, stored or logged. A fallback keyword is compliance. A missing or empty body, or a single short word (possibly a custom Advanced Opt-Out keyword), is uncertain. Missing segments, media or time count as incomplete. Anything not provably ordinary is recorded as **compliance (never charged)**, and the basis is kept in `studio_sms_inbound_recoveries`.
-- A recovered STOP/START/HELP with no webhook receipt (`webhook_seen = false`) is listed in the panel. DanceFlow did **not** apply its consent change, although Twilio Advanced Opt-Out still blocks at the carrier. Applying consent from recovery is deliberately not automatic (ordering against later keywords is unknowable).
+- **Consent fails closed (merge-readiness correction, see §10).** A recovered opt-out applies the canonical STOP; a recovered START is never applied. Every recovered keyword is listed in the panel.
 - An unroutable text (no sender row for that number) is counted, never attributed.
 - The checkpoint (`tw4_inbound_scan_advance`) moves forward only after a complete scan of the window with no errors. A failed list, a failed record or a truncated listing leaves it alone, and the window is re-read (idempotent per SID).
 
@@ -95,3 +95,20 @@ The review found no P0. Everything below is authoritative where it differs from 
 - **P3, accepted:**
   - the budget is checked between items (one provider call may overrun it by up to 10 s);
   - the SQL and the app must ship together. SQL first only sends texts to review, which is safe.
+
+## 10. Merge-readiness correction (2026-10-20): recovered opt-outs fail closed
+
+The review found that a STOP the webhook missed left the number sendable on DanceFlow's side until a person acted. Twilio Advanced Opt-Out still blocked it at the carrier.
+
+- `tw4_inbound_recover` now applies the canonical `record_sms_inbound_opt_event(studio, phone, 'stop')` in the same transaction as the recovery, for a body the app classifies as an opt-out keyword. This is exactly what the webhook does.
+  - It covers the exact fallback list, the same words with punctuation or emoji ("Stop!!", "STOP 🛑"), and short texts made only of keywords ("stop all"). An opt-out wins over any other keyword in the text.
+  - The resulting studio+phone `twilio_inbound_stop` block is honoured by every send path (`resolveEffectiveSmsConsent` → `blocked_by_text_stop`: notifications dispatch and manual send). Billed sends go through those paths.
+  - Twilio Advanced Opt-Out is unchanged.
+- The texter's number is sent to the database **only** for an opt-out, and only into the consent tables, as the webhook does. Recovery rows, the panel and run summaries still hold no number (tested).
+- A recovered **START is never applied**, so consent is never restored by recovery. The person texts START again.
+- An opt-out with no usable sender number is recorded with `consent_applied = false` and listed on the panel for a person.
+- A recovered STOP older than a START the webhook already processed (`sms_consent_history` `inbound_start` after the STOP was received) is **not** re-applied: `consent_applied = false`, listed for a person.
+- **The webhook records usage only after a successful consent change.** If its STOP/START update fails, nothing is recorded, so the reconciler recovers the text after the grace period and applies the STOP. A refused opt-out recovery is kept as unresolved evidence with code `<errcode>_stop`.
+- A text that only mentions an opt-out word ("please stop texting") is not applied, because the webhook would not apply it either. It is compliance (never charged) and listed on the panel as a possible opt-out.
+- The consent history row a recovery writes looks like a webhook STOP. Its time is the recovery's, not the message's: the canonical function is unchanged. The recovery row in `studio_sms_inbound_recoveries` carries the message's time and the link.
+- Not covered: a single-word opt-out configured only in Advanced Opt-Out and not in the fallback list (e.g. a non-English keyword). It is recorded as uncertain, so never charged, but it is not applied as a STOP. Twilio still blocks the number at the carrier, and a DanceFlow send to it is refused by Twilio as a definite refusal, which releases the reservation with no charge.

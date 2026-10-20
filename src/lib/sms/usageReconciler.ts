@@ -158,18 +158,36 @@ export async function reconcileSmsUsage(
 
 const KEYWORDS: ReadonlySet<string> = new Set([...SMS_FALLBACK_OPT_OUT_KEYWORDS, ...SMS_FALLBACK_OPT_IN_KEYWORDS, ...SMS_FALLBACK_HELP_KEYWORDS]);
 
+export type RecoveredKeywordKind = "stop" | "start" | "help";
+
+function keywordKindOf(word: string): RecoveredKeywordKind | null {
+  if (SMS_FALLBACK_OPT_OUT_KEYWORDS.has(word)) return "stop";
+  if (SMS_FALLBACK_OPT_IN_KEYWORDS.has(word)) return "start";
+  if (SMS_FALLBACK_HELP_KEYWORDS.has(word)) return "help";
+  return null;
+}
+
 /**
  * Fail-safe classification of a recovered inbound body (the webhook's OptOutType is not in the provider's record, and Advanced Opt-Out may know keywords
  * the fallback list does not). Punctuation and emoji are ignored. Compliance (a keyword): the exact fallback match, or the whole text spelling one
  * ("Stop!!", "STOP 🛑", "stop all"). UNCERTAIN, which the database records as compliance (never charged): a missing or empty body, three words or
  * fewer, any keyword word anywhere ("please stop texting"), or an unrecognizable sender (the webhook would not have recorded it). Only the rest is ordinary.
  */
-export function classifyRecoveredBody(body: string | null, senderOk = true): { classification: "ordinary" | "uncertain" | "compliance"; keyword: boolean } {
+export function classifyRecoveredBody(
+  body: string | null,
+  senderOk = true,
+): { classification: "ordinary" | "uncertain" | "compliance"; keyword: boolean; keywordKind?: RecoveredKeywordKind; possibleOptOut?: boolean } {
   if (body === null) return { classification: "uncertain", keyword: false };
   const words = body.toUpperCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (classifyInboundKeywordBody(body) !== "message" || (words.length > 0 && (KEYWORDS.has(words.join("")) || (words.length <= 2 && words.every((w) => KEYWORDS.has(w)))))) {
-    return { classification: "compliance", keyword: true };
+  const exact = classifyInboundKeywordBody(body);
+  if (exact !== "message" || (words.length > 0 && (KEYWORDS.has(words.join("")) || (words.length <= 2 && words.every((w) => KEYWORDS.has(w)))))) {
+    // which keyword: an opt-out wins over anything else in the text ("stop all", "STOP HELP"), so consent fails closed
+    const kinds = new Set([exact === "message" ? null : exact, keywordKindOf(words.join("")), ...words.map(keywordKindOf)].filter((k): k is RecoveredKeywordKind => k !== null));
+    const keywordKind: RecoveredKeywordKind = kinds.has("stop") ? "stop" : kinds.has("start") ? "start" : "help";
+    return { classification: "compliance", keyword: true, keywordKind };
   }
+  // an opt-out word inside a longer text ("please stop texting"): never charged, not applied as a STOP (the webhook would not apply it either), listed for a person
+  if (words.some((w) => SMS_FALLBACK_OPT_OUT_KEYWORDS.has(w))) return { classification: "uncertain", keyword: false, possibleOptOut: true };
   if (!senderOk || words.length <= 3 || words.some((w) => KEYWORDS.has(w))) return { classification: "uncertain", keyword: false };
   return { classification: "ordinary", keyword: false };
 }
@@ -183,6 +201,8 @@ export type InboundRecoverySummary = {
   unrouted: number;
   keywordsUnseen: number;
   incomplete: number;
+  /** recovered opt-outs whose canonical STOP was applied (consent fails closed) */
+  optOutsApplied: number;
   /** permanently refused by the database: kept as unresolved evidence, never blocking the checkpoint */
   refused: number;
   /** a subaccount whose listing could not be completed even for a one-hour window (very high volume): its checkpoint did not move */
@@ -229,7 +249,7 @@ export async function recoverInboundUsage(
   options: { runId: string; now?: Date; deadline?: number; maxAccounts?: number; maxPages?: number },
 ): Promise<InboundRecoverySummary> {
   const summary: InboundRecoverySummary = {
-    accounts: 0, scanned: 0, recovered: 0, recoveredOrdinary: 0, alreadyRecorded: 0, unrouted: 0, keywordsUnseen: 0, incomplete: 0, refused: 0, stalled: 0, errors: 0, truncated: false,
+    accounts: 0, scanned: 0, recovered: 0, recoveredOrdinary: 0, alreadyRecorded: 0, unrouted: 0, keywordsUnseen: 0, optOutsApplied: 0, incomplete: 0, refused: 0, stalled: 0, errors: 0, truncated: false,
   };
   const runDeadline = options.deadline ?? Number.POSITIVE_INFINITY;
   const now = options.now ?? new Date();
@@ -325,13 +345,18 @@ export async function recoverInboundUsage(
         processedThrough = at - 1000;
         break;
       }
-      const { classification, keyword } = classifyRecoveredBody(m.body, normalizeSmsPhone(String(m.from ?? "")) !== null);
+      const sender = normalizeSmsPhone(String(m.from ?? ""));
+      const { classification, keyword, keywordKind, possibleOptOut } = classifyRecoveredBody(m.body, sender !== null);
       const { data, error } = await admin.rpc("tw4_inbound_recover", {
         p_run_id: options.runId,
         p_account_sid: target.account_sid,
         p_evidence: {
           sid: m.sid, account_sid: m.account_sid, direction: m.direction, to: m.to, messaging_service_sid: m.messaging_service_sid,
           num_segments: m.num_segments, num_media: m.num_media, date_created: m.date_created ?? m.date_sent, classification, keyword,
+          // the texter's number goes to the database ONLY for an opt-out, where the canonical STOP is applied to it (consent fails closed)
+          ...(keywordKind ? { keyword_kind: keywordKind } : {}),
+          ...(possibleOptOut ? { possible_opt_out: true } : {}),
+          ...(keywordKind === "stop" && sender ? { from: sender } : {}),
         },
       });
       if (error) {
@@ -339,7 +364,10 @@ export async function recoverInboundUsage(
         if (PERMANENT.has(String(error.code))) {
           // the same answer every time: kept as unresolved evidence for a person, never blocking the checkpoint
           summary.refused += 1;
-          const noted = await admin.rpc("tw4_inbound_note_unresolved", { p_run_id: options.runId, p_account_sid: target.account_sid, p_provider_sid: m.sid, p_code: String(error.code) });
+          // an opt-out that could not be recorded is marked as such (its consent change did not happen either)
+          const noted = await admin.rpc("tw4_inbound_note_unresolved", {
+            p_run_id: options.runId, p_account_sid: target.account_sid, p_provider_sid: m.sid, p_code: keywordKind === "stop" ? `${String(error.code)}_stop` : String(error.code),
+          });
           if (!noted.error) continue;
           if (noted.error.code === "TW023") throw new LeaseLost();
         }
@@ -347,12 +375,13 @@ export async function recoverInboundUsage(
         processedThrough = at - 1000;   // transient: this text and everything after it is read again next run (idempotent per SID)
         break;
       }
-      const d = (data ?? {}) as { outcome?: unknown; classification?: unknown; basis?: unknown; webhook_seen?: unknown };
+      const d = (data ?? {}) as { outcome?: unknown; classification?: unknown; basis?: unknown; webhook_seen?: unknown; consent_applied?: unknown };
       if (d.outcome === "recovered") {
         summary.recovered += 1;
         if (d.classification === "ordinary") summary.recoveredOrdinary += 1;
         if (d.basis === "incomplete") summary.incomplete += 1;
         if (d.basis === "keyword") summary.keywordsUnseen += 1;
+        if (d.consent_applied === true) summary.optOutsApplied += 1;
       } else if (d.outcome === "already_recorded") summary.alreadyRecorded += 1;
       else if (d.outcome === "unrouted") summary.unrouted += 1;   // kept as unresolved evidence by the database; never attributed to a guess
       else if (d.outcome !== "skipped") {
@@ -418,7 +447,7 @@ export async function runScheduledUsageReconciliation(
     truncated: outbound.truncated || (inbound?.truncated ?? false), escalated,
     inbound_accounts: inbound?.accounts ?? 0, inbound_scanned: inbound?.scanned ?? 0, inbound_recovered: inbound?.recovered ?? 0,
     inbound_recovered_ordinary: inbound?.recoveredOrdinary ?? 0, inbound_already_recorded: inbound?.alreadyRecorded ?? 0, inbound_unrouted: inbound?.unrouted ?? 0,
-    inbound_keywords_unseen: inbound?.keywordsUnseen ?? 0, inbound_incomplete: inbound?.incomplete ?? 0, inbound_refused: inbound?.refused ?? 0, inbound_stalled: inbound?.stalled ?? 0, duration_ms: Date.now() - started,
+    inbound_keywords_unseen: inbound?.keywordsUnseen ?? 0, inbound_incomplete: inbound?.incomplete ?? 0, inbound_refused: inbound?.refused ?? 0, inbound_opt_outs_applied: inbound?.optOutsApplied ?? 0, inbound_stalled: inbound?.stalled ?? 0, duration_ms: Date.now() - started,
   };
   try {
     await admin.rpc("tw4_reconcile_run_finish", { p_run_id: runId, p_status: failure ? "failed" : "completed", p_summary: summary, p_error: failure });

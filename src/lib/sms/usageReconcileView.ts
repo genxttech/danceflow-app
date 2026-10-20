@@ -45,7 +45,7 @@ export type ReconcileException = {
   callbackStatus: string | null;
 };
 export type InboundCursor = { accountSid: string; scannedThrough: string | null; lagMinutes: number };
-export type KeywordUnseen = { providerSid: string; studioId: string | null; recoveredAt: string | null; webhookSeen: boolean };
+export type KeywordUnseen = { providerSid: string; studioId: string | null; recoveredAt: string | null; webhookSeen: boolean; consentApplied: boolean | null };
 export type InboundUnresolved = { providerSid: string; accountSid: string | null; reason: string; code: string | null; notedAt: string | null };
 export type ReconcileOverview = {
   switchOn: boolean;
@@ -61,7 +61,7 @@ export type ReconcileOverview = {
   usageGaps: number;
   inboundGaps: number;
   exceptions: ReconcileException[];
-  inbound: { cursors: InboundCursor[]; unscannedAccounts: number; recovered7d: Record<string, number>; keywordsUnseen: KeywordUnseen[]; unresolved7d: Record<string, number>; unresolved: InboundUnresolved[] };
+  inbound: { cursors: InboundCursor[]; unscannedAccounts: number; recovered7d: Record<string, number>; keywordsUnseen: KeywordUnseen[]; possibleOptOuts: { providerSid: string; studioId: string | null; recoveredAt: string | null }[]; unresolved7d: Record<string, number>; unresolved: InboundUnresolved[] };
 };
 
 const counts = (v: unknown): Record<string, number> =>
@@ -123,7 +123,11 @@ export function parseReconcileOverview(data: unknown): ReconcileOverview {
       recovered7d: counts(inbound.recovered_7d),
       keywordsUnseen: list(inbound.keywords_unseen).flatMap((row) => {
         const k = obj(row);
-        return typeof k.provider_sid === "string" ? [{ providerSid: k.provider_sid, studioId: str(k.studio_id), recoveredAt: str(k.recovered_at), webhookSeen: k.webhook_seen === true }] : [];
+        return typeof k.provider_sid === "string" ? [{ providerSid: k.provider_sid, studioId: str(k.studio_id), recoveredAt: str(k.recovered_at), webhookSeen: k.webhook_seen === true, consentApplied: typeof k.consent_applied === "boolean" ? k.consent_applied : null }] : [];
+      }),
+      possibleOptOuts: list(inbound.possible_opt_outs).flatMap((row) => {
+        const k = obj(row);
+        return typeof k.provider_sid === "string" ? [{ providerSid: k.provider_sid, studioId: str(k.studio_id), recoveredAt: str(k.recovered_at) }] : [];
       }),
       unresolved7d: counts(inbound.unresolved_7d),
       unresolved: list(inbound.unresolved).flatMap((row) => {

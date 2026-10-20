@@ -44,7 +44,7 @@ export default function UsageReconciliation({ overview, notice = false, error = 
   if (!overview) return null;
   const o = overview;
   const gaps = o.usageGaps > 0 || o.inboundGaps > 0;
-  const attention = o.stale || gaps || o.exceptions.length > 0 || o.inbound.keywordsUnseen.length > 0 || o.inbound.unresolved.length > 0 || o.inbound.unscannedAccounts > 0;
+  const attention = o.stale || gaps || o.exceptions.length > 0 || o.inbound.keywordsUnseen.length > 0 || o.inbound.possibleOptOuts.length > 0 || o.inbound.unresolved.length > 0 || o.inbound.unscannedAccounts > 0;
   const states = Object.entries(o.byState);
 
   return (
@@ -157,12 +157,24 @@ export default function UsageReconciliation({ overview, notice = false, error = 
               <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-red-900">
                 <p className="font-semibold">STOP/START/HELP recovered from Twilio that the webhook did not record ({o.inbound.keywordsUnseen.length})</p>
                 <p className="text-xs">
-                  DanceFlow may not have applied the consent change (the webhook never saw it, or stopped after receiving it). Twilio Advanced Opt-Out still blocks at
-                  the carrier. Review the client&apos;s consent by hand.
+                  Opt-outs are applied automatically (the number is blocked for the studio). A recovered START is never applied: the person texts START again.
+                  Rows marked &quot;consent not applied&quot; had no usable sender number: confirm the opt-out in Twilio and record it by hand.
                 </p>
                 <ul className="mt-1 text-xs">
                   {o.inbound.keywordsUnseen.map((k) => (
-                    <li key={k.providerSid}>{k.providerSid} · recovered {stamp(k.recoveredAt)} · {k.webhookSeen ? "webhook received it but did not finish" : "webhook never saw it"}</li>
+                    <li key={k.providerSid}>{k.providerSid} · recovered {stamp(k.recoveredAt)} · {k.webhookSeen ? "webhook received it but did not finish" : "webhook never saw it"}
+                      {k.consentApplied === true ? " · opt-out applied" : k.consentApplied === false ? " · consent not applied" : ""}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {o.inbound.possibleOptOuts.length ? (
+              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                <p className="font-semibold">Recovered texts that mention an opt-out word ({o.inbound.possibleOptOuts.length})</p>
+                <p className="text-xs">Not charged and no consent change was made (for example &quot;please stop texting&quot;). Contact the studio and record an opt-out if the person meant it.</p>
+                <ul className="mt-1 text-xs">
+                  {o.inbound.possibleOptOuts.map((k) => (
+                    <li key={k.providerSid}>{k.providerSid} · recovered {stamp(k.recoveredAt)}</li>
                   ))}
                 </ul>
               </div>
