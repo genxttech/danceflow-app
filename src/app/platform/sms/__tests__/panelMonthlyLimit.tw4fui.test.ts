@@ -161,3 +161,22 @@ describe("rendered monthly limit on the panel", () => {
     expect(groups).toContain("section");
   });
 });
+
+describe("inbound, absorbed and overrun amounts on the panel (TW-4F inbound D4)", () => {
+  it("shows inbound beside outbound usage, what DanceFlow absorbed, and an overrun", () => {
+    const limits = parsePanelMonthlyLimits([row(EA, {
+      effective_limit_cents: 3000,
+      parts: { usage_cents: 1200, inbound_cents: 2500, recurring_cents: 0, reserved_cents: 0, total_cents: 3700, inbound_uncollected_cents: 140, absorbed_cost_cents: 9, starts_at: "2026-10-01T04:00:00Z", ends_at: "2026-11-01T04:00:00Z" },
+    })]);
+    const m = block(card(render(limits), "Alpha Studio"));
+    expect(m).toContain("SMS usage $12.00 · inbound $25.00");
+    expect(m).toContain("inbound not collected (over the negative-balance ceiling) $1.40");
+    expect(m).toContain("compliance texts and replies $0.09");
+    expect(m).toContain("Over the limit by $7.00 (inbound texts are never refused)");
+  });
+  it("shows no overrun within the limit", () => {
+    const m = block(card(render(parsePanelMonthlyLimits([row(EA)])), "Alpha Studio"));
+    expect(m).not.toContain("Over the limit by");
+    expect(m).toContain("inbound $0.00");
+  });
+});

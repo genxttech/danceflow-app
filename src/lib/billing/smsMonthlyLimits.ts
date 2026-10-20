@@ -23,7 +23,16 @@ export type MonthlyLimitOverview = {
   /** The lesser of the two: what can actually be spent this month. */
   effectiveLimitCents: number;
   nextMonthLimitCents: number;
+  /** Outgoing texting usage. */
   usageCents: number;
+  /** Charged ordinary inbound texts (D4: counted toward the limit; never refused, so they can overrun it). */
+  inboundCents: number;
+  /** Inbound charges beyond the negative-balance ceiling, not collected (DanceFlow absorbs them). */
+  inboundUncollectedCents: number;
+  /** Estimated provider cost DanceFlow absorbs: compliance (STOP/START/HELP) texts and their confirmations. */
+  absorbedCostCents: number;
+  /** How far the month's spending is above its effective limit (0 when within it). */
+  overrunCents: number;
   recurringCents: number;
   setAsideCents: number;
   spentCents: number;
@@ -53,6 +62,10 @@ export function parseMonthlyLimitOverview(data: unknown): MonthlyLimitOverview {
     effectiveLimitCents: num(o.effective_limit_cents),
     nextMonthLimitCents: num(o.next_month_limit_cents),
     usageCents: num(parts.usage_cents),
+    inboundCents: num(parts.inbound_cents),
+    inboundUncollectedCents: num(parts.inbound_uncollected_cents),
+    absorbedCostCents: num(parts.absorbed_cost_cents),
+    overrunCents: Math.max(num(parts.total_cents) - num(o.effective_limit_cents), 0),
     recurringCents: num(parts.recurring_cents),
     setAsideCents: num(parts.reserved_cents),
     spentCents: num(parts.total_cents),

@@ -64,7 +64,11 @@ export default function PanelMonthlyLimit({ limit }: { limit: MonthlyLimitOvervi
           Breakdown, ceiling and recent changes
         </summary>
         <div className="mt-2 space-y-1 text-slate-600">
-          <p>SMS usage {formatCents(limit.usageCents)} · recurring fees {formatCents(limit.recurringCents)} · first months set aside {formatCents(limit.setAsideCents)}.</p>
+          <p>SMS usage {formatCents(limit.usageCents)} · inbound {formatCents(limit.inboundCents)} · recurring fees {formatCents(limit.recurringCents)} · first months set aside {formatCents(limit.setAsideCents)}.</p>
+          <p>
+            DanceFlow absorbed: inbound not collected (over the negative-balance ceiling) {formatCents(limit.inboundUncollectedCents)} · compliance texts and replies {formatCents(limit.absorbedCostCents)}.
+            {limit.overrunCents > 0 ? ` Over the limit by ${formatCents(limit.overrunCents)} (inbound texts are never refused).` : ""}
+          </p>
           <p>
             The month runs {localDate(limit.monthStartsAt, limit.timezone)} to {localDate(limit.monthEndsAt, limit.timezone, -1000)} ({limit.timezone || "UTC"}).
             {limitChanging ? ` Next month's limit: ${formatCents(limit.nextMonthLimitCents)}.` : ""}

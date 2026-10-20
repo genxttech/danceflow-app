@@ -217,3 +217,30 @@ describe("panel", () => {
     expect(html({}, { enabled: false })).toContain("not open yet");
   });
 });
+
+describe("inbound, uncollected, absorbed and overrun amounts (D4)", () => {
+  it("are shown distinctly; the overrun is how far the month's spending is above the effective limit", () => {
+    const o = parseMonthlyLimitOverview(raw({
+      effective_limit_cents: 3000,
+      parts: { usage_cents: 1200, inbound_cents: 2500, recurring_cents: 0, reserved_cents: 0, total_cents: 3700, inbound_uncollected_cents: 140, absorbed_cost_cents: 9 },
+    }));
+    expect(o).toMatchObject({ usageCents: 1200, inboundCents: 2500, inboundUncollectedCents: 140, absorbedCostCents: 9, spentCents: 3700, overrunCents: 700 });
+    expect(parseMonthlyLimitOverview(raw()).overrunCents).toBe(0);
+    expect(parseMonthlyLimitOverview(raw()).inboundCents).toBe(0); // an older database without inbound parts reads as zero
+  });
+});
+
+describe("owner card: texts received, overrun and what is not charged (TW-4F inbound D4)", () => {
+  it("shows received texts separately, an overrun warning, and the amounts DanceFlow absorbs", () => {
+    const out = html({ effective_limit_cents: 3000, parts: { usage_cents: 1200, inbound_cents: 2500, recurring_cents: 0, reserved_cents: 0, total_cents: 3700, inbound_uncollected_cents: 140, absorbed_cost_cents: 9 } });
+    expect(out).toContain("Texts sent $12.00 · texts received $25.00");
+    expect(out).toContain("this month is $7.00 over the limit");
+    expect(out).toContain("received texts beyond your credit allowance $1.40");
+    expect(out).toContain("STOP, START and HELP texts and replies $0.09");
+  });
+  it("within the limit and with nothing absorbed, neither line appears", () => {
+    const out = html();
+    expect(out).not.toContain("over the limit");
+    expect(out).not.toContain("Not charged to you");
+  });
+});

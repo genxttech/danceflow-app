@@ -148,8 +148,18 @@ export default function SmsLimitPanel({
               <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
                 <p>{monthLabel(overview.month)}: <span className="font-semibold">{formatUsd(overview.spentCents)}</span> spent or set aside of <span className="font-semibold">{formatUsd(overview.effectiveLimitCents)}</span>.</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Texting {formatUsd(overview.usageCents)} · recurring fees {formatUsd(overview.recurringCents)} · first months set aside {formatUsd(overview.setAsideCents)}.
+                  Texts sent {formatUsd(overview.usageCents)} · texts received {formatUsd(overview.inboundCents)} · recurring fees {formatUsd(overview.recurringCents)} · first months set aside {formatUsd(overview.setAsideCents)}.
                 </p>
+                {overview.overrunCents > 0 ? (
+                  <p className="mt-1 text-xs text-amber-800">
+                    Received texts are never refused, so this month is {formatUsd(overview.overrunCents)} over the limit. New texts can be sent once the limit is raised or next month begins.
+                  </p>
+                ) : null}
+                {overview.inboundUncollectedCents > 0 || overview.absorbedCostCents > 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Not charged to you: received texts beyond your credit allowance {formatUsd(overview.inboundUncollectedCents)} · STOP, START and HELP texts and replies {formatUsd(overview.absorbedCostCents)}.
+                  </p>
+                ) : null}
                 <p className="mt-1 text-xs text-slate-500">
                   The month runs {localDate(overview.monthStartsAt, overview.timezone)} to {localDate(overview.monthEndsAt, overview.timezone, -1000)} ({overview.timezone}). Next month&apos;s limit: {formatUsd(overview.nextMonthLimitCents)}.
                 </p>
