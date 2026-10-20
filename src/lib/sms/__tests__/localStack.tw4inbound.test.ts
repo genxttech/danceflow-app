@@ -165,7 +165,7 @@ describe.skipIf(!enabled)("inbound SMS usage recording: ceiling, compliance, lim
       /* best effort */
     }
   });
-  const publish = async (kind: "sms_inbound" | "sms_usage", cents: number, provider: number) =>
+  const publish = async (kind: "sms_inbound" | "sms_usage" | "monthly", cents: number, provider: number) =>
     expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: provider, p_description: `fixture ${kind} price`, p_actor: U.padmin })).error).toBeNull();
   const unpublish = (kind: string) => aged(`update public.studio_sms_price_list set active = false where kind = '${kind}' and created_by = '${U.padmin}'`);
 
