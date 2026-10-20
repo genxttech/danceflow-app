@@ -20,7 +20,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 import SmsRecurringPanel from "@/app/app/settings/sms/SmsRecurringPanel";
 import SmsCreditAdmin from "@/app/platform/sms/SmsCreditAdmin";
 import { GET, POST } from "@/app/api/cron/sms-recurring/route";
-import { parseRecurringAdminOverview, parseRecurringOverview, previousPeriodKeyFor, runScheduledRecurringCharges } from "../smsRecurring";
+import { parseRecurringAdminOverview, parseRecurringOverview, runScheduledRecurringCharges } from "../smsRecurring";
 
 const fakeClient = (handler: typeof adminHandler) => {
   const calls: { fn: string; args: Record<string, unknown> }[] = [];
@@ -40,17 +40,17 @@ describe("runScheduledRecurringCharges", () => {
   const happy = (overrides: Record<string, ReturnType<typeof adminHandler>> = {}): typeof adminHandler => (fn, args) => {
     if (overrides[fn]) return overrides[fn];
     if (fn === "tw4_recurring_run_begin") return { data: { acquired: true, run_id: "run-1" } };
-    if (fn === "tw4_recurring_due") return { data: args.p_period_key === "2026-09" ? [] : ["a", "b"] };
+    if (fn === "tw4_recurring_release_ended") return { data: { released: 0 } };
+    if (fn === "tw4_recurring_due_list") return { data: [{ id: "a", period_key: "2026-10" }, { id: "b", period_key: "2026-10" }] };
     if (fn === "tw4_recurring_charge") return { data: { outcome: "charged", replayed: false } };
     return { data: { status: "completed" } };
   };
-  const now = new Date("2026-10-19T10:00:00Z");
 
   it("takes the lease first, charges every due authorization under the run id, then records the outcome", async () => {
     const { calls, client } = fakeClient(happy());
-    const outcome = await runScheduledRecurringCharges(client, { runner: "cron:abc12345", now });
-    expect(outcome).toMatchObject({ ran: true, summary: { period: "2026-10", periods: ["2026-09", "2026-10"], runId: "run-1", due: 2, charged: 2, errors: 0 } });
-    expect(calls.map((c) => c.fn)).toEqual(["tw4_recurring_run_begin", "tw4_recurring_due", "tw4_recurring_due", "tw4_recurring_charge", "tw4_recurring_charge", "tw4_recurring_run_finish"]);
+    const outcome = await runScheduledRecurringCharges(client, { runner: "cron:abc12345" });
+    expect(outcome).toMatchObject({ ran: true, summary: { periods: ["2026-10"], runId: "run-1", due: 2, charged: 2, errors: 0 } });
+    expect(calls.map((c) => c.fn)).toEqual(["tw4_recurring_run_begin", "tw4_recurring_release_ended", "tw4_recurring_due_list", "tw4_recurring_charge", "tw4_recurring_charge", "tw4_recurring_run_finish"]);
     expect(calls[0].args).toEqual({ p_runner: "cron:abc12345", p_lease_seconds: 600 });
     expect(calls.filter((c) => c.fn === "tw4_recurring_charge").every((c) => c.args.p_run_id === "run-1")).toBe(true); // every charge carries the run, so a replaced runner is fenced
     expect(calls.at(-1)?.args).toMatchObject({ p_run_id: "run-1", p_status: "completed", p_error: null });
@@ -59,39 +59,41 @@ describe("runScheduledRecurringCharges", () => {
   it("does nothing, and charges nothing, while the database switch is off or another run holds the lease", async () => {
     for (const reason of ["disabled", "busy"] as const) {
       const { calls, client } = fakeClient(happy({ tw4_recurring_run_begin: { data: { acquired: false, reason } } }));
-      expect(await runScheduledRecurringCharges(client, { runner: "cron:abc12345", now })).toEqual({ ran: false, reason });
+      expect(await runScheduledRecurringCharges(client, { runner: "cron:abc12345" })).toEqual({ ran: false, reason });
       expect(calls.map((c) => c.fn)).toEqual(["tw4_recurring_run_begin"]);
     }
     for (const odd of [{ acquired: true }, { acquired: "yes", run_id: "x" }, null, "x"]) {
       const { calls, client } = fakeClient(happy({ tw4_recurring_run_begin: { data: odd } }));
-      expect((await runScheduledRecurringCharges(client, { runner: "cron:abc12345", now })).ran).toBe(false); // an answer it does not understand is not a lease
+      expect((await runScheduledRecurringCharges(client, { runner: "cron:abc12345" })).ran).toBe(false); // an answer it does not understand is not a lease
       expect(calls).toHaveLength(1);
     }
   });
 
   it("a failed start is an error, not a silent skip", async () => {
     const { client } = fakeClient(happy({ tw4_recurring_run_begin: { error: { code: "57014" } } }));
-    await expect(runScheduledRecurringCharges(client, { runner: "cron:abc12345", now })).rejects.toThrow("could not start");
+    await expect(runScheduledRecurringCharges(client, { runner: "cron:abc12345" })).rejects.toThrow("could not start");
   });
 
   it("one failed charge call marks the run failed with the count, and the other charges still run", async () => {
     const { calls, client } = fakeClient(happy({}));
     let failFirst = true;
     const flaky = { rpc: async (fn: string, args: Record<string, unknown>) => (fn === "tw4_recurring_charge" && args.p_authorization_id === "a" && failFirst && args.p_period_key === "2026-10" ? ((failFirst = false), { data: null, error: { code: "40001" } }) : (client as unknown as { rpc: (f: string, a: Record<string, unknown>) => Promise<unknown> }).rpc(fn, args)) } as never;
-    const outcome = await runScheduledRecurringCharges(flaky, { runner: "cron:abc12345", now });
+    const outcome = await runScheduledRecurringCharges(flaky, { runner: "cron:abc12345" });
     expect(outcome).toMatchObject({ ran: true, summary: { charged: 1, errors: 1 } });
     expect(calls.at(-1)?.args).toMatchObject({ p_status: "failed", p_error: "1 charge call(s) failed" });
   });
 
   it("an exception closes the run as failed (best effort) and is rethrown", async () => {
-    const { calls, client } = fakeClient(happy({ tw4_recurring_due: { error: { code: "XX000" } } }));
-    await expect(runScheduledRecurringCharges(client, { runner: "cron:abc12345", now })).rejects.toThrow("recurring due query failed");
+    const { calls, client } = fakeClient(happy({ tw4_recurring_due_list: { error: { code: "XX000" } } }));
+    await expect(runScheduledRecurringCharges(client, { runner: "cron:abc12345" })).rejects.toThrow("recurring due query failed");
     expect(calls.at(-1)).toMatchObject({ fn: "tw4_recurring_run_finish", args: { p_run_id: "run-1", p_status: "failed", p_summary: null } });
   });
 
-  it("the previous service month is computed in UTC across year ends", () => {
-    expect(previousPeriodKeyFor(new Date("2026-01-01T00:00:00Z"))).toBe("2025-12");
-    expect(previousPeriodKeyFor(new Date("2026-03-31T23:59:59Z"))).toBe("2026-02");
+  it("the code never computes a service month: it charges exactly the periods the database lists", async () => {
+    const { calls, client } = fakeClient(happy({ tw4_recurring_due_list: { data: [{ id: "a", period_key: "2026-12" }, { id: "b", period_key: "2027-01" }] } }));
+    const outcome = await runScheduledRecurringCharges(client, { runner: "cron:abc12345" });
+    expect(outcome).toMatchObject({ ran: true, summary: { periods: ["2026-12", "2027-01"], due: 2 } });
+    expect(calls.filter((c) => c.fn === "tw4_recurring_charge").map((c) => c.args.p_period_key)).toEqual(["2026-12", "2027-01"]);
   });
 });
 
@@ -137,7 +139,7 @@ describe("the cron route (not registered anywhere; dark twice over)", () => {
     process.env.SMS_RECURRING_SCHEDULER = "on";
     adminHandler = (fn, args) => {
       if (fn === "tw4_recurring_run_begin") return { data: { acquired: true, run_id: "11111111-1111-4111-8111-111111111111" } };
-      if (fn === "tw4_recurring_due") return { data: ["22222222-2222-4222-8222-222222222222"] };
+      if (fn === "tw4_recurring_due_list") return { data: [{ id: "22222222-2222-4222-8222-222222222222", period_key: "2026-10" }] };
       if (fn === "tw4_recurring_charge") return { data: { outcome: "charged", replayed: false, amount_cents: 1500 } };
       return { data: { status: "completed" }, error: null };
     };
@@ -146,7 +148,7 @@ describe("the cron route (not registered anywhere; dark twice over)", () => {
     const body = await ok.json();
     expect(Object.keys(body).sort()).toEqual(["charged", "due", "errors", "held", "ok", "ran", "refused", "replayed", "unfunded"]);
     expect(JSON.stringify(body)).not.toMatch(/1111|2222|1500/);
-    adminHandler = (fn) => (fn === "tw4_recurring_run_begin" ? { data: { acquired: true, run_id: "r" } } : fn === "tw4_recurring_due" ? { data: ["a"] } : fn === "tw4_recurring_charge" ? { error: { code: "40001" } } : { data: {} });
+    adminHandler = (fn) => (fn === "tw4_recurring_run_begin" ? { data: { acquired: true, run_id: "r" } } : fn === "tw4_recurring_due_list" ? { data: [{ id: "a", period_key: "2026-10" }] } : fn === "tw4_recurring_charge" ? { error: { code: "40001" } } : { data: {} });
     expect((await GET(request("GET", "cron-secret-for-tests"))).status).toBe(500);
     adminHandler = (fn) => (fn === "tw4_recurring_run_begin" ? { error: { code: "XX000" } } : { data: null });
     const boom = await GET(request("GET", "cron-secret-for-tests"));

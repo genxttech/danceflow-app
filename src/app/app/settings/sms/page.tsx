@@ -11,6 +11,8 @@ import { smsCreditPurchasesEnabled } from "@/lib/billing/smsCreditPurchases";
 import SmsCancelSetup from "./SmsCancelSetup";
 import { getRecurringOverview, smsRecurringAuthorizationEnabled } from "@/lib/billing/smsRecurring";
 import SmsCreditPanel from "./SmsCreditPanel";
+import { getMonthlyLimitOverview, smsMonthlyLimitsEnabled } from "@/lib/billing/smsMonthlyLimits";
+import SmsLimitPanel from "./SmsLimitPanel";
 import SmsRecurringPanel from "./SmsRecurringPanel";
 import SmsSetupWizard from "./SmsSetupWizard";
 import SmsStatusTracker from "./SmsStatusTracker";
@@ -53,6 +55,15 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
       recurringView = await getRecurringOverview(supabase, context.studioId);
     } catch {
       recurringView = null;
+    }
+  }
+  // Monthly spending limit: read through the same user session; a failure only hides the card
+  let limitView: Awaited<ReturnType<typeof getMonthlyLimitOverview>> = null;
+  if (creditView) {
+    try {
+      limitView = await getMonthlyLimitOverview(supabase, context.studioId);
+    } catch {
+      limitView = null;
     }
   }
   // Paused: a platform admin switched the pilot off after this setup started. The setup stays visible (status only) and the
@@ -124,6 +135,8 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
       <SmsStatusTracker state={status.state} textingOn={status.textingOn} />
 
       {creditView ? <SmsCreditPanel view={creditView} purchasesEnabled={smsCreditPurchasesEnabled()} returned={returned} /> : null}
+
+      {creditView && limitView ? <SmsLimitPanel overview={limitView} isOwner={isOwner} enabled={smsMonthlyLimitsEnabled()} /> : null}
 
       {creditView && recurringView ? <SmsRecurringPanel overview={recurringView} prices={creditView.prices} isOwner={isOwner} enabled={smsRecurringAuthorizationEnabled()} /> : null}
 

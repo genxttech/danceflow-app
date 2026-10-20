@@ -75,6 +75,9 @@ vi.mock("@/lib/payments/stripe", () => ({ getStripe: () => ({ webhooks: realStri
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
+delete from public.studio_sms_monthly_limits where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_entity_timezones where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_limit_ceilings where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_ledger where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_reservations where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_topups where legal_entity_id in ('${EA}', '${EB}');
@@ -130,6 +133,7 @@ describe.skipIf(!enabled)("TW-4F-3b-pay credit purchases: real SQL functions, re
     admin = createClient(URL_, serviceKey(), { auth: { persistSession: false, autoRefreshToken: false } });
     credits = new SupabaseCreditStore(admin);
     psqlFile(FIXTURES);
+    psqlFile(`select public.tw4_monthly_limit_set_admin('${EA}', '${U.padmin}', 50000, null, 'fixture: monthly limit so usage can be debited'); select public.tw4_monthly_limit_set_admin('${EB}', '${U.padmin}', 50000, null, 'fixture: monthly limit so usage can be debited');`);
   });
   afterAll(() => {
     try {
