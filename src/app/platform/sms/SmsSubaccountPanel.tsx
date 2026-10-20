@@ -12,6 +12,9 @@ import {
   type StudioPanel,
 } from "@/lib/sms/twilioIsv/panel";
 import { CREATE_PHRASE } from "@/lib/sms/twilioIsv/panelCommands";
+import type { PanelMonthlyLimits } from "@/lib/billing/smsPanelMonthlyLimits";
+import { ChevronDown } from "lucide-react";
+import PanelMonthlyLimit from "./PanelMonthlyLimit";
 import {
   panelAuthorizeFeeAction,
   panelCreateEntityAction,
@@ -51,11 +54,21 @@ function Pill({ state }: { state: StageState }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${STATE_CLASS[state]}`}>{STAGE_STATE_LABELS[state]}</span>;
 }
 
+/** Every disclosure on the panel shows a chevron that turns when it opens (named groups, so nested disclosures never turn each other's). */
+const CHEVRON = {
+  steps: "group-open/steps:rotate-180", section: "group-open/section:rotate-180", audit: "group-open/audit:rotate-180", blockers: "group-open/blockers:rotate-180",
+  fee: "group-open/fee:rotate-180", lvs: "group-open/lvs:rotate-180",
+} as const;
+const SUMMARY = "flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden";
+function Chevron({ group }: { group: keyof typeof CHEVRON }) {
+  return <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform ${CHEVRON[group]}`} />;
+}
+
 function Section({ title, state, open, children }: { title: string; state: StageState; open?: boolean; children: React.ReactNode }) {
   return (
-    <details open={open} className="rounded-xl border border-slate-200 p-3">
-      <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-semibold text-slate-900">
-        <span>{title}</span>
+    <details open={open} className="group/section rounded-xl border border-slate-200 p-3">
+      <summary className={`${SUMMARY} justify-between text-sm font-semibold text-slate-900`}>
+        <span className="flex items-center gap-1"><Chevron group="section" />{title}</span>
         <Pill state={state} />
       </summary>
       <div className="mt-3 space-y-3 text-sm text-slate-700">{children}</div>
@@ -72,6 +85,7 @@ export default function SmsSubaccountPanel({
   focusStudioId = null,
   now,
   requestKeys = {},
+  monthlyLimits = null,
 }: {
   overview: PanelOverview | null;
   panels: StudioPanel[];
@@ -83,6 +97,8 @@ export default function SmsSubaccountPanel({
   /** Render clock and one-time Create-subaccount keys per studio (from panelRenderContext, produced once by the page). */
   now: number;
   requestKeys?: Record<string, string>;
+  /** Monthly spending limits by legal business (read-only); null when they cannot be read in this environment. */
+  monthlyLimits?: PanelMonthlyLimits | null;
 }) {
   const pending = (overview?.requests ?? []).filter((r) => r.status === "pending");
   return (
@@ -102,11 +118,8 @@ export default function SmsSubaccountPanel({
           {pending.length > 0 ? <LocationRequests requests={pending} overview={overview!} /> : null}
           <div className="mt-4 space-y-4">
             {panels.length === 0 ? <p className="text-sm text-slate-500">No studio has submitted a texting setup yet.</p> : null}
-            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} now={now} requestKey={requestKeys[panel.studioId] ?? ""} />)}
+            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} now={now} requestKey={requestKeys[panel.studioId] ?? ""} monthlyLimits={monthlyLimits} />)}
           </div>
-          <p className="mt-4 text-xs text-slate-500">
-            Monthly spending limits are managed by the monthly-limit workstream and will appear here once it is released. This panel shows the cumulative setup budget and each owner-approved fee.
-          </p>
         </>
       )}
     </section>
@@ -149,7 +162,7 @@ function LocationRequests({ requests, overview }: { requests: PanelRequest[]; ov
   );
 }
 
-function StudioCard({ panel, overview, expanded, now, requestKey }: { panel: StudioPanel; overview: PanelOverview; expanded: boolean; now: number; requestKey: string }) {
+function StudioCard({ panel, overview, expanded, now, requestKey, monthlyLimits }: { panel: StudioPanel; overview: PanelOverview; expanded: boolean; now: number; requestKey: string; monthlyLimits: PanelMonthlyLimits | null }) {
   const stage = (key: StudioPanel["stages"][number]["key"]) => panel.stages.find((s) => s.key === key)!;
   const entity = panel.entity;
   const audit: PanelAudit[] = overview.audit.filter((a) => a.studioId === panel.studioId || (entity && entity.studios.some((s) => s.studioId === a.studioId))).slice(0, 15);
@@ -170,14 +183,14 @@ function StudioCard({ panel, overview, expanded, now, requestKey }: { panel: Stu
       </div>
       <p className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-sm text-violet-950" data-testid="next-action"><strong>Next:</strong> {panel.nextAction}</p>
       {panel.blockers.length > 1 ? (
-        <details className="mt-2 text-xs text-slate-600">
-          <summary className="cursor-pointer">All blocking conditions ({panel.blockers.length})</summary>
+        <details className="group/blockers mt-2 text-xs text-slate-600">
+          <summary className={SUMMARY}><Chevron group="blockers" />All blocking conditions ({panel.blockers.length})</summary>
           <ul className="mt-1 list-disc pl-5">{panel.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
         </details>
       ) : null}
 
-      <details open={expanded} className="mt-3" data-testid="studio-steps">
-      <summary className="cursor-pointer text-sm font-semibold text-violet-800">Steps, approvals and evidence</summary>
+      <details open={expanded} className="group/steps mt-3" data-testid="studio-steps">
+      <summary className={`${SUMMARY} text-sm font-semibold text-violet-800`}><Chevron group="steps" />Steps, approvals and evidence</summary>
       <div className="mt-3 space-y-2">
         <Section title="Legal business" state={stage("entity").state} open={focus === "entity"}>
           <p>{stage("entity").summary}</p>
@@ -201,6 +214,7 @@ function StudioCard({ panel, overview, expanded, now, requestKey }: { panel: Stu
 
         <Section title="Setup budget and fee approvals" state={stage("budget").state} open={focus === "budget"}>
           <p>{stage("budget").summary}</p>
+          {entity ? <PanelMonthlyLimit limit={monthlyLimits?.[entity.id] ?? null} /> : null}
           {entity ? <BudgetForms panel={panel} overview={overview} /> : null}
         </Section>
 
@@ -236,8 +250,8 @@ function StudioCard({ panel, overview, expanded, now, requestKey }: { panel: Stu
           <p className="text-xs text-slate-500">Run, confirm and check the registration steps in the registration runner below (open a runner window first). Step-by-step evidence appears there.</p>
         </Section>
 
-        <details className="rounded-xl border border-slate-200 p-3">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">Audit evidence ({audit.length})</summary>
+        <details className="group/audit rounded-xl border border-slate-200 p-3">
+          <summary className={`${SUMMARY} text-sm font-semibold text-slate-900`}><Chevron group="audit" />Audit evidence ({audit.length})</summary>
           <ul className="mt-2 space-y-1 text-xs text-slate-600" data-testid="panel-audit">
             {audit.length === 0 ? <li>No events yet.</li> : audit.map((a, i) => (
               <li key={`${a.at}-${i}`}>{new Date(a.at).toLocaleString()}: {AUDIT_LABELS[a.action] ?? a.action} ({a.actorType}){a.note ? `: ${a.note}` : ""}</li>
@@ -303,8 +317,8 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
         </ul>
       ) : null}
 
-      <details className="rounded-xl border border-slate-200 p-3">
-        <summary className="cursor-pointer text-xs font-semibold text-slate-900">Record an owner fee approval</summary>
+      <details className="group/fee rounded-xl border border-slate-200 p-3">
+        <summary className={`${SUMMARY} text-xs font-semibold text-slate-900`}><Chevron group="fee" />Record an owner fee approval</summary>
         <p className="mt-2 text-xs text-slate-600">One approval authorizes exactly one operation at the published price. It is reserved only when that step runs.</p>
         <div className="mt-2 space-y-2">
           {(["brand", "campaign_vetting", "number"] as const).map((row) => {
@@ -349,8 +363,8 @@ function TierForm({ panel }: { panel: StudioPanel }) {
         <label className="flex items-center gap-1"><input type="radio" name="tier" value="standard" defaultChecked={panel.tier === "standard"} /> Standard (Mixed campaign, secondary vetting)</label>
         <label className="flex items-center gap-1"><input type="radio" name="tier" value="low_volume_standard" defaultChecked={panel.tier === "low_volume_standard"} /> Low-Volume Standard (Low Volume Mixed)</label>
       </fieldset>
-      <details className="text-xs">
-        <summary className="cursor-pointer font-medium text-slate-800">Low-Volume Standard eligibility checklist (all required)</summary>
+      <details className="group/lvs text-xs">
+        <summary className={`${SUMMARY} font-medium text-slate-800`}><Chevron group="lvs" />Low-Volume Standard eligibility checklist (all required)</summary>
         <div className="mt-2 space-y-1">
           {LVS_CHECKLIST.map((item) => (
             <label key={item.key} className="flex items-start gap-2"><input type="checkbox" name={`elig_${item.key}`} className="mt-0.5" /> {item.label}</label>

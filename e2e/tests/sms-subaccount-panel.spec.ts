@@ -110,6 +110,49 @@ test("the setup budget needs the amount typed twice", async () => {
   await expect(card().locator('[data-testid="next-action"]')).toContainText("Create the Twilio subaccount");
 });
 
+test("the monthly spending limit sits next to the setup budget: read-only, Not set until the owner approves one, with a chevron disclosure", async () => {
+  await admin.goto("/platform/sms");
+  const s = await open("Setup budget and fee approvals");
+  const block = s.locator('[data-testid="monthly-limit"]');
+  await expect(block).toBeVisible();
+  await expect(block.locator('[data-testid="monthly-limit-status"]')).toHaveText("Not set");
+  await expect(block.locator('[data-testid="monthly-limit-approved"]')).toHaveText("$0.00");
+  await expect(block.locator('[data-testid="monthly-limit-used"]')).toHaveText("$0.00");
+  await expect(block.locator('[data-testid="monthly-limit-remaining"]')).toHaveText("$0.00");
+  await expect(block.locator('[data-testid="monthly-limit-timezone"]')).not.toBeEmpty();
+  await expect(block).toContainText("Only the owner sets it");
+  await expect(block.locator("form, input, button, select")).toHaveCount(0);
+  // progressive disclosure: closed by default; the chevron turns when it opens and back when it closes (Tailwind v4 rotate-* sets the CSS rotate property)
+  const details = block.locator("details");
+  const chevron = details.locator(":scope > summary svg");
+  await expect(details).not.toHaveAttribute("open", "");
+  const closed = await chevron.evaluate((el) => getComputedStyle(el).rotate);
+  await details.locator(":scope > summary").click();
+  await expect(details).toHaveAttribute("open", "");
+  await expect(details).toContainText("Platform safety ceiling");
+  await expect(details).toContainText("No limit changes recorded.");
+  await expect.poll(() => chevron.evaluate((el) => getComputedStyle(el).rotate)).not.toBe(closed);
+  await details.locator(":scope > summary").click();
+  await expect(details).not.toHaveAttribute("open", "");
+  await expect.poll(() => chevron.evaluate((el) => getComputedStyle(el).rotate)).toBe(closed);
+  // every disclosure on the card has a visible chevron
+  for (const summary of await card().locator("summary").all()) if (await summary.isVisible()) await expect(summary.locator("svg").first()).toBeVisible();
+});
+
+test("the owner of a location that now belongs to a legal business is not offered the location link", async ({ browser }) => {
+  const ctx = await browser.newContext();
+  try {
+    const page = await ctx.newPage();
+    await signIn(page, fixture.owner, "/app/settings/sms");
+    await page.waitForURL((url) => !url.pathname.startsWith("/login"));
+    await page.goto("/app/settings/sms");
+    await expect(page.getByRole("heading", { name: "Texting", exact: true })).toBeVisible();
+    await expect(page.locator('[data-testid="sms-location-link"]')).toHaveCount(0);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("Create subaccount: the wrong phrase creates nothing; a double click creates exactly one", async () => {
   await admin.goto("/platform/sms");
   let s = await open("Twilio subaccount");
@@ -171,9 +214,13 @@ test("location linking: another business's owner attests studio B; the verificat
   const other = await browser.newContext();
   try {
     const page = await other.newPage();
-    await signIn(page, fixture.otherOwner, "/app/settings/sms/location");
+    await signIn(page, fixture.otherOwner, "/app/settings/sms");
     await page.waitForURL((url) => !url.pathname.startsWith("/login"));
-    await page.goto("/app/settings/sms/location");
+    // one click from Texting to the attestation (studio B is not linked to a legal business)
+    await page.goto("/app/settings/sms");
+    await page.locator('[data-testid="sms-location-link"]').getByRole("link", { name: "Link this location" }).click();
+    await page.waitForURL(/\/app\/settings\/sms\/location$/);
+    await expect(page.getByRole("heading", { name: "Add this location to your existing business" })).toBeVisible();
     await page.locator('input[name="legalName"]').fill(BUSINESS.legal_name);
     await page.locator('input[name="einLast4"]').fill("4321");
     await page.getByRole("button", { name: "Send for review" }).click();

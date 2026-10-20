@@ -8,6 +8,7 @@ import SmsSubaccountPanel from "./SmsSubaccountPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SupabasePanelStore, buildStudioPanels, type PanelOverview } from "@/lib/sms/twilioIsv/panel";
 import { PANEL_FLASH_COOKIE, panelRenderContext, readPanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
+import { loadPanelMonthlyLimits, type PanelMonthlyLimits } from "@/lib/billing/smsPanelMonthlyLimits";
 import { cookies } from "next/headers";
 import { getAdminCreditOverview } from "@/lib/billing/smsCreditView";
 import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
@@ -232,6 +233,8 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   } catch {
     panelOverview = null; // migration not applied in this environment yet
   }
+  // monthly spending limits per legal business (read-only, platform-admin-only definer function; null = not readable here, shown as "not available")
+  const panelMonthlyLimits: PanelMonthlyLimits | null = panelOverview && panelOverview.entities.length > 0 ? await loadPanelMonthlyLimits(createAdminClient(), admin.id) : null;
 
   const panelContext = panelRenderContext(panelOverview ? [...new Set([...panelOverview.onboardings.map((o) => o.studioId), ...panelOverview.entities.flatMap((e) => e.studios.map((s) => s.studioId))])] : []);
 
@@ -418,6 +421,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         panels={panelOverview ? buildStudioPanels(panelOverview, panelContext.now) : []}
         now={panelContext.now}
         requestKeys={panelContext.requestKeys}
+        monthlyLimits={panelMonthlyLimits}
         unavailable={!panelOverview}
         {...readPanelFlash((await cookies()).get(PANEL_FLASH_COOKIE)?.value, { panel: firstParam(params.panel), panelError: firstParam(params.panel_error) })}
         focusStudioId={firstParam(params.studio)}
