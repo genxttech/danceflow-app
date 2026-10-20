@@ -369,7 +369,7 @@ describe("payload mapping", () => {
 describe("only real.ts can reach Twilio", () => {
   const dir = join(__dirname, "..");
   const files = readdirSync(dir).filter((name) => name.endsWith(".ts") && statSync(join(dir, name)).isFile());
-  it("covers the slice's files", () => expect(files.sort()).toEqual(["account.ts", "config.ts", "creditStore.ts", "entityStore.ts", "errorCatalog.ts", "factory.ts", "fake.ts", "loopback.ts", "outcomes.ts", "payloads.ts", "real.ts", "registrationPath.ts", "rotation.ts", "runner.ts", "store.ts", "subaccount.ts", "types.ts", "webhookRuntime.ts"]));
+  it("covers the slice's files", () => expect(files.sort()).toEqual(["account.ts", "config.ts", "creditStore.ts", "entityStore.ts", "errorCatalog.ts", "factory.ts", "fake.ts", "loopback.ts", "outcomes.ts", "panel.ts", "panelCommands.ts", "payloads.ts", "real.ts", "registrationPath.ts", "rotation.ts", "runner.ts", "store.ts", "subaccount.ts", "types.ts", "webhookRuntime.ts"]));
   it.each(files.filter((name) => name !== "real.ts"))("%s has no network call, Twilio host or credential read", (name) => {
     const code = readFileSync(join(dir, name), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
     expect(code).not.toMatch(/\bfetch\s*\(/);

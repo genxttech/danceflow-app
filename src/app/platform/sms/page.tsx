@@ -4,6 +4,9 @@ import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
 import SmsOnboardingPilot from "./SmsOnboardingPilot";
 import SmsCreditAdmin from "./SmsCreditAdmin";
+import SmsSubaccountPanel from "./SmsSubaccountPanel";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { SupabasePanelStore, buildStudioPanels, type PanelOverview } from "@/lib/sms/twilioIsv/panel";
 import { getAdminCreditOverview } from "@/lib/billing/smsCreditView";
 import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
 import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
@@ -220,6 +223,14 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
     }
   }
 
+  // TW-4F: the supervised-pilot subaccount panel (read through a platform-admin-only definer function; never throws: the page works without it)
+  let panelOverview: PanelOverview | null = null;
+  try {
+    panelOverview = await new SupabasePanelStore(createAdminClient()).overview(admin.id);
+  } catch {
+    panelOverview = null; // migration not applied in this environment yet
+  }
+
   const logs = (logsResult.data ?? []) as SmsMessageLogRow[];
   const consentRows = (consentResult.data ?? []) as SmsConsentRow[];
   const registrations = (registrationsResult.data ?? []) as StudioSmsRegistrationRow[];
@@ -397,6 +408,14 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
       ) : null}
 
       <SmsCreditAdmin overview={creditOverview} recurring={recurringOverview} />
+
+      <SmsSubaccountPanel
+        overview={panelOverview}
+        panels={panelOverview ? buildStudioPanels(panelOverview) : []}
+        unavailable={!panelOverview}
+        notice={firstParam(params.panel)}
+        error={firstParam(params.panel_error)}
+      />
 
       <SmsOnboardingPilot
         studios={studios}

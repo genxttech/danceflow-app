@@ -143,8 +143,10 @@ select pg_temp.chk('T01 only a platform admin may set the tier; unknown tiers an
   and pg_temp.svc(format('select public.tw4_onboarding_set_tier(%L, %L, ''low_volume_standard'', ''eligible'')::text', pg_temp.kv('sb'), pg_temp.kv('padmin'))) like 'ERR 22023%'
   and (select count(*) = 0 from public.studio_sms_tier_decisions));
 -- (side-effecting calls run in their own statements: AND gives no evaluation order)
-select pg_temp.setkv('t2a', pg_temp.svc(format('select public.tw4_onboarding_set_tier(%L, %L, ''low_volume_standard'', ''EIN registered, under 2k segments/day'')::text', pg_temp.kv('sa'), pg_temp.kv('padmin'))));
-select pg_temp.setkv('t2b', pg_temp.svc(format('select public.tw4_onboarding_set_tier(%L, %L, ''low_volume_standard'', ''again'')::text', pg_temp.kv('sa'), pg_temp.kv('padmin'))));
+-- (since 20261130 Low-Volume Standard is set through tw4_onboarding_decide_tier with its eligibility checklist; the old entry point refuses it)
+select pg_temp.setkv('elig', '{"ein_registered":true,"not_sole_proprietor":true,"low_volume_expected":true,"owner_informed_limits":true,"owner_informed_review":true}');
+select pg_temp.setkv('t2a', pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''EIN registered, under 2k segments/day'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'), pg_temp.kv('elig'))));
+select pg_temp.setkv('t2b', pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''again, same tier'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'), pg_temp.kv('elig'))));
 select pg_temp.chk('T02 a platform admin sets Low-Volume Standard with a reason; the decision is evidence; setting it again changes nothing',
   pg_temp.kv('t2a')::jsonb = '{"tier": "low_volume_standard", "changed": true}'
   and pg_temp.kv('t2b')::jsonb = '{"tier": "low_volume_standard", "changed": false}'
@@ -173,7 +175,7 @@ insert into public.studio_sms_provisioning_steps (onboarding_id, studio_id, step
 select o.id, o.studio_id, 'B1', o.submission_seq, 'unknown_outcome', 'df:test:b1', true, pg_temp.kv('ac_a') from public.studio_sms_onboarding o where o.id = pg_temp.u('onb');
 alter table public.studio_sms_provisioning_steps enable trigger user;
 select pg_temp.chk('T06 the tier is frozen once any brand attempt exists (even an unknown outcome)',
-  pg_temp.svc(format('select public.tw4_onboarding_set_tier(%L, %L, ''low_volume_standard'', ''after brand'')::text', pg_temp.kv('sa'), pg_temp.kv('padmin'))) like 'ERR 55000%'
+  pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''after the brand attempt'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'), pg_temp.kv('elig'))) like 'ERR 55000%'
   and (select tier = 'standard' from public.studio_sms_onboarding where id = pg_temp.u('onb')));
 
 do $$
