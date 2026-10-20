@@ -54,6 +54,19 @@ export function realCallsAllowed(env: Env = process.env): RealCallsGate {
   return { allowed: true };
 }
 
+/**
+ * TW-4F provider integration: may this deployment read subaccount Auth Tokens (GET, parent credentials) to verify subaccount-signed webhooks?
+ * Production build on a production deployment AND `TW4_SUBACCOUNT_WEBHOOKS=on`, independently of TW4_ISV_REAL_CALLS: verifying callbacks is a
+ * read, never a registration write. Off (the default) = a webhook naming one of our subaccounts is refused with 503; parent-signed webhooks are
+ * unaffected.
+ */
+export function subaccountWebhooksAllowed(env: Env = process.env): RealCallsGate {
+  if (isvEnvName(env) !== "production") return { allowed: false, reason: "Subaccount webhook verification is disabled outside production." };
+  if (String(env.NODE_ENV ?? "") !== "production") return { allowed: false, reason: "Subaccount webhook verification is disabled outside a production build." };
+  if (String(env.TW4_SUBACCOUNT_WEBHOOKS ?? "") !== "on") return { allowed: false, reason: "Subaccount webhook verification is switched off." };
+  return { allowed: true };
+}
+
 /** The fake writes fake SIDs into the ledger and registration rows, so it may only run against a LOCAL database. */
 function localDatabase(env: Env): boolean {
   return isLoopbackUrl(String(env.NEXT_PUBLIC_SUPABASE_URL ?? ""));

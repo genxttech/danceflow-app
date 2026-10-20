@@ -81,14 +81,24 @@ export interface IsvAdapter {
 
 /**
  * TW-4F-3a: the parent (ISV) account's account-management surface. It can find and create subaccounts and read a subaccount's auth token, and
- * NOTHING else: it carries no registration methods, so parent credentials can never be used for Trust Hub or A2P calls.
+ * NOTHING else that writes: it carries no registration methods, so parent credentials can never create or submit Trust Hub or A2P resources
+ * (Twilio ticket #29647095, answer 2: those operations need subaccount-scoped credentials).
  */
 export interface IsvParentAdapter {
   findSubaccount(friendlyName: string): Promise<string[]>;
   createSubaccount(friendlyName: string): Promise<string>;
   /** The subaccount's auth token, fetched at call time. Callers keep it in memory only (see SubaccountTokenProvider). */
   getSubaccountToken(accountSid: string): Promise<string>;
+  /**
+   * TW-4F provider integration: read-only (GET) status and policy of the ISV PRIMARY Customer Profile, which lives in the PARENT account. Only the
+   * configured Primary profile SID can be read (no argument). The run preflight uses this instead of a subaccount read: Twilio confirmed the Primary
+   * can be ASSIGNED to a Secondary profile inside a subaccount (answer 1), not that a subaccount can read it.
+   */
+  getPrimaryProfile(): Promise<{ status: BundleStatus; policySid: string | null }>;
 }
+
+/** What the runner's preflight needs: the Primary profile's state, read with parent credentials. */
+export type PrimaryProfileReader = Pick<IsvParentAdapter, "getPrimaryProfile">;
 
 export type EndUserType = "customer_profile_business_information" | "authorized_representative_1" | "us_a2p_messaging_profile_information";
 

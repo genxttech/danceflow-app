@@ -179,7 +179,7 @@ describe("provisionSubaccount", () => {
     await entities.confirmSubaccount(ENTITY, ADMIN);
     await provision();
     expect(new Set(parent.calls.map((c) => c.method))).toEqual(new Set(["findSubaccount", "createSubaccount"]));
-    expect(Object.getOwnPropertyNames(Object.getPrototypeOf(parent)).filter((n) => /Profile|Brand|Trust|EndUser|Address/.test(n))).toEqual([]);
+    expect(Object.getOwnPropertyNames(Object.getPrototypeOf(parent)).filter((n) => /Profile|Brand|Trust|EndUser|Address/.test(n))).toEqual(["getPrimaryProfile"]);
     expect(parent.adapterFor(SUB_A).count("createCustomerProfile")).toBe(0);
   });
 

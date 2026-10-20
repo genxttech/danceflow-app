@@ -159,7 +159,7 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     const adapter = parent.adapterFor(adapterAccount);
     let result!: RunResult;
     for (let pass = 0; pass < 6; pass++) {
-      result = await runBrandSubmission({ store, adapter, config, studioId: studio, actorId: U.padmin, confirmFee, confirmSubmit: ["S11", "T6"] });
+      result = await runBrandSubmission({ store, adapter, primary: parent, config, studioId: studio, actorId: U.padmin, confirmFee, confirmSubmit: ["S11", "T6"] });
       if (result.outcome !== "waiting_submission_confirmation" || !String(result.detail).endsWith(":review")) break;
     }
     return result;
@@ -299,7 +299,7 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
 
   it("a studio is stopped by the runner until its entity has an active subaccount, and the ledger refuses rows without one (TW005)", async () => {
     const adapter = parent.adapterFor(`AC${"d".repeat(32)}`);
-    const stopped = await runBrandSubmission({ store, adapter, config, studioId: A, actorId: U.padmin, confirmFee: true, confirmSubmit: [] });
+    const stopped = await runBrandSubmission({ store, adapter, primary: parent, config, studioId: A, actorId: U.padmin, confirmFee: true, confirmSubmit: [] });
     expect(stopped.outcome).toBe("needs_subaccount");
     expect(stopped.detail).toBe("no_subaccount");
     expect(adapter.calls).toHaveLength(0);
@@ -365,7 +365,7 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     const sidTwo = psql(`select twilio_account_sid from public.studio_sms_twilio_accounts where legal_entity_id = '${entityTwo}'`);
     // business one's studio with business two's adapter: refused before any call
     const foreign = parent.adapterFor(sidTwo);
-    const refused = await runBrandSubmission({ store, adapter: foreign, config, studioId: A, actorId: U.padmin, confirmFee: true, confirmSubmit: [] });
+    const refused = await runBrandSubmission({ store, adapter: foreign, primary: parent, config, studioId: A, actorId: U.padmin, confirmFee: true, confirmSubmit: [] });
     expect(refused.outcome).toBe("account_mismatch");
     expect(foreign.calls).toHaveLength(0);
     // the right adapter: steps run and carry the account
@@ -374,7 +374,9 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     expect(count(`select count(*) from public.studio_sms_provisioning_steps where studio_id = '${A}' and twilio_account_sid = '${sidOne}'`)).toBeGreaterThan(10);
     expect(count(`select count(*) from public.studio_sms_provisioning_steps where studio_id = '${A}' and twilio_account_sid is distinct from '${sidOne}'`)).toBe(0);
     // resources exist only in business one's account
-    expect(parent.adapterFor(sidOne).profiles.size).toBeGreaterThan(1);
+    // (the Secondary profile only: the ISV Primary lives in the parent account and is assigned, not copied, Twilio ticket #29647095)
+    expect(parent.adapterFor(sidOne).profiles.size).toBe(1);
+    expect(parent.adapterFor(sidOne).profiles.has(PRIMARY)).toBe(false);
     expect(parent.adapterFor(sidTwo).count("createCustomerProfile")).toBe(0);
     const onboarding = psql(`select id from public.studio_sms_onboarding where studio_id = '${A}' and state <> 'cancelled'`);
     expect(psqlError(`update public.studio_sms_provisioning_steps set twilio_account_sid = '${sidTwo}' where onboarding_id = '${onboarding}' and step_key = 'S1'`)).toContain("subaccount of a step is fixed");

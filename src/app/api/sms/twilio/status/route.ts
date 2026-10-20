@@ -2,7 +2,9 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { sanitizedSmsProviderError } from "@/lib/sms/compliance";
 import { mapTwilioStatusToSmsLogStatus } from "@/lib/sms/twilio";
-import { twilioFormParams, verifyTwilioWebhook } from "@/lib/sms/twilioWebhook";
+import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
+import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
+import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { hasValidSecret } from "@/lib/security/cron";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
@@ -50,12 +52,21 @@ export async function POST(request: Request) {
 
   // 1) Twilio request signature, then 2) the existing callback secret. Both are required
   // before any delivery-log mutation.
-  const verification = verifyTwilioWebhook(request, twilioFormParams(formData));
+  // TW-4F: a callback for a message sent from a studio legal business's subaccount is signed with that subaccount's own token.
+  // a repeated form key would let the signed values (last) differ from the values the route reads (first)
+  if (twilioFormHasDuplicateKeys(formData)) {
+    console.warn("twilio_form_duplicate_key");
+    return rejectUnverified(request, 403);
+  }
+  const params = twilioFormParams(formData);
+  const supabase = getServiceSupabase();
+  const verification = await verifyTwilioWebhookAccount(request, params, buildWebhookAccountDeps(supabase));
 
   if (!verification.ok) {
     console.warn(verification.reason);
     return rejectUnverified(request, verification.status);
   }
+  const signer = verification.account;
 
   const url = new URL(request.url);
   const expectedSecret = process.env.TWILIO_STATUS_CALLBACK_SECRET ?? "";
@@ -95,8 +106,6 @@ export async function POST(request: Request) {
   const messageStatus = messageStatusResult.value;
   const errorCode = errorCodeResult.value;
   const errorMessage = errorMessageResult.value;
-
-  const supabase = getServiceSupabase();
 
   if (!supabase) {
     console.error("Twilio status callback service client is not configured.");
@@ -145,6 +154,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // TW-4F tenant isolation: a subaccount-signed callback may only update a message of that subaccount's own legal business.
+  if (!webhookMayActForStudio(signer, logRow.studio_id)) {
+    console.warn("sms_status_account_studio_mismatch");
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
   if (logRow.studio_id) {
     const { data: registration, error: registrationError } = await supabase
       .from("studio_sms_registrations")
@@ -163,6 +178,16 @@ export async function POST(request: Request) {
       console.warn("sms_status_sender_mismatch");
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
+  }
+
+  // TW-4F replay protection: each (MessageSid, MessageStatus) is applied once, so an exact replay of an earlier callback changes nothing.
+  // (A genuine out-of-order callback, e.g. sent after delivered, still applies: there is no status ranking yet.)
+  // If the ledger is unreachable the callback is applied anyway (status updates are idempotent; the signature is already verified).
+  const receiptKey = webhookReceiptKey("status", params);
+  if (receiptKey) {
+    const receipt = await recordWebhookReceipt(supabase, "status", receiptKey, signer.kind === "subaccount" ? signer.accountSid : null);
+    if (receipt === "duplicate") return NextResponse.json({ ok: true, duplicate: true });
+    if (receipt === "unavailable") console.warn("sms_status_receipt_unavailable");
   }
 
   let update = supabase.from("sms_message_logs").update(updatePayload).eq("id", logRow.id);
