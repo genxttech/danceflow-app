@@ -226,6 +226,7 @@ declare
   v_billable int := 0;
   v_charged int := 0;
   v_ceiling int;
+  v_protected bigint;
   v_reply int;
 begin
   if p_studio_id is null or p_provider_sid is null or p_provider_sid !~ '^(SM|MM)[0-9a-fA-F]{32}$'
@@ -263,8 +264,16 @@ begin
   -- the pilot business carries NO inbound debt: its pilot-funded setup operations require a non-negative balance (and the pilot ceiling never funds texting)
   v_ceiling := case when exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = v_entity) then 0 else public._tw4in_ceiling(v_entity) end;
   -- D1: charge only down to the negative-balance ceiling, measured on AVAILABLE funds (reserved funds are already promised to an outgoing text or a set-aside
-  -- month and will be spent); the rest is uncollected (absorbed); the text is never refused
-  v_charged := least(v_billable, greatest(0, acct.balance_cents - acct.reserved_cents + v_ceiling))::int;
+  -- month and will be spent); the rest is uncollected (absorbed); the text is never refused.
+  -- Owner decision (PR 248): inbound never consumes funds reserved for authorized recurring fees (the first month set aside, a recurring charge in flight):
+  -- the balance after the charge must still cover them. The pilot business additionally never goes below zero (its ceiling is 0).
+  select coalesce(sum(r.amount_cents), 0) into v_protected from public.studio_sms_credit_reservations r
+   where r.legal_entity_id = v_entity and r.status = 'reserved' and r.funding = 'credit' and (r.reservation_key like 'commit:%' or r.reservation_key like 'rec:%');
+  v_charged := least(v_billable,
+                     greatest(0, acct.balance_cents - acct.reserved_cents + v_ceiling),
+                     -- while a recurring set-aside is open there is NO inbound debt: only credit free of every reservation may be used, because other
+                     -- reservations (an outgoing text, a setup fee) settle without a funds check and would otherwise be paid from the set-aside
+                     case when v_protected > 0 then greatest(0, acct.balance_cents - acct.reserved_cents) else v_billable end)::int;
   if v_charged > 0 then
     perform public._tw4c_post(v_entity, p_studio_id, 'usage_charge', -v_charged, 0, 'usage:in:' || p_provider_sid, null, 'inbound', null, null);
   end if;
@@ -362,10 +371,136 @@ begin
              where exists (select 1 from public.studio_sms_inbound_usage u where u.legal_entity_id = le.id)) b), '[]'::jsonb));
 end $$;
 
+-- the month's spending without inbound texts (what an authorized recurring fee is checked against)
+create or replace function public._tw4in_spend_without_inbound(p_entity uuid, p_key text)
+returns bigint language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+  select ((x->>'total_cents')::bigint - coalesce((x->>'inbound_cents')::bigint, 0)) from (select public._tw4ml_month_parts(p_entity, p_key) x) q;
+$$;
+
+-- as of 20261128090000, with ONE change: its monthly-limit check leaves inbound texts out (see the comment at that check)
+create or replace function public.tw4_recurring_charge(p_authorization_id uuid, p_period_key text, p_run_id uuid default null)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  a public.studio_sms_recurring_authorizations;
+  acct public.studio_sms_credit_accounts;
+  p public.studio_sms_price_list;
+  c public.studio_sms_recurring_charges;
+  cr public.studio_sms_credit_reservations;
+  v_cur text;
+  v_spent bigint;
+  v_status text;
+  v_reason text;
+  v_res uuid;
+  v_key text;
+begin
+  if p_period_key is null or p_period_key !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then
+    raise exception 'invalid period' using errcode = '22023';
+  end if;
+  select * into a from public.studio_sms_recurring_authorizations x where x.id = p_authorization_id;
+  if a.id is null then
+    raise exception 'unknown authorization' using errcode = '22023';
+  end if;
+  -- entity row first (the order tw4_spend_reserve / tw4_spend_authorize use), then the account row
+  perform 1 from public.studio_sms_legal_entities le where le.id = a.legal_entity_id for no key update;
+  acct := public._tw4c_lock(a.legal_entity_id);   -- the one lock every credit mutation takes: charges, top-ups, holds, limit changes and revocations are serialized
+  -- a scheduler run is fenced by its lease and by the kill switch, checked AFTER the locks
+  if p_run_id is not null and not exists (select 1 from public.studio_sms_recurring_runs r where r.id = p_run_id and r.status = 'running' and r.lease_expires_at > clock_timestamp()) then
+    raise exception 'the scheduler run is not active' using errcode = '22023';
+  end if;
+  if p_run_id is not null and not coalesce((select l.enabled from public.studio_sms_recurring_switch_log l order by l.changed_at desc, l.id desc limit 1), false) then
+    raise exception 'the scheduler is switched off' using errcode = '22023';
+  end if;
+  perform public._tw4ml_ensure_tz(a.legal_entity_id);
+  v_cur := public._tw4ml_month_key(a.legal_entity_id, now());
+  -- only the current or the previous service month (in the business's timezone) can be charged: never the future, never ancient history
+  if p_period_key <> v_cur and p_period_key <> public._tw4ml_key_add(v_cur, -1) then
+    raise exception 'this period cannot be charged now' using errcode = '22023';
+  end if;
+  select * into a from public.studio_sms_recurring_authorizations x where x.id = p_authorization_id for update;
+  select * into c from public.studio_sms_recurring_charges x where x.authorization_id = a.id and x.period_key = p_period_key for update;
+  if c.id is not null and c.status = 'charged' then
+    return jsonb_build_object('outcome', 'charged', 'replayed', true);
+  end if;
+
+  v_status := null;
+  select coalesce(sum(x.amount_cents), 0) into v_spent from public.studio_sms_recurring_charges x where x.authorization_id = a.id and x.status = 'charged';
+  select * into p from public.studio_sms_price_list x where x.kind = a.kind and x.active;
+  -- the first month's set-aside funds, if still held, are what this charge captures (no second reservation); they are already counted in the month they were set aside in, so capturing them needs no new room
+  if a.commitment_reservation_id is not null then
+    select * into cr from public.studio_sms_credit_reservations x where x.id = a.commitment_reservation_id for update;
+    if cr.id is not null and cr.status = 'reserved' then
+    else
+      cr := null;
+    end if;
+  end if;
+  if a.status <> 'active' then
+    v_status := 'refused'; v_reason := 'revoked';
+  elsif a.expires_at <= now() or public._tw4ml_month_start(a.legal_entity_id, p_period_key) >= a.expires_at or p_period_key < public._tw4ml_month_key(a.legal_entity_id, a.starts_at) then
+    v_status := 'refused'; v_reason := 'outside the authorized term';
+  elsif p.id is null or p.customer_price_cents <> a.price_cents then
+    v_status := 'refused'; v_reason := 'price changed: the owner must authorize again';
+  elsif exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = a.legal_entity_id) then
+    v_status := 'refused'; v_reason := 'pilot business: each recurring operation needs its own approval';   -- the pilot ceiling is never consumed by a schedule
+  elsif exists (select 1 from public.studio_sms_recurring_charges x where x.legal_entity_id = a.legal_entity_id and x.studio_id = a.studio_id and x.kind = a.kind and x.period_key = p_period_key and x.status = 'charged' and x.authorization_id <> a.id) then
+    v_status := 'refused'; v_reason := 'this period was already charged under another authorization';   -- revoke + authorize again never charges one period twice
+  elsif v_spent + a.price_cents > a.total_limit_cents then
+    v_status := 'refused'; v_reason := 'authorized spending limit reached';
+  -- owner decision (PR 248): an authorized recurring fee is checked against the month's spending WITHOUT inbound texts, so inbound volume (which can
+  -- never be refused) cannot hold the business's phone number or messaging service; inbound still counts for everything else
+  elsif cr.id is null and public._tw4in_spend_without_inbound(a.legal_entity_id, v_cur) + a.price_cents > public._tw4ml_effective_limit(a.legal_entity_id, v_cur) then
+    v_status := 'held'; v_reason := 'monthly spending limit reached';   -- retried: next month, or when the owner raises the limit
+  elsif acct.hold then
+    v_status := 'held'; v_reason := 'the credit account is on hold';
+  elsif (cr.id is null and (acct.balance_cents < 0 or (acct.balance_cents - acct.reserved_cents) < a.price_cents))
+     or (cr.id is not null and (acct.balance_cents < 0 or acct.balance_cents < cr.amount_cents)) then
+    v_status := 'unfunded'; v_reason := 'insufficient settled credit';   -- settled credit only: a refunded or reversed top-up can leave a set-aside with nothing behind it; there is no fallback funding of any kind
+  end if;
+
+  if v_status is not null then
+    if c.id is null then
+      insert into public.studio_sms_recurring_charges (authorization_id, legal_entity_id, studio_id, kind, period_key, amount_cents, status, reason, run_id)
+      values (a.id, a.legal_entity_id, a.studio_id, a.kind, p_period_key, a.price_cents, v_status, v_reason, p_run_id);
+    else
+      update public.studio_sms_recurring_charges set status = v_status, reason = v_reason, attempts = attempts + 1, attempted_at = clock_timestamp(), run_id = p_run_id where id = c.id;
+    end if;
+    insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
+    values (a.studio_id, null, 'system', null, 'recurring_' || v_status, left('authorization=' || a.id || ';period=' || p_period_key || ';' || v_reason, 300));
+    return jsonb_build_object('outcome', v_status, 'reason', v_reason, 'replayed', false);
+  end if;
+
+  if cr.id is not null then
+    -- capture the funds that were set aside when the owner authorized
+    v_res := cr.id;
+    perform public._tw4c_post(a.legal_entity_id, a.studio_id, 'capture', -cr.amount_cents, -cr.amount_cents, 'capture:' || cr.reservation_key, cr.id, 'recurring=' || a.id || ';period=' || p_period_key, null, null);
+    update public.studio_sms_credit_reservations set status = 'captured', closed_at = now() where id = cr.id;
+  else
+    -- funded and within the authorization: reserve and capture in one transaction (no reservation is ever left open by a charge)
+    v_key := 'rec:' || a.id || ':' || p_period_key;
+    insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, reservation_key)
+    values (a.legal_entity_id, a.studio_id, a.kind, a.price_cents, 'credit', v_key) returning id into v_res;
+    perform public._tw4c_post(a.legal_entity_id, a.studio_id, 'reserve', 0, a.price_cents, 'reserve:' || v_key, v_res, 'recurring=' || a.id, null, null);
+    perform public._tw4c_post(a.legal_entity_id, a.studio_id, 'capture', -a.price_cents, -a.price_cents, 'capture:' || v_key, v_res, 'recurring=' || a.id || ';period=' || p_period_key, null, null);
+    update public.studio_sms_credit_reservations set status = 'captured', closed_at = now() where id = v_res;
+  end if;
+  if c.id is null then
+    insert into public.studio_sms_recurring_charges (authorization_id, legal_entity_id, studio_id, kind, period_key, amount_cents, status, reservation_id, charged_at, run_id)
+    values (a.id, a.legal_entity_id, a.studio_id, a.kind, p_period_key, a.price_cents, 'charged', v_res, clock_timestamp(), p_run_id);
+  else
+    update public.studio_sms_recurring_charges set status = 'charged', reason = null, reservation_id = v_res, charged_at = clock_timestamp(), attempts = attempts + 1, attempted_at = clock_timestamp(), run_id = p_run_id where id = c.id;
+  end if;
+  insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
+  values (a.studio_id, null, 'system', null, 'recurring_charged', left('authorization=' || a.id || ';period=' || p_period_key || ';cents=' || a.price_cents, 300));
+  return jsonb_build_object('outcome', 'charged', 'replayed', false, 'amount_cents', a.price_cents);
+end $$;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4in_ceiling(uuid), public._tw4in_reconciliation_gaps() from public, anon, authenticated, service_role;
+revoke all on function public._tw4in_ceiling(uuid), public._tw4in_reconciliation_gaps(), public._tw4in_spend_without_inbound(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_inbound_record(uuid, text, text, int, int, text, text, timestamptz, text), public.tw4_inbound_reply_allowed(text, text, text, int),
   public.tw4_inbound_exposure_set(uuid, uuid, int, text), public.sms_inbound_admin_overview(uuid) from public, anon, authenticated;
 grant execute on function public.tw4_inbound_record(uuid, text, text, int, int, text, text, timestamptz, text), public.tw4_inbound_reply_allowed(text, text, text, int),
