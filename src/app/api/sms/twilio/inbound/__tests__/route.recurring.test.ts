@@ -44,7 +44,7 @@ function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
     registration_status: "approved",
   });
 
-  return createBaseFake({
+  const db = createBaseFake({
     studios: [
       { id: STUDIO_A, name: "Harbor Dance Studio" },
       { id: STUDIO_B, name: "Lakeside Ballroom" },
@@ -55,6 +55,9 @@ function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
     ],
     ...seed,
   });
+  // TW-4F D3/D2: the per-sender reply counter answers "allowed" unless a test overrides it
+  db.overrideRpc("tw4_inbound_reply_allowed", () => ({ data: true, error: null }));
+  return db;
 }
 
 const ENV_KEYS = ["TWILIO_AUTH_TOKEN", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
@@ -172,7 +175,7 @@ describe("a suspended business still processes STOP / START / HELP", () => {
     const response = await POST(inboundRequest("START"));
     expect(response.status).toBe(200);
     expect(await response.text()).toMatch(/Response/);
-    expect(db.rpcCalls.map((c) => c.name)).toEqual(["record_sms_inbound_opt_event"]);
+    expect(db.rpcCalls.map((c) => c.name).filter((n) => n === "record_sms_inbound_opt_event")).toEqual(["record_sms_inbound_opt_event"]);
     expect(stateQueries(db)).toHaveLength(0);
   });
 
