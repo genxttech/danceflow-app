@@ -36,8 +36,14 @@ export class FakeIsvAdapter implements IsvAdapter {
   /** The account this adapter runs in. Resources (and their SIDs) exist only inside one account, like at Twilio. */
   readonly accountSid: string;
 
-  constructor(public readonly primaryProfileSid: string, private readonly options: { captureSensitive?: boolean; primaryPolicySid?: string; accountSid?: string } = {}) {
+  /**
+   * @param options.primaryInAccount the ISV Primary profile is a resource OF this account (true, the default: single-account tests). A subaccount
+   *   built by FakeIsvParent has it false: like at Twilio, the Primary lives in the parent, is not readable from the subaccount, and can only be
+   *   assigned to the subaccount's Secondary profile by its SID (Twilio ticket #29647095, answer 1).
+   */
+  constructor(public readonly primaryProfileSid: string, private readonly options: { captureSensitive?: boolean; primaryPolicySid?: string; accountSid?: string; primaryInAccount?: boolean } = {}) {
     this.accountSid = options.accountSid ?? DEFAULT_FAKE_ACCOUNT_SID;
+    if (options.primaryInAccount === false) return;
     this.profiles.set(primaryProfileSid, {
       friendlyName: "primary", status: "twilio-approved", assigned: [], submitted: true, email: "isv@example.test",
       policySid: options.primaryPolicySid ?? `RN${"a".repeat(32)}`,
@@ -141,6 +147,8 @@ export class FakeIsvAdapter implements IsvAdapter {
     return this.guarded("assignToCustomerProfile", { profileSid, objectSid }, () => {
       const profile = this.profiles.get(profileSid);
       if (!profile) throw new IsvApiError("validation", 404, "20404", "fake: profile not found");
+      // a profile from ANOTHER account can be assigned only when it is the ISV Primary (cross-account, same Twilio organization)
+      if (objectSid.startsWith("BU") && !this.profiles.has(objectSid) && objectSid !== this.primaryProfileSid) throw new IsvApiError("validation", 404, "20404", "fake: object not found");
       profile.assigned.push(objectSid);
       return this.sid("BV");
     });
@@ -235,7 +243,9 @@ type ParentMethod = keyof IsvParentAdapter;
 /**
  * TW-4F-3a: an in-memory stand-in for the PARENT account. It creates subaccounts (each a separate FakeIsvAdapter, so a SID from one account is
  * unknown in another, exactly like Twilio) and hands out fake auth tokens. Like FakeIsvAdapter it can inject failures, including a lost response.
- * ASSUMPTION (Q1b, unverified at Twilio): the ISV Primary profile can be assigned from inside a subaccount, so every fake account knows it.
+ * Twilio-confirmed (ticket #29647095, answer 1): the ISV Primary profile (parent account) can be assigned to a Secondary profile inside a subaccount of
+ * the same organization. The fake models exactly that: a subaccount cannot READ the Primary but may assign it by SID; the Primary's state is read
+ * through the parent (`getPrimaryProfile`). Tokens can be rotated (`rotateToken`) with no overlap, as Twilio does.
  */
 export class FakeIsvParent implements IsvParentAdapter {
   readonly calls: { method: ParentMethod; input: unknown }[] = [];
@@ -243,7 +253,30 @@ export class FakeIsvParent implements IsvParentAdapter {
   private counter = 0;
   private failures: { method: ParentMethod; failure: { kind: "validation" | "transient" | "account"; lostResponse?: boolean } }[] = [];
 
+  /** The Primary profile's review state as the parent sees it (test seam). */
+  primaryStatus: BundleStatus = "twilio-approved";
+
   constructor(private readonly primaryProfileSid: string, private readonly options: { primaryPolicySid?: string; captureSensitive?: boolean } = {}) {}
+
+  async getPrimaryProfile() {
+    const failure = this.enter("getPrimaryProfile", {});
+    if (failure) this.fail(failure);
+    return { status: this.primaryStatus, policySid: this.options.primaryPolicySid ?? `RN${"a".repeat(32)}` };
+  }
+
+  /** Test seam: the subaccount's auth token is rotated at Twilio (no overlap: the old token stops working at once). Returns the new token. */
+  rotateToken(accountSid: string): string {
+    const account = this.accounts.get(accountSid);
+    if (!account) throw new Error("fake: unknown account");
+    this.counter += 1;
+    account.token = `fake-token-${accountSid.slice(2, 10)}-r${this.counter}`;
+    return account.token;
+  }
+
+  /** Test seam: the token Twilio currently accepts for (and signs this subaccount's webhooks with). */
+  currentToken(accountSid: string): string | null {
+    return this.accounts.get(accountSid)?.token ?? null;
+  }
 
   failNext(method: ParentMethod, failure: { kind: "validation" | "transient" | "account"; lostResponse?: boolean }) {
     this.failures.push({ method, failure });
@@ -265,7 +298,7 @@ export class FakeIsvParent implements IsvParentAdapter {
 
   /** Test seam: an account that exists "at Twilio" (created outside the app, or by a lost response). */
   seedAccount(accountSid: string, friendlyName: string) {
-    const adapter = new FakeIsvAdapter(this.primaryProfileSid, { ...this.options, accountSid });
+    const adapter = new FakeIsvAdapter(this.primaryProfileSid, { ...this.options, accountSid, primaryInAccount: false });
     this.accounts.set(accountSid, { friendlyName, token: `fake-token-${accountSid.slice(2, 10)}`, adapter });
     return adapter;
   }

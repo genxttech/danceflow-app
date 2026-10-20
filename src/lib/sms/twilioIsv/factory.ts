@@ -5,6 +5,7 @@ import { fakeAdapterAllowed, loadIsvConfig, realCallsAllowed, type IsvConfig } f
 import { SupabaseEntityStore, type EntityStore } from "./entityStore";
 import { FakeIsvParent } from "./fake";
 import { createRealIsvParent, createScopedRealAdapter } from "./real";
+import { rotatingSubaccountAdapter } from "./rotation";
 import { SupabaseRunnerStore } from "./store";
 import { IsvApiError, type IsvAdapter, type IsvParentAdapter } from "./types";
 
@@ -61,14 +62,15 @@ export function buildRunnerRuntime(env: Record<string, string | undefined> = pro
   return {
     ok: true,
     parent,
-    adapterFor: async (accountSid) => {
-      const secret = await tokens.tokenFor(accountSid);
-      try {
-        return createScopedRealAdapter(loaded.config, accountSid, secret.reveal(), env);
-      } catch (error) {
-        throw error instanceof IsvApiError ? error : new IsvApiError("account", null, null, "subaccount adapter unavailable");
-      }
-    },
+    // TW-4F provider integration: a 401 after a token rotation re-reads the subaccount token once and repeats that request (see rotation.ts)
+    adapterFor: (accountSid) =>
+      rotatingSubaccountAdapter(accountSid, tokens, (sid, secret) => {
+        try {
+          return createScopedRealAdapter(loaded.config, sid, secret.reveal(), env);
+        } catch (error) {
+          throw error instanceof IsvApiError ? error : new IsvApiError("account", null, null, "subaccount adapter unavailable");
+        }
+      }),
     config: loaded.config,
     store: new SupabaseRunnerStore(admin),
     entities: new SupabaseEntityStore(admin),

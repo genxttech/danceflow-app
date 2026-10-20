@@ -65,17 +65,23 @@ export function verifyTwilioWebhook(
     return { ok: false, status: 403, reason: "twilio_signature_missing" };
   }
 
-  let valid = false;
-
-  try {
-    valid = validateRequest(authToken, signature, resolveTwilioSignedUrl(request), params);
-  } catch {
-    valid = false;
-  }
-
-  if (!valid) {
+  if (!twilioSignatureMatches(authToken, request, params)) {
     return { ok: false, status: 403, reason: "twilio_signature_invalid" };
   }
 
   return { ok: true };
+}
+
+/**
+ * TW-4F: true only when the request's X-Twilio-Signature verifies with `authToken` (the parent token, or a subaccount's own token: Twilio signs a
+ * subaccount's webhooks with the SUBACCOUNT token). A missing signature, an empty token or any validation error is false.
+ */
+export function twilioSignatureMatches(authToken: string, request: Request, params: Record<string, string>): boolean {
+  const signature = String(request.headers.get("x-twilio-signature") ?? "").trim();
+  if (!authToken || !signature) return false;
+  try {
+    return validateRequest(authToken, signature, resolveTwilioSignedUrl(request), params);
+  } catch {
+    return false;
+  }
 }

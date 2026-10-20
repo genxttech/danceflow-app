@@ -231,6 +231,18 @@ export class MemoryRunnerStore implements RunnerStore {
     return { ...this.account };
   }
 
+  /** Mirrors tw4_runner_tier: "standard" unless a platform admin chose another tier. `tierError` simulates a database failure. */
+  tier = "standard";
+  tierError: string | null = null;
+  tierReads = 0;
+
+  async getTier(_id: string, owner: string) {
+    this.lease(owner);
+    this.tierReads += 1;
+    if (this.tierError) throw new RunnerStoreError(this.tierError);
+    return { tier: this.tier, chosen: this.tier !== "standard" };
+  }
+
   async reserveSpend(_id: string, owner: string, kind: SpendKind) {
     this.lease(owner);
     if (!this.spendAuthorized) throw new RunnerStoreError("TW004");

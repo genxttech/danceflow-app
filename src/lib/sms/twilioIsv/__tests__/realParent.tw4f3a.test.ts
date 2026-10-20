@@ -73,7 +73,8 @@ describe("RealIsvParent", () => {
     expect(() => createRealIsvParent(config, { ...PROD, VERCEL_ENV: "preview" })).toThrow(IsvApiError);
     expect(createRealIsvParent(config, PROD)).toBeInstanceOf(RealIsvParent);
     const names = Object.getOwnPropertyNames(RealIsvParent.prototype);
-    expect(names.filter((name) => /Profile|TrustProduct|Brand|EndUser|Address|Document/.test(name))).toEqual([]);
+    // TW-4F provider integration: the ONLY profile method is the read-only Primary profile GET (pinned by its own test below)
+    expect(names.filter((name) => /Profile|TrustProduct|Brand|EndUser|Address|Document/.test(name))).toEqual(["getPrimaryProfile"]);
   });
 });
 

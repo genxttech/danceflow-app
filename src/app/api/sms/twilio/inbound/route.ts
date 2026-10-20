@@ -9,7 +9,9 @@ import {
 } from "@/lib/sms/compliance";
 import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
-import { twilioFormParams, verifyTwilioWebhook } from "@/lib/sms/twilioWebhook";
+import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
+import { twilioFormParams } from "@/lib/sms/twilioWebhook";
+import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
@@ -86,13 +88,17 @@ export async function POST(request: Request) {
     return rejectUnverified(request, 403);
   }
 
-  // The Twilio signature is verified before any database access or consent mutation.
-  const verification = verifyTwilioWebhook(request, twilioFormParams(formData));
+  // The Twilio signature is verified before any consent mutation. TW-4F: a message received by a studio legal business's
+  // subaccount is signed with that subaccount's own token; resolving which token applies is the only read before it.
+  const params = twilioFormParams(formData);
+  const supabase = getServiceSupabase();
+  const verification = await verifyTwilioWebhookAccount(request, params, buildWebhookAccountDeps(supabase));
 
   if (!verification.ok) {
     console.warn(verification.reason);
     return rejectUnverified(request, verification.status);
   }
+  const signer = verification.account;
 
   // TW-1: Twilio Advanced Opt-Out is authoritative. A recognized OptOutType beats the
   // body, and once Twilio has handled the keyword every response below stays silent.
@@ -101,8 +107,6 @@ export async function POST(request: Request) {
     body: String(formData.get("Body") ?? ""),
   });
   const reply = (message: string) => (twilioHandled ? emptyTwiml() : twiml(message));
-
-  const supabase = getServiceSupabase();
 
   if (!supabase) {
     return reply("Text messaging is temporarily unavailable. Please contact the studio directly.");
@@ -141,6 +145,21 @@ export async function POST(request: Request) {
   if (!routing.ok) {
     console.warn(`sms_inbound_unrouted:${routing.reason}`);
     return reply(SMS_UNROUTED_REPLY);
+  }
+
+  // TW-4F tenant isolation: a subaccount-signed message may only affect a studio of that subaccount's own legal business.
+  if (!webhookMayActForStudio(signer, routing.studioId)) {
+    console.warn("sms_inbound_account_studio_mismatch");
+    return rejectUnverified(request, 403);
+  }
+
+  // TW-4F replay protection: each inbound MessageSid is processed once. A replayed (or retried) delivery gets an empty
+  // response: no second reply and no second consent change. If the ledger is unreachable the message is processed anyway.
+  const receiptKey = webhookReceiptKey("inbound", params);
+  if (receiptKey) {
+    const receipt = await recordWebhookReceipt(supabase, "inbound", receiptKey, signer.kind === "subaccount" ? signer.accountSid : null);
+    if (receipt === "duplicate") return emptyTwiml();
+    if (receipt === "unavailable") console.warn("sms_inbound_receipt_unavailable");
   }
 
   const studioId = routing.studioId;

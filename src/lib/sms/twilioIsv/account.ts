@@ -27,6 +27,8 @@ export class RedactedSecret {
 }
 
 export const MAX_TOKEN_TTL_MS = 5 * 60_000;
+/** The shortest spacing between two forced token re-reads of ONE subaccount (rotation handling). */
+export const REFRESH_MIN_INTERVAL_MS = 30_000;
 const ACCOUNT_SID = /^AC[0-9a-fA-F]{32}$/;
 
 export class SubaccountTokenProvider {
@@ -67,6 +69,28 @@ export class SubaccountTokenProvider {
   invalidate(accountSid?: string): void {
     if (accountSid) this.#cache.delete(accountSid);
     else this.#cache.clear();
+  }
+
+  readonly #lastRefresh = new Map<string, number>();
+
+  /**
+   * TW-4F provider integration (Twilio ticket #29647095, answer 5: Auth Token rotation has NO overlap window). When a token is rejected (a 401 from
+   * the subaccount, or a webhook signature that does not verify with the cached token), the token may simply have been rotated: fetch it again,
+   * ONCE, and report whether it changed. Refreshes of one account are spaced by at least `minIntervalMs`, so a flood of forged webhooks naming a
+   * real subaccount cannot turn into a flood of parent-credential requests to Twilio; inside the interval the cached token is the answer.
+   * The old token is NEVER kept as a fallback: after a rotation (possibly because it leaked) only the current token verifies anything.
+   */
+  async refresh(accountSid: string, rejected: RedactedSecret | null, minIntervalMs = REFRESH_MIN_INTERVAL_MS): Promise<{ secret: RedactedSecret; changed: boolean }> {
+    if (!ACCOUNT_SID.test(accountSid)) throw new IsvApiError("account", null, null, "not a subaccount sid");
+    const last = this.#lastRefresh.get(accountSid);
+    const cached = this.#cache.get(accountSid);
+    if (last !== undefined && this.#now() - last < minIntervalMs && cached && cached.expiresAt > this.#now()) {
+      return { secret: cached.secret, changed: rejected !== null && cached.secret.reveal() !== rejected.reveal() };
+    }
+    this.#lastRefresh.set(accountSid, this.#now());
+    this.#cache.delete(accountSid);
+    const secret = await this.tokenFor(accountSid);
+    return { secret, changed: rejected === null || secret.reveal() !== rejected.reveal() };
   }
 
   get cachedAccounts(): number {

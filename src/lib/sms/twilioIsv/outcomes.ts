@@ -20,6 +20,7 @@ const TEXT: Record<RunOutcome, string> = {
   account_mismatch: "Safety stop: the Twilio account in use is not the studio's own subaccount. Nothing was called. Do not retry; a developer must look at this.",
   insufficient_credit: "Stopped before the paid step: the studio's settled prepaid SMS credit does not cover it (or its credit account is on hold). Nothing was called or charged. The studio funds its credit first; credit counts only after the payment has settled.",
   settlement_failed: "The paid step ran but its credit settlement could not be recorded. The reservation stays held. Do not run again; a platform admin must reconcile the credit ledger first.",
+  tier_unpriced: "Stopped before the paid brand step: this studio is set to the Low-Volume Standard registration tier, which has no published brand price yet. Nothing was reserved, called or charged. Use the Standard tier, or wait until the Low-Volume Standard price is published.",
   spend_blocked: "Stopped before the paid brand step: no owner-approved spend is available for it within this legal business's spend cap. Nothing was called or charged.",
 };
 

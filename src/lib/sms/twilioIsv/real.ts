@@ -1,5 +1,5 @@
 import "server-only";
-import { realCallsAllowed, type IsvConfig } from "./config";
+import { realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
 import {
   IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter, type IsvParentAdapter,
 } from "./types";
@@ -265,7 +265,20 @@ export function createRealIsvAdapter(config: IsvConfig, env: Record<string, stri
  * create and read subaccounts; they are never used for Trust Hub or A2P calls (this class has no such method). Request shapes follow Twilio's public
  * Accounts documentation and are pinned by unit tests with an injected `fetch`; they have NOT been run against live Twilio.
  */
-export class RealIsvParent extends TwilioRest<Credentials> implements IsvParentAdapter {
+export class RealIsvParent extends TwilioRest<Credentials & Partial<Pick<IsvConfig, "primaryProfileSid">>> implements IsvParentAdapter {
+  /**
+   * GET only, and only the configured Primary profile (it lives in the parent account). This is the one Trust Hub request parent credentials make;
+   * it can neither create nor change anything.
+   */
+  async getPrimaryProfile(): Promise<{ status: BundleStatus; policySid: string | null }> {
+    const sid = String(this.config.primaryProfileSid ?? "");
+    if (!/^BU[0-9a-fA-F]{32}$/.test(sid)) throw new IsvApiError("account", null, null, "no primary profile configured");
+    const json = await this.request("GET", `${TRUSTHUB}/CustomerProfiles/${encodeURIComponent(sid)}`);
+    // the reply must be about the profile that was asked for
+    if (json.sid !== undefined && json.sid !== sid) throw new IsvApiError("transient", null, null, "primary profile reply does not match");
+    return { status: String(json.status ?? "unknown"), policySid: typeof json.policy_sid === "string" ? json.policy_sid : null };
+  }
+
   async findSubaccount(friendlyName: string): Promise<string[]> {
     const rows = await this.listAll(`${API}/Accounts.json?FriendlyName=${encodeURIComponent(friendlyName)}&PageSize=50`, API, "results");
     // closed accounts are gone for good: they never count as the studio's subaccount
@@ -292,6 +305,18 @@ export function createRealIsvParent(config: IsvConfig, env: Record<string, strin
   const gate = realCallsAllowed(env);
   if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
   return new RealIsvParent(config, fetchImpl ?? ((url, init) => fetch(url, init)));
+}
+
+/**
+ * TW-4F provider integration: the parent client used ONLY to read subaccount tokens for webhook verification (parent account SID + auth token, the
+ * existing TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN). It has no Primary profile configured, so getPrimaryProfile refuses; creating subaccounts is never
+ * called by the webhook path. Gated by `subaccountWebhooksAllowed`.
+ */
+export function createWebhookTokenParent(credentials: Pick<IsvConfig, "accountSid" | "authToken">, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike): RealIsvParent {
+  const gate = subaccountWebhooksAllowed(env);
+  if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+  if (!/^AC[0-9a-fA-F]{32}$/.test(credentials.accountSid) || !credentials.authToken) throw new IsvApiError("account", null, null, "parent credentials missing");
+  return new RealIsvParent({ accountSid: credentials.accountSid, authToken: credentials.authToken }, fetchImpl ?? ((url, init) => fetch(url, init)));
 }
 
 /**

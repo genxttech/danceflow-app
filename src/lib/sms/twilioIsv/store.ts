@@ -68,6 +68,8 @@ export interface RunnerStore {
   reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind): Promise<{ spendEventId: string; amountCents: number }>;
   /** TW-4F-3b-0: closes the reservation of a fee step: `captured` charges the studio's credit (the operation happened), `released` frees it (it definitely did not). Idempotent. */
   settleSpend(onboardingId: string, leaseOwner: string, kind: SpendKind, outcome: "captured" | "released", ref: string): Promise<void>;
+  /** TW-4F provider integration: the registration tier chosen for this onboarding by a platform admin ("standard" when none was chosen). */
+  getTier(onboardingId: string, leaseOwner: string): Promise<{ tier: string; chosen: boolean }>;
 }
 
 export type SpendKind = "brand" | "campaign_vetting" | "number" | "monthly" | "sms_usage";
@@ -153,6 +155,11 @@ export class SupabaseRunnerStore implements RunnerStore {
 
   async settleSpend(onboardingId: string, leaseOwner: string, kind: SpendKind, outcome: "captured" | "released", ref: string) {
     await this.call("tw4_spend_settle", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_kind: kind, p_outcome: outcome, p_ref: ref });
+  }
+
+  async getTier(onboardingId: string, leaseOwner: string) {
+    const row = await this.call<{ tier: string; chosen: boolean }>("tw4_runner_tier", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner });
+    return { tier: String(row?.tier ?? ""), chosen: row?.chosen === true };
   }
 
   async reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind) {
