@@ -15,6 +15,8 @@ import { CREATE_PHRASE } from "@/lib/sms/twilioIsv/panelCommands";
 import type { PanelMonthlyLimits } from "@/lib/billing/smsPanelMonthlyLimits";
 import { ChevronDown } from "lucide-react";
 import PanelMonthlyLimit from "./PanelMonthlyLimit";
+import SenderIdentity from "./SenderIdentity";
+import type { SenderOverviewRow } from "@/lib/sms/senderVerification";
 import {
   panelAuthorizeFeeAction,
   panelCreateEntityAction,
@@ -86,6 +88,7 @@ export default function SmsSubaccountPanel({
   now,
   requestKeys = {},
   monthlyLimits = null,
+  senders = null,
 }: {
   overview: PanelOverview | null;
   panels: StudioPanel[];
@@ -99,6 +102,8 @@ export default function SmsSubaccountPanel({
   requestKeys?: Record<string, string>;
   /** Monthly spending limits by legal business (read-only); null when they cannot be read in this environment. */
   monthlyLimits?: PanelMonthlyLimits | null;
+  /** Sender readiness per linked studio (tw4_sender_overview); null when it cannot be read in this environment. */
+  senders?: SenderOverviewRow[] | null;
 }) {
   const pending = (overview?.requests ?? []).filter((r) => r.status === "pending");
   return (
@@ -118,7 +123,7 @@ export default function SmsSubaccountPanel({
           {pending.length > 0 ? <LocationRequests requests={pending} overview={overview!} /> : null}
           <div className="mt-4 space-y-4">
             {panels.length === 0 ? <p className="text-sm text-slate-500">No studio has submitted a texting setup yet.</p> : null}
-            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} now={now} requestKey={requestKeys[panel.studioId] ?? ""} monthlyLimits={monthlyLimits} />)}
+            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} now={now} requestKey={requestKeys[panel.studioId] ?? ""} monthlyLimits={monthlyLimits} senders={senders} />)}
           </div>
         </>
       )}
@@ -162,7 +167,7 @@ function LocationRequests({ requests, overview }: { requests: PanelRequest[]; ov
   );
 }
 
-function StudioCard({ panel, overview, expanded, now, requestKey, monthlyLimits }: { panel: StudioPanel; overview: PanelOverview; expanded: boolean; now: number; requestKey: string; monthlyLimits: PanelMonthlyLimits | null }) {
+function StudioCard({ panel, overview, expanded, now, requestKey, monthlyLimits, senders }: { senders: SenderOverviewRow[] | null; panel: StudioPanel; overview: PanelOverview; expanded: boolean; now: number; requestKey: string; monthlyLimits: PanelMonthlyLimits | null }) {
   const stage = (key: StudioPanel["stages"][number]["key"]) => panel.stages.find((s) => s.key === key)!;
   const entity = panel.entity;
   const audit: PanelAudit[] = overview.audit.filter((a) => a.studioId === panel.studioId || (entity && entity.studios.some((s) => s.studioId === a.studioId))).slice(0, 15);
@@ -217,6 +222,8 @@ function StudioCard({ panel, overview, expanded, now, requestKey, monthlyLimits 
           {entity ? <PanelMonthlyLimit limit={monthlyLimits?.[entity.id] ?? null} /> : null}
           {entity ? <BudgetForms panel={panel} overview={overview} /> : null}
         </Section>
+        {entity && senders ? <SenderIdentity studioId={panel.studioId} row={senders.find((r) => r.studioId === panel.studioId) ?? null} /> : null}
+
 
         <Section title="Twilio subaccount" state={stage("subaccount").state} open={focus === "subaccount"}>
           <p>{stage("subaccount").summary}</p>

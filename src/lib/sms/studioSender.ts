@@ -139,8 +139,20 @@ export type InboundStudioResolution =
  */
 export async function resolveStudioFromInboundSender(
   supabase: SupabaseClient,
-  input: { messagingServiceSid?: string | null; to?: string | null },
+  input: { messagingServiceSid?: string | null; to?: string | null; accountSid?: string | null },
 ): Promise<InboundStudioResolution> {
+  // A message signed by a SUBACCOUNT is mapped only by the sender-readiness table (tw4_inbound_studio_for): the account, the receiving number and the
+  // Messaging Service must agree on exactly one studio. The legacy registration table is never consulted for it.
+  const signerAccount = String(input.accountSid ?? "").trim();
+  if (signerAccount) {
+    const { data, error } = await supabase.rpc("tw4_inbound_studio_for", {
+      p_account_sid: signerAccount,
+      p_messaging_service_sid: String(input.messagingServiceSid ?? "").trim() || null,
+      p_to_e164: normalizeSmsPhone(String(input.to ?? "")) || null,
+    });
+    if (error) return { ok: false, reason: "lookup_failed" };
+    return typeof data === "string" && data ? { ok: true, studioId: data } : { ok: false, reason: "unknown_sender" };
+  }
   const serviceSid = String(input.messagingServiceSid ?? "").trim();
   const toE164 = normalizeSmsPhone(String(input.to ?? ""));
   const candidates = new Set<string>();

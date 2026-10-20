@@ -1,5 +1,6 @@
 import "server-only";
-import { realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
+import { SubaccountTokenProvider } from "./account";
+import { isvEnvName, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
 import {
   IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter, type IsvParentAdapter,
 } from "./types";
@@ -13,6 +14,13 @@ import {
  * `fetch`. It has NOT been run against live Twilio. Before the first production run, do a controlled dry run with a Twilio
  * MOCK brand (`TW4_ISV_MOCK_BRAND=on`) on a NON-pilot studio and read the first evaluation results. Error messages never include
  * request attributes.
+ *
+ * STABLE EXPORTS for SUBACCOUNT MESSAGING credentials (billed sends, evidence reads and sender verification; they do NOT need TW4_ISV_REAL_CALLS):
+ *   - messagingTokenReadsAllowed(env)        the gate (production deployment + production build + one of SMS_BILLED_REAL_SEND / SMS_SENDER_VERIFY_READS /
+ *                                            SMS_USAGE_EVIDENCE_READS = "on")
+ *   - createMessagingTokenParent(creds, env) the token-read parent (GET Accounts/{sid}.json with PARENT credentials; active subaccounts only)
+ *   - messagingTokenProvider(env)            process-wide SubaccountTokenProvider (memory only, TTL 60s) over that parent, or null when gated off / unconfigured
+ *   - MESSAGING_TOKEN_TTL_MS
  *
  * Outcome classification (matters for paid steps): a POST is a DEFINITE failure only when Twilio answered with a parseable 4xx.
  * A network error, a timeout, a 429/5xx, an unreadable body, a 2xx without a valid SID: all are `transient`, i.e. the resource
@@ -332,4 +340,62 @@ export function createScopedRealAdapter(config: IsvConfig, accountSid: string, a
   if (!/^AC[0-9a-fA-F]{32}$/.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
   if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
   return new RealIsvAdapter({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl ?? ((url, init) => fetch(url, init)));
+}
+
+/** TTL of a subaccount token held for messaging (memory only). Short on purpose: bounds how long a rotated token stays useful. */
+export const MESSAGING_TOKEN_TTL_MS = 60_000;
+
+/**
+ * May this deployment read subaccount Auth Tokens (GET, parent credentials) to sign messaging requests as the subaccount? Production build on a production
+ * deployment AND one of SMS_BILLED_REAL_SEND=on (billed sends), SMS_SENDER_VERIFY_READS=on (sender verification reads) or SMS_USAGE_EVIDENCE_READS=on
+ * (billing evidence reads). Independent of TW4_ISV_REAL_CALLS: these are reads and messaging, never registration writes.
+ */
+export function messagingTokenReadsAllowed(env: Record<string, string | undefined> = process.env): { allowed: true } | { allowed: false; reason: string } {
+  if (isvEnvName(env) !== "production") return { allowed: false, reason: "Subaccount messaging credentials are disabled outside production." };
+  if (String(env.NODE_ENV ?? "") !== "production") return { allowed: false, reason: "Subaccount messaging credentials are disabled outside a production build." };
+  const on = (name: string) => String(env[name] ?? "") === "on";
+  if (!on("SMS_BILLED_REAL_SEND") && !on("SMS_SENDER_VERIFY_READS") && !on("SMS_USAGE_EVIDENCE_READS")) {
+    return { allowed: false, reason: "Subaccount messaging credentials are switched off." };
+  }
+  return { allowed: true };
+}
+
+/** The messaging token reader, stricter than the webhook one: a subaccount that is not "active" (suspended or closed) has no usable credential. */
+class MessagingTokenParent extends RealIsvParent {
+  async getSubaccountToken(accountSid: string): Promise<string> {
+    if (!/^AC[0-9a-fA-F]{32}$/.test(accountSid) || accountSid === this.config.accountSid) throw new IsvApiError("validation", null, null, "not a subaccount sid");
+    const json = await this.request("GET", `${API}/Accounts/${encodeURIComponent(accountSid)}.json`);
+    if (json.sid !== accountSid) throw new IsvApiError("transient", null, null, "account reply does not match");
+    if (json.status !== "active") throw new IsvApiError("account", null, null, "subaccount is not active");
+    const token = json.auth_token;
+    if (typeof token !== "string" || !/^[0-9a-zA-Z]{32}$/.test(token)) throw new IsvApiError("transient", null, null, "response carried no valid credential");
+    return token;
+  }
+}
+
+/** The token-read parent for messaging (parent TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN). Gated by `messagingTokenReadsAllowed`; refuses the parent's own SID. */
+export function createMessagingTokenParent(credentials: Pick<IsvConfig, "accountSid" | "authToken">, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike): RealIsvParent {
+  const gate = messagingTokenReadsAllowed(env);
+  if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+  if (!/^AC[0-9a-fA-F]{32}$/.test(credentials.accountSid) || !credentials.authToken) throw new IsvApiError("account", null, null, "parent credentials missing");
+  return new MessagingTokenParent({ accountSid: credentials.accountSid, authToken: credentials.authToken }, fetchImpl ?? ((url, init) => fetch(url, init)));
+}
+
+const globalForMessaging = globalThis as unknown as { __tw4MessagingTokens?: { key: string; provider: SubaccountTokenProvider } };
+
+/** Process-wide subaccount token provider for messaging (memory only, TTL 60s), or null when gated off or the parent credentials are missing. */
+export function messagingTokenProvider(env: Record<string, string | undefined> = process.env): SubaccountTokenProvider | null {
+  if (!messagingTokenReadsAllowed(env).allowed) return null;
+  const accountSid = String(env.TWILIO_ACCOUNT_SID ?? "").trim();
+  const authToken = String(env.TWILIO_AUTH_TOKEN ?? "").trim();
+  const key = `${accountSid}:${authToken}`;
+  const held = globalForMessaging.__tw4MessagingTokens;
+  if (held && held.key === key) return held.provider;
+  try {
+    const provider = new SubaccountTokenProvider(createMessagingTokenParent({ accountSid, authToken }, env), { ttlMs: MESSAGING_TOKEN_TTL_MS });
+    globalForMessaging.__tw4MessagingTokens = { key, provider };
+    return provider;
+  } catch {
+    return null;
+  }
 }

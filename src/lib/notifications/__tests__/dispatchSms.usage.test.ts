@@ -81,7 +81,7 @@ function seed(opts: { permissions?: FakeRow[]; begin?: Rpc; mode?: Rpc } = {}) {
     studio_sms_registrations: [],
   });
   db.overrideRpc("tw4_usage_studio_mode", () => opts.mode ?? { data: "billed", error: null });
-  db.overrideRpc("tw4_usage_begin", () => opts.begin ?? { data: { decision: "send", attempt_id: ATTEMPT, message_log_id: LOG, account_sid: ACCOUNT, messaging_service_sid: SERVICE }, error: null });
+  db.overrideRpc("tw4_usage_begin", () => opts.begin ?? { data: { decision: "send", attempt_id: ATTEMPT, message_log_id: LOG, account_sid: ACCOUNT, messaging_service_sid: SERVICE, sender_e164: "+15035550199" }, error: null });
   db.overrideRpc("tw4_usage_dispatching", () => ({ data: { dispatch: true }, error: null }));
   db.overrideRpc("tw4_usage_submitted", () => ({ data: {}, error: null }));
   db.overrideRpc("tw4_usage_rejected", () => ({ data: {}, error: null }));
@@ -311,5 +311,31 @@ describe("billed outcomes", () => {
     expect(fakeProvider().sent).toHaveLength(0);
     expect(delivery()).toMatchObject({ status: "queued" });
     expect(String(delivery().error_message)).toContain("sms_not_dispatched");
+  });
+
+  it("the sender stopped being ready at the marker -> skipped sms_no_billed_sender (a definite not-sent), provider not called, no outcome recorded", async () => {
+    const db = seed();
+    db.overrideRpc("tw4_usage_dispatching", () => ({ data: { dispatch: false, state: "released", reason: "sender_not_ready" }, error: null }));
+    const result = await dispatchQueuedOutboundDeliveries(25);
+    expect(result).toMatchObject({ sent: 0, skipped: 1, failed: 0 });
+    expect(delivery()).toMatchObject({ status: "skipped", error_message: "sms_no_billed_sender" });
+    expect(fakeProvider().sent).toHaveLength(0);
+    for (const name of ["tw4_usage_submitted", "tw4_usage_rejected", "tw4_usage_uncertain"]) expect(rpcNames()).not.toContain(name);
+  });
+
+  it("credentials unavailable (prepare fails) -> stays queued for a retry, no dispatch marker, provider not called", async () => {
+    seed();
+    fakeProvider().failPrepare(ACCOUNT);
+    await dispatchQueuedOutboundDeliveries(25);
+    expect(fakeProvider().sent).toHaveLength(0);
+    expect(rpcNames()).not.toContain("tw4_usage_dispatching");
+    expect(delivery()).toMatchObject({ status: "queued" });
+    expect(String(delivery().error_message)).toContain("sms_billing_unavailable");
+  });
+
+  it("the location number from begin is the From of the send", async () => {
+    seed();
+    await dispatchQueuedOutboundDeliveries(25);
+    expect(fakeProvider().sent[0].from).toBe("+15035550199");
   });
 });

@@ -71,6 +71,12 @@ function seed() {
     [SUB_B]: { found: true, legal_entity_id: ENTITY_B, status: "active", studio_ids: [STUDIO_B] },
   };
   fake.current.overrideRpc("tw4_webhook_account", (args) => ({ data: accounts[String(args.p_account_sid)] ?? { found: false }, error: null }));
+  // a subaccount-signed text is mapped by the sender-readiness table: the signer's own account AND the receiving number must agree
+  const senders: Record<string, { account: string; studio: string }> = { [SENDER_A]: { account: SUB_A, studio: STUDIO_A }, [SENDER_B]: { account: SUB_B, studio: STUDIO_B } };
+  fake.current.overrideRpc("tw4_inbound_studio_for", (args) => {
+    const sender = senders[String(args.p_to_e164)];
+    return { data: sender && sender.account === args.p_account_sid ? sender.studio : null, error: null };
+  });
   receipts = new Set();
   fake.current.overrideRpc("sms_webhook_receipt_record", (args) => {
     const key = `${args.p_kind}|${args.p_event_key}`;
@@ -272,8 +278,17 @@ describe("inbound messages to a subaccount", () => {
     expect(consent()).toBe("opted_in");
   });
 
-  it("tenant isolation: subaccount B, correctly signed, cannot act on studio A's sender", async () => {
+  it("tenant isolation: subaccount B, correctly signed, cannot act on studio A's sender (the database does not map it)", async () => {
     seed();
+    const response = await inbound(post(INBOUND_URL, tokenB(), inboundParams(SUB_B, "STOP", SENDER_A)));
+    expect(response.status).toBe(200);
+    expect(fake.current!.rpcCalls.filter((c) => c.name === "record_sms_inbound_opt_event")).toHaveLength(0);
+    expect(fake.current!.mutations).toHaveLength(0);
+  });
+
+  it("tenant isolation: even if the mapping named studio A for subaccount B, the route refuses (defence in depth)", async () => {
+    seed();
+    fake.current!.overrideRpc("tw4_inbound_studio_for", () => ({ data: STUDIO_A, error: null }));
     const response = await inbound(post(INBOUND_URL, tokenB(), inboundParams(SUB_B, "STOP", SENDER_A)));
     expect(response.status).toBe(403);
     expect(fake.current!.rpcCalls.filter((c) => c.name === "record_sms_inbound_opt_event")).toHaveLength(0);

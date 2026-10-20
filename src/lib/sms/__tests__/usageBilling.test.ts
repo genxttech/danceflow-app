@@ -9,6 +9,7 @@ const ATTEMPT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const LOG = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACCOUNT = `AC${"1".repeat(32)}`;
 const SERVICE = `MG${"2".repeat(32)}`;
+const SENDER = "+15035550199";
 
 type RpcResult = { data: unknown; error: { code?: string } | null };
 
@@ -16,7 +17,7 @@ function fakeRpc(handlers: Record<string, RpcResult | ((args: Record<string, unk
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const defaults: Record<string, RpcResult> = {
     tw4_usage_begin: {
-      data: { decision: "send", attempt_id: ATTEMPT, message_log_id: LOG, account_sid: ACCOUNT, messaging_service_sid: SERVICE },
+      data: { decision: "send", attempt_id: ATTEMPT, message_log_id: LOG, account_sid: ACCOUNT, messaging_service_sid: SERVICE, sender_e164: SENDER },
       error: null,
     },
     tw4_usage_dispatching: { data: { dispatch: true }, error: null },
@@ -232,7 +233,8 @@ describe("sendBilledSms: what the provider receives", () => {
     await sendBilledSms(rpc.client, provider, input());
     expect(provider.sent).toHaveLength(1);
     const sent = provider.sent[0];
-    expect(Object.keys(sent).sort()).toEqual(["accountSid", "body", "messagingServiceSid", "statusCallbackUrl", "to"]);
+    expect(Object.keys(sent).sort()).toEqual(["accountSid", "body", "from", "messagingServiceSid", "statusCallbackUrl", "to"]);
+    expect(sent.from).toBe(SENDER);
     expect(sent.accountSid).toBe(ACCOUNT);
     expect(sent.messagingServiceSid).toBe(SERVICE);
     expect(sent.to).toBe("+15550100123");
@@ -314,7 +316,7 @@ describe("BILLED_REFUSAL_MESSAGE", () => {
 describe("sendBilledSms: a replay of an attempt that never reached its dispatch marker", () => {
   const reservedReplay = (over: Record<string, unknown> = {}) => ({
     data: { decision: "replay", attempt_id: ATTEMPT, message_log_id: LOG, state: "reserved", provider_sid: null, account_sid: ACCOUNT, messaging_service_sid: SERVICE,
-      body: "The stored body", phone_e164: "+15550100999", ...over },
+      body: "The stored body", phone_e164: "+15550100999", sender_e164: SENDER, ...over },
     error: null,
   });
   it("proceeds through the exclusive marker and sends the STORED body to the STORED number", async () => {
@@ -339,5 +341,125 @@ describe("sendBilledSms: a replay of an attempt that never reached its dispatch 
       expect(provider.sent).toHaveLength(0);
       expect(rpc.count("tw4_usage_dispatching")).toBe(0);
     }
+  });
+});
+
+describe("sendBilledSms: credentials and sender readiness", () => {
+
+  it("prepares the begin account before the marker, and the marker before the send", async () => {
+    const seq: string[] = [];
+    const rpc = fakeRpc({
+      tw4_usage_dispatching: () => {
+        seq.push("marker");
+        return { data: { dispatch: true, state: "submitting", sender_e164: SENDER }, error: null };
+      },
+    });
+    const provider = new FakeBilledSmsProvider();
+    const prepare = provider.prepare.bind(provider);
+    provider.prepare = async (a) => {
+      seq.push("prepare");
+      return prepare(a);
+    };
+    const send = provider.send.bind(provider);
+    provider.send = async (i) => {
+      seq.push("send");
+      return send(i);
+    };
+    await sendBilledSms(rpc.client, provider, input());
+    expect(seq).toEqual(["prepare", "marker", "send"]);
+    expect(provider.prepared).toEqual([ACCOUNT]);
+  });
+
+  it("a prepare failure is refused/unavailable: no marker, no send, nothing else recorded", async () => {
+    const rpc = fakeRpc();
+    const provider = new FakeBilledSmsProvider().failPrepare(ACCOUNT);
+    expect(await sendBilledSms(rpc.client, provider, input())).toEqual({ outcome: "refused", reason: "unavailable" });
+    expect(rpc.count("tw4_usage_dispatching")).toBe(0);
+    expect(provider.sent).toHaveLength(0);
+    for (const name of ["tw4_usage_submitted", "tw4_usage_rejected", "tw4_usage_uncertain"]) expect(rpc.count(name)).toBe(0);
+    // transient (the token could not be read just now): the attempt stays reserved so the delivery retry can send it (the reconciler releases it otherwise)
+    expect(rpc.count("tw4_usage_release_unprepared")).toBe(0);
+  });
+
+  it("a permanent prepare failure (real sends off) releases the reservation at once: nothing reached the provider", async () => {
+    const rpc = fakeRpc();
+    const provider = new FakeBilledSmsProvider().failPrepare(ACCOUNT, "real_send_disabled");
+    expect(await sendBilledSms(rpc.client, provider, input())).toEqual({ outcome: "refused", reason: "unavailable" });
+    expect(rpc.count("tw4_usage_dispatching")).toBe(0);
+    expect(rpc.count("tw4_usage_release_unprepared")).toBe(1);
+    expect(provider.sent).toHaveLength(0);
+  });
+
+  it("a failed immediate release still answers refused/unavailable (the reconciler releases the unmarked attempt later)", async () => {
+    const rpc = fakeRpc({ tw4_usage_release_unprepared: { data: null, error: { code: "57014" } } });
+    const provider = new FakeBilledSmsProvider().failPrepare(ACCOUNT, "real_send_disabled");
+    expect(await sendBilledSms(rpc.client, provider, input())).toEqual({ outcome: "refused", reason: "unavailable" });
+    expect(rpc.count("tw4_usage_dispatching")).toBe(0);
+  });
+
+  it("a prepare failure on a reserved replay is also refused/unavailable without a marker", async () => {
+    const rpc = fakeRpc({
+      tw4_usage_begin: {
+        data: { decision: "replay", attempt_id: ATTEMPT, message_log_id: LOG, state: "reserved", account_sid: ACCOUNT, messaging_service_sid: SERVICE, body: "b", phone_e164: "+15550100999", sender_e164: SENDER },
+        error: null,
+      },
+    });
+    const provider = new FakeBilledSmsProvider().failPrepare(ACCOUNT);
+    expect(await sendBilledSms(rpc.client, provider, input())).toEqual({ outcome: "refused", reason: "unavailable" });
+    expect(rpc.count("tw4_usage_dispatching")).toBe(0);
+  });
+
+  it("a missing sender number (send or reserved replay) is refused/unavailable without a marker", async () => {
+    const noSender = fakeRpc({
+      tw4_usage_begin: { data: { decision: "send", attempt_id: ATTEMPT, message_log_id: LOG, account_sid: ACCOUNT, messaging_service_sid: SERVICE }, error: null },
+    });
+    const provider = new FakeBilledSmsProvider();
+    expect(await sendBilledSms(noSender.client, provider, input())).toEqual({ outcome: "refused", reason: "unavailable" });
+    expect(noSender.count("tw4_usage_dispatching")).toBe(0);
+    expect(noSender.count("tw4_usage_release_unprepared")).toBe(1);
+    const replay = fakeRpc({
+      tw4_usage_begin: {
+        data: { decision: "replay", attempt_id: ATTEMPT, message_log_id: LOG, state: "reserved", account_sid: ACCOUNT, messaging_service_sid: SERVICE, body: "b", phone_e164: "+15550100999" },
+        error: null,
+      },
+    });
+    expect(await sendBilledSms(replay.client, provider, input())).toEqual({ outcome: "refused", reason: "unavailable" });
+    expect(replay.count("tw4_usage_dispatching")).toBe(0);
+    expect(provider.sent).toHaveLength(0);
+  });
+
+  it("the send path passes begin's sender as From; the replay path passes the replay's", async () => {
+    const provider = new FakeBilledSmsProvider();
+    await sendBilledSms(fakeRpc().client, provider, input());
+    expect(provider.sent[0].from).toBe(SENDER);
+    const other = "+15035550111";
+    const replay = fakeRpc({
+      tw4_usage_begin: {
+        data: { decision: "replay", attempt_id: ATTEMPT, message_log_id: LOG, state: "reserved", account_sid: ACCOUNT, messaging_service_sid: SERVICE, body: "b", phone_e164: "+15550100999", sender_e164: other },
+        error: null,
+      },
+    });
+    await sendBilledSms(replay.client, provider, input());
+    expect(provider.sent[1].from).toBe(other);
+  });
+
+  it("sender_not_ready from the marker is refused/no_billed_sender: not uncertain, provider not called, no outcome recorded", async () => {
+    const rpc = fakeRpc({ tw4_usage_dispatching: { data: { dispatch: false, state: "released", reason: "sender_not_ready" }, error: null } });
+    const provider = new FakeBilledSmsProvider();
+    expect(await sendBilledSms(rpc.client, provider, input())).toEqual({ outcome: "refused", reason: "no_billed_sender" });
+    expect(provider.sent).toHaveLength(0);
+    for (const name of ["tw4_usage_submitted", "tw4_usage_rejected", "tw4_usage_uncertain"]) expect(rpc.count(name)).toBe(0);
+  });
+
+  it("a plain released replay from the marker (no sender reason) stays a replay", async () => {
+    const rpc = fakeRpc({ tw4_usage_dispatching: { data: { dispatch: false, state: "released" }, error: null } });
+    expect(await sendBilledSms(rpc.client, new FakeBilledSmsProvider(), input())).toMatchObject({ outcome: "replay", state: "released" });
+  });
+
+  it("the sender named by the marker is the one sent from", async () => {
+    const rpc = fakeRpc({ tw4_usage_dispatching: { data: { dispatch: true, state: "submitting", sender_e164: "+15035550122" }, error: null } });
+    const provider = new FakeBilledSmsProvider();
+    await sendBilledSms(rpc.client, provider, input());
+    expect(provider.sent[0].from).toBe("+15035550122");
   });
 });

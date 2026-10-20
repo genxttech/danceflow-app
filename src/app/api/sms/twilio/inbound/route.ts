@@ -158,6 +158,7 @@ export async function POST(request: Request) {
   const routing = await resolveStudioFromInboundSender(supabase, {
     messagingServiceSid: String(formData.get("MessagingServiceSid") ?? ""),
     to: String(formData.get("To") ?? ""),
+    accountSid: signerAccountSid,
   });
 
   if (!routing.ok) {
