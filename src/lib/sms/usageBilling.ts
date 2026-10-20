@@ -106,6 +106,8 @@ export async function sendBilledSms(admin: Client, provider: BilledSmsProvider, 
   // marker) proceeds with the STORED message, and the marker below lets only one caller reach the provider
   let body = input.body;
   let phoneE164 = input.phoneE164;
+  // the location number the attempt was reserved against (begin returns it for a new decision AND for a replay)
+  const from = str(b.sender_e164);
   if (b.decision === "replay" && attemptId && logId) {
     const replay: BilledSendOutcome = { outcome: "replay", logId, state: str(b.state), providerSid: str(b.provider_sid) || null };
     if (b.state !== "reserved" || !accountSid || !serviceSid || !str(b.body) || !str(b.phone_e164)) return replay;
@@ -114,12 +116,35 @@ export async function sendBilledSms(admin: Client, provider: BilledSmsProvider, 
   } else if (b.decision !== "send" || !attemptId || !logId || !accountSid || !serviceSid) {
     return { outcome: "refused", reason: "unavailable" };
   }
+  // Nothing was marked, so nothing reached the provider. A PERMANENT reason (no sender number, real sends switched off, an invalid account) releases the
+  // reservation at once (a still-reserved attempt only; one another caller already marked is untouched). A TRANSIENT one (the subaccount token could not
+  // be read just now) keeps the attempt reserved: the delivery's retry replays the same source and sends it; one never retried is released by the reconciler.
+  const releaseUnprepared = async (code: string): Promise<BilledSendOutcome> => {
+    const released = await admin.rpc("tw4_usage_release_unprepared", { p_attempt_id: attemptId, p_code: code });
+    if (released.error) console.warn("sms_usage_unprepared_release_failed", released.error.code ?? "unknown");
+    return { outcome: "refused", reason: "unavailable" };
+  };
+  if (!from) return releaseUnprepared("no_sender_number");
+
+  // the subaccount's credentials are obtained BEFORE the marker, so a credential failure never leaves a marked attempt behind
+  const prepared = await provider.prepare(accountSid);
+  if (!prepared.ok) {
+    if (prepared.code === "credentials_unavailable") return { outcome: "refused", reason: "unavailable" };
+    return releaseUnprepared("not_prepared");
+  }
 
   // the marker comes first: if it cannot be written, the provider is not called (the reconciler releases an attempt that never got one)
   const marked = await admin.rpc("tw4_usage_dispatching", { p_attempt_id: attemptId });
-  if (marked.error || obj(marked.data).dispatch !== true) {
-    return { outcome: "replay", logId, state: str(obj(marked.data).state) || "reserved", providerSid: null };
+  const markedData = obj(marked.data);
+  // the sender stopped being ready after the reservation: the database released it, nothing was sent
+  if (!marked.error && markedData.dispatch === false && markedData.state === "released" && markedData.reason === "sender_not_ready") {
+    return { outcome: "refused", reason: "no_billed_sender" };
   }
+  if (marked.error || markedData.dispatch !== true) {
+    return { outcome: "replay", logId, state: str(markedData.state) || "reserved", providerSid: null };
+  }
+  // the database's answer names the number it checked: it is the one used
+  const sender = str(markedData.sender_e164) || from;
 
   const result = await provider.send({
     accountSid,
@@ -127,6 +152,7 @@ export async function sendBilledSms(admin: Client, provider: BilledSmsProvider, 
     to: phoneE164,
     body,
     statusCallbackUrl: withAttempt(input.statusCallbackBase, attemptId),
+    from: sender,
   });
 
   if (result.kind === "accepted") {

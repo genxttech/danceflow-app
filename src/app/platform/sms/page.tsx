@@ -13,6 +13,7 @@ import { cookies } from "next/headers";
 import { getAdminCreditOverview } from "@/lib/billing/smsCreditView";
 import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
 import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
+import { loadSenderOverview } from "@/lib/sms/senderVerification";
 import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
 import StudioSmsRegistrations, {
@@ -236,6 +237,9 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   // monthly spending limits per legal business (read-only, platform-admin-only definer function; null = not readable here, shown as "not available")
   const panelMonthlyLimits: PanelMonthlyLimits | null = panelOverview && panelOverview.entities.length > 0 ? await loadPanelMonthlyLimits(createAdminClient(), admin.id) : null;
 
+  // sender readiness per linked studio (platform-admin-only definer function; null = not installed here, the block is then hidden)
+  const panelSenders = panelOverview && panelOverview.entities.length > 0 ? await loadSenderOverview(createAdminClient(), admin.id).catch(() => null) : null;
+
   const panelContext = panelRenderContext(panelOverview ? [...new Set([...panelOverview.onboardings.map((o) => o.studioId), ...panelOverview.entities.flatMap((e) => e.studios.map((s) => s.studioId))])] : []);
 
   const logs = (logsResult.data ?? []) as SmsMessageLogRow[];
@@ -422,6 +426,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         now={panelContext.now}
         requestKeys={panelContext.requestKeys}
         monthlyLimits={panelMonthlyLimits}
+        senders={panelSenders}
         unavailable={!panelOverview}
         {...readPanelFlash((await cookies()).get(PANEL_FLASH_COOKIE)?.value, { panel: firstParam(params.panel), panelError: firstParam(params.panel_error) })}
         focusStudioId={firstParam(params.studio)}

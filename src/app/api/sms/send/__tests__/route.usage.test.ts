@@ -286,4 +286,38 @@ describe("end to end with the real billing library", () => {
     expect((h.provider as FakeBilledSmsProvider).sent).toHaveLength(0);
     expect(h.db!.rpcCalls.map((c) => c.name)).toEqual(["tw4_usage_begin"]);
   });
+
+  it("sender no longer ready at the marker: 503 'not set up', never reported as uncertain; the provider is untouched and nothing is recorded as an outcome", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/sms/usageBilling")>("@/lib/sms/usageBilling");
+    h.sendBilled.mockImplementation((...args: Parameters<typeof actual.sendBilledSms>) => actual.sendBilledSms(...args));
+    h.db!.overrideRpc("tw4_usage_begin", () => ({
+      data: { decision: "send", attempt_id: "att-1", message_log_id: LOG, account_sid: `AC${"1".repeat(32)}`, messaging_service_sid: `MG${"2".repeat(32)}`, sender_e164: "+15035550199" },
+      error: null,
+    }));
+    h.db!.overrideRpc("tw4_usage_dispatching", () => ({ data: { dispatch: false, state: "released", reason: "sender_not_ready" }, error: null }));
+    const res = await POST(sendRequest());
+    const json = await res.json();
+    expect(res.status).toBe(503);
+    expect(json.uncertain).toBeUndefined();
+    expect(json.ok).toBe(false);
+    expect(json.error).toBe(actual.BILLED_REFUSAL_MESSAGE.no_billed_sender);
+    expect((h.provider as FakeBilledSmsProvider).sent).toHaveLength(0);
+    expect(h.db!.rpcCalls.map((c) => c.name)).toEqual(["tw4_usage_begin", "tw4_usage_dispatching"]);
+  });
+
+  it("credentials unavailable (prepare fails): 503, no dispatch marker, provider untouched; the attempt stays reserved for a retry of the same key", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/sms/usageBilling")>("@/lib/sms/usageBilling");
+    h.sendBilled.mockImplementation((...args: Parameters<typeof actual.sendBilledSms>) => actual.sendBilledSms(...args));
+    const account = `AC${"1".repeat(32)}`;
+    (h.provider as FakeBilledSmsProvider).failPrepare(account);
+    h.db!.overrideRpc("tw4_usage_begin", () => ({
+      data: { decision: "send", attempt_id: "att-1", message_log_id: LOG, account_sid: account, messaging_service_sid: `MG${"2".repeat(32)}`, sender_e164: "+15035550199" },
+      error: null,
+    }));
+    const res = await POST(sendRequest());
+    expect(res.status).toBe(503);
+    expect((await res.json()).uncertain).toBeUndefined();
+    expect((h.provider as FakeBilledSmsProvider).sent).toHaveLength(0);
+    expect(h.db!.rpcCalls.map((c) => c.name)).toEqual(["tw4_usage_begin"]);
+  });
 });

@@ -21,6 +21,7 @@ import { sendBilledSms } from "@/lib/sms/usageBilling";
 import { FakeBilledSmsProvider } from "@/lib/sms/usageProvider";
 import { reconcileSmsUsage } from "@/lib/sms/usageReconciler";
 import { SupabaseCreditStore } from "@/lib/sms/twilioIsv/creditStore";
+import { LOCAL_QA_MARKER, newSenderIds, readySender, type SenderIds } from "./senderFixtures";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -76,6 +77,9 @@ const CLEANUP = `
 begin;
 set local session_replication_role = replica;
 delete from public.studio_sms_usage_attempts where legal_entity_id in (${ENTITIES});
+delete from public.studio_sms_sender_verifications where legal_entity_id in (${ENTITIES});
+delete from public.studio_sms_provisioning_steps where studio_id in (${STUDIOS});
+delete from public.studio_sms_approval_refs where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_billed_senders where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_usage_switch_log where changed_by = '${U.padmin}';
 delete from public.sms_message_logs where studio_id in (${STUDIOS});
@@ -147,8 +151,19 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
           delete from public.studio_sms_credit_disputes where topup_id in (select id from public.studio_sms_credit_topups where legal_entity_id = '${e}');
           delete from public.studio_sms_credit_topups where legal_entity_id = '${e}'; delete from public.studio_sms_credit_accounts where legal_entity_id = '${e}'`);
   const setLimit = (e: string, cents: number) => rpc("tw4_monthly_limit_set_admin", { p_entity_id: e, p_actor: U.padmin, p_limit_cents: cents, p_effective_month: null, p_reason: "fixture: monthly texting limit" });
-  const setSender = (studio: string, mg: string, status: "approved" | "revoked" = "approved") =>
-    rpc("tw4_usage_billed_sender_set", { p_studio_id: studio, p_actor: U.padmin, p_messaging_service_sid: mg, p_sender_e164: null, p_status: status, p_reason: "fixture: subaccount messaging service" });
+  const senderIds: Record<string, SenderIds> = {};
+  const numberFor: Record<string, string> = { [PA1]: "+15125550201", [PA2]: "+15125550202", [PB1]: "+15125550203" };
+  const accountFor = (studio: string) => (studio === PB1 ? ACC_B : ACC_A);
+  const setSender = async (studio: string, mg: string, status: "approved" | "revoked" = "approved") => {
+    if (status === "revoked") return rpc("tw4_sender_revoke", { p_studio_id: studio, p_actor: U.padmin, p_reason: "fixture: revoke the sender", p_release: false });
+    const ids = (senderIds[studio] ??= newSenderIds(numberFor[studio], { mg }));
+    try {
+      await readySender(rpc, (sql) => aged(sql), { studio, account: accountFor(studio), actor: U.padmin, ids });
+      return { data: null, error: null };
+    } catch (error) {
+      return { data: null, error: { code: "fixture", message: String(error) } };
+    }
+  };
   const setSwitch = (on: boolean) => rpc("tw4_usage_set_switch", { p_enabled: on, p_actor: U.padmin, p_reason: `fixture: switch ${on ? "on" : "off"} for tests` });
   /** a fresh business state: money cleared, funded, a limit, senders approved, the switch on */
   const ready = async (e: string, studio: string, opts: { funds?: number; limit?: number } = {}) => {
@@ -186,6 +201,7 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
     admin = createClient(URL_, serviceKey(), { auth: { persistSession: false, autoRefreshToken: false } });
     credits = new SupabaseCreditStore(admin);
     psqlFile(FIXTURES);
+    psqlFile(LOCAL_QA_MARKER);
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     for (const [kind, cents] of [["sms_usage", 3], ["monthly", 1500]] as const) {
       expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: 1, p_description: `fixture ${kind} price`, p_actor: U.padmin })).error).toBeNull();
@@ -210,7 +226,7 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
     for (const fn of [
       "tw4_usage_begin(text, uuid, uuid, uuid, text, text, text, text, uuid, uuid)", "tw4_usage_dispatching(uuid)", "tw4_usage_submitted(uuid, text)", "tw4_usage_rejected(uuid, text)",
       "tw4_usage_uncertain(uuid, text)", "tw4_usage_record_callback(uuid, text, text, text, text)", "tw4_usage_settle(uuid, jsonb)", "tw4_usage_release_unsent()",
-      "tw4_usage_resolve(uuid, uuid, text, int, text)", "tw4_usage_due(int)", "tw4_usage_set_switch(boolean, uuid, text)", "tw4_usage_billed_sender_set(uuid, uuid, text, text, text, text)",
+      "tw4_usage_resolve(uuid, uuid, text, int, text)", "tw4_usage_due(int)", "tw4_usage_set_switch(boolean, uuid, text)",
       "tw4_usage_studio_mode(uuid)", "sms_usage_admin_overview(uuid)",
     ]) {
       expect(psql(`select has_function_privilege('anon', 'public.${fn}', 'execute') or has_function_privilege('authenticated', 'public.${fn}', 'execute')`), fn).toBe("f");
@@ -221,6 +237,8 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
     }
     expect(psqlError("update public.studio_sms_usage_attempts set state = 'settled'")).toBe(""); // no rows yet: nothing to refuse
     expect(psqlError("truncate public.studio_sms_usage_attempts")).toContain("never truncated");
+    // 20261204: the old unverified setter is no longer callable by anyone
+    expect(psql("select has_function_privilege('service_role', 'public.tw4_usage_billed_sender_set(uuid, uuid, text, text, text, text)', 'execute')")).toBe("f");
   });
 
   it("the database counts segments exactly like the app's estimator", () => {
