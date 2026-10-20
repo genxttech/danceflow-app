@@ -36,7 +36,7 @@ describe("reconcileSmsUsage", () => {
     const summary = await reconcileSmsUsage(admin, provider);
     expect(calls[0].fn).toBe("tw4_usage_release_unsent");
     expect(calls[1]).toEqual({ fn: "tw4_usage_due", args: { p_limit: 100 } });
-    expect(summary).toEqual({ releasedUnsent: 3, due: 4, settled: 2, chargedCents: 2, pending: 1, review: 1, errors: 0 });
+    expect(summary).toEqual({ releasedUnsent: 3, due: 4, settled: 2, chargedCents: 2, pending: 1, review: 1, retrying: 0, errors: 0, evidenceRead: true, truncated: false });
     const settleArgs = calls.filter((c) => c.fn === "tw4_usage_settle").map((c) => c.args);
     expect(settleArgs[0]).toMatchObject({ p_attempt_id: "attempt-1", p_evidence: { sid: sidOf(1), account_sid: ACCOUNT, status: "delivered" } });
   });
@@ -94,7 +94,7 @@ describe("reconcileSmsUsage", () => {
       tw4_usage_due: () => ({ data: [] }),
       tw4_usage_settle: () => ({}),
     });
-    await expect(reconcileSmsUsage(releaseFail.admin, new FakeBilledSmsProvider())).rejects.toThrow(/release_unsent failed \(42501\)/);
+    await expect(reconcileSmsUsage(releaseFail.admin, new FakeBilledSmsProvider())).rejects.toThrow(/stale release failed \(42501\)/);
     expect(releaseFail.calls).toHaveLength(1);
     const dueFail = fakeRpc({
       tw4_usage_release_unsent: () => ({ data: { released: 0 } }),
@@ -106,13 +106,14 @@ describe("reconcileSmsUsage", () => {
 });
 
 describe("reconcileSmsUsage: a failing text never blocks the queue", () => {
-  it("stamps a text whose evidence could not be read or settled (best effort), and not one that settled", async () => {
+  it("before 20261205 (no evidence_failed): stamps a text whose evidence could not be read or settled (best effort), and not one that settled", async () => {
     const provider = new FakeBilledSmsProvider();
     provider.failFetch(sidOf(1));
     const { admin, calls } = fakeRpc({
       tw4_usage_release_unsent: () => ({ data: { released: 0 } }),
       tw4_usage_due: () => ({ data: [row(1), row(2), row(3)] }),
       tw4_usage_settle: (args) => (args?.p_attempt_id === "attempt-2" ? { error: { code: "42501" } } : { data: { outcome: "settled", charged_cents: 3, replayed: false } }),
+      tw4_usage_evidence_failed: () => ({ error: { code: "PGRST202" } }),
       tw4_usage_touch: () => {
         throw new Error("touch failed"); // a failed stamp is ignored
       },

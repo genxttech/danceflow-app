@@ -4,6 +4,8 @@ import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
 import SmsOnboardingPilot from "./SmsOnboardingPilot";
 import SmsCreditAdmin from "./SmsCreditAdmin";
+import UsageReconciliation from "./UsageReconciliation";
+import { loadReconcileOverview } from "@/lib/sms/usageReconcileView";
 import SmsSubaccountPanel from "./SmsSubaccountPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SupabasePanelStore, buildStudioPanels, type PanelOverview } from "@/lib/sms/twilioIsv/panel";
@@ -240,6 +242,9 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   // sender readiness per linked studio (platform-admin-only definer function; null = not installed here, the block is then hidden)
   const panelSenders = panelOverview && panelOverview.entities.length > 0 ? await loadSenderOverview(createAdminClient(), admin.id).catch(() => null) : null;
 
+  // billed-text reconciliation (platform-admin-only definer function; null = not installed here, the panel is then hidden)
+  const usageOverview = await loadReconcileOverview(createAdminClient(), admin.id);
+
   const panelContext = panelRenderContext(panelOverview ? [...new Set([...panelOverview.onboardings.map((o) => o.studioId), ...panelOverview.entities.flatMap((e) => e.studios.map((s) => s.studioId))])] : []);
 
   const logs = (logsResult.data ?? []) as SmsMessageLogRow[];
@@ -419,6 +424,8 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
       ) : null}
 
       <SmsCreditAdmin overview={creditOverview} recurring={recurringOverview} />
+
+      <UsageReconciliation overview={usageOverview} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
 
       <SmsSubaccountPanel
         overview={panelOverview}

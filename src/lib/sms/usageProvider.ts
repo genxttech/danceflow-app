@@ -36,7 +36,49 @@ export type BilledMessageEvidence = {
   num_media: string | null;
   price: string | null;
   price_unit: string | null;
+  /** Identity and time (TW-4F reconciliation): the database settles only on evidence that proves it describes THIS text. Dates are ISO-8601 or null. */
+  direction: string | null;
+  messaging_service_sid: string | null;
+  from: string | null;
+  to: string | null;
+  date_created: string | null;
+  date_sent: string | null;
+  error_code: string | null;
 };
+
+/** One message from the subaccount's own Message list, as read for inbound recovery. The body is used in memory to classify only; never stored or logged. */
+export type InboundMessageEvidence = {
+  sid: string;
+  account_sid: string;
+  direction: string;
+  to: string | null;
+  /** the texter's number: used in memory only (an unrecognizable sender is never charged, as the webhook would not record it); never sent to the database */
+  from: string | null;
+  messaging_service_sid: string | null;
+  num_segments: string | null;
+  num_media: string | null;
+  date_created: string | null;
+  date_sent: string | null;
+  body: string | null;
+};
+
+export type InboundListWindow = {
+  since: Date;
+  until: Date;
+  maxPages: number;
+  /** only texts received by this number (Twilio's To filter); the subaccount's other traffic is never listed */
+  to?: string;
+  /** epoch ms: no further page is requested after it (complete = false) */
+  deadline?: number;
+};
+
+export interface InboundMessageLister {
+  /**
+   * Inbound messages of ONE subaccount received in [since, until] (second precision; the caller filters exactly again), read with that subaccount's own
+   * credentials, at most `maxPages` pages. `complete` is false when more pages remained. Throws on any failure (nothing partial is ever reported as complete).
+   */
+  listInbound(accountSid: string, window: InboundListWindow): Promise<{ messages: InboundMessageEvidence[]; complete: boolean }>;
+}
 
 export interface BilledSmsProvider {
   /** Obtains and validates the account's credentials WITHOUT sending anything. Never throws. */
@@ -116,11 +158,22 @@ function textOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+/** Twilio's RFC 2822 dates ("Tue, 20 Oct 2026 12:00:00 +0000") as ISO-8601, else null. */
+export function twilioDateToIso(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+/** Twilio's date-time filter form, YYYY-MM-DDThh:mm:ssZ (whole seconds, UTC) */
+const utcSecond = (d: Date) => `${d.toISOString().slice(0, 19)}Z`;
+const LIST_PAGE_SIZE = 200;
+
 /**
  * Signs with the SUBACCOUNT's own SID and Auth Token. A 401 means Twilio did not act: the token is re-read once (rotation has no overlap window) and
  * the same request is repeated once only if the token changed; otherwise the answer is "credentials_rejected" (a definite not-sent).
  */
-export class RealBilledSmsProvider implements BilledSmsProvider {
+export class RealBilledSmsProvider implements BilledSmsProvider, InboundMessageLister {
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
   private readonly allowSend: boolean;
@@ -235,18 +288,78 @@ export class RealBilledSmsProvider implements BilledSmsProvider {
       num_media: numberText(json.num_media),
       price: numberText(json.price),
       price_unit: textOrNull(json.price_unit),
+      direction: textOrNull(json.direction),
+      messaging_service_sid: textOrNull(json.messaging_service_sid),
+      from: textOrNull(json.from),
+      to: textOrNull(json.to),
+      date_created: twilioDateToIso(json.date_created),
+      date_sent: twilioDateToIso(json.date_sent),
+      error_code: numberText(json.error_code),
     };
+  }
+
+  async listInbound(accountSid: string, window: InboundListWindow): Promise<{ messages: InboundMessageEvidence[]; complete: boolean }> {
+    if (!this.allowRead) throw new Error("usage_evidence_reads_disabled");
+    if (!ACCOUNT_SID.test(String(accountSid)) || !(window.since instanceof Date) || !(window.until instanceof Date) || window.until < window.since
+        || (window.to !== undefined && !US_NUMBER.test(String(window.to)))) {
+      throw new Error("usage_evidence_invalid_input");
+    }
+    const base = `/2010-04-01/Accounts/${accountSid}/Messages.json`;
+    // Twilio's inclusive date-time filters ("DateSent>" = on or after, "DateSent<" = on or before), a second of margin each side; the caller filters exactly
+    const query = new URLSearchParams();
+    if (window.to) query.set("To", window.to);
+    query.set("DateSent>", utcSecond(new Date(window.since.getTime() - 1000)));
+    query.set("DateSent<", utcSecond(new Date(window.until.getTime() + 1000)));
+    query.set("PageSize", String(LIST_PAGE_SIZE));
+    let path: string | null = `${base}?${query.toString()}`;
+    const messages: InboundMessageEvidence[] = [];
+    let pages = 0;
+    while (path !== null) {
+      if (pages >= Math.max(1, window.maxPages) || (window.deadline !== undefined && pages > 0 && Date.now() > window.deadline)) return { messages, complete: false };
+      // only ever this subaccount's own Message list: a next-page link pointing anywhere else is refused
+      if (!path.startsWith(`${base}?`)) throw new Error("usage_evidence_mismatch");
+      const result = await this.signed(`https://api.twilio.com${path}`, "GET", accountSid);
+      pages += 1;
+      if ("credentials" in result) throw new Error(`usage_evidence_${result.credentials}`);
+      if ("error" in result) throw new Error(result.error === "timeout" ? "usage_evidence_timeout" : "usage_evidence_unreadable");
+      if (result.status < 200 || result.status >= 300) throw new Error(`usage_evidence_http_${result.status}`);
+      const json = result.body;
+      if (!isObject(json) || !Array.isArray(json.messages)) throw new Error("usage_evidence_unreadable");
+      for (const raw of json.messages) {
+        if (!isObject(raw)) continue;
+        if (raw.account_sid !== accountSid) throw new Error("usage_evidence_mismatch");
+        if (typeof raw.sid !== "string" || !MESSAGE_SID.test(raw.sid) || raw.direction !== "inbound") continue;
+        messages.push({
+          sid: raw.sid,
+          account_sid: accountSid,
+          direction: "inbound",
+          to: textOrNull(raw.to),
+          from: textOrNull(raw.from),
+          messaging_service_sid: textOrNull(raw.messaging_service_sid),
+          num_segments: numberText(raw.num_segments),
+          num_media: numberText(raw.num_media),
+          date_created: twilioDateToIso(raw.date_created),
+          date_sent: twilioDateToIso(raw.date_sent),
+          body: textOrNull(raw.body),
+        });
+      }
+      path = typeof json.next_page_uri === "string" && json.next_page_uri !== "" ? json.next_page_uri : null;
+    }
+    return { messages, complete: true };
   }
 }
 
 /** In-memory, deterministic provider for tests and the local fake adapter. Needs no tokens. */
-export class FakeBilledSmsProvider implements BilledSmsProvider {
+export class FakeBilledSmsProvider implements BilledSmsProvider, InboundMessageLister {
   readonly sent: BilledSmsSendInput[] = [];
   readonly prepared: string[] = [];
   private readonly queue: BilledSmsSendResult[] = [];
   private readonly evidence = new Map<string, Partial<BilledMessageEvidence>>();
   private readonly failing = new Set<string>();
   private readonly failingPrepare = new Map<string, string>();
+  private readonly sentBySid = new Map<string, { input: BilledSmsSendInput; at: string }>();
+  private readonly inbound = new Map<string, InboundMessageEvidence[]>();
+  private readonly failingList = new Set<string>();
   private counter = 0;
 
   nextSend(result: BilledSmsSendResult): this {
@@ -282,13 +395,35 @@ export class FakeBilledSmsProvider implements BilledSmsProvider {
     return code ? { ok: false, code } : { ok: true };
   }
 
+  /** Inbound messages the fake subaccount list returns (recovery tests). */
+  setInbound(accountSid: string, messages: InboundMessageEvidence[]): this {
+    this.inbound.set(accountSid, messages.map((m) => ({ ...m })));
+    return this;
+  }
+
+  failList(accountSid: string): this {
+    this.failingList.add(accountSid);
+    return this;
+  }
+
   async send(input: BilledSmsSendInput): Promise<BilledSmsSendResult> {
     this.sent.push({ ...input });
-    return this.queue.shift() ?? { kind: "accepted", sid: this.generateSid() };
+    const result = this.queue.shift() ?? { kind: "accepted" as const, sid: this.generateSid() };
+    if (result.kind === "accepted") this.sentBySid.set(result.sid, { input: { ...input }, at: new Date().toISOString() });
+    return result;
+  }
+
+  /** the fake list honours the To filter (a message with no To is listed for every number, like an unfiltered read) */
+  async listInbound(accountSid: string, window: InboundListWindow): Promise<{ messages: InboundMessageEvidence[]; complete: boolean }> {
+    if (this.failingList.has(accountSid)) throw new Error("usage_evidence_unreadable");
+    const all = (this.inbound.get(accountSid) ?? []).filter((m) => window.to === undefined || m.to === null || m.to === window.to);
+    return { messages: all.map((m) => ({ ...m })), complete: true };
   }
 
   async fetchMessage(accountSid: string, sid: string): Promise<BilledMessageEvidence> {
     if (this.failing.has(sid)) throw new Error("usage_evidence_unreadable");
+    // by default the evidence describes exactly what this fake sent under that SID (identity and time), as Twilio's Message resource would
+    const sent = this.sentBySid.get(sid);
     return {
       sid,
       account_sid: accountSid,
@@ -297,12 +432,37 @@ export class FakeBilledSmsProvider implements BilledSmsProvider {
       num_media: "0",
       price: "-0.00830",
       price_unit: "USD",
+      direction: "outbound-api",
+      messaging_service_sid: sent?.input.messagingServiceSid ?? null,
+      from: sent?.input.from ?? null,
+      to: sent?.input.to ?? null,
+      date_created: sent?.at ?? null,
+      date_sent: sent?.at ?? null,
+      error_code: null,
       ...this.evidence.get(sid),
     };
   }
 }
 
 type Globals = typeof globalThis & { __billedFakeSmsProvider?: FakeBilledSmsProvider };
+
+/**
+ * The reconciler's read-only provider: the real one only where evidence reads are allowed (production build + deployment + SMS_USAGE_EVIDENCE_READS=on),
+ * the shared in-memory fake in local fake mode, otherwise null (then the reconciler reads no evidence at all, so a misconfiguration can never be counted
+ * as evidence failures). It can never send.
+ */
+export function usageEvidenceProviderFromEnv(env: Env = process.env): (BilledSmsProvider & InboundMessageLister) | null {
+  if (usageEvidenceReadsAllowed(env).allowed) {
+    const tokens = messagingTokenProvider(env);
+    return tokens ? new RealBilledSmsProvider(tokens, { allowSend: false, allowRead: true }) : null;
+  }
+  if (fakeAdapterAllowed(env)) {
+    const g = globalThis as Globals;
+    g.__billedFakeSmsProvider ??= new FakeBilledSmsProvider();
+    return g.__billedFakeSmsProvider;
+  }
+  return null;
+}
 
 export function billedSmsProviderFromEnv(env: Env = process.env): BilledSmsProvider | null {
   const allowSend = billedRealSendAllowed(env).allowed;

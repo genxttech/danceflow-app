@@ -62,7 +62,7 @@ begin ─► reserved ─(dispatch marker)─► submitting ─(SID)────
 1. Database kill switch (`tw4_usage_set_switch`, platform admin, audited; default off): `begin` refuses while off, in any deployment.
 2. `SMS_USAGE_BILLING=on`: the app attempts billed sends at all (off: linked studios' texts are refused).
 3. Real provider calls: production build + production deployment + `SMS_BILLED_REAL_SEND=on` (sending) / `SMS_USAGE_EVIDENCE_READS=on` (reconciler GETs), plus the platform SMS approval. Separate from `TW4_ISV_REAL_CALLS` (registration writes).
-4. The reconciler is a library entry point; nothing schedules it. A scheduled reconciler is an ACTIVATION GATE.
+4. The reconciler is a library entry point; nothing schedules it. A scheduled reconciler is an ACTIVATION GATE. Since 20261205090000 it has a leased, authenticated route (`/api/cron/sms-usage-reconcile`, not registered) and identity-checked settlement: see `TW-4F_Usage_Reconciliation_Design.md`.
 
 ## 5. Not covered (owner decisions / follow-ups)
 

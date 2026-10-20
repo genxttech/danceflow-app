@@ -259,7 +259,10 @@ describe("RealBilledSmsProvider.fetchMessage", () => {
   it("maps the message and reads from the subaccount with that subaccount's credentials", async () => {
     const { fetchImpl, seen } = stubFetch(() => ({ status: 200, body: good }));
     const evidence = await real(fetchImpl).fetchMessage(SUB, MSG);
-    expect(evidence).toEqual({ sid: MSG, account_sid: SUB, status: "delivered", num_segments: "2", num_media: "0", price: "-0.01660", price_unit: "USD" });
+    expect(evidence).toEqual({
+      sid: MSG, account_sid: SUB, status: "delivered", num_segments: "2", num_media: "0", price: "-0.01660", price_unit: "USD",
+      direction: null, messaging_service_sid: null, from: null, to: null, date_created: null, date_sent: null, error_code: null,
+    });
     expect(seen[0].url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${SUB}/Messages/${MSG}.json`);
     expect(seen[0].init.method).toBe("GET");
     expect((seen[0].init.headers as Record<string, string>).Authorization).toBe(basic);
