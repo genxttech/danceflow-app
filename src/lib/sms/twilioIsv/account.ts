@@ -123,7 +123,7 @@ export class SubaccountTokenProvider {
       if (cached && cached.expiresAt > this.#now()) return changedFrom(cached.secret);
       throw new IsvApiError("transient", null, null, "subaccount credential re-read throttled");
     }
-    this.#cache.delete(accountSid);
+    // the cached token is replaced only by a SUCCESSFUL read: if the parent read fails, the cached token keeps serving until its own TTL
     return changedFrom(await this.#read(accountSid));
   }
 

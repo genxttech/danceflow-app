@@ -360,6 +360,17 @@ describe("token rotation (no overlap window)", () => {
     expect(reads).toBe(2);
   });
 
+  it("a failed re-read does not throw away a still-valid cached token (one forged webhook during a Twilio outage cannot block genuine ones)", async () => {
+    let fail = false;
+    const now = { t: 0 };
+    const provider = new SubaccountTokenProvider({ getSubaccountToken: async () => { if (fail) throw new IsvApiError("transient", 503, null, "down"); return "t".repeat(32); } }, { now: () => now.t, refreshIntervalMs: 30_000 });
+    const token = await provider.tokenFor(SUB_A);
+    fail = true;
+    now.t = 31_000;
+    await expect(provider.refresh(SUB_A, token)).rejects.toMatchObject({ kind: "transient" });
+    expect((await provider.tokenFor(SUB_A)).reveal()).toBe("t".repeat(32));
+  });
+
   it("the parent's replies are bound to what was asked: another profile or account, a missing sid, or a closed account fail closed", async () => {
     const noSid = stub(() => ({ status: 200, body: { status: "twilio-approved", policy_sid: PRIMARY_POLICY } }));
     await expect(new RealIsvParent(config, noSid.fetchImpl).getPrimaryProfile()).rejects.toMatchObject({ kind: "transient" });
