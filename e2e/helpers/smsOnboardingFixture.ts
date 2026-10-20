@@ -118,10 +118,10 @@ export const BUSINESS = {
 };
 
 /** Fills the three data steps of the Texting wizard exactly as an owner would. The EIN is a synthetic, obviously fake number. */
-export async function fillWizard(page: Page, ein = "98-7654321") {
+export async function fillWizard(page: Page, ein = "98-7654321", legalName: string = BUSINESS.legal_name) {
   const nav = page.getByRole("navigation", { name: "Setup steps" });
   await nav.getByRole("button", { name: /1\. Business/ }).click();
-  await page.locator('input[name="legal_name"]').fill(BUSINESS.legal_name);
+  await page.locator('input[name="legal_name"]').fill(legalName);
   await page.locator('select[name="entity_type"]').selectOption("llc");
   await page.locator('select[name="industry"]').selectOption("EDUCATION");
   await page.locator('input[name="ein"]').fill(ein);
@@ -153,10 +153,10 @@ export async function submitReview(page: Page, attest = true) {
 }
 
 /** The whole owner journey up to "Submitted", through the real wizard. */
-export async function ownerSubmitsSetup(page: Page, owner: SmsAccount) {
+export async function ownerSubmitsSetup(page: Page, owner: SmsAccount, legalName: string = BUSINESS.legal_name) {
   await signIn(page, owner, "/app/settings/sms");
   await expect(page.getByRole("navigation", { name: "Setup steps" })).toBeVisible();
-  await fillWizard(page);
+  await fillWizard(page, undefined, legalName);
   await saveDraft(page);
   await submitReview(page);
   await expect(page.getByRole("heading", { name: "Submitted" })).toBeVisible({ timeout: 30_000 });

@@ -83,4 +83,10 @@ It is not linked from the Texting settings page yet. That page is being changed 
   - Create subaccount: the wrong phrase is refused, and a double click creates exactly one;
   - Low-Volume Standard checklist and its price blocker;
   - owner attestation, a duplicate pending request, a database-refused link, and rejection.
-- **Not executed in the browser:** fee approvals and the pilot ceiling. Both write to the shared price, credit and pilot tables, which the financial workstream's suites use on the same local database. They are covered by the unit tests and the earlier 3b0 SQL suites. A browser pass is pending until that database is free.
+- **Browser E2E, money controls** (`e2e/tests/sms-subaccount-panel-fees.spec.ts`, 5 tests, run once the shared local database was free). Each was checked as refusal first, then success:
+  - ConfiDance legal business and a $150 budget;
+  - the pilot ceiling: refused without the acknowledgement or above $150, then recorded and shown as non-spendable;
+  - an owner brand fee approval: refused without the owner confirmation, recorded once against the pilot ceiling, and a replayed written approval refused;
+  - the budget cannot drop below what is approved;
+  - Low-Volume Standard is refused while the Standard-price brand approval is open, allowed after withdrawal, and its brand approval is then disabled while other fees still work.
+- **Regression:** the existing wizard (8) and runner (10) specs pass with the panel on the page.
