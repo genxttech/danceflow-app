@@ -10,7 +10,9 @@ import { isSmsSendingApproved, normalizeSmsPhone } from "@/lib/sms/compliance";
  * trusted server (service-role) client. Registration identifiers never leave the server.
  * The platform status flag (`DANCEFLOW_SMS_STATUS`) is only an emergency master switch.
  *
- * This is the ONLY resolver for OUTBOUND texts, so it is also where a suspended recurring-charge state stops new chargeable sends. Inbound handling
+ * This is the ONLY resolver for OUTBOUND texts, so it is also where a suspended recurring-charge state stops new chargeable sends, and where a studio of a
+ * verified legal business is sent to the BILLED path (reason "sms_billed_studio"): such a studio never gets a legacy (parent-account) sender, so no caller can
+ * text for it without a prepaid-credit reservation (src/lib/sms/usageBilling.ts). Inbound handling
  * (resolveStudioFromInboundSender below) never consults it: STOP / START / HELP processing and Twilio's own opt-out replies continue for a suspended business.
  */
 
@@ -25,11 +27,34 @@ export type StudioSmsSenderResult =
   | { ok: true; sender: StudioSmsSender }
   | {
       ok: false;
-      reason: "sms_not_approved" | "sms_studio_not_approved" | "sms_registration_lookup_failed" | "sms_service_suspended" | "sms_service_check_failed";
+      reason:
+        | "sms_not_approved"
+        | "sms_studio_not_approved"
+        | "sms_registration_lookup_failed"
+        | "sms_service_suspended"
+        | "sms_service_check_failed"
+        | "sms_billed_studio"
+        | "sms_billing_check_failed";
     };
 
 /** PostgREST PGRST202 / Postgres 42883: the recurring-charge state function is not installed in this environment. */
 const SERVICE_STATE_NOT_INSTALLED = new Set(["PGRST202", "42883"]);
+/** PostgREST PGRST205 / Postgres 42P01: the legal-business link table does not exist (TW-4F-3a not applied), so no studio can be billed. */
+const RELATION_NOT_INSTALLED = new Set(["PGRST205", "42P01"]);
+
+/**
+ * "billed" when the studio belongs to a verified legal business, "legacy" otherwise, "failed" when that cannot be established. The database answers
+ * (tw4_usage_studio_mode); where that function is not installed the link table is read; only a MISSING link table means legacy. Any other error, or an
+ * answer this code does not understand, fails closed.
+ */
+export async function resolveStudioSmsMode(supabase: SupabaseClient, studioId: string): Promise<"billed" | "legacy" | "failed"> {
+  const mode = await supabase.rpc("tw4_usage_studio_mode", { p_studio_id: studioId });
+  if (!mode.error) return mode.data === "billed" ? "billed" : mode.data === "legacy" ? "legacy" : "failed";
+  if (!SERVICE_STATE_NOT_INSTALLED.has(String(mode.error.code ?? ""))) return "failed";
+  const link = await supabase.from("studio_sms_entity_studios").select("studio_id").eq("studio_id", studioId).limit(1);
+  if (link.error) return RELATION_NOT_INSTALLED.has(String(link.error.code ?? "")) ? "legacy" : "failed";
+  return Array.isArray(link.data) && link.data.length > 0 ? "billed" : "legacy";
+}
 
 const MESSAGING_SERVICE_SID_PATTERN = /^MG[0-9a-fA-F]{32}$/;
 const CAMPAIGN_SID_PATTERN = /^QE[0-9a-fA-F]{32}$/;
@@ -52,6 +77,10 @@ export async function resolveStudioSmsSender(
   if (!isSmsSendingApproved()) {
     return { ok: false, reason: "sms_not_approved" };
   }
+
+  const mode = await resolveStudioSmsMode(supabase, studioId);
+  if (mode === "failed") return { ok: false, reason: "sms_billing_check_failed" };
+  if (mode === "billed") return { ok: false, reason: "sms_billed_studio" };
 
   const { data, error } = await supabase
     .from("studio_sms_registrations")

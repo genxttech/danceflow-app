@@ -98,7 +98,9 @@ const RETRY_MARKER = /^retry:([a-z0-9_]{1,60}):(\d{13})(:n)?$/;
  * processing, or never made). Every other retryable code (timeout, no response, 5xx, a concurrent request with the same
  * key, an acceptance we could not record) may hide an accepted message.
  */
-const DEFINITELY_UNSENT_RETRY_CODES = new Set(["provider_not_configured", "provider_auth_error", "provider_rate_limited"]);
+// TW-4F billed SMS: the database refused or could not be reached before any provider call (sms_billing_unavailable), or the attempt never reached its dispatch
+// marker (sms_not_dispatched): nothing was sent
+const DEFINITELY_UNSENT_RETRY_CODES = new Set(["provider_not_configured", "provider_auth_error", "provider_rate_limited", "sms_billing_unavailable", "sms_not_dispatched"]);
 
 /**
  * Written just before an email is handed to the provider. It is not a definitely-unsent code, so if the run stops or the
@@ -216,6 +218,7 @@ const UNCERTAIN_OUTCOME_CODES = new Set([
   "provider_idempotency_mismatch",
   "sms_sent_outcome_unrecorded",
   "failed_after_uncertain_attempt",
+  "sms_outcome_unknown",
 ]);
 
 export function isUncertainDeliveryOutcome(value: string | null | undefined): boolean {

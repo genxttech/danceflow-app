@@ -12,8 +12,27 @@ import {
   sanitizedSmsProviderError,
 } from "@/lib/sms/compliance";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
+import { BILLED_REFUSAL_MESSAGE, replayMeaning, sendBilledSms, smsUsageBillingEnabled, type BilledSendRefusal } from "@/lib/sms/usageBilling";
+import { billedSmsProviderFromEnv } from "@/lib/sms/usageProvider";
 import { cleanTextValue, normalizeOptionalUuid } from "@/lib/validation/forms";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const UNCERTAIN_MESSAGE = "We could not confirm whether this text was sent. Do not send it again: it is checked automatically, and you are charged only if it went out.";
+
+const REFUSAL_STATUS: Record<BilledSendRefusal, number> = {
+  insufficient_credit: 402,
+  monthly_limit: 402,
+  no_billed_sender: 503,
+  suspended: 503,
+  switched_off: 503,
+  no_price: 503,
+  not_billed: 503,
+  invalid: 400,
+  forbidden: 403,
+  unavailable: 503,
+};
 
 function canSendClientSms(role: string | null | undefined) {
   return ["studio_owner", "studio_admin", "front_desk"].includes(
@@ -46,7 +65,7 @@ export async function POST(request: Request) {
     }
 
     const payload = (await request.json().catch(() => null)) as
-      | { clientId?: string; body?: string }
+      | { clientId?: string; body?: string; idempotencyKey?: string }
       | null;
 
     const clientIdResult = normalizeOptionalUuid(
@@ -162,7 +181,24 @@ export async function POST(request: Request) {
     const senderResult = await resolveStudioSmsSender(createAdminClient(), studioId);
 
     if (!senderResult.ok) {
-      if (senderResult.reason === "sms_registration_lookup_failed" || senderResult.reason === "sms_service_check_failed") {
+      if (senderResult.reason === "sms_billed_studio") {
+        return sendBilled({
+          request,
+          studioId,
+          studioName: studio.name,
+          clientId,
+          phoneE164,
+          requestedBody,
+          sentBy: context.userId ?? null,
+          idempotencyKey: typeof payload?.idempotencyKey === "string" ? payload.idempotencyKey : "",
+        });
+      }
+
+      if (
+        senderResult.reason === "sms_registration_lookup_failed" ||
+        senderResult.reason === "sms_service_check_failed" ||
+        senderResult.reason === "sms_billing_check_failed"
+      ) {
         return NextResponse.json(
           { ok: false, error: "Text messaging could not be verified. Please try again." },
           { status: 500 },
@@ -282,5 +318,72 @@ export async function POST(request: Request) {
       },
       { status: 500 },
     );
+  }
+}
+
+/**
+ * TW-4F: a studio of a verified legal business texts only through the billed path: its own subaccount, after a prepaid-credit reservation made by the
+ * database (which also writes the log row). The manual send's idempotency key is the source: pressing Send again for the same message is a replay, never
+ * a second text. An uncertain provider answer is reported as such and must not be resent.
+ */
+async function sendBilled(input: {
+  request: Request;
+  studioId: string;
+  studioName: string | null;
+  clientId: string;
+  phoneE164: string;
+  requestedBody: string;
+  sentBy: string | null;
+  idempotencyKey: string;
+}) {
+  if (!smsUsageBillingEnabled()) {
+    return NextResponse.json({ ok: false, error: BILLED_REFUSAL_MESSAGE.switched_off }, { status: 503 });
+  }
+  if (!UUID.test(input.idempotencyKey)) {
+    return NextResponse.json({ ok: false, error: "Refresh the page and send the text again." }, { status: 400 });
+  }
+  const provider = billedSmsProviderFromEnv();
+  if (!provider) {
+    return NextResponse.json({ ok: false, error: BILLED_REFUSAL_MESSAGE.switched_off }, { status: 503 });
+  }
+
+  const callbackSecret = String(process.env.TWILIO_STATUS_CALLBACK_SECRET ?? "").trim();
+  const statusCallbackBase = callbackSecret
+    ? `${new URL(input.request.url).origin}/api/sms/twilio/status?secret=${encodeURIComponent(callbackSecret)}`
+    : null;
+
+  const result = await sendBilledSms(createAdminClient(), provider, {
+    source: { kind: "manual", id: input.idempotencyKey.toLowerCase() },
+    studioId: input.studioId,
+    clientId: input.clientId,
+    phoneE164: input.phoneE164,
+    body: appendSmsOptOutFooter(input.requestedBody, input.studioName),
+    messageType: "manual",
+    relatedTable: "clients",
+    relatedId: input.clientId,
+    sentBy: input.sentBy,
+    statusCallbackBase,
+  });
+
+  switch (result.outcome) {
+    case "sent":
+      return NextResponse.json({ ok: true, message: "Text queued for sending.", id: result.logId });
+    case "replay": {
+      const meaning = replayMeaning(result.state);
+      if (meaning === "accepted") return NextResponse.json({ ok: true, message: "This text was already sent.", id: result.logId });
+      if (meaning === "not_sent" || meaning === "not_yet") {
+        return NextResponse.json({ ok: false, error: "This text was not sent. Edit the message to send it as a new text." }, { status: 409 });
+      }
+      return NextResponse.json({ ok: false, uncertain: true, error: UNCERTAIN_MESSAGE, id: result.logId }, { status: 202 });
+    }
+    case "uncertain":
+      console.error("Billed SMS outcome uncertain");
+      return NextResponse.json({ ok: false, uncertain: true, error: UNCERTAIN_MESSAGE, id: result.logId }, { status: 202 });
+    case "rejected":
+      // Code only: never the provider's text.
+      console.error("Billed SMS refused by the provider", result.code);
+      return NextResponse.json({ ok: false, error: "The text could not be sent. Nothing was charged." }, { status: 502 });
+    case "refused":
+      return NextResponse.json({ ok: false, error: BILLED_REFUSAL_MESSAGE[result.reason] }, { status: REFUSAL_STATUS[result.reason] });
   }
 }
