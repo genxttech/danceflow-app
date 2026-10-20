@@ -10,7 +10,7 @@ import {
 import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
 import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
-import { twilioFormParams } from "@/lib/sms/twilioWebhook";
+import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
 import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
@@ -90,6 +90,11 @@ export async function POST(request: Request) {
 
   // The Twilio signature is verified before any consent mutation. TW-4F: a message received by a studio legal business's
   // subaccount is signed with that subaccount's own token; resolving which token applies is the only read before it.
+  // a repeated form key would let the signed values (last) differ from the values the route reads (first)
+  if (twilioFormHasDuplicateKeys(formData)) {
+    console.warn("twilio_form_duplicate_key");
+    return rejectUnverified(request, 403);
+  }
   const params = twilioFormParams(formData);
   const supabase = getServiceSupabase();
   const verification = await verifyTwilioWebhookAccount(request, params, buildWebhookAccountDeps(supabase));

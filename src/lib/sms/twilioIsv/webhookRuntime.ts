@@ -11,21 +11,27 @@ import { createWebhookTokenParent } from "./real";
  *  - The account lookup is the service-role `tw4_webhook_account` function (ids and status only).
  *  - Tokens: production + TW4_SUBACCOUNT_WEBHOOKS=on -> on-demand reads through the parent credentials (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN),
  *    one process-wide short-lived cache; local fake mode (TW4_ISV_FAKE=on, local database) -> the in-memory fake parent's tokens; otherwise none,
- *    so a webhook naming one of our subaccounts is refused (503) and parent-signed webhooks keep working exactly as before.
+ *    so a webhook naming one of our subaccounts is refused (403, reason code logged) and parent-signed webhooks are verified as before.
  */
+
+/**
+ * How long a subaccount token is reused for webhook verification. Short on purpose: after a rotation, a cached OLD token keeps verifying in a warm
+ * instance until this expires (or a failed signature forces a re-read), so this bounds how long a leaked, rotated token stays useful.
+ */
+export const WEBHOOK_TOKEN_TTL_MS = 60_000;
 
 const globalForWebhooks = globalThis as unknown as { __tw4WebhookTokens?: SubaccountTokenProvider; __tw4FakeIsvParent?: FakeIsvParent };
 
 function tokenSource(env: Record<string, string | undefined>): WebhookAccountDeps["tokens"] {
   if (fakeAdapterAllowed(env)) {
     const fake = globalForWebhooks.__tw4FakeIsvParent;
-    return fake ? new SubaccountTokenProvider(fake, { ttlMs: 0 }) : null;
+    return fake ? new SubaccountTokenProvider(fake, { ttlMs: 0, refreshIntervalMs: 0 }) : null;
   }
   if (!subaccountWebhooksAllowed(env).allowed) return null;
   const accountSid = String(env.TWILIO_ACCOUNT_SID ?? "").trim();
   const authToken = String(env.TWILIO_AUTH_TOKEN ?? "").trim();
   try {
-    return (globalForWebhooks.__tw4WebhookTokens ??= new SubaccountTokenProvider(createWebhookTokenParent({ accountSid, authToken }, env)));
+    return (globalForWebhooks.__tw4WebhookTokens ??= new SubaccountTokenProvider(createWebhookTokenParent({ accountSid, authToken }, env), { ttlMs: WEBHOOK_TOKEN_TTL_MS }));
   } catch {
     return null;
   }

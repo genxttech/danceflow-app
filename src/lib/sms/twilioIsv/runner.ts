@@ -303,6 +303,11 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
     } catch (error) {
       return { outcome: "exception", stepsRun, detail: error instanceof RunnerStoreError ? `tier:${error.code}` : "tier:unknown", state: claim.state };
     }
+    // A paid run of a tier with no published brand price stops HERE, before any Twilio write, rather than after the irreversible S11/T6 submissions.
+    // An onboarding whose brand already exists (B1 succeeded, e.g. as a mock) is not blocked: nothing is bought again.
+    if (!config.mockBrand && !paidBrandSupported(path) && !claim.steps.some((row) => row.step_key === "B1" && row.status === "succeeded")) {
+      return { outcome: "tier_unpriced", stepsRun, detail: `B1:${path.tier}`, state: claim.state };
+    }
 
     const ctx: Ctx = {
       adapter, config, path, inputs, sids: {}, verified: {},

@@ -11,15 +11,16 @@ import { twilioSignatureMatches, verifyTwilioWebhook } from "@/lib/sms/twilioWeb
  *  - The token is retrieved on demand from the parent account (never stored), cached briefly in memory, and re-read ONCE when a signature does not
  *    verify, because a rotation has no overlap window: right after it, the cached token is stale and Twilio already signs with the new one.
  *    Re-reads are spaced per account (SubaccountTokenProvider.refresh), so forged requests cannot drive parent-credential traffic to Twilio.
- *  - The OLD token is never accepted after a rotation (a rotation may be a response to a leak). A genuine callback signed just before the rotation
- *    is therefore rejected; that is the documented cost (see docs/twilio/TW-4F_Provider_Integration.md).
+ *  - The old token is never kept as a fallback. A token CACHED before a rotation still verifies in a warm instance until its short TTL ends
+ *    (WEBHOOK_TOKEN_TTL_MS) or a failed signature forces a re-read; a genuine callback signed just before the rotation can be rejected after it.
+ *    See docs/twilio/TW-4F_Provider_Integration.md section 4.
  *
  * Order of checks (each failure is final, nothing is mutated before the end):
  *  1. no X-Twilio-Signature                      -> 403, no lookup, no token read
  *  2. AccountSid absent or the parent's own      -> the existing parent-token verification (unchanged behavior)
  *  3. AccountSid malformed                       -> 403
  *  4. AccountSid not an active/suspended subaccount of a DanceFlow legal business (database) -> 403, no token read
- *  5. subaccount verification switched off        -> 503 (a known subaccount, but this deployment cannot verify it)
+ *  5. subaccount verification switched off        -> 403 (same answer as an unknown account; the reason code is logged)
  *  6. signature with the current token, then (once, spaced) with a re-read token -> ok, else 403
  *
  * Step 4 reads the database BEFORE the signature is verified (the token to verify with depends on the account). It is one indexed, read-only
@@ -87,7 +88,8 @@ export async function verifyTwilioWebhookAccount(request: Request, params: Recor
     return { ok: false, status: 503, reason: "twilio_account_lookup_failed" };
   }
   if (!record.found) return { ok: false, status: 403, reason: "twilio_account_unknown" };
-  if (!deps.tokens) return { ok: false, status: 503, reason: "twilio_subaccount_verification_disabled" };
+  // 403 like an unknown account (the response must not tell a prober which SIDs are DanceFlow customers); the reason code is logged
+  if (!deps.tokens) return { ok: false, status: 403, reason: "twilio_subaccount_verification_disabled" };
 
   let token: RedactedSecret;
   try {

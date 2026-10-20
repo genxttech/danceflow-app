@@ -29,6 +29,21 @@ export function twilioFormParams(formData: FormData): Record<string, string> {
   return params;
 }
 
+/**
+ * TW-4F: true when the form repeats a key. The signature is computed over `twilioFormParams` (the LAST value of a key) while `formData.get` returns
+ * the FIRST, so a repeated key would let a captured, validly signed request carry different values to the route. Twilio does not repeat keys:
+ * such a request is refused before verification.
+ */
+export function twilioFormHasDuplicateKeys(formData: FormData): boolean {
+  const seen = new Set<string>();
+  let duplicate = false;
+  formData.forEach((_value, key) => {
+    if (seen.has(key)) duplicate = true;
+    seen.add(key);
+  });
+  return duplicate;
+}
+
 function firstHeaderValue(value: string | null) {
   const first = String(value ?? "").split(",")[0]?.trim();
   return first || null;

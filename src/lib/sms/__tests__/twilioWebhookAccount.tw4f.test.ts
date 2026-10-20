@@ -49,7 +49,7 @@ function world() {
   let lookups = 0;
   const provider = new SubaccountTokenProvider(
     { getSubaccountToken: async (sid: string) => { tokenReads += 1; if (!tokens[sid]) throw new Error("no such account"); return tokens[sid]; } },
-    { now: () => clock.t },
+    { now: () => clock.t, refreshIntervalMs: 30_000 },
   );
   const deps: WebhookAccountDeps = {
     parentAccountSid: PARENT,
@@ -114,11 +114,12 @@ describe("verifyTwilioWebhookAccount", () => {
     expect(w.tokenReads()).toBe(0);
   });
 
-  it("a known subaccount with verification switched off, a failed lookup or an unreadable token is 503 (never accepted)", async () => {
+  it("a known subaccount with verification switched off is 403; a failed lookup or an unreadable token is 503 (never accepted)", async () => {
     const w = world();
     const params = { AccountSid: SUB_A, MessageSid: MSG };
     const request = () => signed("sub-a-token-1", params);
-    expect(await verifyTwilioWebhookAccount(request(), params, { ...w.deps, tokens: null })).toMatchObject({ ok: false, status: 503, reason: "twilio_subaccount_verification_disabled" });
+    // switched off: the same 403 as an unknown account (no membership oracle); only the logged reason differs
+    expect(await verifyTwilioWebhookAccount(request(), params, { ...w.deps, tokens: null })).toMatchObject({ ok: false, status: 403, reason: "twilio_subaccount_verification_disabled" });
     expect(await verifyTwilioWebhookAccount(request(), params, { ...w.deps, lookupAccount: async () => { throw new Error("db down"); } })).toMatchObject({ ok: false, status: 503, reason: "twilio_account_lookup_failed" });
     delete w.tokens[SUB_A];
     expect(await verifyTwilioWebhookAccount(request(), params, w.deps)).toMatchObject({ ok: false, status: 503, reason: "twilio_subaccount_token_unavailable" });
@@ -143,11 +144,11 @@ describe("verifyTwilioWebhookAccount", () => {
     for (let i = 0; i < 50; i += 1) {
       expect((await verifyTwilioWebhookAccount(signed(`forged-${i}`, params), params, w.deps)).ok).toBe(false);
     }
-    // the first lookup reads the token; the first failure forces one re-read; everything after is answered from cache
-    expect(w.tokenReads()).toBe(2);
+    // ONE parent read for the whole flood: the token was just read, so no forced re-read is sent inside the interval
+    expect(w.tokenReads()).toBe(1);
     w.clock.t = 31_000;
     await verifyTwilioWebhookAccount(signed("forged-late", params), params, w.deps);
-    expect(w.tokenReads()).toBe(3);
+    expect(w.tokenReads()).toBe(2);
   });
 
   it("never echoes a token in its result", async () => {

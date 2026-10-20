@@ -57,7 +57,7 @@ export function buildRunnerRuntime(env: Record<string, string | undefined> = pro
   const loaded = loadIsvConfig(env);
   if (!loaded.ok) return { ok: false, reason: `Twilio registration is not configured (missing: ${loaded.missing.join(", ")}).` };
   const parent = createRealIsvParent(loaded.config, env);
-  const tokens = (globalForTokens.__tw4TokenProvider ??= new SubaccountTokenProvider(parent));
+  const tokens = (globalForTokens.__tw4TokenProvider ??= new SubaccountTokenProvider(parent, { refreshIntervalMs: 0 }));
   const admin = createAdminClient();
   return {
     ok: true,

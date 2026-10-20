@@ -157,8 +157,9 @@ describe("the runner in a subaccount: Primary read through the parent, Primary a
     runBrandSubmission({ store, adapter, primary: parent, config, studioId: STUDIO, actorId: ADMIN, confirmFee: false, ...over });
   /** Two runs: S1..T5 + review stop, then the confirmed submissions and the brand. */
   const toBrand = async (over: Partial<Parameters<typeof runBrandSubmission>[0]> = {}) => {
-    await run({ confirmSubmit: ["S11"] });
-    await run({ confirmSubmit: ["S11", "T6"] });
+    const cfg = over.config ? { config: over.config } : {};
+    await run({ confirmSubmit: ["S11"], ...cfg });
+    await run({ confirmSubmit: ["S11", "T6"], ...cfg });
     return run({ confirmSubmit: ["S11", "T6"], confirmFee: true, ...over });
   };
 
@@ -203,16 +204,13 @@ describe("the runner in a subaccount: Primary read through the parent, Primary a
     expect(store.spendReservations).toHaveLength(1);
   });
 
-  it("Low-Volume Standard, paid: stopped before the fee confirmation, the reservation and any brand call (no published price)", async () => {
+  it("Low-Volume Standard, paid: stopped before ANY Twilio write (no submission, no reservation, no brand call: no published price)", async () => {
     store.tier = "low_volume_standard";
     const result = await toBrand();
-    expect(result).toMatchObject({ outcome: "tier_unpriced", detail: "B1:low_volume_standard" });
-    expect(adapter.count("createBrand")).toBe(0);
-    expect(adapter.count("findBrand")).toBe(0);
+    expect(result).toMatchObject({ outcome: "tier_unpriced", detail: "B1:low_volume_standard", stepsRun: [] });
+    expect(adapter.calls).toHaveLength(0);
     expect(store.spendReservations).toHaveLength(0);
-    expect(store.ledger.some((row) => row.step_key === "B1")).toBe(false);
-    // the non-fee steps before it are unaffected
-    expect(store.ledger.filter((row) => row.status === "succeeded").map((row) => row.step_key)).toContain("T6");
+    expect(store.ledger).toHaveLength(0);
     expect(describeOutcome("tier_unpriced")).toMatch(/Low-Volume Standard/);
     expect(describeOutcome("tier_unpriced")).toMatch(/Nothing was reserved, called or charged/);
   });
@@ -223,6 +221,15 @@ describe("the runner in a subaccount: Primary read through the parent, Primary a
     expect(result.outcome).toBe("brand_submitted");
     const brand = adapter.calls.find((call) => call.method === "createBrand")?.input as { skipAutomaticSecVet: boolean; brandType: string; mock: boolean };
     expect(brand).toMatchObject({ brandType: "STANDARD", skipAutomaticSecVet: true, mock: true });
+    expect(store.spendReservations).toHaveLength(0);
+  });
+
+  it("an onboarding whose brand already exists (a mock run) is not blocked when the mock switch is turned off, and nothing is bought again", async () => {
+    store.tier = "low_volume_standard";
+    expect((await toBrand({ config: { ...config, mockBrand: true } })).outcome).toBe("brand_submitted");
+    const after = await run({ confirmSubmit: ["S11", "T6"], confirmFee: true });
+    expect(after.outcome).not.toBe("tier_unpriced");
+    expect(adapter.count("createBrand")).toBe(1);
     expect(store.spendReservations).toHaveLength(0);
   });
 
@@ -257,9 +264,9 @@ describe("token rotation (no overlap window)", () => {
     };
     return { state, build };
   }
-  function tokenSource(state: { token: string }, now = { t: 0 }) {
+  function tokenSource(state: { token: string }, now = { t: 0 }, refreshIntervalMs = 0) {
     let reads = 0;
-    const provider = new SubaccountTokenProvider({ getSubaccountToken: async () => { reads += 1; return state.token; } }, { now: () => now.t });
+    const provider = new SubaccountTokenProvider({ getSubaccountToken: async () => { reads += 1; return state.token; } }, { now: () => now.t, refreshIntervalMs });
     return { provider, reads: () => reads, now };
   }
 
@@ -295,7 +302,7 @@ describe("token rotation (no overlap window)", () => {
       createCustomerProfile: async () => { calls += 1; throw new IsvApiError("account", 401, "20003", "Authenticate"); },
     }) as unknown as IsvAdapter;
     let n = 0;
-    const provider = new SubaccountTokenProvider({ getSubaccountToken: async () => `tok${(n += 1)}`.padEnd(32, "x") });
+    const provider = new SubaccountTokenProvider({ getSubaccountToken: async () => `tok${(n += 1)}`.padEnd(32, "x") }, { refreshIntervalMs: 0 });
     const adapter = await rotatingSubaccountAdapter(SUB_A, provider, build);
     await expect(adapter.findCustomerProfile("f")).rejects.toMatchObject({ kind: "transient" });
     expect(calls).toBe(1);
@@ -311,22 +318,57 @@ describe("token rotation (no overlap window)", () => {
 
   it("forced re-reads of one account are spaced; inside the interval the cached token is the answer", async () => {
     const state = { token: "t1".padEnd(32, "x") };
-    const tokens = tokenSource(state);
+    const tokens = tokenSource(state, { t: 0 }, 30_000);
     const first = await tokens.provider.tokenFor(SUB_A);
+    // the token was read a moment ago: a forced re-read is not sent
     const r1 = await tokens.provider.refresh(SUB_A, first);
     expect(r1.changed).toBe(false);
-    expect(tokens.reads()).toBe(2);
+    expect(tokens.reads()).toBe(1);
     state.token = "t2".padEnd(32, "x");
     tokens.now.t = 10_000; // inside the 30 s interval: no parent request
     const r2 = await tokens.provider.refresh(SUB_A, first);
     expect(r2.changed).toBe(false);
-    expect(tokens.reads()).toBe(2);
+    expect(tokens.reads()).toBe(1);
     tokens.now.t = 31_000;
     const r3 = await tokens.provider.refresh(SUB_A, first);
     expect(r3.changed).toBe(true);
     expect(r3.secret.reveal().startsWith("t2")).toBe(true);
-    expect(tokens.reads()).toBe(3);
+    expect(tokens.reads()).toBe(2);
     await expect(tokens.provider.refresh("AC123", null)).rejects.toMatchObject({ kind: "account" });
+  });
+
+  it("concurrent callers share ONE parent read, and a failed read is not repeated inside the interval (negative cache)", async () => {
+    let reads = 0;
+    let fail = true;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const now = { t: 0 };
+    const provider = new SubaccountTokenProvider({ getSubaccountToken: async () => { reads += 1; await gate; if (fail) throw new IsvApiError("transient", 503, null, "down"); return "t".repeat(32); } }, { now: () => now.t, refreshIntervalMs: 30_000 });
+    const burst = Array.from({ length: 20 }, () => provider.tokenFor(SUB_A).catch((e: unknown) => e));
+    const refreshes = Array.from({ length: 20 }, () => provider.refresh(SUB_A, null).catch((e: unknown) => e));
+    release();
+    const results = await Promise.all([...burst, ...refreshes]);
+    expect(reads).toBe(1);
+    expect(results.every((r) => r instanceof IsvApiError)).toBe(true);
+    // inside the interval: no new parent read, for tokenFor and refresh alike
+    await expect(provider.tokenFor(SUB_A)).rejects.toMatchObject({ kind: "transient" });
+    await expect(provider.refresh(SUB_A, null)).rejects.toMatchObject({ kind: "transient" });
+    expect(reads).toBe(1);
+    fail = false;
+    now.t = 31_000;
+    expect((await provider.tokenFor(SUB_A)).reveal()).toBe("t".repeat(32));
+    expect(reads).toBe(2);
+  });
+
+  it("the parent's replies are bound to what was asked: another profile or account, a missing sid, or a closed account fail closed", async () => {
+    const noSid = stub(() => ({ status: 200, body: { status: "twilio-approved", policy_sid: PRIMARY_POLICY } }));
+    await expect(new RealIsvParent(config, noSid.fetchImpl).getPrimaryProfile()).rejects.toMatchObject({ kind: "transient" });
+    for (const body of [{ sid: `AC${"c".repeat(32)}`, auth_token: "s".repeat(32) }, { auth_token: "s".repeat(32) }]) {
+      const other = stub(() => ({ status: 200, body }));
+      await expect(new RealIsvParent(config, other.fetchImpl).getSubaccountToken(SUB_A)).rejects.toMatchObject({ kind: "transient" });
+    }
+    const closed = stub(() => ({ status: 200, body: { sid: SUB_A, status: "closed", auth_token: "s".repeat(32) } }));
+    await expect(new RealIsvParent(config, closed.fetchImpl).getSubaccountToken(SUB_A)).rejects.toMatchObject({ kind: "account" });
   });
 
   it("a failing token read never surfaces the credential or the parent's error text", async () => {

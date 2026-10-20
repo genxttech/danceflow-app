@@ -201,11 +201,11 @@ describe("status callbacks from a subaccount", () => {
     expect(logs()["log-b"]).toMatchObject({ status: "delivered" });
   });
 
-  it("outside fake mode and without the production switch a subaccount callback is 503, never accepted", async () => {
+  it("outside fake mode and without the production switch a subaccount callback is refused (403, like an unknown account), never accepted", async () => {
     seed();
     delete process.env.TW4_ISV_FAKE;
     const response = await status(post(STATUS_URL, tokenA(), statusParams(SUB_A, MSG_A, "delivered", SERVICE_A)));
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(403);
     expect(fake.current!.mutations).toHaveLength(0);
   });
 
@@ -227,6 +227,30 @@ describe("status callbacks from a subaccount", () => {
     await status(post(STATUS_URL, "forged", statusParams(SUB_A, MSG_A, "failed", SERVICE_A)));
     expect(logged.join("\n")).not.toContain(subToken);
     expect(logs()["log-a"]).toMatchObject({ status: "delivered" });
+  });
+});
+
+describe("repeated form keys", () => {
+  /** A captured, validly signed request with an extra copy of a key placed FIRST (formData.get reads the first, the signature the last). */
+  function smuggled(url: string, token: string, params: Record<string, string>, extra: [string, string][]) {
+    const body = new URLSearchParams([...extra, ...Object.entries(params)]).toString();
+    return new Request(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "x-forwarded-for": "198.51.100.251", "x-twilio-signature": getExpectedTwilioSignature(token, url, params) }, body });
+  }
+
+  it("a signed inbound request with a smuggled From/Body is refused before anything happens", async () => {
+    seed();
+    const response = await inbound(smuggled(INBOUND_URL, tokenA(), inboundParams(SUB_A, "HELP"), [["Body", "STOP"], ["From", "+15550100999"]]));
+    expect(response.status).toBe(403);
+    expect(fake.current!.rpcCalls).toHaveLength(0);
+  });
+
+  it("a signed status request with a smuggled MessageSid/MessageStatus is refused (parent path too)", async () => {
+    seed();
+    // everything else about the request is genuine and consistent: only the smuggled first MessageStatus would differ
+    const parentSigned = smuggled(STATUS_URL, PARENT_TOKEN, statusParams(PARENT, MSG_A, "sent", SERVICE_A), [["MessageStatus", "failed"]]);
+    expect((await status(parentSigned)).status).toBe(403);
+    expect(fake.current!.mutations).toHaveLength(0);
+    expect(logs()["log-a"]).toMatchObject({ status: "queued" });
   });
 });
 

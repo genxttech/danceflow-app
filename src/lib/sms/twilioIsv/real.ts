@@ -275,7 +275,7 @@ export class RealIsvParent extends TwilioRest<Credentials & Partial<Pick<IsvConf
     if (!/^BU[0-9a-fA-F]{32}$/.test(sid)) throw new IsvApiError("account", null, null, "no primary profile configured");
     const json = await this.request("GET", `${TRUSTHUB}/CustomerProfiles/${encodeURIComponent(sid)}`);
     // the reply must be about the profile that was asked for
-    if (json.sid !== undefined && json.sid !== sid) throw new IsvApiError("transient", null, null, "primary profile reply does not match");
+    if (json.sid !== sid) throw new IsvApiError("transient", null, null, "primary profile reply does not match");
     return { status: String(json.status ?? "unknown"), policySid: typeof json.policy_sid === "string" ? json.policy_sid : null };
   }
 
@@ -293,6 +293,9 @@ export class RealIsvParent extends TwilioRest<Credentials & Partial<Pick<IsvConf
   async getSubaccountToken(accountSid: string): Promise<string> {
     if (!/^AC[0-9a-fA-F]{32}$/.test(accountSid) || accountSid === this.config.accountSid) throw new IsvApiError("validation", null, null, "not a subaccount sid");
     const json = await this.request("GET", `${API}/Accounts/${encodeURIComponent(accountSid)}.json`);
+    // the reply must be about the account that was asked for, and a closed account has no usable credential
+    if (json.sid !== accountSid) throw new IsvApiError("transient", null, null, "account reply does not match");
+    if (json.status === "closed") throw new IsvApiError("account", null, null, "subaccount is closed");
     const token = json.auth_token;
     // a reply without a usable token is not a credential: fail closed (never an empty password)
     if (typeof token !== "string" || !/^[0-9a-zA-Z]{32}$/.test(token)) throw new IsvApiError("transient", null, null, "response carried no valid credential");

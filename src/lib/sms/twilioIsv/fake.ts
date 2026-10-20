@@ -299,6 +299,7 @@ export class FakeIsvParent implements IsvParentAdapter {
   /** Test seam: an account that exists "at Twilio" (created outside the app, or by a lost response). */
   seedAccount(accountSid: string, friendlyName: string) {
     const adapter = new FakeIsvAdapter(this.primaryProfileSid, { ...this.options, accountSid, primaryInAccount: false });
+    // predictable on purpose (tests sign with it); the fake only ever runs outside production against a loopback database
     this.accounts.set(accountSid, { friendlyName, token: `fake-token-${accountSid.slice(2, 10)}`, adapter });
     return adapter;
   }

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { sanitizedSmsProviderError } from "@/lib/sms/compliance";
 import { mapTwilioStatusToSmsLogStatus } from "@/lib/sms/twilio";
 import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
-import { twilioFormParams } from "@/lib/sms/twilioWebhook";
+import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
 import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { hasValidSecret } from "@/lib/security/cron";
@@ -53,6 +53,11 @@ export async function POST(request: Request) {
   // 1) Twilio request signature, then 2) the existing callback secret. Both are required
   // before any delivery-log mutation.
   // TW-4F: a callback for a message sent from a studio legal business's subaccount is signed with that subaccount's own token.
+  // a repeated form key would let the signed values (last) differ from the values the route reads (first)
+  if (twilioFormHasDuplicateKeys(formData)) {
+    console.warn("twilio_form_duplicate_key");
+    return rejectUnverified(request, 403);
+  }
   const params = twilioFormParams(formData);
   const supabase = getServiceSupabase();
   const verification = await verifyTwilioWebhookAccount(request, params, buildWebhookAccountDeps(supabase));
@@ -175,7 +180,8 @@ export async function POST(request: Request) {
     }
   }
 
-  // TW-4F replay protection: each (MessageSid, MessageStatus) is applied once, so a replayed older status can never overwrite a newer one.
+  // TW-4F replay protection: each (MessageSid, MessageStatus) is applied once, so an exact replay of an earlier callback changes nothing.
+  // (A genuine out-of-order callback, e.g. sent after delivered, still applies: there is no status ranking yet.)
   // If the ledger is unreachable the callback is applied anyway (status updates are idempotent; the signature is already verified).
   const receiptKey = webhookReceiptKey("status", params);
   if (receiptKey) {
