@@ -72,7 +72,7 @@ This slice changes no price, spend, credit, monthly-limit, Stripe or billing obj
 
 1. **A tier-specific brand price.** Today `studio_sms_price_list` has one active `brand` price, the Standard brand with secondary vetting. A Low-Volume Standard brand needs its own published price kind (for example `brand_low_volume`) in the price list, spend kinds, `tw4_spend_authorize`, `tw4_spend_reserve` and `tw4_spend_settle`, and its monthly-limit category. Once it exists, set `brandPriceKind` for `low_volume_standard` in `registrationPath.ts` and pass the kind to `reserveSpend` / `settleSpend` (both currently hard-code `"brand"` in the runner). That small runner change is coordinated with that work.
 2. **Campaign fees per tier.** The campaign step (R2, not built) will register `MIXED` or `LOW_VOLUME`. Campaign vetting and monthly campaign fees differ by use case and are priced on the financial side.
-3. **Monthly limits.** Registration and recurring charges count against the calendar-month limit. Nothing here reserves or charges anything new.
+3. **Monthly limits.** Whether one-time registration fees (brand, campaign vetting) count against the calendar-month limit is decided by the spending-limit work, not here. In its current draft (`20261128090000`, unmerged), the monthly-limit check applies to SMS usage debits and recurring charges. The registration fee step (`tw4_spend_reserve`) still relies on the per-operation owner authorization and the legal entity's spend cap. This slice reserves and charges nothing new, and it makes no assumption either way.
 
 Migration ordering: `20261129090000` depends only on TW-4F-3a (`20261121090000`). It is independent of `20261128090000` (monthly limits) and applies cleanly in either order.
 
