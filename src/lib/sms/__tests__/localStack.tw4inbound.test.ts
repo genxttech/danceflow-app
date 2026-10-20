@@ -165,7 +165,7 @@ describe.skipIf(!enabled)("inbound SMS usage recording: ceiling, compliance, lim
       /* best effort */
     }
   });
-  const publish = async (kind: "sms_inbound" | "sms_usage" | "monthly", cents: number, provider: number) =>
+  const publish = async (kind: "sms_inbound" | "sms_usage" | "monthly" | "number", cents: number, provider: number) =>
     expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: provider, p_description: `fixture ${kind} price`, p_actor: U.padmin })).error).toBeNull();
   const unpublish = (kind: string) => aged(`update public.studio_sms_price_list set active = false where kind = '${kind}' and created_by = '${U.padmin}'`);
 
@@ -385,6 +385,131 @@ describe.skipIf(!enabled)("inbound SMS usage recording: ceiling, compliance, lim
       psql(`select count(public._tw4rc_release_commitment(a.id)) from public.studio_sms_recurring_authorizations a where a.legal_entity_id = '${EA}' and a.commitment_reservation_id is not null`);
       aged(`delete from public.studio_sms_recurring_charges where legal_entity_id = '${EA}'; delete from public.studio_sms_recurring_authorizations where legal_entity_id = '${EA}'`);
     };
+
+    describe("option B: one month of every active recurring fee stays available", () => {
+      const authorizeKind = async (kind: "monthly" | "number", price: number) => {
+        const made = await rpc("tw4_recurring_authorize", { p_studio_id: PA1, p_user_id: U.owner_a, p_kind: kind, p_acknowledged_price_cents: price, p_term_months: 3, p_total_limit_cents: price * 3 });
+        expect(made.error, JSON.stringify(made.error)).toBeNull();
+        const id = (made.data as { authorization_id: string }).authorization_id;
+        psql(`select public._tw4rc_release_commitment('${id}')`); // a later month: nothing set aside, only the fee's authorization
+        return id;
+      };
+      const sumCharged = async (n: number) => {
+        let total = 0;
+        for (let i = 0; i < n; i += 1) total += (await recorded(PA1)).charged_cents;
+        return total;
+      };
+
+      it("inbound uses only the credit above one month of the fee, never creates debt, and the next fee is still funded", async () => {
+        reset(EA);
+        clearAuths();
+        await fund(EA, PA1, 2_500);
+        await publish("monthly", 1500, 1000);
+        expect((await setLimit(EA, 10_000)).error).toBeNull();
+        const id = await authorizeKind("monthly", 1500);
+        expect(reserved(EA)).toBe(0);
+        await publish("sms_inbound", 300, 1);
+        expect(await sumCharged(6)).toBe(1_000); // 2500 - one month (1500); never below
+        expect(balance(EA)).toBe(1_500);
+        expect((await rpc("tw4_recurring_charge", { p_authorization_id: id, p_period_key: curKey(EA), p_run_id: null })).data).toMatchObject({ outcome: "charged" });
+        expect(balance(EA)).toBe(0);
+        expect(await sumCharged(2)).toBe(0); // the fee is still active: no inbound debt
+        unpublish("sms_inbound");
+        unpublish("monthly");
+        clearAuths();
+      });
+
+      it("several active fees are protected together at their authorized prices; a set-aside first month is not counted twice", async () => {
+        reset(EA);
+        clearAuths();
+        await fund(EA, PA1, 5_000);
+        await publish("monthly", 1500, 1000);
+        await publish("number", 500, 300);
+        expect((await setLimit(EA, 10_000)).error).toBeNull();
+        await authorizeKind("monthly", 1500);
+        const made = await rpc("tw4_recurring_authorize", { p_studio_id: PA1, p_user_id: U.owner_a, p_kind: "number", p_acknowledged_price_cents: 500, p_term_months: 3, p_total_limit_cents: 1500 });
+        expect(made.error, JSON.stringify(made.error)).toBeNull(); // this one keeps its first month set aside (500 reserved)
+        expect(reserved(EA)).toBe(500);
+        await publish("sms_inbound", 300, 1);
+        // free = 5000 - 500 reserved (number, set aside) - 1500 (monthly, active) = 3000; the number fee is not counted a second time
+        expect(await sumCharged(12)).toBe(3_000);
+        expect(balance(EA)).toBe(2_000);
+        unpublish("sms_inbound");
+        unpublish("monthly");
+        unpublish("number");
+        clearAuths();
+      });
+
+      it("a revoked or expired authorization no longer protects anything: the $10 ceiling applies again", async () => {
+        reset(EA);
+        clearAuths();
+        await fund(EA, PA1, 2_500);
+        await publish("monthly", 1500, 1000);
+        expect((await setLimit(EA, 10_000)).error).toBeNull();
+        const id = await authorizeKind("monthly", 1500);
+        await publish("sms_inbound", 300, 1);
+        expect(await sumCharged(4)).toBe(1_000); // protected
+        expect((await rpc("tw4_recurring_revoke", { p_authorization_id: id, p_user_id: U.owner_a })).data).toMatchObject({ status: "revoked" });
+        expect(await sumCharged(10)).toBe(2_500); // 1500 left, then down to -$10.00
+        expect(balance(EA)).toBe(-1_000);
+        // expired: the same with a term that has ended
+        reset(EA);
+        clearAuths();
+        await fund(EA, PA1, 2_500);
+        expect((await setLimit(EA, 10_000)).error).toBeNull();
+        const old = await authorizeKind("monthly", 1500);
+        aged(`update public.studio_sms_recurring_authorizations set expires_at = now() - interval '1 hour' where id = '${old}'`);
+        expect(await sumCharged(12)).toBe(3_500); // all 2500 and down to -$10.00
+        unpublish("sms_inbound");
+        unpublish("monthly");
+        clearAuths();
+      });
+
+      it("review P2: a fee that can no longer be charged protects nothing (final month charged through the real set-aside path; price changed)", async () => {
+        reset(EA);
+        clearAuths();
+        await fund(EA, PA1, 2_500);
+        await publish("monthly", 1500, 1000);
+        expect((await setLimit(EA, 10_000)).error).toBeNull();
+        // a one-month term: its only month is set aside, then captured by its charge; after that no month is left to charge
+        const made = await rpc("tw4_recurring_authorize", { p_studio_id: PA1, p_user_id: U.owner_a, p_kind: "monthly", p_acknowledged_price_cents: 1500, p_term_months: 1, p_total_limit_cents: 1500 });
+        expect(made.error, JSON.stringify(made.error)).toBeNull();
+        const id = (made.data as { authorization_id: string }).authorization_id;
+        expect((await rpc("tw4_recurring_charge", { p_authorization_id: id, p_period_key: curKey(EA), p_run_id: null })).data).toMatchObject({ outcome: "charged" });
+        expect(balance(EA)).toBe(1_000);
+        await publish("sms_inbound", 300, 1);
+        expect(await sumCharged(8)).toBe(2_000); // the $10.00 left and down to -$10.00: the ceiling applies again
+        // price changed: every later charge would be refused, so the old fee is not protected either
+        reset(EA);
+        clearAuths();
+        await fund(EA, PA1, 2_500);
+        expect((await setLimit(EA, 10_000)).error).toBeNull();
+        await authorizeKind("monthly", 1500);
+        await publish("monthly", 1700, 1000);
+        expect(await sumCharged(12)).toBe(3_500);
+        unpublish("sms_inbound");
+        unpublish("monthly");
+        clearAuths();
+      });
+
+      it("concurrency: twenty simultaneous inbound texts beside an active fee charge exactly the free credit", async () => {
+        reset(EA);
+        clearAuths();
+        await fund(EA, PA1, 2_500);
+        await publish("monthly", 1500, 1000);
+        expect((await setLimit(EA, 10_000)).error).toBeNull();
+        await authorizeKind("monthly", 1500);
+        await publish("sms_inbound", 70, 1);
+        const results = await Promise.all(Array.from({ length: 20 }, () => record(PA1)));
+        expect(results.every((r) => !r.error)).toBe(true);
+        expect(results.reduce((s, r) => s + (r.data as { charged_cents: number }).charged_cents, 0)).toBe(1_000);
+        expect(balance(EA)).toBe(1_500);
+        expect((await credits.verify(EA)).ok).toBe(true);
+        unpublish("sms_inbound");
+        unpublish("monthly");
+        clearAuths();
+      });
+    });
 
     it("review P1: with an outgoing text reserved beside the set-aside, inbound takes nothing from either, and the set-aside is still captured after the text settles", async () => {
       reset(EA);

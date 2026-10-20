@@ -5,6 +5,9 @@
 --   * D1: an ORDINARY inbound text is charged after the fact at the published inbound per-segment price ('sms_inbound', none published yet), but only within a
 --     configurable negative-balance ceiling per legal business ($10 to start). Beyond it the remainder is recorded as uncollected (DanceFlow-absorbed); a
 --     received text is never refused. Outgoing chargeable texts keep failing closed on a negative balance, a hold or a suspension (unchanged).
+--     Final owner decisions (PR 248): the pilot business carries no inbound debt; inbound never uses funds reserved for recurring fees, and one month of
+--     every recurring fee that can still be charged stays available (no inbound debt while such a fee or a set-aside exists); an authorized recurring
+--     fee's monthly-limit check leaves inbound out (tw4_recurring_charge, otherwise unchanged from 20261128).
 --   * D2: STOP / START / HELP (and their confirmations) are classified 'compliance': never charged, never counted toward the monthly limit, always processed.
 --   * D3: error replies are counted per sender per day (the route sends at most one); provider costs are estimated and tracked as DanceFlow's.
 --   * D4: charged ordinary inbound counts toward the month's spending (attributed by the message's own time in the business's timezone); it may overrun
@@ -227,6 +230,8 @@ declare
   v_charged int := 0;
   v_ceiling int;
   v_protected bigint;
+  v_upcoming bigint;
+  v_cur text;
   v_reply int;
 begin
   if p_studio_id is null or p_provider_sid is null or p_provider_sid !~ '^(SM|MM)[0-9a-fA-F]{32}$'
@@ -269,11 +274,27 @@ begin
   -- the balance after the charge must still cover them. The pilot business additionally never goes below zero (its ceiling is 0).
   select coalesce(sum(r.amount_cents), 0) into v_protected from public.studio_sms_credit_reservations r
    where r.legal_entity_id = v_entity and r.status = 'reserved' and r.funding = 'credit' and (r.reservation_key like 'commit:%' or r.reservation_key like 'rec:%');
+  -- Owner decision (PR 248, option B): one month of every ACTIVE recurring fee (not revoked, not expired) stays available, at its authorized price. A fee whose
+  -- first month is still set aside is already covered by that reservation (counted in reserved_cents), so it is not counted twice. Nothing is reserved or
+  -- charged by this: it only limits what an inbound text may charge.
+  -- Only a fee that can still be charged is protected (the same refusals tw4_recurring_charge applies): within its total limit, at its published price, not a
+  -- pilot business, and with a chargeable month left (this month not yet charged or refused, or a next month inside the term).
+  v_cur := public._tw4ml_month_key(v_entity, now());
+  select coalesce(sum(a.price_cents), 0) into v_upcoming from public.studio_sms_recurring_authorizations a
+   where a.legal_entity_id = v_entity and a.status = 'active' and a.expires_at > now()
+     and not exists (select 1 from public.studio_sms_credit_reservations r where r.id = a.commitment_reservation_id and r.status = 'reserved')
+     and not exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = a.legal_entity_id)
+     and exists (select 1 from public.studio_sms_price_list p where p.kind = a.kind and p.active and p.customer_price_cents = a.price_cents)
+     and coalesce((select sum(c.amount_cents) from public.studio_sms_recurring_charges c where c.authorization_id = a.id and c.status = 'charged'), 0) + a.price_cents <= a.total_limit_cents
+     and ((public._tw4ml_month_start(v_entity, v_cur) < a.expires_at
+           and not exists (select 1 from public.studio_sms_recurring_charges c where c.authorization_id = a.id and c.period_key = v_cur and c.status in ('charged', 'refused')))
+          or public._tw4ml_month_start(v_entity, public._tw4ml_key_add(v_cur, 1)) < a.expires_at);
   v_charged := least(v_billable,
                      greatest(0, acct.balance_cents - acct.reserved_cents + v_ceiling),
-                     -- while a recurring set-aside is open there is NO inbound debt: only credit free of every reservation may be used, because other
-                     -- reservations (an outgoing text, a setup fee) settle without a funds check and would otherwise be paid from the set-aside
-                     case when v_protected > 0 then greatest(0, acct.balance_cents - acct.reserved_cents) else v_billable end)::int;
+                     -- while any recurring fee is active or set aside there is NO inbound debt: only credit free of every reservation AND of one month of
+                     -- each active fee may be used (other reservations - an outgoing text, a setup fee - settle without a funds check and would otherwise
+                     -- be paid from the protected amount)
+                     case when v_protected > 0 or v_upcoming > 0 then greatest(0, acct.balance_cents - acct.reserved_cents - v_upcoming) else v_billable end)::int;
   if v_charged > 0 then
     perform public._tw4c_post(v_entity, p_studio_id, 'usage_charge', -v_charged, 0, 'usage:in:' || p_provider_sid, null, 'inbound', null, null);
   end if;
