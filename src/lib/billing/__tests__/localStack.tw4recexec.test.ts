@@ -76,6 +76,9 @@ set local session_replication_role = replica;
 update public.studio_sms_recurring_charges set run_id = null where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_recurring_charges where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_recurring_authorizations where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_monthly_limits where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_entity_timezones where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_limit_ceilings where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_registrations where studio_id in ('${PA1}', '${PA2}', '${PB1}', '${PX}');
 delete from public.studio_sms_spend_events where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_ledger where legal_entity_id in ('${EA}', '${EB}');
@@ -98,9 +101,9 @@ insert into auth.users (id, instance_id, aud, role, email, created_at, updated_a
     from (values ('${U.owner_a}'::uuid, 'owner_a'), ('${U.owner_a2}', 'owner_a2'), ('${U.fd_a}', 'fd_a'), ('${U.admin_a}', 'admin_a'), ('${U.owner_b}', 'owner_b'), ('${U.owner_x}', 'owner_x'), ('${U.padmin}', 'padmin')) u(id, n);
 insert into public.profiles (id, platform_role) values ${Object.values(U).map((u) => `('${u}', ${u === U.padmin ? "'platform_admin'" : "null"})`).join(", ")}
   on conflict (id) do update set platform_role = excluded.platform_role;
-insert into public.studios (id, name, slug, public_name) values
-  ('${PA1}', 'TW4REXEC Location A1', 'tw4rexec-a1', null), ('${PA2}', 'TW4REXEC Location A2', 'tw4rexec-a2', null),
-  ('${PB1}', 'TW4REXEC Location B1', 'tw4rexec-b1', null), ('${PX}', 'TW4REXEC Location X', 'tw4rexec-x', null);
+insert into public.studios (id, name, slug, public_name, timezone) values
+  ('${PA1}', 'TW4REXEC Location A1', 'tw4rexec-a1', null, 'UTC'), ('${PA2}', 'TW4REXEC Location A2', 'tw4rexec-a2', null, 'UTC'),
+  ('${PB1}', 'TW4REXEC Location B1', 'tw4rexec-b1', null, 'UTC'), ('${PX}', 'TW4REXEC Location X', 'tw4rexec-x', null, 'UTC');
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('${U.owner_a}', '${PA1}', 'studio_owner', true), ('${U.owner_a}', '${PA2}', 'studio_owner', true), ('${U.owner_a2}', '${PA2}', 'studio_owner', true), ('${U.fd_a}', '${PA1}', 'front_desk', true),
   ('${U.admin_a}', '${PA1}', 'studio_admin', true), ('${U.owner_b}', '${PB1}', 'studio_owner', true), ('${U.owner_x}', '${PX}', 'studio_owner', true);
@@ -139,14 +142,35 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
     await credits.settleTopup(entity, studio, ref, pack, `evt_rx_${RUN}_${n}`, `pi_rx_${RUN}_${n}`, true);
   };
   const price = (kind: string) => Number(psql(`select customer_price_cents from public.studio_sms_price_list where kind = '${kind}' and active`));
-  const authorize = (who: keyof typeof U, studio: string, kind: "number" | "monthly", over: Record<string, unknown> = {}) =>
-    rpc("tw4_recurring_authorize", { p_studio_id: studio, p_user_id: U[who], p_kind: kind, p_acknowledged_price_cents: price(kind), p_term_months: 3, p_total_limit_cents: price(kind) * 3, ...over });
-  const newAuth = async (who: keyof typeof U, studio: string, kind: "number" | "monthly", over: Record<string, unknown> = {}) => {
-    const result = await authorize(who, studio, kind, over);
-    expect(result.error, JSON.stringify(result.error)).toBeNull();
-    return (result.data as { authorization_id: string }).authorization_id;
+  const entityOfStudio = (studio: string) => (studio === PA1 || studio === PA2 ? EA : studio === PB1 ? EB : null);
+  // an authorization needs a monthly limit and settled credit for its first month: give the business both unless a test says otherwise
+  const ensureRoom = async (studio: string, priceCents: number) => {
+    const entity = entityOfStudio(studio);
+    if (!entity) return;
+    const key = psql(`select public._tw4ml_month_key('${entity}', now())`);
+    if (Number(psql(`select public._tw4ml_effective_limit('${entity}', '${key}')`)) < 30_000) {
+      expect((await rpc("tw4_monthly_limit_set_admin", { p_entity_id: entity, p_actor: U.padmin, p_limit_cents: 30_000, p_effective_month: null, p_reason: "fixture: monthly limit for these tests" })).error).toBeNull();
+    }
+    const available = Number(psql(`select coalesce((select balance_cents - reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entity}'), 0)`));
+    if (available < priceCents) await fund(entity, studio, 2_500);
   };
-  const clearAuths = () => aged(`delete from public.studio_sms_recurring_charges where legal_entity_id in ('${EA}', '${EB}'); delete from public.studio_sms_recurring_authorizations where legal_entity_id in ('${EA}', '${EB}');`);
+  const authorize = async (who: keyof typeof U, studio: string, kind: "number" | "monthly", over: Record<string, unknown> = {}) => {
+    await ensureRoom(studio, price(kind));
+    return rpc("tw4_recurring_authorize", { p_studio_id: studio, p_user_id: U[who], p_kind: kind, p_acknowledged_price_cents: price(kind), p_term_months: 3, p_total_limit_cents: price(kind) * 3, ...over });
+  };
+  // the first month's set-aside funds are covered by their own tests; elsewhere the commitment is released so a test starts from "authorized, nothing reserved"
+  const newAuth = async (who: keyof typeof U, studio: string, kind: "number" | "monthly", over: Record<string, unknown> = {}) => {
+    const { keepCommitment, ...args } = over as Record<string, unknown> & { keepCommitment?: boolean };
+    const result = await authorize(who, studio, kind, args);
+    expect(result.error, JSON.stringify(result.error)).toBeNull();
+    const id = (result.data as { authorization_id: string }).authorization_id;
+    if (keepCommitment !== true) psql(`select public._tw4rc_release_commitment('${id}')`);
+    return id;
+  };
+  const clearAuths = async () => {
+    psql(`select count(public._tw4rc_release_commitment(a.id)) from public.studio_sms_recurring_authorizations a where a.legal_entity_id in ('${EA}', '${EB}') and a.commitment_reservation_id is not null`);
+    aged(`delete from public.studio_sms_recurring_charges where legal_entity_id in ('${EA}', '${EB}'); delete from public.studio_sms_recurring_authorizations where legal_entity_id in ('${EA}', '${EB}');`);
+  };
   const clearRuns = () => aged(`update public.studio_sms_recurring_charges set run_id = null; delete from public.studio_sms_recurring_runs; delete from public.studio_sms_recurring_switch_log;`);
   const charge = (id: string, period = NOW, runId: string | null = null) => rpc("tw4_recurring_charge", { p_authorization_id: id, p_period_key: period, p_run_id: runId });
   const rowOf = (id: string, period = NOW) => psql(`select status || ':' || attempts || ':' || coalesce(reason, '') from public.studio_sms_recurring_charges where authorization_id = '${id}' and period_key = '${period}'`);
@@ -199,75 +223,7 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
     expect(psql(`select count(*) from pg_proc where proname in ('tw4_recurring_run_begin', 'tw4_recurring_run_finish', 'tw4_recurring_set_switch') and (prosrc ilike '%stripe%' or prosrc ilike '%topup%' or prosrc ilike '%pilot%')`)).toBe("0");
   });
 
-  describe("recurring charges count toward the legal business's spending cap", () => {
-    it("one shared cap: recurring charges and setup-fee authorizations draw on it together, at authorization and at every charge", async () => {
-      await clearAuths();
-      await reset(EA);
-      await fund(EA, PA1, 10_000);
-      setCap(EA, 2_000);
-      try {
-        // the WHOLE term must fit the cap when the owner authorizes: three months of 1500 do not fit under 2000, one month does
-        expect((await authorize("owner_a", PA1, "monthly")).error?.code).toBe("TW004");
-        const monthly = await newAuth("owner_a", PA1, "monthly", { p_term_months: 1, p_total_limit_cents: 1_500 });
-        expect((await charge(monthly)).data).toMatchObject({ outcome: "charged" });
-        expect(committed(EA)).toBe(1_500);
-        const number = await newAuth("owner_a", PA2, "number", { p_term_months: 1, p_total_limit_cents: 500 }); // 500: 1500 + 500 = 2000 fits exactly
-        expect((await charge(number)).data).toMatchObject({ outcome: "charged" });
-        expect(committed(EA)).toBe(2_000);
-        // the cap is used: a third recurring authorization and a setup-fee authorization are both refused by the SAME cap
-        expect((await authorize("owner_a", PA1, "number", { p_term_months: 1, p_total_limit_cents: 500 })).error?.code).toBe("TW004");
-        expect((await rpc("tw4_spend_authorize", { p_entity_id: EA, p_kind: "brand", p_amount_cents: 100, p_approval_ref: "fixture approval ref", p_actor: U.padmin })).error?.code).toBe("TW004");
-      } finally {
-        setCap(EA, 15_000);
-      }
-      await reset(EA);
-    });
-
-    it("a charge that would pass the cap is held (not taken), recorded, and goes through once room appears; nothing is debited meanwhile", async () => {
-      await clearAuths();
-      await reset(EA);
-      await fund(EA, PA1, 10_000);
-      setCap(EA, 2_000);
-      try {
-        const monthly = await newAuth("owner_a", PA1, "monthly", { p_term_months: 1, p_total_limit_cents: 1_500 });
-        const event = await rpc("tw4_spend_authorize", { p_entity_id: EA, p_kind: "brand", p_amount_cents: 100, p_approval_ref: "fixture approval ref", p_actor: U.padmin });
-        expect(event.error).toBeNull();
-        // make room for the setup fee elsewhere in the cap so the recurring charge no longer fits: raise the committed amount by a direct fixture authorization
-        aged(`update public.studio_sms_spend_events set amount_cents = 1000 where id = '${(event.data as { spend_event_id: string }).spend_event_id}';`);
-        const before = balance(EA);
-        expect((await charge(monthly)).data).toMatchObject({ outcome: "held", reason: "legal-business spending cap reached" });
-        expect(balance(EA)).toBe(before);
-        expect(rowOf(monthly)).toBe("held:1:legal-business spending cap reached");
-        expect(psql(`select count(*) from public.studio_sms_credit_reservations where reservation_key like 'rec:${monthly}:%'`)).toBe("0");
-        setCap(EA, 3_000); // the cap is raised
-        expect((await charge(monthly)).data).toMatchObject({ outcome: "charged" });
-        expect(balance(EA)).toBe(before - 1_500);
-        expect(rowOf(monthly)).toBe("charged:2:");
-        expect((await rpc("tw4_spend_withdraw", { p_spend_event_id: (event.data as { spend_event_id: string }).spend_event_id, p_actor: U.padmin, p_note: "fixture: withdraw the setup authorization" })).error).toBeNull();
-      } finally {
-        setCap(EA, 15_000);
-      }
-      await reset(EA);
-    });
-
-    it("authorizations are counted beside each other: what the business's other active authorizations may still charge is spoken for", async () => {
-      await clearAuths();
-      setCap(EA, 8_500);
-      try {
-        const number = await newAuth("owner_a", PA1, "number", { p_term_months: 12, p_total_limit_cents: 6_000 }); // promises up to 6000
-        // 6000 already promised: three months of 1500 (4500) no longer fit under 8500, one month (1500) does
-        expect((await authorize("owner_a", PA2, "monthly")).error?.code).toBe("TW004");
-        expect((await authorize("owner_a", PA2, "monthly", { p_term_months: 1, p_total_limit_cents: 1_500 })).error).toBeNull();
-        expect((await authorize("owner_a", PA1, "monthly", { p_term_months: 1, p_total_limit_cents: 1_500 })).error?.code).toBe("TW004"); // 6000 + 1500 promised + 1500 > 8500
-        // revoking releases the promise
-        await rpc("tw4_recurring_revoke", { p_authorization_id: number, p_user_id: U.owner_a });
-        expect((await authorize("owner_a", PA1, "monthly", { p_term_months: 3 })).error).toBeNull();
-      } finally {
-        setCap(EA, 15_000);
-      }
-      await clearAuths();
-    });
-
+  describe("shared locks (the monthly-limit rules themselves are in localStack.tw4monthly.test.ts)", () => {
     it("an authorization whose term has ended is closed when the owner authorizes again, with an audit row, and does not block the renewal", async () => {
       await clearAuths();
       const old = await newAuth("owner_a", PA1, "number");
@@ -278,31 +234,6 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
       expect(psql(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${PA1}' and action = 'recurring_revoked' and note like 'authorization=${old};%term ended'`)).toBe("1");
       expect((await authorize("owner_a", PA1, "number")).error?.code).toBe("23505"); // the live one still blocks a duplicate
       await clearAuths();
-    });
-
-    it("a setup-fee authorization and a recurring charge racing for the last of the cap: exactly one fits, every time", async () => {
-      await clearAuths();
-      await reset(EA);
-      await fund(EA, PA1, 10_000);
-      expect((await rpc("tw4_price_set", { p_kind: "brand", p_customer_cents: 200, p_provider_cents: 100, p_description: "fixture brand price 200", p_actor: U.padmin })).error).toBeNull();
-      try {
-        for (let round = 0; round < 6; round += 1) {
-          setCap(EA, 1_600);
-          const id = await newAuth("owner_a", PA1, "monthly", { p_term_months: 1, p_total_limit_cents: 1_500 });
-          const [chargeResult, setup] = await Promise.all([charge(id), rpc("tw4_spend_authorize", { p_entity_id: EA, p_kind: "brand", p_amount_cents: 200, p_approval_ref: "fixture approval ref", p_actor: U.padmin })]);
-          const charged = (chargeResult.data as { outcome: string }).outcome === "charged";
-          const authorized = !setup.error;
-          expect(committed(EA), `round ${round}`).toBeLessThanOrEqual(1_600); // never over the shared cap
-          expect(charged && authorized).toBe(false);
-          if (authorized) await rpc("tw4_spend_withdraw", { p_spend_event_id: (setup.data as { spend_event_id: string }).spend_event_id, p_actor: U.padmin, p_note: "fixture: withdraw the setup authorization" });
-          await clearAuths();
-          aged(`delete from public.studio_sms_spend_events where legal_entity_id = '${EA}';`);
-        }
-      } finally {
-        setCap(EA, 15_000);
-        await rpc("tw4_price_set", { p_kind: "brand", p_customer_cents: 100, p_provider_cents: 50, p_description: "fixture brand price", p_actor: U.padmin });
-      }
-      await reset(EA);
     });
 
     it("the entity row is locked before the account row, in authorize and in charge, so they queue behind pilot-exception creation, cap changes and setup authorizations", async () => {
@@ -331,27 +262,6 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
       await reset(EA);
     });
 
-    it("another legal business's spending is never counted", async () => {
-      await clearAuths();
-      await reset(EA);
-      await reset(EB);
-      await fund(EA, PA1, 5_000);
-      await fund(EB, PB1, 5_000);
-      setCap(EA, 1_500);
-      try {
-        const a = await newAuth("owner_a", PA1, "monthly", { p_term_months: 1, p_total_limit_cents: 1_500 });
-        const b = await newAuth("owner_b", PB1, "monthly", { p_term_months: 1, p_total_limit_cents: 1_500 });
-        expect((await charge(b)).data).toMatchObject({ outcome: "charged" });
-        expect(committed(EA)).toBe(0);
-        expect((await charge(a)).data).toMatchObject({ outcome: "charged" }); // A's cap is unaffected by B's charge
-        expect(committed(EA)).toBe(1_500);
-        expect(committed(EB)).toBe(1_500);
-      } finally {
-        setCap(EA, 15_000);
-      }
-      await reset(EA);
-      await reset(EB);
-    });
   });
 
   describe("the pilot business: every recurring operation needs its own approval", () => {
@@ -389,7 +299,7 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
       inPilotTxnOut(EB, `select public.tw4_recurring_charge('${id}', '${NOW}')`);
       // the refusal rolled back with the fixture pilot row: record it as the database would have, then prove the due list drops refused periods
       aged(`insert into public.studio_sms_recurring_charges (authorization_id, legal_entity_id, studio_id, kind, period_key, amount_cents, status, reason) values ('${id}', '${EB}', '${PB1}', 'monthly', '${NOW}', 1500, 'refused', 'pilot business: each recurring operation needs its own approval');`);
-      expect(JSON.stringify((await rpc("tw4_recurring_due", { p_period_key: NOW })).data)).not.toContain(id);
+      expect(JSON.stringify((await rpc("tw4_recurring_due_list")).data)).not.toContain(id);
       await reset(EB);
     });
 
@@ -504,6 +414,7 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
       await fund(EA, PA1, 5_000);
       const funded = await newAuth("owner_a", PA1, "monthly");
       const unfunded = await newAuth("owner_b", PB1, "number");
+      await credits.adjust(EB, -balance(EB), `rx-b-empty-${RUN}`, "fixture: business B runs out of credit after authorizing", U.padmin);
       expect(await runScheduledRecurringCharges(admin as never, { runner: "test:sched" })).toEqual({ ran: false, reason: "disabled" });
       expect(psql("select count(*) from public.studio_sms_recurring_runs")).toBe("0");
       expect(rowOf(funded)).toBe(""); // nothing was attempted
@@ -511,7 +422,7 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
       const outcome = await runScheduledRecurringCharges(admin as never, { runner: "test:sched" });
       expect(outcome.ran).toBe(true);
       if (!outcome.ran) throw new Error("unreachable");
-      expect(outcome.summary).toMatchObject({ period: NOW, charged: 1, unfunded: 1, errors: 0 });
+      expect(outcome.summary).toMatchObject({ periods: [NOW], charged: 1, unfunded: 1, errors: 0 });
       const run = psql(`select status || ':' || (summary->>'charged') || ':' || (summary->>'unfunded') || ':' || (finished_at is not null) from public.studio_sms_recurring_runs where id = '${outcome.summary.runId}'`);
       expect(run).toBe("completed:1:1:true");
       expect(psql(`select count(*) from public.studio_sms_recurring_charges where run_id = '${outcome.summary.runId}'`)).toBe("2");
@@ -586,7 +497,7 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
       await clearAuths();
       await clearRuns();
       await switchTo(true);
-      const exploding = { rpc: async (fn: string, args: Record<string, unknown>) => (fn === "tw4_recurring_due" ? { data: null, error: { code: "XX000" } } : admin.rpc(fn, args)) };
+      const exploding = { rpc: async (fn: string, args: Record<string, unknown>) => (fn === "tw4_recurring_due_list" ? { data: null, error: { code: "XX000" } } : admin.rpc(fn, args)) };
       await expect(runScheduledRecurringCharges(exploding as never, { runner: "test:boom" })).rejects.toThrow();
       expect(psql("select status from public.studio_sms_recurring_runs order by started_at desc limit 1")).toBe("failed");
       expect((await rpc("tw4_recurring_run_begin", { p_runner: "test:next" })).data).toMatchObject({ acquired: true });

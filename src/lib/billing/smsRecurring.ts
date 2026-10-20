@@ -29,12 +29,13 @@ export function buildAuthorizationStatement(input: { kind: RecurringKind; priceC
   return [
     `I authorize DanceFlow to deduct ${usd(priceCents)} per month for ${RECURRING_KIND_LABEL[kind]} from my legal business's prepaid texting credit,`,
     `for up to ${termMonths} month${termMonths === 1 ? "" : "s"} and no more than ${usd(totalLimitCents)} in total, whichever comes first.`,
-    "The charge is taken only if enough settled credit is available and it fits within my business's spending limit. No card is charged, no credit is added automatically, and I can revoke this at any time.",
+    "The first month's charge is set aside from my prepaid credit now.",
+    "The charge is taken only if enough settled credit is available and it fits within my business's monthly spending limit. No card is charged, no credit is added automatically, and I can revoke this at any time.",
     "Final prices and terms are pending approval.",
   ].join(" ");
 }
 
-export type RecurringErrorCode = "not_authorized" | "no_legal_business" | "price_changed" | "already_authorized" | "invalid" | "pilot_business" | "spend_cap" | "unavailable";
+export type RecurringErrorCode = "not_authorized" | "no_legal_business" | "price_changed" | "already_authorized" | "invalid" | "pilot_business" | "monthly_limit" | "insufficient_credit" | "unavailable";
 export class RecurringError extends Error {
   constructor(public readonly code: RecurringErrorCode, message: string) {
     super(message);
@@ -128,7 +129,8 @@ const CODE_MAP: Record<string, [RecurringErrorCode, string]> = {
   "23505": ["already_authorized", "This charge is already authorized for this location."],
   "22023": ["invalid", "Check the term and limit and try again."],
   TW011: ["pilot_business", "Your business is in the DanceFlow pilot: each recurring fee needs its own approval from DanceFlow. Nothing is charged automatically."],
-  TW004: ["spend_cap", "This term would go over your business's spending limit. Choose a shorter term or contact support."],
+  TW012: ["monthly_limit", "Set a monthly spending limit that covers your recurring charges first (Settings, Texting, Monthly spending limit)."],
+  TW007: ["insufficient_credit", "Add credit first: the first month's charge is set aside from your prepaid credit when you authorize."],
 };
 const failure = (error: { code?: string } | null): RecurringError => {
   const mapped = CODE_MAP[String(error?.code ?? "")];
@@ -170,37 +172,37 @@ export async function revokeRecurring(admin: Client, authorizationId: string, us
 // ---------------------------------------------------------------------------------------------------------------
 export const periodKeyFor = (date: Date): string => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 
-export type RecurringRunSummary = { period: string; periods: string[]; runId: string | null; due: number; charged: number; unfunded: number; held: number; refused: number; replayed: number; errors: number };
-
-/** The service month before `date` (UTC), the only older month the database still lets a charge be retried for. */
-export const previousPeriodKeyFor = (date: Date): string => periodKeyFor(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1)));
+export type RecurringRunSummary = { periods: string[]; runId: string | null; due: number; charged: number; unfunded: number; held: number; refused: number; replayed: number; errors: number };
 
 /**
- * Charges every due authorization for the previous and the current UTC service month (oldest first, so an unpaid month is retried once credit arrives), one at a
- * time. A failure of one never stops the others; every step is idempotent (a charged period is a replay, an unpaid one is retried).
+ * Charges every due authorization, one at a time. The DATABASE decides what is due and for which service month: months are calendar months in each legal business's
+ * own timezone (the current and the previous one), so this code never computes a period. A failure of one charge never stops the others; every step is idempotent
+ * (a charged period is a replay, an unpaid one is retried). Set-aside funds of authorizations that ended or were revoked are released first.
  */
-export async function runDueRecurringCharges(admin: Client, now: Date = new Date(), runId: string | null = null): Promise<RecurringRunSummary> {
-  const period = periodKeyFor(now);
-  const periods = [previousPeriodKeyFor(now), period];
-  const summary: RecurringRunSummary = { period, periods, runId, due: 0, charged: 0, unfunded: 0, held: 0, refused: 0, replayed: 0, errors: 0 };
-  for (const key of periods) {
-    const due = await admin.rpc("tw4_recurring_due", { p_period_key: key });
-    if (due.error) throw new Error(`recurring due query failed (${due.error.code ?? "unknown"})`);
-    const ids = Array.isArray(due.data) ? due.data.filter((id): id is string => typeof id === "string") : [];
-    summary.due += ids.length;
-    for (const id of ids) {
-      const result = await admin.rpc("tw4_recurring_charge", { p_authorization_id: id, p_period_key: key, p_run_id: runId });
-      if (result.error) {
-        summary.errors += 1;
-        continue;
-      }
-      const outcome = obj(result.data);
-      if (outcome.replayed === true) summary.replayed += 1;
-      if (outcome.outcome === "charged" && outcome.replayed !== true) summary.charged += 1;
-      else if (outcome.outcome === "unfunded") summary.unfunded += 1;
-      else if (outcome.outcome === "held") summary.held += 1;
-      else if (outcome.outcome === "refused") summary.refused += 1;
+export async function runDueRecurringCharges(admin: Client, runId: string | null = null): Promise<RecurringRunSummary> {
+  const summary: RecurringRunSummary = { periods: [], runId, due: 0, charged: 0, unfunded: 0, held: 0, refused: 0, replayed: 0, errors: 0 };
+  const released = await admin.rpc("tw4_recurring_release_ended");
+  if (released.error) throw new Error(`recurring release failed (${released.error.code ?? "unknown"})`);
+  const due = await admin.rpc("tw4_recurring_due_list");
+  if (due.error) throw new Error(`recurring due query failed (${due.error.code ?? "unknown"})`);
+  const items = (Array.isArray(due.data) ? due.data : []).flatMap((row) => {
+    const r = obj(row);
+    return typeof r.id === "string" && typeof r.period_key === "string" && /^[0-9]{4}-(0[1-9]|1[0-2])$/.test(r.period_key) ? [{ id: r.id, period: r.period_key }] : [];
+  });
+  summary.due = items.length;
+  summary.periods = [...new Set(items.map((item) => item.period))].sort();
+  for (const item of items) {
+    const result = await admin.rpc("tw4_recurring_charge", { p_authorization_id: item.id, p_period_key: item.period, p_run_id: runId });
+    if (result.error) {
+      summary.errors += 1;
+      continue;
     }
+    const outcome = obj(result.data);
+    if (outcome.replayed === true) summary.replayed += 1;
+    if (outcome.outcome === "charged" && outcome.replayed !== true) summary.charged += 1;
+    else if (outcome.outcome === "unfunded") summary.unfunded += 1;
+    else if (outcome.outcome === "held") summary.held += 1;
+    else if (outcome.outcome === "refused") summary.refused += 1;
   }
   return summary;
 }
@@ -211,14 +213,14 @@ export type RecurringScheduledOutcome = { ran: false; reason: "disabled" | "busy
  * The scheduler entry point. It takes the database's single run lease (refused while the database switch is off or another run is active), charges the due
  * authorizations under that run id (the database fences a runner whose lease has expired), and records the outcome. Nothing calls this on a schedule in this repository.
  */
-export async function runScheduledRecurringCharges(admin: Client, input: { runner: string; now?: Date; leaseSeconds?: number }): Promise<RecurringScheduledOutcome> {
+export async function runScheduledRecurringCharges(admin: Client, input: { runner: string; leaseSeconds?: number }): Promise<RecurringScheduledOutcome> {
   const begin = await admin.rpc("tw4_recurring_run_begin", { p_runner: input.runner, p_lease_seconds: input.leaseSeconds ?? 600 });
   if (begin.error) throw new Error(`recurring run could not start (${begin.error.code ?? "unknown"})`);
   const started = obj(begin.data);
   if (started.acquired !== true || typeof started.run_id !== "string") return { ran: false, reason: started.reason === "busy" ? "busy" : "disabled" };
   const runId = started.run_id;
   try {
-    const summary = await runDueRecurringCharges(admin, input.now ?? new Date(), runId);
+    const summary = await runDueRecurringCharges(admin, runId);
     const finish = await admin.rpc("tw4_recurring_run_finish", { p_run_id: runId, p_status: summary.errors > 0 ? "failed" : "completed", p_summary: summary, p_error: summary.errors > 0 ? `${summary.errors} charge call(s) failed` : null });
     if (finish.error) throw new Error(`recurring run could not be recorded (${finish.error.code ?? "unknown"})`); // the lease then expires on its own; the failure must be visible
     return { ran: true, summary };

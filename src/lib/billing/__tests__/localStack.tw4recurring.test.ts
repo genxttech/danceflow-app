@@ -73,6 +73,9 @@ begin;
 set local session_replication_role = replica;
 delete from public.studio_sms_recurring_charges where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_recurring_authorizations where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_monthly_limits where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_entity_timezones where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_limit_ceilings where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_ledger where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_reservations where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_disputes where topup_id in (select id from public.studio_sms_credit_topups where legal_entity_id in ('${EA}', '${EB}'));
@@ -93,9 +96,9 @@ insert into auth.users (id, instance_id, aud, role, email, created_at, updated_a
     from (values ('${U.owner_a}'::uuid, 'owner_a'), ('${U.owner_a2}', 'owner_a2'), ('${U.fd_a}', 'fd_a'), ('${U.admin_a}', 'admin_a'), ('${U.owner_b}', 'owner_b'), ('${U.owner_x}', 'owner_x'), ('${U.padmin}', 'padmin')) u(id, n);
 insert into public.profiles (id, platform_role) values ${Object.values(U).map((u) => `('${u}', ${u === U.padmin ? "'platform_admin'" : "null"})`).join(", ")}
   on conflict (id) do update set platform_role = excluded.platform_role;
-insert into public.studios (id, name, slug, public_name) values
-  ('${PA1}', 'TW4REC Location A1', 'tw4rec-a1', null), ('${PA2}', 'TW4REC Location A2', 'tw4rec-a2', null),
-  ('${PB1}', 'TW4REC Location B1', 'tw4rec-b1', null), ('${PX}', 'TW4REC Location X', 'tw4rec-x', null);
+insert into public.studios (id, name, slug, public_name, timezone) values
+  ('${PA1}', 'TW4REC Location A1', 'tw4rec-a1', null, 'UTC'), ('${PA2}', 'TW4REC Location A2', 'tw4rec-a2', null, 'UTC'),
+  ('${PB1}', 'TW4REC Location B1', 'tw4rec-b1', null, 'UTC'), ('${PX}', 'TW4REC Location X', 'tw4rec-x', null, 'UTC');
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('${U.owner_a}', '${PA1}', 'studio_owner', true), ('${U.owner_a}', '${PA2}', 'studio_owner', true), ('${U.owner_a2}', '${PA2}', 'studio_owner', true), ('${U.fd_a}', '${PA1}', 'front_desk', true),
   ('${U.admin_a}', '${PA1}', 'studio_admin', true), ('${U.owner_b}', '${PB1}', 'studio_owner', true), ('${U.owner_x}', '${PX}', 'studio_owner', true);
@@ -145,16 +148,37 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
   };
   const price = (kind: string) => Number(psql(`select customer_price_cents from public.studio_sms_price_list where kind = '${kind}' and active`));
   // the application route is the only caller: it passes the signed-in user's id with the service role, and the database checks that user is an owner of the studio
-  const authorize = (who: keyof typeof U, studio: string, kind: "number" | "monthly", over: Record<string, unknown> = {}) =>
-    rpc("tw4_recurring_authorize", { p_studio_id: studio, p_user_id: U[who], p_kind: kind, p_acknowledged_price_cents: price(kind), p_term_months: 3, p_total_limit_cents: price(kind) * 3, ...over });
+  const entityOfStudio = (studio: string) => (studio === PA1 || studio === PA2 ? EA : studio === PB1 ? EB : null);
+  // an authorization needs a monthly limit and settled credit for its first month: give the business both unless a test says otherwise
+  const ensureRoom = async (studio: string, priceCents: number) => {
+    const entity = entityOfStudio(studio);
+    if (!entity) return;
+    const key = psql(`select public._tw4ml_month_key('${entity}', now())`);
+    if (Number(psql(`select public._tw4ml_effective_limit('${entity}', '${key}')`)) < 30_000) {
+      expect((await rpc("tw4_monthly_limit_set_admin", { p_entity_id: entity, p_actor: U.padmin, p_limit_cents: 30_000, p_effective_month: null, p_reason: "fixture: monthly limit for these tests" })).error).toBeNull();
+    }
+    const available = Number(psql(`select coalesce((select balance_cents - reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entity}'), 0)`));
+    if (available < priceCents) await fund(entity, studio, 2_500);
+  };
+  const authorize = async (who: keyof typeof U, studio: string, kind: "number" | "monthly", over: Record<string, unknown> = {}) => {
+    await ensureRoom(studio, price(kind));
+    return rpc("tw4_recurring_authorize", { p_studio_id: studio, p_user_id: U[who], p_kind: kind, p_acknowledged_price_cents: price(kind), p_term_months: 3, p_total_limit_cents: price(kind) * 3, ...over });
+  };
   const revoke = (who: keyof typeof U, id: string) => rpc("tw4_recurring_revoke", { p_authorization_id: id, p_user_id: U[who] });
   const authId = async (studio: string, kind: "number" | "monthly") => String(psql(`select id from public.studio_sms_recurring_authorizations where studio_id = '${studio}' and kind = '${kind}' and status = 'active'`));
+  // the first month's set-aside funds are covered by their own tests; elsewhere the commitment is released so a test starts from "authorized, nothing reserved"
   const newAuth = async (who: keyof typeof U, studio: string, kind: "number" | "monthly", over: Record<string, unknown> = {}) => {
-    const result = await authorize(who, studio, kind, over);
+    const { keepCommitment, ...args } = over as Record<string, unknown> & { keepCommitment?: boolean };
+    const result = await authorize(who, studio, kind, args);
     expect(result.error, JSON.stringify(result.error)).toBeNull();
-    return (result.data as { authorization_id: string }).authorization_id;
+    const id = (result.data as { authorization_id: string }).authorization_id;
+    if (keepCommitment !== true) psql(`select public._tw4rc_release_commitment('${id}')`);
+    return id;
   };
-  const clearAuths = () => aged(`delete from public.studio_sms_recurring_charges where legal_entity_id in ('${EA}', '${EB}'); delete from public.studio_sms_recurring_authorizations where legal_entity_id in ('${EA}', '${EB}');`);
+  const clearAuths = async () => {
+    psql(`select count(public._tw4rc_release_commitment(a.id)) from public.studio_sms_recurring_authorizations a where a.legal_entity_id in ('${EA}', '${EB}') and a.commitment_reservation_id is not null`);
+    aged(`delete from public.studio_sms_recurring_charges where legal_entity_id in ('${EA}', '${EB}'); delete from public.studio_sms_recurring_authorizations where legal_entity_id in ('${EA}', '${EB}');`);
+  };
   const charge = (id: string, period = NOW) => rpc("tw4_recurring_charge", { p_authorization_id: id, p_period_key: period });
   const rowOf = (id: string, period = NOW) => psql(`select status || ':' || attempts || ':' || coalesce(reason, '') from public.studio_sms_recurring_charges where authorization_id = '${id}' and period_key = '${period}'`);
   const ledgerKinds = (entity: string) => psql(`select coalesce(string_agg(kind, ',' order by seq), '') from public.studio_sms_credit_ledger where legal_entity_id = '${entity}'`);
@@ -190,15 +214,15 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       expect(psql(`select has_function_privilege('authenticated', 'public.${fn}', 'execute')`)).toBe("t");
     }
     // authorizing, revoking and charging are service-role only: no studio user can reach them through the API, whatever the application's flag says
-    for (const fn of ["tw4_recurring_authorize(uuid, uuid, text, int, int, int)", "tw4_recurring_revoke(uuid, uuid)", "tw4_recurring_charge(uuid, text, uuid)", "tw4_recurring_due(text)", "tw4_recurring_service_state(uuid)"]) {
+    for (const fn of ["tw4_recurring_authorize(uuid, uuid, text, int, int, int)", "tw4_recurring_revoke(uuid, uuid)", "tw4_recurring_charge(uuid, text, uuid)", "tw4_recurring_due_list()", "tw4_recurring_release_ended()", "tw4_recurring_service_state(uuid)"]) {
       expect(psql(`select has_function_privilege('anon', 'public.${fn}', 'execute') or has_function_privilege('authenticated', 'public.${fn}', 'execute')`)).toBe("f");
       expect(psql(`select has_function_privilege('service_role', 'public.${fn}', 'execute')`)).toBe("t");
     }
-    for (const fn of ["_tw4rc_guard()", "_tw4rc_service_state(uuid)", "_tw4rc_service_issue(uuid)", "_tw4rc_usd(bigint)"]) {
+    for (const fn of ["_tw4rc_guard()", "_tw4rc_service_state(uuid)", "_tw4rc_service_issue(uuid)", "_tw4rc_usd(bigint)", "_tw4rc_release_commitment(uuid)"]) {
       expect(psql(`select has_function_privilege('anon', 'public.${fn}', 'execute') or has_function_privilege('authenticated', 'public.${fn}', 'execute') or has_function_privilege('service_role', 'public.${fn}', 'execute')`)).toBe("f");
     }
     // the charge path never touches a card, a top-up, a release or the pilot's funding (it only REFUSES a pilot business): its source says so
-    expect(psql(`select count(*) from pg_proc where proname in ('tw4_recurring_charge', 'tw4_recurring_due', '_tw4rc_service_state', 'tw4_recurring_service_state') and (prosrc ilike '%topup%' or prosrc ilike '%stripe%' or prosrc ilike '%release%' or prosrc ilike '%funding%pilot%')`)).toBe("0");
+    expect(psql(`select count(*) from pg_proc where proname in ('tw4_recurring_charge', 'tw4_recurring_due_list', '_tw4rc_service_state', 'tw4_recurring_service_state') and (prosrc ilike '%topup%' or prosrc ilike '%stripe%' or prosrc ilike '%release%' or prosrc ilike '%funding%pilot%')`)).toBe("0");
   });
 
   describe("authorization (owner only, at the current price, with limits)", () => {
@@ -290,8 +314,8 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       await clearAuths();
       await reset(EA);
       await fund(EA, PA1, 2_500);
-      await credits.adjust(EA, -2_100, `rec-low-${RUN}`, "fixture: leave less than one charge", U.padmin); // 400 left, monthly is 1500
       const id = await newAuth("owner_a", PA1, "monthly");
+      await credits.adjust(EA, -2_100, `rec-low-${RUN}`, "fixture: leave less than one charge", U.padmin); // 400 left, monthly is 1500
       const before = balance(EA);
       const kinds = ledgerKinds(EA);
       expect((await charge(id)).data).toMatchObject({ outcome: "unfunded", reason: "insufficient settled credit" });
@@ -310,8 +334,8 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       await clearAuths();
       await reset(EA);
       await fund(EA, PA1, 2_500);
-      await credits.adjust(EA, -3_000, `rec-neg-${RUN}`, "fixture: drive the balance negative", U.padmin);
       const id = await newAuth("owner_a", PA1, "monthly");
+      await credits.adjust(EA, -3_000, `rec-neg-${RUN}`, "fixture: drive the balance negative", U.padmin);
       expect((await charge(id)).data).toMatchObject({ outcome: "unfunded" });
       expect(balance(EA)).toBe(-500);
       await reset(EA);
@@ -338,8 +362,9 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       await clearAuths();
       await reset(EA);
       await reset(EB);
-      await fund(EB, PB1, 10_000); // business B is rich, business A has nothing
+      await fund(EB, PB1, 10_000); // business B is rich, business A has nothing left
       const id = await newAuth("owner_a", PA1, "monthly");
+      await credits.adjust(EA, -balance(EA), `rec-empty-${RUN}`, "fixture: business A runs out of credit after authorizing", U.padmin);
       const b0 = balance(EB);
       expect((await charge(id)).data).toMatchObject({ outcome: "unfunded" });
       expect(balance(EB)).toBe(b0);
@@ -505,7 +530,7 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       expect(await stateOf(PA1)).toBe("suspended"); // last month was never paid and its grace has long passed
       expect((await overviewOf("owner_a", PA1))?.serviceIssue).toBe("waiting");
       const run = await runDueRecurringCharges(admin as never);
-      expect(run.periods).toEqual([month(-1), NOW]);
+      expect(run.periods).toEqual([month(-1)]); // only the unpaid previous month is still due; the current one is paid
       expect(rowOf(id, month(-1))).toBe("charged:1:");
       expect(await stateOf(PA1)).toBe("active");
       expect(balance(EA)).toBe(5_000 - 3_000);
@@ -515,7 +540,9 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
     it("the owner is told why: not enough credit, a hold, a used-up limit or a changed price (each with its own next step)", async () => {
       await clearAuths();
       await reset(EA);
+      await fund(EA, PA1, 2_500);
       const id = await newAuth("owner_a", PA1, "monthly", { p_term_months: 3 });
+      await credits.adjust(EA, -balance(EA), `rec-why-${RUN}`, "fixture: no credit left", U.padmin);
       aged(`update public.studio_sms_recurring_authorizations set total_limit_cents = 1500 where id = '${id}';`); // fixture, see above
       backdate(id, 1);
       await charge(id, month(-1));
@@ -654,9 +681,10 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       await reset(EB);
       await fund(EA, PA1, 5_000);
       const funded = await newAuth("owner_a", PA1, "monthly"); // business A is funded
-      const unfunded = await newAuth("owner_b", PB1, "number"); // business B is not
+      const unfunded = await newAuth("owner_b", PB1, "number"); // business B authorizes with credit that then runs out
+      await credits.adjust(EB, -balance(EB), `rec-b-empty-${RUN}`, "fixture: business B runs out of credit", U.padmin);
       const run1 = await runDueRecurringCharges(admin as never);
-      expect(run1).toMatchObject({ period: NOW, charged: 1, unfunded: 1, refused: 0, errors: 0 });
+      expect(run1).toMatchObject({ periods: [NOW], charged: 1, unfunded: 1, refused: 0, errors: 0 });
       expect(run1.due).toBeGreaterThanOrEqual(2);
       expect(rowOf(funded)).toBe("charged:1:");
       expect(rowOf(unfunded)).toBe("unfunded:1:insufficient settled credit");
@@ -675,6 +703,8 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
 
     it("the application layer maps database answers to plain codes, builds the acknowledgement on the server, and never calls anything but the owner functions", async () => {
       await clearAuths();
+      await reset(EA);
+      await ensureRoom(PA1, 1_500);
       const base = { studioId: PA1, kind: "monthly" as const, acknowledgedPriceCents: 1_500, termMonths: 3, totalLimitCents: 4_500 };
       expect(await code(authorizeRecurring(admin as never, { ...base, userId: U.fd_a }))).toBe("not_authorized");
       expect(await code(authorizeRecurring(admin as never, { ...base, userId: U.admin_a }))).toBe("not_authorized");
@@ -684,7 +714,7 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       const made = await authorizeRecurring(admin as never, { ...base, userId: U.owner_a });
       // the database wrote the acknowledgement; it is exactly the text the application shows
       expect(psql(`select statement from public.studio_sms_recurring_authorizations where id = '${made.authorizationId}'`)).toBe(
-        "I authorize DanceFlow to deduct $15.00 per month for monthly texting service from my legal business's prepaid texting credit, for up to 3 months and no more than $45.00 in total, whichever comes first. The charge is taken only if enough settled credit is available and it fits within my business's spending limit. No card is charged, no credit is added automatically, and I can revoke this at any time. Final prices and terms are pending approval.",
+        "I authorize DanceFlow to deduct $15.00 per month for monthly texting service from my legal business's prepaid texting credit, for up to 3 months and no more than $45.00 in total, whichever comes first. The first month's charge is set aside from my prepaid credit now. The charge is taken only if enough settled credit is available and it fits within my business's monthly spending limit. No card is charged, no credit is added automatically, and I can revoke this at any time. Final prices and terms are pending approval.",
       );
       expect(await code(authorizeRecurring(admin as never, { ...base, userId: U.owner_a }))).toBe("already_authorized");
       expect(await code(revokeRecurring(admin as never, made.authorizationId, U.owner_b))).toBe("not_authorized");
@@ -695,6 +725,7 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       await clearAuths();
       await reset(EB);
       const id = await newAuth("owner_b", PB1, "number");
+      await credits.adjust(EB, -balance(EB), `rec-admin-empty-${RUN}`, "fixture: business B runs out of credit", U.padmin);
       await charge(id);
       const overview = await getRecurringAdminOverview(as("padmin") as never);
       expect(overview?.needsAttention.some((r) => r.legalName === "REC Beta LLC" && r.status === "unfunded")).toBe(true);
