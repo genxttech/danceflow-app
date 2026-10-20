@@ -111,7 +111,12 @@ describe("stages: configured, approved, submitted, active", () => {
 
   it("Low-Volume Standard: blocked for the paid brand with a plain reason; eligibility is never presented as approval", () => {
     const p = deriveStudioPanel(onboarding({ tier: "low_volume_standard" }), entity({ account: { status: "active", accountSid: "AC1", updatedAt: null } }), none, studio);
-    expect(p.blockers.join(" ")).toMatch(/no published brand price/);
+    expect(p.blockers.join(" ")).toMatch(/Low-Volume Standard brand price is not published yet/);
+    // once the owner-approved low-volume brand price is published the blocker goes away (the Standard price never counts for it)
+    const priced = deriveStudioPanel(onboarding({ tier: "low_volume_standard" }), entity({ account: { status: "active", accountSid: "AC1", updatedAt: null } }), { ...none, prices: { brand_low_volume: 700 } }, studio);
+    expect(priced.blockers.join(" ")).not.toMatch(/brand price/);
+    const standardOnly = deriveStudioPanel(onboarding({ tier: "low_volume_standard" }), entity({ account: { status: "active", accountSid: "AC1", updatedAt: null } }), { ...none, prices: { brand: 4600 } }, studio);
+    expect(standardOnly.blockers.join(" ")).toMatch(/not published yet/);
     expect(p.stages.find((s) => s.key === "tier")!.summary).toMatch(/Twilio reviews and decides/);
     expect(states(p).tier).toBe("configured");
   });
@@ -156,12 +161,14 @@ class Memory implements PanelStore {
   async createEntity(_s: string, a: string) { this.gate("createEntity", a); return ENTITY; }
   async decideLink(_r: string, _e: string, a: string, approve: boolean) { this.gate("decideLink", a); return approve ? "approved" : "rejected"; }
   async setSpendCap(_e: string, _c: number, a: string) { this.gate("setSpendCap", a); }
+  /** the database returned the same still-unused authorization (identical resubmission) */
+  replayNext = false;
   async authorizeSpend(i: { approvalRef: string; actorId: string }) {
     this.gate("authorizeSpend", i.actorId);
     const ref = i.approvalRef.toLowerCase();
-    if (this.approvals.has(ref)) throw new RunnerStoreError("23505");
+    if (this.approvals.has(ref)) throw new RunnerStoreError("TW019");   // 20261202: references are permanent
     this.approvals.add(ref);
-    return SPEND;
+    return { spendEventId: SPEND, replayed: this.replayNext };
   }
   async withdrawSpend(_id: string, a: string) { this.gate("withdrawSpend", a); }
   async createPilotException(_e: string, _c: number, _r: string, a: string) { this.gate("createPilotException", a); return { replayed: false }; }
@@ -269,7 +276,7 @@ describe("panel commands", () => {
     it("one approval authorizes one operation: a double submit or replay of the same approval is refused", async () => {
       expect((await commands.authorizeFee(db, ADMIN, fee(), { studioTier: "standard" })).ok).toBe(true);
       const again = await commands.authorizeFee(db, ADMIN, fee(), { studioTier: "standard" });
-      expect(again).toEqual({ ok: false, message: expect.stringMatching(/each owner approval authorizes one operation/) });
+      expect(again).toEqual({ ok: false, message: expect.stringMatching(/authorizes one operation, once/) });
     });
 
     it("a brand fee for a location whose onboarding could not be read is refused (fail closed); other fees are unaffected", async () => {
@@ -282,6 +289,28 @@ describe("panel commands", () => {
       expect((await commands.authorizeFee(db, ADMIN, fee(), { studioTier: "low_volume_standard" })).message).toMatch(/Low-Volume Standard/);
       expect(db.writes).toHaveLength(0);
       expect((await commands.authorizeFee(db, ADMIN, fee({ kind: "number", amountCents: "150", approvalRef: "Owner email 2026-10-20 approving number" }), { studioTier: "low_volume_standard" })).ok).toBe(true);
+    });
+
+    it("the brand fee kind must match the location's path: Low-Volume Standard gets brand_low_volume, Standard never does", async () => {
+      const lvs = fee({ kind: "brand_low_volume", amountCents: "700", approvalRef: "Owner email 2026-10-21 approving LVS brand" });
+      expect((await commands.authorizeFee(db, ADMIN, lvs, { studioTier: "standard" })).message).toMatch(/Low-Volume Standard brand approval does not apply/);
+      expect((await commands.authorizeFee(db, ADMIN, lvs, { studioTier: null })).ok).toBe(false);
+      expect((await commands.authorizeFee(db, ADMIN, lvs, { studioTier: "low_volume_standard", onboardingFound: false })).message).toMatch(/could not be read/);
+      expect(db.writes).toHaveLength(0);
+      expect((await commands.authorizeFee(db, ADMIN, lvs, { studioTier: "low_volume_standard" })).ok).toBe(true);
+    });
+
+    it("an identical resubmission the database replays is reported as already recorded, not as a new approval", async () => {
+      db.replayNext = true;
+      const out = await commands.authorizeFee(db, ADMIN, fee({ approvalRef: "Owner email 2026-10-21 replayed approval" }), { studioTier: "standard" });
+      expect(out).toEqual({ ok: true, message: expect.stringMatching(/already recorded.*Nothing new was authorized/) });
+    });
+
+    it("reference reuse and path refusals from the database read plainly", async () => {
+      db.fail.authorizeSpend = "TW019";
+      expect((await commands.authorizeFee(db, ADMIN, fee({ approvalRef: "Owner email reused approval" }), { studioTier: null })).message).toMatch(/already used.*withdrawn or released/);
+      db.fail.authorizeSpend = "TW020";
+      expect((await commands.authorizeFee(db, ADMIN, fee({ approvalRef: "Owner email wrong path approval" }), { studioTier: null })).message).toMatch(/registration path/);
     });
 
     it("database refusals (price changed, budget exceeded, pilot rules) read plainly", async () => {

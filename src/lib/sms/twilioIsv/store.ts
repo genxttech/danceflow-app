@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RunnerInputs } from "./payloads";
 import type { IsvStepKey } from "./types";
+import { parseLocationFeeKinds, type LocationFeeKinds } from "./registrationPath";
 
 /**
  * TW-4 R1: the runner's persistence boundary. The Supabase implementation calls ONLY the service-role `tw4_runner_*`
@@ -70,9 +71,11 @@ export interface RunnerStore {
   settleSpend(onboardingId: string, leaseOwner: string, kind: SpendKind, outcome: "captured" | "released", ref: string): Promise<void>;
   /** TW-4F provider integration: the registration tier chosen for this onboarding by a platform admin ("standard" when none was chosen). */
   getTier(onboardingId: string, leaseOwner: string): Promise<{ tier: string; chosen: boolean }>;
+  /** TW-4F financial integrity: the fee path the DATABASE derives for this onboarding's location (verified tier, price kinds, published prices). */
+  getFeeKinds(onboardingId: string, leaseOwner: string): Promise<LocationFeeKinds>;
 }
 
-export type SpendKind = "brand" | "campaign_vetting" | "number" | "monthly" | "sms_usage";
+export type SpendKind = "brand" | "brand_low_volume" | "campaign_vetting" | "number" | "monthly" | "monthly_low_volume" | "sms_usage";
 export type RunnerAccount = { legalEntityId: string | null; accountSid: string | null; status: string | null };
 
 type Client = Pick<SupabaseClient, "rpc">;
@@ -160,6 +163,10 @@ export class SupabaseRunnerStore implements RunnerStore {
   async getTier(onboardingId: string, leaseOwner: string) {
     const row = await this.call<{ tier: string; chosen: boolean }>("tw4_runner_tier", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner });
     return { tier: String(row?.tier ?? ""), chosen: row?.chosen === true };
+  }
+
+  async getFeeKinds(onboardingId: string, leaseOwner: string) {
+    return parseLocationFeeKinds(await this.call("tw4_runner_fee_kinds", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner }));
   }
 
   async reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind) {

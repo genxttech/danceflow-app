@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isRegistrationTier, paidBrandSupported, registrationPath, type RegistrationTier } from "./registrationPath";
+import { isRegistrationTier, registrationPath, type RegistrationTier } from "./registrationPath";
 import { RunnerStoreError } from "./store";
 
 /**
@@ -174,7 +174,8 @@ export function deriveStudioPanel(
     stages.push({ key: "budget", title: "Setup budget and fee approvals", state: "not_started", summary: "Needs the legal business first." });
   } else {
     const openAuth = entity.spend.filter((s) => AUTH_OPEN.has(s.status));
-    const brandAuth = openAuth.find((s) => s.kind === "brand" && (s.studioId === null || s.studioId === studio.id));
+    const brandKind = registrationPath(tier).brandPriceKind;
+    const brandAuth = openAuth.find((s) => s.kind === brandKind && (s.studioId === null || s.studioId === studio.id));
     const pilotText = entity.pilot ? ` Pilot ceiling ${formatCents(entity.pilot.usedCents)} used of ${formatCents(entity.pilot.ceilingCents)} (non-spendable, never resets).` : "";
     const summary = `Setup budget ${formatCents(entity.committedCents)} committed of ${formatCents(entity.spendCapCents)}; ${openAuth.length} open fee approval(s).${pilotText}`;
     if (entity.credit?.hold) blockers.push("The legal business's credit is on hold: no fee step can run.");
@@ -222,7 +223,9 @@ export function deriveStudioPanel(
     const state: StageState = onboarding.brandStatus === "approved" ? "active" : frozen ? "submitted" : onboarding.tier ? "configured" : "not_started";
     stages.push({ key: "tier", title: "Registration path", state,
       summary: `${word}${onboarding.tier ? "" : " by default"}${lastDecision ? `, chosen: "${lastDecision.reason}"` : ""}.${frozen ? " Frozen: a brand attempt exists." : ""} Eligibility is DanceFlow's judgement; Twilio reviews and decides.` });
-    if (!paidBrandSupported(path)) blockers.push("Low-Volume Standard has no published brand price yet: the paid brand step is refused (use Standard, or wait for the price).");
+    if (tier === "low_volume_standard" && !overview.prices[path.brandPriceKind]) {
+      blockers.push("The Low-Volume Standard brand price is not published yet (it is still a draft for owner approval): the paid brand step is refused (use Standard, or wait for the price).");
+    }
   }
 
   // 5. registration run (provider status)
@@ -285,7 +288,7 @@ export interface PanelStore {
   createEntity(studioId: string, actorId: string, verificationNote: string): Promise<string>;
   decideLink(requestId: string, entityId: string, actorId: string, approve: boolean, note: string): Promise<string>;
   setSpendCap(entityId: string, cents: number, actorId: string): Promise<void>;
-  authorizeSpend(input: { entityId: string; kind: string; cents: number; approvalRef: string; actorId: string; funding: "credit" | "pilot"; studioId: string }): Promise<string>;
+  authorizeSpend(input: { entityId: string; kind: string; cents: number; approvalRef: string; actorId: string; funding: "credit" | "pilot"; studioId: string }): Promise<{ spendEventId: string; replayed: boolean }>;
   withdrawSpend(spendEventId: string, actorId: string, note: string): Promise<void>;
   createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string): Promise<{ replayed: boolean }>;
   /** The confirmation for the STUDIO's legal business: the database derives the entity; it never comes from the form. */
@@ -320,7 +323,7 @@ export class SupabasePanelStore implements PanelStore {
     const row = obj(await this.call("tw4_spend_authorize", {
       p_entity_id: input.entityId, p_kind: input.kind, p_amount_cents: input.cents, p_approval_ref: input.approvalRef, p_actor: input.actorId, p_funding: input.funding, p_studio_id: input.studioId,
     }));
-    return String(row.spend_event_id ?? "");
+    return { spendEventId: String(row.spend_event_id ?? ""), replayed: row.replayed === true };
   }
   async withdrawSpend(spendEventId: string, actorId: string, note: string) {
     await this.call("tw4_spend_withdraw", { p_spend_event_id: spendEventId, p_actor: actorId, p_note: note });
@@ -344,7 +347,9 @@ export function panelErrorMessage(action: string, error: unknown): string {
     entity: { "23505": "This studio already belongs to a legal business, or a legal business with this name and EIN exists: link the location through an owner attestation instead.", "22023": "The studio has no submitted setup with a legal name and EIN (or it has registration steps from before subaccounts)." },
     link: { "22023": "Refused: the request is not pending, or the checks do not agree (owner of a studio of this business, legal name, EIN last four, the studio's own setup).", "23505": "This studio already belongs to a legal business." },
     cap: { "22023": "Refused: the budget cannot be negative or below what is already authorized or reserved (the ConfiDance pilot business also cannot exceed $150)." },
-    spend: { TW008: "Refused: there is no published price for this fee, or the amount is not the published price (it may have changed: reload).", TW004: "Refused: this approval would exceed the setup budget.", "23505": "That approval reference was already used for another open fee approval: each owner approval authorizes one operation.", "22023": "Refused: a pilot-funded approval needs the pilot exception, the location and a written approval reference (10+ characters)." },
+    spend: { TW008: "Refused: there is no published price for this fee, or the amount is not the published price (it may have changed: reload).", TW004: "Refused: this approval would exceed the setup budget.", "23505": "That approval reference was already used: each owner approval authorizes one operation, once.",
+      TW019: "That approval reference was already used (for a fee, a withdrawn or released approval, the pilot ceiling or a spending-limit approval). Each written owner approval authorizes one operation, once: record the owner's new written approval.",
+      TW020: "Refused: this fee does not belong to the location's registration path (Low-Volume Standard fees need the verified Low-Volume Standard path; Standard fees are refused on it).", "22023": "Refused: a pilot-funded approval needs the pilot exception, the location and a written approval reference (10+ characters)." },
     withdraw: { "22023": "Only an approval that has not been reserved by a run can be withdrawn." },
     pilot: { "22023": "Refused: the pilot exception exists only for the verified ConfiDance Unlimited, LLC, with a ceiling of at most $150 within its budget and a written founder approval.", "23505": "The pilot exception already exists with another ceiling (it cannot be changed)." },
     subaccount: {
@@ -354,7 +359,7 @@ export function panelErrorMessage(action: string, error: unknown): string {
     },
     tier: {
       "22023": "Refused: give a documented reason (10+ characters); Low-Volume Standard also needs every eligibility check and the legal business on file with an EIN matching the studio's setup.",
-      "55000": "Refused: a brand attempt exists (the path is frozen), or an open Standard-price brand fee approval must be withdrawn before choosing Low-Volume Standard.", "55P03": "A registration run is in progress for this studio; try again in a few minutes." },
+      "55000": "Refused: a brand attempt exists (the path is frozen), or an open fee approval or recurring authorization priced for the other path must be withdrawn or revoked first.", "55P03": "A registration run is in progress for this studio; try again in a few minutes." },
   };
   if (code === "42501") return "Only a platform admin can do this.";
   return byAction[action]?.[code] ?? "The change could not be saved. Nothing was changed.";

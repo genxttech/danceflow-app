@@ -90,7 +90,7 @@ const NAME_2 = "ConfiDance Unlimited, LLC"; // the verified pilot business (synt
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
-delete from public.studio_sms_spend_events where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
+delete from public.studio_sms_approval_refs where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}'); delete from public.studio_sms_spend_events where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
 delete from public.studio_sms_credit_ledger where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
 delete from public.studio_sms_credit_reservations where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
 delete from public.studio_sms_credit_topups where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
@@ -485,7 +485,11 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", A))).not.toBe("ok"); // a location of another business
     expect(await code(entities.authorizeSpend(entityOne, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", A))).toBe("22023"); // no exception for that business
     await entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", C);
-    expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "Owner approved the REAL brand registration in writing", U.padmin, "pilot", C))).toBe("23505"); // the same approval twice
+    // the same approval twice: an identical resubmission returns the SAME unused authorization (20261202 replay), never a second one ...
+    expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "Owner approved the REAL brand registration in writing", U.padmin, "pilot", C))).toBe("ok");
+    expect(count(`select count(*) from public.studio_sms_spend_events where legal_entity_id = '${entityTwo}' and lower(approval_ref) = 'owner approved the real brand registration in writing'`)).toBe(1);
+    // ... and any other use of the reference (another location, amount or kind) is refused
+    expect(await code(entities.authorizeSpend(entityTwo, "campaign_vetting", 1_500, "Owner approved the REAL brand registration in writing", U.padmin, "pilot", C))).toBe("TW019");
     // the pilot business spend cap can never be raised above the $150 maximum
     expect(await code(entities.setSpendCap(entityTwo, 20_000, U.padmin))).toBe("22023");
     const done = await journey(C, sidTwo, true);

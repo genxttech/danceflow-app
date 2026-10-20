@@ -3,6 +3,7 @@ import type { RunnerInputs } from "../payloads";
 import { DEFAULT_FAKE_ACCOUNT_SID } from "../fake";
 import { RunnerStoreError, type BeginResult, type Claim, type LedgerStep, type RunnerAccount, type RunnerStatus, type RunnerStore, type RunnerTransitionState, type SpendKind } from "../store";
 import type { IsvStepKey } from "../types";
+import type { LocationFeeKinds } from "../registrationPath";
 
 type Confirmation = { step: "S11" | "T6"; seq: number; by: string; owner: string; at: number; consumed: boolean; expired: boolean };
 
@@ -243,8 +244,27 @@ export class MemoryRunnerStore implements RunnerStore {
     return { tier: this.tier, chosen: this.tier !== "standard" };
   }
 
+  /** Mirrors tw4_runner_fee_kinds: the path the DATABASE derives (verified tier) and the published prices of its kinds. Low-volume prices start unpublished. */
+  lvsVerified = true;
+  prices: Record<string, number | null> = { brand: 1000, brand_low_volume: null, monthly: 1000, monthly_low_volume: null };
+  feeKindsError: string | null = null;
+  feeKindReads = 0;
+
+  async getFeeKinds(_id: string, owner: string): Promise<LocationFeeKinds> {
+    this.lease(owner);
+    this.feeKindReads += 1;
+    if (this.feeKindsError) throw new RunnerStoreError(this.feeKindsError);
+    const path = this.tier === "low_volume_standard" ? (this.lvsVerified ? "low_volume_standard" : "low_volume_unverified") : "standard";
+    const brandKind = path === "standard" ? "brand" : path === "low_volume_standard" ? "brand_low_volume" : null;
+    const campaignMonthlyKind = path === "standard" ? "monthly" : path === "low_volume_standard" ? "monthly_low_volume" : null;
+    return { path, brandKind, campaignMonthlyKind, brandPriceCents: brandKind ? this.prices[brandKind] ?? null : null, campaignMonthlyPriceCents: campaignMonthlyKind ? this.prices[campaignMonthlyKind] ?? null : null };
+  }
+  /** Test seam: the database refuses a reservation whose kind does not match the location's path (TW020). */
+  pathMismatch = false;
+
   async reserveSpend(_id: string, owner: string, kind: SpendKind) {
     this.lease(owner);
+    if (this.pathMismatch) throw new RunnerStoreError("TW020");
     if (!this.spendAuthorized) throw new RunnerStoreError("TW004");
     if (this.insufficientCredit) throw new RunnerStoreError("TW007");
     const key = `${this.seq}:${kind}`;

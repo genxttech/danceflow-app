@@ -80,7 +80,7 @@ delete from public.studio_sms_monthly_limits where legal_entity_id in ('${EA}', 
 delete from public.studio_sms_entity_timezones where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_limit_ceilings where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_registrations where studio_id in ('${PA1}', '${PA2}', '${PB1}', '${PX}');
-delete from public.studio_sms_spend_events where legal_entity_id in ('${EA}', '${EB}');
+delete from public.studio_sms_approval_refs where legal_entity_id in ('${EA}', '${EB}'); delete from public.studio_sms_spend_events where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_ledger where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_reservations where legal_entity_id in ('${EA}', '${EB}');
 delete from public.studio_sms_credit_disputes where topup_id in (select id from public.studio_sms_credit_topups where legal_entity_id in ('${EA}', '${EB}'));
