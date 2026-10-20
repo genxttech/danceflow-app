@@ -12,6 +12,8 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+const cookieJar = new Map<string, { value: string; options: Record<string, unknown> }>();
+vi.mock("next/headers", () => ({ cookies: async () => ({ set: (name: string, value: string, options: Record<string, unknown>) => cookieJar.set(name, { value, options }), get: (name: string) => (cookieJar.has(name) ? { value: cookieJar.get(name)!.value } : undefined) }) }));
 let platformAdmin = true;
 vi.mock("@/lib/auth/platform", () => ({
   requirePlatformAdmin: async () => {
@@ -52,7 +54,8 @@ const go = async (action: (f: FormData) => Promise<unknown>, values: Record<stri
   } catch (error) {
     if ((error as Error).message !== "NEXT_REDIRECT") throw error;
   }
-  return decodeURIComponent(redirects.at(-1) ?? "");
+  const flash = cookieJar.get("tw4_panel_flash");
+  return `${decodeURIComponent(redirects.at(-1) ?? "")} ${flash ? JSON.parse(flash.value).message : ""}`;
 };
 
 beforeEach(() => {
@@ -60,6 +63,7 @@ beforeEach(() => {
   runtimeOk = false;
   rpc.length = 0;
   redirects.length = 0;
+  cookieJar.clear();
   overviewData = { entities: [], requests: [], onboardings: [], audit: [], prices: {} };
 });
 
@@ -77,21 +81,30 @@ describe("panel server actions", () => {
 
   it("a valid budget change reaches the definer function with the server-side admin id (never one from the form)", async () => {
     const url = await go(actions.panelSetSpendCapAction, { entityId: ENTITY, capDollars: "150", confirmCap: "150", actor: "attacker" });
-    expect(url).toMatch(/panel=Setup budget set to \$150\.00/);
+    expect(url).toMatch(/panel=1/);
+    expect(url).toMatch(/Setup budget set to \$150\.00/);
     expect(rpc).toEqual([{ fn: "tw4_entity_set_spend_cap", args: { p_entity_id: ENTITY, p_cents: 15000, p_actor: "a6000000-0000-4000-8000-000000000401" } }]);
   });
 
   it("the fee approval reads the location's tier from the database: a forged form cannot get a Standard brand approval for a Low-Volume Standard location", async () => {
     overviewData = { entities: [], requests: [], onboardings: [{ studio_id: STUDIO, onboarding_id: "b6000000-0000-4000-8000-0000000000b1", state: "submitted_for_checks", tier: "low_volume_standard" }], audit: [], prices: {} };
     const url = await go(actions.panelAuthorizeFeeAction, { entityId: ENTITY, studioId: STUDIO, kind: "brand", funding: "credit", amountCents: "4600", approvalRef: "Owner email 2026-10-20 approving", ownerApproved: "on", tier: "standard" });
-    expect(url).toMatch(/panel_error=.*Low-Volume Standard/);
+    expect(url).toMatch(/panel_error=1.*Low-Volume Standard/);
     expect(rpc.map((r) => r.fn)).toEqual(["tw4_panel_overview"]);
   });
 
   it("Create subaccount: refused when this deployment cannot create, BEFORE any confirmation is recorded", async () => {
-    const url = await go(actions.panelCreateSubaccountAction, { entityId: ENTITY, studioId: STUDIO, requestKey: "c6000000-0000-4000-8000-0000000000c1", phrase: "CREATE SUBACCOUNT" });
-    expect(url).toMatch(/panel_error=.*disabled outside production\. Nothing was created/);
+    const url = await go(actions.panelCreateSubaccountAction, { studioId: STUDIO, requestKey: "c6000000-0000-4000-8000-0000000000c1", phrase: "CREATE SUBACCOUNT" });
+    expect(url).toMatch(/panel_error=1.*disabled outside production\. Nothing was created/);
     expect(rpc).toHaveLength(0);
+  });
+
+  it("the result text travels only in a short-lived httpOnly same-site cookie, never in the URL; the acted-on studio reopens", async () => {
+    await go(actions.panelSetSpendCapAction, { entityId: ENTITY, studioId: STUDIO, capDollars: "150", confirmCap: "150" });
+    expect(redirects.at(-1)).toBe(`/platform/sms?panel=1&studio=${STUDIO}#subaccount-panel`);
+    expect(cookieJar.get("tw4_panel_flash")!.options).toMatchObject({ httpOnly: true, sameSite: "strict", path: "/platform/sms", maxAge: 60 });
+    await go(actions.panelSetSpendCapAction, { entityId: ENTITY, studioId: "not-a-uuid", capDollars: "150", confirmCap: "150" });
+    expect(redirects.at(-1)).toBe("/platform/sms?panel=1#subaccount-panel");
   });
 
   it("the result banner is bounded and lands on the panel", async () => {
@@ -113,7 +126,7 @@ describe("rendered panel", () => {
     requests: [], audit: [{ studio_id: STUDIO, action: "spend_authorized", note: "entity=x;kind=brand", at: "2026-10-20T01:00:00Z", actor_type: "platform_admin" }],
     prices: { brand: 4600 },
   });
-  const html = renderToStaticMarkup(createElement(SmsSubaccountPanel, { overview, panels: buildStudioPanels(overview), unavailable: false, notice: null, error: null }));
+  const html = renderToStaticMarkup(createElement(SmsSubaccountPanel, { overview, panels: buildStudioPanels(overview), unavailable: false, notice: null, error: null, now: Date.now(), requestKeys: { [STUDIO]: "c6000000-0000-4000-8000-0000000000c1" } }));
 
   it("shows the pilot ceiling, the owner approval, the next action and the four state words; no full SID", () => {
     expect(html).toContain("ConfiDance pilot: $150 non-spendable ceiling");
@@ -128,13 +141,13 @@ describe("rendered panel", () => {
   it("offers no Create subaccount form for an active account, and a one-time key for one that is not", () => {
     expect(html).not.toContain("Create subaccount</button>");
     const fresh = parsePanelOverview({ ...overview, entities: [{ id: ENTITY, legal_name: "Synthetic LLC", ein_last4: "1234", spend_cap_cents: 15000, studios: [{ studio_id: STUDIO, name: "S" }] }], onboardings: [] });
-    const freshHtml = renderToStaticMarkup(createElement(SmsSubaccountPanel, { overview: fresh, panels: buildStudioPanels(fresh), unavailable: false, notice: null, error: null }));
+    const freshHtml = renderToStaticMarkup(createElement(SmsSubaccountPanel, { overview: fresh, panels: buildStudioPanels(fresh), unavailable: false, notice: null, error: null, now: Date.now(), requestKeys: { [STUDIO]: "c6000000-0000-4000-8000-0000000000c1" } }));
     expect(freshHtml).toContain("Create subaccount</button>");
     expect(freshHtml).toMatch(/name="requestKey" value="[0-9a-f-]{36}"/);
   });
 
   it("renders a safe notice when the data is unavailable", () => {
-    const out = renderToStaticMarkup(createElement(SmsSubaccountPanel, { overview: null, panels: [], unavailable: true, notice: null, error: "<script>x</script>" }));
+    const out = renderToStaticMarkup(createElement(SmsSubaccountPanel, { overview: null, panels: [], unavailable: true, notice: null, error: "<script>x</script>", now: Date.now() }));
     expect(out).toContain("not available in this environment");
     expect(out).not.toContain("<script>x</script>");
   });

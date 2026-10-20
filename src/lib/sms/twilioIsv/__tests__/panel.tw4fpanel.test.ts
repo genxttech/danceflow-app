@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import type { BeginSubaccountResult, EntityStore, EntitySummary } from "../entityStore";
 import { FakeIsvParent } from "../fake";
 import {
-  buildStudioPanels, deriveStudioPanel, nameKey, panelErrorMessage, parsePanelOverview, CONFIDANCE_NAME_KEY,
+  buildStudioPanels, canConfirmSubaccount, creatingIsStale, deriveStudioPanel, looksLikeEin, nameKey, panelErrorMessage, parsePanelOverview, CONFIDANCE_NAME_KEY,
   type PanelEntity, type PanelOnboarding, type PanelOverview, type PanelStore,
 } from "../panel";
 import * as commands from "../panelCommands";
@@ -79,10 +79,24 @@ describe("stages: configured, approved, submitted, active", () => {
     expect(active.nextAction).toMatch(/runner/);
   });
 
+  it("a creating row: in progress while recent (no Create form), interrupted and recoverable once stale", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const recent = entity({ account: { status: "creating", accountSid: null, updatedAt: "2026-10-20T11:55:00Z" } });
+    const stale = entity({ account: { status: "creating", accountSid: null, updatedAt: "2026-10-20T11:40:00Z" } });
+    expect(creatingIsStale("2026-10-20T11:55:00Z", now)).toBe(false);
+    expect(canConfirmSubaccount(recent, now)).toBe(false);
+    expect(canConfirmSubaccount(stale, now)).toBe(true);
+    expect(states(deriveStudioPanel(onboarding(), recent, none, studio, now)).subaccount).toBe("submitted");
+    const p = deriveStudioPanel(onboarding(), stale, none, studio, now);
+    expect(states(p).subaccount).toBe("attention");
+    expect(p.nextAction).toMatch(/interrupted/);
+    for (const status of ["active", "suspended", "closed"] as const) expect(canConfirmSubaccount(entity({ account: { status, accountSid: "AC1", updatedAt: null } }), now)).toBe(false);
+    expect(canConfirmSubaccount(entity({ spendCapCents: 0 }), now)).toBe(false);
+  });
+
   it("an unclear or suspended subaccount needs attention", () => {
     expect(states(deriveStudioPanel(onboarding(), entity({ account: { status: "unknown", accountSid: null, updatedAt: null } }), none, studio)).subaccount).toBe("attention");
     expect(states(deriveStudioPanel(onboarding(), entity({ account: { status: "suspended", accountSid: "AC1", updatedAt: null } }), none, studio)).subaccount).toBe("attention");
-    expect(states(deriveStudioPanel(onboarding(), entity({ account: { status: "creating", accountSid: null, updatedAt: null } }), none, studio)).subaccount).toBe("submitted");
   });
 
   it("an owner fee approval shows as approved; a brand attempt as submitted; Twilio approval as approved; sending approved as active", () => {
@@ -151,16 +165,23 @@ class Memory implements PanelStore {
   }
   async withdrawSpend(_id: string, a: string) { this.gate("withdrawSpend", a); }
   async createPilotException(_e: string, _c: number, _r: string, a: string) { this.gate("createPilotException", a); return { replayed: false }; }
-  async confirmSubaccount(key: string, entityId: string, a: string) {
+  /** studio -> legal business, as studio_sms_entity_studios */
+  links = new Map([[STUDIO, ENTITY]]);
+  creatingStale = false;
+  async confirmSubaccount(key: string, studioId: string, a: string) {
     this.gate("confirmSubaccount", a);
+    const entity = this.links.get(studioId);
+    if (!entity) throw new RunnerStoreError("22023");
     if (this.keys.has(key)) {
-      if (this.keys.get(key) !== entityId) throw new RunnerStoreError("22023");
-      return { replayed: true };
+      if (this.keys.get(key) !== entity) throw new RunnerStoreError("22023");
+      return { replayed: true, reused: false, legalEntityId: entity };
     }
-    if (this.status === "active" || this.status === "creating" || this.status === "suspended") throw new RunnerStoreError("55000");
-    this.keys.set(key, entityId);
+    if (this.status === "active" || this.status === "suspended" || this.status === "closed") throw new RunnerStoreError("55000");
+    if (this.status === "creating" && !this.creatingStale) throw new RunnerStoreError("TW006");
+    this.keys.set(key, entity);
+    if (this.confirmations.some((c) => !c.consumed)) return { replayed: false, reused: true, legalEntityId: entity };
     this.confirmations.push({ consumed: false });
-    return { replayed: false };
+    return { replayed: false, reused: false, legalEntityId: entity };
   }
   async decideTier(_s: string, a: string) { this.gate("decideTier", a); return { changed: true }; }
   // EntityStore (what provisionSubaccount uses)
@@ -170,14 +191,17 @@ class Memory implements PanelStore {
   }
   async beginSubaccount(): Promise<BeginSubaccountResult> {
     if (this.status === "active") return { action: "skip", account_sid: this.sid };
+    if (this.status === "creating" && !this.creatingStale) throw new RunnerStoreError("TW006");
     const c = this.confirmations.find((x) => !x.consumed);
     if (!c) throw new RunnerStoreError("TW003");
     c.consumed = true;
-    const action = this.status === "unknown" ? "reconcile" : "execute";
+    const action = this.status === "unknown" || this.status === "creating" ? "reconcile" : "execute";
     this.status = "creating";
     return { action };
   }
+  finishFails = false;
   async finishSubaccount(_e: string, _a: string, status: "active" | "failed" | "unknown", sid: string | null) {
+    if (this.finishFails) throw new RunnerStoreError("08006");
     this.status = status;
     if (status === "active") this.sid = sid;
   }
@@ -270,7 +294,7 @@ describe("panel commands", () => {
   });
 
   describe("Create subaccount (separately confirmed)", () => {
-    const create = (over: Record<string, string> = {}) => form({ entityId: ENTITY, studioId: STUDIO, requestKey: KEY, phrase: commands.CREATE_PHRASE, ...over });
+    const create = (over: Record<string, string> = {}) => form({ studioId: STUDIO, requestKey: KEY, phrase: commands.CREATE_PHRASE, ...over });
 
     it("without the exact phrase, a valid request key, or a runtime that can create: nothing is confirmed and Twilio is not called", async () => {
       expect((await commands.createSubaccount(db, ADMIN, create({ phrase: "create subaccount" }), deps())).ok).toBe(false);
@@ -290,6 +314,40 @@ describe("panel commands", () => {
       // a NEW form once the account is active: the database refuses to record a confirmation nothing would consume
       const fresh = await commands.createSubaccount(db, ADMIN, create({ requestKey: "c6000000-0000-4000-8000-0000000000c2" }), deps());
       expect(fresh.message).toMatch(/already active/);
+    });
+
+    it("the legal business comes from the studio, never from the form: a studio without one is refused before anything is recorded", async () => {
+      const r = await commands.createSubaccount(db, ADMIN, create({ studioId: STUDIO_B, entityId: ENTITY }), deps());
+      expect(r.message).toMatch(/no legal business/);
+      expect(db.confirmations).toHaveLength(0);
+      expect(parent.calls).toHaveLength(0);
+    });
+
+    it("two tabs (two request keys) never leave two open confirmations", async () => {
+      db.status = "unknown"; // an unclear earlier attempt: a confirmation can be recorded
+      parent.failNext("findSubaccount", { kind: "transient" });
+      await commands.createSubaccount(db, ADMIN, create(), deps());
+      expect(db.confirmations.filter((c) => !c.consumed)).toHaveLength(0);
+      db.confirmations.push({ consumed: false }); // a confirmation recorded by another tab that has not run yet
+      await db.confirmSubaccount("c6000000-0000-4000-8000-0000000000c9", STUDIO, ADMIN);
+      expect(db.confirmations.filter((c) => !c.consumed)).toHaveLength(1);
+    });
+
+    it("an interrupted creation (row stuck at creating): refused while recent, recoverable once stale, and found by lookup, not created twice", async () => {
+      db.finishFails = true;
+      parent.failNext("createSubaccount", { kind: "transient", lostResponse: true });
+      const first = await commands.createSubaccount(db, ADMIN, create(), deps());
+      expect(first.ok).toBe(false);
+      expect(first.message).toMatch(/finish_failed/); // reported truthfully: the outcome could not even be recorded
+      expect(db.status).toBe("creating");
+      db.finishFails = false;
+      const recent = await commands.createSubaccount(db, ADMIN, create({ requestKey: "c6000000-0000-4000-8000-0000000000c4" }), deps());
+      expect(recent.message).toMatch(/less than 10 minutes/);
+      db.creatingStale = true;
+      const later = await commands.createSubaccount(db, ADMIN, create({ requestKey: "c6000000-0000-4000-8000-0000000000c5" }), deps());
+      expect(later.ok).toBe(true);
+      expect(parent.count("createSubaccount")).toBe(1);
+      expect(parent.accounts.size).toBe(1);
     });
 
     it("provider failure: a lost response is recorded as unclear and the next confirmed attempt finds the account instead of creating another", async () => {
@@ -320,6 +378,16 @@ describe("panel commands", () => {
     expect((await commands.decideTier(db, ADMIN, form({ studioId: STUDIO, tier: "sole_proprietor", reason: "EIN business, low volume" }))).ok).toBe(false);
     expect(db.writes).toHaveLength(0);
     expect((await commands.decideTier(db, ADMIN, form({ studioId: STUDIO, tier: "low_volume_standard", reason: "EIN business, low volume", ...all }))).message).toMatch(/Twilio still reviews/);
+  });
+
+  it("no free-text field may carry a full EIN, in any spelling", async () => {
+    for (const ein of ["98-7654321", "98 7654321", "98\u20137654321", "987654321", "EIN98-7654321"]) expect(looksLikeEin(ein)).toBe(true);
+    for (const fine of ["Owner email 2026-10-20 approving brand $46", "EIN last four 4321", "Oregon SOS #2026-10"]) expect(looksLikeEin(fine)).toBe(false);
+    const fee = form({ entityId: ENTITY, studioId: STUDIO, kind: "number", funding: "credit", amountCents: "150", approvalRef: "Owner approved, EIN 98 7654321", ownerApproved: "on" });
+    expect((await commands.authorizeFee(db, ADMIN, fee, { studioTier: null })).message).toMatch(/Do not type an EIN/);
+    expect((await commands.decideTier(db, ADMIN, form({ studioId: STUDIO, tier: "standard", reason: "EIN 987654321 checked ok" }))).message).toMatch(/Do not type an EIN/);
+    expect((await commands.decideLink(db, ADMIN, form({ requestId: REQUEST, decision: "reject", note: "98-7654321 mismatch" }))).message).toMatch(/Do not type an EIN/);
+    expect(db.writes).toHaveLength(0);
   });
 
   it("unknown database codes never leak database text", () => {

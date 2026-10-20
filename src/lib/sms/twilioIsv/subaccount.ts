@@ -73,13 +73,11 @@ export async function provisionSubaccount(input: {
   try {
     existing = await parent.findSubaccount(friendly);
   } catch (error) {
-    await entities.finishSubaccount(entityId, actorId, "unknown", null);
-    return { outcome: "retry_later", detail: `lookup:${detailOf(error)}` };
+    return finishOrReport(entities, entityId, actorId, "unknown", { outcome: "retry_later", detail: `lookup:${detailOf(error)}` });
   }
   if (existing.length > 1) {
     // several candidates: never guess; a human decides
-    await entities.finishSubaccount(entityId, actorId, "unknown", null);
-    return { outcome: "exception", detail: "ambiguous_match" };
+    return finishOrReport(entities, entityId, actorId, "unknown", { outcome: "exception", detail: "ambiguous_match" });
   }
   if (existing.length === 1) return record(entities, entityId, actorId, existing[0], "subaccount_exists");
 
@@ -89,16 +87,27 @@ export async function provisionSubaccount(input: {
   } catch (error) {
     // Only a DEFINITE refusal (a parsed 4xx, bad credentials) is a failure; anything else may have created the account and is reconciled by lookup.
     const definite = error instanceof IsvApiError && (error.kind === "validation" || error.kind === "account");
-    await entities.finishSubaccount(entityId, actorId, definite ? "failed" : "unknown", null);
-    return { outcome: definite ? "exception" : "retry_later", detail: `create:${detailOf(error)}` };
+    return finishOrReport(entities, entityId, actorId, definite ? "failed" : "unknown", { outcome: definite ? "exception" : "retry_later", detail: `create:${detailOf(error)}` });
   }
   return record(entities, entityId, actorId, created, "subaccount_created");
 }
 
+/**
+ * Records a non-active end of the attempt and returns the result. If even that write fails, the row stays 'creating': say so (the attempt is
+ * reconciled by lookup once the 10-minute in-progress window has passed) instead of reporting an outcome the database does not show.
+ */
+async function finishOrReport(entities: EntityStore, entityId: string, actorId: string, status: "failed" | "unknown", result: SubaccountResult): Promise<SubaccountResult> {
+  try {
+    await entities.finishSubaccount(entityId, actorId, status, null);
+  } catch (error) {
+    return { outcome: "exception", detail: `${result.detail ?? result.outcome};finish_failed:${detailOf(error)}` };
+  }
+  return result;
+}
+
 async function record(entities: EntityStore, entityId: string, actorId: string, sid: string, outcome: "subaccount_created" | "subaccount_exists"): Promise<SubaccountResult> {
   if (!ACCOUNT_SID.test(sid)) {
-    await entities.finishSubaccount(entityId, actorId, "unknown", null);
-    return { outcome: "retry_later", detail: "create:no_valid_sid" };
+    return finishOrReport(entities, entityId, actorId, "unknown", { outcome: "retry_later", detail: "create:no_valid_sid" });
   }
   try {
     await entities.finishSubaccount(entityId, actorId, "active", sid);

@@ -42,46 +42,66 @@ create table public.studio_sms_panel_requests (
 );
 revoke all on public.studio_sms_panel_requests from public, anon, authenticated, service_role;
 alter table public.studio_sms_panel_requests enable row level security;
+create or replace function public._tw4p_append_only_guard()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  raise exception '% rows are append-only', tg_table_name using errcode = '42501';
+end $$;
 create trigger studio_sms_panel_requests_10_append_only before update or delete on public.studio_sms_panel_requests
-  for each row execute function public._sms_webhook_receipts_guard();
+  for each row execute function public._tw4p_append_only_guard();
 create trigger studio_sms_panel_requests_20_no_truncate before truncate on public.studio_sms_panel_requests
-  for each statement execute function public._sms_webhook_receipts_guard();
+  for each statement execute function public._tw4p_append_only_guard();
 
--- Records the platform admin's typed confirmation to create ONE subaccount, at most once per request key. A replay of the same key (double click,
--- browser resubmit) is a no-op: {replayed: true}. A key used for another entity or by another admin is refused. Nothing is recorded for an entity
--- whose subaccount is already active, suspended or being created (nothing would consume it).
-create or replace function public.tw4_panel_subaccount_confirm(p_request_key uuid, p_entity_id uuid, p_actor uuid)
+-- Records the platform admin's typed confirmation to create the subaccount of the STUDIO's legal business (derived here, never taken from the form),
+-- at most once per request key. Order: admin, the entity row lock, then the key, so concurrent uses of one key serialize.
+--  - a replay of the same key (double click, resubmit) is a no-op: {replayed: true};
+--  - a key used for another studio's business or by another admin is refused;
+--  - nothing is recorded when nothing would consume it: an account that is active, suspended or closed (55000), or a creation started less than
+--    10 minutes ago (TW006, the same window tw4_subaccount_begin uses; after it, an interrupted 'creating' attempt is reconciled by lookup);
+--  - an open, fresh confirmation by the same admin is reused instead of adding a second one ({reused: true}).
+create or replace function public.tw4_panel_subaccount_confirm(p_request_key uuid, p_studio_id uuid, p_actor uuid)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
+  v_entity uuid;
   r public.studio_sms_panel_requests;
   a public.studio_sms_twilio_accounts;
 begin
   if not public._tw4_r1_is_platform_admin(p_actor) then
     raise exception 'actor must be a platform admin' using errcode = '42501';
   end if;
-  if p_request_key is null or p_entity_id is null then
+  if p_request_key is null or p_studio_id is null then
     raise exception 'invalid request' using errcode = '22023';
   end if;
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
+  if v_entity is null then
+    raise exception 'this studio has no legal business' using errcode = '22023';
+  end if;
+  perform 1 from public.studio_sms_legal_entities e where e.id = v_entity for update;
   select * into r from public.studio_sms_panel_requests x where x.request_key = p_request_key;
   if r.request_key is not null then
-    if r.legal_entity_id <> p_entity_id or r.actor <> p_actor or r.action <> 'subaccount_confirm' then
+    if r.legal_entity_id <> v_entity or r.actor <> p_actor or r.action <> 'subaccount_confirm' then
       raise exception 'this request key belongs to another action' using errcode = '22023';
     end if;
-    return jsonb_build_object('replayed', true);
+    return jsonb_build_object('replayed', true, 'legal_entity_id', v_entity);
   end if;
-  perform 1 from public.studio_sms_legal_entities e where e.id = p_entity_id for update;
-  if not found then
-    raise exception 'unknown legal entity' using errcode = '22023';
+  select * into a from public.studio_sms_twilio_accounts x where x.legal_entity_id = v_entity;
+  if a.status in ('active', 'suspended', 'closed') then
+    raise exception 'the subaccount is %; nothing to confirm', a.status using errcode = '55000';
   end if;
-  select * into a from public.studio_sms_twilio_accounts x where x.legal_entity_id = p_entity_id;
-  if a.status in ('active', 'suspended', 'creating') then
-    raise exception 'the subaccount is % ; nothing to confirm', a.status using errcode = '55000';
+  if a.status = 'creating' and a.updated_at > now() - interval '10 minutes' then
+    raise exception 'a subaccount creation for this legal entity is already in progress' using errcode = 'TW006';
   end if;
-  insert into public.studio_sms_panel_requests (request_key, action, legal_entity_id, actor) values (p_request_key, 'subaccount_confirm', p_entity_id, p_actor);
-  perform public.tw4_subaccount_confirm(p_entity_id, p_actor);
-  return jsonb_build_object('replayed', false);
+  insert into public.studio_sms_panel_requests (request_key, action, legal_entity_id, actor) values (p_request_key, 'subaccount_confirm', v_entity, p_actor);
+  if exists (select 1 from public.studio_sms_subaccount_confirmations c where c.legal_entity_id = v_entity and c.confirmed_by = p_actor
+             and c.consumed_at is null and c.confirmed_at > now() - interval '15 minutes') then
+    return jsonb_build_object('replayed', false, 'reused', true, 'legal_entity_id', v_entity);
+  end if;
+  perform public.tw4_subaccount_confirm(v_entity, p_actor);
+  return jsonb_build_object('replayed', false, 'reused', false, 'legal_entity_id', v_entity);
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -93,12 +113,10 @@ create or replace function public._tw4p_lvs_checklist_complete(p jsonb)
 returns boolean language sql immutable
 set search_path = pg_catalog, public, pg_temp
 as $$
-  select p is not null and jsonb_typeof(p) = 'object'
-    and coalesce((p ->> 'ein_registered')::boolean, false)
-    and coalesce((p ->> 'not_sole_proprietor')::boolean, false)
-    and coalesce((p ->> 'low_volume_expected')::boolean, false)
-    and coalesce((p ->> 'owner_informed_limits')::boolean, false)
-    and coalesce((p ->> 'owner_informed_review')::boolean, false);
+  -- only a JSON true counts; a missing key compares as NULL, so the whole test is coalesced to false (never NULL, which IF NOT would let through)
+  select coalesce(p is not null and jsonb_typeof(p) = 'object'
+    and p -> 'ein_registered' = 'true'::jsonb and p -> 'not_sole_proprietor' = 'true'::jsonb and p -> 'low_volume_expected' = 'true'::jsonb
+    and p -> 'owner_informed_limits' = 'true'::jsonb and p -> 'owner_informed_review' = 'true'::jsonb, false);
 $$;
 
 -- The tier decision with its evidence. Low-Volume Standard needs the complete checklist AND a legal business on file with an EIN (the location's
@@ -133,8 +151,15 @@ begin
       raise exception 'Low-Volume Standard needs every eligibility check confirmed' using errcode = '22023';
     end if;
     select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
-    if v_entity is null or not exists (select 1 from public.studio_sms_legal_entities e where e.id = v_entity and e.ein_last4 ~ '^[0-9]{4}$') then
-      raise exception 'Low-Volume Standard needs the location''s legal business (with its EIN) on file first' using errcode = '22023';
+    -- EIN-registered: the location is linked to a legal business AND the studio's own submitted EIN agrees with that business's EIN last four
+    if v_entity is null or o.ein_last4 is null
+       or not exists (select 1 from public.studio_sms_legal_entities e where e.id = v_entity and e.ein_last4 = o.ein_last4) then
+      raise exception 'Low-Volume Standard needs the location''s legal business on file, with an EIN matching the studio''s submitted setup' using errcode = '22023';
+    end if;
+    -- an open owner approval for a brand fee was made at the STANDARD price: switching would leave it standing at the wrong price
+    if exists (select 1 from public.studio_sms_spend_events se where se.legal_entity_id = v_entity and se.kind = 'brand' and se.status in ('authorized', 'reserved')
+               and (se.studio_id = p_studio_id or se.studio_id is null)) then
+      raise exception 'an open brand fee approval exists (Standard price): withdraw it before choosing Low-Volume Standard' using errcode = '55000';
     end if;
   end if;
   if o.lease_owner is not null and o.lease_expires_at > now() then
@@ -227,8 +252,8 @@ begin
                       'studio_id', s.studio_id, 'approval_ref', s.approval_ref, 'authorized_at', s.authorized_at, 'reserved_at', s.reserved_at,
                       'reservation_status', (select r.status from public.studio_sms_credit_reservations r where r.id = s.credit_reservation_id)) x
                     from public.studio_sms_spend_events s where s.legal_entity_id = e.id order by s.authorized_at desc limit 20) q), '[]'::jsonb)
-      ) order by e.created_at)
-      from public.studio_sms_legal_entities e), '[]'::jsonb),
+      ) order by e.created_at desc)
+      from (select * from public.studio_sms_legal_entities order by created_at desc limit 200) e), '[]'::jsonb),
     'requests', coalesce((
       select jsonb_agg(x order by (x ->> 'attested_at') desc) from (
         select jsonb_build_object('id', r.id, 'studio_id', r.studio_id, 'studio_name', st.name, 'claimed_legal_name', r.claimed_legal_name,
@@ -249,9 +274,8 @@ begin
         'registration_status', (select g.registration_status from public.studio_sms_registrations g where g.studio_id = o.studio_id),
         'tier_decisions', coalesce((select jsonb_agg(jsonb_build_object('tier', d.tier, 'previous_tier', d.previous_tier, 'reason', d.reason,
                               'eligibility', d.eligibility, 'decided_by', d.decided_by, 'decided_at', d.decided_at) order by d.decided_at desc)
-                            from public.studio_sms_tier_decisions d where d.onboarding_id = o.id), '[]'::jsonb)) order by st.name)
-      from public.studio_sms_onboarding o join public.studios st on st.id = o.studio_id
-      where o.state <> 'cancelled'), '[]'::jsonb),
+                            from (select * from public.studio_sms_tier_decisions d0 where d0.onboarding_id = o.id order by d0.decided_at desc limit 10) d), '[]'::jsonb)) order by st.name)
+      from (select * from public.studio_sms_onboarding x where x.state <> 'cancelled' order by x.updated_at desc limit 300) o join public.studios st on st.id = o.studio_id), '[]'::jsonb),
     'audit', coalesce((
       select jsonb_agg(x order by (x ->> 'at') desc) from (
         select jsonb_build_object('studio_id', au.studio_id, 'action', au.action, 'note', au.note, 'at', au.created_at, 'actor_type', au.actor_type) x
@@ -264,7 +288,7 @@ begin
 end $$;
 
 revoke all on function public.tw4_panel_subaccount_confirm(uuid, uuid, uuid), public.tw4_onboarding_decide_tier(uuid, uuid, text, text, jsonb),
-  public.tw4_onboarding_set_tier(uuid, uuid, text, text), public.tw4_panel_overview(uuid), public._tw4p_lvs_checklist_complete(jsonb)
+  public.tw4_onboarding_set_tier(uuid, uuid, text, text), public.tw4_panel_overview(uuid), public._tw4p_lvs_checklist_complete(jsonb), public._tw4p_append_only_guard()
   from public, anon, authenticated, service_role;
 grant execute on function public.tw4_panel_subaccount_confirm(uuid, uuid, uuid), public.tw4_onboarding_decide_tier(uuid, uuid, text, text, jsonb),
   public.tw4_onboarding_set_tier(uuid, uuid, text, text), public.tw4_panel_overview(uuid)

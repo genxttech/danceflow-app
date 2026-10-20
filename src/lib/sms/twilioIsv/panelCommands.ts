@@ -1,5 +1,5 @@
 import type { EntityStore } from "./entityStore";
-import { LVS_CHECKLIST, panelErrorMessage, type PanelStore } from "./panel";
+import { LVS_CHECKLIST, looksLikeEin, panelErrorMessage, type PanelStore } from "./panel";
 import { isRegistrationTier, paidBrandSupported, registrationPath } from "./registrationPath";
 import { provisionSubaccount, type SubaccountResult } from "./subaccount";
 import type { IsvEnvName, IsvParentAdapter } from "./types";
@@ -23,17 +23,23 @@ const bad = (message: string): CommandResult => ({ ok: false, message });
 const good = (message: string): CommandResult => ({ ok: true, message });
 // free text the admin types: printable, single line, bounded
 const cleanNote = (value: string, min: number, max: number) => (value.length >= min && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value) ? value : null);
+/** Every free-text field is shown to platform admins and kept as evidence: none may carry a full EIN. */
+const EIN_FIELDS = ["verificationNote", "note", "approvalRef", "reason"];
+function einInForm(form: FormData): boolean {
+  return EIN_FIELDS.some((name) => looksLikeEin(field(form, name)));
+}
+const EIN_REFUSAL = "Do not type an EIN in this field (only the last four digits are ever recorded). Nothing was changed.";
 const dollarsToCents = (value: string): number | null => {
   if (!/^\d{1,6}(\.\d{1,2})?$/.test(value)) return null;
   return Math.round(Number(value) * 100);
 };
 
 export async function createEntity(store: PanelStore, actorId: string, form: FormData): Promise<CommandResult> {
+  if (einInForm(form)) return bad(EIN_REFUSAL);
   const studioId = field(form, "studioId");
   const note = cleanNote(field(form, "verificationNote"), 10, 300);
   if (!UUID.test(studioId)) return bad("Choose a studio.");
   if (!note) return bad("Record what you verified (10-300 characters, for example the state registry record you checked). Never type the EIN.");
-  if (/\d{2}-?\d{7}/.test(note)) return bad("Do not type an EIN in the verification note.");
   if (!checked(form, "verified")) return bad("Confirm that you verified the legal business against an official record.");
   try {
     await store.createEntity(studioId, actorId, note);
@@ -44,6 +50,7 @@ export async function createEntity(store: PanelStore, actorId: string, form: For
 }
 
 export async function decideLink(store: PanelStore, actorId: string, form: FormData): Promise<CommandResult> {
+  if (einInForm(form)) return bad(EIN_REFUSAL);
   const requestId = field(form, "requestId");
   const entityId = field(form, "entityId");
   const decision = field(form, "decision");
@@ -58,8 +65,8 @@ export async function decideLink(store: PanelStore, actorId: string, form: FormD
     return bad("Give the reason for rejecting (3-300 characters).");
   }
   try {
-    // a rejection needs no entity; the database ignores the id then
-    const status = await store.decideLink(requestId, decision === "approve" ? entityId : requestId, actorId, decision === "approve", note);
+    // a rejection names no entity (the store sends null)
+    const status = await store.decideLink(requestId, decision === "approve" ? entityId : "", actorId, decision === "approve", note);
     return good(status === "approved" ? "Location linked to the legal business." : "Location request rejected.");
   } catch (error) {
     return bad(panelErrorMessage("link", error));
@@ -67,6 +74,7 @@ export async function decideLink(store: PanelStore, actorId: string, form: FormD
 }
 
 export async function setSpendCap(store: PanelStore, actorId: string, form: FormData): Promise<CommandResult> {
+  if (einInForm(form)) return bad(EIN_REFUSAL);
   const entityId = field(form, "entityId");
   const cents = dollarsToCents(field(form, "capDollars"));
   if (!UUID.test(entityId)) return bad("Choose a legal business.");
@@ -88,6 +96,7 @@ const FEE_KINDS = new Set(["brand", "campaign_vetting", "number"]);
  * replay cannot create a second authorization), anything beyond the setup budget, and a pilot-funded approval outside the pilot exception.
  */
 export async function authorizeFee(store: PanelStore, actorId: string, form: FormData, context: { studioTier: string | null }): Promise<CommandResult> {
+  if (einInForm(form)) return bad(EIN_REFUSAL);
   const entityId = field(form, "entityId");
   const studioId = field(form, "studioId");
   const kind = field(form, "kind");
@@ -112,6 +121,7 @@ export async function authorizeFee(store: PanelStore, actorId: string, form: For
 }
 
 export async function withdrawFee(store: PanelStore, actorId: string, form: FormData): Promise<CommandResult> {
+  if (einInForm(form)) return bad(EIN_REFUSAL);
   const spendEventId = field(form, "spendEventId");
   const note = cleanNote(field(form, "note"), 3, 300);
   if (!UUID.test(spendEventId)) return bad("Choose an approval.");
@@ -125,6 +135,7 @@ export async function withdrawFee(store: PanelStore, actorId: string, form: Form
 }
 
 export async function createPilotException(store: PanelStore, actorId: string, form: FormData): Promise<CommandResult> {
+  if (einInForm(form)) return bad(EIN_REFUSAL);
   const entityId = field(form, "entityId");
   const cents = dollarsToCents(field(form, "ceilingDollars"));
   const approvalRef = cleanNote(field(form, "approvalRef"), 10, 200);
@@ -156,18 +167,19 @@ const SUBACCOUNT_TEXT: Record<SubaccountResult["outcome"], string> = {
 /**
  * The separately confirmed "Create subaccount": typed phrase + a one-time request key from the rendered form. The runtime is checked BEFORE the
  * confirmation is recorded, so a deployment that cannot create leaves no confirmation behind. A replayed key records nothing new and only
- * re-runs the idempotent provisioning (lookup first, never a second account).
+ * re-runs the idempotent provisioning (lookup first, never a second account); an open confirmation by the same admin is reused, never doubled.
  */
 export async function createSubaccount(store: PanelStore, actorId: string, form: FormData, deps: SubaccountDeps): Promise<CommandResult> {
-  const entityId = field(form, "entityId");
+  if (einInForm(form)) return bad(EIN_REFUSAL);
   const studioId = field(form, "studioId");
   const requestKey = field(form, "requestKey");
-  if (!UUID.test(entityId) || !UUID.test(studioId)) return bad("Choose the legal business.");
+  if (!UUID.test(studioId)) return bad("Choose the studio.");
   if (!UUID.test(requestKey)) return bad("This form has expired: reload the page.");
   if (field(form, "phrase") !== CREATE_PHRASE) return bad(`Type ${CREATE_PHRASE} exactly to create the subaccount. Nothing was created.`);
   if ("refused" in deps) return bad(`${deps.refused} Nothing was created.`);
   try {
-    await store.confirmSubaccount(requestKey, entityId, actorId);
+    // the database derives the legal business from the studio; provisioning below resolves the same studio, so the two cannot disagree
+    await store.confirmSubaccount(requestKey, studioId, actorId);
   } catch (error) {
     return bad(panelErrorMessage("subaccount", error));
   }
@@ -178,6 +190,7 @@ export async function createSubaccount(store: PanelStore, actorId: string, form:
 }
 
 export async function decideTier(store: PanelStore, actorId: string, form: FormData): Promise<CommandResult> {
+  if (einInForm(form)) return bad(EIN_REFUSAL);
   const studioId = field(form, "studioId");
   const tier = field(form, "tier");
   const reason = cleanNote(field(form, "reason"), 10, 300);

@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
 import {
   LVS_CHECKLIST,
   STAGE_STATE_LABELS,
   formatCents,
   nameKey,
   CONFIDANCE_NAME_KEY,
+  canConfirmSubaccount,
   type PanelAudit,
   type PanelOverview,
   type PanelRequest,
@@ -70,6 +70,8 @@ export default function SmsSubaccountPanel({
   notice,
   error,
   focusStudioId = null,
+  now,
+  requestKeys = {},
 }: {
   overview: PanelOverview | null;
   panels: StudioPanel[];
@@ -78,6 +80,9 @@ export default function SmsSubaccountPanel({
   error: string | null;
   /** The studio the last action was about: its card opens; every other card shows only its progress and next action. */
   focusStudioId?: string | null;
+  /** Render clock and one-time Create-subaccount keys per studio (from panelRenderContext, produced once by the page). */
+  now: number;
+  requestKeys?: Record<string, string>;
 }) {
   const pending = (overview?.requests ?? []).filter((r) => r.status === "pending");
   return (
@@ -97,7 +102,7 @@ export default function SmsSubaccountPanel({
           {pending.length > 0 ? <LocationRequests requests={pending} overview={overview!} /> : null}
           <div className="mt-4 space-y-4">
             {panels.length === 0 ? <p className="text-sm text-slate-500">No studio has submitted a texting setup yet.</p> : null}
-            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} />)}
+            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} now={now} requestKey={requestKeys[panel.studioId] ?? ""} />)}
           </div>
           <p className="mt-4 text-xs text-slate-500">
             Monthly spending limits are managed by the monthly-limit workstream and will appear here once it is released. This panel shows the cumulative setup budget and each owner-approved fee.
@@ -144,7 +149,7 @@ function LocationRequests({ requests, overview }: { requests: PanelRequest[]; ov
   );
 }
 
-function StudioCard({ panel, overview, expanded }: { panel: StudioPanel; overview: PanelOverview; expanded: boolean }) {
+function StudioCard({ panel, overview, expanded, now, requestKey }: { panel: StudioPanel; overview: PanelOverview; expanded: boolean; now: number; requestKey: string }) {
   const stage = (key: StudioPanel["stages"][number]["key"]) => panel.stages.find((s) => s.key === key)!;
   const entity = panel.entity;
   const audit: PanelAudit[] = overview.audit.filter((a) => a.studioId === panel.studioId || (entity && entity.studios.some((s) => s.studioId === a.studioId))).slice(0, 15);
@@ -201,11 +206,10 @@ function StudioCard({ panel, overview, expanded }: { panel: StudioPanel; overvie
 
         <Section title="Twilio subaccount" state={stage("subaccount").state} open={focus === "subaccount"}>
           <p>{stage("subaccount").summary}</p>
-          {entity && entity.spendCapCents > 0 && (!entity.account || ["unknown", "failed", "creating"].includes(entity.account.status)) ? (
+          {entity && requestKey && canConfirmSubaccount(entity, now) ? (
             <form action={panelCreateSubaccountAction} className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-              <input type="hidden" name="entityId" value={entity.id} />
               <input type="hidden" name="studioId" value={panel.studioId} />
-              <input type="hidden" name="requestKey" value={randomUUID()} />
+              <input type="hidden" name="requestKey" value={requestKey} />
               <label className="text-xs font-medium text-slate-800">
                 Type {CREATE_PHRASE} to create {entity.legalName}&apos;s subaccount (no fee; no registration is submitted)
                 <input name="phrase" required autoComplete="off" className={input} />

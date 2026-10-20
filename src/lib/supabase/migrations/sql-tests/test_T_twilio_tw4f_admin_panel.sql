@@ -72,6 +72,7 @@ select pg_temp.auth('owner_a', format('select public.sms_location_attest(%L, ''P
 -- studio A onboarding (a draft is enough for the tier rules)
 select pg_temp.auth('padmin', format('select public.set_sms_onboarding_access(%L, true, ''panel fixtures'')::text', pg_temp.kv('sa')));
 select pg_temp.auth('owner_a', format('select public.save_sms_onboarding_draft(%L, %L::jsonb)::text', pg_temp.kv('sa'), '{"legal_name":"Panel Dance A LLC","entity_type":"llc","industry":"EDUCATION","website_choice":"danceflow"}'));
+select pg_temp.svc(format('select public.store_sms_onboarding_ein(%L, %L, ''v1.AAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB.CCCCCCCCCC'', ''v1'', ''1111'')::text', pg_temp.kv('sa'), pg_temp.kv('owner_a')));
 select pg_temp.setkv('elig', '{"ein_registered":true,"not_sole_proprietor":true,"low_volume_expected":true,"owner_informed_limits":true,"owner_informed_review":true}');
 
 -- ===== P: privileges ======================================================================================================
@@ -109,23 +110,47 @@ select pg_temp.chk('O03 the overview carries no EIN ciphertext and no token',
   pg_temp.kv('ov') !~ 'ein_ciphertext' and pg_temp.kv('ov') !~ 'auth_token');
 
 -- ===== C: Create subaccount confirmation, one per request key ==============================================================
-select pg_temp.setkv('c1', pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k1'), pg_temp.kv('ea'), pg_temp.kv('padmin'))));
-select pg_temp.setkv('c2', pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k1'), pg_temp.kv('ea'), pg_temp.kv('padmin'))));
+select pg_temp.setkv('c1', pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k1'), pg_temp.kv('sa'), pg_temp.kv('padmin'))));
+select pg_temp.setkv('c2', pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k1'), pg_temp.kv('sa'), pg_temp.kv('padmin'))));
 select pg_temp.chk('C01 the first use of a key records ONE confirmation; a replay of the same key records nothing more',
-  pg_temp.kv('c1')::jsonb = '{"replayed": false}' and pg_temp.kv('c2')::jsonb = '{"replayed": true}'
+  (pg_temp.kv('c1')::jsonb ->> 'replayed') = 'false' and (pg_temp.kv('c1')::jsonb ->> 'reused') = 'false' and (pg_temp.kv('c1')::jsonb ->> 'legal_entity_id') = pg_temp.kv('ea')
+  and (pg_temp.kv('c2')::jsonb ->> 'replayed') = 'true'
   and (select count(*) = 1 from public.studio_sms_subaccount_confirmations where legal_entity_id = pg_temp.u('ea') and consumed_at is null)
   and (select count(*) = 1 from public.studio_sms_panel_requests where request_key = pg_temp.u('k1')), pg_temp.kv('c1') || ' ' || pg_temp.kv('c2'));
-select pg_temp.chk('C02 a key cannot be reused for another entity or by another admin; non-admins, unknown entities and a missing key are refused',
-  pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k1'), pg_temp.kv('eb'), pg_temp.kv('padmin'))) like 'ERR 22023%'
-  and pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k1'), pg_temp.kv('ea'), pg_temp.kv('padmin2'))) like 'ERR 22023%'
-  and pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k2'), pg_temp.kv('ea'), pg_temp.kv('plain'))) like 'ERR 42501%'
-  and pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k2'), 'a6100000-0000-0000-0000-0000000eeeee', pg_temp.kv('padmin'))) like 'ERR 22023%'
-  and pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(null, %L, %L)::text', pg_temp.kv('ea'), pg_temp.kv('padmin'))) like 'ERR 22023%'
+select pg_temp.chk('C02 a key cannot be reused for another studio''s business or by another admin; non-admins, a studio without a legal business (studio X) and a missing key are refused',
+  pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k1'), pg_temp.kv('sb'), pg_temp.kv('padmin'))) like 'ERR 22023%'
+  and pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k1'), pg_temp.kv('sa'), pg_temp.kv('padmin2'))) like 'ERR 22023%'
+  and pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k2'), pg_temp.kv('sa'), pg_temp.kv('plain'))) like 'ERR 42501%'
+  and pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k2'), pg_temp.kv('sx'), pg_temp.kv('padmin'))) like 'ERR 22023%'
+  and pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(null, %L, %L)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'))) like 'ERR 22023%'
   and (select count(*) = 1 from public.studio_sms_subaccount_confirmations where legal_entity_id = pg_temp.u('ea')));
 select pg_temp.chk('C03 nothing is recorded for an entity whose subaccount is already active (nothing would consume it)',
-  pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k2'), pg_temp.kv('eb'), pg_temp.kv('padmin'))) like 'ERR 55000%'
+  pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k2'), pg_temp.kv('sb'), pg_temp.kv('padmin'))) like 'ERR 55000%'
   and not exists (select 1 from public.studio_sms_subaccount_confirmations where legal_entity_id = pg_temp.u('eb'))
   and not exists (select 1 from public.studio_sms_panel_requests where request_key = pg_temp.u('k2')));
+-- C05-C08: the account lifecycle the confirmation respects (matching tw4_subaccount_begin)
+select pg_temp.setkv('k3', 'a6100000-0000-0000-0000-0000000c0003');
+select pg_temp.setkv('c5', pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', pg_temp.kv('k3'), pg_temp.kv('sa'), pg_temp.kv('padmin'))));
+select pg_temp.chk('C05 a second key while a fresh confirmation by the same admin is still open reuses it: never two open confirmations',
+  (pg_temp.kv('c5')::jsonb ->> 'reused') = 'true'
+  and (select count(*) = 1 from public.studio_sms_subaccount_confirmations where legal_entity_id = pg_temp.u('ea') and consumed_at is null), pg_temp.kv('c5'));
+update public.studio_sms_subaccount_confirmations set consumed_at = now() where legal_entity_id = pg_temp.u('ea');
+insert into public.studio_sms_twilio_accounts (legal_entity_id, friendly_name, environment, status, created_by, updated_at)
+  values (pg_temp.u('ea'), 'df:test:a', 'test', 'creating', pg_temp.u('padmin'), now() - interval '2 minutes');
+select pg_temp.chk('C06 a creation started less than 10 minutes ago: refused (TW006), nothing recorded',
+  pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', 'a6100000-0000-0000-0000-0000000c0004', pg_temp.kv('sa'), pg_temp.kv('padmin'))) like 'ERR TW006%'
+  and not exists (select 1 from public.studio_sms_panel_requests where request_key = 'a6100000-0000-0000-0000-0000000c0004'::uuid));
+update public.studio_sms_twilio_accounts set updated_at = now() - interval '11 minutes' where legal_entity_id = pg_temp.u('ea');
+select pg_temp.setkv('c7', pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', 'a6100000-0000-0000-0000-0000000c0005', pg_temp.kv('sa'), pg_temp.kv('padmin'))));
+select pg_temp.chk('C07 an interrupted creation (creating for over 10 minutes) can be confirmed again and then reconciled by tw4_subaccount_begin',
+  (pg_temp.kv('c7')::jsonb ->> 'reused') = 'false'
+  and (pg_temp.svc(format('select public.tw4_subaccount_begin(%L, %L, ''df:test:a'', ''test'')::text', pg_temp.kv('ea'), pg_temp.kv('padmin'))))::jsonb ->> 'action' = 'reconcile', pg_temp.kv('c7'));
+update public.studio_sms_twilio_accounts set status = 'closed', twilio_account_sid = 'AC' || repeat('c', 32) where legal_entity_id = pg_temp.u('ea');
+select pg_temp.chk('C08 a closed account: nothing to confirm (55000)',
+  pg_temp.svc(format('select public.tw4_panel_subaccount_confirm(%L, %L, %L)::text', 'a6100000-0000-0000-0000-0000000c0006', pg_temp.kv('sa'), pg_temp.kv('padmin'))) like 'ERR 55000%');
+alter table public.studio_sms_twilio_accounts disable trigger user;
+delete from public.studio_sms_twilio_accounts where legal_entity_id = pg_temp.u('ea');
+alter table public.studio_sms_twilio_accounts enable trigger user;
 select pg_temp.chk('C04 request keys are append-only',
   pg_temp.try('update public.studio_sms_panel_requests set actor = actor') like '42501%' and pg_temp.try('delete from public.studio_sms_panel_requests') like '42501%');
 
@@ -138,6 +163,7 @@ select pg_temp.chk('T02 Low-Volume Standard needs every checklist item true and 
   and pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''short'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'), pg_temp.kv('elig'))) like 'ERR 22023%'
   and pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''EIN, low volume'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('plain'), pg_temp.kv('elig'))) like 'ERR 42501%'
   and pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''EIN, low volume'', ''[]''::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'))) like 'ERR 22023%'
+  and pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''EIN business, low volume'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'), (pg_temp.kv('elig')::jsonb || '{"owner_informed_review": "yes"}')::text)) like 'ERR 22023%'
   and (select count(*) = 0 from public.studio_sms_tier_decisions d join public.studio_sms_onboarding o on o.id = d.onboarding_id where o.studio_id = pg_temp.u('sa')));
 select pg_temp.setkv('t3', pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''EIN business, about 200 texts a month'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'), pg_temp.kv('elig'))));
 select pg_temp.chk('T03 with the full checklist it is recorded with its evidence',
@@ -149,6 +175,29 @@ select pg_temp.chk('T04 Standard needs no checklist and stores none (even if one
   and (select d.eligibility is null from public.studio_sms_tier_decisions d join public.studio_sms_onboarding o on o.id = d.onboarding_id where o.studio_id = pg_temp.u('sa') and d.tier = 'standard'), pg_temp.kv('t4'));
 select pg_temp.auth('padmin', format('select public.set_sms_onboarding_access(%L, true, ''panel fixtures'')::text', pg_temp.kv('sx')));
 select pg_temp.auth('owner_a', format('select public.save_sms_onboarding_draft(%L, %L::jsonb)::text', pg_temp.kv('sx'), '{"legal_name":"Panel Dance A LLC","entity_type":"llc","industry":"EDUCATION","website_choice":"danceflow"}'));
+-- T06: an open Standard-price brand approval blocks a switch to Low-Volume Standard (a synthetic spend row inside this rolled-back transaction)
+alter table public.studio_sms_spend_events disable trigger user;
+insert into public.studio_sms_spend_events (legal_entity_id, kind, amount_cents, status, approval_ref, authorized_by, funding, studio_id)
+  values (pg_temp.u('ea'), 'brand', 4600, 'authorized', 'Owner email (synthetic)', pg_temp.u('padmin'), 'credit', pg_temp.u('sa'));
+alter table public.studio_sms_spend_events enable trigger user;
+select pg_temp.chk('T06 an open Standard-price brand fee approval blocks the switch to Low-Volume Standard (55000)',
+  pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''EIN business, low volume'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'), pg_temp.kv('elig'))) like 'ERR 55000%open brand fee approval%');
+alter table public.studio_sms_spend_events disable trigger user;
+delete from public.studio_sms_spend_events where legal_entity_id = pg_temp.u('ea');
+alter table public.studio_sms_spend_events enable trigger user;
+-- T07: the studio's own EIN last four must agree with the legal business
+update public.studio_sms_legal_entities set ein_last4 = '9999' where id = pg_temp.u('ea');
+select pg_temp.chk('T07 a legal business whose EIN last four differs from the studio''s submitted setup cannot be Low-Volume Standard',
+  pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''EIN business, low volume'', %L::jsonb)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'), pg_temp.kv('elig'))) like 'ERR 22023%');
+update public.studio_sms_legal_entities set ein_last4 = '1111' where id = pg_temp.u('ea');
+-- T08: the Standard path of the old entry point still freezes once a brand attempt exists
+alter table public.studio_sms_provisioning_steps disable trigger user;
+insert into public.studio_sms_provisioning_steps (onboarding_id, studio_id, step_key, submission_seq, status, friendly_name, fee_bearing)
+select o.id, o.studio_id, 'B1', o.submission_seq, 'unknown_outcome', 'df:test:b1', true from public.studio_sms_onboarding o where o.studio_id = pg_temp.u('sa') and o.state <> 'cancelled';
+alter table public.studio_sms_provisioning_steps enable trigger user;
+select pg_temp.chk('T08 both entry points are frozen once a brand attempt exists',
+  pg_temp.svc(format('select public.tw4_onboarding_set_tier(%L, %L, ''standard'', ''after the brand'')::text', pg_temp.kv('sa'), pg_temp.kv('padmin'))) like 'ERR 55000%'
+  and pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''standard'', ''after the brand attempt'', null)::text', pg_temp.kv('sa'), pg_temp.kv('padmin'))) like 'ERR 55000%');
 select pg_temp.chk('T05 Low-Volume Standard needs the location''s legal business on file (studio X is not linked yet)',
   pg_temp.svc(format('select public.tw4_onboarding_decide_tier(%L, %L, ''low_volume_standard'', ''EIN business, low volume'', %L::jsonb)::text', pg_temp.kv('sx'), pg_temp.kv('padmin'), pg_temp.kv('elig'))) like 'ERR 22023%legal business%');
 

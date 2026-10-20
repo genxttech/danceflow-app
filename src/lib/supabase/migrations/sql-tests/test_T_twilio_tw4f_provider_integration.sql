@@ -131,6 +131,8 @@ select pg_temp.chk('R03 receipts are append-only (no update, delete or truncate,
 select pg_temp.auth('padmin', format('select public.set_sms_onboarding_access(%L, true, ''prov fixtures'')::text', pg_temp.kv('sa')));
 select pg_temp.auth('owner_a', format('select public.save_sms_onboarding_draft(%L, %L::jsonb)::text', pg_temp.kv('sa'),
   '{"legal_name":"Prov Dance A LLC","entity_type":"llc","industry":"EDUCATION","website_choice":"danceflow"}'));
+-- (since 20261130 Low-Volume Standard also needs the studio's own EIN last four to agree with its legal business: store a synthetic one)
+select pg_temp.svc(format('select public.store_sms_onboarding_ein(%L, %L, ''v1.AAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB.CCCCCCCCCC'', ''v1'', ''1111'')::text', pg_temp.kv('sa'), pg_temp.kv('owner_a')));
 select pg_temp.setkv('onb', (select id::text from public.studio_sms_onboarding where studio_id = pg_temp.u('sa')));
 select pg_temp.chk('T00 fixture: studio A has an onboarding with no tier chosen', pg_temp.kv('onb') is not null
   and (select tier is null from public.studio_sms_onboarding where id = pg_temp.u('onb')), coalesce(pg_temp.kv('onb'), 'none'));

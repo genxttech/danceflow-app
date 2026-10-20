@@ -177,20 +177,20 @@ test("location linking: another business's owner attests studio B; the verificat
     await page.locator('input[name="legalName"]').fill(BUSINESS.legal_name);
     await page.locator('input[name="einLast4"]').fill("4321");
     await page.getByRole("button", { name: "Send for review" }).click();
-    await page.waitForURL(/error=Confirm/, { timeout: 60_000 });
+    await page.waitForURL(/result=no_attest/, { timeout: 60_000 });
     await expect(page.locator('p[role="alert"]')).toContainText("Confirm the attestation");
     await page.locator('input[name="legalName"]').fill(BUSINESS.legal_name);
     await page.locator('input[name="einLast4"]').fill("4321");
     await page.locator('input[name="attest"]').check();
     await page.getByRole("button", { name: "Send for review" }).click();
-    await page.waitForURL(/sent=1/, { timeout: 60_000 });
+    await page.waitForURL(/result=sent/, { timeout: 60_000 });
     await expect(page.locator('p[role="status"]')).toContainText("Request sent");
     // a second request while one is pending is refused
     await page.locator('input[name="legalName"]').fill(BUSINESS.legal_name);
     await page.locator('input[name="einLast4"]').fill("4321");
     await page.locator('input[name="attest"]').check();
     await page.getByRole("button", { name: "Send for review" }).click();
-    await page.waitForURL(/error=This/, { timeout: 60_000 });
+    await page.waitForURL(/result=exists/, { timeout: 60_000 });
     await expect(page.locator('p[role="alert"]')).toContainText("already waiting");
   } finally {
     await other.close();

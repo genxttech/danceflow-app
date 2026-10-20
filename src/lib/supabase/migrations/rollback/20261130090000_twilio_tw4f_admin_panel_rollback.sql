@@ -19,6 +19,7 @@ drop function public.tw4_onboarding_decide_tier(uuid, uuid, text, text, jsonb);
 drop function public._tw4p_lvs_checklist_complete(jsonb);
 drop function public.tw4_panel_subaccount_confirm(uuid, uuid, uuid);
 drop table public.studio_sms_panel_requests;
+drop function if exists public._tw4p_append_only_guard();
 alter table public.studio_sms_tier_decisions drop column eligibility;
 
 -- tw4_onboarding_set_tier: back to the 20261129090000 definition

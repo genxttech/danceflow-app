@@ -122,7 +122,28 @@ export const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 const AUTH_OPEN = new Set(["authorized", "reserved"]);
 
-export function deriveStudioPanel(onboarding: PanelOnboarding | null, entity: PanelEntity | null, overview: Pick<PanelOverview, "requests" | "prices">, studio: { id: string; name: string }): StudioPanel {
+/** The database treats a 'creating' row older than 10 minutes as interrupted (tw4_subaccount_begin and tw4_panel_subaccount_confirm). */
+export const CREATING_STALE_MS = 10 * 60_000;
+export function creatingIsStale(updatedAt: string | null, now: number): boolean {
+  const at = updatedAt ? Date.parse(updatedAt) : Number.NaN;
+  return Number.isFinite(at) && now - at > CREATING_STALE_MS;
+}
+
+/** A Create subaccount form is offered only when a confirmation can actually be used. */
+export function canConfirmSubaccount(entity: PanelEntity, now: number): boolean {
+  if (entity.spendCapCents <= 0) return false;
+  const account = entity.account;
+  return !account || account.status === "unknown" || account.status === "failed" || (account.status === "creating" && creatingIsStale(account.updatedAt, now));
+}
+
+/** Text that looks like a full EIN: nn-nnnnnnn with any dash or spacing, or nine digits in a row. Free text must never carry one. */
+export function looksLikeEin(text: string): boolean {
+  return /\d{2}[\s\-‐-―]*\d{7}/.test(text) || /\d{9}/.test(text);
+}
+
+export function deriveStudioPanel(
+  onboarding: PanelOnboarding | null, entity: PanelEntity | null, overview: Pick<PanelOverview, "requests" | "prices">, studio: { id: string; name: string }, now: number = Date.now(),
+): StudioPanel {
   const blockers: string[] = [];
   const stages: Stage[] = [];
   const tier: RegistrationTier = onboarding?.tier ?? "standard";
@@ -175,8 +196,12 @@ export function deriveStudioPanel(onboarding: PanelOnboarding | null, entity: Pa
     stages.push({ key: "subaccount", title: "Twilio subaccount", state: "attention", summary: "Suspended at Twilio. Nothing can run until it is active again." });
     blockers.push("The subaccount is suspended.");
   } else if (account.status === "creating") {
-    stages.push({ key: "subaccount", title: "Twilio subaccount", state: "submitted", summary: "Creation in progress (or interrupted). Run Create again later to reconcile; nothing is created twice." });
-    blockers.push("Subaccount creation has not finished.");
+    const stale = creatingIsStale(account.updatedAt, now);
+    stages.push({ key: "subaccount", title: "Twilio subaccount", state: stale ? "attention" : "submitted",
+      summary: stale
+        ? "An earlier creation attempt was interrupted. Confirm again: it looks the account up first and never creates a second one."
+        : "Creation in progress. Check again in a few minutes." });
+    blockers.push(stale ? "Resolve the interrupted subaccount creation (confirm again; it reconciles by lookup first)." : "Subaccount creation has not finished.");
   } else {
     stages.push({ key: "subaccount", title: "Twilio subaccount", state: "attention",
       summary: account.status === "unknown" ? "The last creation attempt had an unclear outcome. A new confirmed attempt looks it up first; nothing is created twice." : `Status: ${account.status}.` });
@@ -223,7 +248,7 @@ function shortSid(sid: string | null): string {
 }
 
 /** One card per studio that has an onboarding, an entity link or a pending location request. */
-export function buildStudioPanels(overview: PanelOverview): StudioPanel[] {
+export function buildStudioPanels(overview: PanelOverview, now: number = Date.now()): StudioPanel[] {
   const ids = new Map<string, string>();
   for (const o of overview.onboardings) ids.set(o.studioId, o.studioName);
   for (const e of overview.entities) for (const s of e.studios) ids.set(s.studioId, s.name);
@@ -231,7 +256,7 @@ export function buildStudioPanels(overview: PanelOverview): StudioPanel[] {
   return [...ids.entries()].map(([id, name]) => {
     const entity = overview.entities.find((e) => e.studios.some((s) => s.studioId === id)) ?? null;
     const onboarding = overview.onboardings.find((o) => o.studioId === id) ?? null;
-    return deriveStudioPanel(onboarding, entity, overview, { id, name: name || id });
+    return deriveStudioPanel(onboarding, entity, overview, { id, name: name || id }, now);
   }).sort((a, b) => a.studioName.localeCompare(b.studioName));
 }
 
@@ -260,7 +285,8 @@ export interface PanelStore {
   authorizeSpend(input: { entityId: string; kind: string; cents: number; approvalRef: string; actorId: string; funding: "credit" | "pilot"; studioId: string }): Promise<string>;
   withdrawSpend(spendEventId: string, actorId: string, note: string): Promise<void>;
   createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string): Promise<{ replayed: boolean }>;
-  confirmSubaccount(requestKey: string, entityId: string, actorId: string): Promise<{ replayed: boolean }>;
+  /** The confirmation for the STUDIO's legal business: the database derives the entity; it never comes from the form. */
+  confirmSubaccount(requestKey: string, studioId: string, actorId: string): Promise<{ replayed: boolean; reused: boolean; legalEntityId: string | null }>;
   decideTier(studioId: string, actorId: string, tier: RegistrationTier, reason: string, eligibility: Record<string, boolean> | null): Promise<{ changed: boolean }>;
 }
 
@@ -282,7 +308,7 @@ export class SupabasePanelStore implements PanelStore {
     return String(obj(await this.call("tw4_entity_create_for_studio", { p_studio_id: studioId, p_actor: actorId, p_verification_note: verificationNote })).legal_entity_id ?? "");
   }
   async decideLink(requestId: string, entityId: string, actorId: string, approve: boolean, note: string) {
-    return String(obj(await this.call("tw4_entity_decide_link", { p_request_id: requestId, p_entity_id: entityId, p_actor: actorId, p_approve: approve, p_note: note })).status ?? "");
+    return String(obj(await this.call("tw4_entity_decide_link", { p_request_id: requestId, p_entity_id: approve ? entityId : null, p_actor: actorId, p_approve: approve, p_note: note })).status ?? "");
   }
   async setSpendCap(entityId: string, cents: number, actorId: string) {
     await this.call("tw4_entity_set_spend_cap", { p_entity_id: entityId, p_cents: cents, p_actor: actorId });
@@ -299,8 +325,9 @@ export class SupabasePanelStore implements PanelStore {
   async createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string) {
     return { replayed: obj(await this.call("tw4_pilot_exception_create", { p_entity_id: entityId, p_ceiling_cents: ceilingCents, p_approval_ref: approvalRef, p_actor: actorId })).replayed === true };
   }
-  async confirmSubaccount(requestKey: string, entityId: string, actorId: string) {
-    return { replayed: obj(await this.call("tw4_panel_subaccount_confirm", { p_request_key: requestKey, p_entity_id: entityId, p_actor: actorId })).replayed === true };
+  async confirmSubaccount(requestKey: string, studioId: string, actorId: string) {
+    const row = obj(await this.call("tw4_panel_subaccount_confirm", { p_request_key: requestKey, p_studio_id: studioId, p_actor: actorId }));
+    return { replayed: row.replayed === true, reused: row.reused === true, legalEntityId: UUID.test(str(row.legal_entity_id)) ? str(row.legal_entity_id) : null };
   }
   async decideTier(studioId: string, actorId: string, tier: RegistrationTier, reason: string, eligibility: Record<string, boolean> | null) {
     return { changed: obj(await this.call("tw4_onboarding_decide_tier", { p_studio_id: studioId, p_actor: actorId, p_tier: tier, p_reason: reason, p_eligibility: eligibility })).changed === true };
@@ -317,8 +344,14 @@ export function panelErrorMessage(action: string, error: unknown): string {
     spend: { TW008: "Refused: there is no published price for this fee, or the amount is not the published price (it may have changed: reload).", TW004: "Refused: this approval would exceed the setup budget.", "23505": "That approval reference was already used for another open fee approval: each owner approval authorizes one operation.", "22023": "Refused: a pilot-funded approval needs the pilot exception, the location and a written approval reference (10+ characters)." },
     withdraw: { "22023": "Only an approval that has not been reserved by a run can be withdrawn." },
     pilot: { "22023": "Refused: the pilot exception exists only for the verified ConfiDance Unlimited, LLC, with a ceiling of at most $150 within its budget and a written founder approval.", "23505": "The pilot exception already exists with another ceiling (it cannot be changed)." },
-    subaccount: { "55000": "Nothing to confirm: the subaccount is already active, suspended or being created.", "22023": "Refused: this confirmation request does not match (reload the page and try again)." },
-    tier: { "22023": "Refused: give a documented reason (10+ characters); Low-Volume Standard also needs every eligibility check and the legal business on file.", "55000": "The registration path is frozen: a brand attempt exists.", "55P03": "A registration run is in progress for this studio; try again in a few minutes." },
+    subaccount: {
+      "55000": "Nothing to confirm: the subaccount is already active, suspended or closed.",
+      TW006: "A creation attempt started less than 10 minutes ago and may still be running. Nothing was recorded; try again in a few minutes (it is then looked up first).",
+      "22023": "Refused: this studio has no legal business, or the confirmation request does not match (reload the page and try again).",
+    },
+    tier: {
+      "22023": "Refused: give a documented reason (10+ characters); Low-Volume Standard also needs every eligibility check and the legal business on file with an EIN matching the studio's setup.",
+      "55000": "Refused: a brand attempt exists (the path is frozen), or an open Standard-price brand fee approval must be withdrawn before choosing Low-Volume Standard.", "55P03": "A registration run is in progress for this studio; try again in a few minutes." },
   };
   if (code === "42501") return "Only a platform admin can do this.";
   return byAction[action]?.[code] ?? "The change could not be saved. Nothing was changed.";
