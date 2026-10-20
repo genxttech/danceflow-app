@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -95,6 +96,9 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
   const displayName = String(studio?.public_name || studio?.name || "Your dance studio");
   const campaign = buildCampaignPackage({ displayName, origin: appOrigin(), slug: String(studio?.slug ?? "") });
   const canEdit = isOwner && !paused && status.canEdit && EDIT_STATES.has(status.state);
+  // TW-4F: an owner of a location not yet linked to a legal business can attest it belongs to an existing one (the location page and the database
+  // re-check the owner role and refuse a linked location or a second pending request)
+  const offerLocationLink = isOwner && !paused && creditView?.overview.legalBusiness !== true;
 
   const wizard = (
     <SmsSetupWizard
@@ -134,6 +138,21 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
 
       <SmsStatusTracker state={status.state} textingOn={status.textingOn} />
 
+      {offerLocationLink ? (
+        <section aria-labelledby="sms-location-link-heading" className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="sms-location-link">
+          <div>
+            <h2 id="sms-location-link-heading" className="text-sm font-semibold text-slate-900">Another location of a business already texting with DanceFlow?</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Link this studio to that legal business instead of starting a new setup. Locations share one texting registration, setup budget and prepaid balance. DanceFlow verifies it first.
+            </p>
+          </div>
+          <Link href="/app/settings/sms/location" className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50">
+            Link this location
+            <ChevronRight aria-hidden="true" className="h-4 w-4" />
+          </Link>
+        </section>
+      ) : null}
+
       {creditView ? <SmsCreditPanel view={creditView} purchasesEnabled={smsCreditPurchasesEnabled()} returned={returned} /> : null}
 
       {creditView && limitView ? <SmsLimitPanel overview={limitView} isOwner={isOwner} enabled={smsMonthlyLimitsEnabled()} /> : null}
@@ -155,8 +174,11 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
         canEdit ? (
           wizard
         ) : (
-          <details className="rounded-2xl border border-slate-200 bg-white p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-violet-800">View the information on file</summary>
+          <details className="group/onfile rounded-2xl border border-slate-200 bg-white p-4">
+            <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-semibold text-violet-800 [&::-webkit-details-marker]:hidden">
+              <ChevronDown aria-hidden="true" className="h-4 w-4 transition-transform group-open/onfile:rotate-180" />
+              View the information on file
+            </summary>
             <div className="mt-4">{wizard}</div>
           </details>
         )

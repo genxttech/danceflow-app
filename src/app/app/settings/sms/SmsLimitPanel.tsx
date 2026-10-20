@@ -5,22 +5,8 @@ import { useRouter } from "next/navigation";
 import { saveMonthlyLimitCall, saveTimezoneCall } from "@/lib/billing/smsMonthlyLimitsClient";
 import { COMMON_TIMEZONES, type MonthlyLimitOverview } from "@/lib/billing/smsMonthlyLimits";
 import { formatUsd } from "@/lib/billing/smsCreditView";
+import { localDate, monthLabel, remainingCents } from "@/lib/billing/smsMonthlyLimitsFormat";
 
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const monthLabel = (key: string) => {
-  const match = /^([0-9]{4})-(0[1-9]|1[0-2])$/.exec(key);
-  return match ? `${MONTHS[Number(match[2]) - 1]} ${match[1]}` : key;
-};
-/** A date in the business's own timezone (a UTC slice would show the wrong day for zones ahead of UTC). */
-const localDate = (iso: string, timeZone: string, offsetMs = 0) => {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso.slice(0, 10);
-  try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(t + offsetMs));
-  } catch {
-    return iso.slice(0, 10);
-  }
-};
 /** Whole dollars or dollars and cents typed by the owner, as cents; null when it is not a plain non-negative amount. */
 export function dollarsToCents(text: string): number | null {
   const match = /^\s*\$?\s*([0-9]{1,6})(?:\.([0-9]{1,2}))?\s*$/.exec(text);
@@ -71,7 +57,7 @@ export default function SmsLimitPanel({
   const proposed = dollarsToCents(dollars);
   const increase = proposed !== null && proposed > overview.limitCents;
   const overCeiling = proposed !== null && proposed > overview.ceilingCents;
-  const remaining = Math.max(overview.effectiveLimitCents - overview.spentCents, 0);
+  const remaining = remainingCents(overview);
   const notSet = overview.limitCents === 0;
   const zoneChanging = overview.nextMonthTimezone !== overview.timezone;
 
