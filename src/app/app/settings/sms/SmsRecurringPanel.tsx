@@ -9,7 +9,7 @@ import { formatUsd, type CreditPrice } from "@/lib/billing/smsCreditView";
 const ISSUE_ACTION: Record<string, string> = {
   unfunded: "There is not enough credit to cover it. Add credit so it can be taken.",
   held: "Your credit is on hold by DanceFlow, so it cannot be taken. Contact support.",
-  cap: "Your business's spending limit has been reached, so it cannot be taken. Contact support.",
+  cap: "This month's spending limit has been reached, so it cannot be taken. It is retried when you raise the limit or next month begins.",
   limit: "The amount you authorized has been used up. Authorize again to continue.",
   price: "The price changed since you authorized. Review the new price and authorize again.",
   waiting: "It has not been taken yet.",

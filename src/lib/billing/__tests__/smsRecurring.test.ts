@@ -139,36 +139,39 @@ describe("authorizeRecurring / revokeRecurring", () => {
 });
 
 describe("runDueRecurringCharges", () => {
-  const fake = (due: unknown, outcomes: Record<string, { data?: unknown; error?: { code: string } }>) => {
+  const fake = (due: unknown, outcomes: Record<string, { data?: unknown; error?: { code: string } }>, released: { data?: unknown; error?: { code: string } } = { data: { released: 0 } }) => {
     const calls: string[] = [];
     return {
       calls,
       client: {
         rpc: async (fn: string, args: Record<string, unknown>) => {
-          calls.push(fn === "tw4_recurring_charge" ? `${fn}:${String(args.p_authorization_id)}:${String(args.p_period_key)}` : fn);
-          if (fn === "tw4_recurring_due") return due as { data: unknown; error: null };
+          calls.push(fn === "tw4_recurring_charge" ? `${fn}:${String(args.p_authorization_id)}:${String(args.p_period_key)}:${String(args.p_run_id)}` : fn);
+          if (fn === "tw4_recurring_release_ended") return { data: released.data ?? null, error: released.error ?? null };
+          if (fn === "tw4_recurring_due_list") return due as { data: unknown; error: null };
           const o = outcomes[String(args.p_authorization_id)] ?? { data: { outcome: "charged", replayed: false } };
           return { data: o.data ?? null, error: o.error ?? null };
         },
       } as never,
     };
   };
-  it("charges each due authorization once for the current UTC month, counts every outcome, and one failure never stops the rest", async () => {
-    const { calls, client } = fake({ data: ["a", "b", "c", "d", "e", 7], error: null }, {
+  const row = (id: string, period: string) => ({ id, period_key: period });
+  it("releases ended commitments first, then charges what the DATABASE lists (it picks each business's month), counts every outcome, and one failure never stops the rest", async () => {
+    const { calls, client } = fake({ data: [row("a", "2026-10"), row("b", "2026-10"), row("c", "2026-09"), row("d", "2026-10"), row("e", "2026-10"), { id: "x", period_key: "garbage" }, 7], error: null }, {
       b: { data: { outcome: "unfunded" } }, c: { data: { outcome: "held" } }, d: { data: { outcome: "refused" } }, e: { error: { code: "40001" } },
     });
-    const summary = await runDueRecurringCharges(client, new Date("2026-10-19T10:00:00Z"));
-    // the previous month is asked first (an unpaid one is retried once credit arrives), then the current one; the fake answers the same for both
-    expect(summary).toEqual({ period: "2026-10", periods: ["2026-09", "2026-10"], runId: null, due: 10, charged: 2, unfunded: 2, held: 2, refused: 2, replayed: 0, errors: 2 });
-    expect(calls.slice(0, 7)).toEqual(["tw4_recurring_due", "tw4_recurring_charge:a:2026-09", "tw4_recurring_charge:b:2026-09", "tw4_recurring_charge:c:2026-09", "tw4_recurring_charge:d:2026-09", "tw4_recurring_charge:e:2026-09", "tw4_recurring_due"]);
-    expect(calls[7]).toBe("tw4_recurring_charge:a:2026-10");
+    const summary = await runDueRecurringCharges(client, "run-1");
+    expect(summary).toEqual({ periods: ["2026-09", "2026-10"], runId: "run-1", due: 5, charged: 1, unfunded: 1, held: 1, refused: 1, replayed: 0, errors: 1 });
+    expect(calls).toEqual(["tw4_recurring_release_ended", "tw4_recurring_due_list", "tw4_recurring_charge:a:2026-10:run-1", "tw4_recurring_charge:b:2026-10:run-1", "tw4_recurring_charge:c:2026-09:run-1", "tw4_recurring_charge:d:2026-10:run-1", "tw4_recurring_charge:e:2026-10:run-1"]);
   });
-  it("a replayed charge is not counted as a new one; a failed due-query stops the run loudly", async () => {
-    const { client } = fake({ data: ["a"], error: null }, { a: { data: { outcome: "charged", replayed: true } } });
-    expect(await runDueRecurringCharges(client, new Date("2026-10-19T10:00:00Z"))).toMatchObject({ charged: 0, replayed: 2 });
-    expect(await runDueRecurringCharges(client, new Date("2026-01-05T10:00:00Z"))).toMatchObject({ periods: ["2025-12", "2026-01"] }); // across a year boundary
-    const { client: broken } = fake({ data: null, error: { code: "XX000" } }, {});
-    await expect(runDueRecurringCharges(broken, new Date())).rejects.toThrow("recurring due query failed");
+  it("a replayed charge is not counted as new; a failed release or due-query stops the run loudly before any charge", async () => {
+    const { client } = fake({ data: [row("a", "2026-10")], error: null }, { a: { data: { outcome: "charged", replayed: true } } });
+    expect(await runDueRecurringCharges(client)).toMatchObject({ charged: 0, replayed: 1, runId: null });
+    const { client: broken, calls } = fake({ data: null, error: { code: "XX000" } }, {});
+    await expect(runDueRecurringCharges(broken)).rejects.toThrow("recurring due query failed");
+    const { client: noRelease, calls: calls2 } = fake({ data: [row("a", "2026-10")], error: null }, {}, { error: { code: "XX001" } });
+    await expect(runDueRecurringCharges(noRelease)).rejects.toThrow("recurring release failed");
+    expect(calls.some((c) => c.startsWith("tw4_recurring_charge"))).toBe(false);
+    expect(calls2).toEqual(["tw4_recurring_release_ended"]);
   });
 });
 

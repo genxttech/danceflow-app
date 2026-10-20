@@ -175,3 +175,34 @@ An authorization whose term has ended is closed (with an audit row) when the own
 3. Prices and legal terms (and `terms_version`) pending approval; notification emails for low balance / suspension; the `none` state's meaning for businesses that never authorized.
 4. Migration order: ... `20261126090000` then `20261127090000`; the app tolerates the state function being absent (sends unchanged) but the cron route and the new admin view need the migration.
 5. The release risks R1/R2 above remain.
+
+## 16. Monthly spending limits replace the lifetime cap for routine costs (2026-10-19)
+
+Migration `20261128090000` (+ rollback), `smsMonthlyLimits.ts` and client, `/api/billing/sms-limits/{set,timezone}`, `SmsLimitPanel`. Local/synthetic only; nothing applied to DEV or PROD, nothing enabled (`SMS_MONTHLY_LIMITS` off). Supersedes the "one shared cap" rule of section 15.
+
+**Owner decisions implemented (D1-D6, 2026-10-19).**
+- **D1 Setup budget.** One-time registration, vetting and provisioning fees stay under the cumulative `spend_cap_cents` budget (`_tw4f3a_committed`, spend events only), which never resets. The ConfiDance $150 pilot ceiling and its per-operation approvals are unchanged. Recurring charges NO LONGER count toward it (D6).
+- **D2 Timezone.** An IANA zone per legal business (`studio_sms_entity_timezones`, append-only, keyed by effective month), inherited from the founding location (first linked). An owner or platform admin changes it; the change takes effect from the NEXT calendar month, with an audit row and a reason. Month windows tile the timeline across a change (the start of month K is local midnight of the 1st in the zone in force for K), so no instant is in two months or none.
+- **D3 Changes.** Decreases apply at once. Increases also apply at once but need the owner to have signed in within 15 minutes (`TW014`), no hold and a non-negative balance (`TW007`); the platform path needs a written reason. The confirmation shows the current spend and the proposed limit; the change row records spend at the time. A limit may be scheduled up to 12 months ahead; the latest decision for a month wins.
+- **D4 Defaults.** The limit is $0 until set (`TW012`: fail closed). The platform safety ceiling starts at $500 a month; a higher ceiling for one business needs a separate platform approval row; the effective limit is the lesser of limit and ceiling. The ceiling is a bound, never an authorization.
+- **D5 SMS usage.** Usage debits already go through `tw4_credit_debit_usage`, which now enforces the monthly limit and the funds, atomically, under the account lock (every path that changes a limit, a reservation or the balance takes the same lock). Wiring the sender to pre-send reservations, with evidence-based reconciliation and no automatic refund of uncertain provider outcomes, is a separate bounded slice and is **mandatory before real SMS activation**.
+- **D6 Accounting.** A month's spend is attributed by ledger `created_at`: usage net of refunds, recurring captures (`capture:rec:%`, `capture:commit:%`) and open commitment/recurring reservations. Setup captures are excluded. A recurring capture belongs to the month its funds were RESERVED in, so a set-aside captured by a later month's charge is counted once, in the month it was set aside, and needs no new room (verified by the Opus review, which found the double count in an earlier draft).
+
+**First-month commitment.** Authorizing a recurring charge needs room under the month's limit and settled funds, and sets the first month aside as reservation `commit:<id>` (available credit drops, so setup and usage cannot consume it). The first charge captures that same reservation (no second reserve); revoking, or the end of the term (`tw4_recurring_release_ended`, run by the scheduler first), releases it. Later months reserve and capture as before, and a charge that would pass the month's limit is recorded as `held` and retried when the limit rises or the month turns.
+
+**Pilot business.** Usage needs a monthly limit like any business and is paid from credit only, never from the pilot; a standing recurring authorization is still refused (`TW011`).
+
+**Scheduler.** The code no longer computes periods: `tw4_recurring_due_list` returns (authorization, period) pairs for each business's current and previous month in its own timezone.
+
+**Migration order and rollback.** `...25` (credit) -> `...26` (recurring authorization) -> `...27` (recurring execution) -> `...28` (this). The precondition refuses without `...27` or if already applied. The rollback restores the section-15 functions and drops the new tables; it REFUSES while any limit, ceiling, timezone change or set-aside commitment exists (clear them deliberately; roll back the app first, then the SQL).
+
+**Release gates.** (1) D5 sender integration before any real SMS. (2) The tw4f3b0/tw4f3bpay suites now set a limit in their fixtures: a PROD business that debits usage needs one first. (3) The `SMS_MONTHLY_LIMITS` flag and the existing four recurring gates stay off. (4) Follow-up: the brand low-volume tier price. (5) Low-balance warnings and suspension emails remain a separate slice.
+
+**Opus review (2026-10-19) and what changed.** Fixed: a set-aside is captured only while settled credit still stands behind it (else the charge is recorded `unfunded` and the set-aside kept); recurring captures are attributed to their reservation's month; an administrator can no longer capture or release a `commit:` reservation by hand (revoking releases it); a timezone change whose new zone would already have begun next month starts the month after, so the current month never moves; ledger/reservation indexes on (business, created_at) for the per-debit month query; the rollback re-revokes `_tw4rc_promised`; the limit panel shows dates in the business's timezone.
+
+**Known limitations, accepted for this slice.**
+- A set-aside for an authorization that can never be charged (price changed, or a pilot exception created later) stays reserved until the owner revokes or the term ends.
+- A one-month term authorized after the month's last scheduler run is not charged (its term ended); the set-aside is released.
+- The recent-sign-in check uses the user's last sign-in, not the individual session.
+- Scheduled future limits are validated (hold, balance, sign-in) when scheduled, not when they take effect; an emergency decrease "now" does not cancel a higher limit already scheduled for a later month (the panel shows next month's limit).
+- `tw4_recurring_release_ended` is not fenced by the scheduler lease (it is idempotent and takes each business's lock in turn).

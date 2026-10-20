@@ -72,6 +72,9 @@ const count = (sql: string) => Number(psql(sql));
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
+delete from public.studio_sms_monthly_limits where legal_entity_id in ('${E1}', '${E2}');
+delete from public.studio_sms_entity_timezones where legal_entity_id in ('${E1}', '${E2}');
+delete from public.studio_sms_limit_ceilings where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_credit_ledger where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_credit_reservations where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_credit_topups where legal_entity_id in ('${E1}', '${E2}');
@@ -125,6 +128,7 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
   beforeAll(() => {
     credits = new SupabaseCreditStore(client(null, serviceKey()));
     psqlFile(FIXTURES);
+    psqlFile(`select public.tw4_monthly_limit_set_admin('${E1}', '${U.padmin}', 50000, null, 'fixture: monthly limit so usage can be debited'); select public.tw4_monthly_limit_set_admin('${E2}', '${U.padmin}', 50000, null, 'fixture: monthly limit so usage can be debited');`);
   });
   afterAll(() => {
     try {
