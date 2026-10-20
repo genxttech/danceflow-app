@@ -69,12 +69,15 @@ export default function SmsSubaccountPanel({
   unavailable,
   notice,
   error,
+  focusStudioId = null,
 }: {
   overview: PanelOverview | null;
   panels: StudioPanel[];
   unavailable: boolean;
   notice: string | null;
   error: string | null;
+  /** The studio the last action was about: its card opens; every other card shows only its progress and next action. */
+  focusStudioId?: string | null;
 }) {
   const pending = (overview?.requests ?? []).filter((r) => r.status === "pending");
   return (
@@ -94,7 +97,7 @@ export default function SmsSubaccountPanel({
           {pending.length > 0 ? <LocationRequests requests={pending} overview={overview!} /> : null}
           <div className="mt-4 space-y-4">
             {panels.length === 0 ? <p className="text-sm text-slate-500">No studio has submitted a texting setup yet.</p> : null}
-            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} />)}
+            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} />)}
           </div>
           <p className="mt-4 text-xs text-slate-500">
             Monthly spending limits are managed by the monthly-limit workstream and will appear here once it is released. This panel shows the cumulative setup budget and each owner-approved fee.
@@ -141,7 +144,7 @@ function LocationRequests({ requests, overview }: { requests: PanelRequest[]; ov
   );
 }
 
-function StudioCard({ panel, overview }: { panel: StudioPanel; overview: PanelOverview }) {
+function StudioCard({ panel, overview, expanded }: { panel: StudioPanel; overview: PanelOverview; expanded: boolean }) {
   const stage = (key: StudioPanel["stages"][number]["key"]) => panel.stages.find((s) => s.key === key)!;
   const entity = panel.entity;
   const audit: PanelAudit[] = overview.audit.filter((a) => a.studioId === panel.studioId || (entity && entity.studios.some((s) => s.studioId === a.studioId))).slice(0, 15);
@@ -168,6 +171,8 @@ function StudioCard({ panel, overview }: { panel: StudioPanel; overview: PanelOv
         </details>
       ) : null}
 
+      <details open={expanded} className="mt-3" data-testid="studio-steps">
+      <summary className="cursor-pointer text-sm font-semibold text-violet-800">Steps, approvals and evidence</summary>
       <div className="mt-3 space-y-2">
         <Section title="Legal business" state={stage("entity").state} open={focus === "entity"}>
           <p>{stage("entity").summary}</p>
@@ -236,6 +241,7 @@ function StudioCard({ panel, overview }: { panel: StudioPanel; overview: PanelOv
           </ul>
         </details>
       </div>
+      </details>
     </article>
   );
 }
@@ -249,6 +255,7 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
     <div className="space-y-3">
       <form action={panelSetSpendCapAction} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
         <input type="hidden" name="entityId" value={entity.id} />
+        <input type="hidden" name="studioId" value={panel.studioId} />
         <label className="text-xs font-medium text-slate-800">Cumulative setup budget ($){isConfiDance ? " (max 150 for the pilot)" : ""}
           <input name="capDollars" inputMode="decimal" required defaultValue={(entity.spendCapCents / 100).toFixed(2)} className={input} />
         </label>
@@ -261,6 +268,7 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
       {isConfiDance && !entity.pilot ? (
         <form action={panelCreatePilotExceptionAction} className="grid gap-2 rounded-xl border border-fuchsia-200 p-3">
           <input type="hidden" name="entityId" value={entity.id} />
+          <input type="hidden" name="studioId" value={panel.studioId} />
           <p className="text-xs font-semibold text-fuchsia-900">ConfiDance pilot ceiling (one time, founder-authorized)</p>
           <label className="text-xs font-medium text-slate-800">Ceiling ($, at most 150)<input name="ceilingDollars" defaultValue="150.00" className={input} /></label>
           <label className="text-xs font-medium text-slate-800">Founder&apos;s written authorization<input name="approvalRef" required minLength={10} maxLength={200} className={input} /></label>
@@ -281,6 +289,7 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
               {s.status === "authorized" ? (
                 <form action={panelWithdrawFeeAction} className="flex items-center gap-1">
                   <input type="hidden" name="spendEventId" value={s.id} />
+                  <input type="hidden" name="studioId" value={panel.studioId} />
                   <input name="note" required minLength={3} maxLength={300} placeholder="reason" className="rounded-lg border border-slate-300 px-2 py-1" />
                   <button type="submit" className="text-rose-700 underline">Withdraw</button>
                 </form>

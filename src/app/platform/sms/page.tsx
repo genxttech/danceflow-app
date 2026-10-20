@@ -415,6 +415,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         unavailable={!panelOverview}
         notice={firstParam(params.panel)}
         error={firstParam(params.panel_error)}
+        focusStudioId={firstParam(params.studio)}
       />
 
       <SmsOnboardingPilot

@@ -17,27 +17,32 @@ import type { CommandResult, SubaccountDeps } from "@/lib/sms/twilioIsv/panelCom
 
 const RETURN_PATH = "/platform/sms";
 
-function finish(result: CommandResult): never {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Back to the panel with the result; the studio the form was about (a uuid, or nothing) reopens its card. */
+function finish(result: CommandResult, formData?: FormData): never {
   revalidatePath(RETURN_PATH);
   const key = result.ok ? "panel" : "panel_error";
-  redirect(`${RETURN_PATH}?${key}=${encodeURIComponent(result.message.slice(0, 400))}#subaccount-panel`);
+  const studio = String(formData?.get("studioId") ?? "");
+  const focus = UUID.test(studio) ? `&studio=${studio}` : "";
+  redirect(`${RETURN_PATH}?${key}=${encodeURIComponent(result.message.slice(0, 400))}${focus}#subaccount-panel`);
 }
 
 const store = () => new SupabasePanelStore(createAdminClient());
 
 export async function panelCreateEntityAction(formData: FormData) {
   const admin = await requirePlatformAdmin();
-  finish(await commands.createEntity(store(), admin.id, formData));
+  finish(await commands.createEntity(store(), admin.id, formData), formData);
 }
 
 export async function panelDecideLinkAction(formData: FormData) {
   const admin = await requirePlatformAdmin();
-  finish(await commands.decideLink(store(), admin.id, formData));
+  finish(await commands.decideLink(store(), admin.id, formData), formData);
 }
 
 export async function panelSetSpendCapAction(formData: FormData) {
   const admin = await requirePlatformAdmin();
-  finish(await commands.setSpendCap(store(), admin.id, formData));
+  finish(await commands.setSpendCap(store(), admin.id, formData), formData);
 }
 
 export async function panelAuthorizeFeeAction(formData: FormData) {
@@ -49,19 +54,19 @@ export async function panelAuthorizeFeeAction(formData: FormData) {
     const studioId = String(formData.get("studioId") ?? "");
     studioTier = (await panelStore.overview(admin.id)).onboardings.find((o) => o.studioId === studioId)?.tier ?? null;
   } catch {
-    finish({ ok: false, message: "The studio's registration path could not be read. Nothing was authorized." });
+    finish({ ok: false, message: "The studio's registration path could not be read. Nothing was authorized." }, formData);
   }
-  finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier }));
+  finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier }), formData);
 }
 
 export async function panelWithdrawFeeAction(formData: FormData) {
   const admin = await requirePlatformAdmin();
-  finish(await commands.withdrawFee(store(), admin.id, formData));
+  finish(await commands.withdrawFee(store(), admin.id, formData), formData);
 }
 
 export async function panelCreatePilotExceptionAction(formData: FormData) {
   const admin = await requirePlatformAdmin();
-  finish(await commands.createPilotException(store(), admin.id, formData));
+  finish(await commands.createPilotException(store(), admin.id, formData), formData);
 }
 
 export async function panelCreateSubaccountAction(formData: FormData) {
@@ -74,10 +79,10 @@ export async function panelCreateSubaccountAction(formData: FormData) {
   } catch {
     result = { ok: false, message: "The subaccount step failed unexpectedly. Nothing is repeated automatically; reload and check its status before trying again." };
   }
-  finish(result);
+  finish(result, formData);
 }
 
 export async function panelDecideTierAction(formData: FormData) {
   const admin = await requirePlatformAdmin();
-  finish(await commands.decideTier(store(), admin.id, formData));
+  finish(await commands.decideTier(store(), admin.id, formData), formData);
 }
