@@ -48,7 +48,7 @@ Built in this slice (all local, fake adapters only): migration `20261121090000_t
 
 Not built (next slices): the platform panel for entities, links, spend cap and "Create subaccount" (the library, SQL and tests exist; no UI calls them yet, so a studio cannot be provisioned from the panel until that lands); owner-facing attestation UI/wording; webhook mapping by AccountSid (blocked on Q1c); registration-row account SID; the Stage B/C harness is parent-account by design and is no longer usable against the production runner (it would stop with `needs_subaccount`); Messaging Service, campaign and number (4F-3b, 4F-4).
 
-Still blocked for real Twilio activity: **Q1b** (cross-account Primary assignment: the fake assumes it works) and **Q1c** (webhook signing token).
+Update 2026-10-19: **Q1b** and **Q1c** are answered by Twilio (ticket #29647095) and implemented locally; see `TW-4F_Provider_Integration.md`. Real Twilio activity still needs its own authorization per operation.
 
 ## 7. Findings from implementation
 

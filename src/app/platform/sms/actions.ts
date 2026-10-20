@@ -226,7 +226,7 @@ export async function runSmsOnboardingAction(formData: FormData) {
     const result =
       intent === "refresh"
         ? await checkRegistrationStatus({ store: runtime.store, adapter, studioId, actorId: admin.id })
-        : await runBrandSubmission({ store: runtime.store, adapter, config: runtime.config, studioId, actorId: admin.id, confirmFee, confirmSubmit });
+        : await runBrandSubmission({ store: runtime.store, adapter, primary: runtime.parent, config: runtime.config, studioId, actorId: admin.id, confirmFee, confirmSubmit });
     message = describeOutcome(result.outcome, result.detail);
     if (confirmSubmit.length > 0) {
       const done = (result.stepsRun ?? []).filter((step): step is SubmissionStepKey => step === "S11" || step === "T6");

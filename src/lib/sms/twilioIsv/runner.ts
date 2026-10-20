@@ -6,7 +6,8 @@ import {
   type RunnerInputs,
 } from "./payloads";
 import { RunnerStoreError, type RunnerStore, type RunnerTransitionState } from "./store";
-import { IsvApiError, ISV_STEP_KEYS, type IsvAdapter, type IsvStepKey } from "./types";
+import { paidBrandSupported, registrationPath, type RegistrationPath } from "./registrationPath";
+import { IsvApiError, ISV_STEP_KEYS, type IsvAdapter, type IsvStepKey, type PrimaryProfileReader } from "./types";
 
 /**
  * TW-4 R1: the brand submission runner. Executes the approved Twilio sequence for ONE studio, one ledger-protected step at a
@@ -49,7 +50,9 @@ export type RunOutcome =
   /** TW-4F-3b-0: the funding studio's settled prepaid credit cannot cover a fee-bearing step (or the account is on hold / negative). Nothing was called or charged. */
   | "insufficient_credit"
   /** TW-4F-3b-0: Twilio performed (or definitely did not perform) a fee step but the credit settlement could not be recorded. The reservation stays held for a human. */
-  | "settlement_failed";
+  | "settlement_failed"
+  /** TW-4F provider integration: the paid brand of this registration tier has no published price yet (Low-Volume Standard). Nothing was reserved or called. */
+  | "tier_unpriced";
 
 /** The steps whose Twilio call cannot be undone (a submission for review). Each needs its own explicit confirmation on every run. */
 export const SUBMISSION_STEPS = ["S11", "T6"] as const;
@@ -82,11 +85,19 @@ export type RunInput = {
    * Only the staged validation harness (Stage C, behind its own authorization token) sets this to true. The platform action never does.
    */
   allowSubmitInSameRunAsEvaluation?: boolean;
+  /**
+   * TW-4F provider integration: reads the ISV Primary profile with PARENT credentials (it lives in the parent account; a subaccount can assign it but
+   * is not known to be able to read it). Every subaccount run passes the parent here. Without it the preflight reads through `adapter`, which is only
+   * correct for the single-account validation harness; in a subaccount that read finds nothing and the run stops (fail closed).
+   */
+  primary?: PrimaryProfileReader;
 };
 
 type Ctx = {
   adapter: IsvAdapter;
   config: IsvConfig;
+  /** TW-4F provider integration: Standard or Low-Volume Standard, from the database (never guessed). */
+  path: RegistrationPath;
   inputs: RunnerInputs;
   sids: Partial<Record<IsvStepKey, string>>;
   /** Evaluations that returned an explicit compliant verdict IN THIS PROCESS. A ledger row from an earlier run never counts as one. */
@@ -203,8 +214,9 @@ export const STEPS: readonly StepDef[] = [
     run: async (ctx) => ({
       sid: await ctx.adapter.createBrand({
         customerProfileSid: need(ctx, "S1"), trustProductSid: need(ctx, "T1"),
-        // Standard brand (owner decision for the ConfiDance pilot); automatic secondary vetting stays ON for Standard.
-        brandType: "STANDARD", skipAutomaticSecVet: false, mock: ctx.config.mockBrand,
+        // Both tiers are BrandType STANDARD. Standard (D3, the pilot default) keeps automatic secondary vetting ON; Low-Volume Standard skips it,
+        // which Twilio allows only for Low-Volume Standard brands (see registrationPath.ts).
+        brandType: ctx.path.brand.brandType, skipAutomaticSecVet: ctx.path.brand.skipAutomaticSecVet, mock: ctx.config.mockBrand,
       }),
     }),
   },
@@ -271,7 +283,7 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
     // Preflight: nothing is created unless the ISV Primary profile is Twilio-approved right now.
     let primary: { status: string; policySid: string | null };
     try {
-      primary = await adapter.getCustomerProfile(config.primaryProfileSid);
+      primary = input.primary ? await input.primary.getPrimaryProfile() : await adapter.getCustomerProfile(config.primaryProfileSid);
     } catch (error) {
       return { outcome: error instanceof IsvApiError && error.kind === "transient" ? "retry_later" : "exception", stepsRun, detail: `preflight:${sanitizedDetail(error)}` };
     }
@@ -285,8 +297,20 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
       return { outcome: "needs_info", stepsRun, detail: `missing:${inputs.missing.join(",")}`, state: "needs_info" };
     }
 
+    let path: RegistrationPath;
+    try {
+      path = registrationPath((await store.getTier(onboardingId, leaseOwner)).tier);
+    } catch (error) {
+      return { outcome: "exception", stepsRun, detail: error instanceof RunnerStoreError ? `tier:${error.code}` : "tier:unknown", state: claim.state };
+    }
+    // A paid run of a tier with no published brand price stops HERE, before any Twilio write, rather than after the irreversible S11/T6 submissions.
+    // An onboarding whose brand already exists (B1 succeeded, e.g. as a mock) is not blocked: nothing is bought again.
+    if (!config.mockBrand && !paidBrandSupported(path) && !claim.steps.some((row) => row.step_key === "B1" && row.status === "succeeded")) {
+      return { outcome: "tier_unpriced", stepsRun, detail: `B1:${path.tier}`, state: claim.state };
+    }
+
     const ctx: Ctx = {
-      adapter, config, inputs, sids: {}, verified: {},
+      adapter, config, path, inputs, sids: {}, verified: {},
       readEin: async () => {
         const row = await store.getEin(onboardingId, leaseOwner, actorId);
         // the key id stored beside the token must be the one inside it (the token is <keyId>.<iv>.<tag>.<data>)
@@ -394,6 +418,11 @@ export async function runBrandSubmission(input: RunInput): Promise<RunResult> {
           if (error instanceof RunnerStoreError && error.code === "TW001") return { outcome: "runner_closed", stepsRun, state };
           throw error;
         }
+      }
+      // A paid brand of a tier with no published price would be reserved and captured at the wrong (Standard) price: refuse before asking for the
+      // fee confirmation, before any reservation and before any Twilio call. A MOCK brand is free and may use either tier.
+      if (step.fee && !config.mockBrand && !paidBrandSupported(ctx.path)) {
+        return { outcome: "tier_unpriced", stepsRun, detail: `${step.key}:${ctx.path.tier}`, state };
       }
       if (step.fee && !input.confirmFee) {
         return { outcome: "waiting_fee_confirmation", stepsRun, state };
