@@ -219,6 +219,10 @@ export type SmsSkipReason =
   | "sms_not_approved"
   | "sms_studio_not_approved"
   | "sms_service_suspended"
+  | "sms_billing_unavailable"
+  | "sms_insufficient_credit"
+  | "sms_monthly_limit"
+  | "sms_no_billed_sender"
   | "sms_invalid_phone"
   | "sms_no_consent"
   | "sms_opted_out";

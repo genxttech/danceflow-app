@@ -559,22 +559,27 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
         commit;`);
       const saved = process.env.DANCEFLOW_SMS_STATUS;
       process.env.DANCEFLOW_SMS_STATUS = "approved";
+      // a studio of a legal business texts only through the billed path (TW-4F usage billing), whose reservation refuses a suspended business (TW016);
+      // here the service state itself is checked
+      const state = async (studio: string) => String((await rpc("tw4_recurring_service_state", { p_studio_id: studio })).data);
+      const serving = async (studio: string) => ({ ok: (await state(studio)) !== "suspended" });
       try {
-        expect(await resolveStudioSmsSender(admin as never, PA1)).toMatchObject({ ok: true }); // no recurring authorization: nothing to enforce
+        expect(await resolveStudioSmsSender(admin as never, PA1)).toEqual({ ok: false, reason: "sms_billed_studio" });
+        expect(await serving(PA1)).toMatchObject({ ok: true }); // no recurring authorization: nothing to enforce
         const id = await newAuth("owner_a", PA1, "monthly");
-        expect(await resolveStudioSmsSender(admin as never, PA1)).toMatchObject({ ok: true }); // authorized, first charge not taken yet, inside the grace window
+        expect(await serving(PA1)).toMatchObject({ ok: true }); // authorized, first charge not taken yet, inside the grace window
         aged(`update public.studio_sms_recurring_authorizations set starts_at = date_trunc('month', now() at time zone 'UTC') at time zone 'UTC' - interval '1 month' + interval '1 day' where id = '${id}';`);
-        expect(await resolveStudioSmsSender(admin as never, PA1)).toEqual({ ok: false, reason: "sms_service_suspended" }); // the previous month is long overdue
-        expect(await resolveStudioSmsSender(admin as never, PB1)).toMatchObject({ ok: true }); // another business is unaffected
+        expect(await state(PA1)).toBe("suspended"); // the previous month is long overdue
+        expect(await serving(PB1)).toMatchObject({ ok: true }); // another business is unaffected
         expect((await charge(id, month(-1))).data).toMatchObject({ outcome: "charged" });
         const monthStart = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1);
         const currentOverdue = Date.now() > monthStart + 7 * 86_400_000; // the current month's own grace window
-        expect(await resolveStudioSmsSender(admin as never, PA1)).toMatchObject({ ok: !currentOverdue });
+        expect(await serving(PA1)).toMatchObject({ ok: !currentOverdue });
         expect((await charge(id, NOW)).data).toMatchObject({ outcome: "charged" });
-        expect(await resolveStudioSmsSender(admin as never, PA1)).toMatchObject({ ok: true }); // paid up: sending resumes
+        expect(await serving(PA1)).toMatchObject({ ok: true }); // paid up: sending resumes
         // revoking ends the obligation: no authorization, nothing to enforce
         await rpc("tw4_recurring_revoke", { p_authorization_id: id, p_user_id: U.owner_a });
-        expect(await resolveStudioSmsSender(admin as never, PA1)).toMatchObject({ ok: true });
+        expect(await serving(PA1)).toMatchObject({ ok: true });
       } finally {
         process.env.DANCEFLOW_SMS_STATUS = saved;
       }
