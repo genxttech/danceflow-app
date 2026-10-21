@@ -371,9 +371,12 @@ begin
     return jsonb_build_object('listing_id', v_row.id, 'verdict', v_row.verdict, 'replayed', true);
   end if;
   -- timing: a read must be fresh, must follow the attempt, and must have STARTED after the previous record (two reads are never one read recorded twice)
-  if v_start > v_now or v_start < v_now - interval '10 minutes' then
+  -- the adapter's clock and this database's clock are different machines: a start up to 60 seconds ahead is clock skew, not a future read, and is clamped to
+  -- the database's own time so that skew can never make a read count as later than it was
+  if v_start > v_now + interval '60 seconds' or v_start < v_now - interval '10 minutes' then
     raise exception 'the read is stale or from the future' using errcode = 'TW046';
   end if;
+  v_start := least(v_start, v_now);
   if v_start < r.started_at then
     raise exception 'the read began before the attempt' using errcode = 'TW046';
   end if;
