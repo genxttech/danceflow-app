@@ -77,15 +77,13 @@ jobs:
       - name: Full Vitest suite
         run: npx vitest run
 
-      # next build runs its own TypeScript pass on top of the compile; on this repo that pass needs more than Node 20's default heap
-      # (~4 GB; observed: "JavaScript heap out of memory" after ~2.5 min). The standard ubuntu-latest runner for a public repo has
-      # 16 GB RAM, so a 6 GB heap leaves ample headroom. Scoped to this step only; the earlier `tsc --noEmit` and Vitest steps are unchanged.
+      # Next.js runs its own TypeScript pass inside the build. That pass peaks at ~4.1 GB (measured: tsc --extendedDiagnostics reports 4.14 GB on main), which
+      # is the Node 20 default old-space limit (~4.1 GB), so the build sits exactly at the limit and a few hundred lines of unrelated code tip it over. The hosted runner
+      # has 16 GB; this raises the limit for this one step only.
       - name: Production build
-        run: |
-          free -m | head -2
-          npm run build
         env:
-          NODE_OPTIONS: "--max-old-space-size=6144"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npm run build
 
       # Independent pre-commit review, Blocker B1: `npx eslint .` (lint the
       # entire repo) fails unconditionally today -- this repo has hundreds
@@ -167,8 +165,6 @@ jobs:
       - name: Production build
         run: npm run build
         env:
-          # Same heap limit as the static-checks build (see the comment there).
-          NODE_OPTIONS: "--max-old-space-size=6144"
           # Points the BUILD at the same non-production Supabase instance the
           # E2E run itself targets -- never production, and never a default,
           # since this whole job is skipped above when these aren't set.
