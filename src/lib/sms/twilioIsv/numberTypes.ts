@@ -59,6 +59,8 @@ export interface IsvNumberAdapter {
 
   /** FREE, read-only. US local SMS-enabled numbers, optionally in one area code. Buys and reserves nothing. */
   searchAvailableNumbers(query: { areaCode?: string; limit: number }): Promise<AvailableNumber[]>;
+  /** EVERY incoming number of THIS account (a complete listing or a throw): the purchase compares it with the ledger before it buys anything. */
+  listIncomingNumbers(): Promise<{ sid: string; phone_number: string | null }[]>;
   /** Incoming numbers of THIS account with exactly this E.164 (a complete listing or a throw: never a silently partial one). */
   findOwnedNumbers(e164: string): Promise<string[]>;
   /** FEE-BEARING. Buys the number in this account. A response is a purchase, confirmed only by a later read (`getNumber`). */

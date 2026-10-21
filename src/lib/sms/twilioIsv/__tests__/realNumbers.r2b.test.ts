@@ -115,6 +115,17 @@ describe("real number adapter request shapes (no live Twilio)", () => {
     await expect(adapter.findOwnedNumbers("12025550101")).rejects.toThrow(/invalid number/);
   });
 
+  it("lists the WHOLE inventory of this account (own rows only); more pages than one page can show is refused, never a partial list", async () => {
+    const { adapter, stub } = adapterWith([
+      { status: 200, body: { incoming_phone_numbers: [{ sid: PN, account_sid: SUB, phone_number: E164 }, { sid: `PN${"d".repeat(32)}`, account_sid: PARENT, phone_number: "+12025550102" }], next_page_uri: null } },
+      { status: 200, body: { incoming_phone_numbers: [], next_page_uri: "/2010-04-01/Accounts/x/IncomingPhoneNumbers.json?Page=1" } },
+    ]);
+    expect(await adapter.listIncomingNumbers()).toEqual([{ sid: PN, phone_number: E164 }]);
+    expect(stub.calls[0].url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${SUB}/IncomingPhoneNumbers.json?PageSize=1000`);
+    expect(stub.calls[0].method).toBe("GET");
+    await expect(adapter.listIncomingNumbers()).rejects.toMatchObject({ kind: "transient" });
+  });
+
   it("purchases with a form POST of the exact E.164 (the only call that costs money) and returns the PN sid; a 2xx without a sid is unknown", async () => {
     const { adapter, stub } = adapterWith([{ status: 201, body: { sid: PN } }, { status: 201, body: { sid: "nope" } }]);
     expect(await adapter.purchaseNumber({ e164: E164, friendlyName: "df:production:studio:pn:1" })).toBe(PN);

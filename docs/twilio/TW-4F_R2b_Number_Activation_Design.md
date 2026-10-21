@@ -108,3 +108,31 @@ Three reviews of commit c8d619dd found **no P0**. Fixed in the follow-up commit,
 8. **PR #249 UI actions** (`senderActions.ts`) still record/verify free-form identifiers for locations with no R2b operation; for R2b-managed locations they cannot make a sender send (send gate) or pass the activation checklist.
 9. **Cancel + new onboarding with a live ledger row** wedges the runner (operations are found by studio, observed by onboarding): retire or resolve before cancelling.
 10. An expired, never-withdrawn approval keeps its number reserved until the same location's next selection; a retired number cannot be approved again by anyone.
+
+## 11. Remediation round 2 (2026-10-21, after PR #252 merged as 1c036885)
+
+**Base.** PR #254 now targets `main`. The R2a squash commit has the same tree as the reviewed R2a branch head `b2c2514a`; `origin/main` was merged into this branch (no rebase, no force-push) so the PR diff is the R2b files only (14 files).
+
+**Closed in R2b (database-enforced, tested):**
+
+| Finding | Control |
+|---|---|
+| Owner approval trusted a caller-supplied actor | `tw4_num_select` / `tw4_num_withdraw` accept the OWNER path only when `auth.uid() = p_actor`. The only entry points an authenticated user can run are `tw4_num_select_as_owner` and `tw4_num_withdraw_as_owner` (actor = `auth.uid()`). A service-role call that merely names an owner is refused (`42501`). A platform admin may still record the owner's written approval (reference required, used once). Owner approvals are audited as `user`, not as an admin. |
+| Inbound route supplied by the caller | `studio_sms_inbound_route_pins` (append-only; latest row is current) pinned by `tw4_inbound_route_pin_set` (admin, https origin only). `tw4_act_compliance_record` refuses when no pin exists or the expected route differs (`TW044`); the activation checklist has an `inbound_route_pinned` item. |
+| Provider number inventory not reconciled | `tw4_num_context` returns every number SID the system accounts for in the business's subaccount (any ledger operation incl. retired, any sender row of its locations, admin acknowledgements). Before recording or buying anything the runner lists the subaccount's complete inventory (`listIncomingNumbers`, paginated lists refused) and stops with `num_inventory_unknown` if the provider shows a number the system does not know. `tw4_num_inventory_ack` (admin, reason) records a known foreign number once. The per-number lookup still refuses to adopt it. |
+| Sender stays valid after ownership loss | A provider 404 or mismatch on the number or its attachment revokes the sender and moves the location to `exception` (R2b round 1); `tw4_num_rent_basis` reports it as `provider_ownership_lost`. |
+| Sending before activation | `_tw4sr_ready` = PR #249 readiness AND onboarding `active` for any location with an R2b operation (round 1). |
+
+**Recurring-fee lifecycle: what is authoritative, and what R2b does not do.**
+
+Authoritative state: rent is an obligation of `studio_sms_recurring_authorizations` (status, term, price, commitment reservation) charged by `tw4_recurring_charge` through `tw4_recurring_due_list`. Neither knows about provider resources, so today an active `number` authorization is charged whether or not a number exists. The provider-resource truth for a number is the R2b ledger (`studio_sms_num_operations` + `studio_sms_num_resources`, written only from provider reads). R2b exposes it as a **read-only contract**: `tw4_num_rent_basis(studio)` returns `{live, reason, managed, pilot, phone_number_sid, e164, confirmed_at, last_observed_at}`. `live` = a purchase the provider's own read confirmed as owned in the business's active subaccount, not retired, whose sender row is not released.
+
+R2b deliberately does **not** edit `tw4_recurring_charge`, the due list, an authorization or a reservation, and does not charge, refund, renew, revoke or cancel anything. The recurring-fee workstream must gate `number` rent on the contract:
+
+1. For `kind = 'number'` and `managed = true`: charge a period only when `live = true`. When `live = false`, record the period as waiting/held with the `reason` (never `charged`, never silently skipped). A location with `managed = false` (a number that predates R2b) is not gated.
+2. First month: the commitment set-aside remains reserved until the first live period is charged; revoking the authorization while a live purchase exists should be surfaced to the platform (`tw4_act_exposure` already lists `number_without_authorization`) rather than silently releasing the set-aside.
+3. Provider-cost variance: Twilio's bill for a number that was bought but never became billable to the studio (revoked authorization, ownership lost, retired but not yet released at the console) is a DanceFlow-borne provider cost. It is recorded by the exposure list and handled by an operator; no studio is charged for it without an authorization, and no authorization is renewed automatically.
+4. ConfiDance (pilot): never charged by a schedule (`tw4_recurring_charge` already refuses pilot businesses). `rent_basis.pilot = true`. Month two needs a new per-operation written approval inside the cumulative ceiling; that operation does not exist yet and keeps the activation checklist failing (`pilot_month_two_undefined`).
+5. Numbers are never released or cancelled automatically: retiring is an admin act after a console release.
+
+Dependencies: PR #251 (sender re-verification) is independent of R2b (R2b never calls its scheduler-only function; `_tw4sr_ready` is the shared judge). PR #253 (R2c UI) must call `tw4_num_select_as_owner` / `tw4_num_withdraw_as_owner` with the owner's own session client, call admin actions only from authenticated platform-admin server actions, and build number adapters through a gated factory. The recurring-fee lifecycle PR must consume `tw4_num_rent_basis`.

@@ -28,6 +28,8 @@ export type NumRequirements = {
 export type NumContext = {
   state: string; submission_seq: number; studio_id: string; messaging_service_sid: string | null; campaign_sid: string | null;
   requirements: NumRequirements; operations: NumOperationView[];
+  /** Every number SID the system accounts for in this business's subaccount (ledger, sender registry, acknowledgements). */
+  known_numbers: string[];
 };
 
 export type NumClaim = { onboarding_id: string; studio_id: string; state: string; submission_seq: number };

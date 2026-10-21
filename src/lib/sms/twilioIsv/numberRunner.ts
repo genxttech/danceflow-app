@@ -349,6 +349,22 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
       if (!input.confirmFee) return { outcome: "waiting_fee_confirmation", steps, detail: ctx.requirements.selection_e164 ?? undefined, state };
     }
     const e164 = livePurchase?.e164 ?? ctx.requirements.selection_e164;
+    if (!livePurchase) {
+      // INVENTORY RECONCILIATION before anything is recorded or bought: every number the provider shows in this subaccount must be one the system accounts for. A number it
+      // does not know (bought by hand, a hung purchase an admin declared not created) may be billed to DanceFlow forever: a human acknowledges it, nothing proceeds.
+      let inventory;
+      try {
+        inventory = await adapter.listIncomingNumbers();
+      } catch (error) {
+        return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state };
+      }
+      const known = new Set(ctx.known_numbers ?? []);
+      const unknown = inventory.filter((n) => !known.has(n.sid));
+      if (unknown.length > 0) {
+        await toException("num_inventory_unknown");
+        return { outcome: "exception", steps, detail: `inventory_unrecorded:${unknown.length}`, state };
+      }
+    }
     if (!e164 || (!livePurchase && !ctx.requirements.selection_id)) return { outcome: "no_selection", steps, state };
     const name = numberFriendlyName(input.envName, studioId, ctx.submission_seq);
     const purchase = await perform({

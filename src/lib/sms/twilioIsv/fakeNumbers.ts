@@ -117,6 +117,10 @@ export class FakeNumberAdapter implements IsvNumberAdapter {
     });
   }
 
+  async listIncomingNumbers() {
+    return this.guarded("listIncomingNumbers", {}, () => [...this.universe.owned.values()].filter((row) => row.account_sid === this.accountSid).map((row) => ({ sid: row.sid, phone_number: row.phone_number })));
+  }
+
   async findOwnedNumbers(e164: string) {
     return this.guarded("findOwnedNumbers", { e164 }, () => [...this.universe.owned.values()].filter((row) => row.account_sid === this.accountSid && row.phone_number === e164).map((row) => row.sid));
   }

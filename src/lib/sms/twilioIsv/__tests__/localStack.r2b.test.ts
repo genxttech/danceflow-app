@@ -27,6 +27,20 @@ import { offerNumbers, refreshNumber, runNumberAcquisition } from "../numberRunn
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
 const PG = process.env.TW4A_LOCAL_DB_CONTAINER ?? "";
+const DBN = process.env.TW4A_LOCAL_DB_NAME ?? "postgres";
+// an isolated PostgREST (own database) has no gateway in front of it: its paths have no /rest/v1 prefix
+const NO_PREFIX = process.env.TW4A_LOCAL_NO_REST_PREFIX === "1";
+const mkClient = (key: string) =>
+  createClient(URL_, key, { auth: { persistSession: false, autoRefreshToken: false }, ...(NO_PREFIX ? { global: { fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+    // an idle keep-alive socket that PostgREST already closed fails BEFORE the request is processed: retry that once (a stack behind a gateway never needs this)
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await fetch(String(input).replace("/rest/v1", ""), init);
+      } catch (error) {
+        if (attempt >= 2 || !/ECONNRESET|fetch failed/.test(String((error as Error)?.cause ?? error))) throw error;
+      }
+    }
+  } } } : {}) });
 const loopback = (() => {
   try {
     return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(URL_).hostname);
@@ -71,11 +85,11 @@ function sign(payload: Record<string, unknown>) {
   return `${head}.${createHmac("sha256", SECRET).update(head).digest("base64url")}`;
 }
 const serviceKey = () => (enabled ? sign({ iss: "supabase-demo", role: "service_role", exp: 1983812996 }) : "");
-const psql = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { encoding: "utf8" }).trim();
-const psqlFile = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-q", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
+const psql = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DBN, "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { encoding: "utf8" }).trim();
+const psqlFile = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DBN, "-q", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
 const psqlError = (sql: string): string => {
   try {
-    execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-q", "-v", "ON_ERROR_STOP=1"], { input: `\\set VERBOSITY verbose\n${sql}`, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DBN, "-q", "-v", "ON_ERROR_STOP=1"], { input: `\\set VERBOSITY verbose\n${sql}`, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
     return "";
   } catch (error) {
     return String((error as { stderr?: Buffer | string }).stderr ?? error);
@@ -87,6 +101,8 @@ const STUDIOS = `'${SA1}', '${SA2}', '${SB1}', '${SC1}', '${SD1}'`;
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
+delete from public.studio_sms_inbound_route_pins where set_by = '${U.padmin}';
+delete from public.studio_sms_num_inventory_acks where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_compliance_checks where studio_id in (${STUDIOS});
 delete from public.studio_sms_optout_attestations where studio_id in (${STUDIOS});
 delete from public.studio_sms_num_resources where studio_id in (${STUDIOS});
@@ -218,8 +234,17 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     if (process.env.R2B_DEBUG) console.log("offer", studio.slice(-2), JSON.stringify(result));
     return result;
   };
+  /** A client signed in AS that user (an authenticated session): the only way an owner approval is made. */
+  const asUser = (id: string) => mkClient(sign({ role: "authenticated", sub: id, aud: "authenticated", exp: 1983812996 }));
   const select = (studio: string, user: string, offerId: string, e164: string, price = PRICE.number, approvalRef?: string) =>
-    rpc("tw4_num_select", { p_studio_id: studio, p_actor: user, p_offer_id: offerId, p_e164: e164, p_ack_price_cents: price, p_approval_ref: approvalRef ?? null });
+    user === U.padmin || approvalRef !== undefined
+      ? rpc("tw4_num_select", { p_studio_id: studio, p_actor: user, p_offer_id: offerId, p_e164: e164, p_ack_price_cents: price, p_approval_ref: approvalRef ?? null })
+      : (asUser(user).rpc("tw4_num_select_as_owner", { p_studio_id: studio, p_offer_id: offerId, p_e164: e164, p_ack_price_cents: price }) as unknown as ReturnType<typeof rpc>);
+  const withdraw = (studio: string, user: string, selectionId: string, note: string) =>
+    user === U.padmin
+      ? rpc("tw4_num_withdraw", { p_studio_id: studio, p_actor: user, p_selection_id: selectionId, p_note: note })
+      : (asUser(user).rpc("tw4_num_withdraw_as_owner", { p_studio_id: studio, p_selection_id: selectionId, p_note: note }) as unknown as ReturnType<typeof rpc>);
+  const basis = async (studio: string) => (await rpc("tw4_num_rent_basis", { p_studio_id: studio })).data as { live: boolean; reason: string };
   /** offer + owner selection in one go (returns the selection id) */
   const choose = async (studio: string, user: string, adapter: FakeNumberAdapter, e164: string) => {
     const o = await offer(studio, adapter);
@@ -241,9 +266,15 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
   beforeAll(async () => {
     expect(psql(`select to_regclass('public.studio_sms_num_operations') is not null`)).toBe("t");
     psqlFile(FIXTURES);
-    admin = createClient(URL_, serviceKey(), { auth: { persistSession: false, autoRefreshToken: false } });
+    admin = mkClient(serviceKey());
     credits = new SupabaseCreditStore(admin);
     store = new SupabaseNumberStore(admin);
+    // PostgREST reloads its schema cache after DDL: wait until the newest function answers before the first test
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const probe = await admin.rpc("tw4_num_rent_basis", { p_studio_id: SA1 });
+      if (!probe.error) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     // PostgREST reloads its schema cache after DDL: wait until it answers with a real error code (or success) before the first test
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const probe = await admin.rpc("tw4_num_status", { p_studio_id: SA1, p_actor: U.padmin });
@@ -339,6 +370,11 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     it("only the studio owner (or an admin recording the owner's written approval) can choose; the price must be the published price; the offer expires", async () => {
       const o = await offer(SA1, adapterOf(ACC.A));
       expect((await select(SA1, U.stranger, o.offer!.offerId, NUM.a1)).error?.code).toBe("42501");
+      // a service-role call that only NAMES the owner (no session) is a forged owner approval, with or without a reference: refused
+      for (const approvalRef of [null, "Owner email says yes to this number"]) {
+        expect((await rpc("tw4_num_select", { p_studio_id: SA1, p_actor: U.owner_a, p_offer_id: o.offer!.offerId, p_e164: NUM.a1, p_ack_price_cents: PRICE.number, p_approval_ref: approvalRef })).error?.code).toBe("42501");
+      }
+      expect(psql(`select count(*) from public.studio_sms_number_selections where studio_id = '${SA1}'`)).toBe("0");
       expect((await select(SA1, U.owner_b, o.offer!.offerId, NUM.a1)).error?.code).toBe("42501"); // another business's owner
       expect((await select(SA1, U.owner_a, o.offer!.offerId, NUM.a1, PRICE.number + 1)).error?.code).toBe("TW008");
       expect((await select(SA1, U.owner_a, o.offer!.offerId, NUM.addr)).error?.code).toBe("22023"); // not in the offer
@@ -364,8 +400,10 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // a second open approval is refused; the same number cannot be approved twice
       const second = await select(SA1, U.owner_a, o.offer!.offerId, NUM.a1);
       expect(second.error?.code).toBe("23505");
-      expect((await rpc("tw4_num_withdraw", { p_studio_id: SA1, p_actor: U.stranger, p_selection_id: row.selection_id, p_note: "nope" })).error?.code).toBe("42501");
-      expect((await rpc("tw4_num_withdraw", { p_studio_id: SA1, p_actor: U.owner_a, p_selection_id: row.selection_id, p_note: "changed my mind" })).error).toBeNull();
+      expect((await withdraw(SA1, U.stranger, row.selection_id, "nope")).error?.code).toBe("42501");
+      // a service-role call that merely NAMES the owner is a forged approval: refused (the owner path trusts no parameter)
+      expect((await rpc("tw4_num_withdraw", { p_studio_id: SA1, p_actor: U.owner_a, p_selection_id: row.selection_id, p_note: "forged" })).error?.code).toBe("42501");
+      expect((await withdraw(SA1, U.owner_a, row.selection_id, "changed my mind")).error).toBeNull();
       expect(selStatus(row.selection_id)).toBe("withdrawn");
       // an approval is never edited (history is fixed)
       expect(psqlError(`update public.studio_sms_number_selections set e164 = '${NUM.a1}' where id = '${row.selection_id}'`)).toContain("never edited");
@@ -382,6 +420,28 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect([SA1, SA2]).toContain(winner);
       const sel = psql(`select id from public.studio_sms_number_selections where e164 = '${NUM.a2}' and status = 'approved'`);
       expect((await rpc("tw4_num_withdraw", { p_studio_id: winner, p_actor: U.padmin, p_selection_id: sel, p_note: "fixture cleanup" })).error).toBeNull();
+    });
+  });
+
+  describe("an admin recording the owner's written approval", () => {
+    it("needs a reference to that approval, used once in the fee-approval namespace; the approver is recorded as the admin acting for the owner", async () => {
+      const a = adapterOf(ACC.A);
+      const o = await offer(SA2, a);
+      const written = "Owner email 2026-10-21 approves number a2 for location 2";
+      const first = await select(SA2, U.padmin, o.offer!.offerId, NUM.a2, PRICE.number, written);
+      expect(first.error).toBeNull();
+      expect(psql(`select approver_role || '|' || approver_user from public.studio_sms_number_selections where studio_id = '${SA2}' and status = 'approved'`)).toBe(`platform_admin_recorded|${U.padmin}`);
+      expect(psql(`select actor_type from public.studio_sms_onboarding_audit where studio_id = '${SA2}' and action = 'num_selected'`)).toBe("platform_admin");
+      const id = (first.data as { selection_id: string }).selection_id;
+      expect((await withdraw(SA2, U.padmin, id, "fixture cleanup")).error).toBeNull();
+      // the same written approval cannot approve another operation, whatever its spelling
+      const o2 = await offer(SA2, a);
+      expect((await select(SA2, U.padmin, o2.offer!.offerId, NUM.a2, PRICE.number, "  OWNER email 2026-10-21 approves  number a2 for location 2 ")).error?.code).toBe("23505");
+      // an owner's own approval is attributed to the owner (user), not to an admin
+      const owner = await select(SA2, U.owner_a, o2.offer!.offerId, NUM.a2);
+      expect(owner.error).toBeNull();
+      expect(psql(`select actor_type from public.studio_sms_onboarding_audit where studio_id = '${SA2}' and action = 'num_selected' order by created_at desc limit 1`)).toBe("user");
+      expect((await withdraw(SA2, U.owner_a, (owner.data as { selection_id: string }).selection_id, "fixture cleanup")).error).toBeNull();
     });
   });
 
@@ -465,6 +525,10 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(psql(`select count(*) from public.studio_sms_credit_reservations where legal_entity_id = '${EA}' and reservation_key like 'prov:%'`)).toBe("0");
       expect(step(SA1)).toBe("N3");
       expect(state(SA1)).toBe("campaign_pending");
+      // the contract the recurring-fee lifecycle asks before it charges number rent: a purchase confirmed by the provider, in the active subaccount, not retired
+      expect(await basis(SA1)).toMatchObject({ live: true, reason: "ok", pilot: false });
+      expect(await basis(SB1)).toMatchObject({ live: false, reason: "no_live_purchase", managed: false });
+      expect(await basis(SA1)).toMatchObject({ managed: true });
       const again = await run(SA1, a);
       expect(again.outcome).toBe("number_ready");
       expect(a.count("purchaseNumber")).toBe(1);
@@ -488,11 +552,12 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await rpc("tw4_sender_revoke", { p_studio_id: SA1, p_actor: U.padmin, p_reason: "fixture: location released its number", p_release: true })).error).toBeNull();
       expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error).toBeNull();
       expect(ops(SA1, "number_purchase")).toBe("1:succeeded:true");
+      expect(await basis(SA1)).toMatchObject({ live: false, reason: "no_live_purchase" });
       // the old number stays in the sender history; a fresh approval of ANOTHER number works again and the old number cannot be re-approved by someone else while still owned
       const o2 = await offer(SA1, a);
       const sel = await select(SA1, U.owner_a, o2.offer!.offerId, NUM.a1c);
       expect(sel.error).toBeNull();
-      expect((await rpc("tw4_num_withdraw", { p_studio_id: SA1, p_actor: U.owner_a, p_selection_id: (sel.data as { selection_id: string }).selection_id, p_note: "fixture cleanup" })).error).toBeNull();
+      expect((await withdraw(SA1, U.owner_a, (sel.data as { selection_id: string }).selection_id, "fixture cleanup")).error).toBeNull();
     });
   });
 
@@ -555,9 +620,10 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       const before = d.count("purchaseNumber");
       const result = await run(SD1, d);
       expect(result.outcome).toBe("exception");
-      expect(result.detail).toContain("exists_unrecorded");
+      // the inventory reconciliation stops it BEFORE anything is recorded or bought
+      expect(result.detail).toContain("inventory_unrecorded");
       expect(d.count("purchaseNumber")).toBe(before);
-      expect(code(SD1)).toBe("num_unrecorded");
+      expect(code(SD1)).toBe("num_inventory_unknown");
       expect(ops(SD1, "number_purchase")).toMatch(/^1:succeeded:true,2:abandoned:false$/);
       expect(psql(`select count(*) from public.studio_sms_num_operations where studio_id = '${SD1}' and op_kind = 'number_purchase' and attempt = 3`)).toBe("0");
       // a number-step exception is reopened by an admin with a reason; nothing else moves it
@@ -565,13 +631,22 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await rpc("tw4_num_reopen", { p_studio_id: SD1, p_actor: U.stranger, p_reason: "the number was reviewed by a person" })).error?.code).toBe("42501");
       expect((await rpc("tw4_num_reopen", { p_studio_id: SD1, p_actor: U.padmin, p_reason: "the number was reviewed by a person" })).error).toBeNull();
       expect(state(SD1)).toBe("campaign_pending");
+      // an admin acknowledges the foreign number (nothing is bought, released or charged by that): the inventory no longer blocks, and the per-number lookup still refuses to adopt it
+      const foreign = [...d.universe.owned.values()].find((row) => row.phone_number === NUM.d2)!;
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.stranger, p_phone_number_sid: foreign.sid, p_e164: NUM.d2, p_note: "bought by hand before the system" })).error?.code).toBe("42501");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: foreign.sid, p_e164: NUM.d2, p_note: "short" })).error?.code).toBe("22023");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: foreign.sid, p_e164: NUM.d2, p_note: "bought by hand before the system" })).error).toBeNull();
+      const second = await run(SD1, d);
+      expect(second.detail).toContain("exists_unrecorded");
+      expect(d.count("purchaseNumber")).toBe(before);
+      expect((await rpc("tw4_num_reopen", { p_studio_id: SD1, p_actor: U.padmin, p_reason: "the number was reviewed by a person again" })).error).toBeNull();
     });
 
     it("a definite provider refusal closes the attempt, consumes the approval for good (a retry needs a NEW approval) and leaves no reservation", async () => {
       const d = adapterOf(ACC.D);
       // make room: the colliding owned number is gone, the earlier approval is withdrawn
       const open = psql(`select id from public.studio_sms_number_selections where studio_id = '${SD1}' and status = 'approved'`);
-      expect((await rpc("tw4_num_withdraw", { p_studio_id: SD1, p_actor: U.owner_a, p_selection_id: open, p_note: "fixture" })).error).toBeNull();
+      expect((await withdraw(SD1, U.owner_a, open, "fixture")).error).toBeNull();
       const row = [...d.universe.owned.values()].find((r) => r.phone_number === NUM.d2)!;
       d.universe.owned.delete(row.sid);
       const selId = await choose(SD1, U.owner_a, d, NUM.d3);
@@ -768,6 +843,15 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
 
     it("the compliance validation judges the campaign's STOP / START / HELP setup from provider reads; a campaign without STOP fails and blocks verification; another account's reads prove nothing", async () => {
       const a = adapterOf(ACC.A);
+      // the route DanceFlow expects is pinned in the database by an admin: without a pin, or with a different origin, nothing is judged
+      expect((await items()).inbound_route_pinned).toMatchObject({ ok: false });
+      expect(await compliance()).toMatchObject({ ok: false, code: "TW044" });
+      expect((await rpc("tw4_inbound_route_pin_set", { p_actor: U.stranger, p_origin: "https://other.example.test", p_reason: "pin the canonical origin" })).error?.code).toBe("42501");
+      expect((await rpc("tw4_inbound_route_pin_set", { p_actor: U.padmin, p_origin: "https://evil.example/path?x=", p_reason: "pin the canonical origin" })).error?.code).toBe("22023");
+      expect((await rpc("tw4_inbound_route_pin_set", { p_actor: U.padmin, p_origin: "https://other.example.test", p_reason: "pin the canonical origin (wrong one first)" })).error).toBeNull();
+      expect(await compliance()).toMatchObject({ ok: false, code: "TW044" }); // INBOUND is app.example.test: it differs from the pin
+      expect((await rpc("tw4_inbound_route_pin_set", { p_actor: U.padmin, p_origin: "https://app.example.test", p_reason: "pin the canonical origin" })).error).toBeNull();
+      expect((await items()).inbound_route_pinned).toMatchObject({ ok: true });
       a.registerCampaign(QE.A1, { messaging_service_sid: MG.A1, opt_out_keywords: ["QUIT"] });
       const failed = await compliance();
       expect(failed.ok && failed.data).toMatchObject({ outcome: "failed" });
@@ -849,7 +933,6 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // a refresh of an approved sender (PR #249's verification; PR #251 schedules the same judge) keeps it ready. R2b adds no scheduler and does not call the
       // scheduler-only function, so it works with or without PR #251 applied.
       aged(`update public.studio_sms_sender_verifications set created_at = now() - interval '20 hours' where studio_id = '${SA1}'`);
-      aged(`update public.studio_sms_compliance_checks set created_at = now() where studio_id = '${SA1}'`);
       expect(await verify()).toMatchObject({ ok: true, data: { outcome: "verified" } });
       expect(await ready()).toBe("t");
       // the provider now reports the campaign failed: the next verification fails the sender and the checklist reflects it immediately
@@ -897,6 +980,8 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(state(SA1)).toBe("exception");
       expect(code(SA1)).toBe("num_mismatch");
       expect(psql(`select status from (select * from public.studio_sms_billed_senders where studio_id = '${SA1}' order by seq desc limit 1) s`)).toBe("revoked");
+      // the provider says the number is gone: it is no basis for rent
+      expect(await basis(SA1)).toMatchObject({ live: false, reason: "provider_ownership_lost" });
     });
   });
 

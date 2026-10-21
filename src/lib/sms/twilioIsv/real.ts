@@ -585,6 +585,17 @@ export class RealNumberAdapter extends TwilioRest<IsvConfig> implements IsvNumbe
       }));
   }
 
+  async listIncomingNumbers(): Promise<{ sid: string; phone_number: string | null }[]> {
+    const json = await this.request("GET", `${this.accountUrl("IncomingPhoneNumbers.json")}?PageSize=1000`);
+    const rows = Array.isArray(json.incoming_phone_numbers) ? (json.incoming_phone_numbers as Record<string, unknown>[]) : null;
+    if (!rows) throw new IsvApiError("transient", null, null, "list response carried no collection");
+    // an inventory that stopped with pages still to read cannot prove the account holds nothing else
+    if (typeof json.next_page_uri === "string" && json.next_page_uri) throw new IsvApiError("transient", null, null, "list too long to search safely");
+    return rows
+      .filter((row) => row.account_sid === this.accountSid && typeof row.sid === "string" && PHONE_NUMBER_SID.test(row.sid))
+      .map((row) => ({ sid: String(row.sid), phone_number: provStr(row.phone_number) }));
+  }
+
   async findOwnedNumbers(e164: string): Promise<string[]> {
     if (!E164_US.test(e164)) throw new IsvApiError("validation", null, null, "invalid number");
     const json = await this.request("GET", `${this.accountUrl("IncomingPhoneNumbers.json")}?${new URLSearchParams({ PhoneNumber: e164, PageSize: "50" }).toString()}`);

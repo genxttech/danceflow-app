@@ -198,6 +198,35 @@ create table public.studio_sms_compliance_checks (
 );
 create index studio_sms_compliance_checks_latest on public.studio_sms_compliance_checks (studio_id, created_at desc);
 
+-- the canonical origin DanceFlow's inbound route lives at: pinned in the database by a platform admin (append-only; the latest row is current). The compliance validation
+-- compares the provider's reported route with THIS, never with a value the caller supplies.
+create table public.studio_sms_inbound_route_pins (
+  id bigserial primary key,
+  origin text not null check (origin ~ '^https://[A-Za-z0-9.-]+(:[0-9]{2,5})?$' and char_length(origin) <= 255),
+  set_by uuid not null,
+  reason text not null check (char_length(reason) between 10 and 300),
+  created_at timestamptz not null default clock_timestamp()
+);
+
+-- a number the provider shows in a business's subaccount that the ledger and the sender registry do not know (bought by hand, a pre-R2b sender): a platform admin
+-- acknowledges it ONCE, with a reason, so it no longer blocks purchases. Nothing is bought, released or charged by an acknowledgement.
+create table public.studio_sms_num_inventory_acks (
+  id uuid primary key default gen_random_uuid(),
+  legal_entity_id uuid not null references public.studio_sms_legal_entities(id) on delete restrict,
+  twilio_account_sid text not null check (twilio_account_sid ~ '^AC[0-9a-fA-F]{32}$'),
+  phone_number_sid text not null check (phone_number_sid ~ '^PN[0-9a-fA-F]{32}$'),
+  e164 text null check (e164 is null or e164 ~ '^\+1[2-9][0-9]{9}$'),
+  acked_by uuid not null,
+  note text not null check (char_length(note) between 10 and 300),
+  created_at timestamptz not null default clock_timestamp(),
+  unique (twilio_account_sid, phone_number_sid)
+);
+
+revoke all on public.studio_sms_inbound_route_pins, public.studio_sms_num_inventory_acks from public, anon, authenticated, service_role;
+revoke all on sequence public.studio_sms_inbound_route_pins_id_seq from public, anon, authenticated, service_role;
+alter table public.studio_sms_inbound_route_pins enable row level security;
+alter table public.studio_sms_num_inventory_acks enable row level security;
+
 revoke all on public.studio_sms_number_offers, public.studio_sms_number_selections, public.studio_sms_num_operations, public.studio_sms_num_resources,
   public.studio_sms_optout_attestations, public.studio_sms_compliance_checks from public, anon, authenticated, service_role;
 alter table public.studio_sms_number_offers enable row level security;
@@ -216,7 +245,7 @@ begin
   if tg_op = 'DELETE' then
     raise exception '%: number provisioning evidence is never deleted', tg_table_name using errcode = '42501';
   end if;
-  if tg_table_name in ('studio_sms_number_offers', 'studio_sms_optout_attestations', 'studio_sms_compliance_checks') then
+  if tg_table_name in ('studio_sms_number_offers', 'studio_sms_optout_attestations', 'studio_sms_compliance_checks', 'studio_sms_inbound_route_pins', 'studio_sms_num_inventory_acks') then
     raise exception '%: append-only', tg_table_name using errcode = '42501';
   elsif tg_table_name = 'studio_sms_number_selections' then
     if new.id is distinct from old.id or new.offer_id is distinct from old.offer_id or new.studio_id is distinct from old.studio_id or new.legal_entity_id is distinct from old.legal_entity_id
@@ -271,6 +300,10 @@ create trigger studio_sms_num_operations_guard before update or delete on public
 create trigger studio_sms_num_resources_guard before update or delete on public.studio_sms_num_resources for each row execute function public._tw4num_guard();
 create trigger studio_sms_optout_attestations_guard before update or delete on public.studio_sms_optout_attestations for each row execute function public._tw4num_guard();
 create trigger studio_sms_compliance_checks_guard before update or delete on public.studio_sms_compliance_checks for each row execute function public._tw4num_guard();
+create trigger studio_sms_inbound_route_pins_guard before update or delete on public.studio_sms_inbound_route_pins for each row execute function public._tw4num_guard();
+create trigger studio_sms_num_inventory_acks_guard before update or delete on public.studio_sms_num_inventory_acks for each row execute function public._tw4num_guard();
+create trigger studio_sms_inbound_route_pins_truncate before truncate on public.studio_sms_inbound_route_pins for each statement execute function public._tw4c_truncate_guard();
+create trigger studio_sms_num_inventory_acks_truncate before truncate on public.studio_sms_num_inventory_acks for each statement execute function public._tw4c_truncate_guard();
 create trigger studio_sms_number_offers_truncate before truncate on public.studio_sms_number_offers for each statement execute function public._tw4c_truncate_guard();
 create trigger studio_sms_number_selections_truncate before truncate on public.studio_sms_number_selections for each statement execute function public._tw4c_truncate_guard();
 create trigger studio_sms_num_operations_truncate before truncate on public.studio_sms_num_operations for each statement execute function public._tw4c_truncate_guard();
@@ -610,7 +643,9 @@ begin
   if p_actor is null or p_e164 is null or p_e164 !~ '^\+1[2-9][0-9]{9}$' or p_offer_id is null then
     raise exception 'an actor, an offer and a number are required' using errcode = '22023';
   end if;
-  if exists (select 1 from public.user_studio_roles r where r.user_id = p_actor and r.studio_id = p_studio_id and r.active = true and r.role = 'studio_owner') then
+  -- the OWNER path trusts no parameter: the actor must be the authenticated session's own user (auth.uid()), i.e. the call arrives through tw4_num_select_as_owner on the
+  -- owner's own token. A service-role call that merely NAMES an owner is refused (a forged owner approval); a platform admin records the owner's written approval instead.
+  if auth.uid() is not distinct from p_actor and exists (select 1 from public.user_studio_roles r where r.user_id = p_actor and r.studio_id = p_studio_id and r.active = true and r.role = 'studio_owner') then
     v_role := 'studio_owner';
     v_ref := 'owner-approval:' || v_id::text;
   elsif public._tw4_r1_is_platform_admin(p_actor) then
@@ -681,7 +716,8 @@ begin
     || 'DanceFlow buys no number until this approval, the published price and settled funding are all in place. This approval covers this one number and expires after 24 hours.';
   insert into public.studio_sms_number_selections (id, offer_id, studio_id, legal_entity_id, twilio_account_sid, e164, price_cents, funding_mode, approver_user, approver_role, approval_ref, statement, expires_at)
   values (v_id, v_offer.id, p_studio_id, v_entity, v_account, p_e164, v_price, v_mode, p_actor, v_role, v_ref, v_statement, v_exp);
-  perform public._tw4sr_audit(p_studio_id, p_actor, 'num_selected', 'selection=' || v_id || ';number=' || p_e164 || ';cents=' || v_price || ';mode=' || v_mode || ';by=' || v_role);
+  insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
+  values (p_studio_id, null, case when v_role = 'studio_owner' then 'user' else 'platform_admin' end, p_actor, 'num_selected', left('selection=' || v_id || ';number=' || p_e164 || ';cents=' || v_price || ';mode=' || v_mode || ';by=' || v_role, 300));
   return jsonb_build_object('selection_id', v_id, 'e164', p_e164, 'price_cents', v_price, 'funding_mode', v_mode, 'expires_at', v_exp, 'statement', v_statement);
 end $$;
 
@@ -692,7 +728,7 @@ as $$
 declare
   s public.studio_sms_number_selections;
 begin
-  if not (public._tw4_r1_is_platform_admin(p_actor) or exists (select 1 from public.user_studio_roles r where r.user_id = p_actor and r.studio_id = p_studio_id and r.active = true and r.role = 'studio_owner')) then
+  if not (public._tw4_r1_is_platform_admin(p_actor) or (auth.uid() is not distinct from p_actor and exists (select 1 from public.user_studio_roles r where r.user_id = p_actor and r.studio_id = p_studio_id and r.active = true and r.role = 'studio_owner'))) then
     raise exception 'only the studio owner or a platform admin can withdraw an approval' using errcode = '42501';
   end if;
   perform public._tw4sr_lock(p_studio_id);
@@ -707,7 +743,8 @@ begin
     raise exception 'a number that was already used for a purchase attempt is not withdrawn here' using errcode = '22023';
   end if;
   update public.studio_sms_number_selections set status = 'withdrawn', withdrawn_at = clock_timestamp(), withdrawn_by = p_actor, withdrawn_note = left(btrim(coalesce(p_note, 'withdrawn')), 300) where id = s.id;
-  perform public._tw4sr_audit(p_studio_id, p_actor, 'num_withdrawn', 'selection=' || s.id);
+  insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
+  values (p_studio_id, null, case when public._tw4_r1_is_platform_admin(p_actor) then 'platform_admin' else 'user' end, p_actor, 'num_withdrawn', left('selection=' || s.id, 300));
   return jsonb_build_object('status', 'withdrawn', 'replayed', false);
 end $$;
 
@@ -767,6 +804,12 @@ begin
     'state', o.state, 'submission_seq', o.submission_seq, 'studio_id', o.studio_id,
     'messaging_service_sid', v_ms.provider_sid, 'campaign_sid', v_qe.provider_sid,
     'requirements', public._tw4num_requirements(o.studio_id),
+    -- every number SID the system accounts for in THIS business's subaccount: any ledger operation (retired included), any sender row of its locations, any acknowledgement
+    'known_numbers', coalesce((select jsonb_agg(distinct k.sid) from (
+        select p.provider_sid sid from public.studio_sms_num_operations p where p.legal_entity_id = (select es.legal_entity_id from public.studio_sms_entity_studios es where es.studio_id = o.studio_id) and p.provider_sid is not null
+        union select b.phone_number_sid from public.studio_sms_billed_senders b join public.studio_sms_entity_studios es2 on es2.studio_id = b.studio_id
+          where es2.legal_entity_id = (select es.legal_entity_id from public.studio_sms_entity_studios es where es.studio_id = o.studio_id) and b.phone_number_sid is not null
+        union select a.phone_number_sid from public.studio_sms_num_inventory_acks a where a.legal_entity_id = (select es.legal_entity_id from public.studio_sms_entity_studios es where es.studio_id = o.studio_id)) k), '[]'::jsonb),
     'operations', coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'kind', p.op_kind, 'attempt', p.attempt, 'status', p.status, 'provider_sid', p.provider_sid, 'e164', p.e164,
         'fee_bearing', p.fee_bearing, 'age_seconds', floor(extract(epoch from (clock_timestamp() - p.started_at)))::int, 'superseded', p.superseded_at is not null,
         'resource_status', r.status) order by p.op_kind, p.attempt)
@@ -1344,6 +1387,7 @@ declare
   v_codes text[] := '{}';
   v_id uuid;
   v_outcome text;
+  v_pin text;
 begin
   perform public._tw4c_admin(p_actor);
   if p_source is null or p_source not in ('provider_read', 'fake') or p_digest is null or p_digest !~ '^[0-9a-f]{64}$' or p_facts is null or jsonb_typeof(p_facts) <> 'object'
@@ -1352,6 +1396,10 @@ begin
   end if;
   if p_source = 'fake' and not public._tw4sr_fake_allowed() then
     raise exception 'fake evidence is not accepted here' using errcode = '42501';
+  end if;
+  select pn.origin || '/api/sms/twilio/inbound' into v_pin from public.studio_sms_inbound_route_pins pn order by pn.id desc limit 1;
+  if v_pin is null or p_expected_inbound is distinct from v_pin then
+    raise exception 'the inbound route is not pinned, or differs from the pinned origin' using errcode = 'TW044';
   end if;
   v_entity := public._tw4sr_lock(p_studio_id);
   v_ms := public._tw4num_service(p_studio_id);
@@ -1495,6 +1543,7 @@ begin
     jsonb_build_object('id', 'sender_ready', 'ok', coalesce(v_sender_ok, false), 'detail', case when coalesce(v_sender_ok, false) then 'ok' when v_ready.id is null then 'sender_not_verified_or_stale' else 'sender_differs_from_ledger' end),
     jsonb_build_object('id', 'opt_out_attested', 'ok', coalesce(v_att_ok, false), 'detail', case when coalesce(v_att_ok, false) then 'ok' else 'attestation_missing_or_stale' end),
     jsonb_build_object('id', 'compliance_passed', 'ok', coalesce(v_cmp_ok, false), 'detail', case when coalesce(v_cmp_ok, false) then 'ok' when v_cmp.id is null then 'no_compliance_check' else 'compliance_failed_or_stale' end),
+    jsonb_build_object('id', 'inbound_route_pinned', 'ok', exists (select 1 from public.studio_sms_inbound_route_pins), 'detail', case when exists (select 1 from public.studio_sms_inbound_route_pins) then 'ok' else 'inbound_route_not_pinned' end),
     jsonb_build_object('id', 'funding_continuity', 'ok', (v_fund ->> 'ok')::boolean, 'detail', v_fund ->> 'detail'));
 end $$;
 
@@ -1670,6 +1719,110 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
+-- owner entry points (the ONLY way an owner approval is made): the actor is auth.uid(), never a parameter
+-- ---------------------------------------------------------------------------------------------------------------
+create or replace function public.tw4_num_select_as_owner(p_studio_id uuid, p_offer_id uuid, p_e164 text, p_ack_price_cents int)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'sign in as the studio owner' using errcode = '42501';
+  end if;
+  return public.tw4_num_select(p_studio_id, auth.uid(), p_offer_id, p_e164, p_ack_price_cents, null);
+end $$;
+
+create or replace function public.tw4_num_withdraw_as_owner(p_studio_id uuid, p_selection_id uuid, p_note text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'sign in as the studio owner' using errcode = '42501';
+  end if;
+  return public.tw4_num_withdraw(p_studio_id, auth.uid(), p_selection_id, p_note);
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- the pinned inbound origin and the inventory acknowledgement
+-- ---------------------------------------------------------------------------------------------------------------
+create or replace function public.tw4_inbound_route_pin_set(p_actor uuid, p_origin text, p_reason text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  perform public._tw4c_admin(p_actor);
+  if p_origin is null or p_origin !~ '^https://[A-Za-z0-9.-]+(:[0-9]{2,5})?$' or p_reason is null or char_length(btrim(p_reason)) not between 10 and 300 then
+    raise exception 'an https origin and a written reason (10-300 characters) are required' using errcode = '22023';
+  end if;
+  insert into public.studio_sms_inbound_route_pins (origin, set_by, reason) values (p_origin, p_actor, btrim(p_reason));
+  return jsonb_build_object('origin', p_origin);
+end $$;
+
+create or replace function public.tw4_num_inventory_ack(p_studio_id uuid, p_actor uuid, p_phone_number_sid text, p_e164 text, p_note text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_entity uuid;
+  v_account text;
+begin
+  perform public._tw4c_admin(p_actor);
+  if p_phone_number_sid is null or p_phone_number_sid !~ '^PN[0-9a-fA-F]{32}$' or p_note is null or char_length(btrim(p_note)) not between 10 and 300
+     or (p_e164 is not null and p_e164 !~ '^\+1[2-9][0-9]{9}$') then
+    raise exception 'a number sid and a written reason (10-300 characters) are required' using errcode = '22023';
+  end if;
+  v_entity := public._tw4sr_lock(p_studio_id);
+  v_account := public._tw4num_account(p_studio_id);
+  if v_account is null then
+    raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
+  end if;
+  insert into public.studio_sms_num_inventory_acks (legal_entity_id, twilio_account_sid, phone_number_sid, e164, acked_by, note)
+  values (v_entity, v_account, p_phone_number_sid, p_e164, p_actor, btrim(p_note)) on conflict (twilio_account_sid, phone_number_sid) do nothing;
+  return jsonb_build_object('acknowledged', p_phone_number_sid);
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- RENT BASIS: the one question the recurring-fee lifecycle must ask before it charges number rent. A read-only contract; R2b changes no fee, charge or authorization.
+-- live = this location has a purchase the provider's own read confirmed as OWNED in the business's ACTIVE subaccount, that was not retired, and whose sender row is not
+-- released. Anything else (never bought, refused, abandoned, retired, provider ownership lost, subaccount suspended) is not a number to bill rent for.
+-- ---------------------------------------------------------------------------------------------------------------
+create or replace function public._tw4num_rent_basis_core(p_studio_id uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_account text := public._tw4num_account(p_studio_id);
+  p public.studio_sms_num_operations;
+  r public.studio_sms_num_resources;
+  v_latest public.studio_sms_billed_senders := public._tw4sr_latest(p_studio_id);
+  v_pilot boolean;
+begin
+  select exists (select 1 from public.studio_sms_pilot_exceptions y join public.studio_sms_entity_studios es on es.legal_entity_id = y.legal_entity_id where es.studio_id = p_studio_id) into v_pilot;
+  select * into p from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_purchase' and x.status = 'succeeded' and x.superseded_at is null;
+  if p.id is null then
+    return jsonb_build_object('live', false, 'reason', 'no_live_purchase', 'pilot', v_pilot);
+  end if;
+  select * into r from public.studio_sms_num_resources x where x.operation_id = p.id;
+  if v_account is null or p.twilio_account_sid <> v_account then
+    return jsonb_build_object('live', false, 'reason', 'subaccount_not_active', 'pilot', v_pilot, 'phone_number_sid', p.provider_sid);
+  end if;
+  if r.id is null or r.status <> 'owned' then
+    return jsonb_build_object('live', false, 'reason', case when r.id is null then 'ownership_not_confirmed' else 'provider_ownership_lost' end, 'pilot', v_pilot, 'phone_number_sid', p.provider_sid);
+  end if;
+  if v_latest.id is not null and v_latest.phone_number_sid = p.provider_sid and v_latest.status = 'released' then
+    return jsonb_build_object('live', false, 'reason', 'released', 'pilot', v_pilot, 'phone_number_sid', p.provider_sid);
+  end if;
+  return jsonb_build_object('live', true, 'reason', 'ok', 'pilot', v_pilot, 'phone_number_sid', p.provider_sid, 'e164', p.e164, 'confirmed_at', r.verified_at, 'last_observed_at', r.observed_at);
+end $$;
+
+-- `managed`: the location has ANY R2b operation. A location with none (a number that predates R2b) has no ledger to judge: its rent is not gated by this contract.
+create or replace function public.tw4_num_rent_basis(p_studio_id uuid)
+returns jsonb language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$ select public._tw4num_rent_basis_core(p_studio_id) || jsonb_build_object('managed', exists (select 1 from public.studio_sms_num_operations o where o.studio_id = p_studio_id)); $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
 revoke all on function public._tw4num_guard(), public._tw4num_account(uuid), public._tw4num_service(uuid), public._tw4num_campaign(uuid), public._tw4num_price(text),
@@ -1681,13 +1834,18 @@ revoke all on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, json
   public.tw4_num_settle_admin(uuid, uuid, text, text), public.tw4_num_reopen(uuid, uuid, text), public.tw4_num_retire(uuid, uuid, text), public.tw4_num_record_sender(uuid, uuid),
   public.tw4_num_status(uuid, uuid), public.tw4_act_attest(uuid, uuid, jsonb, text), public.tw4_act_compliance_record(uuid, uuid, jsonb, text, text, text),
   public.tw4_act_verify_sender(uuid, uuid, uuid, jsonb, text), public.tw4_act_check(uuid, uuid), public.tw4_act_mark_ready(uuid, uuid, text), public.tw4_act_activate(uuid, uuid, text),
-  public.tw4_act_suspend(uuid, uuid, text), public.tw4_act_exposure(uuid) from public, anon, authenticated;
+  public.tw4_act_suspend(uuid, uuid, text), public.tw4_act_exposure(uuid), public.tw4_inbound_route_pin_set(uuid, text, text), public.tw4_num_inventory_ack(uuid, uuid, text, text, text),
+  public.tw4_num_rent_basis(uuid), public._tw4num_rent_basis_core(uuid), public.tw4_num_select_as_owner(uuid, uuid, text, int), public.tw4_num_withdraw_as_owner(uuid, uuid, text) from public, anon, authenticated, service_role;
+grant execute on function public.tw4_num_rent_basis(uuid) to service_role;
 grant execute on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, jsonb, text, text), public.tw4_num_select(uuid, uuid, uuid, text, int, text), public.tw4_num_withdraw(uuid, uuid, uuid, text),
   public.tw4_num_claim(uuid, uuid, text, integer, text), public.tw4_num_context(uuid, text), public.tw4_num_begin(uuid, text, text, text, text, jsonb, uuid),
   public.tw4_num_finish(uuid, text, uuid, text, text, text, text), public.tw4_num_observe(uuid, text, uuid, jsonb, text, text), public.tw4_num_resolve(uuid, uuid, text, text, text),
   public.tw4_num_settle_admin(uuid, uuid, text, text), public.tw4_num_reopen(uuid, uuid, text), public.tw4_num_retire(uuid, uuid, text), public.tw4_num_record_sender(uuid, uuid),
   public.tw4_num_status(uuid, uuid), public.tw4_act_attest(uuid, uuid, jsonb, text), public.tw4_act_compliance_record(uuid, uuid, jsonb, text, text, text),
   public.tw4_act_verify_sender(uuid, uuid, uuid, jsonb, text), public.tw4_act_check(uuid, uuid), public.tw4_act_mark_ready(uuid, uuid, text), public.tw4_act_activate(uuid, uuid, text),
-  public.tw4_act_suspend(uuid, uuid, text), public.tw4_act_exposure(uuid) to service_role;
+  public.tw4_act_suspend(uuid, uuid, text), public.tw4_act_exposure(uuid), public.tw4_inbound_route_pin_set(uuid, text, text), public.tw4_num_inventory_ack(uuid, uuid, text, text, text),
+  public.tw4_num_rent_basis(uuid) to service_role;
+-- the two owner entry points are the ONLY R2b functions an authenticated user can run; each derives the actor from auth.uid()
+grant execute on function public.tw4_num_select_as_owner(uuid, uuid, text, int), public.tw4_num_withdraw_as_owner(uuid, uuid, text) to authenticated;
 
 commit;

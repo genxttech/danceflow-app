@@ -7,6 +7,9 @@ begin;
 set local lock_timeout = '5s';
 
 do $$
+declare
+  v_t text;
+  v_has boolean;
 begin
   if to_regclass('public.studio_sms_num_operations') is null then
     raise exception 'R2b rollback: not applied';
@@ -17,6 +20,15 @@ begin
                   'num_retired', 'optout_attested', 'compliance_checked', 'activation_ready', 'activation_done', 'activation_suspended')) then
     raise exception 'R2b rollback refused: number provisioning evidence exists' using errcode = '55000';
   end if;
+  -- the route pin and the inventory acknowledgements are evidence too (dynamic: a database that never had them is fine)
+  for v_t in select unnest(array['studio_sms_inbound_route_pins', 'studio_sms_num_inventory_acks']) loop
+    if to_regclass('public.' || v_t) is not null then
+      execute format('select exists (select 1 from public.%I)', v_t) into v_has;
+      if v_has then
+        raise exception 'R2b rollback refused: number provisioning evidence exists' using errcode = '55000';
+      end if;
+    end if;
+  end loop;
 end $$;
 
 -- the PR #249 readiness as of 20261204090000 (the R2b send gate goes away with R2b)
@@ -60,6 +72,12 @@ drop function if exists public._tw4sr_ready_core(uuid);
 drop function if exists public._tw4act_lock_funding(uuid);
 drop function if exists public._tw4num_credit_funded(uuid, uuid);
 
+drop function if exists public.tw4_num_rent_basis(uuid);
+drop function if exists public._tw4num_rent_basis_core(uuid);
+drop function if exists public.tw4_num_inventory_ack(uuid, uuid, text, text, text);
+drop function if exists public.tw4_inbound_route_pin_set(uuid, text, text);
+drop function if exists public.tw4_num_withdraw_as_owner(uuid, uuid, text);
+drop function if exists public.tw4_num_select_as_owner(uuid, uuid, text, int);
 drop function if exists public.tw4_act_exposure(uuid);
 drop function if exists public.tw4_act_suspend(uuid, uuid, text);
 drop function if exists public.tw4_act_activate(uuid, uuid, text);
@@ -95,6 +113,8 @@ drop function if exists public._tw4num_campaign(uuid);
 drop function if exists public._tw4num_service(uuid);
 drop function if exists public._tw4num_account(uuid);
 
+drop table if exists public.studio_sms_inbound_route_pins;
+drop table if exists public.studio_sms_num_inventory_acks;
 drop table public.studio_sms_compliance_checks;
 drop table public.studio_sms_optout_attestations;
 drop table public.studio_sms_num_resources;

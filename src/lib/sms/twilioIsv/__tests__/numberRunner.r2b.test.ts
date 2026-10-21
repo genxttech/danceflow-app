@@ -30,7 +30,7 @@ class ScriptedStore implements NumberStore {
   offerError: RunnerStoreError | null = null;
   ctx: NumContext = {
     state: "campaign_pending", submission_seq: 1, studio_id: STUDIO, messaging_service_sid: MG, campaign_sid: QE,
-    requirements: { blocker: null, funding_mode: "credit_recurring", price_cents: 200, selection_id: "sel-1", selection_e164: E164, ceiling_remaining_cents: null }, operations: [],
+    requirements: { blocker: null, funding_mode: "credit_recurring", price_cents: 200, selection_id: "sel-1", selection_e164: E164, ceiling_remaining_cents: null }, operations: [], known_numbers: [],
   };
 
   async claim() {
@@ -135,7 +135,7 @@ describe("number runner decisions", () => {
     const adapter = world();
     const result = await runNumberAcquisition(base(store, adapter));
     expect(result.outcome).toBe("number_ready");
-    expect(adapter.calls.map((c) => c.method)).toEqual(["findOwnedNumbers", "purchaseNumber", "getNumber", "listServiceNumbers", "attachNumber", "getServiceNumbers"]);
+    expect(adapter.calls.map((c) => c.method)).toEqual(["listIncomingNumbers", "findOwnedNumbers", "purchaseNumber", "getNumber", "listServiceNumbers", "attachNumber", "getServiceNumbers"]);
     expect(store.log).toEqual([
       "claim", "account", "context", "begin:number_purchase", "finish:op-number_purchase:succeeded", "observe:op-number_purchase",
       "begin:number_attach", "finish:op-number_attach:succeeded", "observe:op-number_attach", "release",
@@ -150,10 +150,10 @@ describe("number runner decisions", () => {
     adapter.seedOwned(E164);
     const result = await runNumberAcquisition(base(store, adapter));
     expect(result.outcome).toBe("exception");
-    expect(result.detail).toContain("exists_unrecorded");
+    expect(result.detail).toContain("inventory_unrecorded");
     expect(adapter.count("purchaseNumber")).toBe(0);
     expect(store.begins).toHaveLength(0);
-    expect(store.transitions).toContain("exception:num_unrecorded");
+    expect(store.transitions).toContain("exception:num_inventory_unknown");
   });
 
   it("two matching numbers are ambiguous: nothing is bought", async () => {
@@ -162,9 +162,33 @@ describe("number runner decisions", () => {
     adapter.seedOwned(E164);
     adapter.seedOwned(E164);
     const result = await runNumberAcquisition(base(store, adapter));
-    expect(result.detail).toContain("ambiguous_match");
+    expect(result.detail).toContain("inventory_unrecorded:2");
     expect(store.begins).toHaveLength(0);
-    expect(store.transitions).toContain("exception:num_ambiguous");
+    expect(store.transitions).toContain("exception:num_inventory_unknown");
+  });
+
+  it("a number the system accounts for (ledger, sender registry, acknowledgement) does not block; a foreign one in the inventory does, and the inventory is read BEFORE anything is recorded or bought", async () => {
+    const store = new ScriptedStore();
+    const adapter = world();
+    const foreign = adapter.seedOwned("+12025550199");
+    store.ctx = { ...store.ctx, known_numbers: [foreign] };
+    const ok = await runNumberAcquisition(base(store, adapter));
+    expect(ok.outcome).toBe("number_ready");
+    expect(adapter.calls[0].method).toBe("listIncomingNumbers");
+    const store2 = new ScriptedStore();
+    const adapter2 = world();
+    adapter2.seedOwned("+12025550198");
+    const blocked = await runNumberAcquisition(base(store2, adapter2));
+    expect(blocked.outcome).toBe("exception");
+    expect(adapter2.count("purchaseNumber")).toBe(0);
+    expect(store2.begins).toHaveLength(0);
+    // an inventory that cannot be read proves nothing: nothing is bought
+    const store3 = new ScriptedStore();
+    const adapter3 = world();
+    adapter3.failNext("listIncomingNumbers", { kind: "transient" });
+    expect((await runNumberAcquisition(base(store3, adapter3))).outcome).toBe("retry_later");
+    expect(adapter3.count("purchaseNumber")).toBe(0);
+    expect(store3.begins).toHaveLength(0);
   });
 
   it("a definite refusal closes the attempt as failed (api) and sends the onboarding to a human; the approval is not retried", async () => {
