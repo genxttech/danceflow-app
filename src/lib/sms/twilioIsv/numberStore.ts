@@ -56,6 +56,8 @@ export interface NumberStore {
   transition(onboardingId: string, leaseOwner: string, to: RunnerTransitionState, step: string, errorCode: string | null): Promise<string>;
   /** The provider inventory seen under this lease; the DATABASE judges it against the numbers it accounts for and tw4_num_begin(number_purchase) requires a clean stamp. */
   inventoryObserve(onboardingId: string, leaseOwner: string, sids: string[], source: "provider_read" | "fake", listedAt: string): Promise<{ listed: number; unknown: number; missing: number }>;
+  /** The provider's own answer about what ONE number is (E.164 and account), recorded under this lease. The database requires the account to be the business's active subaccount. */
+  identityObserve(onboardingId: string, leaseOwner: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<{ sid: string; e164: string }>;
   recordOffer(studioId: string, actorId: string, accountSid: string, search: Record<string, unknown>, candidates: unknown[], source: "provider_read" | "fake", digest: string): Promise<OfferRecorded>;
 }
 
@@ -121,6 +123,13 @@ export class SupabaseNumberStore implements NumberStore {
     });
     // an answer the database did not give is never read as clean
     return { listed: Number(row?.listed ?? 0), unknown: Number(row?.unknown ?? Number.MAX_SAFE_INTEGER), missing: Number(row?.missing ?? Number.MAX_SAFE_INTEGER) };
+  }
+
+  async identityObserve(onboardingId: string, leaseOwner: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<{ sid: string; e164: string }> {
+    const row = await this.call<{ sid: string; e164: string }>("tw4_num_identity_observe", {
+      p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_facts: facts, p_source: source, p_digest: digest,
+    });
+    return { sid: String(row?.sid ?? ""), e164: String(row?.e164 ?? "") };
   }
 
   async recordOffer(studioId: string, actorId: string, accountSid: string, search: Record<string, unknown>, candidates: unknown[], source: "provider_read" | "fake", digest: string): Promise<OfferRecorded> {

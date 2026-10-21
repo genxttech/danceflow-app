@@ -52,6 +52,7 @@ export type NumberOutcome =
   | "record_failed"
   | "search_refused"
   | "inventory_clean"
+  | "identity_recorded"
   | "inventory_unknown"
   | "nothing_to_check";
 
@@ -528,6 +529,45 @@ export async function refreshInventory(input: { store: NumberStore; adapter: Isv
         : { outcome: "inventory_clean", steps, state: claim.state };
     } catch (error) {
       return { outcome: "retry_later", steps, detail: `inventory_record:${storeCode(error)}`, state: claim.state };
+    }
+  } finally {
+    try {
+      await store.release(claim.onboarding_id, leaseOwner);
+    } catch {
+      /* the lease expires by itself */
+    }
+  }
+}
+
+/**
+ * R2b-P1 (L1): ask the PROVIDER what one number is. FREE and read-only (a GET with the subaccount's own credentials). The E.164 an acknowledgement later uses is the one
+ * recorded here, never one an administrator typed; the database refuses an answer about any account other than the business's active subaccount.
+ */
+export async function observeNumberIdentity(input: { store: NumberStore; adapter: IsvNumberAdapter; studioId: string; actorId: string; phoneNumberSid: string }): Promise<NumberResult> {
+  const { store, adapter, studioId, actorId, phoneNumberSid } = input;
+  const leaseOwner = `num-id-${randomUUID().slice(0, 8)}`;
+  const steps: NumKind[] = [];
+  let claim;
+  try {
+    claim = await store.claim(studioId, actorId, leaseOwner, 120, "refresh");
+  } catch (error) {
+    const code = storeCode(error);
+    return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", steps, detail: code };
+  }
+  try {
+    const refused = await accountRefusal(store, adapter, claim.onboarding_id, leaseOwner, claim.state);
+    if (refused) return refused;
+    let facts;
+    try {
+      facts = { ...(await adapter.getNumber(phoneNumberSid)) };
+    } catch (error) {
+      return { outcome: "retry_later", steps, detail: `identity:${sanitized(error)}`, state: claim.state };
+    }
+    try {
+      await store.identityObserve(claim.onboarding_id, leaseOwner, facts, adapter.evidenceSource, requestDigest(facts));
+      return { outcome: "identity_recorded", steps, state: claim.state };
+    } catch (error) {
+      return { outcome: "exception", steps, detail: `identity_record:${storeCode(error)}`, state: claim.state };
     }
   } finally {
     try {
