@@ -19,7 +19,7 @@
  *
  * Exit codes of run / matrix: 0 every test passed (none skipped); 1 tests failed with a healthy database; 3 INFRASTRUCTURE failure (database crashed / restarted /
  * was OOM-killed / never ready, a migration failed, the stack could not start: never an application result); 4 a suite was SKIPPED, ran nothing, or the matrix was
- * incomplete (never a pass); 2 usage error. compare: 0 identical, 1 different, 3 incomplete / infrastructure.
+ * incomplete (never a pass); 6 (matrix only) every failure is a KNOWN, explained pre-existing one from expected-results.json (not green); 2 usage error. compare: 0 identical, 1 different, 3 incomplete / infrastructure.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -198,12 +198,27 @@ const KNOWN_UNREPLAYABLE = path.join(here, "known-unreplayable.txt");
 const versionOf = (name) => name.replace(/^[0-9]{2}-/, "").slice(0, 14).replace(/[^0-9]/g, "").padEnd(8, "0");
 const defaultBaseSchema = () => path.join(path.dirname(git("rev-parse", "--path-format=absolute", "--git-common-dir")), "backups", "danceflow-production-pre-accounting-v1-2026-07-15.sql");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+// What the Supabase auth service (GoTrue) migrations provide on a real stack and the bare database image does not: auth.uid() / auth.role() / auth.email() / auth.jwt() that
+// understand the claims JSON PostgREST sets (request.jwt.claims). Without them every user-JWT call reaches the database as an anonymous user and "refused" assertions pass for the
+// wrong reason. Definitions are the ones in the shared QA stack's catalog.
 const BOOTSTRAP_SQL = `
+create or replace function auth.uid() returns uuid language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid
+$$;
+create or replace function auth.role() returns text language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'))::text
+$$;
+create or replace function auth.email() returns text language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claim.email', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'email'))::text
+$$;
 create or replace function auth.jwt() returns jsonb language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claim', true), ''), nullif(current_setting('request.jwt.claims', true), ''))::jsonb
 $$;
-grant execute on function auth.jwt() to anon, authenticated, service_role;
+grant execute on function auth.uid(), auth.role(), auth.email(), auth.jwt() to anon, authenticated, service_role;
 `;
+/** The identity round trip every stack must pass before any test runs (PostgREST sets the claims JSON; the database must resolve it). */
+const IDENTITY_CHECK_SQL = `select set_config('request.jwt.claims', '{"sub":"11111111-2222-4333-8444-555555555555","role":"authenticated","email":"qa@example.test"}', false) is not null
+  and auth.uid() = '11111111-2222-4333-8444-555555555555'::uuid and auth.role() = 'authenticated' and auth.email() = 'qa@example.test';`;
 /** The known-unreplayable list: file, then the error it is expected to fail with. TW-4F migrations can never be listed. */
 function loadKnown() {
   const entries = new Map();
@@ -241,6 +256,7 @@ async function cmdBaseline(flags) {
     await waitReady(builder);
     let r = psqlIn(builder, BOOTSTRAP_SQL, { user: "supabase_admin" });
     if (r.code !== 0) throw new Error(`bootstrap failed: ${r.out.slice(0, 400)}`);
+    if (psqlIn(builder, IDENTITY_CHECK_SQL, { extra: ["-At"] }).out.trim().split("\n").pop() !== "t") throw new Error("bootstrap identity check failed");
     r = psqlIn(builder, dump);
     if (r.code !== 0 || ERROR_RE.test(r.out)) throw new Error(`base schema load failed:\n${r.out.split("\n").filter((l) => /ERROR/.test(l)).slice(0, 8).join("\n")}`);
     const failed = new Map();
@@ -326,6 +342,8 @@ async function cmdUp(scenarioName, flags, instance) {
     if (WARNING_RE.test(r.out)) log(`  warnings from ${file}: ${r.out.split("\n").filter((l) => /WARNING:/.test(l)).slice(0, 3).join(" | ")}`);
     applied.push({ file, ref, sha: resolveRef(ref).slice(0, 12) });
   }
+  const ident = psqlIn(n.db, IDENTITY_CHECK_SQL, { extra: ["-At"] }).out.trim().split("\n").pop();
+  if (ident !== "t") throw new Error("identity round trip failed: auth.uid() / auth.role() do not resolve request.jwt.claims (every user-JWT test would run as anonymous)");
   assertHealthy(n.db, since);
   const meta = { scenario: scenarioName, instance, cutoff, baseline: identity, migrations: applied, since };
   if (noApi) {
@@ -428,9 +446,13 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
     let unhealthy = null;
     try { assertHealthy(dbName, up.meta.since); } catch (e) { unhealthy = e.message; }
     let counts = { passed: 0, failed: 0, skipped: 0, todo: 0, total: 0 };
+    let failedTests = [];
     try {
       const j = JSON.parse(readFileSync(jsonOut, "utf8"));
       counts = { passed: j.numPassedTests, failed: j.numFailedTests, skipped: j.numPendingTests, todo: j.numTodoTests, total: j.numTotalTests };
+      failedTests = (j.testResults ?? []).flatMap((f) => (f.assertionResults ?? []).filter((a) => a.status === "failed").map((a) => a.fullName ?? a.title));
+      if (counts.failed > 0 && failedTests.length === 0) failedTests = ["(unnamed failure)"];
+      if ((j.testResults ?? []).some((f) => f.status === "failed" && (f.assertionResults ?? []).length === 0)) failedTests.push("(a suite failed to load or its setup threw)");
     } catch { /* no JSON: handled below */ }
     const summary = (out.match(/Tests\s+.*$/m) ?? [""])[0];
     if (unhealthy) { log(`INFRASTRUCTURE FAILURE: ${unhealthy} (not an application result)`); exit = 3; }
@@ -439,7 +461,7 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
     else exit = r.status === 0 ? 0 : 1;
     const dirty = tests.dir === REPO ? git("status", "--porcelain", "--", "src", "scripts").length > 0 : false;
     writeFileSync(path.join(runDir, "result.json"), JSON.stringify({
-      scenario: scenarioName, instance, exit, unhealthy, counts, summary, seconds: Math.round((Date.now() - t0) / 1000), vitestArgs,
+      scenario: scenarioName, instance, exit, unhealthy, counts, failedTests, summary, seconds: Math.round((Date.now() - t0) / 1000), vitestArgs,
       testsCommit: tests.sha, testsDirty: dirty, baseline: up.meta.baseline, migrations: up.meta.migrations,
     }, null, 2));
     console.log(out);
@@ -456,7 +478,7 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const FINGERPRINT_SQL = `
 select 'fn ' || p.oid::regprocedure::text || ' ' || md5(p.prosrc) || ' secdef=' || p.prosecdef || ' cfg=' || coalesce(p.proconfig::text, '-') || ' owner=' || p.proowner::regrole::text
-  || ' ret=' || pg_get_function_result(p.oid) || ' vol=' || p.provolatile || ' strict=' || p.proisstrict || ' lang=' || p.prolang::reglanguage::text || ' acl=' || coalesce(p.proacl::text, '-')
+  || ' ret=' || pg_get_function_result(p.oid) || ' vol=' || p.provolatile::text || ' strict=' || p.proisstrict || ' lang=' || p.prolang::reglanguage::text || ' acl=' || coalesce(p.proacl::text, '-')
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
 union all select 'tbl ' || c.relname || ' rls=' || c.relrowsecurity || '/' || c.relforcerowsecurity || ' owner=' || c.relowner::regrole::text || ' acl=' || coalesce(c.relacl::text, '-') || ' cols=' ||
   (select string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '-') || ':' || a.attidentity || a.attgenerated, ',' order by a.attnum)
@@ -468,8 +490,8 @@ union all select 'pol ' || tablename || ' ' || policyname || ' ' || cmd || ' ' |
 union all select 'trg ' || tgrelid::regclass::text || ' ' || tgname || ' ' || md5(pg_get_triggerdef(oid)) || ' enabled=' || tgenabled from pg_trigger where not tgisinternal and tgrelid in (select oid from pg_class where relnamespace = 'public'::regnamespace)
 union all select 'view ' || c.relname || ' ' || md5(pg_get_viewdef(c.oid)) || ' acl=' || coalesce(c.relacl::text, '-') from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind in ('v', 'm')
 union all select 'seq ' || c.relname || ' acl=' || coalesce(c.relacl::text, '-') from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'S'
-union all select 'type ' || t.typname || ' ' || t.typtype || ' ' || coalesce((select string_agg(e.enumlabel, ',' order by e.enumsortorder) from pg_enum e where e.enumtypid = t.oid), '-') from pg_type t where t.typnamespace = 'public'::regnamespace and t.typtype in ('e', 'd')
-union all select 'defacl ' || defaclrole::regrole::text || ' ' || coalesce(defaclnamespace::regnamespace::text, '-') || ' ' || defaclobjtype || ' ' || defaclacl::text from pg_default_acl
+union all select 'type ' || t.typname || ' ' || t.typtype::text || ' ' || coalesce((select string_agg(e.enumlabel, ',' order by e.enumsortorder) from pg_enum e where e.enumtypid = t.oid), '-') from pg_type t where t.typnamespace = 'public'::regnamespace and t.typtype in ('e', 'd')
+union all select 'defacl ' || defaclrole::regrole::text || ' ' || coalesce(defaclnamespace::regnamespace::text, '-') || ' ' || defaclobjtype::text || ' ' || defaclacl::text from pg_default_acl
 union all select 'schema ' || nspname || ' ' || coalesce(nspacl::text, '-') from pg_namespace where nspname = 'public'
 order by 1;`;
 const fingerprint = (db) => {
@@ -514,6 +536,20 @@ async function cmdCompare(a, b, flags) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 // matrix
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
+/** Failures that are KNOWN and explained (scripts/qa/expected-results.json). A suite is "known" only when EVERY failing test is listed and EVERY listed test still fails. */
+const EXPECTED = JSON.parse(readFileSync(path.join(here, "expected-results.json"), "utf8")).known;
+function classify(file, scenarioName, runDirFromTail) {
+  let r;
+  try { r = JSON.parse(readFileSync(path.join(runDirFromTail, "result.json"), "utf8")); } catch { return null; }
+  if (r.exit !== 1) return null;
+  const rules = EXPECTED.filter((e) => e.suite === file && (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)));
+  if (rules.length === 0) return null;
+  const listed = rules.flatMap((e) => e.failing);
+  const allKnown = r.failedTests.every((t) => listed.some((k) => t.includes(k)));
+  const allStillFail = listed.every((k) => r.failedTests.some((t) => t.includes(k)));
+  return allKnown && allStillFail ? { reason: rules[0].reason } : null;
+}
+
 async function cmdMatrix(scenarioName, flags) {
   if (!SCENARIOS[scenarioName]) die(`unknown scenario ${scenarioName}`);
   const parallel = flags.parallel === undefined ? 3 : Number(flags.parallel);
@@ -533,19 +569,26 @@ async function cmdMatrix(scenarioName, flags) {
     p.stderr.on("data", (d) => { err += d; });
     p.on("close", (status) => {
       const tail = err.split("\n").filter((l) => l.includes("[iso-qa] scenario=")).pop() ?? err.split("\n").filter((l) => l.includes("[iso-qa]")).pop() ?? "";
-      results.push({ file: f, status: status ?? 3, tail });
-      console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? "SKIP " : "FAIL "} ${f}  ${tail.replace(/.*\[iso-qa\] /, "").replace(/.*scenario=/, "")}`);
+      const evidence = (tail.match(/evidence=(.*)$/) ?? [])[1];
+      const known = status === 1 && evidence ? classify(f, scenarioName, evidence.trim()) : null;
+      results.push({ file: f, status: status ?? 3, known: known?.reason ?? null, tail });
+      console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? "SKIP " : known ? "KNOWN" : "FAIL "} ${f}  ${tail.replace(/.*\[iso-qa\] /, "").replace(/.*scenario=/, "")}${known ? `  [known: ${known.reason.slice(0, 90)}]` : ""}`);
       resolve();
     });
   });
   const queue = files.map((f, i) => [f, i]);
   await Promise.all(Array.from({ length: parallel }, async () => { for (let j = queue.shift(); j; j = queue.shift()) await run1(...j); }));
+  // a listed suite that PASSES means its expectation is stale: say so (and fail), so the list can never silently rot
+  const stale = EXPECTED.filter((e) => (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)) && results.some((r) => r.file === e.suite && r.status === 0));
+  for (const e of stale) console.log(`STALE EXPECTATION: ${e.suite} now passes in ${scenarioName}: remove it from expected-results.json`);
   const bad = results.filter((r) => r.status !== 0);
+  const unexpected = bad.filter((r) => !r.known);
   const complete = results.length === files.length;
-  console.log(`\n${results.length - bad.length}/${files.length} suites passed in scenario ${scenarioName}${complete ? "" : " (INCOMPLETE: not every suite reported)"}; failures ${bad.filter((r) => r.status === 1).length}, skipped/empty ${bad.filter((r) => r.status === 4).length}, infrastructure ${bad.filter((r) => r.status === 3).length}`);
+  console.log(`\n${results.length - bad.length}/${files.length} suites passed in scenario ${scenarioName}${complete ? "" : " (INCOMPLETE: not every suite reported)"}; known pre-existing ${bad.filter((r) => r.known).length}; unexpected failures ${unexpected.filter((r) => r.status === 1).length}, skipped/empty ${unexpected.filter((r) => r.status === 4).length}, infrastructure ${unexpected.filter((r) => r.status === 3).length}, stale expectations ${stale.length}`);
   mkdirSync(QA_HOME, { recursive: true });
   writeFileSync(path.join(QA_HOME, `matrix-${scenarioName}${ref ? "-" + resolveRef(ref).slice(0, 8) : ""}.json`), JSON.stringify({ scenario: scenarioName, testsRef: ref ?? null, files, results }, null, 2));
-  process.exit(!complete ? 4 : bad.length === 0 ? 0 : bad.some((r) => r.status === 3) ? 3 : bad.some((r) => r.status === 4) ? 4 : 1);
+  // 0 all passed; 6 only KNOWN, explained failures (never reported as green); 3 / 4 / 1 as before for anything unexpected
+  process.exit(!complete ? 4 : stale.length ? 1 : bad.length === 0 ? 0 : unexpected.length === 0 ? 6 : unexpected.some((r) => r.status === 3) ? 3 : unexpected.some((r) => r.status === 4) ? 4 : 1);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------

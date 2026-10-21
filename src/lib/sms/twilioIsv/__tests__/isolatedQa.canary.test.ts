@@ -46,11 +46,14 @@ describe.skipIf(!enabled)("isolated QA stack canary", () => {
   let start = 0;
   beforeAll(() => {
     start = before();
+    psql(`create or replace function public.iso_canary_whoami() returns text language sql stable security definer set search_path = pg_catalog, public as $$ select coalesce(auth.uid()::text, 'NULL') || '|' || coalesce(auth.role(), 'NULL') $$;
+          grant execute on function public.iso_canary_whoami() to anon, authenticated, service_role`);
+    psql("notify pgrst, 'reload schema'");
     psql(`create or replace function public.iso_canary_fn() returns int language plpgsql security definer set search_path = pg_catalog, public, pg_temp as $$ begin return 1; end $$;
           revoke all on function public.iso_canary_fn() from public, anon, authenticated, service_role`);
   });
   afterAll(() => {
-    if (enabled) psql("drop function if exists public.iso_canary_fn()");
+    if (enabled) psql("drop function if exists public.iso_canary_fn(); drop function if exists public.iso_canary_whoami()");
   });
 
   it("the stack is a disposable one: a df-isoqa container, never the shared QA stack", () => {
@@ -76,6 +79,21 @@ describe.skipIf(!enabled)("isolated QA stack canary", () => {
     }
     expect(psql("select 1")).toBe("1");
     expect(before() - start).toBe(0);
+  });
+
+  it("a user JWT reaches the database as that user (auth.uid / auth.role resolve request.jwt.claims); an anonymous caller is anonymous", async () => {
+    const sub = "0f0f0f0f-1111-4222-8333-444444444444";
+    const key = sign({ iss: "supabase-demo", role: "authenticated", aud: "authenticated", sub, exp: Math.floor(Date.now() / 1000) + 3600 });
+    let who: string | null = null;
+    for (let i = 0; i < 20 && who === null; i += 1) {
+      const { data, error } = await createClient(URL_, key, { auth: { persistSession: false, autoRefreshToken: false } }).rpc("iso_canary_whoami");
+      if (!error) who = String(data);
+      else await new Promise((r) => setTimeout(r, 1000)); // the schema cache reloads asynchronously
+    }
+    expect(who).toBe(`${sub}|authenticated`);
+    const anon = sign({ iss: "supabase-demo", role: "anon", exp: Math.floor(Date.now() / 1000) + 3600 });
+    const { data } = await createClient(URL_, anon, { auth: { persistSession: false, autoRefreshToken: false } }).rpc("iso_canary_whoami");
+    expect(String(data)).toBe("NULL|anon");
   });
 
   it("the mitigation is in force (and visible): supautils' hint feature is switched off in this stack", () => {
