@@ -66,3 +66,25 @@ New `IsvProvisioningAdapter` (Messaging Service find/create/read, campaign find/
 ## 4. Deployment and rollback (R2a)
 
 Requires `20261204090000`. Independent of `20261205` / `20261206` (adds only new objects; extends the audit vocabulary by reading the live list). Apply in numeric order. Rollback `rollback/20261207090000_...` refuses once any operation, resource, fee reservation or audit row of R2a exists (provider or financial evidence is never destroyed); forward recovery is a new migration. Application is dark: nothing calls the runner until R2c wires a platform action, and real calls are double-gated.
+
+## 5. Revisions after the independent Opus review (2026-10-20) — authoritative where they differ from §3
+
+Fixed (each pinned by a test): 
+
+- **Generic resolver (P1).** `tw4_credit_resolve_reservation` (20261201 body, precondition-checked) now refuses `prov:%` reservations: a provisioning reservation is settled only by the ledger (`finish`, `observe`, `tw4_prov_resolve`), so an admin cannot release a fee Twilio charged and wedge the operation.
+- **Kill switch (P2).** `tw4_prov_begin` requires an open runner window for every step, whatever mode the lease was claimed in.
+- **Capture timing (P2).** A submission captures only the non-refundable vetting fee. The pilot's first-month fee stays reserved until the provider APPROVES (captured in `tw4_prov_observe` on `VERIFIED`) and is released on rejection. Observe also captures a vetting reservation that a human-resolved `created` operation left held, once a provider read of THIS account and service confirms it.
+- **Pilot vs standing authorization (P2).** A pilot business with any active recurring authorization is refused (`pilot_conflict`, TW011) before anything is reserved.
+- **Authorization coverage (P2).** A credit business needs an active recurring authorization with more than 28 days left; it is read `FOR SHARE` in the same transaction as the attempt.
+- **Brand on this account (P2).** `_tw4prov_brand` requires the B1 step to carry the studio's ACTIVE subaccount.
+- **One campaign per service (P2).** If any campaign (even a rejected one the ledger knows) still exists at the provider, a fee-bearing resubmission stops with `prerequisite_missing` BEFORE anything is reserved (delete the failed campaign at Twilio first), so no approval is burned on a create the provider refuses.
+- **Fee release needs evidence (P2).** A fee operation is closed `failed` only with the definite-refusal code `api`; `tw4_prov_resolve` accepts an `in_flight` attempt only after 20 minutes; `resolve(created)` captures nothing by itself.
+- **Reopen (P3).** `tw4_prov_reopen` retires (supersedes) the failed campaign so a refresh does not send the onboarding back to `exception`.
+- **Evidence source (P3).** `source` is derived from the adapter (`evidenceSource`); the real adapter lives in `real.ts` (the repo's "only real.ts reaches Twilio" guard), has a private constructor and is built only by `createScopedProvisioningAdapter` behind the provisioning gate.
+
+Accepted and documented (not changed): 
+
+- Traceability: `tw4_approval_ref_trace` reports the reservation's `operation_key` (`prov:<operation id>:<kind>`), which names the operation; it does not join the ledger.
+- The expected inbound route is supplied by the server (`NEXT_PUBLIC_APP_URL`), the same trust model as the sender-readiness slice; the database does not pin an origin.
+- **Open risk:** a campaign outlives its owner's recurring authorization (Twilio keeps billing the subaccount; DanceFlow absorbs it until an operator acts). Activation (R2b) must re-check an active authorization, and the recurring scheduler is an activation gate. The pilot business has no month-2 funding path without new approvals.
+- **Open risk:** removing a rejected campaign is a manual console step; R2a deletes nothing at the provider.

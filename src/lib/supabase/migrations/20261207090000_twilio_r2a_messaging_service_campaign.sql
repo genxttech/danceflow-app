@@ -25,6 +25,10 @@ begin
   if to_regclass('public.studio_sms_prov_operations') is not null then
     raise exception 'R2a precondition failed: already applied';
   end if;
+  -- the resolver replaced below must still be the 20261201 version (another slice must not be clobbered silently)
+  if position('resolved only through tw4_usage_resolve' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_resolve_reservation(uuid,text,uuid,text)'::regprocedure)) = 0 then
+    raise exception 'R2a precondition failed: tw4_credit_resolve_reservation differs from 20261201090000';
+  end if;
 end $$;
 
 -- audit vocabulary: the live list plus the provisioning actions (extended, not replaced)
@@ -169,7 +173,8 @@ set search_path = pg_catalog, public, pg_temp
 as $$
   select r.brand_sid from public.studio_sms_registrations r
    where r.studio_id = p_studio_id and r.brand_status = 'approved' and r.brand_sid is not null
-     and exists (select 1 from public.studio_sms_provisioning_steps s where s.studio_id = p_studio_id and s.step_key = 'B1' and s.status = 'succeeded' and s.provider_sid = r.brand_sid and not s.mock);
+     and exists (select 1 from public.studio_sms_provisioning_steps s where s.studio_id = p_studio_id and s.step_key = 'B1' and s.status = 'succeeded' and s.provider_sid = r.brand_sid and not s.mock
+                     and s.twilio_account_sid = (select a.twilio_account_sid from public.studio_sms_entity_studios es join public.studio_sms_twilio_accounts a on a.legal_entity_id = es.legal_entity_id and a.status = 'active' where es.studio_id = p_studio_id));
 $$;
 
 
@@ -274,7 +279,7 @@ begin
 end $$;
 
 -- what the campaign needs before it may start, read-only (the reservation in tw4_prov_begin is the authority and re-checks everything under its locks)
--- blocker: null | tier_ineligible | unpriced | awaiting_authorization | awaiting_recurring | awaiting_funding | on_hold | pilot_ceiling
+-- blocker: null | tier_ineligible | unpriced | awaiting_authorization | awaiting_recurring | awaiting_funding | on_hold | pilot_ceiling | pilot_recurring
 create or replace function public._tw4prov_campaign_requirements(p_studio_id uuid)
 returns jsonb language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
@@ -309,7 +314,10 @@ begin
         then exists (select 1 from public.studio_sms_spend_events s where s.legal_entity_id = v_entity and s.kind = v_monthly
                       and s.status = 'authorized' and (s.studio_id is null or s.studio_id = p_studio_id))
         else exists (select 1 from public.studio_sms_recurring_authorizations r where r.legal_entity_id = v_entity and r.studio_id = p_studio_id
-                      and r.kind = v_monthly and r.status = 'active' and r.expires_at > now() and r.price_cents = v_monthly_price) end));
+                      and r.kind = v_monthly and r.status = 'active' and r.expires_at > now() + interval '28 days' and r.price_cents = v_monthly_price) end));
+  -- the pilot business never has a standing authorization: one created before the exception would charge the same month from credit
+  if v_blocker is null and v_pilot.legal_entity_id is not null
+     and exists (select 1 from public.studio_sms_recurring_authorizations r where r.legal_entity_id = v_entity and r.status = 'active') then v_blocker := 'pilot_recurring'; end if;
   if v_blocker is null and not coalesce((v_components -> 0 ->> 'authorized')::boolean, false) then v_blocker := 'awaiting_authorization'; end if;
   if v_blocker is null and not coalesce((v_components -> 1 ->> 'authorized')::boolean, false) then
     v_blocker := case when v_pilot.legal_entity_id is not null then 'awaiting_authorization' else 'awaiting_recurring' end;
@@ -327,6 +335,62 @@ begin
   end if;
   return jsonb_build_object('path', v_path, 'use_case', public._tw4prov_use_case(v_path), 'pilot', v_pilot.legal_entity_id is not null, 'blocker', v_blocker, 'components', v_components,
                             'total_cents', coalesce(v_vet_price, 0) + case when v_pilot.legal_entity_id is not null then coalesce(v_monthly_price, 0) else 0 end);
+end $$;
+
+-- the generic admin resolution never settles a provisioning reservation behind the ledger's back (20261201 body + the prov: refusal)
+create or replace function public.tw4_credit_resolve_reservation(p_reservation_id uuid, p_outcome text, p_actor uuid, p_note text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  r public.studio_sms_credit_reservations;
+  s public.studio_sms_spend_events;
+begin
+  perform public._tw4c_admin(p_actor);
+  if p_outcome not in ('captured', 'released') or p_note is null or char_length(btrim(p_note)) < 10 then
+    raise exception 'an outcome and a written reason (10+ characters) are required' using errcode = '22023';
+  end if;
+  select * into r from public.studio_sms_credit_reservations x where x.id = p_reservation_id;
+  if r.id is null then
+    raise exception 'unknown reservation' using errcode = '22023';
+  end if;
+  perform public._tw4c_lock(r.legal_entity_id);
+  select * into r from public.studio_sms_credit_reservations x where x.id = p_reservation_id for update;
+  if r.reservation_key like 'commit:%' then
+    raise exception 'a recurring set-aside is captured only by its charge and released by revoking the authorization' using errcode = '22023';
+  end if;
+  if r.reservation_key like 'prov:%' then
+    raise exception 'a provisioning reservation is resolved only through tw4_prov_resolve' using errcode = '22023';
+  end if;
+  if r.reservation_key like 'sms:%' then
+    raise exception 'a text''s reservation is resolved only through tw4_usage_resolve' using errcode = '22023';
+  end if;
+  if (r.status = 'captured' and p_outcome = 'captured') or (r.status = 'released' and p_outcome = 'released') then
+    return jsonb_build_object('status', r.status, 'replayed', true);
+  end if;
+  if r.status <> 'reserved' then
+    raise exception 'the reservation is already %', r.status using errcode = '22023';
+  end if;
+  if p_outcome = 'captured' then
+    if r.funding = 'credit' then
+      perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'capture', -r.amount_cents, -r.amount_cents, 'capture:' || r.reservation_key, r.id, 'admin', p_actor, btrim(p_note));
+    end if;
+    update public.studio_sms_credit_reservations set status = 'captured', closed_at = now() where id = r.id;
+  else
+    if r.funding = 'credit' then
+      perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'release', 0, -r.amount_cents, 'release:' || r.reservation_key, r.id, 'admin', p_actor, btrim(p_note));
+    end if;
+    update public.studio_sms_credit_reservations set status = 'released', closed_at = now() where id = r.id;
+    select * into s from public.studio_sms_spend_events x where x.credit_reservation_id = r.id;
+    if s.id is not null then
+      perform set_config('tw4.credit_settle', 'on', true);
+      update public.studio_sms_spend_events set status = 'void' where id = s.id;
+      perform set_config('tw4.credit_settle', 'off', true);
+    end if;
+  end if;
+  insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
+  values (r.studio_id, null, 'platform_admin', p_actor, case when p_outcome = 'captured' then 'credit_captured' else 'credit_released' end, left('reservation=' || r.id || ';admin', 300));
+  return jsonb_build_object('status', p_outcome, 'replayed', false);
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -427,6 +491,10 @@ begin
   if o.state not in ('service_setup', 'campaign_pending') then
     raise exception 'onboarding state % cannot take this step', o.state using errcode = 'TW030';
   end if;
+  -- the kill switch is a database guarantee for every step, whatever mode the lease was claimed in
+  if not exists (select 1 from public.studio_sms_runner_windows w where w.studio_id = o.studio_id and w.expires_at > now()) then
+    raise exception 'the runner window for this studio is closed' using errcode = 'TW001';
+  end if;
   select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = o.studio_id;
   select a.twilio_account_sid into v_account from public.studio_sms_twilio_accounts a where a.legal_entity_id = v_entity and a.status = 'active';
   if v_entity is null or v_account is null then
@@ -480,10 +548,15 @@ begin
       when 'tier_ineligible' then raise exception 'the location is not on a verified registration path' using errcode = 'TW020';
       when 'unpriced' then raise exception 'a campaign fee has no published price' using errcode = 'TW008';
       when 'awaiting_authorization' then raise exception 'no owner-approved campaign fee' using errcode = 'TW004';
+      when 'pilot_recurring' then raise exception 'the pilot business cannot have a standing recurring authorization' using errcode = 'TW011';
       when 'awaiting_recurring' then raise exception 'no active recurring authorization for the campaign monthly fee' using errcode = 'TW033';
       when 'awaiting_funding', 'on_hold', 'pilot_ceiling' then raise exception 'the campaign fee cannot be funded' using errcode = 'TW007';
       else null;
     end case;
+    if not (v_req ->> 'pilot')::boolean then
+      -- a revocation cannot slip in between the check and the attempt
+      perform 1 from public.studio_sms_recurring_authorizations ra where ra.legal_entity_id = v_entity and ra.studio_id = o.studio_id and ra.kind = (v_req -> 'components' -> 1 ->> 'kind') and ra.status = 'active' for share;
+    end if;
     v_use_case := v_req ->> 'use_case';
     if (p_params ->> 'use_case') is distinct from v_use_case then
       raise exception 'the campaign use case does not match the location''s registration path' using errcode = 'TW020';
@@ -551,12 +624,18 @@ begin
       raise exception 'too soon to conclude the resource does not exist' using errcode = 'TW034';
     end if;
   end if;
+  if p_status = 'failed' and r.fee_bearing and coalesce(p_error_code, '') <> 'api' then
+    raise exception 'a fee operation is closed as failed only on a definite provider refusal' using errcode = 'TW034';
+  end if;
   v_from := r.status;
   update public.studio_sms_prov_operations set status = p_status, provider_sid = coalesce(p_provider_sid, provider_sid), finished_at = case when p_status = 'unknown_outcome' then null else clock_timestamp() end,
     error_code = left(p_error_code, 64), error_detail_sanitized = left(p_error_detail, 500) where id = r.id;
   if r.fee_bearing and p_status = 'succeeded' then
     foreach v_kind in array r.fee_kinds loop
-      perform public._tw4prov_settle(r.id, v_kind, 'captured', p_provider_sid);
+      -- only the non-refundable vetting fee is spent by a submission; the first month is captured when the provider APPROVES (observe)
+      if v_kind = 'campaign_vetting' then
+        perform public._tw4prov_settle(r.id, v_kind, 'captured', p_provider_sid);
+      end if;
     end loop;
   elsif r.fee_bearing and p_status = 'failed' then
     foreach v_kind in array r.fee_kinds loop
@@ -593,6 +672,7 @@ declare
   v_parent text := null;
   v_use text := null;
   v_from_state text;
+  v_kind text;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
   if p_source is null or p_source not in ('provider_read', 'fake') or p_digest is null or p_digest !~ '^[0-9a-f]{64}$' or p_facts is null or jsonb_typeof(p_facts) <> 'object'
@@ -662,6 +742,19 @@ begin
     where id = v_prev.id;
   end if;
 
+  -- fees follow provider evidence: the vetting fee is captured once the provider holds the campaign; the first month on approval, released on rejection
+  if r.fee_bearing and r.op_kind = 'campaign' and v_status in ('pending', 'verified', 'failed') then
+    foreach v_kind in array r.fee_kinds loop
+      if exists (select 1 from public.studio_sms_spend_events se join public.studio_sms_credit_reservations cr on cr.id = se.credit_reservation_id
+                  where se.reservation_key = 'prov:' || r.id::text || ':' || v_kind and cr.status = 'reserved') then
+        if v_kind = 'campaign_vetting' or v_status = 'verified' then
+          perform public._tw4prov_settle(r.id, v_kind, 'captured', r.provider_sid);
+        elsif v_status = 'failed' then
+          perform public._tw4prov_settle(r.id, v_kind, 'released', 'campaign_rejected');
+        end if;
+      end if;
+    end loop;
+  end if;
   -- a provider rejection (or a later failure of a campaign that was approved) sends the onboarding to a human; it is never retried or paid again automatically
   if r.op_kind = 'campaign' and v_status = 'failed' and public._sms_onb_transition_allowed(o.state, 'exception') then
     update public.studio_sms_onboarding set state = 'exception', step = 'C1', last_error_code = 'campaign_rejected', last_error_field = null where id = o.id returning * into o;
@@ -697,8 +790,8 @@ begin
   end if;
   select * into o from public.studio_sms_onboarding x where x.id = r.onboarding_id for update;
   select * into r from public.studio_sms_prov_operations x where x.id = p_operation_id for update;
-  if r.status not in ('unknown_outcome', 'in_flight') then
-    raise exception 'only an unresolved operation can be resolved' using errcode = '22023';
+  if r.status not in ('unknown_outcome', 'in_flight') or (r.status = 'in_flight' and r.started_at > clock_timestamp() - interval '20 minutes') then
+    raise exception 'only an unresolved operation can be resolved (an attempt still in flight needs 20 minutes to be considered abandoned)' using errcode = '22023';
   end if;
   if o.lease_owner is not null and o.lease_expires_at > now() then
     raise exception 'a run holds the lease; resolve after it finishes' using errcode = '55P03';
@@ -709,9 +802,10 @@ begin
   update public.studio_sms_prov_operations set status = case when p_resolution = 'created' then 'succeeded' else 'abandoned' end,
     provider_sid = case when p_resolution = 'created' then p_provider_sid else provider_sid end, finished_at = clock_timestamp(),
     resolved_by = p_actor, resolved_at = clock_timestamp(), resolution_note = btrim(p_note), error_code = coalesce(error_code, 'resolved') where id = r.id;
-  if r.fee_bearing then
+  -- 'created' captures nothing here: the typed SID is only a claim until a provider read of THIS account and service confirms it (observe captures)
+  if r.fee_bearing and p_resolution = 'not_created' then
     foreach v_kind in array r.fee_kinds loop
-      perform public._tw4prov_settle(r.id, v_kind, case when p_resolution = 'created' then 'captured' else 'released' end, coalesce(p_provider_sid, 'not_created'));
+      perform public._tw4prov_settle(r.id, v_kind, 'released', 'not_created');
     end loop;
   end if;
   if p_resolution = 'created' and r.op_kind = 'campaign' and o.state = 'service_setup' then
@@ -753,6 +847,9 @@ begin
   v_to := case when exists (select 1 from public.studio_sms_prov_operations x where x.studio_id = o.studio_id and x.op_kind = 'campaign' and x.status = 'succeeded' and x.superseded_at is null
                               and not exists (select 1 from public.studio_sms_prov_resources r where r.operation_id = x.id and r.status = 'failed'))
                then 'campaign_pending' else 'service_setup' end;
+  update public.studio_sms_prov_operations x set superseded_at = clock_timestamp()
+   where x.studio_id = o.studio_id and x.op_kind = 'campaign' and x.status = 'succeeded' and x.superseded_at is null
+     and exists (select 1 from public.studio_sms_prov_resources r where r.operation_id = x.id and r.status = 'failed');
   update public.studio_sms_onboarding set state = v_to, last_error_code = null, last_error_field = null where id = o.id returning * into o;
   perform public._tw4_r1_audit(o, p_actor, 'state_changed', 'exception', v_to, 'provisioning reopened: ' || btrim(p_reason));
   return jsonb_build_object('state', v_to);
@@ -794,6 +891,8 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 revoke all on function public._tw4prov_guard(), public._tw4prov_use_case(text), public._tw4prov_brand(uuid), public._tw4prov_campaign_requirements(uuid),
   public._tw4prov_reserve(public.studio_sms_onboarding, text, uuid), public._tw4prov_settle(uuid, text, text, text) from public, anon, authenticated, service_role;
+revoke all on function public.tw4_credit_resolve_reservation(uuid, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.tw4_credit_resolve_reservation(uuid, text, uuid, text) to service_role;
 revoke all on function public.tw4_prov_claim(uuid, uuid, text, integer, text), public.tw4_prov_context(uuid, text), public.tw4_prov_begin(uuid, text, text, text, text, jsonb, uuid),
   public.tw4_prov_finish(uuid, text, uuid, text, text, text, text), public.tw4_prov_observe(uuid, text, uuid, jsonb, text, text, text),
   public.tw4_prov_resolve(uuid, uuid, text, text, text), public.tw4_prov_reopen(uuid, uuid, text), public.tw4_prov_status(uuid, uuid) from public, anon, authenticated;

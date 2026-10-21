@@ -30,6 +30,59 @@ drop function if exists public._tw4prov_reserve(public.studio_sms_onboarding, te
 drop function if exists public._tw4prov_brand(uuid);
 drop function if exists public._tw4prov_use_case(text);
 
+-- the generic resolver as of 20261201090000
+create or replace function public.tw4_credit_resolve_reservation(p_reservation_id uuid, p_outcome text, p_actor uuid, p_note text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare
+  r public.studio_sms_credit_reservations;
+  s public.studio_sms_spend_events;
+begin
+  perform public._tw4c_admin(p_actor);
+  if p_outcome not in ('captured', 'released') or p_note is null or char_length(btrim(p_note)) < 10 then
+    raise exception 'an outcome and a written reason (10+ characters) are required' using errcode = '22023';
+  end if;
+  select * into r from public.studio_sms_credit_reservations x where x.id = p_reservation_id;
+  if r.id is null then
+    raise exception 'unknown reservation' using errcode = '22023';
+  end if;
+  perform public._tw4c_lock(r.legal_entity_id);
+  select * into r from public.studio_sms_credit_reservations x where x.id = p_reservation_id for update;
+  if r.reservation_key like 'commit:%' then
+    raise exception 'a recurring set-aside is captured only by its charge and released by revoking the authorization' using errcode = '22023';
+  end if;
+  if r.reservation_key like 'sms:%' then
+    raise exception 'a text''s reservation is resolved only through tw4_usage_resolve' using errcode = '22023';
+  end if;
+  if (r.status = 'captured' and p_outcome = 'captured') or (r.status = 'released' and p_outcome = 'released') then
+    return jsonb_build_object('status', r.status, 'replayed', true);
+  end if;
+  if r.status <> 'reserved' then
+    raise exception 'the reservation is already %', r.status using errcode = '22023';
+  end if;
+  if p_outcome = 'captured' then
+    if r.funding = 'credit' then
+      perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'capture', -r.amount_cents, -r.amount_cents, 'capture:' || r.reservation_key, r.id, 'admin', p_actor, btrim(p_note));
+    end if;
+    update public.studio_sms_credit_reservations set status = 'captured', closed_at = now() where id = r.id;
+  else
+    if r.funding = 'credit' then
+      perform public._tw4c_post(r.legal_entity_id, r.studio_id, 'release', 0, -r.amount_cents, 'release:' || r.reservation_key, r.id, 'admin', p_actor, btrim(p_note));
+    end if;
+    update public.studio_sms_credit_reservations set status = 'released', closed_at = now() where id = r.id;
+    select * into s from public.studio_sms_spend_events x where x.credit_reservation_id = r.id;
+    if s.id is not null then
+      perform set_config('tw4.credit_settle', 'on', true);
+      update public.studio_sms_spend_events set status = 'void' where id = s.id;
+      perform set_config('tw4.credit_settle', 'off', true);
+    end if;
+  end if;
+  insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
+  values (r.studio_id, null, 'platform_admin', p_actor, case when p_outcome = 'captured' then 'credit_captured' else 'credit_released' end, left('reservation=' || r.id || ';admin', 300));
+  return jsonb_build_object('status', p_outcome, 'replayed', false);
+end $;
+
 drop table public.studio_sms_prov_resources;
 drop table public.studio_sms_prov_operations;
 drop function if exists public._tw4prov_guard();

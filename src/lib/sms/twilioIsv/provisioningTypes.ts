@@ -54,6 +54,8 @@ export type CampaignCreateInput = {
 export interface IsvProvisioningAdapter {
   /** The Twilio account (a legal business's SUBACCOUNT) every call of this adapter runs in. The runner refuses an adapter that is not the recorded one. */
   readonly accountSid: string;
+  /** Where this adapter's read-back facts come from. Derived from the adapter itself, never chosen by the caller: the fake can never claim to be a provider read. */
+  readonly evidenceSource: "provider_read" | "fake";
 
   /** Messaging Services of this account whose friendly name STARTS WITH the prefix (a complete listing or a throw: never a silently partial one). */
   findMessagingServices(friendlyNamePrefix: string): Promise<string[]>;

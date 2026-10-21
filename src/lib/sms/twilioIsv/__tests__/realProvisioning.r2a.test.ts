@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import { buildCampaignRequest, requestDigest } from "../campaignPayload";
 import { provisioningCallsAllowed, type IsvConfig } from "../config";
-import { createScopedProvisioningAdapter } from "../realProvisioning";
+import { createScopedProvisioningAdapter } from "../real";
 import { IsvApiError } from "../types";
 
 const PARENT = `AC${"0".repeat(32)}`;

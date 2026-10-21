@@ -72,7 +72,7 @@ class ScriptedStore implements ProvisionStore {
 }
 
 const base = (store: ScriptedStore, adapter: IsvProvisioningAdapter, over: Partial<ProvisionInput> = {}): ProvisionInput => ({
-  store, adapter, studioId: STUDIO, actorId: "admin-1", envName: "test", confirmFee: true, inboundUrl: INBOUND, origin: "https://www.idanceflow.com", source: "fake", ...over,
+  store, adapter, studioId: STUDIO, actorId: "admin-1", envName: "test", confirmFee: true, inboundUrl: INBOUND, origin: "https://www.idanceflow.com", ...over,
 });
 const sc = (code: string) => new RunnerStoreError(code);
 
@@ -238,7 +238,7 @@ describe("provisioning runner decisions", () => {
     });
 
     it("every database refusal maps to its own outcome and nothing is created", async () => {
-      const table: [string, string][] = [["TW004", "spend_blocked"], ["TW007", "insufficient_credit"], ["TW008", "tier_unpriced"], ["TW020", "tier_ineligible"], ["TW033", "recurring_missing"],
+      const table: [string, string][] = [["TW004", "spend_blocked"], ["TW007", "insufficient_credit"], ["TW008", "tier_unpriced"], ["TW020", "tier_ineligible"], ["TW033", "recurring_missing"], ["TW011", "pilot_conflict"],
         ["TW032", "prerequisite_missing"], ["TW031", "entity_resource_exists"], ["TW005", "needs_subaccount"], ["55P03", "lease_lost"], ["TW030", "not_runnable"], ["XX000", "exception"]];
       for (const [code, outcome] of table) {
         const { adapter, store } = withService();
@@ -260,11 +260,16 @@ describe("provisioning runner decisions", () => {
       expect(adapter.count("createCampaign")).toBe(0);
     });
 
-    it("a rejected earlier campaign (known to the ledger) is not an 'unrecorded' one", async () => {
+    it("a rejected earlier campaign still at the provider blocks a resubmission BEFORE anything is reserved; once removed it is not 'unrecorded' either", async () => {
       const { adapter, store, sid } = withService();
       const old = `QE${"8".repeat(32)}`;
       adapter.campaigns.set(old, { sid: old, account_sid: ACC, messaging_service_sid: sid, brand_registration_sid: BRAND, us_app_to_person_usecase: "MIXED", campaign_status: "FAILED", mock: false, errors: "x", input: {} as never });
       store.ctx.operations.push({ id: "op-c1", kind: "campaign", attempt: 1, status: "succeeded", provider_sid: old, fee_bearing: true, age_seconds: 99, superseded: true, resource_status: "failed", resource_brand: BRAND, resource_parent: sid });
+      const blocked = await runProvisioning(base(store, adapter));
+      expect(blocked.outcome).toBe("prerequisite_missing");
+      expect(blocked.detail).toContain("provider_campaign_exists_remove_first");
+      expect(store.begins.filter((b) => b.kind === "campaign")).toHaveLength(0);
+      expect(adapter.count("createCampaign")).toBe(0);
       adapter.removeCampaign(old);
       const result = await runProvisioning(base(store, adapter));
       expect(result.outcome).toBe("campaign_submitted");
@@ -359,12 +364,12 @@ describe("provisioning runner decisions", () => {
     const adapter = new FakeProvisioningAdapter(ACC);
     const sid = adapter.seedService(`df:test:${STUDIO}:ms:1`, { inbound_request_url: INBOUND, use_inbound_webhook_on_number: false });
     store.ctx.operations = [{ id: "op-ms", kind: "messaging_service", attempt: 1, status: "succeeded", provider_sid: sid, fee_bearing: false, age_seconds: 9, superseded: false, resource_status: "ready", resource_brand: null, resource_parent: null }];
-    const result = await refreshProvisioning({ store, adapter, studioId: STUDIO, actorId: "admin-1", envName: "test", inboundUrl: INBOUND, origin: "https://www.idanceflow.com", source: "fake" });
+    const result = await refreshProvisioning({ store, adapter, studioId: STUDIO, actorId: "admin-1", envName: "test", inboundUrl: INBOUND, origin: "https://www.idanceflow.com" });
     expect(result.outcome).toBe("service_ready");
     expect(store.begins).toHaveLength(0);
     expect(adapter.calls.map((c) => c.method)).toEqual(["getMessagingService"]);
     store.ctx.operations = [];
-    expect((await refreshProvisioning({ store, adapter, studioId: STUDIO, actorId: "admin-1", envName: "test", inboundUrl: INBOUND, origin: "https://www.idanceflow.com", source: "fake" })).outcome).toBe("nothing_to_check");
+    expect((await refreshProvisioning({ store, adapter, studioId: STUDIO, actorId: "admin-1", envName: "test", inboundUrl: INBOUND, origin: "https://www.idanceflow.com" })).outcome).toBe("nothing_to_check");
   });
 });
 

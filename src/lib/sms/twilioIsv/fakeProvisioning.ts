@@ -25,6 +25,8 @@ export class FakeProvisioningAdapter implements IsvProvisioningAdapter {
   readonly campaigns = new Map<string, CampaignRow>();
   private failures: { method: Method; failure: Failure }[] = [];
 
+  readonly evidenceSource = "fake" as const;
+
   constructor(readonly accountSid: string = DEFAULT_FAKE_PROVISIONING_ACCOUNT) {}
 
   failNext(method: Method, failure: Failure) {

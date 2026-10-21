@@ -1,6 +1,7 @@
 import "server-only";
 import { SubaccountTokenProvider } from "./account";
-import { isvEnvName, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
+import { isvEnvName, provisioningCallsAllowed, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
+import type { CampaignCreateInput, CampaignFacts, IsvProvisioningAdapter, MessagingServiceFacts } from "./provisioningTypes";
 import {
   IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter, type IsvParentAdapter,
 } from "./types";
@@ -406,4 +407,117 @@ export function messagingTokenProvider(env: Record<string, string | undefined> =
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// TW-4F R2a: Messaging Service and A2P campaign provisioning inside ONE subaccount (subaccount credentials only; the parent key never signs these calls).
+// Gated by provisioningCallsAllowed(): production build + production deployment + TW4_ISV_REAL_CALLS=on AND TW4_PROVISIONING_REAL_CALLS=on.
+// Request shapes follow Twilio public Messaging Services / Usa2p documentation, pinned by unit tests with an injected fetch; NOT run against live Twilio.
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+const MESSAGING_SERVICE_SID = /^MG[0-9a-fA-F]{32}$/;
+const CAMPAIGN_REGISTRATION_SID = /^QE[0-9a-fA-F]{32}$/;
+const PROVISION_ACCOUNT_SID = /^AC[0-9a-fA-F]{32}$/;
+
+const provStr = (v: unknown): string | null => (typeof v === "string" ? v : null);
+const provBool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+const provChecked = (sid: string, pattern: RegExp): string => {
+  if (!pattern.test(sid)) throw new IsvApiError("validation", null, null, "malformed resource sid");
+  return sid;
+};
+
+/** Printable, single-line, bounded: what Twilio said failed, safe to store and show. */
+function sanitizeCampaignErrors(value: unknown): string {
+  const parts: string[] = [];
+  const visit = (item: unknown) => {
+    if (typeof item === "string") parts.push(item);
+    else if (Array.isArray(item)) item.forEach(visit);
+    else if (item && typeof item === "object") Object.values(item as Record<string, unknown>).forEach(visit);
+  };
+  visit(value);
+  return parts.join("; ").replace(/[^\x20-\x7e]/g, " ").replace(/\s+/g, " ").trim().slice(0, 450);
+}
+
+export class RealProvisioningAdapter extends TwilioRest<IsvConfig> implements IsvProvisioningAdapter {
+  /** Read-back facts from this adapter are real provider reads (the database accepts the fake source only on a local QA database). */
+  readonly evidenceSource = "provider_read" as const;
+
+  /** Not constructible from outside: only `createScopedProvisioningAdapter` builds one, after the provisioning gate says so. */
+  private constructor(config: IsvConfig, fetchImpl: FetchLike) {
+    super(config, fetchImpl);
+  }
+
+  static forAccount(config: IsvConfig, fetchImpl: FetchLike): RealProvisioningAdapter {
+    return new RealProvisioningAdapter(config, fetchImpl);
+  }
+
+  get accountSid(): string {
+    return this.config.accountSid;
+  }
+
+  async findMessagingServices(friendlyNamePrefix: string): Promise<string[]> {
+    const rows = await this.listAll(`${MESSAGING}/Services?PageSize=50`, MESSAGING, "services");
+    return rows.filter((row) => typeof row.friendly_name === "string" && row.friendly_name.startsWith(friendlyNamePrefix) && row.account_sid === this.accountSid).map((row) => String(row.sid));
+  }
+
+  async createMessagingService(input: { friendlyName: string; inboundRequestUrl: string }): Promise<string> {
+    // The service routes inbound texts to DanceFlow itself (not to each number), so the route is verifiable on the service.
+    const json = await this.request("POST", `${MESSAGING}/Services`, {
+      FriendlyName: input.friendlyName, InboundRequestUrl: input.inboundRequestUrl, InboundMethod: "POST", UseInboundWebhookOnNumber: "false",
+    });
+    return this.sid(json, MESSAGING_SERVICE_SID);
+  }
+
+  async getMessagingService(sid: string): Promise<MessagingServiceFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(sid, MESSAGING_SERVICE_SID)}`);
+    return {
+      sid: provStr(b.sid), account_sid: provStr(b.account_sid), friendly_name: provStr(b.friendly_name), inbound_request_url: provStr(b.inbound_request_url),
+      use_inbound_webhook_on_number: provBool(b.use_inbound_webhook_on_number), us_app_to_person_registered: provBool(b.us_app_to_person_registered),
+    };
+  }
+
+  async findCampaigns(messagingServiceSid: string): Promise<string[]> {
+    const rows = await this.listAll(`${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p?PageSize=50`, MESSAGING, "compliance");
+    return rows.filter((row) => row.account_sid === this.accountSid).map((row) => String(row.sid));
+  }
+
+  async createCampaign(input: CampaignCreateInput): Promise<string> {
+    const json = await this.request("POST", `${MESSAGING}/Services/${provChecked(input.messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p`, {
+      BrandRegistrationSid: input.brandSid,
+      UsAppToPersonUsecase: input.useCase,
+      Description: input.description,
+      MessageFlow: input.messageFlow,
+      MessageSamples: input.messageSamples,
+      HasEmbeddedLinks: String(input.hasEmbeddedLinks),
+      HasEmbeddedPhone: String(input.hasEmbeddedPhone),
+      SubscriberOptIn: String(input.subscriberOptIn),
+      AgeGated: String(input.ageGated),
+      DirectLending: String(input.directLending),
+      OptInMessage: input.optInMessage,
+      OptOutMessage: input.optOutMessage,
+      HelpMessage: input.helpMessage,
+      OptInKeywords: input.optInKeywords,
+      OptOutKeywords: input.optOutKeywords,
+      HelpKeywords: input.helpKeywords,
+    });
+    return this.sid(json, CAMPAIGN_REGISTRATION_SID);
+  }
+
+  async getCampaign(messagingServiceSid: string, campaignSid: string): Promise<CampaignFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p/${provChecked(campaignSid, CAMPAIGN_REGISTRATION_SID)}`);
+    return {
+      sid: provStr(b.sid), account_sid: provStr(b.account_sid), messaging_service_sid: provStr(b.messaging_service_sid), brand_registration_sid: provStr(b.brand_registration_sid),
+      us_app_to_person_usecase: provStr(b.us_app_to_person_usecase), campaign_status: provStr(b.campaign_status), mock: provBool(b.mock), errors: sanitizeCampaignErrors(b.errors),
+    };
+  }
+}
+
+/** A provisioning adapter for ONE subaccount, signed with that subaccount's own credentials. The parent's API key is dropped on purpose. */
+export function createScopedProvisioningAdapter(
+  config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
+): RealProvisioningAdapter {
+  const gate = provisioningCallsAllowed(env);
+  if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+  if (!PROVISION_ACCOUNT_SID.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
+  if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
+  return RealProvisioningAdapter.forAccount({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl ?? ((url, init) => fetch(url, init)));
 }

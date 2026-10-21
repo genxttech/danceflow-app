@@ -47,6 +47,8 @@ export type ProvisionOutcome =
   | "recurring_missing"
   | "tier_unpriced"
   | "tier_ineligible"
+  /** The pilot business has a standing recurring authorization, which the pilot rule forbids. Nothing was reserved or called. */
+  | "pilot_conflict"
   | "record_failed"
   | "nothing_to_check";
 
@@ -64,8 +66,6 @@ export type ProvisionInput = {
   inboundUrl: string | null;
   /** Public origin for the opt-in / Terms / Privacy links of the campaign package. */
   origin: string;
-  /** Where the read-back facts come from; the database accepts `fake` only on a local QA database. */
-  source: "provider_read" | "fake";
   /** Stop once the Messaging Service is verified ready (the campaign is not begun). */
   stopAfterService?: boolean;
 };
@@ -107,6 +107,7 @@ function beginRefusal(error: unknown, kind: ProvKind): ProvisionResult {
     case "TW031": return { outcome: "entity_resource_exists", steps: [], detail };
     case "TW032": return { outcome: "prerequisite_missing", steps: [], detail };
     case "TW033": return { outcome: "recurring_missing", steps: [], detail };
+    case "TW011": return { outcome: "pilot_conflict", steps: [], detail };
     default: return { outcome: "exception", steps: [], detail: `begin:${detail}` };
   }
 }
@@ -191,10 +192,17 @@ export async function runProvisioning(input: ProvisionInput): Promise<ProvisionR
       // 1. Look BEFORE recording anything: a resource the ledger does not know about must never be duplicated (or paid for twice).
       if (!spec.live) {
         let existing: string[];
+        let all: string[];
         try {
-          existing = (await spec.find()).filter((sid) => !spec.known.has(sid));
+          all = await spec.find();
+          existing = all.filter((sid) => !spec.known.has(sid));
         } catch (error) {
           return stop({ outcome: "retry_later", steps, detail: `lookup:${kind}:${sanitized(error)}`, state });
+        }
+        if (spec.fee && all.length > 0 && existing.length === 0) {
+          // Twilio allows one campaign per Messaging Service: a (rejected) campaign that is still there must be removed at the provider first.
+          // Stopping here reserves nothing, so no approval is burned on a create the provider will refuse.
+          return stop({ outcome: "prerequisite_missing", steps, detail: `${kind}:provider_campaign_exists_remove_first`, state });
         }
         if (existing.length > 1) {
           await toException("prov_ambiguous");
@@ -390,7 +398,7 @@ async function observeOne(args: ProvisionInput & { onboardingId: string; leaseOw
     return { kind: "retry", detail: `observe:${args.kind}:${sanitized(error)}` };
   }
   try {
-    const result = await store.observe(args.onboardingId, args.leaseOwner, args.operationId, facts, args.inboundUrl as string, args.source, digestOf(facts));
+    const result = await store.observe(args.onboardingId, args.leaseOwner, args.operationId, facts, args.inboundUrl as string, adapter.evidenceSource, digestOf(facts));
     return { kind: "ok", status: result.status, code: result.code, state: result.state };
   } catch (error) {
     return { kind: "error", detail: `observe:${args.kind}:${storeCode(error)}` };

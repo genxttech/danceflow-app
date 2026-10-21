@@ -180,7 +180,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
     rpc("tw4_recurring_authorize", { p_studio_id: studio, p_user_id: user, p_kind: kind, p_acknowledged_price_cents: price, p_term_months: 3, p_total_limit_cents: null });
   const window = async (studio: string) => expect((await rpc("tw4_runner_set_window", { p_studio_id: studio, p_actor: U.padmin, p_hours: 2, p_reason: "fixture: provisioning window" })).error).toBeNull();
   const input = (studio: string, adapter: FakeProvisioningAdapter, over: Partial<ProvisionInput> = {}): ProvisionInput => ({
-    store, adapter, studioId: studio, actorId: U.padmin, envName: "test", confirmFee: true, inboundUrl: INBOUND, origin: "https://www.idanceflow.com", source: "fake", ...over,
+    store, adapter, studioId: studio, actorId: U.padmin, envName: "test", confirmFee: true, inboundUrl: INBOUND, origin: "https://www.idanceflow.com", ...over,
   });
   const run = async (studio: string, adapter: FakeProvisioningAdapter, over: Partial<ProvisionInput> = {}) => {
     const result = await runProvisioning(input(studio, adapter, over));
@@ -295,7 +295,8 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
     const c = hub.adapterFor(ACC.C);
     const results = await Promise.all([run(SC1, c, { stopAfterService: true }), run(SC1, c, { stopAfterService: true })]);
     expect(c.count("createMessagingService")).toBe(1);
-    expect(results.map((r) => r.outcome).sort()).toEqual(expect.arrayContaining(["service_ready"]));
+    expect(results.map((r) => r.outcome).filter((o) => o === "service_ready").length).toBeGreaterThanOrEqual(1);
+    expect(results.every((r) => r.outcome === "service_ready" || r.outcome === "lease_busy")).toBe(true);
     expect(ops(SC1, "messaging_service")).toBe("1:succeeded:false");
   });
 
@@ -423,6 +424,11 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       // reopening only moves the state; it authorizes and charges nothing
       expect((await rpc("tw4_prov_reopen", { p_studio_id: SA1, p_actor: U.owner_a, p_reason: "fixture: corrected the package" })).error?.code).toBe("42501");
       expect((await rpc("tw4_prov_reopen", { p_studio_id: SA1, p_actor: U.padmin, p_reason: "fixture: corrected the package" })).data).toEqual({ state: "service_setup" });
+      // Twilio allows one campaign per service: while the rejected one is still there, nothing is reserved and no approval is burned
+      const blocked = await run(SA1, a);
+      expect(blocked.outcome).toBe("prerequisite_missing");
+      expect(blocked.detail).toContain("provider_campaign_exists_remove_first");
+      expect(a.count("createCampaign")).toBe(1);
       a.removeCampaign(qe); // the failed campaign is removed at the provider console first
       const refused = await run(SA1, a);
       expect(refused.outcome).toBe("spend_blocked");
@@ -472,6 +478,19 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(d.count("createCampaign")).toBe(1);
       expect(reservations(ED, "campaign_vetting")).toBe(`reserved:${PRICE.vetting}:credit`);
       const id = opId(SD1, "campaign");
+      // the generic credit resolver cannot settle a provisioning reservation behind the ledger's back
+      const resId = psql(`select cr.id from public.studio_sms_credit_reservations cr where cr.reservation_key = 'prov:${id}:campaign_vetting'`);
+      for (const outcome of ["released", "captured"]) {
+        expect((await rpc("tw4_credit_resolve_reservation", { p_reservation_id: resId, p_outcome: outcome, p_actor: U.padmin, p_note: "fixture: generic resolver attempt" })).error?.code).toBe("22023");
+      }
+      expect(reservations(ED, "campaign_vetting")).toBe(`reserved:${PRICE.vetting}:credit`);
+      // an unknown FEE outcome is never closed as failed by the runner, and a fee is released only on a definite provider refusal
+      const lease = `t-${RUN}`;
+      await store.claim(SD1, U.padmin, lease);
+      for (const [errorCode, status] of [["api", "failed"], ["unclear_outcome", "failed"]] as const) {
+        expect((await rpc("tw4_prov_finish", { p_onboarding_id: OD1, p_lease_owner: lease, p_operation_id: id, p_status: status, p_provider_sid: null, p_error_code: errorCode, p_error_detail: null })).error?.code, errorCode).toBe("TW034");
+      }
+      await store.release(OD1, lease);
       expect((await rpc("tw4_prov_resolve", { p_operation_id: id, p_actor: U.owner_a, p_resolution: "not_created", p_provider_sid: null, p_note: "fixture: checked the console" })).error?.code).toBe("42501");
       expect((await rpc("tw4_prov_resolve", { p_operation_id: id, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "short" })).error?.code).toBe("22023");
       expect((await rpc("tw4_prov_resolve", { p_operation_id: id, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "fixture: checked the console, no campaign exists" })).error).toBeNull();
@@ -490,22 +509,35 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
 
   describe("tier eligibility", () => {
     it("a location chosen as Low-Volume Standard WITHOUT the verified eligibility record has no campaign path: nothing is reserved or called", async () => {
-      const e = hub.adapterFor(ACC.A);
       // business A's second location: its own service is refused by the entity rule, so test the path read directly
       aged(`update public.studio_sms_onboarding set tier = 'low_volume_standard' where studio_id = '${SA2}'`);
       const req = JSON.parse(psql(`select public._tw4prov_campaign_requirements('${SA2}')::text`)) as { blocker: string; use_case: string | null; path: string };
       aged(`update public.studio_sms_onboarding set tier = null where studio_id = '${SA2}'`);
       expect(req).toMatchObject({ blocker: "tier_ineligible", use_case: null, path: "low_volume_unverified" });
-      expect(e.count("createCampaign")).toBeGreaterThanOrEqual(0);
     });
   });
 
   describe("ConfiDance pilot business", () => {
-    it.skipIf(!pilotUsable)("each fee component needs its own written approval, inside the cumulative ceiling; the ceiling is not credit; no standing authorization", async () => {
-      if (!pilotUsable) return;
+    it("each fee component needs its own written approval, inside the cumulative ceiling; the ceiling is not credit; no standing authorization", async () => {
+      // the suite must FAIL (not skip) when it cannot pin the pilot rule: the database holds one pilot slot
+      expect(pilotUsable, "another pilot exception exists on this database: remove it or run on a clean local stack").toBe(true);
       const c = hub.adapterFor(ACC.C);
       const base = ref("pilot-founder");
+      // a standing authorization that exists BEFORE the pilot exception would charge the same month from credit: the pilot business is refused
+      aged(`insert into public.studio_sms_recurring_authorizations (legal_entity_id, studio_id, kind, price_cents, term_months, total_limit_cents, expires_at, authorized_by, statement)
+             values ('${EC}', '${SC1}', 'monthly', ${PRICE.monthly}, 3, ${PRICE.monthly * 3}, now() + interval '90 days', '${U.owner_a}', 'fixture: a standing authorization made before the pilot exception existed')`);
       expect((await rpc("tw4_pilot_exception_create", { p_entity_id: EC, p_ceiling_cents: 15_000, p_approval_ref: base, p_actor: U.padmin })).error).toBeNull();
+      expect((await authorize(EC, SC1, "campaign_vetting", PRICE.vetting, ref("pilot-vetting-0"), "pilot")).error).toBeNull();
+      expect((await authorize(EC, SC1, "monthly", PRICE.monthly, ref("pilot-monthly-0"), "pilot")).error).toBeNull();
+      const conflict = await run(SC1, c);
+      expect(conflict.outcome).toBe("pilot_conflict");
+      expect(c.count("createCampaign")).toBe(0);
+      expect(reservations(EC, "campaign_vetting")).toBeFalsy();
+      aged(`delete from public.studio_sms_recurring_authorizations where legal_entity_id = '${EC}'`);
+      for (const r of ["pilot-vetting-0", "pilot-monthly-0"]) {
+        const id = psql(`select id from public.studio_sms_spend_events where approval_ref = $q$${ref(r)}$q$`);
+        expect((await rpc("tw4_spend_withdraw", { p_spend_event_id: id, p_actor: U.padmin, p_note: "fixture: clear the approvals before the main scenario" })).error).toBeNull();
+      }
       aged(`update public.studio_sms_pilot_exceptions set ceiling_cents = 3000 where legal_entity_id = '${EC}'`);
       // only the vetting fee approved: the monthly fee needs its own approval
       expect((await authorize(EC, SC1, "campaign_vetting", PRICE.vetting, ref("pilot-vetting"), "pilot")).error).toBeNull();
@@ -517,16 +549,55 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect((await run(SC1, c)).outcome).toBe("insufficient_credit");
       expect(c.count("createCampaign")).toBe(0);
       expect(reservations(EC, "campaign_vetting")).toBeFalsy();
+      // the ceiling is raised; the monthly approval is funded as CREDIT by mistake (no credit exists): the second reservation fails inside the same
+      // transaction as the first, so the vetting approval is NOT consumed (all or none)
+      const pilotMonthlyId = psql(`select id from public.studio_sms_spend_events where approval_ref = $q$${ref("pilot-monthly")}$q$`);
+      expect((await rpc("tw4_spend_withdraw", { p_spend_event_id: pilotMonthlyId, p_actor: U.padmin, p_note: "fixture: replace by a credit-funded approval" })).error).toBeNull();
       aged(`update public.studio_sms_pilot_exceptions set ceiling_cents = 4000 where legal_entity_id = '${EC}'`);
+      expect((await authorize(EC, SC1, "monthly", PRICE.monthly, ref("pilot-monthly-credit"), "credit")).error).toBeNull();
+      expect((await run(SC1, c)).outcome).toBe("insufficient_credit");
+      expect(spendStatus(ref("pilot-vetting"))).toBe("authorized");
+      expect(reservations(EC, "campaign_vetting")).toBeFalsy();
+      expect(c.count("createCampaign")).toBe(0);
+      const creditMonthlyId = psql(`select id from public.studio_sms_spend_events where approval_ref = $q$${ref("pilot-monthly-credit")}$q$`);
+      expect((await rpc("tw4_spend_withdraw", { p_spend_event_id: creditMonthlyId, p_actor: U.padmin, p_note: "fixture: replace by a pilot-funded approval" })).error).toBeNull();
+      expect((await authorize(EC, SC1, "monthly", PRICE.monthly, ref("pilot-monthly-2"), "pilot")).error).toBeNull();
       expect((await recurring(SC1, U.owner_a, "monthly", PRICE.monthly)).error?.code).toBe("TW011"); // no standing authorization for the pilot business
       expect(psql(`select count(*) from public.studio_sms_recurring_authorizations where legal_entity_id = '${EC}'`)).toBe("0");
       const result = await run(SC1, c);
       expect(result.outcome).toBe("campaign_submitted");
       expect(reservations(EC, "campaign_vetting")).toBe(`captured:${PRICE.vetting}:pilot`);
+      // only the non-refundable vetting fee is spent by a submission; the first month waits for the provider's approval
+      expect(reservations(EC, "monthly")).toBe(`reserved:${PRICE.monthly}:pilot`);
+      const qe = [...c.campaigns.keys()][0];
+      c.setCampaignStatus(qe, "VERIFIED");
+      expect((await refresh(SC1, c)).outcome).toBe("campaign_verified");
       expect(reservations(EC, "monthly")).toBe(`captured:${PRICE.monthly}:pilot`);
       expect(psql(`select coalesce(balance_cents, 0) from public.studio_sms_credit_accounts where legal_entity_id = '${EC}'`) || "0").toBe("0"); // no credit was ever involved
       expect(c.count("createCampaign")).toBe(1);
     });
+  });
+
+  it("the brand must be the one registered ON THIS business's subaccount (a parent-era or foreign brand is not a prerequisite)", () => {
+    expect(psql(`select public._tw4prov_brand('${SA1}')`)).toBe(BRAND.A1);
+    aged(`update public.studio_sms_provisioning_steps set twilio_account_sid = null where studio_id = '${SA1}' and step_key = 'B1'`);
+    expect(psql(`select coalesce(public._tw4prov_brand('${SA1}'), 'none')`)).toBe("none");
+    aged(`update public.studio_sms_provisioning_steps set twilio_account_sid = '${ACC.B}' where studio_id = '${SA1}' and step_key = 'B1'`);
+    expect(psql(`select coalesce(public._tw4prov_brand('${SA1}'), 'none')`)).toBe("none");
+    aged(`update public.studio_sms_provisioning_steps set twilio_account_sid = '${ACC.A}' where studio_id = '${SA1}' and step_key = 'B1'`);
+    expect(psql(`select public._tw4prov_brand('${SA1}')`)).toBe(BRAND.A1);
+  });
+
+  it("the runner window is a database guarantee at the paid step too: closing it mid-run stops a begin, whatever mode the lease was claimed in", async () => {
+    const lease = `w-${RUN}`;
+    await store.claim(SB1, U.padmin, lease, 120, "refresh"); // a refresh lease does not check the window
+    expect((await rpc("tw4_runner_set_window", { p_studio_id: SB1, p_actor: U.padmin, p_hours: 0, p_reason: "fixture: close the window" })).error).toBeNull();
+    const begin = await rpc("tw4_prov_begin", {
+      p_onboarding_id: OB1, p_lease_owner: lease, p_op_kind: "messaging_service", p_friendly_name: "df:test:window", p_request_digest: "0".repeat(64), p_params: {}, p_actor: U.padmin,
+    });
+    await store.release(OB1, lease);
+    await window(SB1);
+    expect(begin.error?.code).toBe("TW001");
   });
 
   it("the admin status read is platform-admin only and reports the ledger", async () => {
