@@ -32,6 +32,11 @@ export type NumContext = {
   known_numbers: string[];
 };
 
+export type InventoryNumber = { sid: string; phone_number: string | null };
+export type InventorySeen = { listed: number; unknown: number; missing: number; mismatch: number; duplicate: number };
+export type ReconTarget = { studio_id: string; legal_entity_id: string; twilio_account_sid: string; last_checked_at: string | null; reason: string };
+export type EscalationResult = { outbox: boolean; raised: number; deferred?: number; considered?: number; failed?: number };
+
 export type NumClaim = { onboarding_id: string; studio_id: string; state: string; submission_seq: number };
 export type NumBeginArgs = { kind: NumKind; friendlyName: string; digest: string; params: Record<string, unknown>; actorId: string };
 export type NumBeginResult =
@@ -47,6 +52,12 @@ export type SelectionRecorded = { selection_id: string; e164: string; price_cent
 
 export interface NumberStore {
   claim(studioId: string, actorId: string, leaseOwner: string, leaseSeconds?: number, mode?: "run" | "refresh"): Promise<NumClaim>;
+  /** The scheduled reconciliation's lease (service role, no human actor): GET-only work, refused for a location whose onboarding is not at a number-step state. */
+  claimRecon(studioId: string, leaseOwner: string, leaseSeconds?: number): Promise<NumClaim>;
+  /** One location per business whose subaccount inventory is due, never checked, unclean or carrying open findings. */
+  reconTargets(limit: number, maxAgeSeconds: number): Promise<ReconTarget[]>;
+  /** Idempotent, age-based escalation of open findings (a deferral is reported when the alert outbox is not installed). */
+  escalateOrphans(limit: number): Promise<EscalationResult>;
   release(onboardingId: string, leaseOwner: string): Promise<void>;
   getAccount(onboardingId: string, leaseOwner: string): Promise<RunnerAccount>;
   context(onboardingId: string, leaseOwner: string): Promise<NumContext>;
@@ -55,7 +66,7 @@ export interface NumberStore {
   observe(onboardingId: string, leaseOwner: string, operationId: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<NumObserveResult>;
   transition(onboardingId: string, leaseOwner: string, to: RunnerTransitionState, step: string, errorCode: string | null): Promise<string>;
   /** The provider inventory seen under this lease; the DATABASE judges it against the numbers it accounts for and tw4_num_begin(number_purchase) requires a clean stamp. */
-  inventoryObserve(onboardingId: string, leaseOwner: string, sids: string[], source: "provider_read" | "fake", listedAt: string): Promise<{ listed: number; unknown: number; missing: number }>;
+  inventoryObserve(onboardingId: string, leaseOwner: string, numbers: InventoryNumber[], source: "provider_read" | "fake", listedAt: string): Promise<InventorySeen>;
   /** The provider's own answer about what ONE number is (E.164 and account), recorded under this lease. The database requires the account to be the business's active subaccount. */
   identityObserve(onboardingId: string, leaseOwner: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<{ sid: string; e164: string }>;
   recordOffer(studioId: string, actorId: string, accountSid: string, search: Record<string, unknown>, candidates: unknown[], source: "provider_read" | "fake", digest: string): Promise<OfferRecorded>;
@@ -74,6 +85,20 @@ export class SupabaseNumberStore implements NumberStore {
 
   async claim(studioId: string, actorId: string, leaseOwner: string, leaseSeconds = 300, mode: "run" | "refresh" = "run"): Promise<NumClaim> {
     return this.call<NumClaim>("tw4_num_claim", { p_studio_id: studioId, p_actor: actorId, p_lease_owner: leaseOwner, p_lease_seconds: leaseSeconds, p_mode: mode });
+  }
+
+  async claimRecon(studioId: string, leaseOwner: string, leaseSeconds = 120): Promise<NumClaim> {
+    return this.call<NumClaim>("tw4_num_recon_claim", { p_studio_id: studioId, p_lease_owner: leaseOwner, p_lease_seconds: leaseSeconds });
+  }
+
+  async reconTargets(limit: number, maxAgeSeconds: number): Promise<ReconTarget[]> {
+    const rows = await this.call<ReconTarget[] | null>("tw4_num_recon_targets", { p_limit: limit, p_max_age_seconds: maxAgeSeconds });
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  async escalateOrphans(limit: number): Promise<EscalationResult> {
+    const row = await this.call<EscalationResult | null>("tw4_num_orphan_escalate", { p_limit: limit });
+    return { outbox: row?.outbox === true, raised: Number(row?.raised ?? 0), deferred: row?.deferred, considered: row?.considered, failed: row?.failed };
   }
 
   async release(onboardingId: string, leaseOwner: string): Promise<void> {
@@ -117,12 +142,13 @@ export class SupabaseNumberStore implements NumberStore {
     return String(row?.state ?? "");
   }
 
-  async inventoryObserve(onboardingId: string, leaseOwner: string, sids: string[], source: "provider_read" | "fake", listedAt: string): Promise<{ listed: number; unknown: number; missing: number }> {
-    const row = await this.call<{ listed: number; unknown: number; missing: number }>("tw4_num_inventory_observe", {
-      p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_sids: sids, p_source: source, p_listed_at: listedAt,
+  async inventoryObserve(onboardingId: string, leaseOwner: string, numbers: InventoryNumber[], source: "provider_read" | "fake", listedAt: string): Promise<InventorySeen> {
+    const row = await this.call<Partial<InventorySeen>>("tw4_num_inventory_observe", {
+      p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_numbers: numbers, p_source: source, p_listed_at: listedAt,
     });
     // an answer the database did not give is never read as clean
-    return { listed: Number(row?.listed ?? 0), unknown: Number(row?.unknown ?? Number.MAX_SAFE_INTEGER), missing: Number(row?.missing ?? Number.MAX_SAFE_INTEGER) };
+    const bad = Number.MAX_SAFE_INTEGER;
+    return { listed: Number(row?.listed ?? 0), unknown: Number(row?.unknown ?? bad), missing: Number(row?.missing ?? bad), mismatch: Number(row?.mismatch ?? bad), duplicate: Number(row?.duplicate ?? bad) };
   }
 
   async identityObserve(onboardingId: string, leaseOwner: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<{ sid: string; e164: string }> {

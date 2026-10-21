@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FakeNumberAdapter } from "../fakeNumbers";
-import { numberFriendlyName, observeNumberIdentity, offerNumbers, refreshNumber, runNumberAcquisition, type NumberInput } from "../numberRunner";
+import { numberFriendlyName, observeNumberIdentity, offerNumbers, reconcileInventories, refreshNumber, runNumberAcquisition, type NumberInput } from "../numberRunner";
 import type { NumBeginArgs, NumBeginResult, NumContext, NumFinishOutcome, NumObserveResult, NumberStore, OfferRecorded } from "../numberStore";
 import { RunnerStoreError } from "../store";
 import type { IsvNumberAdapter } from "../numberTypes";
@@ -74,10 +74,22 @@ class ScriptedStore implements NumberStore {
     return { sid: String(facts.sid ?? ""), e164: String(facts.phone_number ?? "") };
   }
   missing = 0;
-  async inventoryObserve(_o: string, _l: string, sids: string[], _source?: string, _listedAt?: string) {
+  async inventoryObserve(_o: string, _l: string, numbers: { sid: string; phone_number: string | null }[], _source?: string, _listedAt?: string) {
+    const sids = numbers.map((n) => n.sid);
     this.log.push("inventory");
     this.inventories.push(sids);
-    return { listed: sids.length, unknown: sids.filter((sid) => !this.ctx.known_numbers.includes(sid)).length, missing: this.missing };
+    return { listed: sids.length, unknown: sids.filter((sid) => !this.ctx.known_numbers.includes(sid)).length, missing: this.missing, mismatch: 0, duplicate: 0 };
+  }
+  async claimRecon(_studioId?: string, _leaseOwner?: string) {
+    return this.claim();
+  }
+  targets: { studio_id: string; legal_entity_id: string; twilio_account_sid: string; last_checked_at: string | null; reason: string }[] = [];
+  async reconTargets() {
+    return this.targets;
+  }
+  async escalateOrphans() {
+    this.log.push("escalate");
+    return { outbox: true, raised: 0 };
   }
   async recordOffer(_s: string, _a: string, accountSid: string, _search: Record<string, unknown>, candidates: unknown[]): Promise<OfferRecorded> {
     this.log.push(`offer:${accountSid}`);
@@ -415,6 +427,32 @@ describe("number search and status check", () => {
     expect(store2.log).not.toContain("begin:number_purchase");
     const none = await refreshNumber({ store: new ScriptedStore(), adapter, studioId: STUDIO, actorId: "a", envName: "test" });
     expect(none.outcome).toBe("nothing_to_check");
+  });
+
+  it("R2b-P2: the scheduled pass skips and reports what it could not list, counts what it listed, and escalates once", async () => {
+    const store = new ScriptedStore();
+    const adapter = world();
+    store.targets = [
+      { studio_id: STUDIO, legal_entity_id: "le-1", twilio_account_sid: ACC, last_checked_at: null, reason: "never_checked" },
+      { studio_id: "studio-2", legal_entity_id: "le-2", twilio_account_sid: `AC${"7".repeat(32)}`, last_checked_at: null, reason: "due" },
+    ];
+    const summary = await reconcileInventories({ store, adapterFor: (account) => (account === ACC ? adapter : null) });
+    expect(summary.checked).toBe(1);
+    expect(summary.clean).toBe(1);
+    expect(summary.skipped).toEqual([{ studioId: "studio-2", reason: "adapter_unavailable" }]);
+    expect(store.log.filter((entry) => entry === "escalate")).toHaveLength(1);
+    // an unclean listing is counted as a finding, never as clean
+    const unclean = new ScriptedStore();
+    unclean.targets = [store.targets[0]];
+    unclean.missing = 1;
+    const second = await reconcileInventories({ store: unclean, adapterFor: () => adapter });
+    expect(second).toMatchObject({ checked: 1, clean: 0, findings: 1 });
+    // a failing worklist is reported, nothing is assumed clean
+    const broken = new ScriptedStore();
+    broken.reconTargets = async () => {
+      throw new RunnerStoreError("XX000");
+    };
+    expect((await reconcileInventories({ store: broken, adapterFor: () => adapter })).escalation).toEqual({ error: "targets:XX000" });
   });
 
   it("R2b-P1: an identity read records the PROVIDER's facts under the adapter's evidence source, and never reads a number for another account", async () => {

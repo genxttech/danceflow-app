@@ -22,7 +22,7 @@ import { FakeSenderReadProvider } from "../../senderVerification";
 import { SupabaseCreditStore } from "../creditStore";
 import { FakeNumberAdapter, FakeNumberHub } from "../fakeNumbers";
 import { SupabaseNumberStore } from "../numberStore";
-import { observeNumberIdentity, offerNumbers, refreshInventory, refreshNumber, runNumberAcquisition } from "../numberRunner";
+import { observeNumberIdentity, offerNumbers, reconcileInventories, refreshInventory, refreshNumber, runNumberAcquisition } from "../numberRunner";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -108,6 +108,9 @@ do $$ begin
   end if;
 end $$;
 delete from public.studio_sms_inbound_route_pins where set_by = '${U.padmin}';
+do $$ begin if to_regclass('public.studio_sms_num_orphans') is not null then delete from public.studio_sms_num_orphan_events where orphan_id in (select id from public.studio_sms_num_orphans where legal_entity_id in (${ENTITIES})); delete from public.studio_sms_num_orphans where legal_entity_id in (${ENTITIES}); end if; end $$;
+drop table if exists public.tw4_p2_stub_alerts;
+do $$ begin if exists (select 1 from pg_proc where proname = '_tw4rfl_alert' and pronamespace = 'public'::regnamespace and prosrc like '%tw4_p2_stub%') then drop function public._tw4rfl_alert(uuid, uuid, uuid, text, text, text, text, text); end if; end $$;
 delete from public.studio_sms_num_identity_reads where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_num_inventory_checks where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_num_inventory_acks where legal_entity_id in (${ENTITIES});
@@ -238,7 +241,9 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     return result;
   };
   const offer = async (studio: string, adapter: FakeNumberAdapter) => {
-    const result = await offerNumbers({ store, adapter, studioId: studio, actorId: U.padmin });
+    let result = await offerNumbers({ store, adapter, studioId: studio, actorId: U.padmin });
+    // a freshly started PostgREST pool can fail its first requests (a transport error, nothing recorded): one retry of the FREE search, never of a purchase
+    if (result.outcome === "exception" && !result.offer) result = await offerNumbers({ store, adapter, studioId: studio, actorId: U.padmin });
     if (process.env.R2B_DEBUG) console.log("offer", studio.slice(-2), JSON.stringify(result));
     return result;
   };
@@ -275,6 +280,17 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
   const reserved = (entity: string) => Number(psql(`select coalesce((select reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entity}'), 0)`));
   const reservations = (entity: string, kind: string) => psql(`select string_agg(status || ':' || amount_cents || ':' || funding, ',' order by created_at) from public.studio_sms_credit_reservations where legal_entity_id = '${entity}' and kind = '${kind}'`);
   const noRunnerWork = (a: FakeNumberAdapter) => expect(a.count("purchaseNumber") + a.count("attachNumber")).toBe(0);
+
+  const orphanOf = (sidArg: string, col: string) => psql(`select ${col} from public.studio_sms_num_orphans where phone_number_sid = '${sidArg}'`);
+  const events = (sidArg: string) => psql(`select coalesce(string_agg(e.event, ',' order by e.created_at, e.id), '') from public.studio_sms_num_orphan_events e join public.studio_sms_num_orphans z on z.id = e.orphan_id where z.phone_number_sid = '${sidArg}'`);
+  const health = (studio: string) => JSON.parse(psql(`select public._tw4num_health('${studio}')::text`)) as { status: string; reasons: string[]; contradictions: number; open_findings: number };
+  const refresh = (studio: string, account: string) => refreshInventory({ store, adapter: adapterOf(account), studioId: studio, actorId: U.padmin });
+  const readId = (studio: string, account: string, sidArg: string) => observeNumberIdentity({ store, adapter: adapterOf(account), studioId: studio, actorId: U.padmin, phoneNumberSid: sidArg });
+  const resolve = (orphan: string, actor: string, resolution: string, note = "reviewed against the provider console") => rpc("tw4_num_orphan_resolve", { p_orphan_id: orphan, p_actor: actor, p_resolution: resolution, p_note: note });
+  const money = (entity: string) => psql(`select (select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${entity}') || ':' || (select count(*) from public.studio_sms_spend_events where legal_entity_id = '${entity}') || ':' ||
+    (select count(*) from public.studio_sms_credit_reservations where legal_entity_id = '${entity}') || ':' || (select count(*) from public.studio_sms_recurring_authorizations where legal_entity_id = '${entity}') || ':' ||
+    (select count(*) from public.studio_sms_recurring_charges where legal_entity_id = '${entity}') || ':' || (select count(*) from public.studio_sms_number_selections where legal_entity_id = '${entity}') || ':' ||
+    (select count(*) from public.studio_sms_num_operations where legal_entity_id = '${entity}') || ':' || (select count(*) from public.studio_sms_billed_senders where legal_entity_id = '${entity}')`);
 
   beforeAll(async () => {
     expect(psql(`select to_regclass('public.studio_sms_num_operations') is not null`)).toBe("t");
@@ -1166,6 +1182,56 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       script();
     });
 
+    it("a provider listing that contradicts the ledger (mismatched E.164, a duplicate E.164, a ledger number missing from a complete listing) opens a critical finding, blocks the contradicted sender and clears when the provider agrees again", async () => {
+      const a = adapterOf(ACC.A);
+      const live = psql(`select provider_sid || ':' || e164 from public.studio_sms_num_operations where legal_entity_id = '${EA}' and op_kind = 'number_purchase' and status = 'succeeded' and superseded_at is null`).split("\n").filter(Boolean)[0];
+      expect(live, "business A must hold a live ledger purchase here").toBeTruthy();
+      const [liveSid, liveE164] = live.split(":");
+      const studio = psql(`select studio_id from public.studio_sms_num_operations where provider_sid = '${liveSid}' and op_kind = 'number_purchase' limit 1`);
+      const blocked = () => psql(`select public._tw4num_send_blocked('${ACC.A}', '${liveSid}', '${liveE164}')`);
+      const first = await refresh(studio, ACC.A);
+      expect(first, `state=${state(studio)} code=${code(studio)} ${JSON.stringify(first)}`).toMatchObject({ outcome: "inventory_clean" });
+      expect(blocked()).toBe("f");
+      const hadSender = psql(`select (public._tw4sr_ready('${studio}')).id is not null`) === "t";
+      // 1. ownership mismatch: the provider shows this sid under ANOTHER E.164
+      const row = a.universe.owned.get(liveSid)!;
+      a.universe.owned.set(liveSid, { ...row, phone_number: "+12025550191" });
+      const mism = await refresh(studio, ACC.A);
+      expect(mism, psql(`select (select unknown_count || ':' || mismatch_count || ':' || listed_sids::text from public.studio_sms_num_inventory_checks where legal_entity_id = '${EA}' order by created_at desc limit 1) || ' / ' || (select string_agg(provider_sid || '=' || e164 || ':' || status, ',') from public.studio_sms_num_operations where legal_entity_id = '${EA}' and op_kind = 'number_purchase')`)).toMatchObject({ outcome: "inventory_unknown" });
+      expect(orphanOf(liveSid, "kind || ':' || status")).toBe("ownership_mismatch:open");
+      expect(blocked()).toBe("t");
+      expect(psql(`select (public._tw4sr_ready('${studio}')).id is null`)).toBe("t");
+      expect(health(studio)).toMatchObject({ status: "critical", contradictions: 1 });
+      expect((await readId(studio, ACC.A, liveSid)).outcome).toBe("identity_recorded");
+      expect((await resolve(orphanOf(liveSid, "id"), U.padmin, "adopt")).error?.code).toBe("TW034");   // a contradiction is investigated, never adopted
+      expect((await resolve(orphanOf(liveSid, "id"), U.padmin, "dispose")).error?.code).toBe("TW047");
+      a.universe.owned.set(liveSid, row);
+      expect(await refresh(studio, ACC.A)).toMatchObject({ outcome: "inventory_clean" });
+      expect(orphanOf(liveSid, "status")).toBe("cleared");
+      expect(blocked()).toBe("f");
+      if (hadSender) expect(psql(`select (public._tw4sr_ready('${studio}')).id is not null`)).toBe("t");
+      // 2. the ledger's number is missing from a COMPLETE listing
+      a.universe.owned.delete(liveSid);
+      expect(await refresh(studio, ACC.A)).toMatchObject({ outcome: "inventory_unknown" });
+      expect(orphanOf(liveSid, "kind || ':' || status")).toBe("ledger_missing:open");
+      expect(blocked()).toBe("t");
+      expect(health(studio).status).toBe("critical");
+      a.universe.owned.set(liveSid, row);
+      expect(await refresh(studio, ACC.A)).toMatchObject({ outcome: "inventory_clean" });
+      expect(orphanOf(liveSid, "status")).toBe("cleared");
+      expect(events(liveSid), "earlier tests of this suite may already have left a detected/cleared pair for this sid").toMatch(/(^|,)(detected|reopened),cleared,reopened,cleared$/);
+      // 3. a SECOND sid for the ledger number's E.164
+      const dup = a.seedOwned(liveE164);
+      expect(await refresh(studio, ACC.A)).toMatchObject({ outcome: "inventory_unknown" });
+      expect(orphanOf(dup, "kind || ':' || status")).toBe("duplicate_e164:open");
+      expect(blocked()).toBe("t");
+      a.universe.owned.delete(dup);
+      expect(await refresh(studio, ACC.A)).toMatchObject({ outcome: "inventory_clean" });
+      expect(blocked()).toBe("t");   // stays blocked until a person disposes of the finding: the provider's absence is evidence, not a verdict
+      expect((await resolve(orphanOf(dup, "id"), U.padmin, "dispose")).error).toBeNull();
+      expect(blocked()).toBe("f");
+    });
+
     it("suspension revokes the sender at once; reactivation needs the whole checklist again (a revoked sender is not ready)", async () => {
       const suspended = await suspend(admin, SA1, U.padmin, "owner asked to pause texting");
       expect(suspended).toMatchObject({ ok: true, data: { state: "suspended" } });
@@ -1228,17 +1294,176 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     });
   });
 
+  describe("R2b-P2: orphan numbers, scheduled reconciliation, inventory health and send-time safeguards", () => {
+
+    it("an unknown number is recorded once per sid, is never adopted without a fresh provider read, and adoption charges nobody and touches no authorization", async () => {
+      const b = adapterOf(ACC.B);
+      const unknownSid = b.seedOwned("+12025550180");
+      expect(await refresh(SB1, ACC.B)).toMatchObject({ outcome: "inventory_unknown" });
+      expect(orphanOf(unknownSid, "kind || ':' || status || ':' || seen_count || ':' || e164")).toBe("unknown:open:1:+12025550180");
+      expect(await refresh(SB1, ACC.B)).toMatchObject({ outcome: "inventory_unknown" });
+      expect(orphanOf(unknownSid, "seen_count")).toBe("2");
+      expect(events(unknownSid)).toBe("detected");
+      expect(health(SB1)).toMatchObject({ status: "degraded" });
+      const id = orphanOf(unknownSid, "id");
+      // controlled: platform administrators only, with a written reason, and only on a fresh provider identity read
+      expect((await resolve(id, U.stranger, "adopt")).error?.code).toBe("42501");
+      expect((await resolve(id, U.padmin, "adopt", "short")).error?.code).toBe("22023");
+      expect((await resolve(id, U.padmin, "adopt")).error?.code).toBe("TW048");
+      expect((await readId(SB1, ACC.B, unknownSid)).outcome).toBe("identity_recorded");
+      const before = money(EB);
+      expect((await resolve(id, U.padmin, "adopt")).error).toBeNull();
+      expect(money(EB)).toBe(before);   // no charge, authorization, reservation, selection, ledger entry or sender
+      expect(orphanOf(unknownSid, "status || ':' || cost_bearer")).toBe("adopted:danceflow");
+      expect(psql(`select '${unknownSid}' = any (public._tw4num_known('${EB}'))`)).toBe("t");
+      expect((await resolve(id, U.padmin, "adopt")).error?.code).toBe("TW034");   // final
+      expect(await refresh(SB1, ACC.B)).toMatchObject({ outcome: "inventory_clean" });
+      expect(health(SB1)).toMatchObject({ status: "healthy" });
+      expect(JSON.parse(psql(`select public._tw4num_health('${SB1}')::text`)).danceflow_borne).toBe(1);
+      // an adopted number is not an approved sender: it has no ledger purchase
+      expect(psql(`select count(*) from public.studio_sms_num_operations where provider_sid = '${unknownSid}'`)).toBe("0");
+      // findings are append-only evidence
+      expect(psqlError(`delete from public.studio_sms_num_orphans where id = '${id}'`)).toContain("never deleted");
+      expect(psqlError(`update public.studio_sms_num_orphans set status = 'open' where id = '${id}'`)).toContain("not un-adopted");
+    });
+
+    it("a number whose E.164 belongs to a purchase of the business is never adopted; a disposal needs the provider's own absence evidence; a reappearing number reopens", async () => {
+      const d = adapterOf(ACC.D);
+      const chargeable = d.seedOwned(NUM.d3);
+      expect(["inventory_unknown"]).toContain((await refresh(SD1, ACC.D)).outcome);
+      const id = orphanOf(chargeable, "id");
+      expect(id).not.toBe("");
+      expect((await readId(SD1, ACC.D, chargeable)).outcome).toBe("identity_recorded");
+      expect((await resolve(id, U.padmin, "adopt")).error?.code).toBe("TW034");   // its E.164 is a purchase's: resolve the purchase instead
+      // disposal: not while the provider still lists it
+      expect((await resolve(id, U.padmin, "dispose")).error?.code).toBe("TW047");
+      d.universe.owned.delete(chargeable);
+      expect(["inventory_unknown", "inventory_clean"]).toContain((await refresh(SD1, ACC.D)).outcome);
+      expect(orphanOf(chargeable, "absent_since is not null")).toBe("t");
+      expect((await resolve(id, U.stranger, "dispose")).error?.code).toBe("42501");
+      // the provider answered a read of it after it was listed absent: not absent
+      aged(`insert into public.studio_sms_num_identity_reads (onboarding_id, lease_owner, legal_entity_id, twilio_account_sid, phone_number_sid, e164, source, evidence_digest)
+        select o.id, 'x', '${ED}', '${ACC.D}', '${chargeable}', '${NUM.d3}', 'fake', '${hex("8")}' from public.studio_sms_onboarding o where o.studio_id = '${SD1}'`);
+      expect((await resolve(id, U.padmin, "dispose")).error?.code).toBe("TW047");
+      aged(`delete from public.studio_sms_num_identity_reads where phone_number_sid = '${chargeable}'`);
+      expect((await resolve(id, U.padmin, "dispose")).error).toBeNull();
+      expect(orphanOf(chargeable, "status")).toBe("disposed");
+      // it appears again: reopened, escalation restarted
+      d.universe.owned.set(chargeable, { sid: chargeable, account_sid: ACC.D, phone_number: NUM.d3, sms_capable: true });
+      expect(["inventory_unknown"]).toContain((await refresh(SD1, ACC.D)).outcome);
+      expect(orphanOf(chargeable, "status || ':' || escalation_level || ':' || (resolved_by is null)")).toBe("open:0:true");
+      expect(events(chargeable)).toBe("detected,absent,disposed,reopened");
+      d.universe.owned.delete(chargeable);
+      await refresh(SD1, ACC.D);
+    });
+
+    it("the worklist, the scheduled pass and the escalation: due businesses only, leases respected, nothing treated as clean when it was not listed, alerts idempotent and concurrency-safe", async () => {
+      expect((await rpc("tw4_num_recon_targets", { p_limit: 0, p_max_age_seconds: 600 })).error?.code).toBe("22023");
+      expect((await rpc("tw4_num_recon_targets", { p_limit: 10, p_max_age_seconds: 5 })).error?.code).toBe("22023");
+      const asAnon = mkClient(sign({ role: "anon", exp: 1983812996 }));
+      expect((await asAnon.rpc("tw4_num_recon_targets", { p_limit: 5, p_max_age_seconds: 600 })).error).not.toBeNull();
+      const targets = (await rpc("tw4_num_recon_targets", { p_limit: 50, p_max_age_seconds: 60 })).data as { studio_id: string; legal_entity_id: string; twilio_account_sid: string; reason: string }[];
+      expect(targets.map((t) => t.legal_entity_id)).toEqual(expect.arrayContaining([EA, ED]));
+      expect(new Set(targets.map((t) => t.legal_entity_id)).size).toBe(targets.length);   // one location per business
+      expect(targets.every((t) => [ACC.A, ACC.B, ACC.C, ACC.D].includes(t.twilio_account_sid))).toBe(true);
+      // an adapter that cannot be built is reported and the business stays due
+      const none = await reconcileInventories({ store, adapterFor: () => null, limit: 50, maxAgeSeconds: 60 });
+      expect(none.checked).toBe(0);
+      expect(none.skipped.length).toBe(targets.length);
+      // a held lease is respected
+      const lease = "recon-held";
+      const heldStudio = targets.find((t) => t.legal_entity_id === EA)!.studio_id;
+      const claim = await store.claim(heldStudio, U.padmin, lease, 120, "refresh");
+      const countBefore = Number(psql(`select count(*) from public.studio_sms_num_inventory_checks where legal_entity_id = '${EA}'`));
+      const withHeld = await reconcileInventories({ store, adapterFor: (account) => hub.adapterFor(account), limit: 50, maxAgeSeconds: 60 });
+      expect(withHeld.skipped).toEqual(expect.arrayContaining([expect.objectContaining({ studioId: heldStudio, reason: expect.stringContaining("lease_busy") })]));
+      expect(Number(psql(`select count(*) from public.studio_sms_num_inventory_checks where legal_entity_id = '${EA}'`))).toBe(countBefore);
+      await store.release(claim.onboarding_id, lease);
+      const done = await reconcileInventories({ store, adapterFor: (account) => hub.adapterFor(account), limit: 50, maxAgeSeconds: 60 });
+      expect(done.checked).toBeGreaterThanOrEqual(2);
+      expect(Number(psql(`select count(*) from public.studio_sms_num_inventory_checks where legal_entity_id = '${EA}'`))).toBeGreaterThan(countBefore);
+      expect(done.escalation).toMatchObject({ outbox: false });   // no alert outbox installed here: reported as deferred, nothing advanced
+
+      // escalation through the recurring-fee-lifecycle alert outbox (a stand-in with the same signature and the same de-duplication)
+      expect(psql("select to_regprocedure('public._tw4rfl_alert(uuid,uuid,uuid,text,text,text,text,text)') is null"), "an isolated database without the real alert outbox is required").toBe("t");
+      psqlFile(`create table public.tw4_p2_stub_alerts (kind text, dedupe text, severity text, unique (kind, dedupe));
+        create function public._tw4rfl_alert(p_entity uuid, p_studio uuid, p_resource uuid, p_kind text, p_dedupe text, p_audience text, p_severity text, p_summary text) returns boolean language plpgsql as $$
+        declare v int; begin /* tw4_p2_stub */ insert into public.tw4_p2_stub_alerts values (p_kind, p_dedupe, p_severity) on conflict do nothing; get diagnostics v = row_count; return v > 0; end $$;`);
+      const b = adapterOf(ACC.B);
+      const esc = b.seedOwned("+12025550195");
+      expect(await refresh(SB1, ACC.B)).toMatchObject({ outcome: "inventory_unknown" });
+      const id = orphanOf(esc, "id");
+      const run = async () => (await rpc("tw4_num_orphan_escalate", { p_limit: 100 })).data as { outbox: boolean; raised: number };
+      expect((await run()).raised).toBeGreaterThanOrEqual(1);
+      expect(orphanOf(esc, "escalation_level")).toBe("1");
+      const stubCount = () => Number(psql("select count(*) from public.tw4_p2_stub_alerts"));
+      const level1 = stubCount();
+      expect((await run()).raised).toBe(0);   // idempotent
+      expect(stubCount()).toBe(level1);
+      aged(`update public.studio_sms_num_orphans set first_seen_at = now() - interval '25 hours' where id = '${id}'`);
+      expect((await run()).raised).toBeGreaterThanOrEqual(1);
+      expect(psql(`select count(*) from public.tw4_p2_stub_alerts where dedupe like 'numorphan:${id}:%'`)).toBe("2");
+      expect(psql(`select severity from public.tw4_p2_stub_alerts where dedupe = 'numorphan:${id}:L2'`)).toBe("critical");
+      // concurrent escalation never raises the same level twice
+      aged(`update public.studio_sms_num_orphans set first_seen_at = now() - interval '73 hours' where id = '${id}'`);
+      await Promise.all([run(), run(), run()]);
+      expect(psql(`select count(*) from public.tw4_p2_stub_alerts where dedupe like 'numorphan:${id}:%'`)).toBe("3");
+      expect(orphanOf(esc, "escalation_level")).toBe("3");
+      expect(events(esc).split(",").filter((e) => e === "escalated").length).toBe(3);
+      psqlFile("drop table public.tw4_p2_stub_alerts; drop function public._tw4rfl_alert(uuid, uuid, uuid, text, text, text, text, text);");
+      b.universe.owned.delete(esc);
+    });
+
+    it("inventory health fails closed (no check, untrusted source, stale), is visible only to platform administrators, and never mixes businesses", async () => {
+      aged(`delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${EC}'`);
+      expect(health(SC1)).toMatchObject({ status: "unknown", reasons: ["no_inventory_check"] });
+      expect(await refresh(SC1, ACC.C)).toMatchObject({ outcome: "inventory_clean" });
+      expect(health(SC1).status).toBe("healthy");
+      aged(`update public.studio_sms_num_inventory_checks set listed_at = now() - interval '25 hours' where legal_entity_id = '${EC}'`);
+      expect(health(SC1)).toMatchObject({ status: "stale" });
+      await refresh(SC1, ACC.C);
+      // fake evidence is untrusted wherever the local-QA marker does not exist
+      aged("alter table public.tw4_local_qa_only rename to tw4_local_qa_only_hidden");
+      try {
+        expect(health(SC1)).toMatchObject({ status: "unknown", reasons: ["untrusted_evidence_source"] });
+      } finally {
+        aged("alter table public.tw4_local_qa_only_hidden rename to tw4_local_qa_only");
+      }
+      expect((await rpc("tw4_num_inventory_status", { p_studio_id: SC1, p_actor: U.stranger })).error?.code).toBe("42501");
+      const status = (await rpc("tw4_num_inventory_status", { p_studio_id: SC1, p_actor: U.padmin })).data as { health: { status: string }; findings: { phone_number_sid: string }[] };
+      expect(status.health.status).toBe("healthy");
+      expect(status.findings.length).toBe(0);   // business C has no findings: B's and A's never appear
+      const exposure = (await rpc("tw4_num_orphan_exposure", { p_actor: U.padmin })).data as { legal_entity_id: string; danceflow_borne: number }[];
+      expect(exposure.find((e) => e.legal_entity_id === EB)).toMatchObject({ danceflow_borne: 1 });
+      expect((await rpc("tw4_num_orphan_exposure", { p_actor: U.stranger })).error?.code).toBe("42501");
+      // the old sid-only observation no longer exists, and a listing that cannot be judged is refused
+      const lease = "r2b-p2-observe";
+      const claim = await store.claim(SB1, U.padmin, lease, 120, "refresh");
+      const observe = (numbers: unknown) => rpc("tw4_num_inventory_observe", { p_onboarding_id: claim.onboarding_id, p_lease_owner: lease, p_numbers: numbers, p_source: "provider_read", p_listed_at: new Date().toISOString() });
+      expect((await rpc("tw4_num_inventory_observe", { p_onboarding_id: claim.onboarding_id, p_lease_owner: lease, p_sids: [], p_source: "fake", p_listed_at: new Date().toISOString() })).error).not.toBeNull();
+      expect((await observe([{ sid: `PN${"2".repeat(32)}`, phone_number: null }])).error?.code).toBe("22023");
+      expect((await observe([{ sid: `PN${"2".repeat(32)}`, phone_number: "+12025550150" }, { sid: `PN${"2".repeat(32)}`, phone_number: "+12025550151" }])).error?.code).toBe("22023");
+      expect((await observe("not an array")).error?.code).toBe("22023");
+      await store.release(claim.onboarding_id, lease);
+      expect(psql("select count(*) from information_schema.role_table_grants where table_name in ('studio_sms_num_orphans', 'studio_sms_num_orphan_events') and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')")).toBe("0");
+    });
+  });
+
   describe("rollback safety", () => {
     const rollbackFile = (name: string) => readFileSync(join(__dirname, "..", "..", "..", "..", "lib", "supabase", "migrations", "rollback", name), "utf8");
     const p1Rollback = () => rollbackFile("20261213090000_twilio_r2b_p1_identity_evidence_rollback.sql");
     // P1 rolls back BEFORE R2b (its functions replace R2b's)
-    const rollbackSql = () => p1Rollback() + "\n" + rollbackFile("20261208090000_twilio_r2b_number_activation_rollback.sql");
+    const p2Rollback = () => rollbackFile("20261214090000_twilio_r2b_p2_orphans_reconciliation_rollback.sql");
+    const rollbackSql = () => p2Rollback() + "\n" + p1Rollback() + "\n" + rollbackFile("20261208090000_twilio_r2b_number_activation_rollback.sql");
     const contained = (sql: string) => `begin;\n${sql.replace(/^begin;$/gm, "").replace(/^commit;$/gm, "")}\nrollback;`;
 
     it("the rollback REFUSES while any provisioning evidence exists (nothing is dropped); with none it runs cleanly, and only inside a transaction that is rolled back here", () => {
       // provider identity evidence is never destroyed by a rollback
       expect(psql("select count(*) from public.studio_sms_num_identity_reads")).not.toBe("0");
       expect(psqlError(contained(p1Rollback()))).toContain("55000");
+      // findings are evidence too
+      expect(psql("select count(*) from public.studio_sms_num_orphans")).not.toBe("0");
+      expect(psqlError(contained(p2Rollback()))).toContain("55000");
       const refused = psqlError(contained(rollbackSql()));
       expect(refused).toContain("55000");
       expect(psql(`select to_regclass('public.studio_sms_num_operations') is not null`)).toBe("t");
