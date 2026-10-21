@@ -244,7 +244,7 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
       try {
         begun = await store.begin(onboardingId, leaseOwner, { kind, friendlyName: spec.friendlyName, digest: spec.digest, params: spec.params, actorId });
       } catch (error) {
-        return stop(beginRefusal(error, kind));
+        return stop({ ...beginRefusal(error, kind), steps });
       }
       if (begun.action === "skip") return { done: true, operationId: begun.operation_id, sid: begun.provider_sid, created: false };
       const operationId = begun.operation_id;
