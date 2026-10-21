@@ -593,6 +593,31 @@ begin
   return jsonb_build_object('status', 'registered', 'resource_id', v_res ->> 'resource_id', 'replayed', false);
 end $$;
 
+-- provider-backed "it is gone": at least two complete listings of the orphan's own scope, recorded after it was found, 10+ minutes apart, the latest within 60 minutes,
+-- none listing it, and no LATER listing showing it again
+create or replace function public._tw4prov2_orphan_gone(p_orphan uuid)
+returns boolean language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  x public.studio_sms_prov_orphans;
+  v_n int;
+  v_first timestamptz;
+  v_last timestamptz;
+begin
+  select * into x from public.studio_sms_prov_orphans y where y.id = p_orphan;
+  if x.id is null then
+    return false;
+  end if;
+  select count(*), min(l.observed_at), max(l.observed_at) into v_n, v_first, v_last
+    from public.studio_sms_prov_listings l
+   where l.studio_id = x.studio_id and l.scope_sid = x.scope_sid and l.twilio_account_sid = x.twilio_account_sid and l.complete and l.observed_at > x.discovered_at
+     and (l.source = 'provider_read' or public._tw4sr_fake_allowed()) and x.provider_sid <> all (l.listed_sids)
+     and not exists (select 1 from public.studio_sms_prov_listings m where m.studio_id = l.studio_id and m.scope_sid = l.scope_sid and m.observed_at > x.discovered_at
+                      and m.observed_at >= l.observed_at and x.provider_sid = any (m.listed_sids));
+  return coalesce(v_n, 0) >= 2 and v_last >= clock_timestamp() - interval '60 minutes' and v_last - v_first >= interval '10 minutes';
+end $$;
+
 create or replace function public.tw4_prov_orphan_close(p_orphan_id uuid, p_actor uuid, p_note text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -619,12 +644,7 @@ begin
   --   (c) the lifecycle shows the registered resource cancelled with its cancellation evidence.
   if not (
     exists (select 1 from public.studio_sms_prov_operations o where o.provider_sid = x.provider_sid and o.legal_entity_id = x.legal_entity_id and o.status = 'succeeded')
-    or (select count(*) >= 2 and max(l.observed_at) >= clock_timestamp() - interval '60 minutes' and max(l.observed_at) - min(l.observed_at) >= interval '10 minutes'
-          from (select l.observed_at from public.studio_sms_prov_listings l
-                 where l.studio_id = x.studio_id and l.scope_sid = x.scope_sid and l.twilio_account_sid = x.twilio_account_sid and l.complete and l.observed_at > x.discovered_at
-                   and (l.source = 'provider_read' or public._tw4sr_fake_allowed()) and x.provider_sid <> all (l.listed_sids)
-                   and not exists (select 1 from public.studio_sms_prov_listings m where m.studio_id = l.studio_id and m.scope_sid = l.scope_sid and m.observed_at > x.discovered_at
-                                    and m.observed_at >= l.observed_at and x.provider_sid = any (m.listed_sids))) l(observed_at)) l
+    or public._tw4prov2_orphan_gone(x.id)
     or (x.status = 'registered' and exists (select 1 from public.studio_sms_provider_resources pr where pr.id = x.rfl_resource_id and pr.provider_state = 'cancelled' and pr.cancel_evidence_digest is not null))
   ) then
     raise exception 'an orphan is closed only when the ledger accounts for it, provider listings show it gone, or the lifecycle shows it cancelled with evidence' using errcode = 'TW046';
@@ -691,7 +711,7 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4prov2_guard(), public._tw4prov2_is_pilot(uuid), public._tw4prov2_is_pilot_op(uuid, uuid), public._tw4prov2_proof(uuid), public._tw4prov2_orphan_block(),
+revoke all on function public._tw4prov2_guard(), public._tw4prov2_is_pilot(uuid), public._tw4prov2_is_pilot_op(uuid, uuid), public._tw4prov2_proof(uuid), public._tw4prov2_orphan_gone(uuid), public._tw4prov2_orphan_block(),
   public._tw4prov2_refusal_disposition(), public._tw4prov2_refusal_guard(), public._tw4prov2_reservation_disposition() from public, anon, authenticated, service_role;
 revoke all on function public.tw4_prov_listing_record(uuid, text, uuid, jsonb, text, text), public.tw4_prov_orphan_register(uuid, uuid), public.tw4_prov_orphan_close(uuid, uuid, text),
   public.tw4_prov_evidence(uuid, uuid), public.tw4_prov_evidence_claim(uuid, uuid, text, integer) from public, anon, authenticated;

@@ -117,6 +117,7 @@ drop function if exists public._tw4prov2_refusal_disposition();
 drop function if exists public._tw4prov2_refusal_guard();
 drop function if exists public._tw4prov2_reservation_disposition();
 drop function if exists public._tw4prov2_orphan_block();
+drop function if exists public._tw4prov2_orphan_gone(uuid);
 drop function if exists public._tw4prov2_proof(uuid);
 drop function if exists public._tw4prov2_is_pilot_op(uuid, uuid);
 drop function if exists public._tw4prov2_is_pilot(uuid);
