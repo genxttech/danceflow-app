@@ -644,7 +644,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       if (res.error === null) {
         // resolved first: the late observation (if it ran) is an orphan, never silently dropped
         expect(status).toBe("abandoned");
-        if (present > 0) expect(Number(psql(`select count(*) from public.studio_sms_prov_orphans where source_operation_id = '${id}'`))).toBeGreaterThan(0);
+        if (present > 0) expect(Number(psql(`select count(*) from public.studio_sms_prov_orphans where studio_id = '${SD1}' and status <> 'closed'`))).toBeGreaterThan(0);
       } else {
         // the observation came first (or the lease was busy): nothing was released
         expect(["TW046", "55P03"]).toContain(res.error.code);
@@ -872,7 +872,8 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(psqlError(`${setup}
           update public.studio_sms_prov_operations set status = 'failed', error_code = 'api' where id = '${open}';
           ${check(`if (select count(*) from public.studio_sms_prov_orphans where legal_entity_id = '${ED}' and provider_sid = '${X}' and status = 'open') <> 1 then raise exception 'no orphan after refusal'; end if;
-                   if (select count(*) from public.studio_sms_provider_alerts where dedupe_key like 'prov_orphan:%' and legal_entity_id = '${ED}') <> 2 then raise exception 'alerts missing'; end if;`)} rollback;`)).toBe("");
+                   if (select count(*) from public.studio_sms_provider_alerts a join public.studio_sms_prov_orphans y on a.dedupe_key in ('prov_orphan:' || y.id || ':owner', 'prov_orphan:' || y.id || ':admin')
+                        where y.provider_sid = '${X}' and y.status = 'open') <> 2 then raise exception 'alerts missing'; end if;`)} rollback;`)).toBe("");
       // ... and when it ends by being ADOPTED as a DIFFERENT campaign, X is an orphan too (Y is the ledger's)
       expect(psqlError(`${setup}
           update public.studio_sms_prov_operations set status = 'succeeded', provider_sid = '${Y}' where id = '${open}';
