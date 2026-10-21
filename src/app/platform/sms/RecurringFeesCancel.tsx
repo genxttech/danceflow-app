@@ -114,6 +114,7 @@ export default function RecurringFeesCancel({ overview, dual }: { overview: RflO
 }
 
 function Authorize({ resourceId, dualApproved = false, approvedRequest = null }: { resourceId: string; dualApproved?: boolean; approvedRequest?: RflDualRequest | null }) {
+  const lockedDecision = approvedRequest?.decidedBy ?? null;
   return (
     <Disclosure title="Authorize a cancellation" summary={dualApproved ? "dual-control approved" : "written reference required"}>
       <form action={rflCancelAuthorizeAction} className="space-y-2">
@@ -125,11 +126,18 @@ function Authorize({ resourceId, dualApproved = false, approvedRequest = null }:
         </label>
         <label className={labelClass}>
           Decision type
-          <select name="decidedBy" required className={inputClass}>
-            <option value="owner_written">Studio owner, in writing</option>
-            <option value="founder_written">DanceFlow founder, in writing</option>
-            <option value="policy_lapse">Policy lapse (never for a number)</option>
-          </select>
+          {lockedDecision ? (
+            <>
+              <input type="hidden" name="decidedBy" value={lockedDecision} />
+              <span className="mt-1 block text-sm font-normal text-slate-900">{lockedDecision === "owner_written" ? "Studio owner, in writing" : "DanceFlow founder, in writing"} (fixed by the approved request)</span>
+            </>
+          ) : (
+            <select name="decidedBy" required className={inputClass}>
+              <option value="owner_written">Studio owner, in writing</option>
+              <option value="founder_written">DanceFlow founder, in writing</option>
+              {dualApproved ? null : <option value="policy_lapse">Policy lapse (never for a number)</option>}
+            </select>
+          )}
         </label>
         <label className={labelClass}>
           Reason (10 to 500 characters)

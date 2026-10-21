@@ -222,6 +222,26 @@ describe("disclosure indicators and prefill (review fixes)", () => {
     expect(html).toMatch(/<textarea name="reason"[^>]*>Retire the unused number\.<\/textarea>/);
   });
 
+  it("the number request form asks for the decision type (never a policy lapse); the approver sees it; Authorize is locked to it", () => {
+    const eligible = render(ops());
+    const form = eligible.slice(eligible.indexOf("Request approval to cancel number") - 3000, eligible.indexOf("Request approval to cancel number"));
+    expect(form).toContain('<select name="decidedBy" required=""');
+    expect(form).toContain("owner_written");
+    expect(form).toContain("founder_written");
+    expect(form).not.toContain("policy_lapse");
+    const approved = render(ops({ dual: [{ request_id: U(42), action: "cancel_number", resource_id: NUM, resource_kind: "number", approval_ref: "OWNER-EMAIL-2026-10-21", decided_by: "founder_written", requested_by: OTHER, status: "approved", reason: "Retire the unused number." }] }));
+    expect(approved).toContain("Decision type this request is bound to: DanceFlow founder, in writing");
+    expect(approved).toContain('<input type="hidden" name="decidedBy" value="founder_written"/>');
+    expect(approved).toContain("(fixed by the approved request)");
+    expect(count(approved, "policy_lapse")).toBe(1);   // only the campaign (no dual control) keeps it
+    // an older database that does not return it: a choice limited to the two written decisions for a number
+    const older = render(ops({ dual: [{ request_id: U(42), action: "cancel_number", resource_id: NUM, requested_by: OTHER, status: "approved", reason: "Retire the unused number." }] }));
+    expect(older).toContain('<select name="decidedBy" required=""');
+    expect(count(older, "value=\"policy_lapse\"")).toBe(1);
+    // a campaign (no dual control) keeps the policy-lapse choice
+    expect(eligible).toContain("policy_lapse");
+  });
+
   it("the open operation id prefills the follow-up forms, and falls back to typed input when absent", () => {
     const withId = render(ops({ overview: { resources: [resource(CAMP, "campaign", { open_cancel_operation: "authorized", open_cancel_operation_id: U(50) })], cancel_operations_open: 1 }, dual: [] }));
     expect(withId).toContain('name="operationId" value="' + U(50) + '"');

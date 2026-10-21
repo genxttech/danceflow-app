@@ -148,7 +148,9 @@ describe("input validation", () => {
     await run(rflVarianceAckAction, { chargeId: U(6), note: "x".repeat(501) });
     await run(rflDualRequestAction, { action: "absorb_exposure", resourceId: RES, reason: NOTE, periodKey: "2026-13" });
     await run(rflDualRequestAction, { action: "absorb_exposure", resourceId: RES, reason: NOTE });
-    await run(rflDualRequestAction, { action: "cancel_number", resourceId: RES, reason: NOTE, approvalRef: "short" });
+    await run(rflDualRequestAction, { action: "cancel_number", resourceId: RES, reason: NOTE, approvalRef: "short", decidedBy: "owner_written" });
+    await run(rflDualRequestAction, { action: "cancel_number", resourceId: RES, reason: NOTE, approvalRef: REF });
+    await run(rflDualRequestAction, { action: "cancel_number", resourceId: RES, reason: NOTE, approvalRef: REF, decidedBy: "policy_lapse" });
     await run(rflDualRequestAction, { action: "mint_money", resourceId: RES, reason: NOTE });
     await run(rflDualApproveAction, { requestId: "x", note: NOTE });
     await run(rflSuspendAction, { studioId: STUDIO, reason: "no" });
@@ -225,9 +227,20 @@ describe("dual control gating", () => {
     replies.tw4_rfl_dual_request = { data: { request_id: REQ } };
     await run(rflDualRequestAction, { action: "absorb_exposure", resourceId: RES, periodKey: "2026-10", reason: NOTE });
     expect(rpc[0]).toEqual({ fn: "tw4_rfl_dual_request", args: { p_actor: ADMIN, p_action: "absorb_exposure", p_resource_id: RES, p_period_key: "2026-10", p_reason: NOTE, p_approval_ref: null } });
+    expect(rpc[0].args).not.toHaveProperty("p_decided_by");
     rpc.length = 0;
-    await run(rflDualRequestAction, { action: "cancel_number", resourceId: RES, reason: NOTE, approvalRef: REF, periodKey: "2026-10" });
-    expect(rpc[0].args).toMatchObject({ p_action: "cancel_number", p_period_key: null, p_approval_ref: REF });
+    await run(rflDualRequestAction, { action: "cancel_number", resourceId: RES, reason: NOTE, approvalRef: REF, periodKey: "2026-10", decidedBy: "founder_written" });
+    expect(rpc[0].args).toMatchObject({ p_action: "cancel_number", p_period_key: null, p_approval_ref: REF, p_decided_by: "founder_written" });
+    // an absorb request sends no decision type (an older database without the parameter still accepts it)
+    expect(rpc[0].fn).toBe("tw4_rfl_dual_request");
+  });
+
+  it("a number is never authorized on a policy lapse, even if the form says so", async () => {
+    replies.tw4_rfl_admin_overview = overviewOf("number");
+    replies.tw4_rfl_dual_list = dualOf("cancel_number", "approved");
+    const r = await run(rflCancelAuthorizeAction, { resourceId: RES, approvalRef: REF, decidedBy: "policy_lapse", reason: NOTE, irreversibleAck: "yes" });
+    expect(r.message).toContain("never cancelled on a policy lapse");
+    expect(writes()).toHaveLength(0);
   });
 
   it("approval statuses other than approved read as failures", async () => {

@@ -123,6 +123,8 @@ export type RflDualRequest = {
   resourceKind: ResourceKind | null;
   /** The written reference a number-cancellation request is bound to (null for an absorb request). */
   approvalRef: string | null;
+  /** The decision type a number-cancellation request is bound to (optional: older databases do not return it). */
+  decidedBy: "owner_written" | "founder_written" | null;
   periodKey: string | null;
   reason: string;
   expectedProviderCents: number | null;
@@ -262,6 +264,7 @@ export function parseDual(raw: unknown): RflDualRequest[] | null {
       studioId: uuid(d.studio_id),
       resourceKind: pick(d.resource_kind, RESOURCE_KINDS),
       approvalRef: str(d.approval_ref),
+      decidedBy: pick(d.decided_by, ["owner_written", "founder_written"] as const),
       periodKey: str(d.period_key),
       reason: str(d.reason) ?? "",
       expectedProviderCents: int(d.expected_provider_cents),
@@ -326,9 +329,11 @@ export class ProviderFeeOpsStore {
     return { replayed: row.replayed === true };
   }
 
-  async dualRequest(args: { action: DualAction; resourceId: string; periodKey: string | null; reason: string; approvalRef: string | null }, actorId: string): Promise<{ requestId: string | null }> {
+  async dualRequest(args: { action: DualAction; resourceId: string; periodKey: string | null; reason: string; approvalRef: string | null; decidedBy?: "owner_written" | "founder_written" | null }, actorId: string): Promise<{ requestId: string | null }> {
     const row = await this.call("tw4_rfl_dual_request", {
       p_actor: actorId, p_action: args.action, p_resource_id: args.resourceId, p_period_key: args.periodKey, p_reason: args.reason, p_approval_ref: args.approvalRef,
+      // sent only for a number cancellation (the database default is null): an older database without the parameter still accepts an absorb request
+      ...(args.decidedBy ? { p_decided_by: args.decidedBy } : {}),
     });
     return { requestId: uuid(row.request_id) };
   }

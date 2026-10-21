@@ -40,6 +40,7 @@ export default function RecurringFeesDual({ dual, overview, adminId }: { dual: R
               </p>
               {d.action === "absorb_exposure" ? <p className="text-xs text-slate-700">Expected {dollars(d.expectedProviderCents)} · billed {dollars(d.providerBilledCents)}</p> : null}
               {d.approvalRef ? <p className="text-xs text-slate-700">Written approval reference this request is bound to: {d.approvalRef}</p> : null}
+              {d.decidedBy ? <p className="text-xs text-slate-700">Decision type this request is bound to: {d.decidedBy === "owner_written" ? "studio owner, in writing" : "DanceFlow founder, in writing"}</p> : null}
               <p className="text-xs text-slate-700">Reason: {d.reason}</p>
               <p className="text-xs text-slate-600">Requested {stamp(d.requestedAt)} by {mine ? "you" : `administrator ${shortId(d.requestedBy)}`} · expires {stamp(d.expiresAt)}</p>
               {d.status === "pending" ? (
@@ -84,6 +85,14 @@ export default function RecurringFeesDual({ dual, overview, adminId }: { dual: R
             <label className={labelClass}>
               Written approval reference (10 to 200 characters; the same reference is used when the cancellation is authorized)
               <input name="approvalRef" required minLength={10} maxLength={200} className={inputClass} />
+            </label>
+            <label className={labelClass}>
+              Decision type (bound into the approval; used again when the cancellation is authorized)
+              <select name="decidedBy" required defaultValue="" className={inputClass}>
+                <option value="" disabled>Choose who decided</option>
+                <option value="owner_written">Studio owner, in writing</option>
+                <option value="founder_written">DanceFlow founder, in writing</option>
+              </select>
             </label>
             <label className={labelClass}>
               Reason (10 to 500 characters; the same text is used when the cancellation is authorized)

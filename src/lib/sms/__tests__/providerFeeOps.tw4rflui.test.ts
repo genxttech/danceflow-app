@@ -82,6 +82,12 @@ describe("parsers", () => {
       { request_id: U(7), action: "cancel_number", resource_id: U(2), status: "pending" },
     ]);
     expect(rows?.map((r) => r.requestId)).toEqual([U(1), U(4)]);
+    expect(rows?.[1].decidedBy).toBeNull();   // optional: an older database does not return it
+    const withDecision = parseDual([
+      { request_id: U(1), action: "cancel_number", resource_id: U(2), requested_by: U(3), status: "approved", decided_by: "founder_written" },
+      { request_id: U(4), action: "cancel_number", resource_id: U(2), requested_by: U(3), status: "approved", decided_by: "policy_lapse" },
+    ]);
+    expect(withDecision?.map((r) => r.decidedBy)).toEqual(["founder_written", null]);
   });
 });
 
@@ -131,11 +137,11 @@ describe("ProviderFeeOpsStore", () => {
     const s = new ProviderFeeOpsStore(c as never);
     expect(await s.setSwitch("scan", true, "a long enough reason", ACTOR)).toEqual({ enabled: true });
     expect(await s.varianceAck(U(1), "a long enough note", ACTOR)).toEqual({ replayed: true });
-    expect(await s.dualRequest({ action: "cancel_number", resourceId: U(2), periodKey: null, reason: "r".repeat(12), approvalRef: "ref-1234567" }, ACTOR)).toEqual({ requestId: U(1) });
+    expect(await s.dualRequest({ action: "cancel_number", resourceId: U(2), periodKey: null, reason: "r".repeat(12), approvalRef: "ref-1234567", decidedBy: "owner_written" }, ACTOR)).toEqual({ requestId: U(1) });
     expect(await s.dualApprove(U(1), "a long enough note", ACTOR)).toEqual({ status: "approved" });
     expect(await s.dualReject(U(1), "a long enough note", ACTOR)).toEqual({ status: "rejected" });
     expect(c.calls[0]).toEqual({ fn: "tw4_rfl_set_switch", args: { p_switch: "scan", p_enabled: true, p_actor: ACTOR, p_reason: "a long enough reason" } });
-    expect(c.calls[2].args).toMatchObject({ p_actor: ACTOR, p_action: "cancel_number", p_resource_id: U(2), p_period_key: null, p_approval_ref: "ref-1234567" });
+    expect(c.calls[2].args).toMatchObject({ p_actor: ACTOR, p_action: "cancel_number", p_resource_id: U(2), p_period_key: null, p_approval_ref: "ref-1234567", p_decided_by: "owner_written" });
   });
 
   it("errors expose the SQLSTATE only, never the database message", async () => {

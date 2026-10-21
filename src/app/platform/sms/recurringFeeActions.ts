@@ -122,14 +122,18 @@ export async function rflDualRequestAction(formData: FormData) {
     if ((action !== "absorb_exposure" && action !== "cancel_number") || !resourceId || !reason) return fail("Choose the action and give a written reason of 10 to 500 characters. Nothing changed.");
     let periodKey: string | null = null;
     let approvalRef: string | null = null;
+    let decidedBy: "owner_written" | "founder_written" | null = null;
     if (action === "absorb_exposure") {
       periodKey = field(formData, "periodKey");
       if (!PERIOD.test(periodKey)) return fail("A period such as 2026-10 is required. Nothing changed.");
     } else {
       approvalRef = text(formData, "approvalRef", 10, 200);
       if (!approvalRef) return fail("The written approval reference (10 to 200 characters) is required. Nothing changed.");
+      const decision = field(formData, "decidedBy");
+      if (decision !== "owner_written" && decision !== "founder_written") return fail("Choose who decided in writing: the studio owner or the DanceFlow founder. A number is never cancelled on a policy lapse. Nothing changed.");
+      decidedBy = decision;
     }
-    await ops().dualRequest({ action: action as DualAction, resourceId, periodKey, reason, approvalRef }, admin.id);
+    await ops().dualRequest({ action: action as DualAction, resourceId, periodKey, reason, approvalRef, decidedBy }, admin.id);
     return done("Request recorded. A different platform administrator must approve it within 24 hours; nothing has been absorbed or cancelled.");
   });
 }
@@ -231,6 +235,7 @@ export async function rflCancelAuthorizeAction(formData: FormData) {
     if (resource.kind === "number" && !data.dual?.some((d) => d.action === "cancel_number" && d.status === "approved" && d.resourceId === resourceId)) {
       return fail("A number cancellation needs an approved dual-control request first. Nothing changed.");
     }
+    if (resource.kind === "number" && decidedBy === "policy_lapse") return fail("A number is never cancelled on a policy lapse. Nothing changed.");
     const out = await lifecycle().authorizeCancel(resourceId, approvalRef, decidedBy as CancelDecision, reason, true, admin.id);
     return done(`Cancellation authorized (operation ${out.operationId}). Nothing has been cancelled: DanceFlow never calls Twilio. Use Begin, perform the console step yourself, then record the evidence.`);
   });
