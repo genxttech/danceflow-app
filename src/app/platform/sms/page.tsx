@@ -15,7 +15,7 @@ import { cookies } from "next/headers";
 import { getAdminCreditOverview } from "@/lib/billing/smsCreditView";
 import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
 import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
-import { loadSenderOverview } from "@/lib/sms/senderVerification";
+import { loadSenderHealth, loadSenderOverview } from "@/lib/sms/senderVerification";
 import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
 import StudioSmsRegistrations, {
@@ -242,6 +242,9 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   // sender readiness per linked studio (platform-admin-only definer function; null = not installed here, the block is then hidden)
   const panelSenders = panelOverview && panelOverview.entities.length > 0 ? await loadSenderOverview(createAdminClient(), admin.id).catch(() => null) : null;
 
+  // sender state machine + re-check scheduler status (null = not installed here; the block then falls back to the overview and says so)
+  const panelSenderHealth = panelOverview && panelOverview.entities.length > 0 ? await loadSenderHealth(createAdminClient(), admin.id).catch(() => null) : null;
+
   // billed-text reconciliation (platform-admin-only definer function; null = not installed here, the panel is then hidden)
   const usageOverview = await loadReconcileOverview(createAdminClient(), admin.id);
 
@@ -434,6 +437,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         requestKeys={panelContext.requestKeys}
         monthlyLimits={panelMonthlyLimits}
         senders={panelSenders}
+        senderHealth={panelSenderHealth}
         unavailable={!panelOverview}
         {...readPanelFlash((await cookies()).get(PANEL_FLASH_COOKIE)?.value, { panel: firstParam(params.panel), panelError: firstParam(params.panel_error) })}
         focusStudioId={firstParam(params.studio)}
