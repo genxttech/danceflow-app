@@ -1246,7 +1246,7 @@ commit;`);
       const num = register(w, "number");
       retire(w, num.resource_id, 1);   // cancelled last month
       const refused = call<{ outcome: string; reason: string }>("tw4_recurring_charge", auth.authorization_id, cur(), null);
-      expect(refused).toMatchObject({ outcome: "held", reason: expect.stringContaining("cancelled") });   // held, not refused: the scheduler keeps retrying it
+      expect(refused).toMatchObject({ outcome: "held", reason: expect.stringContaining("was live") });   // held, not refused: the scheduler keeps retrying it
       const due = (): Array<{ id: string; period_key: string }> => JSON.parse(psql(`select public.tw4_recurring_due_list()::text`));
       expect(due().some((d) => d.id === auth.authorization_id && d.period_key === cur())).toBe(true);
       expect(Number(psql(`select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${w.entity}' and kind = 'capture'`))).toBe(0);
@@ -1477,6 +1477,22 @@ commit;`);
       expect(call<{ authorization_id: string }>("tw4_recurring_authorize", w.studio, w.owner, "monthly", PRICE.monthly, 3, null).authorization_id).toBeTruthy();
       replica(`update public.studio_sms_credit_reservations set status = 'released', closed_at = now() where id = '${id}';`);
       expect(call<{ authorization_id: string }>("tw4_recurring_authorize", w.studio, w.owner, "number", PRICE.number, 3, null).authorization_id).toBeTruthy();
+    });
+
+    it("P2 a captured one-off from a past month (its spend event stays 'reserved') does not block a standing authorization; a still-unused one-off approval does", () => {
+      const w = world();
+      const res = randomUUID();
+      const ev = randomUUID();
+      replica(`insert into public.studio_sms_credit_reservations (id, legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at, closed_at)
+        values ('${res}', '${w.entity}', '${w.studio}', 'number', ${PRICE.number}, 'credit', 'captured', 'purchase:${res}', now() - interval '200 days', now() - interval '200 days');
+        insert into public.studio_sms_spend_events (id, legal_entity_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, funding, studio_id, credit_reservation_id)
+        values ('${ev}', '${w.entity}', 'number', ${PRICE.number}, 'reserved', 'old one-off ${RUN} ${w.n}', '${P}', now() - interval '201 days', 'purchase:${res}', now() - interval '200 days', 'credit', '${w.studio}', '${res}');`);
+      expect(call<{ authorization_id: string }>("tw4_recurring_authorize", w.studio, w.owner, "number", PRICE.number, 3, null).authorization_id).toBeTruthy();
+      // an approval nobody has used yet (status authorized) still blocks: it could be reserved and paid on top of the authorization
+      const w2 = world();
+      replica(`insert into public.studio_sms_spend_events (legal_entity_id, kind, amount_cents, status, approval_ref, authorized_by, funding, studio_id)
+        values ('${w2.entity}', 'number', ${PRICE.number}, 'authorized', 'unused one-off ${RUN} ${w2.n}', '${P}', 'credit', '${w2.studio}');`);
+      expect(hasCode(callErr("tw4_recurring_authorize", w2.studio, w2.owner, "number", PRICE.number, 3, null), "TW041")).toBe(true);
     });
 
     it("P3 an operator whose operation was superseded gets a clean 'already cancelled' answer, not a guard error", () => {

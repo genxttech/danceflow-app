@@ -609,7 +609,7 @@ begin
                    and cr2.fee_kind = any (public._tw4rfl_charge_kinds(a.kind))) then
     v_status := 'held'; v_reason := 'a cancellation of this location''s provider resource is open';   -- 20261209: retried once it is resolved; nothing is taken for a resource being removed
   elsif public._tw4rfl_retired(a.legal_entity_id, a.studio_id, public._tw4rfl_charge_kinds(a.kind), p_period_key) then
-    v_status := 'held'; v_reason := 'the provider resource was cancelled: nothing left to charge for';   -- 20261209: never charge for a retired resource; held (not refused) so a later replacement is charged
+    v_status := 'held'; v_reason := 'no provider resource of this fee was live in that period: nothing left to charge for';   -- 20261209: never charge for a retired resource; held (not refused) so a later replacement is charged
   elsif exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = a.legal_entity_id) then
     v_status := 'refused'; v_reason := 'pilot business: each recurring operation needs its own approval';   -- the pilot ceiling is never consumed by a schedule
   elsif exists (select 1 from public.studio_sms_recurring_charges x where x.legal_entity_id = a.legal_entity_id and x.studio_id = a.studio_id and x.kind = a.kind and x.period_key = p_period_key and x.status = 'charged' and x.authorization_id <> a.id) then
@@ -701,7 +701,7 @@ begin
   end if;
   -- the reverse of _tw4rfl_oneoff_guard: a separate credit one-off of this fee (approved, reserved, or captured this month) would pay the same month a second time
   if exists (select 1 from public.studio_sms_spend_events e where e.legal_entity_id = new.legal_entity_id and (e.studio_id is null or e.studio_id = new.studio_id) and e.funding = 'credit'
-               and e.status in ('authorized', 'reserved') and e.kind = any (public._tw4rfl_charge_kinds(new.kind)))
+               and e.status = 'authorized' and e.kind = any (public._tw4rfl_charge_kinds(new.kind)))   -- a reserved / captured one-off is judged by its reservation below (a spend event stays 'reserved' forever)
      or exists (select 1 from public.studio_sms_credit_reservations r where r.legal_entity_id = new.legal_entity_id and r.studio_id = new.studio_id and r.funding = 'credit'
                and r.kind = any (public._tw4rfl_charge_kinds(new.kind)) and r.reservation_key !~ '^(rec|commit|rfl):'
                and (r.status = 'reserved' or (r.status = 'captured' and r.created_at >= public._tw4ml_month_start(new.legal_entity_id, public._tw4ml_month_key(new.legal_entity_id, now()))))) then
