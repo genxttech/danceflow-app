@@ -16,7 +16,7 @@ const SOURCE_LABEL: Record<string, string> = { provider_read: "Twilio reads", fa
 export default function SenderIdentity({ studioId, row }: { studioId: string; row: SenderOverviewRow | null }) {
   const live = row && row.senderId && row.status !== "released" ? row : null;
   return (
-    <div className="rounded-xl border border-slate-200 p-3" data-testid="sender-identity">
+    <div className="rounded-xl border border-slate-200 p-3" data-testid="sender-identity" id={`sender-${studioId}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold text-slate-900">Sending identity</p>
         <span
