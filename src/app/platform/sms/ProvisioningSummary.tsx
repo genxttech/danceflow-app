@@ -34,8 +34,10 @@ export default function ProvisioningSummary(props: AdminProvisioningInput) {
         </ul>
       ) : null}
       <p className="mt-2 text-xs text-slate-500" data-testid="admin-ledger">
-        {props.operations === null
-          ? "Provider operation ledger: not connected in this build."
+        {props.ledgerUnreadable
+          ? "Provider operation ledger: could not be read."
+          : props.operations === null
+          ? "Provider operation ledger: not loaded for this studio."
           : `Provider operations: ${props.operations.length} recorded, ${view.inFlight.length} in flight, ${view.unknownOutcomes.length} unknown.`}
       </p>
     </div>
