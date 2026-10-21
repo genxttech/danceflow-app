@@ -1,0 +1,18 @@
+{
+  "_comment": "Explicit migration manifests. Each scenario is the baseline (through 20261205090000) plus these migrations IN THIS ORDER, each taken from a git ref (never a working tree). ref names are resolved from the environment first (ISO_QA_REF_<NAME>), then the default below. A migration that fails to apply, or whose version is not found exactly once at its ref, fails the scenario.",
+  "refs": {
+    "MAIN": "origin/main",
+    "PR251": "origin/twilio-tw4f-sender-reverify",
+    "R2B": "origin/twilio-r2b-number-activation"
+  },
+  "scenarios": {
+    "baseline": { "description": "baseline only (through 20261205)", "migrations": [] },
+    "main": { "description": "main as merged: R2a (20261207)", "migrations": [["MAIN", "20261207"]] },
+    "pr251-then-r2a": { "description": "PR #251 (20261206) then R2a (20261207): numeric order", "migrations": [["PR251", "20261206"], ["MAIN", "20261207"]] },
+    "r2a-then-pr251": { "description": "R2a then PR #251: the order they actually merge in", "migrations": [["MAIN", "20261207"], ["PR251", "20261206"]] },
+    "r2a-r2b": { "description": "R2a then R2b (20261208), without PR #251", "migrations": [["MAIN", "20261207"], ["R2B", "20261208"]] },
+    "pr251-r2a-r2b": { "description": "numeric order: PR #251, R2a, R2b", "migrations": [["PR251", "20261206"], ["MAIN", "20261207"], ["R2B", "20261208"]] },
+    "r2a-pr251-r2b": { "description": "R2a, PR #251, then R2b", "migrations": [["MAIN", "20261207"], ["PR251", "20261206"], ["R2B", "20261208"]] },
+    "r2a-r2b-pr251": { "description": "R2a, R2b, then PR #251 last", "migrations": [["MAIN", "20261207"], ["R2B", "20261208"], ["PR251", "20261206"]] }
+  }
+}
