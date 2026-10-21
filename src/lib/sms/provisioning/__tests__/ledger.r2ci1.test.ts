@@ -220,15 +220,26 @@ describe("resolveOperation: validation, replay and cross-studio refusal", () => 
   });
 });
 
+describe("access off", () => {
+  it("an unknown outcome stays the next action even when pilot access is off", () => {
+    const v = buildAdminProvisioningView({ studioId: S1, state: "campaign_pending", accessEnabled: false, evidence: undefined, sender: null, operations: parseLedger(rawLedger([rawOp()]))!.operations });
+    expect(v.next.title).toMatch(/Resolve the unknown/);
+    expect(buildAdminProvisioningView({ studioId: S1, state: "campaign_pending", accessEnabled: false, evidence: undefined, sender: null, operations: [] }).next.title).toMatch(/Switch pilot access on/);
+  });
+});
+
 describe("reopenProvisioning", () => {
   const rform = (over: Record<string, string> = {}) => form({ studioId: S1, reason: "Corrected the sample messages and reviewed", confirm: "on", ...over });
   it("reopens an exception with no open operation; refuses otherwise", async () => {
     const ok = port(rawLedger([rawOp({ status: "failed" })], { state: "exception", last_error_code: "campaign_rejected" }));
+    const earlyException = port(rawLedger([], { state: "exception", last_error_code: "brand_rejected" }));
+    expect((await reopenProvisioning(earlyException.p, ADMIN, rform())).ok).toBe(false);
+    expect(earlyException.calls.reopen).not.toHaveBeenCalled();
     expect((await reopenProvisioning(ok.p, ADMIN, rform())).ok).toBe(true);
     expect(ok.calls.reopen).toHaveBeenCalledWith(S1, ADMIN, "Corrected the sample messages and reviewed");
     const notException = port(rawLedger([]));
     expect((await reopenProvisioning(notException.p, ADMIN, rform())).ok).toBe(false);
-    const open = port(rawLedger([rawOp()], { state: "exception" }));
+    const open = port(rawLedger([rawOp()], { state: "exception", last_error_code: "prov_unknown_outcome" }));
     const r = await reopenProvisioning(open.p, ADMIN, rform());
     expect(r.ok).toBe(false);
     expect(r.message).toMatch(/Resolve the unknown outcome first/);
@@ -318,6 +329,8 @@ describe("ProvisioningLedger rendering", () => {
     expect(exception).toContain("reopen-form");
     const blocked = renderToStaticMarkup(createElement(ProvisioningLedger, { studioId: S1, ledger: snap([rawOp()], { state: "exception" }) }));
     expect(blocked).not.toContain("reopen-form");
+    const early = renderToStaticMarkup(createElement(ProvisioningLedger, { studioId: S1, ledger: snap([], { state: "exception", last_error_code: "brand_rejected" }) }));
+    expect(early).not.toContain("reopen-form");
   });
   it("the owner-facing app never imports the ledger wrapper or this component (platform-admin data stays on the platform side)", () => {
     const walk = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const f = join(dir, n); return statSync(f).isDirectory() ? (n === "__tests__" ? [] : walk(f)) : /.(ts|tsx)$/.test(n) ? [f] : []; });

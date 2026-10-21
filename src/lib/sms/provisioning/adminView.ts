@@ -90,7 +90,7 @@ export function buildAdminProvisioningView(input: AdminProvisioningInput): Admin
 
   let next: AdminNext;
   const anchor = `#onboarding-row-${input.studioId}`;
-  if (!input.accessEnabled) next = { kind: "act", title: "Switch pilot access on", detail: "The studio cannot see its setup page until access is enabled.", href: "#onboarding-pilot" };
+  if (!input.accessEnabled && !input.ledgerUnreadable && unknownOutcomes.length === 0) next = { kind: "act", title: "Switch pilot access on", detail: "The studio cannot see its setup page until access is enabled.", href: "#onboarding-pilot" };
   else if (state == null || STUDIO_WAIT.has(String(state))) next = { kind: "wait_studio", title: "Waiting for the studio owner", detail: "The owner needs to finish or correct their information. Nothing for you to do.", href: null };
   else if (input.ledgerUnreadable) next = { kind: "investigate", title: "Reload: the provisioning ledger could not be read", detail: "Nothing can be resolved or started from here until the ledger reads cleanly.", href: null };
   else if (unknownOutcomes.length) next = { kind: "investigate", title: "Resolve the unknown provider outcome", detail: "Look the resource up at the provider (Twilio console), then record whether it was created. The provider may or may not hold it; nothing is assumed.", href: `#ledger-${input.studioId}` };

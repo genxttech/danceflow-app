@@ -245,11 +245,11 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   const panelSenders = panelOverview && panelOverview.entities.length > 0 ? await loadSenderOverview(createAdminClient(), admin.id).catch(() => null) : null;
 
   // TW-4F R2c-I1: platform-admin provisioning ledger for studios that have reached (or fallen out of) Messaging Service / campaign provisioning.
-  // A read that fails is shown as unreadable (never as an empty ledger); a studio past the cap is simply not loaded.
+  // Loaded whether or not pilot access is currently on: a held fee or unknown outcome must stay visible and resolvable. A read that fails is shown as unreadable (never as an empty ledger); a studio past the cap is simply not loaded.
   const LEDGER_STATES = new Set(["service_setup", "campaign_pending", "ready_for_activation", "active", "suspended", "exception", "blocked"]);
   let ledgerByStudio: Record<string, LedgerSnapshot | "unreadable" | "none"> | null = null;
   if (!onboardingUnavailable) {
-    const ids = onboardingRows.filter((row) => row.accessEnabled && row.state && LEDGER_STATES.has(row.state)).slice(0, 30).map((row) => row.studioId);
+    const ids = onboardingRows.filter((row) => row.state && LEDGER_STATES.has(row.state)).slice(0, 30).map((row) => row.studioId);
     try {
       ledgerByStudio = await loadLedgers(new ProvisioningLedgerStore(createAdminClient()), admin.id, ids);
     } catch {

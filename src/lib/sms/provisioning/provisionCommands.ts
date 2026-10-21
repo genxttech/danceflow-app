@@ -39,7 +39,7 @@ export function ledgerErrorMessage(error: unknown): string {
   switch (code) {
     case "42501": return "You are not allowed to do this.";
     case "55P03": return "A run is working on this studio right now. Try again when it finishes.";
-    case "22023": return "The database refused the resolution (check the reason, the resource SID and the 20-minute waiting rules). Nothing was changed.";
+    case "22023": return "The database refused the resolution. Someone else may have just resolved it; otherwise check the reason, the resource SID and the 20-minute waiting rules. Nothing was changed.";
     case "TW030": return "There is no provisioning exception to reopen. Nothing was changed.";
     case "TW034": return "Resolve the unknown outcome first. Nothing was changed.";
     default: return "The change could not be made. Nothing was changed.";
@@ -106,7 +106,7 @@ export async function reopenProvisioning(store: LedgerPort, actorId: string, for
   } catch {
     return bad("The provisioning ledger could not be read, so nothing was changed.");
   }
-  if (!ledger || ledger.state !== "exception") return bad("There is no provisioning exception to reopen. Nothing was changed.");
+  if (!ledger || ledger.state !== "exception" || !/^(prov_|campaign_rejected$)/.test(ledger.lastErrorCode ?? "")) return bad("There is no provisioning exception to reopen. Nothing was changed.");
   if (ledger.operations.some((o) => isUnresolved(o.status) && !o.superseded)) return bad("Resolve the unknown outcome first. Nothing was changed.");
   try {
     await store.reopen(studioId, actorId, reason);

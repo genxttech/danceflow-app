@@ -74,7 +74,7 @@ export default function ProvisioningLedger({ studioId, ledger }: { studioId: str
     );
   }
   const unresolved = ledger.operations.filter(open);
-  const canReopen = ledger.state === "exception" && unresolved.length === 0;
+  const canReopen = ledger.state === "exception" && unresolved.length === 0 && /^(prov_|campaign_rejected$)/.test(ledger.lastErrorCode ?? "");
   return (
     <details id={`ledger-${studioId}`} open={unresolved.length > 0} className="group/ledger mt-2 rounded-xl border border-slate-200 p-3" data-testid="provisioning-ledger">
       <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
