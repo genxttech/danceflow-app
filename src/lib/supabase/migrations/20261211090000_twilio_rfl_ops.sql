@@ -46,6 +46,13 @@ begin
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_rfl_cancel_authorize(uuid,uuid,text,text,text,boolean)'::regprocedure) is distinct from '2f745cd5cd6c79183a34b087883a1075' then
     raise exception 'rfl-ops precondition failed: tw4_rfl_cancel_authorize differs from 20261209090000';
   end if;
+  if to_regprocedure('public.tw4_rfl_admin_overview(uuid)') is null
+     or (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_rfl_admin_overview(uuid)'::regprocedure) is distinct from 'd57e583acdb138d11bc57b36e9b0d2e0' then
+    raise exception 'rfl-ops precondition failed: tw4_rfl_admin_overview differs from 20261209090000';
+  end if;
+  if to_regclass('public.outbound_deliveries') is null or not exists (select 1 from pg_attribute a where a.attrelid = 'public.outbound_deliveries'::regclass and a.attname = 'template_key' and not a.attisdropped) then
+    raise exception 'rfl-ops precondition failed: public.outbound_deliveries (with template_key) is missing';
+  end if;
 end $$;
 
 -- audit vocabulary and alert kinds: the LIVE lists plus this slice's values (extended, never rebuilt from a fixed list, so sibling migrations keep their own values)
@@ -92,9 +99,10 @@ create table public.studio_sms_rfl_switch_log (
   enabled boolean not null,
   changed_by uuid not null,
   reason text not null check (char_length(btrim(reason)) between 10 and 300),
-  changed_at timestamptz not null default clock_timestamp()
+  changed_at timestamptz not null default clock_timestamp(),
+  seq bigserial not null   -- the deterministic tie-break when two changes share a timestamp
 );
-create index studio_sms_rfl_switch_log_latest on public.studio_sms_rfl_switch_log (switch, changed_at desc, id desc);
+create index studio_sms_rfl_switch_log_latest on public.studio_sms_rfl_switch_log (switch, changed_at desc, seq desc);
 
 create table public.studio_sms_rfl_runs (
   id uuid primary key default gen_random_uuid(),
@@ -144,6 +152,7 @@ create table public.studio_sms_rfl_dual_requests (
   reason text not null check (char_length(reason) between 10 and 500),
   approval_ref text null check (approval_ref is null or char_length(approval_ref) between 10 and 200),
   approval_ref_norm text null,
+  cancel_decided_by text null check (cancel_decided_by is null or cancel_decided_by in ('owner_written', 'founder_written')),   -- bound for a number cancellation (never policy_lapse)
   facts_hash text not null check (facts_hash ~ '^[0-9a-f]{64}$'),
   status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'expired', 'invalidated', 'consumed')),
   requested_by uuid not null,
@@ -156,7 +165,7 @@ create table public.studio_sms_rfl_dual_requests (
   consumed_by uuid null,
   constraint studio_sms_rfl_dual_requests_window check (expires_at > requested_at),
   constraint studio_sms_rfl_dual_requests_shape check ((action = 'absorb_exposure') = (period_key is not null) and (action = 'cancel_number') = (approval_ref is not null)
-    and (approval_ref is null) = (approval_ref_norm is null)),
+    and (approval_ref is null) = (approval_ref_norm is null) and (action = 'cancel_number') = (cancel_decided_by is not null)),
   -- two DISTINCT platform administrators, enforced by the table itself: an approved (or consumed) request names a decider who is not the requester
   constraint studio_sms_rfl_dual_requests_distinct check (status not in ('approved', 'consumed') or (decided_by is not null and decided_by <> requested_by)),
   constraint studio_sms_rfl_dual_requests_consumed check ((status = 'consumed') = (consumed_at is not null and consumed_by is not null)),
@@ -166,13 +175,20 @@ create table public.studio_sms_rfl_dual_requests (
 create unique index studio_sms_rfl_dual_requests_one_open on public.studio_sms_rfl_dual_requests (action, resource_id, coalesce(period_key, '')) where status in ('pending', 'approved');
 create index studio_sms_rfl_dual_requests_entity on public.studio_sms_rfl_dual_requests (legal_entity_id, requested_at desc);
 
+-- the per-resource FACT EPOCH: only ever increases (bumped by triggers below), so a bound fact that changes and then reverts never restores an approval's hash
+create table public.studio_sms_rfl_fact_epochs (
+  resource_id uuid primary key references public.studio_sms_provider_resources(id) on delete restrict,
+  epoch bigint not null check (epoch >= 1)
+);
+
 revoke all on public.studio_sms_rfl_switch_log, public.studio_sms_rfl_runs, public.studio_sms_rfl_alert_deliveries, public.studio_sms_provider_variance_acks,
-  public.studio_sms_rfl_dual_requests from public, anon, authenticated, service_role;
+  public.studio_sms_rfl_dual_requests, public.studio_sms_rfl_fact_epochs from public, anon, authenticated, service_role;
 alter table public.studio_sms_rfl_switch_log enable row level security;
 alter table public.studio_sms_rfl_runs enable row level security;
 alter table public.studio_sms_rfl_alert_deliveries enable row level security;
 alter table public.studio_sms_provider_variance_acks enable row level security;
 alter table public.studio_sms_rfl_dual_requests enable row level security;
+alter table public.studio_sms_rfl_fact_epochs enable row level security;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- guards: append-only evidence; a run finishes once; a request moves only along its graph and only through the dual-control functions
@@ -205,11 +221,33 @@ begin
     if new.status is not distinct from old.status and old.status not in ('pending', 'approved') and new is distinct from old then
       raise exception 'studio_sms_rfl_dual_requests: % is final', old.status using errcode = '42501';
     end if;
+  elsif tg_table_name = 'studio_sms_rfl_fact_epochs' then
+    if new.resource_id is distinct from old.resource_id or new.epoch <= old.epoch then
+      raise exception 'a fact epoch only increases' using errcode = '42501';
+    end if;
   else
     raise exception '%: rows are append-only', tg_table_name using errcode = '42501';
   end if;
   return new;
 end $$;
+
+-- a request is always BORN pending and undecided, whatever an owner-level insert supplies
+create or replace function public._tw4rflops_request_insert()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  new.status := 'pending';
+  new.decided_by := null;
+  new.decided_at := null;
+  new.decision_note := null;
+  new.consumed_at := null;
+  new.consumed_by := null;
+  return new;
+end $$;
+create trigger studio_sms_rfl_dual_requests_00_insert before insert on public.studio_sms_rfl_dual_requests for each row execute function public._tw4rflops_request_insert();
+create trigger studio_sms_rfl_fact_epochs_guard before update or delete on public.studio_sms_rfl_fact_epochs for each row execute function public._tw4rflops_guard();
+create trigger studio_sms_rfl_fact_epochs_truncate before truncate on public.studio_sms_rfl_fact_epochs for each statement execute function public._tw4c_truncate_guard();
 create trigger studio_sms_rfl_switch_log_guard before update or delete on public.studio_sms_rfl_switch_log for each row execute function public._tw4rflops_guard();
 create trigger studio_sms_rfl_runs_guard before update or delete on public.studio_sms_rfl_runs for each row execute function public._tw4rflops_guard();
 create trigger studio_sms_rfl_alert_deliveries_guard before update or delete on public.studio_sms_rfl_alert_deliveries for each row execute function public._tw4rflops_guard();
@@ -228,7 +266,7 @@ create or replace function public.tw4_rfl_switch_enabled(p_switch text)
 returns boolean language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-  select coalesce((select l.enabled from public.studio_sms_rfl_switch_log l where l.switch = p_switch order by l.changed_at desc, l.id desc limit 1), false);
+  select coalesce((select l.enabled from public.studio_sms_rfl_switch_log l where l.switch = p_switch order by l.changed_at desc, l.seq desc limit 1), false);
 $$;
 
 create or replace function public.tw4_rfl_set_switch(p_switch text, p_enabled boolean, p_actor uuid, p_reason text)
@@ -262,12 +300,13 @@ begin
     raise exception 'invalid scan run' using errcode = '22023';
   end if;
   perform pg_advisory_xact_lock(hashtext('tw4_rfl_scan_run'));
+  -- a run whose lease expired without finishing is closed as failed (so a crashed runner never blocks the next one, and health never shows 'running' forever),
+  -- even while the scan switch is off
+  update public.studio_sms_rfl_runs set status = 'failed', finished_at = clock_timestamp(), error = 'lease expired before the run finished'
+   where status = 'running' and lease_expires_at <= clock_timestamp();
   if not public.tw4_rfl_switch_enabled('scan') then
     return jsonb_build_object('ran', false, 'reason', 'switched_off', 'run_id', null);
   end if;
-  -- a run whose lease expired without finishing is closed as failed (so a crashed runner never blocks the next one)
-  update public.studio_sms_rfl_runs set status = 'failed', finished_at = clock_timestamp(), error = 'lease expired before the run finished'
-   where status = 'running' and lease_expires_at <= clock_timestamp();
   insert into public.studio_sms_rfl_runs (runner, lease_expires_at) values (btrim(p_runner), clock_timestamp() + make_interval(secs => p_lease_seconds))
   on conflict ((true)) where status = 'running' do nothing returning id into v_id;
   if v_id is null then
@@ -347,7 +386,7 @@ begin
                 when now() - e.first_detected_at < interval '91 days' then '31-90' else '90+' end as aging_bucket,
            e.expected_provider_cents, e.provider_billed_cents,
            (select q.status from public.studio_sms_rfl_dual_requests q where q.action = 'absorb_exposure' and q.resource_id = e.resource_id and q.period_key = e.period_key
-               and q.status in ('pending', 'approved') and q.expires_at > now() order by q.requested_at desc limit 1) as dual_request_status
+               and q.status in ('pending', 'approved') and q.expires_at > clock_timestamp() order by q.requested_at desc limit 1) as dual_request_status
       from public.studio_sms_provider_exposure e join public.studio_sms_provider_resources r on r.id = e.resource_id
      where e.state = 'open') t;
   return v;
@@ -490,8 +529,9 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- dual control (D3)
 -- ---------------------------------------------------------------------------------------------------------------
--- the facts a request is bound to; recomputed at approval and at consumption (NULL = the resource is unknown)
-create or replace function public._tw4rflops_facts(p_action text, p_resource uuid, p_period text, p_ref_norm text, p_reason text)
+-- the facts a request is bound to; recomputed at approval, at listing and at consumption (NULL = the resource is unknown). The per-resource FACT EPOCH is part of the hash:
+-- it only ever increases, so a bound fact that changes and then REVERTS (a cancellation opened and withdrawn, an exposure covered and reopened) never restores the hash.
+create or replace function public._tw4rflops_facts(p_action text, p_resource uuid, p_period text, p_ref_norm text, p_reason text, p_decided_by text)
 returns text language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
@@ -502,6 +542,7 @@ declare
   v_expected int;
   v_billed int := 0;
   v_ops text;
+  v_epoch bigint;
 begin
   select * into r from public.studio_sms_provider_resources x where x.id = p_resource;
   if r.id is null then
@@ -519,13 +560,40 @@ begin
   end if;
   select coalesce(string_agg(o.id::text, ',' order by o.id), '') into v_ops from public.studio_sms_provider_cancel_ops o
    where o.resource_id = r.id and o.status in ('authorized', 'in_flight', 'unknown_outcome');
+  select fe.epoch into v_epoch from public.studio_sms_rfl_fact_epochs fe where fe.resource_id = r.id;
   return encode(sha256(convert_to(concat_ws('|', r.legal_entity_id::text, r.id::text, r.provider_state, p_action, coalesce(p_period, ''), v_state, coalesce(v_expected::text, '-'), v_billed::text, v_ops,
-    coalesce(p_ref_norm, ''), encode(sha256(convert_to(btrim(coalesce(p_reason, '')), 'UTF8')), 'hex')), 'UTF8')), 'hex');
+    coalesce(p_ref_norm, ''), coalesce(p_decided_by, ''), coalesce(v_epoch, 0)::text, encode(sha256(convert_to(btrim(coalesce(p_reason, '')), 'UTF8')), 'hex')), 'UTF8')), 'hex');
 end $$;
 
--- enforcement: the caller holds the location link, business and credit-account locks. Finds the APPROVED, unexpired request bound to exactly this action, resource,
--- period, reason and (for a cancellation) approval reference, re-verifies its facts, and CONSUMES it (single use: the row is locked, and the whole call rolls back with the action).
-create or replace function public._tw4rflops_consume(p_action text, r public.studio_sms_provider_resources, p_period text, p_ref text, p_reason text, p_actor uuid)
+-- the fact epoch moves on every change of a bound fact (never on a scan's last-detected-at / reason touch, and not when an exposure row is first recorded open without a bill)
+create or replace function public._tw4rflops_epoch()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_res uuid;
+begin
+  if tg_table_name = 'studio_sms_provider_resources' then
+    v_res := new.id;
+  else
+    v_res := new.resource_id;
+  end if;
+  insert into public.studio_sms_rfl_fact_epochs (resource_id, epoch) values (v_res, 1)
+  on conflict (resource_id) do update set epoch = public.studio_sms_rfl_fact_epochs.epoch + 1;
+  return null;
+end $$;
+create trigger studio_sms_provider_cancel_ops_90_epoch_ins after insert on public.studio_sms_provider_cancel_ops for each row execute function public._tw4rflops_epoch();
+create trigger studio_sms_provider_cancel_ops_90_epoch_upd after update on public.studio_sms_provider_cancel_ops for each row when (old.status is distinct from new.status) execute function public._tw4rflops_epoch();
+create trigger studio_sms_provider_exposure_90_epoch_ins after insert on public.studio_sms_provider_exposure for each row when (new.provider_billed_cents > 0 or new.state <> 'open') execute function public._tw4rflops_epoch();
+create trigger studio_sms_provider_exposure_90_epoch_upd after update on public.studio_sms_provider_exposure for each row
+  when (old.state is distinct from new.state or old.provider_billed_cents is distinct from new.provider_billed_cents or old.provider_charge_refs is distinct from new.provider_charge_refs
+        or old.disposition is distinct from new.disposition or old.expected_provider_cents is distinct from new.expected_provider_cents) execute function public._tw4rflops_epoch();
+create trigger studio_sms_provider_resources_90_epoch_upd after update on public.studio_sms_provider_resources for each row when (old.provider_state is distinct from new.provider_state) execute function public._tw4rflops_epoch();
+
+-- enforcement: the caller holds the location link, business and credit-account locks. Finds the APPROVED, unexpired request bound to exactly this action, resource, period,
+-- reason, (for a cancellation) approval reference and decision type, requested by someone who is STILL a platform administrator, re-verifies its facts (including the epoch),
+-- and CONSUMES it (single use: the row is locked, and the whole call rolls back with the action). A refusal raises and rolls back, so permanent invalidation never relies on
+-- it: the epoch makes a changed-then-reverted fact permanent, and the non-raising paths (approve, list, request) also mark the request invalidated.
+create or replace function public._tw4rflops_consume(p_action text, r public.studio_sms_provider_resources, p_period text, p_ref text, p_reason text, p_decided_by text, p_actor uuid)
 returns uuid language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
@@ -539,13 +607,16 @@ begin
   if q.id is null then
     raise exception 'this action needs an approved dual-control request (two distinct platform administrators): none is approved for this resource%', case when p_period is null then '' else ' and period' end using errcode = 'TW042';
   end if;
-  if q.expires_at <= now() then
+  if q.expires_at <= clock_timestamp() then
     raise exception 'the dual-control approval has expired (24 hours): request it again' using errcode = 'TW042';
   end if;
-  if q.reason is distinct from p_reason or q.approval_ref_norm is distinct from v_norm then
-    raise exception 'the approved dual-control request is bound to a different reason or approval reference' using errcode = 'TW042';
+  if not public._tw4_r1_is_platform_admin(q.requested_by) then
+    raise exception 'the administrator who requested this approval is no longer a platform administrator: request it again' using errcode = 'TW042';
   end if;
-  if public._tw4rflops_facts(p_action, r.id, p_period, v_norm, p_reason) is distinct from q.facts_hash then
+  if q.reason is distinct from p_reason or q.approval_ref_norm is distinct from v_norm or q.cancel_decided_by is distinct from p_decided_by then
+    raise exception 'the approved dual-control request is bound to a different reason, approval reference or decision type' using errcode = 'TW042';
+  end if;
+  if public._tw4rflops_facts(p_action, r.id, p_period, v_norm, p_reason, p_decided_by) is distinct from q.facts_hash then
     raise exception 'a fact the dual-control approval was bound to has changed: request and approve it again' using errcode = 'TW042';
   end if;
   perform set_config('tw4.rflops_write', 'on', true);
@@ -555,7 +626,7 @@ begin
   return q.id;
 end $$;
 
-create or replace function public.tw4_rfl_dual_request(p_actor uuid, p_action text, p_resource_id uuid, p_period_key text, p_reason text, p_approval_ref text)
+create or replace function public.tw4_rfl_dual_request(p_actor uuid, p_action text, p_resource_id uuid, p_period_key text, p_reason text, p_approval_ref text, p_decided_by text default null)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
@@ -577,10 +648,16 @@ begin
     if p_period_key is null or p_period_key !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then
       raise exception 'an absorption request names the service period' using errcode = '22023';
     end if;
+    if p_decided_by is not null then
+      raise exception 'an absorption request carries no decision type' using errcode = '22023';
+    end if;
     v_period := p_period_key;
   else
     if p_approval_ref is null or char_length(btrim(p_approval_ref)) not between 10 and 200 then
       raise exception 'a number-cancellation request needs the written approval reference (10 to 200 characters)' using errcode = '22023';
+    end if;
+    if p_decided_by is null or p_decided_by not in ('owner_written', 'founder_written') then
+      raise exception 'a number-cancellation request needs the decision type (owner_written | founder_written): a phone number is never released on a policy decision' using errcode = '22023';
     end if;
     v_norm := public._tw4fi_ref_norm(p_approval_ref);
   end if;
@@ -617,9 +694,10 @@ begin
       raise exception 'this approval reference was already used: one written decision authorizes one cancellation, once' using errcode = 'TW043';
     end if;
   end if;
-  v_hash := public._tw4rflops_facts(p_action, r.id, v_period, v_norm, p_reason);
+  v_hash := public._tw4rflops_facts(p_action, r.id, v_period, v_norm, p_reason, p_decided_by);
   v_now := clock_timestamp();
-  -- one OPEN request per action, resource and period: the same facts replay it; an expired one is closed; one whose facts moved is invalidated
+  -- one OPEN request per action, resource and period: the same facts replay it; an expired one is closed; one whose facts moved (or whose requester is no longer an
+  -- administrator) is invalidated for good and replaced
   select * into q from public.studio_sms_rfl_dual_requests x
    where x.action = p_action and x.resource_id = r.id and coalesce(x.period_key, '') = coalesce(v_period, '') and x.status in ('pending', 'approved') for update;
   if q.id is not null then
@@ -627,17 +705,17 @@ begin
       perform set_config('tw4.rflops_write', 'on', true);
       update public.studio_sms_rfl_dual_requests set status = 'expired' where id = q.id;
       perform set_config('tw4.rflops_write', 'off', true);
-    elsif q.facts_hash = v_hash then
+    elsif q.facts_hash = v_hash and public._tw4_r1_is_platform_admin(q.requested_by) then
       return jsonb_build_object('request_id', q.id, 'facts_hash', q.facts_hash, 'expires_at', q.expires_at, 'status', q.status, 'replayed', true);
     else
       perform set_config('tw4.rflops_write', 'on', true);
       update public.studio_sms_rfl_dual_requests set status = 'invalidated' where id = q.id;
       perform set_config('tw4.rflops_write', 'off', true);
-      perform public._tw4rfl_audit(r.studio_id, p_actor, 'rfl_dual_invalidated', 'request=' || q.id || ';reason=superseded by a request with different facts');
+      perform public._tw4rfl_audit(r.studio_id, p_actor, 'rfl_dual_invalidated', 'request=' || q.id || ';reason=superseded: different facts or the requester is no longer an administrator');
     end if;
   end if;
-  insert into public.studio_sms_rfl_dual_requests (action, legal_entity_id, studio_id, resource_id, period_key, reason, approval_ref, approval_ref_norm, facts_hash, requested_by, requested_at, expires_at)
-  values (p_action, r.legal_entity_id, r.studio_id, r.id, v_period, btrim(p_reason), case when p_action = 'cancel_number' then btrim(p_approval_ref) end, v_norm, v_hash, p_actor, v_now, v_now + interval '24 hours')
+  insert into public.studio_sms_rfl_dual_requests (action, legal_entity_id, studio_id, resource_id, period_key, reason, approval_ref, approval_ref_norm, cancel_decided_by, facts_hash, requested_by, requested_at, expires_at)
+  values (p_action, r.legal_entity_id, r.studio_id, r.id, v_period, btrim(p_reason), case when p_action = 'cancel_number' then btrim(p_approval_ref) end, v_norm, p_decided_by, v_hash, p_actor, v_now, v_now + interval '24 hours')
   returning id into v_id;
   perform public._tw4rfl_audit(r.studio_id, p_actor, 'rfl_dual_requested', 'request=' || v_id || ';action=' || p_action || ';resource=' || r.id || ';period=' || coalesce(v_period, '-'));
   select * into q from public.studio_sms_rfl_dual_requests x where x.id = v_id;
@@ -683,12 +761,12 @@ begin
     perform set_config('tw4.rflops_write', 'off', true);
     return jsonb_build_object('status', 'expired', 'replayed', false);
   end if;
-  v_hash := public._tw4rflops_facts(q.action, q.resource_id, q.period_key, q.approval_ref_norm, q.reason);
-  if v_hash is distinct from q.facts_hash then
+  v_hash := public._tw4rflops_facts(q.action, q.resource_id, q.period_key, q.approval_ref_norm, q.reason, q.cancel_decided_by);
+  if v_hash is distinct from q.facts_hash or not public._tw4_r1_is_platform_admin(q.requested_by) then
     perform set_config('tw4.rflops_write', 'on', true);
     update public.studio_sms_rfl_dual_requests set status = 'invalidated' where id = q.id;
     perform set_config('tw4.rflops_write', 'off', true);
-    perform public._tw4rfl_audit(q.studio_id, p_actor, 'rfl_dual_invalidated', 'request=' || q.id || ';reason=a bound fact changed before approval');
+    perform public._tw4rfl_audit(q.studio_id, p_actor, 'rfl_dual_invalidated', 'request=' || q.id || ';reason=a bound fact changed (or the requester is no longer an administrator) before approval');
     return jsonb_build_object('status', 'invalidated', 'replayed', false);
   end if;
   perform set_config('tw4.rflops_write', 'on', true);
@@ -728,19 +806,36 @@ begin
   return jsonb_build_object('status', 'rejected', 'replayed', false);
 end $$;
 
+-- lists the open requests; on the way it closes (persistently) every one that has expired, whose bound facts moved, or whose requester is no longer an administrator.
+-- Rows another transaction is working on are skipped (they are being consumed or decided right now).
 create or replace function public.tw4_rfl_dual_list(p_actor uuid)
-returns jsonb language plpgsql stable security definer
+returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-declare v jsonb;
+declare
+  v jsonb;
+  q public.studio_sms_rfl_dual_requests;
 begin
   perform public._tw4c_admin(p_actor);
+  for q in select * from public.studio_sms_rfl_dual_requests x where x.status in ('pending', 'approved') order by x.requested_at, x.id for update skip locked loop
+    if q.expires_at <= clock_timestamp() then
+      perform set_config('tw4.rflops_write', 'on', true);
+      update public.studio_sms_rfl_dual_requests set status = 'expired' where id = q.id;
+      perform set_config('tw4.rflops_write', 'off', true);
+    elsif public._tw4rflops_facts(q.action, q.resource_id, q.period_key, q.approval_ref_norm, q.reason, q.cancel_decided_by) is distinct from q.facts_hash
+          or not public._tw4_r1_is_platform_admin(q.requested_by) then
+      perform set_config('tw4.rflops_write', 'on', true);
+      update public.studio_sms_rfl_dual_requests set status = 'invalidated' where id = q.id;
+      perform set_config('tw4.rflops_write', 'off', true);
+      perform public._tw4rfl_audit(q.studio_id, p_actor, 'rfl_dual_invalidated', 'request=' || q.id || ';reason=a bound fact changed (or the requester is no longer an administrator)');
+    end if;
+  end loop;
   select coalesce(jsonb_agg(row_to_json(t)::jsonb order by t.requested_at, t.request_id), '[]'::jsonb) into v from (
-    select q.id as request_id, q.action, q.legal_entity_id, q.studio_id, q.resource_id, r.resource_kind, q.period_key, q.reason, q.approval_ref,
-           e.expected_provider_cents, e.provider_billed_cents, q.requested_by, q.requested_at, q.expires_at, q.status
-      from public.studio_sms_rfl_dual_requests q join public.studio_sms_provider_resources r on r.id = q.resource_id
-      left join public.studio_sms_provider_exposure e on e.resource_id = q.resource_id and e.period_key = q.period_key
-     where q.status in ('pending', 'approved') and q.expires_at > now()) t;
+    select q2.id as request_id, q2.action, q2.legal_entity_id, q2.studio_id, q2.resource_id, r.resource_kind, q2.period_key, q2.reason, q2.approval_ref, q2.cancel_decided_by, q2.cancel_decided_by as decided_by,
+           e.expected_provider_cents, e.provider_billed_cents, q2.requested_by, q2.requested_at, q2.expires_at, q2.status
+      from public.studio_sms_rfl_dual_requests q2 join public.studio_sms_provider_resources r on r.id = q2.resource_id
+      left join public.studio_sms_provider_exposure e on e.resource_id = q2.resource_id and e.period_key = q2.period_key
+     where q2.status in ('pending', 'approved') and q2.expires_at > clock_timestamp()) t;
   return v;
 end $$;
 
@@ -867,16 +962,17 @@ begin
     if public._tw4rfl_alert(p_entity_id, v_auth.studio_id, null, 'authorization_expiring', 'auth:' || v_auth.id, 'both', 'warning',
          'A recurring texting authorization ends on ' || to_char(v_auth.expires_at at time zone public._tw4ml_tz_for(p_entity_id, v_cur), 'YYYY-MM-DD') || '. Reauthorize it before then; DanceFlow never extends it for you.') then v_alerts := v_alerts + 1; end if;
   end loop;
-  -- 20261211: the second notice and the administrator escalation, 14 days (fixed policy window) before an authorization ends without a renewal
+  -- 20261211: the second notice and the administrator escalation, 14 days (fixed policy window) before an authorization ends without a renewal.
+  -- (only ONE active authorization exists per location and kind, so the "no renewal" sub-condition matters across the two campaign kinds of one fee: monthly / monthly_low_volume)
   for v_auth in select x.* from public.studio_sms_recurring_authorizations x where x.legal_entity_id = p_entity_id and x.status = 'active' and x.expires_at > now()
                    and x.expires_at <= now() + interval '14 days' and exists (select 1 from public.studio_sms_provider_resources rr where rr.legal_entity_id = x.legal_entity_id
                    and rr.studio_id = x.studio_id and rr.provider_state = 'active' and rr.fee_kind = any (public._tw4rfl_charge_kinds(x.kind)))
                    and not exists (select 1 from public.studio_sms_recurring_authorizations nx where nx.id <> x.id and nx.legal_entity_id = x.legal_entity_id and nx.studio_id = x.studio_id
                    and nx.kind = any (public._tw4rfl_charge_kinds(x.kind)) and nx.status = 'active' and nx.expires_at > x.expires_at) loop
     if public._tw4rfl_alert(p_entity_id, v_auth.studio_id, null, 'owner_notice_second', 'auth2:' || v_auth.id, 'both', 'warning',
-         'Second notice: a recurring texting authorization ends on ' || to_char(v_auth.expires_at at time zone public._tw4ml_tz_for(p_entity_id, v_cur), 'YYYY-MM-DD') || ' and has not been renewed. Reauthorize it before then; DanceFlow never extends it for you.') then v_alerts := v_alerts + 1; end if;
+         'A recurring texting authorization ends on ' || to_char(v_auth.expires_at at time zone public._tw4ml_tz_for(p_entity_id, v_cur), 'YYYY-MM-DD') || ' and has not yet been renewed. Reauthorize it before then; DanceFlow never extends it for you.') then v_alerts := v_alerts + 1; end if;
     if public._tw4rfl_alert(p_entity_id, v_auth.studio_id, null, 'owner_unresponsive', 'auth:' || v_auth.id || ':escalate', 'admin', 'critical',
-         'A recurring texting authorization ends within 14 days and the owner has not renewed it after two notices.') then v_alerts := v_alerts + 1; end if;
+         'A recurring texting authorization ends within 14 days and has not yet been renewed; reminders were queued for the owner.') then v_alerts := v_alerts + 1; end if;
   end loop;
   -- funding: the next period's authorized charges versus spendable credit; negative balance; hold
   if exists (select 1 from public.studio_sms_provider_resources x where x.legal_entity_id = p_entity_id and x.provider_state = 'active' and x.fee_kind is not null) then
@@ -935,7 +1031,7 @@ begin
     raise exception 'the exposure is already closed (%)', e.disposition using errcode = 'TW041';
   end if;
   if p_disposition = 'absorbed' then
-    perform public._tw4rflops_consume('absorb_exposure', r, p_period_key, null, btrim(p_note), p_actor);   -- 20261211: dual control: an approved request from a second platform administrator
+    perform public._tw4rflops_consume('absorb_exposure', r, p_period_key, null, btrim(p_note), null, p_actor);   -- 20261211: dual control: an approved request from a second platform administrator
   end if;
   if p_disposition = 'not_billed_confirmed' and e.provider_billed_cents > 0 then
     raise exception 'the provider bill is recorded as evidence: this exposure can only be absorbed' using errcode = 'TW042';
@@ -1003,7 +1099,7 @@ begin
     end if;
   end if;
   if r.resource_kind = 'number' then
-    perform public._tw4rflops_consume('cancel_number', r, null, p_approval_ref, btrim(p_reason), p_actor);   -- 20261211: dual control for a phone number: an approved request from a second platform administrator
+    perform public._tw4rflops_consume('cancel_number', r, null, p_approval_ref, btrim(p_reason), p_decided_by, p_actor);   -- 20261211: dual control for a phone number: an approved request from a second platform administrator
   end if;
   perform public._tw4fi_register(p_approval_ref, 'cancellation', r.legal_entity_id, r.studio_id, null, null, null, null, p_actor);   -- the permanent, shared reference namespace (TW019 when used anywhere)
   insert into public.studio_sms_provider_cancel_ops (resource_id, legal_entity_id, studio_id, decided_by, approval_ref, ref_norm, reason, irreversible_ack, authorized_by)
@@ -1012,20 +1108,85 @@ begin
   return jsonb_build_object('operation_id', o.id, 'replayed', false);
 end $$;
 
+-- the administrator panel needs the id of the open cancellation next to its status
+create or replace function public.tw4_rfl_admin_overview(p_actor uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v jsonb;
+begin
+  perform public._tw4c_admin(p_actor);
+  select jsonb_build_object(
+    'resources', coalesce((select jsonb_agg(jsonb_build_object(
+        'resource_id', r.id, 'legal_entity_id', r.legal_entity_id, 'studio_id', r.studio_id, 'kind', r.resource_kind, 'fee_kind', r.fee_kind, 'provider_state', r.provider_state,
+        'df_sending', public._tw4rfl_df_sending(r.studio_id),
+        'current_period', public._tw4rfl_cover(r, public._tw4ml_month_key(r.legal_entity_id, now())),
+        'next_period', public._tw4rfl_cover(r, public._tw4ml_key_add(public._tw4ml_month_key(r.legal_entity_id, now()), 1)),
+        'open_cancel_operation_id', (select o.id from public.studio_sms_provider_cancel_ops o where o.resource_id = r.id and o.status in ('authorized', 'in_flight', 'unknown_outcome')),
+        'open_cancel_operation', (select o.status from public.studio_sms_provider_cancel_ops o where o.resource_id = r.id and o.status in ('authorized', 'in_flight', 'unknown_outcome')))
+        order by r.registered_at, r.id) from public.studio_sms_provider_resources r), '[]'::jsonb),
+    'open_exposure', coalesce((select jsonb_agg(jsonb_build_object('resource_id', e.resource_id, 'period_key', e.period_key, 'reason', e.reason, 'expected_provider_cents', e.expected_provider_cents,
+        'provider_billed_cents', e.provider_billed_cents, 'first_detected_at', e.first_detected_at) order by e.first_detected_at) from public.studio_sms_provider_exposure e where e.state = 'open'), '[]'::jsonb),
+    'open_exposure_expected_cents', coalesce((select sum(coalesce(e.expected_provider_cents, 0)) from public.studio_sms_provider_exposure e where e.state = 'open'), 0),
+    'open_exposure_billed_cents', coalesce((select sum(e.provider_billed_cents) from public.studio_sms_provider_exposure e where e.state = 'open'), 0),
+    'alerts_waiting', (select count(*) from public.studio_sms_provider_alerts a where a.status <> 'delivered'),
+    'cancel_operations_open', (select count(*) from public.studio_sms_provider_cancel_ops o where o.status in ('authorized', 'in_flight', 'unknown_outcome'))) into v;
+  return v;
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- privacy: an email addressed to a platform administrator is queued under a studio (outbound_deliveries.studio_id) and the existing SELECT policies let that studio's staff
+-- read recipient_email / subject / body. Admin-addressed templates are keyed platform_rfl_admin_<kind>: every SELECT policy open to API roles gets the same predicate
+-- PLUS "and template_key does not start with platform_rfl_admin_". The originals are kept (studio_sms_rfl_policy_backup) so the rollback restores them exactly.
+-- service_role and the table owner are unaffected (they bypass RLS / have their own ALL policy).
+-- ---------------------------------------------------------------------------------------------------------------
+create table public.studio_sms_rfl_policy_backup (
+  policy_name text primary key,
+  table_name text not null,
+  original_qual text not null,
+  rewritten_qual text not null
+);
+revoke all on public.studio_sms_rfl_policy_backup from public, anon, authenticated, service_role;
+alter table public.studio_sms_rfl_policy_backup enable row level security;
+do $$
+declare
+  p record;
+  v_new text;
+  v_n int := 0;
+begin
+  for p in select pol.polname as name, pg_get_expr(pol.polqual, pol.polrelid) as qual from pg_policy pol
+            where pol.polrelid = 'public.outbound_deliveries'::regclass and pol.polcmd = 'r' and pol.polpermissive
+              and (pol.polroles = '{0}'::oid[] or exists (select 1 from unnest(pol.polroles) rid where rid in (select oid from pg_roles where rolname in ('authenticated', 'anon')))) loop
+    if p.qual is null then
+      raise exception 'rfl-ops precondition failed: policy % has no USING expression', p.name;
+    end if;
+    if position('platform_rfl_admin_' in p.qual) > 0 then
+      raise exception 'rfl-ops precondition failed: policy % already hides administrator templates', p.name;
+    end if;
+    v_new := '(' || p.qual || ') and not coalesce(template_key like ''platform\_rfl\_admin\_%'', false)';
+    insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, original_qual, rewritten_qual) values (p.name, 'outbound_deliveries', p.qual, v_new);
+    execute format('alter policy %I on public.outbound_deliveries using (%s)', p.name, v_new);
+    v_n := v_n + 1;
+  end loop;
+  if v_n = 0 then
+    raise exception 'rfl-ops precondition failed: outbound_deliveries has no SELECT policy for API roles to restrict';
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4rflops_guard(), public._tw4rflops_facts(text, uuid, text, text, text),
-  public._tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, uuid) from public, anon, authenticated, service_role;
+revoke all on function public._tw4rflops_guard(), public._tw4rflops_request_insert(), public._tw4rflops_epoch(), public._tw4rflops_facts(text, uuid, text, text, text, text),
+  public._tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_rfl_switch_enabled(text), public.tw4_rfl_set_switch(text, boolean, uuid, text), public.tw4_rfl_scan_begin(text, int), public.tw4_rfl_scan_finish(uuid, text, jsonb, text),
   public.tw4_rfl_health(uuid), public.tw4_rfl_exposure_report(uuid), public.tw4_rfl_variance_report(uuid), public.tw4_rfl_variance_ack(uuid, uuid, text),
   public.tw4_rfl_alert_recipients(uuid), public.tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text), public.tw4_rfl_escalate_delivery(),
-  public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text), public.tw4_rfl_dual_approve(uuid, uuid, text), public.tw4_rfl_dual_reject(uuid, uuid, text),
+  public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text), public.tw4_rfl_dual_approve(uuid, uuid, text), public.tw4_rfl_dual_reject(uuid, uuid, text),
   public.tw4_rfl_dual_list(uuid) from public, anon, authenticated;
 grant execute on function public.tw4_rfl_switch_enabled(text), public.tw4_rfl_set_switch(text, boolean, uuid, text), public.tw4_rfl_scan_begin(text, int), public.tw4_rfl_scan_finish(uuid, text, jsonb, text),
   public.tw4_rfl_health(uuid), public.tw4_rfl_exposure_report(uuid), public.tw4_rfl_variance_report(uuid), public.tw4_rfl_variance_ack(uuid, uuid, text),
   public.tw4_rfl_alert_recipients(uuid), public.tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text), public.tw4_rfl_escalate_delivery(),
-  public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text), public.tw4_rfl_dual_approve(uuid, uuid, text), public.tw4_rfl_dual_reject(uuid, uuid, text),
+  public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text), public.tw4_rfl_dual_approve(uuid, uuid, text), public.tw4_rfl_dual_reject(uuid, uuid, text),
   public.tw4_rfl_dual_list(uuid) to service_role;
 
 commit;

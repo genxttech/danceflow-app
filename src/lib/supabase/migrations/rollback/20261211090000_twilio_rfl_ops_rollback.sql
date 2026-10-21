@@ -263,12 +263,52 @@ begin
   return jsonb_build_object('operation_id', o.id, 'replayed', false);
 end $$;
 
+create or replace function public.tw4_rfl_admin_overview(p_actor uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v jsonb;
+begin
+  perform public._tw4c_admin(p_actor);
+  select jsonb_build_object(
+    'resources', coalesce((select jsonb_agg(jsonb_build_object(
+        'resource_id', r.id, 'legal_entity_id', r.legal_entity_id, 'studio_id', r.studio_id, 'kind', r.resource_kind, 'fee_kind', r.fee_kind, 'provider_state', r.provider_state,
+        'df_sending', public._tw4rfl_df_sending(r.studio_id),
+        'current_period', public._tw4rfl_cover(r, public._tw4ml_month_key(r.legal_entity_id, now())),
+        'next_period', public._tw4rfl_cover(r, public._tw4ml_key_add(public._tw4ml_month_key(r.legal_entity_id, now()), 1)),
+        'open_cancel_operation', (select o.status from public.studio_sms_provider_cancel_ops o where o.resource_id = r.id and o.status in ('authorized', 'in_flight', 'unknown_outcome')))
+        order by r.registered_at, r.id) from public.studio_sms_provider_resources r), '[]'::jsonb),
+    'open_exposure', coalesce((select jsonb_agg(jsonb_build_object('resource_id', e.resource_id, 'period_key', e.period_key, 'reason', e.reason, 'expected_provider_cents', e.expected_provider_cents,
+        'provider_billed_cents', e.provider_billed_cents, 'first_detected_at', e.first_detected_at) order by e.first_detected_at) from public.studio_sms_provider_exposure e where e.state = 'open'), '[]'::jsonb),
+    'open_exposure_expected_cents', coalesce((select sum(coalesce(e.expected_provider_cents, 0)) from public.studio_sms_provider_exposure e where e.state = 'open'), 0),
+    'open_exposure_billed_cents', coalesce((select sum(e.provider_billed_cents) from public.studio_sms_provider_exposure e where e.state = 'open'), 0),
+    'alerts_waiting', (select count(*) from public.studio_sms_provider_alerts a where a.status <> 'delivered'),
+    'cancel_operations_open', (select count(*) from public.studio_sms_provider_cancel_ops o where o.status in ('authorized', 'in_flight', 'unknown_outcome'))) into v;
+  return v;
+end $$;
+
+-- the outbound_deliveries SELECT policies: back to exactly what they were
+do $$
+declare b record;
+begin
+  for b in select * from public.studio_sms_rfl_policy_backup loop
+    execute format('alter policy %I on public.%I using (%s)', b.policy_name, b.table_name, b.original_qual);
+  end loop;
+end $$;
+drop table public.studio_sms_rfl_policy_backup;
+drop trigger studio_sms_provider_cancel_ops_90_epoch_ins on public.studio_sms_provider_cancel_ops;
+drop trigger studio_sms_provider_cancel_ops_90_epoch_upd on public.studio_sms_provider_cancel_ops;
+drop trigger studio_sms_provider_exposure_90_epoch_ins on public.studio_sms_provider_exposure;
+drop trigger studio_sms_provider_exposure_90_epoch_upd on public.studio_sms_provider_exposure;
+drop trigger studio_sms_provider_resources_90_epoch_upd on public.studio_sms_provider_resources;
+
 drop function public.tw4_rfl_dual_list(uuid);
 drop function public.tw4_rfl_dual_reject(uuid, uuid, text);
 drop function public.tw4_rfl_dual_approve(uuid, uuid, text);
-drop function public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text);
-drop function public._tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, uuid);
-drop function public._tw4rflops_facts(text, uuid, text, text, text);
+drop function public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text);
+drop function public._tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid);
+drop function public._tw4rflops_facts(text, uuid, text, text, text, text);
+drop function public._tw4rflops_epoch();
 drop function public.tw4_rfl_escalate_delivery();
 drop function public.tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text);
 drop function public.tw4_rfl_alert_recipients(uuid);
@@ -280,11 +320,13 @@ drop function public.tw4_rfl_scan_finish(uuid, text, jsonb, text);
 drop function public.tw4_rfl_scan_begin(text, int);
 drop function public.tw4_rfl_set_switch(text, boolean, uuid, text);
 drop function public.tw4_rfl_switch_enabled(text);
+drop table public.studio_sms_rfl_fact_epochs;
 drop table public.studio_sms_rfl_dual_requests;
 drop table public.studio_sms_provider_variance_acks;
 drop table public.studio_sms_rfl_alert_deliveries;
 drop table public.studio_sms_rfl_runs;
 drop table public.studio_sms_rfl_switch_log;
+drop function public._tw4rflops_request_insert();
 drop function public._tw4rflops_guard();
 
 commit;
