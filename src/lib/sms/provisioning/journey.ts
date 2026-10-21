@@ -10,16 +10,25 @@ import type { OnboardingDisplayState } from "@/lib/sms/onboarding/stateMachine";
  * say so and offer no action. Do not populate it from anything that is not a database/provider read.
  */
 
-export type CampaignFact = "not_started" | "pending" | "approved" | "rejected";
+/**
+ * Campaign status as the database reports it from PROVIDER evidence (get_studio_sms_provisioning, R2c-I2):
+ * preparing = DanceFlow is still preparing or confirming the submission (it is NOT yet known to be with the carriers); pending = a provider read shows it
+ * in carrier review; approved/rejected = the provider's verdict as judged by the database; attention = DanceFlow needs to look (owner does nothing).
+ */
+export type CampaignFact = "not_started" | "preparing" | "pending" | "approved" | "rejected" | "attention";
+export type MessagingServiceFact = "not_started" | "in_progress" | "ready" | "attention";
 export type NumberFact = "not_started" | "options_available" | "awaiting_owner_approval" | "purchasing" | "secured" | "failed";
 export type SenderFact = "not_ready" | "verifying" | "ready" | "failed_verification";
 export type ComplianceFact = "pending" | "complete" | "attention";
 
 export type ProvisioningFacts = {
+  /** R2a/R2c-I2 owner-safe read. */
   campaign: { status: CampaignFact; rejectionSummary?: string | null };
-  number: { status: NumberFact; priceCents?: number | null; /** Where the owner makes the choice/approval; supplied by R2b, never invented here. */ actionHref?: string | null };
-  sender: { status: SenderFact };
-  compliance: { status: ComplianceFact };
+  messagingService?: { status: MessagingServiceFact };
+  /** R2b facts: until the authoritative R2b reads exist these stay undefined and number, sender and compliance render "not available yet". */
+  number?: { status: NumberFact; priceCents?: number | null; /** Where the owner makes the choice/approval; supplied by R2b, never invented here. */ actionHref?: string | null };
+  sender?: { status: SenderFact };
+  compliance?: { status: ComplianceFact };
 };
 
 export type FinanceFacts = {
@@ -170,23 +179,29 @@ export function buildJourney(input: JourneyInput): Journey {
     else { providerStatus = "waiting"; providerDetail = "Your messaging campaign is under carrier review. Submitting is not approval; this usually takes days, sometimes weeks."; }
   } else if (past(["ready_for_activation", "active", "suspended"])) { providerStatus = "done"; providerDetail = "Brand and campaign are approved by the carriers."; }
   else if (trouble) { providerStatus = "attention"; providerDetail = "This needs DanceFlow. You do not need to do anything."; }
+  // database-reported campaign evidence (R2c-I2) is more specific than the onboarding state alone
+  if (campaign && (past(["service_setup", "campaign_pending"]) || state === "exception")) {
+    const o = campaignStage(campaign);
+    if (o) { providerStatus = o.status; providerDetail = o.detail; }
+  }
   const provider: Stage = { key: "provider", label: "Provider review and approval", status: providerStatus, detail: providerDetail };
 
   // number / sender / compliance come only from R2b facts
-  const reachedNumber = past(["campaign_pending", "ready_for_activation", "active", "suspended"]) && campaign?.status !== "rejected";
+  const reachedNumber = (past(["ready_for_activation", "active", "suspended"]) || (past(["campaign_pending"]) && (!campaign || campaign.status === "approved"))) && campaign?.status !== "rejected";
   const unconnected = (label: string, key: StageKey): Stage => ({ key, label, status: "unavailable", detail: "Not available yet. DanceFlow will let you know when this step opens." });
   let number: Stage; let sender: Stage; let compliance: Stage;
-  if (!provisioning) {
+  const r2b = provisioning?.number && provisioning.sender && provisioning.compliance ? { number: provisioning.number, sender: provisioning.sender, compliance: provisioning.compliance } : null;
+  if (!r2b) {
     number = unconnected("Phone number", "number"); sender = unconnected("Sender readiness", "sender"); compliance = unconnected("Compliance setup", "compliance");
     if (state === "active" || input.textingOn) { number.status = "done"; number.detail = "Your texting number is in place."; sender.status = "done"; sender.detail = "Your sender is verified."; compliance.status = "done"; compliance.detail = "Compliance checks are complete."; }
   } else {
-    const n = provisioning.number;
+    const n = r2b.number;
     const nStatus: StageStatus = n.status === "secured" ? "done" : n.status === "failed" ? "attention" : n.status === "purchasing" ? "waiting" : n.status === "options_available" || n.status === "awaiting_owner_approval" ? (reachedNumber ? "current" : "upcoming") : reachedNumber ? "waiting" : "upcoming";
     const nDetail = n.status === "secured" ? "Your texting number is in place." : n.status === "failed" ? "The number could not be secured. Nothing further was charged; DanceFlow will follow up." : n.status === "purchasing" ? "Your number is being secured. This is not complete until confirmed." : n.status === "awaiting_owner_approval" ? `Review and approve your number${n.priceCents ? ` (${usd(n.priceCents)} per month)` : ""}.` : n.status === "options_available" ? "Number options are ready to choose from." : "Number selection opens after your campaign is approved.";
     number = { key: "number", label: "Phone number selection and approval", status: nStatus, detail: nDetail };
-    const s = provisioning.sender.status;
+    const s = r2b.sender.status;
     sender = { key: "sender", label: "Sender readiness", status: s === "ready" ? "done" : s === "failed_verification" ? "attention" : s === "verifying" ? "waiting" : "upcoming", detail: s === "ready" ? "Your sender is verified." : s === "failed_verification" ? "Sender verification did not pass. DanceFlow is looking into it; texting stays off." : s === "verifying" ? "DanceFlow is verifying your sender." : "Starts once your number is secured." };
-    const c = provisioning.compliance.status;
+    const c = r2b.compliance.status;
     compliance = { key: "compliance", label: "Compliance setup", status: c === "complete" ? "done" : c === "attention" ? "attention" : "upcoming", detail: c === "complete" ? "Opt-out and help handling are confirmed." : c === "attention" ? "A compliance check needs attention. DanceFlow will follow up." : "Opt-out and help handling are confirmed before texting turns on." };
   }
 
@@ -207,6 +222,10 @@ function pickNext(input: JourneyInput, stages: Stage[]): NextAction {
   if (paused) return { stage: "business", kind: "stopped", title: "Texting setup is paused", detail: "Your information is kept. Nothing is needed from you right now.", cta: null };
   if (input.textingOn || state === "active") return { stage: "activation", kind: "complete", title: "Texting is on", detail: "Appointment texts are being sent to clients who opted in.", cta: null };
   if (state === "suspended") return { stage: "activation", kind: "blocked", title: "Texting is paused", detail: "DanceFlow will contact you if anything is needed.", cta: null };
+  if (input.provisioning?.campaign.status === "rejected" && (state === "exception" || state === "campaign_pending")) {
+    const why = input.provisioning.campaign.rejectionSummary;
+    return { stage: "provider", kind: "blocked", title: "The carriers did not approve your campaign", detail: why ? `${why} DanceFlow will contact you; you do not need to do anything yet.` : "DanceFlow will contact you; you do not need to do anything yet.", cta: null };
+  }
   if (state === "blocked" || state === "exception") return { stage: "eligibility", kind: "blocked", title: "DanceFlow is looking into this", detail: "You do not need to do anything. We will reach out if we need you.", cta: null };
 
   // while DanceFlow checks the business, a funding shortfall is still the owner's to fix and outranks the wait
@@ -234,10 +253,10 @@ function pickNext(input: JourneyInput, stages: Stage[]): NextAction {
     }
     case "provider":
       if (first.status === "attention") return { stage: "provider", kind: "blocked", title: "The carriers need something changed", detail: first.detail, cta: null };
-      return { stage: "provider", kind: "waiting", title: "Waiting for carrier review", detail: first.detail, cta: null };
+      return { stage: "provider", kind: "waiting", title: input.provisioning?.campaign.status === "preparing" ? "DanceFlow is preparing your campaign" : "Waiting for carrier review", detail: first.detail, cta: null };
     case "number": {
-      const href = input.provisioning?.number.actionHref ?? null;
-      const st = input.provisioning?.number.status;
+      const href = input.provisioning?.number?.actionHref ?? null;
+      const st = input.provisioning?.number?.status;
       if (first.status === "current" && href && (st === "options_available" || st === "awaiting_owner_approval")) return notOwner({ stage: "number", kind: "owner", title: st === "awaiting_owner_approval" ? "Approve your texting number" : "Choose your texting number", detail: first.detail, cta: ownerOnly({ label: st === "awaiting_owner_approval" ? "Review and approve" : "Choose a number", href }) });
       if (first.status === "unavailable") return { stage: "number", kind: "unavailable", title: "Number selection is not available yet", detail: first.detail, cta: null };
       if (first.status === "attention") return { stage: "number", kind: "blocked", title: "Your number needs attention", detail: first.detail, cta: null };
@@ -261,4 +280,15 @@ export function hasLiveCampaignAuthorization(
 ): boolean {
   if (!kind || !authorizations) return false;
   return authorizations.some((a) => a.kind === kind && a.status === "active" && a.thisLocation && new Date(a.expiresAt).getTime() > now);
+}
+
+function campaignStage(campaign: NonNullable<ProvisioningFacts["campaign"]>): { status: StageStatus; detail: string } | null {
+  switch (campaign.status) {
+    case "preparing": return { status: "waiting", detail: "DanceFlow is preparing your campaign submission. It has not been confirmed with the carriers yet." };
+    case "pending": return { status: "waiting", detail: "Your messaging campaign is under carrier review. Submitting is not approval; this usually takes days, sometimes weeks." };
+    case "approved": return { status: "done", detail: "Your brand and campaign are approved by the carriers." };
+    case "rejected": return { status: "attention", detail: campaign.rejectionSummary ? `The carriers did not approve the campaign: ${campaign.rejectionSummary}` : "The carriers did not approve the campaign. DanceFlow will contact you." };
+    case "attention": return { status: "attention", detail: "DanceFlow is reviewing your campaign setup. You do not need to do anything." };
+    default: return null;
+  }
 }
