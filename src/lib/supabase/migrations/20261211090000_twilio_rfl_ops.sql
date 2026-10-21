@@ -360,7 +360,7 @@ as $$
 declare v jsonb;
 begin
   perform public._tw4c_admin(p_actor);
-  select coalesce(jsonb_agg(row_to_json(t)::jsonb order by t.created_at desc, t.charge_id), '[]'::jsonb) into v from (
+  select coalesce(jsonb_agg((row_to_json(t)::jsonb - 'created_at') order by t.created_at desc, t.charge_id), '[]'::jsonb) into v from (
     select c.id as charge_id, c.legal_entity_id, c.studio_id, c.kind, c.provider_ref, c.expected_cost_cents, c.provider_cost_cents, c.variance_cents, c.created_at,
            (k.id is not null) as acknowledged, k.acknowledged_at, k.acknowledged_by, k.note
       from public.studio_sms_provider_charges c left join public.studio_sms_provider_variance_acks k on k.charge_id = c.id

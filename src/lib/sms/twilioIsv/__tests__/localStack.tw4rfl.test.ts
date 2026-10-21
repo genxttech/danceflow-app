@@ -3,6 +3,9 @@
  * DanceFlow suspension vs provider cancellation, the cancellation state machine, alerts, races, retries, uncertain provider outcomes and tenant isolation.
  * Every scenario creates its own synthetic "world" (unique ids; no shared mutable state), so the suite needs no cleanup between tests. Nothing reaches Twilio or Stripe.
  *
+ * Migration 20261211090000 (RFL ops) is also required: absorbing an exposure and authorizing a phone-number cancellation now need an approved dual-control
+ * request (see absorb() / authorizeCancel() below), and the alert outbox is claimed only while the delivery switch is on. Nothing else in a scenario changed.
+ *
  * LOCAL QA DATABASE ONLY. Skipped unless both variables are set and the database carries the local-QA marker table (created by LOCAL QA fixtures only; no migration
  * creates it) with the migrations through 20261209090000 applied. Use an ISOLATED database cloned from the QA stack, not the stack's shared one:
  *
@@ -199,6 +202,30 @@ const audit = (w: World, action: string) => Number(psql(`select count(*) from pu
 const providerState = (resourceId: string) => psql(`select provider_state from public.studio_sms_provider_resources where id = '${resourceId}'`);
 const opStatus = (opId: string) => psql(`select status from public.studio_sms_provider_cancel_ops where id = '${opId}'`);
 
+/** D3 (20261211): absorbing an exposure needs an APPROVED request from a second platform administrator; the disposition then consumes it. */
+const absorb = (resourceId: string, period: string, actor: string, note: string) => {
+  const req = call<{ request_id: string }>("tw4_rfl_dual_request", P, "absorb_exposure", resourceId, period, note, null);
+  call("tw4_rfl_dual_approve", req.request_id, P2, "second administrator approves this absorption");
+  return call<{ exposure_id: string; replayed: boolean }>("tw4_rfl_exposure_dispose", resourceId, period, actor, "absorbed", note);
+};
+/** D3 (20261211): authorizing the cancellation of a phone NUMBER needs an approved request (same approval reference and reason); other resources are unchanged. */
+const authorizeCancel = <T = Record<string, unknown>>(resourceId: string, actor: string, approval: string, decidedBy: string, reason: string, ack: boolean): T => {
+  if (psql(`select resource_kind from public.studio_sms_provider_resources where id = '${resourceId}'`) === "number") {
+    const req = call<{ request_id: string }>("tw4_rfl_dual_request", P, "cancel_number", resourceId, null, reason, approval);
+    call("tw4_rfl_dual_approve", req.request_id, P2, "second administrator approves this number cancellation");
+  }
+  return call<T>("tw4_rfl_cancel_authorize", resourceId, actor, approval, decidedBy, reason, ack);
+};
+/** The outbox is claimed only while the delivery switch is on (20261211); scenarios that claim switch it on and restore it afterwards. */
+const withDelivery = <T>(body: () => T): T => {
+  call("tw4_rfl_set_switch", "delivery", true, P, "fixture: delivery on for an alert-claim scenario");
+  try {
+    return body();
+  } finally {
+    call("tw4_rfl_set_switch", "delivery", false, P, "fixture: delivery restored to off after the scenario");
+  }
+};
+
 describe.skipIf(!enabled)("TW-4F recurring provider-fee lifecycle (real schema)", () => {
   beforeAll(() => {
     expect(psql(`select to_regclass('public.tw4_local_qa_only') is not null`)).toBe("t");
@@ -260,7 +287,7 @@ commit;`);
       expect(psqlError(`insert into public.studio_sms_provider_resources (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, e164, fee_kind, source, registered_by)
         values ('${w.entity}', '${w.studio}', '${w.account}', 'number', '${sid("PN")}', '+15550007777', 'number', 'admin', '${P}');`)).toMatch(/23505|duplicate key/);
       register(w, "campaign");   // another kind is fine
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", first.resource_id, P, ref("replace-number"), "owner_written", "The owner asked us in writing to replace this number", true);
+      const op = authorizeCancel<{ operation_id: string }>(first.resource_id, P, ref("replace-number"), "owner_written", "The owner asked us in writing to replace this number", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
       expect(register(w, "number").replayed).toBe(false);   // the replacement
@@ -433,7 +460,7 @@ commit;`);
       expect(psqlError(callSql("tw4_rfl_exposure_dispose", camp.resource_id, prevKey(), P, "absorbed", "short"))).not.toBe("");
       expect(hasCode(callErr("tw4_rfl_exposure_dispose", camp.resource_id, prevKey(), w.owner, "absorbed", "owner tries to absorb this loss"), "42501")).toBe(true);
       const key = prevKey();
-      call("tw4_rfl_exposure_dispose", camp.resource_id, key, P, "absorbed", "DanceFlow accepts the lapse cost for this period");
+      absorb(camp.resource_id, key, P, "DanceFlow accepts the lapse cost for this period");
       expect(exposureRows(camp.resource_id, key)[0]).toMatchObject({ state: "closed", disposition: "absorbed" });
       expect(audit(w, "rfl_exposure_disposed")).toBe(1);
       // a replay by the same actor is a no-op; another disposition afterwards is refused
@@ -458,7 +485,7 @@ commit;`);
       expect(psql(`select public._tw4rfl_cover(r, '${cur()}') from public.studio_sms_provider_resources r where r.id = '${num.resource_id}'`)).toBe("covered:commitment");
       // the previous period is still an uncovered gap until an administrator decides about it
       expect(state(w)).toBe("suspended");
-      call("tw4_rfl_exposure_dispose", num.resource_id, prevKey(), P, "absorbed", "owner renewed; the lapsed month is absorbed by DanceFlow");
+      absorb(num.resource_id, prevKey(), P, "owner renewed; the lapsed month is absorbed by DanceFlow");
       expect(state(w)).not.toBe("suspended");
       scan(w);
       expect(exposureRows(num.resource_id, cur()).every((r) => r.state === "closed")).toBe(true);
@@ -522,7 +549,7 @@ commit;`);
     it("a bill after a CONFIRMED cancellation is its own exposure and cover cannot close it", () => {
       const w = world();
       const camp = register(w, "campaign");
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("bill-after-cancel"), "owner_written", "The owner asked us to cancel the campaign", true);
+      const op = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("bill-after-cancel"), "owner_written", "The owner asked us to cancel the campaign", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
       expect(providerState(camp.resource_id)).toBe("cancelled");
@@ -533,7 +560,7 @@ commit;`);
       // even a charge for that period does not close it (the scan only closes accruing rows of LIVE resources)
       expect(exposureRows(camp.resource_id, after)[0].state).toBe("open");
       expect(alertsOf(w, "exposure_open")).toBe(1);
-      call("tw4_rfl_exposure_dispose", camp.resource_id, after, P, "absorbed", "Twilio billed after cancellation; dispute opened with Twilio support");
+      absorb(camp.resource_id, after, P, "Twilio billed after cancellation; dispute opened with Twilio support");
       expect(exposureRows(camp.resource_id, after)[0].state).toBe("closed");
     });
 
@@ -645,7 +672,7 @@ commit;`);
 
   describe("provider cancellation (authorization, single claim, evidence)", () => {
     const authorize = (w: World, resourceId: string, decidedBy = "owner_written", label = "cancel") =>
-      call<{ operation_id: string; replayed: boolean }>("tw4_rfl_cancel_authorize", resourceId, P, ref(label), decidedBy, "The owner asked us in writing to cancel this resource", true);
+      authorizeCancel<{ operation_id: string; replayed: boolean }>(resourceId, P, ref(label), decidedBy, "The owner asked us in writing to cancel this resource", true);
 
     it("needs an administrator, a decision type, a written reference and reason, and the irreversibility acknowledgement", () => {
       const w = world();
@@ -665,8 +692,8 @@ commit;`);
       const camp = register(w, "campaign");
       const ms = register(w, "messaging_service");
       const approval = ref("once");
-      const first = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, approval, "owner_written", "The owner asked us in writing to cancel", true);
-      expect(call<{ replayed: boolean; operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, approval, "owner_written", "The owner asked us in writing to cancel", true))
+      const first = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, approval, "owner_written", "The owner asked us in writing to cancel", true);
+      expect(authorizeCancel<{ replayed: boolean; operation_id: string }>(camp.resource_id, P, approval, "owner_written", "The owner asked us in writing to cancel", true))
         .toMatchObject({ replayed: true, operation_id: first.operation_id });
       expect(hasCode(callErr("tw4_rfl_cancel_authorize", ms.resource_id, P, approval, "owner_written", "The owner asked us in writing to cancel", true), "TW043")).toBe(true);
       expect(hasCode(callErr("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("second"), "owner_written", "A second decision while one is open", true), "TW043")).toBe(true);
@@ -682,7 +709,7 @@ commit;`);
       expect(hasCode(callErr("tw4_rfl_cancel_authorize", num.resource_id, P, ref("lapse-number"), "policy_lapse", "lapse policy applied to a phone number", true), "TW042")).toBe(true);
       expect(hasCode(callErr("tw4_rfl_cancel_authorize", num.resource_id, P, ref("live-number"), "owner_written", "owner asks to release the live sender number", true), "TW041")).toBe(true);
       call("tw4_rfl_suspend_df", w.studio, P, "suspended before the number release", false);
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", num.resource_id, P, ref("founder-number"), "founder_written", "The founder approved releasing this number in writing", true);
+      const op = authorizeCancel<{ operation_id: string }>(num.resource_id, P, ref("founder-number"), "founder_written", "The founder approved releasing this number in writing", true);
       expect(opStatus(op.operation_id)).toBe("authorized");
       expect(providerState(num.resource_id)).toBe("active"); // authorizing releases nothing
     });
@@ -763,7 +790,7 @@ commit;`);
       const w = world();
       const camp = register(w, "campaign");
       const approval = ref("refused");
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, approval, "owner_written", "The owner asked us in writing to cancel", true);
+      const op = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, approval, "owner_written", "The owner asked us in writing to cancel", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       expect(call<{ status: string }>("tw4_rfl_cancel_finish", op.operation_id, P, "refused", null, "api").status).toBe("refused");
       expect(hasCode(callErr("tw4_rfl_cancel_authorize", camp.resource_id, P, approval, "owner_written", "The owner asked us in writing to cancel", true), "TW043")).toBe(true);
@@ -812,7 +839,8 @@ commit;`);
   });
 
   describe("alerts, readiness, inventory gaps and the scan list", () => {
-    it("the alert outbox is claimed once per claim, retried on failure (bounded), never re-claimed after delivery, and a stale claim cannot finish a newer one", () => {
+    it("the alert outbox is claimed once per claim, retried on failure (bounded), never re-claimed after delivery, and a stale claim cannot finish a newer one", () =>
+      withDelivery(() => {
       const w = world();
       register(w, "campaign");
       scan(w);
@@ -843,9 +871,10 @@ commit;`);
       const after = JSON.parse(psql(`select coalesce(json_agg(c), '[]') from public.tw4_rfl_alerts_claim(100) c`)) as Array<{ alert_id: string }>;
       expect(after.find((c) => c.alert_id === claimed.alert_id)).toBeUndefined();
       expect(psqlError(`update public.studio_sms_provider_alerts set status = 'pending', delivered_at = null where id = '${claimed.alert_id}';`)).toMatch(/delivered alert is final/);
-    });
+      }));
 
-    it("a stuck 'sending' claim is re-claimable after 15 minutes; an alert gives up after 5 attempts", () => {
+    it("a stuck 'sending' claim is re-claimable after 15 minutes; an alert gives up after 5 attempts", () =>
+      withDelivery(() => {
       const w = world();
       register(w, "campaign");
       scan(w);
@@ -858,7 +887,7 @@ commit;`);
       replica(`update public.studio_sms_provider_alerts set status = 'failed', attempts = 5 where id = '${id}';`);
       const none = JSON.parse(psql(`select coalesce(json_agg(c), '[]') from public.tw4_rfl_alerts_claim(100) c`)) as Array<{ alert_id: string }>;
       expect(none.find((c) => c.alert_id === id)).toBeUndefined();
-    });
+      }));
 
     it("an alert never carries a provider cost, a token or a message body", () => {
       const w = world();
@@ -1070,7 +1099,7 @@ commit;`);
     it("a cancellation finish racing a resolve ends in exactly one final state", async () => {
       const w = world();
       const camp = register(w, "campaign");
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("finish-race"), "owner_written", "The owner asked us in writing to cancel", true);
+      const op = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("finish-race"), "owner_written", "The owner asked us in writing to cancel", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       replica(`update public.studio_sms_provider_cancel_ops set started_at = now() - interval '30 minutes' where id = '${op.operation_id}';`);
       const ev = digest();
@@ -1114,7 +1143,7 @@ commit;`);
       const first = register(w, "number");
       chargeFixture(w, a, "number", cur(), "charged");
       expect(psql(`select public._tw4rfl_cover(r, '${cur()}') from public.studio_sms_provider_resources r where r.id = '${first.resource_id}'`)).toBe("covered:charge");
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", first.resource_id, P, ref("replace"), "owner_written", "The owner asked us in writing to replace this number", true);
+      const op = authorizeCancel<{ operation_id: string }>(first.resource_id, P, ref("replace"), "owner_written", "The owner asked us in writing to replace this number", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
       replica(`update public.studio_sms_provider_resources set cancelled_at = now() - interval '1 minute' where id = '${first.resource_id}';`);
@@ -1141,7 +1170,7 @@ commit;`);
       if (firstKey < cur()) {
         expect(state(w)).not.toBe("suspended");
         // no scan has run: disposing still works (the row is created from the uncovered, past-grace period)
-        expect(call<{ replayed: boolean }>("tw4_rfl_exposure_dispose", camp.resource_id, firstKey, P, "absorbed", "late registration month absorbed by DanceFlow").replayed).toBe(false);
+        expect(absorb(camp.resource_id, firstKey, P, "late registration month absorbed by DanceFlow").replayed).toBe(false);
         expect(exposureRows(camp.resource_id, firstKey)[0]).toMatchObject({ state: "closed", disposition: "absorbed" });
       }
       // a covered or in-grace period is not exposure and cannot be dispositioned
@@ -1151,7 +1180,7 @@ commit;`);
     it("P2 an operation abandoned as 'still active' can still record that the provider did cancel (with evidence); still_active itself needs provider evidence", () => {
       const w = world();
       const camp = register(w, "campaign");
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("late-finish"), "owner_written", "The owner asked us in writing to cancel", true);
+      const op = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("late-finish"), "owner_written", "The owner asked us in writing to cancel", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       replica(`update public.studio_sms_provider_cancel_ops set started_at = now() - interval '30 minutes' where id = '${op.operation_id}';`);
       expect(hasCode(callErr("tw4_rfl_cancel_resolve", op.operation_id, P2, "still_active", null, "console unreachable; assumed still present"), "TW043")).toBe(true);
@@ -1161,7 +1190,7 @@ commit;`);
       expect(call<{ status: string }>("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", ev, null).status).toBe("confirmed");
       expect(providerState(camp.resource_id)).toBe("cancelled");
       // abandoned cannot turn into anything else
-      const op2 = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", register(w, "number").resource_id, P, ref("abandon-only"), "owner_written", "The owner asked us in writing to cancel the number", true);
+      const op2 = authorizeCancel<{ operation_id: string }>(register(w, "number").resource_id, P, ref("abandon-only"), "owner_written", "The owner asked us in writing to cancel the number", true);
       call("tw4_rfl_cancel_begin", op2.operation_id, P);
       call("tw4_rfl_cancel_finish", op2.operation_id, P, "unknown", null, "timeout");
       call("tw4_rfl_cancel_resolve", op2.operation_id, P, "still_active", digest(), "console still lists the number");
@@ -1187,7 +1216,7 @@ commit;`);
         const w2 = world();
         const c2 = register(w2, "campaign");
         senderFixture(w2, "approved", { campaign: c2.sid });
-        const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", c2.resource_id, P, ref(`dl-${i}`), "owner_written", "The owner asked us in writing to cancel", true);
+        const op = authorizeCancel<{ operation_id: string }>(c2.resource_id, P, ref(`dl-${i}`), "owner_written", "The owner asked us in writing to cancel", true);
         call("tw4_rfl_cancel_begin", op.operation_id, P);
         const both = await Promise.all([
           psqlAsync(callSql("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null)),
@@ -1203,7 +1232,7 @@ commit;`);
       const w = world();
       const num = register(w, "number");
       senderFixture(w, "revoked", { phone: num.sid });
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", num.resource_id, P, ref("pending-gate"), "owner_written", "The owner asked us in writing to release the number", true);
+      const op = authorizeCancel<{ operation_id: string }>(num.resource_id, P, ref("pending-gate"), "owner_written", "The owner asked us in writing to release the number", true);
       senderFixture(w, "approved", { phone: num.sid });   // a re-approval after the authorization
       expect(state(w)).toBe("suspended");
       // the claim itself refuses while the number is (again) the live sender: the gate being closed does not make that check vacuous
@@ -1226,7 +1255,7 @@ commit;`);
       call("tw4_rfl_observe_provider_bill", num.resource_id, k1, `INV-${RUN}-${w.n}-x1`, 115, P);
       expect(hasCode(callErr("tw4_rfl_observe_provider_bill", num.resource_id, k2, `INV-${RUN}-${w.n}-x1`, 115, P), "TW043")).toBe(true);
       // closing then reopening by a new bill: the note survives in the audit
-      call("tw4_rfl_exposure_dispose", num.resource_id, k1, P, "absorbed", "first line absorbed pending the dispute outcome");
+      absorb(num.resource_id, k1, P, "first line absorbed pending the dispute outcome");
       call("tw4_rfl_observe_provider_bill", num.resource_id, k1, `INV-${RUN}-${w.n}-x2`, 20, P);
       expect(psql(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${w.studio}' and action = 'rfl_exposure_opened' and note like '%reopened_by_bill%first line absorbed%'`)).toBe("1");
     });
@@ -1234,7 +1263,7 @@ commit;`);
 
   describe("charges follow the provider resource (real authorize + charge path)", () => {
     const retire = (w: World, resourceId: string, cancelledMonthsAgo: number) => {
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", resourceId, P, ref("retire"), "owner_written", "The owner asked us in writing to cancel this resource", true);
+      const op = authorizeCancel<{ operation_id: string }>(resourceId, P, ref("retire"), "owner_written", "The owner asked us in writing to cancel this resource", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
       if (cancelledMonthsAgo > 0) replica(`update public.studio_sms_provider_resources set cancelled_at = now() - interval '${cancelledMonthsAgo * 32} days' where id = '${resourceId}';`);
@@ -1283,7 +1312,7 @@ commit;`);
       const first = call<{ authorization_id: string }>("tw4_recurring_authorize", w.studio, w.owner, "number", PRICE.number, 3, null);
       const num = register(w, "number");
       register(w, "campaign");
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", num.resource_id, P, ref("open-op"), "owner_written", "The owner asked us in writing to release the number", true);
+      const op = authorizeCancel<{ operation_id: string }>(num.resource_id, P, ref("open-op"), "owner_written", "The owner asked us in writing to release the number", true);
       expect(call<{ blockers: string[] }>("tw4_rfl_studio_ready", w.studio).blockers).toContain("cancellation_pending");
       call("tw4_recurring_revoke", first.authorization_id, w.owner);
       expect(hasCode(callErr("tw4_recurring_authorize", w.studio, w.owner, "number", PRICE.number, 3, null), "TW041")).toBe(true);
@@ -1311,7 +1340,7 @@ commit;`);
       const w = world();
       const auth = call<{ authorization_id: string }>("tw4_recurring_authorize", w.studio, w.owner, "number", PRICE.number, 6, null);
       const num = register(w, "number");
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", num.resource_id, P, ref("p1-open"), "owner_written", "The owner asked us in writing to release the number", true);
+      const op = authorizeCancel<{ operation_id: string }>(num.resource_id, P, ref("p1-open"), "owner_written", "The owner asked us in writing to release the number", true);
       expect(call<{ outcome: string; reason: string }>("tw4_recurring_charge", auth.authorization_id, cur(), null)).toMatchObject({ outcome: "held", reason: expect.stringContaining("cancellation") });
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "unknown", null, "timeout");
@@ -1332,7 +1361,7 @@ commit;`);
       const num = register(w, "number");
       chargeFixture(w, a, "number", cur(), "charged");
       age(num.resource_id, 90);
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", num.resource_id, P, ref("late-charge"), "owner_written", "The owner asked us in writing to release the number", true);
+      const op = authorizeCancel<{ operation_id: string }>(num.resource_id, P, ref("late-charge"), "owner_written", "The owner asked us in writing to release the number", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       replica(`update public.studio_sms_provider_cancel_ops set started_at = now() - interval '40 days' where id = '${op.operation_id}';`);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
@@ -1342,11 +1371,11 @@ commit;`);
     it("P2 a sibling operation left open on a resource is superseded when another operation's evidence confirms the cancellation (no stuck operation, no stuck suspension)", () => {
       const w = world();
       const camp = register(w, "campaign");
-      const op1 = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("sibling-1"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
+      const op1 = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("sibling-1"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
       call("tw4_rfl_cancel_begin", op1.operation_id, P);
       replica(`update public.studio_sms_provider_cancel_ops set started_at = now() - interval '30 minutes' where id = '${op1.operation_id}';`);
       call("tw4_rfl_cancel_resolve", op1.operation_id, P, "still_active", digest(), "console still lists the campaign at that moment");
-      const op2 = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("sibling-2"), "owner_written", "A second written decision to cancel the campaign", true);
+      const op2 = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("sibling-2"), "owner_written", "A second written decision to cancel the campaign", true);
       call("tw4_rfl_cancel_begin", op2.operation_id, P);
       call("tw4_rfl_cancel_finish", op1.operation_id, P, "confirmed", digest(), null);   // the first operator did complete it
       expect(providerState(camp.resource_id)).toBe("cancelled");
@@ -1400,7 +1429,7 @@ commit;`);
       scan(w);
       const before = exposureRows(camp.resource_id).filter((r) => r.period <= cur());
       expect(before.length).toBeGreaterThan(2);
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("close-later"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
+      const op = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("close-later"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
       const after = exposureRows(camp.resource_id);
@@ -1433,7 +1462,7 @@ commit;`);
       // the owner's authorization began months ago (so the gap month is inside its term and only the resource question decides)
       replace_start(w, auth.authorization_id);
       const first = register(w, "number");
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", first.resource_id, P, ref("gap"), "owner_written", "The owner asked us in writing to release the number", true);
+      const op = authorizeCancel<{ operation_id: string }>(first.resource_id, P, ref("gap"), "owner_written", "The owner asked us in writing to release the number", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
       // cancelled at the end of the month BEFORE last; the replacement is registered this month
@@ -1453,7 +1482,7 @@ commit;`);
       const camp = register(w, "campaign");
       age(camp.resource_id, 150);
       scan(w);
-      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("backdate"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
+      const op = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("backdate"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       replica(`update public.studio_sms_provider_cancel_ops set started_at = now() - interval '100 days' where id = '${op.operation_id}';`);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "unknown", null, "timeout");
@@ -1498,11 +1527,11 @@ commit;`);
     it("P3 an operator whose operation was superseded gets a clean 'already cancelled' answer, not a guard error", () => {
       const w = world();
       const camp = register(w, "campaign");
-      const op1 = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("superseded-1"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
+      const op1 = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("superseded-1"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
       call("tw4_rfl_cancel_begin", op1.operation_id, P);
       replica(`update public.studio_sms_provider_cancel_ops set started_at = now() - interval '30 minutes' where id = '${op1.operation_id}';`);
       call("tw4_rfl_cancel_resolve", op1.operation_id, P, "still_active", digest(), "console still lists the campaign at that moment");
-      const op2 = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("superseded-2"), "owner_written", "A second written decision to cancel the campaign", true);
+      const op2 = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref("superseded-2"), "owner_written", "A second written decision to cancel the campaign", true);
       call("tw4_rfl_cancel_begin", op2.operation_id, P);
       call("tw4_rfl_cancel_finish", op2.operation_id, P, "confirmed", digest(), null);
       const late = call<{ replayed: boolean; resource_already_cancelled?: boolean }>("tw4_rfl_cancel_finish", op1.operation_id, P, "confirmed", digest(), null);
@@ -1515,7 +1544,7 @@ commit;`);
         const w = world();
         const camp = register(w, "campaign");
         senderFixture(w, "approved", { campaign: camp.sid });
-        const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref(`order-${i}`), "owner_written", "The owner asked us in writing to cancel", true);
+        const op = authorizeCancel<{ operation_id: string }>(camp.resource_id, P, ref(`order-${i}`), "owner_written", "The owner asked us in writing to cancel", true);
         call("tw4_rfl_cancel_begin", op.operation_id, P);
         const r2bOrder = `begin; select public._tw4sr_lock('${w.studio}'::uuid); select pg_sleep(1.2); select public._tw4rfl_lock('${w.entity}'::uuid); commit;`;
         const both = await Promise.all([
