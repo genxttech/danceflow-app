@@ -1,34 +1,35 @@
 #!/usr/bin/env node
 /**
- * TW-4F isolated QA harness (local only). Runs the SQL / local-stack regression suites against a DISPOSABLE Postgres + PostgREST + Kong stack instead of
- * the shared `supabase_*_danceflow-e2e-qa` stack, so a crash or leftover fixtures from one session can never contaminate another session's run.
+ * TW-4F isolated QA harness (local developer / release-gate tool). Runs the SQL / local-stack regression suites against a DISPOSABLE Postgres + PostgREST + Kong
+ * stack instead of the shared `supabase_*_danceflow-e2e-qa` stack, so a crash or leftover fixtures from one session can never contaminate another session's run.
  *
- *   node scripts/qa/iso-qa.mjs baseline [--cutoff 20261205090000] [--ref origin/main]   build the local image `df-isoqa/base:<cutoff>` (July production schema + replayed migrations)
- *   node scripts/qa/iso-qa.mjs up   <scenario> [--migration ref:file]... start a stack, apply the migrations in the given order, print the env
- *   node scripts/qa/iso-qa.mjs run  <scenario> [--keep] -- <vitest args>   up, run vitest against it, classify the result, tear down
- *   node scripts/qa/iso-qa.mjs run  <scenario> --tests-ref <ref> -- ...   run the suites of ANOTHER commit (a private detached worktree under QA_HOME), e.g. PR #251's own tests
- *   node scripts/qa/iso-qa.mjs matrix <scenario> [--parallel 3]          every local-stack suite, each in its OWN fresh database, with a pass / fail / infrastructure summary
- *   node scripts/qa/iso-qa.mjs compare <scenarioA> <scenarioB>            catalog fingerprint diff: does the migration order change the resulting schema?
- *   node scripts/qa/iso-qa.mjs down <scenario> | down --all | list
- *   node scripts/qa/iso-qa.mjs selftest                                    negative controls: skipped suite, no tests, failing test, crashed database, bad / duplicate migration, concurrent starts
- *   node scripts/qa/iso-qa.mjs repro                                       re-run the preserved minimal SQL case that segfaults image 17.6.1.106 (and show 17.11.0.004 / the workaround survive)
- *   node scripts/qa/iso-qa.mjs scenarios                                  list the built-in scenarios
+ *   baseline  [--cutoff 20261205090000] [--ref origin/main] [--base <schema.sql>]   build the local image df-isoqa/base:<cutoff> (July production schema + replayed migrations)
+ *   up        <scenario> [--name n] [--migration ref:version]... [--cutoff c] [--no-api]   start a stack, apply the scenario's migrations in order, print the env
+ *   run       <scenario> [--name n] [--keep] [--tests-ref ref] [--migration ...] -- <vitest args>   up, run vitest, classify, tear down
+ *   matrix    <scenario> [--parallel 3] [--tests-ref ref] [--migration ...]          every local-stack suite (files carrying TW4A_LOCAL_URL), each in its OWN fresh database
+ *   compare   <scenarioA> <scenarioB>                                                catalog fingerprint diff: does the migration order change the resulting schema?
+ *   down      --name n | --all [--force]                                             remove stacks (--all only removes stacks whose owner process is gone, unless --force)
+ *   selftest                                                                         negative controls: skipped suite, nothing ran, failing test, crashed database, bad / duplicate migration, concurrency
+ *   repro                                                                            re-run the preserved minimal SQL case that segfaults image 17.6.1.106
+ *   list | scenarios
  *
- * Isolation rules (enforced here): every container carries the label df.isoqa=1 and the prefix df-isoqa-; they live on their own docker network
- * (df-isoqa-net) and on host ports 56600-56799 bound to 127.0.0.1; the harness never starts, stops, writes to or execs into any container without that label.
- * It never reads or writes any other stack, and takes migrations from git refs, never from a working tree.
+ * Isolation rules (enforced here): every container carries the labels df.isoqa=1 and df.isoqa.owner=<pid> and the prefix df-isoqa-; they live on their own docker
+ * network and the only published port is Kong's, on 127.0.0.1:56600-56799 (asserted after every start). A stack is never replaced or removed while its owner process
+ * is alive. Migrations come from git refs, never from a working tree; other commits' suites run from a private detached worktree under QA_HOME.
  *
- * Exit codes of `run`: 0 every test passed (none skipped); 1 tests failed with a healthy database; 3 INFRASTRUCTURE failure (the database crashed or never became ready: not an application
- * result); 4 a suite was SKIPPED or ran nothing (never reported as a pass); 2 harness usage error.
+ * Exit codes of run / matrix: 0 every test passed (none skipped); 1 tests failed with a healthy database; 3 INFRASTRUCTURE failure (database crashed / restarted /
+ * was OOM-killed / never ready, a migration failed, the stack could not start: never an application result); 4 a suite was SKIPPED, ran nothing, or the matrix was
+ * incomplete (never a pass); 2 usage error. compare: 0 identical, 1 different, 3 incomplete / infrastructure.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+const SELF = fileURLToPath(import.meta.url);
+const here = path.dirname(SELF);
 const REPO = path.resolve(here, "..", "..");
 const QA_HOME = process.env.ISO_QA_HOME ?? path.resolve(REPO, "..", "danceflow-iso-qa");
 const NET = "df-isoqa-net";
@@ -38,20 +39,21 @@ const REST_IMAGE = process.env.ISO_QA_REST_IMAGE ?? "public.ecr.aws/supabase/pos
 const KONG_IMAGE = process.env.ISO_QA_KONG_IMAGE ?? "public.ecr.aws/supabase/kong:2.8.1";
 const DEFAULT_CUTOFF = "20261205090000";
 const MIGRATIONS = "src/lib/supabase/migrations";
-/** The supautils extension of image 17.6.1.106 segfaults on any "permission denied for function" error for anon/authenticated/service_role (see docs/twilio/TW-4F_Isolated_QA.md). Emptying its hint feature avoids it; the canary test pins that the stack survives. */
 const LIMITS = {
   db: ["--memory", process.env.ISO_QA_DB_MEMORY ?? "1500m", "--cpus", process.env.ISO_QA_DB_CPUS ?? "1.5"],
   rest: ["--memory", process.env.ISO_QA_REST_MEMORY ?? "256m", "--cpus", "0.5"],
   kong: ["--memory", process.env.ISO_QA_KONG_MEMORY ?? "1280m", "--cpus", "1"],
 };
+/** The supautils extension of image 17.6.1.106 segfaults on any "permission denied for function" error for anon / authenticated / service_role (docs/twilio/TW-4F_Isolated_QA.md).
+ *  Emptying its hint feature avoids it; the canary test pins that the stack survives. ISO_QA_UNMITIGATED=1 exists only so the self-test can prove the crash detector. */
 const PG_ARGS = process.env.ISO_QA_UNMITIGATED === "1" ? ["postgres", "-D", "/etc/postgresql"] : ["postgres", "-D", "/etc/postgresql", "-c", "supautils.hint_roles="];
 
 process.env.MSYS_NO_PATHCONV = "1"; // Git Bash must not rewrite /etc/... container paths
 
-const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts }).trim();
+const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 600_000, maxBuffer: 1 << 28, ...opts }).trim();
 const docker = (...args) => sh("docker", args);
 const dockerTry = (...args) => { try { return { ok: true, out: docker(...args) }; } catch (e) { return { ok: false, out: String(e.stderr ?? e.message) }; } };
-/** The container's complete log. `docker logs` writes the container's stderr to its own stderr, so both streams are read (stdout alone is empty for Postgres). */
+/** The container's complete log. `docker logs` writes the container's stderr to its own stderr, so BOTH streams are read (stdout alone is empty for Postgres). */
 const dockerLogs = (name) => {
   const r = spawnSync("docker", ["logs", name], { encoding: "utf8", maxBuffer: 1 << 28 });
   return `${r.stdout ?? ""}${r.stderr ?? ""}`;
@@ -60,14 +62,18 @@ const log = (...a) => console.error("[iso-qa]", ...a);
 const die = (msg, code = 2) => { console.error(`[iso-qa] ${msg}`); process.exit(code); };
 const git = (...args) => sh("git", ["-C", REPO, ...args]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const napSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const ERROR_RE = /(^|\n)(psql:[^\n]*?: )?(ERROR|FATAL|PANIC):/;
+const WARNING_RE = /(^|\n)(psql:[^\n]*?: )?WARNING:/;
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-// scenarios: ordered migration lists taken from git REFS (never from another session's working tree)
+// scenarios: explicit migration manifests resolved against git refs
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const MANIFEST = JSON.parse(readFileSync(path.join(here, "scenarios.json"), "utf8"));
 const refOf = (key) => process.env[`ISO_QA_REF_${key}`] ?? MANIFEST.refs[key] ?? die(`unknown ref key ${key}`);
 const REF_MAIN = refOf("MAIN");
 const SCENARIOS = Object.fromEntries(Object.entries(MANIFEST.scenarios).map(([k, v]) => [k, { description: v.description, migrations: v.migrations.map(([key, version]) => [refOf(key), version]) }]));
+const resolveRef = (ref) => { try { return git("rev-parse", "--verify", `${ref}^{commit}`); } catch { throw new Error(`cannot resolve git ref ${ref}`); } };
 
 function migrationFileAt(ref, version) {
   const names = git("ls-tree", "--name-only", `${ref}:${MIGRATIONS}`).split("\n").filter((n) => n.startsWith(`${version}`) && n.endsWith(".sql"));
@@ -75,24 +81,24 @@ function migrationFileAt(ref, version) {
   return names[0];
 }
 const migrationSql = (ref, file) => git("show", `${ref}:${MIGRATIONS}/${file}`);
-const rollbackSql = (ref, file) => git("show", `${ref}:${MIGRATIONS}/rollback/${file.replace(/\.sql$/, "_rollback.sql")}`);
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-// docker helpers (label-fenced)
+// docker helpers (label-fenced, owner-aware)
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-function ensureNetwork() {
-  if (!dockerTry("network", "inspect", NET).ok) docker("network", "create", "--label", LABEL, NET);
+const ensureNetwork = () => { if (!dockerTry("network", "inspect", NET).ok) docker("network", "create", "--label", LABEL, NET); };
+const labelOf = (name, key) => { const r = dockerTry("inspect", "--format", `{{ index .Config.Labels "${key}" }}`, name); return r.ok ? r.out : null; };
+const ours = (name) => name.startsWith("df-isoqa-") && labelOf(name, "df.isoqa") === "1";
+function assertOurs(name) { if (!ours(name)) die(`refusing to touch ${name}: not an isolated-QA container`); }
+const pidAlive = (pid) => { try { process.kill(Number(pid), 0); return true; } catch (e) { return e.code === "EPERM"; } };
+/** A stack whose owner process is alive and is not this one belongs to someone else's run. */
+function assertNotForeignLive(name) {
+  const owner = labelOf(name, "df.isoqa.owner");
+  if (owner && Number(owner) !== process.pid && pidAlive(owner)) throw new Error(`${name} belongs to a live harness process (pid ${owner}); refusing to replace it (choose another --name)`);
 }
-function ours(name) {
-  const r = dockerTry("inspect", "--format", '{{ index .Config.Labels "df.isoqa" }}', name);
-  return r.ok && r.out === "1";
-}
-function assertOurs(name) {
-  if (!name.startsWith("df-isoqa-") || !ours(name)) die(`refusing to touch ${name}: not an isolated-QA container`);
-}
-const psqlIn = (container, sql, { user = "postgres", okOnError = false, extra = [] } = {}) => {
+const OWNER = () => ["--label", LABEL, "--label", `df.isoqa.owner=${process.pid}`];
+const psqlIn = (container, sql, { user = "postgres", extra = [], single = false } = {}) => {
   assertOurs(container);
-  const r = spawnSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", container, "psql", "-U", user, "-d", "postgres", "-q", "-v", okOnError ? "ON_ERROR_STOP=0" : "ON_ERROR_STOP=1", ...extra], { input: sql, encoding: "utf8", maxBuffer: 1 << 28 });
+  const r = spawnSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", container, "psql", "-U", user, "-d", "postgres", "-q", "-v", "ON_ERROR_STOP=1", ...(single ? ["-1"] : []), ...extra], { input: sql, encoding: "utf8", maxBuffer: 1 << 28 });
   return { code: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 };
 async function waitReady(container, timeoutMs = 600_000) {
@@ -107,141 +113,171 @@ async function waitReady(container, timeoutMs = 600_000) {
   }
   throw new Error(`${container} did not become ready`);
 }
-const crashCount = (container) => (dockerLogs(container).match(/terminated by signal|server process .* was terminated/g) ?? []).length;
-/** Cross-process mutex (a directory is created atomically). Held only while ports are chosen and bound, never while migrations run. */
-async function withStartLock(fn) {
-  const lock = path.join(QA_HOME, "start.lock");
-  mkdirSync(QA_HOME, { recursive: true });
-  const t0 = Date.now();
-  for (;;) {
-    try { mkdirSync(lock); break; } catch (e) {
-      if (e.code !== "EEXIST") throw e;
-      try { if (Date.now() - statSync(lock).mtimeMs > 120_000) rmSync(lock, { recursive: true, force: true }); } catch { /* raced */ }
-      if (Date.now() - t0 > 180_000) throw new Error("could not acquire the start lock");
-      await sleep(400);
-    }
+/** Lines of the database log that mean a backend or the server died or the cluster restarted. */
+const CRASH_RE = /terminated by signal|was terminated by|exited with exit code [1-9]|reinitializing|PANIC:|out of memory/i;
+const crashLines = (container) => dockerLogs(container).split("\n").filter((l) => CRASH_RE.test(l));
+const dbState = (container) => {
+  const r = dockerTry("inspect", "--format", "{{.State.Running}}|{{.State.OOMKilled}}|{{.State.StartedAt}}|{{.RestartCount}}", container);
+  if (!r.ok) return { running: false, oom: true, startedAt: "", restarts: -1 };
+  const [running, oom, startedAt, restarts] = r.out.split("|");
+  return { running: running === "true", oom: oom === "true", startedAt, restarts: Number(restarts) };
+};
+/** Throws when the database crashed, restarted, was OOM-killed or stopped since `since` (a dbState taken after start). */
+function assertHealthy(container, since) {
+  const lines = crashLines(container);
+  const st = dbState(container);
+  const problems = [];
+  if (lines.length) problems.push(`${lines.length} crash/restart log line(s): ${lines[0].slice(0, 140)}`);
+  if (!st.running) problems.push("the container is not running");
+  if (st.oom) problems.push("the container was OOM-killed");
+  if (since && (st.startedAt !== since.startedAt || st.restarts !== since.restarts)) problems.push("the container restarted");
+  if (problems.length) throw Object.assign(new Error(`database unhealthy (${container}): ${problems.join("; ")}`), { infra: true });
+}
+
+// cross-process mutex (directory creation is atomic), synchronous and asynchronous
+function lockPath(name) { mkdirSync(QA_HOME, { recursive: true }); return path.join(QA_HOME, `${name}.lock`); }
+function tryLock(lock) {
+  try { mkdirSync(lock); return true; } catch (e) {
+    if (e.code !== "EEXIST") throw e;
+    try {
+      // only a lock whose recorded holder is dead (or that is very old) may be broken
+      const holder = readFileSync(path.join(lock, "pid"), "utf8");
+      if (!pidAlive(holder)) rmSync(lock, { recursive: true, force: true });
+    } catch { try { if (Date.now() - statSync(lock).mtimeMs > 300_000) rmSync(lock, { recursive: true, force: true }); } catch { /* raced */ } }
+    return false;
   }
+}
+const stamp = (lock) => writeFileSync(path.join(lock, "pid"), String(process.pid));
+async function withLock(name, fn, waitMs = 300_000) {
+  const lock = lockPath(name);
+  const t0 = Date.now();
+  while (!tryLock(lock)) { if (Date.now() - t0 > waitMs) throw new Error(`could not acquire the ${name} lock`); await sleep(300); }
+  stamp(lock);
   try { return await fn(); } finally { rmSync(lock, { recursive: true, force: true }); }
 }
+function withLockSync(name, fn, waitMs = 60_000) {
+  const lock = lockPath(name);
+  const t0 = Date.now();
+  while (!tryLock(lock)) { if (Date.now() - t0 > waitMs) throw new Error(`could not acquire the ${name} lock`); napSync(150); }
+  stamp(lock);
+  try { return fn(); } finally { rmSync(lock, { recursive: true, force: true }); }
+}
+const writeAtomic = (file, text) => { const tmp = `${file}.${process.pid}.tmp`; writeFileSync(tmp, text); renameSync(tmp, file); };
 
 const CLAIMS = () => path.join(QA_HOME, "port-claims.json");
-const readClaims = () => { try { return JSON.parse(readFileSync(CLAIMS(), "utf8")); } catch { return {}; } };
-const writeClaims = (c) => writeFileSync(CLAIMS(), JSON.stringify(c, null, 2));
-/** Chooses the API host port for an instance under the cross-process lock and records the claim (stale claims, older than 30 minutes, are ignored). */
-async function claimPort(instance) {
-  return withStartLock(async () => {
-    const now = Date.now();
-    const claims = Object.fromEntries(Object.entries(readClaims()).filter(([, v]) => now - v.at < 30 * 60_000));
-    const taken = usedHostPorts();
-    for (const v of Object.values(claims)) taken.add(v.port);
-    const port = await freePort(56600, taken);
-    claims[instance] = { port, at: now, pid: process.pid };
-    writeClaims(claims);
-    return port;
-  });
-}
-/** Synchronous (so it also runs on the way to process.exit): the same directory mutex, spun with a short blocking wait. */
-function releasePort(instance) {
-  const lock = path.join(QA_HOME, "start.lock");
-  const nap = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
-  const t0 = Date.now();
-  for (;;) {
-    try { mkdirSync(lock); break; } catch (e) {
-      if (e.code !== "EEXIST") return;
-      try { if (Date.now() - statSync(lock).mtimeMs > 120_000) rmSync(lock, { recursive: true, force: true }); } catch { /* raced */ }
-      if (Date.now() - t0 > 30_000) return;
-      nap();
-    }
-  }
-  try { const c = readClaims(); delete c[instance]; writeClaims(c); } finally { rmSync(lock, { recursive: true, force: true }); }
-}
-
-function freePort(start, taken) {
-  return new Promise((resolve, reject) => {
-    const tryPort = (p) => {
-      if (p > 56799) return reject(new Error("no free port in 56600-56799"));
-      if (taken.has(p)) return tryPort(p + 1);
-      const s = net.createServer();
-      s.once("error", () => tryPort(p + 1));
-      s.listen(p, "127.0.0.1", () => s.close(() => resolve(p)));
-    };
-    tryPort(start);
-  });
-}
+const readClaims = () => { try { return JSON.parse(readFileSync(CLAIMS(), "utf8")); } catch (e) { if (e.code === "ENOENT") return {}; throw new Error(`port-claims.json is unreadable: ${e.message}`); } };
+const writeClaims = (c) => writeAtomic(CLAIMS(), JSON.stringify(c, null, 2));
 const usedHostPorts = () => new Set((dockerTry("ps", "--filter", `label=${LABEL}`, "--format", "{{.Ports}}").out.match(/:(\d+)->/g) ?? []).map((m) => Number(m.slice(1, -2))));
+const freePort = (start, taken) => new Promise((resolve, reject) => {
+  const tryPort = (p) => {
+    if (p > 56799) return reject(new Error("no free port in 56600-56799"));
+    if (taken.has(p)) return tryPort(p + 1);
+    const s = net.createServer();
+    s.once("error", () => tryPort(p + 1));
+    s.listen(p, "127.0.0.1", () => s.close(() => resolve(p)));
+  };
+  tryPort(start);
+});
+/** Chooses the API host port for an instance under the cross-process lock and records the claim (claims of dead processes and claims older than 30 minutes are ignored). */
+const claimPort = (instance) => withLock("start", async () => {
+  const now = Date.now();
+  const claims = Object.fromEntries(Object.entries(readClaims()).filter(([, v]) => now - v.at < 30 * 60_000 && pidAlive(v.pid)));
+  const taken = usedHostPorts();
+  for (const v of Object.values(claims)) taken.add(v.port);
+  const port = await freePort(56600, taken);
+  claims[instance] = { port, at: now, pid: process.pid };
+  writeClaims(claims);
+  return port;
+});
+const releasePort = (instance) => { try { withLockSync("start", () => { const c = readClaims(); delete c[instance]; writeClaims(c); }); } catch (e) { log(`could not release the port claim of ${instance}: ${e.message}`); } };
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-// baseline: the production schema dump of 2026-07-15 (pre-accounting, schema only, local and git-ignored) + the repo's own migrations replayed in version order
-// from a git REF up to the cutoff. Nothing is read from the shared QA database or from any working tree, so another session's unmerged objects can never leak in.
+// baseline: the production schema dump of 2026-07-15 (schema only, local and git-ignored) + the repo's own migrations replayed from a git REF up to the cutoff
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const KNOWN_UNREPLAYABLE = path.join(here, "known-unreplayable.txt");
 const versionOf = (name) => name.replace(/^[0-9]{2}-/, "").slice(0, 14).replace(/[^0-9]/g, "").padEnd(8, "0");
-const defaultBaseSchema = () => {
-  const common = git("rev-parse", "--path-format=absolute", "--git-common-dir");
-  return path.join(path.dirname(common), "backups", "danceflow-production-pre-accounting-v1-2026-07-15.sql");
-};
-
-// the pieces a bare Supabase image does not carry: GoTrue creates auth.jwt(); storage-api creates the storage tables that some migrations reference
+const defaultBaseSchema = () => path.join(path.dirname(git("rev-parse", "--path-format=absolute", "--git-common-dir")), "backups", "danceflow-production-pre-accounting-v1-2026-07-15.sql");
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const BOOTSTRAP_SQL = `
 create or replace function auth.jwt() returns jsonb language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claim', true), ''), nullif(current_setting('request.jwt.claims', true), ''))::jsonb
 $$;
 grant execute on function auth.jwt() to anon, authenticated, service_role;
 `;
-
-async function startDb(name, port, image = PG_IMAGE) {
-  ensureNetwork();
-  dockerTry("rm", "-f", name);
-  docker("run", "-d", "--name", name, "--label", LABEL, "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
-  await waitReady(name);
+/** The known-unreplayable list: file, then the error it is expected to fail with. TW-4F migrations can never be listed. */
+function loadKnown() {
+  const entries = new Map();
+  for (const line of readFileSync(KNOWN_UNREPLAYABLE, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))) {
+    const [file, ...reason] = line.split(/\s+/);
+    if (versionOf(file) >= "20261116" || /sms|twilio|tw4/i.test(file)) throw new Error(`known-unreplayable.txt lists ${file}: TW-4F migrations may never be skipped`);
+    entries.set(file, reason.join(" "));
+  }
+  return entries;
+}
+/** Files with only a date in their version (no time) have no intrinsic order: tie-break by the commit that added them, then by name. */
+function replayOrder(ref, cutoff) {
+  const names = git("ls-tree", "--name-only", `${ref}:${MIGRATIONS}`).split("\n").filter((n) => n.endsWith(".sql"));
+  const addedAt = (n) => Number(git("log", ref, "--diff-filter=A", "--format=%ct", "--", `${MIGRATIONS}/${n}`).split("\n").filter(Boolean).pop() ?? 0);
+  return names.map((n) => ({ n, v: versionOf(n).padEnd(14, "0"), dateOnly: !/^[0-9]{14}/.test(n.replace(/^[0-9]{2}-/, "")) }))
+    .filter((x) => x.v >= "20260715000000" && x.v <= cutoff)
+    .map((x) => ({ ...x, t: x.dateOnly ? addedAt(x.n) : 0 }))
+    .sort((p, q) => (p.v !== q.v ? (p.v < q.v ? -1 : 1) : p.t !== q.t ? p.t - q.t : p.n < q.n ? -1 : 1));
 }
 
 async function cmdBaseline(flags) {
   const cutoff = flags.cutoff ?? DEFAULT_CUTOFF;
   const ref = flags.ref ?? REF_MAIN;
+  const refSha = resolveRef(ref);
   const baseSchema = flags.base ?? process.env.ISO_QA_BASE_SCHEMA ?? defaultBaseSchema();
   if (!existsSync(baseSchema)) die(`base schema dump not found: ${baseSchema} (set ISO_QA_BASE_SCHEMA)`);
-  const known = new Set(readFileSync(KNOWN_UNREPLAYABLE, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")).map((l) => l.split(/\s+/)[0]));
-  const files = git("ls-tree", "--name-only", `${ref}:${MIGRATIONS}`).split("\n").filter((n) => n.endsWith(".sql"))
-    .map((n) => ({ n, v: versionOf(n).padEnd(14, "0") })).filter((x) => x.v >= "20260715000000" && x.v <= cutoff)
-    .sort((p, q) => (p.v === q.v ? (p.n < q.n ? -1 : 1) : p.v < q.v ? -1 : 1));
-  const port = await freePort(56600, usedHostPorts());
-  const builder = "df-isoqa-baseline-builder";
-  log(`starting a fresh database; base ${path.basename(baseSchema)} + ${files.length} migrations from ${ref} through ${cutoff} ...`);
-  await startDb(builder, port);
-  let r = psqlIn(builder, BOOTSTRAP_SQL, { user: "supabase_admin" });
-  if (r.code !== 0) throw new Error(`bootstrap failed: ${r.out.slice(0, 400)}`);
-  r = psqlIn(builder, readFileSync(baseSchema, "utf8"), { okOnError: true });
-  const loadErrors = r.out.split("\n").filter((l) => /ERROR/.test(l));
-  if (loadErrors.length) throw new Error(`base schema load errors:\n${loadErrors.slice(0, 10).join("\n")}`);
-  const failed = [];
-  let applied = 0;
-  for (const { n } of files) {
-    const res = psqlIn(builder, git("show", `${ref}:${MIGRATIONS}/${n}`), { okOnError: true });
-    if (res.code !== 0 || /ERROR/.test(res.out)) {
-      failed.push(n);
-      if (!known.has(n)) throw new Error(`migration ${n} failed and is not in known-unreplayable.txt:\n${(res.out.split("\n").find((l) => /ERROR/.test(l)) ?? res.out).slice(0, 500)}`);
-    } else applied += 1;
+  const dump = readFileSync(baseSchema, "utf8");
+  const known = loadKnown();
+  const files = replayOrder(ref, cutoff);
+  const builder = `df-isoqa-baseline-builder-${process.pid}`;
+  log(`building the baseline: ${path.basename(baseSchema)} + ${files.length} migrations from ${ref} (${refSha.slice(0, 12)}) through ${cutoff} ...`);
+  ensureNetwork();
+  try {
+    docker("run", "-d", "--name", builder, ...OWNER(), "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", PG_IMAGE, ...PG_ARGS);
+    await waitReady(builder);
+    let r = psqlIn(builder, BOOTSTRAP_SQL, { user: "supabase_admin" });
+    if (r.code !== 0) throw new Error(`bootstrap failed: ${r.out.slice(0, 400)}`);
+    r = psqlIn(builder, dump);
+    if (r.code !== 0 || ERROR_RE.test(r.out)) throw new Error(`base schema load failed:\n${r.out.split("\n").filter((l) => /ERROR/.test(l)).slice(0, 8).join("\n")}`);
+    const failed = new Map();
+    const problems = [];
+    let applied = 0;
+    for (const { n } of files) {
+      // all or nothing: a migration that fails leaves NOTHING behind
+      const sql = git("show", `${ref}:${MIGRATIONS}/${n}`);
+      const res = psqlIn(builder, sql, { single: !/\bconcurrently\b/i.test(sql) });
+      if (res.code !== 0 || ERROR_RE.test(res.out)) {
+        const firstError = (res.out.split("\n").find((l) => /ERROR|FATAL/.test(l)) ?? res.out).replace(/^.*?(ERROR|FATAL):\s*/, "");
+        failed.set(n, firstError);
+        if (!known.has(n)) problems.push(`migration ${n} failed and is not in known-unreplayable.txt: ${firstError.slice(0, 300)}`);
+        else if (!firstError.includes(known.get(n).slice(0, 30))) problems.push(`migration ${n} failed with a DIFFERENT error than recorded:\n    recorded: ${known.get(n)}\n    actual:   ${firstError.slice(0, 300)}`);
+      } else applied += 1;
+    }
+    for (const k of known.keys()) if (!failed.has(k)) problems.push(`known-unreplayable.txt lists ${k}, which now replays cleanly (remove it)`);
+    // every discrepancy is reported at once, then the build is refused: the image is only committed from a baseline that matches the list exactly
+    if (problems.length) throw new Error(`the baseline does not match known-unreplayable.txt:\n  - ${problems.join("\n  - ")}`);
+    const tag = `df-isoqa/base:${cutoff}`;
+    docker("stop", "-t", "120", builder);
+    docker("commit", "--change", 'ENTRYPOINT ["docker-entrypoint.sh"]', "--change", 'CMD ["postgres","-D","/etc/postgresql"]',
+      "--change", `LABEL df.isoqa.ref=${ref}@${refSha.slice(0, 12)}`, "--change", `LABEL df.isoqa.cutoff=${cutoff}`, "--change", `LABEL df.isoqa.dump=${sha256(dump).slice(0, 16)}`,
+      "--change", `LABEL df.isoqa.known=${sha256(readFileSync(KNOWN_UNREPLAYABLE, "utf8")).slice(0, 16)}`, builder, tag);
+    const labels = docker("image", "inspect", tag, "--format", "{{json .Config.Labels}}");
+    if (/desktop\.docker\.io\/ports\/[0-9]/.test(labels)) throw new Error(`the baseline image carries Docker Desktop port labels (${labels.slice(0, 200)}): it would publish a host port for every stack`);
+    log(`baseline image ${tag} built: ${applied} migrations applied, ${failed.size} known-unreplayable skipped (${ref}@${refSha.slice(0, 12)})`);
+  } finally {
+    dockerTry("rm", "-f", builder);
   }
-  const stale = [...known].filter((k) => !failed.includes(k));
-  if (stale.length) log(`note: ${stale.length} entries of known-unreplayable.txt replayed cleanly this time: ${stale.join(", ")}`);
-  const head = git("rev-parse", ref).slice(0, 12);
-  const tag = `df-isoqa/base:${cutoff}`;
-  docker("stop", builder);
-  docker("commit", "--change", 'ENTRYPOINT ["docker-entrypoint.sh"]', "--change", 'CMD ["postgres","-D","/etc/postgresql"]', "--change", `LABEL df.isoqa.ref=${ref}@${head}`, "--change", `LABEL df.isoqa.cutoff=${cutoff}`, builder, tag);
-  docker("rm", "-f", builder);
-  const labels = docker("image", "inspect", tag, "--format", "{{json .Config.Labels}}");
-  if (/desktop\.docker\.io\/ports/.test(labels)) throw new Error(`the baseline image carries Docker Desktop port labels (${labels.slice(0, 200)}): it would publish a host port for every stack`);
-  log(`baseline image ${tag} built: ${applied} migrations applied, ${failed.length} known-unreplayable skipped (${ref}@${head})`);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 // up / down / run
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-const names = (scenario) => ({ db: `df-isoqa-${scenario}-db`, rest: `df-isoqa-${scenario}-rest`, kong: `df-isoqa-${scenario}-kong` });
-
-function kongYml(rest) {
-  return `_format_version: "2.1"
+const names = (instance) => ({ db: `df-isoqa-${instance}-db`, rest: `df-isoqa-${instance}-rest`, kong: `df-isoqa-${instance}-kong` });
+const kongYml = (rest) => `_format_version: "2.1"
 services:
   - name: rest-v1
     url: http://${rest}:3000/
@@ -250,48 +286,59 @@ services:
         strip_path: true
         paths: ["/rest/v1/"]
 `;
+function parseMigration(m) { const i = m.indexOf(":"); return [m.slice(0, i), m.slice(i + 1)]; }
+function baselineIdentity(image) {
+  const labels = JSON.parse(docker("image", "inspect", image, "--format", "{{json .Config.Labels}}"));
+  return { id: docker("image", "inspect", image, "--format", "{{.Id}}"), ref: labels["df.isoqa.ref"], dump: labels["df.isoqa.dump"], known: labels["df.isoqa.known"] };
 }
 
-async function cmdUp(scenarioName, flags, instance = scenarioName) {
+async function cmdUp(scenarioName, flags, instance) {
   const noApi = Boolean(flags["no-api"]);
-  const extra = flags.migration ?? [];
   const preset = SCENARIOS[scenarioName];
-  const list = [...(preset ? preset.migrations : []), ...extra.map((m) => { const i = m.indexOf(":"); return [m.slice(0, i), m.slice(i + 1)]; })];
+  if (!preset) throw Object.assign(new Error(`unknown scenario ${scenarioName}`), { usage: true });
+  const list = [...preset.migrations, ...(flags.migration ?? []).map(parseMigration)];
   const cutoff = flags.cutoff ?? DEFAULT_CUTOFF;
   const image = `df-isoqa/base:${cutoff}`;
-  if (!dockerTry("image", "inspect", image).ok) die(`baseline image ${image} not found: run \`snapshot\` and \`baseline\` first`);
+  if (!dockerTry("image", "inspect", image).ok) throw new Error(`baseline image ${image} not found: run \`baseline\` first`);
+  const identity = baselineIdentity(image);
+  // the baseline must come from the dump and the known list that are on disk now
+  const dumpFile = process.env.ISO_QA_BASE_SCHEMA ?? defaultBaseSchema();
+  if (existsSync(dumpFile) && identity.dump !== sha256(readFileSync(dumpFile, "utf8")).slice(0, 16)) throw new Error("the baseline image was built from a different base schema dump: rebuild it (`baseline`)");
+  if (identity.known !== sha256(readFileSync(KNOWN_UNREPLAYABLE, "utf8")).slice(0, 16)) throw new Error("the baseline image was built with a different known-unreplayable.txt: rebuild it (`baseline`)");
   const n = names(instance);
+  for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); assertNotForeignLive(c); }
   const jwt = randomBytes(24).toString("hex");
   ensureNetwork();
   const ymlPath = path.join(QA_HOME, `kong-${instance}.yml`);
   mkdirSync(QA_HOME, { recursive: true });
   writeFileSync(ymlPath, kongYml(n.rest));
   const apiPort = noApi ? 0 : await claimPort(instance);
-  for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); docker("rm", "-f", c); }
-  docker("run", "-d", "--name", n.db, "--label", LABEL, "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
+  for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) docker("rm", "-f", c);
+  docker("run", "-d", "--name", n.db, ...OWNER(), "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
   await waitReady(n.db);
-  // the migrations, in order, each in its own transaction scope exactly as the repo's files are written (they carry their own begin/commit)
+  const since = dbState(n.db);
+  const applied = [];
   for (const [ref, version] of list) {
     const file = migrationFileAt(ref, version);
     log(`applying ${file} (from ${ref})`);
     const r = psqlIn(n.db, migrationSql(ref, file));
-    if (r.code !== 0 || /(^|\n)(psql: )?(ERROR|FATAL):/.test(r.out)) throw new Error(`migration ${file} failed:\n${r.out.slice(0, 800)}`);
-    if (/(^|\n)WARNING:/.test(r.out)) log(`  warnings from ${file}: ${r.out.split('\n').filter((l) => /WARNING:/.test(l)).slice(0, 3).join(' | ')}`);
+    if (r.code !== 0 || ERROR_RE.test(r.out)) throw new Error(`migration ${file} failed:\n${r.out.slice(0, 800)}`);
+    if (WARNING_RE.test(r.out)) log(`  warnings from ${file}: ${r.out.split("\n").filter((l) => /WARNING:/.test(l)).slice(0, 3).join(" | ")}`);
+    applied.push({ file, ref, sha: resolveRef(ref).slice(0, 12) });
   }
+  assertHealthy(n.db, since);
+  const meta = { scenario: scenarioName, instance, cutoff, baseline: identity, migrations: applied, since };
   if (noApi) {
-    const env = { TW4A_LOCAL_DB_CONTAINER: n.db, ISO_QA_SCENARIO: scenarioName, ISO_QA_INSTANCE: instance };
-    if (crashCount(n.db) > 0) throw new Error(`the database crashed while applying migrations (${n.db})`);
     const got = docker("inspect", n.db, "--format", "{{json .HostConfig.PortBindings}}");
     if (got !== "{}") throw new Error(`unexpected host port bindings on ${n.db}: ${got}`);
-    return env;
+    return { env: { TW4A_LOCAL_DB_CONTAINER: n.db, ISO_QA_SCENARIO: scenarioName, ISO_QA_INSTANCE: instance }, meta };
   }
-  // the API role the PostgREST container logs in as (the bare image carries no password for it)
   const pw = psqlIn(n.db, "alter role authenticator with password 'postgres';", { user: "supabase_admin" });
   if (pw.code !== 0) throw new Error(`could not set the API role password: ${pw.out.slice(0, 300)}`);
-  docker("run", "-d", "--name", n.rest, "--label", LABEL, "--network", NET, ...LIMITS.rest,
+  docker("run", "-d", "--name", n.rest, ...OWNER(), "--network", NET, ...LIMITS.rest,
     "-e", `PGRST_DB_URI=postgres://authenticator:postgres@${n.db}:5432/postgres`, "-e", "PGRST_DB_SCHEMAS=public", "-e", "PGRST_DB_ANON_ROLE=anon",
     "-e", `PGRST_JWT_SECRET=${jwt}`, "-e", "PGRST_DB_USE_LEGACY_GUCS=false", REST_IMAGE);
-  docker("create", "--name", n.kong, "--label", LABEL, "--network", NET, ...LIMITS.kong, "-p", `127.0.0.1:${apiPort}:8000`,
+  docker("create", "--name", n.kong, ...OWNER(), "--network", NET, ...LIMITS.kong, "-p", `127.0.0.1:${apiPort}:8000`,
     "-e", "KONG_DATABASE=off", "-e", "KONG_NGINX_WORKER_PROCESSES=1", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
   docker("cp", ymlPath, `${n.kong}:/home/kong/kong.yml`);
   docker("start", n.kong);
@@ -300,178 +347,238 @@ async function cmdUp(scenarioName, flags, instance = scenarioName) {
     if (got !== want) throw new Error(`unexpected host port bindings on ${c}: ${got} (expected ${want})`);
   }
   const env = { TW4A_LOCAL_URL: `http://127.0.0.1:${apiPort}`, TW4A_LOCAL_DB_CONTAINER: n.db, TW4A_LOCAL_JWT_SECRET: jwt, TW4_ISO_QA: "1", ISO_QA_SCENARIO: scenarioName, ISO_QA_INSTANCE: instance };
-  // wait for the API to answer through Kong
   const t0 = Date.now();
   for (;;) {
-    try { const res = await fetch(`${env.TW4A_LOCAL_URL}/rest/v1/`, { headers: { apikey: "x" } }); if (res.status < 500) break; } catch { /* not yet */ }
+    try { const res = await fetch(`${env.TW4A_LOCAL_URL}/rest/v1/`, { headers: { apikey: "x" }, signal: AbortSignal.timeout(8000) }); if (res.status < 500) break; } catch { /* not yet */ }
     if (Date.now() - t0 > 240_000) throw new Error("the API did not come up");
     await sleep(1500);
   }
-  writeFileSync(path.join(QA_HOME, `env-${instance}.json`), JSON.stringify(env, null, 2));
-  return env;
+  assertHealthy(n.db, since);
+  return { env, meta };
 }
 
-function cmdDown(scenarioName) {
-  releasePort(scenarioName);
-  const n = names(scenarioName);
-  for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); docker("rm", "-f", c); }
+function cmdDown(instance, { force = false } = {}) {
+  releasePort(instance);
+  const n = names(instance);
+  for (const c of [n.kong, n.rest, n.db]) {
+    if (!dockerTry("inspect", c).ok) continue;
+    assertOurs(c);
+    if (!force) assertNotForeignLive(c);
+    docker("rm", "-f", c);
+  }
+}
+function cmdDownAll(force) {
+  const all = dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}").out.split("\n").filter(Boolean);
+  let removed = 0;
+  for (const c of all) {
+    if (!ours(c)) continue;
+    const owner = labelOf(c, "df.isoqa.owner");
+    if (!force && owner && Number(owner) !== process.pid && pidAlive(owner)) { log(`keeping ${c}: its owner (pid ${owner}) is alive (use --force)`); continue; }
+    docker("rm", "-f", c);
+    removed += 1;
+  }
+  withLockSync("start", () => { const claims = readClaims(); for (const [k, v] of Object.entries(claims)) if (!pidAlive(v.pid)) delete claims[k]; writeClaims(claims); });
+  log(`removed ${removed} container(s)`);
 }
 
-async function cmdRun(scenarioName, flags, vitestArgs) {
-  const instance = flags.name ?? scenarioName;
-  const cleanup = () => { try { cmdDown(instance); } catch { /* best effort */ } };
+/** A private detached worktree (under QA_HOME) of a ref, so another commit's own suites run without touching any session's worktree. Created under a lock, with a verified node_modules link. */
+function testWorktree(ref) {
+  const sha = resolveRef(ref);
+  const dir = path.join(QA_HOME, "wt", sha.slice(0, 12));
+  withLockSync("worktree", () => {
+    if (!existsSync(path.join(dir, ".git"))) {
+      mkdirSync(path.dirname(dir), { recursive: true });
+      rmSync(dir, { recursive: true, force: true });
+      git("worktree", "add", "--detach", dir, sha);
+    }
+    if (!existsSync(path.join(dir, "node_modules"))) symlinkSync(path.join(REPO, "node_modules"), path.join(dir, "node_modules"), "junction");
+  }, 300_000);
+  if (!existsSync(path.join(dir, "node_modules", "vitest", "vitest.mjs"))) throw new Error(`no vitest in ${dir}/node_modules (the link to ${REPO}/node_modules failed)`);
+  return { dir, sha };
+}
+
+async function cmdRun(scenarioName, flags, vitestArgs, instance) {
+  const cleanup = () => { try { cmdDown(instance, { force: true }); } catch { /* best effort */ } };
   for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { cleanup(); process.exit(130); });
-  let env;
-  const out = [];
   const t0 = Date.now();
+  let up;
   let exit = 3;
+  const finish = (code) => { if (!flags.keep) cleanup(); process.exit(code); };
   try {
-    env = await cmdUp(scenarioName, flags, instance);
+    up = await cmdUp(scenarioName, flags, instance);
   } catch (e) {
+    if (e.usage) die(e.message, 2);
     log(`INFRASTRUCTURE FAILURE while starting: ${e.message}`);
-    cmdDown(instance);
+    cleanup();
     process.exit(3);
   }
   const runDir = path.join(QA_HOME, "runs", `${new Date().toISOString().replace(/[:.]/g, "-")}-${instance}`);
-  mkdirSync(runDir, { recursive: true });
-  const crashesBefore = crashCount(names(instance).db);
-  const jsonOut = path.join(runDir, "vitest.json");
-  const args = ["vitest", "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, ...vitestArgs];
-  const testRoot = flags["tests-ref"] ? testWorktree(flags["tests-ref"]) : REPO;
-  const r = spawnSync("npx", args, { cwd: testRoot, env: { ...process.env, ...env }, encoding: "utf8", shell: process.platform === "win32", maxBuffer: 1 << 28 });
-  out.push(r.stdout ?? "", r.stderr ?? "");
-  writeFileSync(path.join(runDir, "vitest.log"), out.join("\n"));
-  const crashes = crashCount(names(instance).db) - crashesBefore;
-  // a suite that was SKIPPED (its environment gate was off) or ran nothing is not a pass
-  let counts = { passed: 0, failed: 0, skipped: 0, todo: 0, total: 0 };
   try {
-    const j = JSON.parse(readFileSync(jsonOut, "utf8"));
-    counts = { passed: j.numPassedTests, failed: j.numFailedTests, skipped: j.numPendingTests, todo: j.numTodoTests, total: j.numTotalTests };
-  } catch { /* no JSON: handled below as an infrastructure/usage failure */ }
-  const dbLog = dockerLogs(names(instance).db);
-  writeFileSync(path.join(runDir, "postgres.log"), dbLog);
-  const summary = (out.join("\n").match(/Tests\s+.*$/m) ?? [""])[0];
-  if (crashes > 0) {
-    log(`INFRASTRUCTURE FAILURE: the database crashed ${crashes} time(s) during the run (not an application result). Evidence: ${runDir}`);
+    mkdirSync(runDir, { recursive: true });
+    const tests = flags["tests-ref"] ? testWorktree(flags["tests-ref"]) : { dir: REPO, sha: git("rev-parse", "HEAD") };
+    const vitestBin = path.join(tests.dir, "node_modules", "vitest", "vitest.mjs");
+    if (!existsSync(vitestBin)) throw new Error(`vitest not found at ${vitestBin}`);
+    const jsonOut = path.join(runDir, "vitest.json");
+    const args = [vitestBin, "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, ...vitestArgs];
+    const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...up.env }, encoding: "utf8", maxBuffer: 1 << 28 });
+    const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
+    writeFileSync(path.join(runDir, "vitest.log"), out);
+    const dbName = names(instance).db;
+    writeFileSync(path.join(runDir, "postgres.log"), dockerLogs(dbName));
+    let unhealthy = null;
+    try { assertHealthy(dbName, up.meta.since); } catch (e) { unhealthy = e.message; }
+    let counts = { passed: 0, failed: 0, skipped: 0, todo: 0, total: 0 };
+    try {
+      const j = JSON.parse(readFileSync(jsonOut, "utf8"));
+      counts = { passed: j.numPassedTests, failed: j.numFailedTests, skipped: j.numPendingTests, todo: j.numTodoTests, total: j.numTotalTests };
+    } catch { /* no JSON: handled below */ }
+    const summary = (out.match(/Tests\s+.*$/m) ?? [""])[0];
+    if (unhealthy) { log(`INFRASTRUCTURE FAILURE: ${unhealthy} (not an application result)`); exit = 3; }
+    else if (counts.total === 0) { log("NOTHING RAN: no test result was produced (a missing or empty test file is not a pass)"); exit = 4; }
+    else if (r.status === 0 && (counts.skipped > 0 || counts.todo > 0 || counts.passed === 0)) { log(`SKIPPED TESTS: ${counts.skipped} skipped / ${counts.todo} todo / ${counts.passed} passed: a skipped suite is not a pass (its environment gate must be on)`); exit = 4; }
+    else exit = r.status === 0 ? 0 : 1;
+    const dirty = tests.dir === REPO ? git("status", "--porcelain", "--", "src", "scripts").length > 0 : false;
+    writeFileSync(path.join(runDir, "result.json"), JSON.stringify({
+      scenario: scenarioName, instance, exit, unhealthy, counts, summary, seconds: Math.round((Date.now() - t0) / 1000), vitestArgs,
+      testsCommit: tests.sha, testsDirty: dirty, baseline: up.meta.baseline, migrations: up.meta.migrations,
+    }, null, 2));
+    console.log(out);
+    log(`scenario=${scenarioName} exit=${exit} ${unhealthy ? "UNHEALTHY " : ""}${summary.trim()} evidence=${runDir}`);
+  } catch (e) {
+    log(`INFRASTRUCTURE FAILURE after the stack started: ${e.message}`);
     exit = 3;
-  } else if (counts.total === 0) {
-    log("NOTHING RAN: no test result was produced (a missing or empty test file is not a pass)");
-    exit = 4;
-  } else if (r.status === 0 && (counts.skipped > 0 || counts.todo > 0 || counts.passed === 0)) {
-    log(`SKIPPED TESTS: ${counts.skipped} skipped / ${counts.todo} todo / ${counts.passed} passed: a skipped suite is not a pass (its environment gate must be on)`);
-    exit = 4;
-  } else {
-    exit = r.status === 0 ? 0 : 1;
   }
-  writeFileSync(path.join(runDir, "result.json"), JSON.stringify({ scenario: scenarioName, instance, exit, crashes, counts, summary, seconds: Math.round((Date.now() - t0) / 1000), vitestArgs }, null, 2));
-  console.log(out.join("\n"));
-  log(`scenario=${scenarioName} exit=${exit} crashes=${crashes} ${summary.trim()} evidence=${runDir}`);
-  if (!flags.keep) cmdDown(instance);
-  process.exit(exit);
+  finish(exit);
 }
 
-/** A private detached worktree (under QA_HOME) of a ref, so another commit's own suites can run without touching any session's worktree. */
-function testWorktree(ref) {
-  const sha = git("rev-parse", ref);
-  const dir = path.join(QA_HOME, "wt", sha.slice(0, 12));
-  if (!existsSync(dir)) {
-    mkdirSync(path.dirname(dir), { recursive: true });
-    git("worktree", "add", "--detach", dir, sha);
-    spawnSync("cmd", ["/c", "mklink", "/J", path.join(dir, "node_modules"), path.join(REPO, "node_modules")], { stdio: "ignore" });
-  }
-  return dir;
-}
-
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// compare: a wide catalog fingerprint of the public schema
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
 const FINGERPRINT_SQL = `
-select 'fn ' || p.oid::regprocedure::text || ' ' || md5(p.prosrc) || ' ' || coalesce(p.proacl::text, '-') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
-union all select 'tbl ' || c.relname || ' ' || coalesce(c.relacl::text, '-') || ' ' || (select string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod), ',' order by a.attnum) from pg_attribute a where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped)
+select 'fn ' || p.oid::regprocedure::text || ' ' || md5(p.prosrc) || ' secdef=' || p.prosecdef || ' cfg=' || coalesce(p.proconfig::text, '-') || ' owner=' || p.proowner::regrole::text
+  || ' ret=' || pg_get_function_result(p.oid) || ' vol=' || p.provolatile || ' strict=' || p.proisstrict || ' lang=' || p.prolang::reglanguage::text || ' acl=' || coalesce(p.proacl::text, '-')
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
+union all select 'tbl ' || c.relname || ' rls=' || c.relrowsecurity || '/' || c.relforcerowsecurity || ' owner=' || c.relowner::regrole::text || ' acl=' || coalesce(c.relacl::text, '-') || ' cols=' ||
+  (select string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '-') || ':' || a.attidentity || a.attgenerated, ',' order by a.attnum)
+     from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped)
   from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind in ('r', 'p')
 union all select 'con ' || conrelid::regclass::text || ' ' || conname || ' ' || md5(pg_get_constraintdef(oid)) from pg_constraint where connamespace = 'public'::regnamespace
-union all select 'trg ' || tgrelid::regclass::text || ' ' || tgname || ' ' || md5(pg_get_triggerdef(oid)) from pg_trigger where not tgisinternal and tgrelid in (select oid from pg_class where relnamespace = 'public'::regnamespace)
+union all select 'idx ' || tablename || ' ' || indexname || ' ' || md5(indexdef) from pg_indexes where schemaname = 'public'
+union all select 'pol ' || tablename || ' ' || policyname || ' ' || cmd || ' ' || permissive || ' ' || roles::text || ' ' || md5(coalesce(qual, '') || '|' || coalesce(with_check, '')) from pg_policies where schemaname = 'public'
+union all select 'trg ' || tgrelid::regclass::text || ' ' || tgname || ' ' || md5(pg_get_triggerdef(oid)) || ' enabled=' || tgenabled from pg_trigger where not tgisinternal and tgrelid in (select oid from pg_class where relnamespace = 'public'::regnamespace)
+union all select 'view ' || c.relname || ' ' || md5(pg_get_viewdef(c.oid)) || ' acl=' || coalesce(c.relacl::text, '-') from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind in ('v', 'm')
+union all select 'seq ' || c.relname || ' acl=' || coalesce(c.relacl::text, '-') from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'S'
+union all select 'type ' || t.typname || ' ' || t.typtype || ' ' || coalesce((select string_agg(e.enumlabel, ',' order by e.enumsortorder) from pg_enum e where e.enumtypid = t.oid), '-') from pg_type t where t.typnamespace = 'public'::regnamespace and t.typtype in ('e', 'd')
+union all select 'defacl ' || defaclrole::regrole::text || ' ' || coalesce(defaclnamespace::regnamespace::text, '-') || ' ' || defaclobjtype || ' ' || defaclacl::text from pg_default_acl
+union all select 'schema ' || nspname || ' ' || coalesce(nspacl::text, '-') from pg_namespace where nspname = 'public'
 order by 1;`;
-const fingerprint = (db) => psqlIn(db, FINGERPRINT_SQL, { extra: ["-At"] }).out.split("\n").filter(Boolean);
+const fingerprint = (db) => {
+  const r = psqlIn(db, FINGERPRINT_SQL, { extra: ["-At"] });
+  if (r.code !== 0 || ERROR_RE.test(r.out)) throw Object.assign(new Error(`fingerprint query failed: ${r.out.slice(0, 300)}`), { infra: true });
+  return r.out.split("\n").filter(Boolean);
+};
 
 async function cmdCompare(a, b, flags) {
   const inst = [`cmp-a-${process.pid}`, `cmp-b-${process.pid}`];
   const prints = [];
+  let code = 3;
   try {
     for (const [i, sc] of [a, b].entries()) {
-      if (!SCENARIOS[sc]) die(`unknown scenario ${sc}`);
-      await cmdUp(sc, { ...flags, "no-api": true }, inst[i]);
+      const up = await cmdUp(sc, { ...flags, "no-api": true }, inst[i]);
       const fp = fingerprint(names(inst[i]).db);
-      if (fp.length < 1000) { log(`INCOMPLETE COMPARISON: only ${fp.length} catalog entries read for ${sc} (a healthy schema has thousands)`); process.exit(3); }
-      if (crashCount(names(inst[i]).db) > 0) { log(`INFRASTRUCTURE FAILURE: the database of ${sc} crashed`); process.exit(3); }
-      prints.push(fp);
+      assertHealthy(names(inst[i]).db, up.meta.since);
+      const kinds = fp.reduce((m, x) => { const k = x.split(" ")[0]; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+      for (const k of ["fn", "tbl", "con", "idx", "pol", "trg"]) if (!kinds[k]) throw Object.assign(new Error(`INCOMPLETE COMPARISON: no '${k}' entries read for ${sc}`), { infra: true });
+      if (fp.length < 1000) throw Object.assign(new Error(`INCOMPLETE COMPARISON: only ${fp.length} catalog entries read for ${sc}`), { infra: true });
+      prints.push({ fp, kinds, meta: up.meta });
     }
+    const [A, B] = prints;
+    const sa = new Set(A.fp), sb = new Set(B.fp);
+    const onlyA = A.fp.filter((x) => !sb.has(x)), onlyB = B.fp.filter((x) => !sa.has(x));
+    console.log(`${a}: ${A.fp.length} catalog entries   ${b}: ${B.fp.length}   only-in-${a}: ${onlyA.length}   only-in-${b}: ${onlyB.length}`);
+    console.log(`compared ${JSON.stringify(A.kinds)}: function bodies+owner+security definer+config+ACL, table columns/defaults/not-null+RLS+owner+ACL, constraints, indexes, policies, triggers, views, sequences, enums, default privileges, schema ACL`);
+    console.log(`baseline ${A.meta.baseline.ref} | ${a}: ${A.meta.migrations.map((m) => `${m.file}@${m.sha}`).join(", ") || "-"} | ${b}: ${B.meta.migrations.map((m) => `${m.file}@${m.sha}`).join(", ") || "-"}`);
+    for (const x of onlyA.slice(0, 40)) console.log(`  < ${x.slice(0, 220)}`);
+    for (const x of onlyB.slice(0, 40)) console.log(`  > ${x.slice(0, 220)}`);
+    code = onlyA.length + onlyB.length === 0 ? 0 : 1;
+  } catch (e) {
+    if (e.usage) { for (const i of inst) cmdDown(i, { force: true }); die(e.message, 2); }
+    log(`${e.infra ? "" : "INFRASTRUCTURE FAILURE: "}${e.message}`);
+    code = 3;
   } finally {
-    for (const i of inst) cmdDown(i);
+    for (const i of inst) { try { cmdDown(i, { force: true }); } catch { /* best effort */ } }
   }
-  const [fa, fb] = prints;
-  const sa = new Set(fa), sb = new Set(fb);
-  const onlyA = fa.filter((x) => !sb.has(x)), onlyB = fb.filter((x) => !sa.has(x));
-  console.log(`${a}: ${fa.length} catalog entries   ${b}: ${fb.length}   only-in-${a}: ${onlyA.length}   only-in-${b}: ${onlyB.length}`);
-  const kinds = (arr) => arr.reduce((m, x) => { const k = x.split(" ")[0]; m[k] = (m[k] ?? 0) + 1; return m; }, {});
-  console.log(`compared: ${JSON.stringify(kinds(fa))} (function bodies by md5 and ACL, table columns and ACL, constraint definitions, triggers)`);
-  for (const x of onlyA.slice(0, 40)) console.log(`  < ${x.slice(0, 200)}`);
-  for (const x of onlyB.slice(0, 40)) console.log(`  > ${x.slice(0, 200)}`);
-  process.exit(onlyA.length + onlyB.length === 0 ? 0 : 1);
+  process.exit(code);
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// matrix
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
 async function cmdMatrix(scenarioName, flags) {
-  const files = execFileSync("git", ["-C", REPO, "ls-files", "src/**/localStack*.test.ts"], { encoding: "utf8" }).split("\n").filter(Boolean);
-  const parallel = Number(flags.parallel ?? 3);
+  if (!SCENARIOS[scenarioName]) die(`unknown scenario ${scenarioName}`);
+  const parallel = flags.parallel === undefined ? 3 : Number(flags.parallel);
+  if (!Number.isInteger(parallel) || parallel < 1 || parallel > 6) die("--parallel must be an integer from 1 to 6");
+  const ref = flags["tests-ref"];
+  if (ref) testWorktree(ref); // created once, here, before any child needs it
+  // the suites of the commit under test: every test file that carries the local-stack gate variable (local-stack suites, dry runs, the canary)
+  const grep = ref ? git("grep", "-l", "TW4A_LOCAL_URL", resolveRef(ref), "--", "src") : git("grep", "-l", "TW4A_LOCAL_URL", "--", "src");
+  const files = [...new Set(grep.split("\n").filter(Boolean).map((l) => l.replace(/^[0-9a-f]{40}:/, "")))].filter((f) => /\.test\.ts$/.test(f)).sort();
+  if (files.length === 0) { log("INCOMPLETE MATRIX: no suites found"); process.exit(4); }
+  const forward = [...(flags.migration ?? []).flatMap((m) => ["--migration", m]), ...(flags.cutoff ? ["--cutoff", flags.cutoff] : []), ...(ref ? ["--tests-ref", ref] : [])];
   const results = [];
-  {
-    const run1 = (f, i) => new Promise((resolve) => {
-      const instance = `${scenarioName}-m${i}`;
-      const extra = flags["tests-ref"] ? ["--tests-ref", flags["tests-ref"]] : [];
-      const p = spawn("node", [fileURLToPath(import.meta.url), "run", scenarioName, "--name", instance, ...extra, "--", f], { stdio: ["ignore", "ignore", "pipe"] });
-      let err = "";
-      p.stderr.on("data", (d) => { err += d; });
-      p.on("close", (status) => {
-        const tail = err.split("\n").filter((l) => l.includes("[iso-qa] scenario=")).pop() ?? "";
-        results.push({ file: f, status, tail });
-        console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? "SKIP " : "FAIL "} ${f}  ${tail.replace(/.*scenario=/, "")}`);
-        resolve();
-      });
+  const run1 = (f, i) => new Promise((resolve) => {
+    const instance = `${scenarioName}-m${i}-${process.pid}`;
+    const p = spawn(process.execPath, [SELF, "run", scenarioName, "--name", instance, ...forward, "--", f], { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    p.stderr.on("data", (d) => { err += d; });
+    p.on("close", (status) => {
+      const tail = err.split("\n").filter((l) => l.includes("[iso-qa] scenario=")).pop() ?? err.split("\n").filter((l) => l.includes("[iso-qa]")).pop() ?? "";
+      results.push({ file: f, status: status ?? 3, tail });
+      console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? "SKIP " : "FAIL "} ${f}  ${tail.replace(/.*\[iso-qa\] /, "").replace(/.*scenario=/, "")}`);
+      resolve();
     });
-    const q = files.map((f, i) => [f, i]);
-    const lanes = Array.from({ length: parallel }, async () => { for (let j = q.shift(); j; j = q.shift()) await run1(...j); });
-    await Promise.all(lanes);
-  }
+  });
+  const queue = files.map((f, i) => [f, i]);
+  await Promise.all(Array.from({ length: parallel }, async () => { for (let j = queue.shift(); j; j = queue.shift()) await run1(...j); }));
   const bad = results.filter((r) => r.status !== 0);
-  console.log(`\n${results.length - bad.length}/${results.length} suites passed in scenario ${scenarioName}; infrastructure failures: ${results.filter((r) => r.status === 3).length}`);
-  writeFileSync(path.join(QA_HOME, `matrix-${scenarioName}.json`), JSON.stringify(results, null, 2));
-  process.exit(bad.length === 0 ? 0 : results.some((r) => r.status === 3) ? 3 : 1);
+  const complete = results.length === files.length;
+  console.log(`\n${results.length - bad.length}/${files.length} suites passed in scenario ${scenarioName}${complete ? "" : " (INCOMPLETE: not every suite reported)"}; failures ${bad.filter((r) => r.status === 1).length}, skipped/empty ${bad.filter((r) => r.status === 4).length}, infrastructure ${bad.filter((r) => r.status === 3).length}`);
+  mkdirSync(QA_HOME, { recursive: true });
+  writeFileSync(path.join(QA_HOME, `matrix-${scenarioName}${ref ? "-" + resolveRef(ref).slice(0, 8) : ""}.json`), JSON.stringify({ scenario: scenarioName, testsRef: ref ?? null, files, results }, null, 2));
+  process.exit(!complete ? 4 : bad.length === 0 ? 0 : bad.some((r) => r.status === 3) ? 3 : bad.some((r) => r.status === 4) ? 4 : 1);
 }
 
-/** Runs the preserved minimal SQL case against each image / setting combination and states what happened. Self-contained: its own containers, removed afterwards. */
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// repro + selftest + list
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
 async function cmdRepro() {
   const sql = readFileSync(path.join(here, "repro", "supautils-function-acl-segfault.sql"), "utf8");
   const variants = [
     { name: "17.6.1.106, image defaults (supautils.hint_roles = anon, authenticated, service_role)", image: "public.ecr.aws/supabase/postgres:17.6.1.106", args: ["postgres", "-D", "/etc/postgresql"], expect: "CRASH" },
-    { name: "17.6.1.106 with supautils.hint_roles emptied (the harness workaround)", image: "public.ecr.aws/supabase/postgres:17.6.1.106", args: PG_ARGS, expect: "survive" },
+    { name: "17.6.1.106 with supautils.hint_roles emptied (the harness workaround)", image: "public.ecr.aws/supabase/postgres:17.6.1.106", args: ["postgres", "-D", "/etc/postgresql", "-c", "supautils.hint_roles="], expect: "survive" },
     { name: "17.11.0.004, image defaults", image: "public.ecr.aws/supabase/postgres:17.11.0.004", args: ["postgres", "-D", "/etc/postgresql"], expect: "survive" },
   ];
   let bad = 0;
   ensureNetwork();
   for (const v of variants) {
-    const name = "df-isoqa-repro";
+    const name = `df-isoqa-repro-${process.pid}`;
     dockerTry("rm", "-f", name);
-    docker("run", "-d", "--name", name, "--label", LABEL, "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", v.image, ...v.args);
-    await waitReady(name);
-    const version = psqlIn(name, "show server_version;", { extra: ["-At"] }).out.trim();
-    const before = crashCount(name);
-    const r = psqlIn(name, sql, { okOnError: true });
-    await sleep(1500);
-    const crashed = crashCount(name) > before;
-    const signal = (dockerLogs(name).match(/terminated by signal [0-9]+: [A-Za-z ]+/) ?? [""])[0];
-    const outcome = crashed ? "CRASH" : "survive";
-    const ok = outcome === v.expect;
-    if (!ok) bad += 1;
-    console.log(`${ok ? "ok  " : "BAD "} ${v.name}
-     PostgreSQL ${version}: ${outcome}${signal ? ` (${signal})` : ""}; client saw: ${r.out.trim().split(/\r?\n/).filter(Boolean).slice(-1)[0]?.slice(0, 100) ?? ""}`);
-    dockerTry("rm", "-f", name);
+    try {
+      docker("run", "-d", "--name", name, ...OWNER(), "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", v.image, ...v.args);
+      await waitReady(name);
+      const version = psqlIn(name, "show server_version;", { extra: ["-At"] }).out.trim();
+      const before = crashLines(name).length;
+      const r = spawnSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", name, "psql", "-U", "postgres", "-d", "postgres", "-q"], { input: sql, encoding: "utf8" });
+      await sleep(1500);
+      const crashed = crashLines(name).length > before;
+      const signal = (dockerLogs(name).match(/terminated by signal [0-9]+: [A-Za-z ]+/) ?? [""])[0];
+      const outcome = crashed ? "CRASH" : "survive";
+      const ok = outcome === v.expect;
+      if (!ok) bad += 1;
+      console.log(`${ok ? "ok  " : "BAD "} ${v.name}\n     PostgreSQL ${version}: ${outcome}${signal ? ` (${signal})` : ""}; client saw: ${`${r.stdout}${r.stderr}`.trim().split(/\r?\n/).filter(Boolean).slice(-1)[0]?.slice(0, 100) ?? ""}`);
+    } finally {
+      dockerTry("rm", "-f", name);
+    }
   }
   console.log(bad === 0 ? "\nreproduction confirmed (and the workaround and the newer image behave as documented)" : "\nUNEXPECTED RESULT: the documented behaviour no longer holds");
   process.exit(bad === 0 ? 0 : 1);
@@ -479,51 +586,64 @@ async function cmdRepro() {
 
 /** Negative controls for the harness itself: every way a run could be mistaken for a pass must be reported as a failure with the documented exit code. */
 async function cmdSelftest() {
-  const self = fileURLToPath(import.meta.url);
   const cfg = ["--config", "scripts/qa/selftest/vitest.config.mts"];
+  const sfx = `-${process.pid}`;
   const run = (name, scenario, env, extra, expectCode) => new Promise((resolve) => {
-    const p = spawn("node", [self, "run", scenario, "--name", `st-${name}`, ...extra], { env: { ...process.env, ...env }, stdio: ["ignore", "ignore", "pipe"], cwd: REPO });
+    const p = spawn(process.execPath, [SELF, "run", scenario, "--name", `st-${name}${sfx}`, ...extra], { env: { ...process.env, ...env }, stdio: ["ignore", "ignore", "pipe"], cwd: REPO });
     let err = "";
     p.stderr.on("data", (d) => { err += d; });
     p.on("close", (code) => resolve({ name, code, expectCode, ok: code === expectCode, note: (err.split("\n").filter((l) => l.includes("[iso-qa]")).pop() ?? "").replace(/.*\[iso-qa\] /, "").slice(0, 150) }));
   });
+  const t = (f) => `scripts/qa/selftest/${f}`;
   const cases = [
-    () => run("pass", "baseline", {}, ["--", ...cfg, "scripts/qa/selftest/pass.test.ts"], 0),
-    () => run("fail", "baseline", {}, ["--", ...cfg, "scripts/qa/selftest/fail.test.ts"], 1),
-    () => run("skip", "baseline", {}, ["--", ...cfg, "scripts/qa/selftest/skipped.test.ts"], 4),
-    () => run("none", "baseline", {}, ["--", ...cfg, "scripts/qa/selftest/does-not-exist.test.ts"], 4),
-    () => run("crash", "baseline", { ISO_QA_UNMITIGATED: "1" }, ["--", ...cfg, "scripts/qa/selftest/crash.test.ts"], 3),
-    () => run("badmig", "baseline", {}, ["--migration", `${REF_MAIN}:99999999`, "--", ...cfg, "scripts/qa/selftest/pass.test.ts"], 3),
-    () => run("dupmig", "baseline", {}, ["--migration", `${REF_MAIN}:20261207`, "--migration", `${REF_MAIN}:20261207`, "--", ...cfg, "scripts/qa/selftest/pass.test.ts"], 3),
+    () => run("pass", "baseline", {}, ["--", ...cfg, t("pass.test.ts")], 0),
+    () => run("fail", "baseline", {}, ["--", ...cfg, t("fail.test.ts")], 1),
+    () => run("skip", "baseline", {}, ["--", ...cfg, t("skipped.test.ts")], 4),
+    () => run("none", "baseline", {}, ["--", ...cfg, t("does-not-exist.test.ts")], 4),
+    () => run("crash", "baseline", { ISO_QA_UNMITIGATED: "1" }, ["--", ...cfg, t("crash.test.ts")], 3),
+    () => run("badmig", "baseline", {}, ["--migration", `${REF_MAIN}:99999999`, "--", ...cfg, t("pass.test.ts")], 3),
+    () => run("dupmig", "baseline", {}, ["--migration", `${REF_MAIN}:20261207`, "--migration", `${REF_MAIN}:20261207`, "--", ...cfg, t("pass.test.ts")], 3),
+    () => run("badscenario", "no-such-scenario", {}, ["--", ...cfg, t("pass.test.ts")], 2),
+    () => run("badflag", "baseline", {}, ["--migrations", `${REF_MAIN}:20261207`, "--", ...cfg, t("pass.test.ts")], 2),
   ];
-  // three stacks at a time (each database is limited to 1.5 GB); the first wave starts simultaneously and proves the port claims
   const results = [];
-  const portsAcrossWaves = new Set();
-  let portsUniqueEver = true;
+  const claimsSeen = new Set();
+  let portsUnique = true;
   for (let i = 0; i < cases.length; i += 3) {
     const wave = cases.slice(i, i + 3).map((f) => f());
-    const sampler = setInterval(() => { const ps = Object.values(readClaims()).map((v) => v.port); if (new Set(ps).size !== ps.length) portsUniqueEver = false; for (const p of ps) portsAcrossWaves.add(p); }, 500);
+    const sampler = setInterval(() => { const ps = Object.values(readClaims()).map((v) => v.port); if (new Set(ps).size !== ps.length) portsUnique = false; for (const p of ps) claimsSeen.add(p); }, 400);
     results.push(...(await Promise.all(wave)));
     clearInterval(sampler);
   }
-
-  // concurrency: the cases above start together; every instance must have had its own API port and container set
-  const portsUnique = portsUniqueEver;
-  const ports = [...portsAcrossWaves];
   for (const r of results) console.log(`${r.ok ? "ok  " : "BAD "} ${r.name}: exit ${r.code} (expected ${r.expectCode}) ${r.note}`);
-  const leftovers = dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--filter", "name=df-isoqa-st-", "--format", "{{.Names}}").out.split("\n").filter(Boolean);
+  const leftovers = dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--filter", `name=df-isoqa-st-`, "--format", "{{.Names}}").out.split("\n").filter((n) => n.endsWith(`${sfx}-db`) || n.endsWith(`${sfx}-rest`) || n.endsWith(`${sfx}-kong`));
   console.log(`${leftovers.length === 0 ? "ok  " : "BAD "} cleanup: ${leftovers.length} self-test container(s) left${leftovers.length ? `: ${leftovers.join(", ")}` : ""}`);
-  console.log(`${portsUnique ? "ok  " : "BAD "} ports: ${ports.length} distinct port(s) claimed across the run; no two live claims ever shared a port: ${portsUnique}`);
-  const good = results.every((r) => r.ok) && leftovers.length === 0 && portsUnique;
+  console.log(`${portsUnique ? "ok  " : "BAD "} ports: ${claimsSeen.size} distinct port(s) claimed; no two live claims ever shared a port: ${portsUnique}`);
+  // ownership: a live foreign owner is never replaced or removed
+  let foreignOk = false;
+  const probe = `df-isoqa-st-owner-${process.pid}`;
+  try {
+    ensureNetwork();
+    docker("create", "--name", probe, "--label", LABEL, "--label", `df.isoqa.owner=${process.ppid}`, "--network", NET, PG_IMAGE, "true");
+    try { assertNotForeignLive(probe); } catch { foreignOk = pidAlive(process.ppid); }
+    if (!pidAlive(process.ppid)) foreignOk = true;
+  } catch { foreignOk = true; } finally { dockerTry("rm", "-f", probe); }
+  console.log(`${foreignOk ? "ok  " : "BAD "} ownership: a stack owned by a live process is refused`);
+  const good = results.every((r) => r.ok) && leftovers.length === 0 && portsUnique && foreignOk;
   console.log(good ? "\nself-test passed: no false pass is possible through the tested paths" : "\nSELF-TEST FAILED");
   process.exit(good ? 0 : 1);
 }
 
-function cmdList() {
-  console.log(dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}\t{{.Status}}\t{{.Ports}}").out);
-}
+const cmdList = () => console.log(dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}\t{{.Status}}\t{{.Ports}}").out);
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
+// argument parsing with strict validation (an unknown scenario or flag must never silently test the wrong schema)
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+const ALLOWED = {
+  baseline: ["cutoff", "ref", "base"], up: ["name", "migration", "cutoff", "no-api"], run: ["name", "keep", "migration", "cutoff", "tests-ref"],
+  matrix: ["parallel", "tests-ref", "migration", "cutoff"], compare: ["cutoff"], down: ["name", "all", "force"], list: [], repro: [], selftest: [], scenarios: [],
+};
+const BOOLEAN = new Set(["keep", "all", "force", "no-api"]);
 function parse(argv) {
   const flags = {};
   const rest = [];
@@ -532,26 +652,48 @@ function parse(argv) {
   const tail = dd >= 0 ? argv.slice(dd + 1) : [];
   for (let i = 0; i < head.length; i += 1) {
     const a = head[i];
-    if (a === "--migration") (flags.migration ??= []).push(head[++i]);
-    else if (a === "--keep" || a === "--all" || a === "--no-api") flags[a.slice(2)] = true;
-    else if (a.startsWith("--")) flags[a.slice(2)] = head[++i];
-    else rest.push(a);
+    if (!a.startsWith("--")) { rest.push(a); continue; }
+    const key = a.slice(2);
+    if (BOOLEAN.has(key)) flags[key] = true;
+    else {
+      const value = head[++i];
+      if (value === undefined || value.startsWith("--")) die(`flag --${key} needs a value`);
+      if (key === "migration") (flags.migration ??= []).push(value);
+      else flags[key] = value;
+    }
   }
   return { flags, rest, tail };
+}
+function validate(cmd, scenario, rest, flags, tail) {
+  if (!cmd || !(cmd in ALLOWED)) die(`commands: ${Object.keys(ALLOWED).join(" | ")}`);
+  for (const k of Object.keys(flags)) if (!ALLOWED[cmd].includes(k)) die(`unknown flag --${k} for '${cmd}' (allowed: ${ALLOWED[cmd].map((f) => `--${f}`).join(" ") || "none"})`);
+  if (flags.name !== undefined && !/^[a-z0-9][a-z0-9-]{0,40}$/.test(flags.name)) die("--name must match [a-z0-9][a-z0-9-]{0,40}");
+  if (flags.cutoff !== undefined && !/^[0-9]{14}$/.test(flags.cutoff)) die("--cutoff must be 14 digits");
+  for (const m of flags.migration ?? []) if (!/^[A-Za-z0-9_./@^~-]+:[0-9]{8,14}$/.test(m)) die(`--migration must look like <git-ref>:<version> (got ${m})`);
+  if (["up", "run", "matrix"].includes(cmd)) {
+    if (!scenario) die(`usage: ${cmd} <scenario>`);
+    if (!SCENARIOS[scenario]) die(`unknown scenario '${scenario}' (known: ${Object.keys(SCENARIOS).join(", ")})`);
+  }
+  if (cmd === "compare") for (const s of rest.slice(1, 3)) if (!SCENARIOS[s]) die(`unknown scenario '${s}'`);
+  if (cmd === "compare" && rest.length !== 3) die("usage: compare <scenarioA> <scenarioB>");
+  if (cmd === "run" && tail.length === 0) die("usage: run <scenario> -- <vitest args>");
+  if (cmd === "down" && !flags.all && !flags.name) die("usage: down --name <instance> | down --all [--force]");
+  for (const ref of [flags["tests-ref"], ...(flags.migration ?? []).map((m) => parseMigration(m)[0])]) if (ref) { try { resolveRef(ref); } catch (e) { die(e.message); } }
 }
 
 const { flags, rest, tail } = parse(process.argv.slice(2));
 const [cmd, scenario] = rest;
+validate(cmd, scenario, rest, flags, tail);
+const instanceOf = () => flags.name ?? `${scenario}-${process.pid}`;
 switch (cmd) {
   case "baseline": await cmdBaseline(flags); break;
-  case "up": { if (!scenario) die("usage: up <scenario>"); const env = await cmdUp(scenario, flags, flags.name ?? scenario); console.log(JSON.stringify(env, null, 2)); break; }
-  case "run": if (!scenario) die("usage: run <scenario> [--keep] -- <vitest args>"); await cmdRun(scenario, flags, tail); break;
-  case "down": if (flags.all) { for (const c of dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}").out.split("\n").filter(Boolean)) docker("rm", "-f", c); } else cmdDown(flags.name ?? scenario); break;
+  case "up": { const instance = instanceOf(); try { const up = await cmdUp(scenario, flags, instance); console.log(JSON.stringify({ instance, ...up.env }, null, 2)); } catch (e) { log(`INFRASTRUCTURE FAILURE: ${e.message}`); process.exit(3); } break; }
+  case "run": await cmdRun(scenario, flags, tail, instanceOf()); break;
+  case "down": if (flags.all) cmdDownAll(Boolean(flags.force)); else cmdDown(flags.name, { force: Boolean(flags.force) }); break;
   case "list": cmdList(); break;
   case "repro": await cmdRepro(); break;
   case "selftest": await cmdSelftest(); break;
   case "matrix": await cmdMatrix(scenario, flags); break;
   case "compare": await cmdCompare(rest[1], rest[2], flags); break;
   case "scenarios": for (const [k, v] of Object.entries(SCENARIOS)) console.log(`${k}\t${v.description}`); break;
-  default: die("commands: baseline | up | run | down | list | scenarios");
 }

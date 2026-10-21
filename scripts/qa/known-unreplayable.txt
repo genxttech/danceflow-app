@@ -1,8 +1,6 @@
 # Migrations that cannot be replayed onto the July-2026 production schema dump in a throwaway database. One per line: file name, then the reason.
 # They are application migrations outside TW-4F (production-state preflights, Supabase storage-api tables, data patches). A NEW failure in the TW-4F range
 # (20261119 and later, sms/twilio) is never added here: it fails the baseline build.
-20260715_accountant_delivery_recurring_v1_1.sql relation "public.studio_accountant_profiles" does not exist
-20260715_accountant_delivery_scheduling_v1.sql relation "public.studio_accountant_profiles" does not exist
 20260721234500_create_commerce_cover_images.sql relation "storage.buckets" does not exist
 20260918030000_landmark1a_slice5a_capability_activation_bridge.sql Slice 5A guard failed: 5 of 5 named target rows no longer match expected state (studio_id/user_id/active=true/can_instruct=false); ab
 20261005090000_launchsec1b_client_photos_private_storage.sql relation "storage.buckets" does not exist

@@ -9,7 +9,7 @@
  *  2. The stack is isolated (its own container, labelled df.isoqa=1) and API roles reach functions only through PostgREST.
  */
 import { createClient } from "@supabase/supabase-js";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -34,18 +34,15 @@ const psqlStderr = (sql: string) => {
     return String((error as { stderr?: Buffer | string }).stderr ?? error);
   }
 };
-const crashes = () => (execFileSync("docker", ["logs", PG], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) + "").match(/terminated by signal/g)?.length ?? 0;
+/** The database log: Postgres logs to the container's STDERR, so both streams are read. */
 const logsOf = () => {
-  try {
-    return execFileSync("docker", ["logs", PG], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 1 << 26 });
-  } catch (error) {
-    return String((error as { stdout?: string; stderr?: string }).stdout ?? "") + String((error as { stderr?: string }).stderr ?? "");
-  }
+  const r = spawnSync("docker", ["logs", PG], { encoding: "utf8", maxBuffer: 1 << 26 });
+  return `${r.stdout ?? ""}${r.stderr ?? ""}`;
 };
-void crashes;
+
 
 describe.skipIf(!enabled)("isolated QA stack canary", () => {
-  const before = () => (logsOf().match(/terminated by signal/g) ?? []).length;
+  const before = () => (logsOf().match(/terminated by signal|reinitializing/g) ?? []).length;
   let start = 0;
   beforeAll(() => {
     start = before();
