@@ -18,6 +18,7 @@ end $$;
 
 drop function if exists public.tw4_prov_status(uuid, uuid);
 drop function if exists public.tw4_prov_reopen(uuid, uuid, text);
+drop function if exists public.tw4_prov_settle_admin(uuid, uuid, text, text, text);
 drop function if exists public.tw4_prov_resolve(uuid, uuid, text, text, text);
 drop function if exists public.tw4_prov_observe(uuid, text, uuid, jsonb, text, text, text);
 drop function if exists public.tw4_prov_finish(uuid, text, uuid, text, text, text, text);
@@ -34,7 +35,7 @@ drop function if exists public._tw4prov_use_case(text);
 create or replace function public.tw4_credit_resolve_reservation(p_reservation_id uuid, p_outcome text, p_actor uuid, p_note text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare
   r public.studio_sms_credit_reservations;
   s public.studio_sms_spend_events;
@@ -81,7 +82,7 @@ begin
   insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
   values (r.studio_id, null, 'platform_admin', p_actor, case when p_outcome = 'captured' then 'credit_captured' else 'credit_released' end, left('reservation=' || r.id || ';admin', 300));
   return jsonb_build_object('status', p_outcome, 'replayed', false);
-end $;
+end $$;
 
 drop table public.studio_sms_prov_resources;
 drop table public.studio_sms_prov_operations;

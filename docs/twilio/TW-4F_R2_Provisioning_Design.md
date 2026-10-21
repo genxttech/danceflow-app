@@ -88,3 +88,9 @@ Accepted and documented (not changed):
 - The expected inbound route is supplied by the server (`NEXT_PUBLIC_APP_URL`), the same trust model as the sender-readiness slice; the database does not pin an origin.
 - **Open risk:** a campaign outlives its owner's recurring authorization (Twilio keeps billing the subaccount; DanceFlow absorbs it until an operator acts). Activation (R2b) must re-check an active authorization, and the recurring scheduler is an activation gate. The pilot business has no month-2 funding path without new approvals.
 - **Open risk:** removing a rejected campaign is a manual console step; R2a deletes nothing at the provider.
+
+### 5a. Second review round (same day)
+
+Fixed: the rollback script's resolver body now parses (and a contained test runs the whole rollback where no evidence exists); the token-rotation proxy passes `evidenceSource` through (a run through it is tested); the recurring authorization is read `FOR SHARE` only after the credit account lock is held (the order `tw4_recurring_revoke` uses, so no deadlock); the real adapter's only factory (`forAccount`) enforces the provisioning gate; a fee operation cannot be declared "not created" within 20 minutes of its attempt, whatever its status.
+New: `tw4_prov_settle_admin(operation, actor, kind, outcome, reason)` is the one ledger-aware way to close a reservation of a SUCCEEDED or abandoned operation that provider evidence never settled (a mismatch that stays, a wrongly typed SID, a cancelled onboarding). It refuses while a run holds the lease, when nothing is held, or for an unresolved operation (use `tw4_prov_resolve`). The generic credit resolver still refuses `prov:` reservations.
+Tests: the TW034 rule is exercised on the unknown fee operation; the 20-minute floor, the admin settlement refusals and a contained success are pinned.

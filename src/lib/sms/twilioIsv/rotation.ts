@@ -45,6 +45,10 @@ export async function rotatingSubaccountAdapter<T extends { readonly accountSid:
   return new Proxy({} as T, {
     get(_target, property) {
       if (property === "accountSid") return accountSid;
+      // plain (non-function) properties of the wrapped adapter, e.g. a provisioning adapter's evidenceSource, are passed through unchanged
+      if (typeof property === "string" && property in (current as object) && typeof (current as unknown as Record<string, unknown>)[property] !== "function") {
+        return (current as unknown as Record<string, unknown>)[property];
+      }
       if (typeof property !== "string" || typeof (current as unknown as Record<string, unknown>)[property] !== "function") return undefined;
       return (...args: unknown[]) => call(property, args);
     },

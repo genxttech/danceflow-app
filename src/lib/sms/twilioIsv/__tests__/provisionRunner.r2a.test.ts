@@ -374,6 +374,15 @@ describe("provisioning runner decisions", () => {
 });
 
 describe("token rotation for a provisioning adapter", () => {
+  it("the rotating wrapper passes the adapter's evidenceSource through, so a run through it can record provider evidence", async () => {
+    const t = { async tokenFor() { return { reveal: () => "t" } as never; }, async refresh() { return { secret: { reveal: () => "t" } as never, changed: false }; } };
+    const wrapped = await rotatingSubaccountAdapter(ACC, t, (sid) => new FakeProvisioningAdapter(sid));
+    expect(wrapped.evidenceSource).toBe("fake");
+    const store = new ScriptedStore();
+    const result = await runProvisioning(base(store, wrapped, { stopAfterService: true }));
+    expect(result.outcome).toBe("service_ready");
+  });
+
   class Secret {
     constructor(private readonly v: string) {}
     reveal() { return this.v; }

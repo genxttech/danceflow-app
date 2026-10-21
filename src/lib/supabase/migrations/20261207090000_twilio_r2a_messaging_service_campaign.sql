@@ -553,10 +553,6 @@ begin
       when 'awaiting_funding', 'on_hold', 'pilot_ceiling' then raise exception 'the campaign fee cannot be funded' using errcode = 'TW007';
       else null;
     end case;
-    if not (v_req ->> 'pilot')::boolean then
-      -- a revocation cannot slip in between the check and the attempt
-      perform 1 from public.studio_sms_recurring_authorizations ra where ra.legal_entity_id = v_entity and ra.studio_id = o.studio_id and ra.kind = (v_req -> 'components' -> 1 ->> 'kind') and ra.status = 'active' for share;
-    end if;
     v_use_case := v_req ->> 'use_case';
     if (p_params ->> 'use_case') is distinct from v_use_case then
       raise exception 'the campaign use case does not match the location''s registration path' using errcode = 'TW020';
@@ -569,6 +565,14 @@ begin
     foreach v_kind in array v_kinds loop
       perform public._tw4prov_reserve(o, v_kind, v_id);
     end loop;
+    if not (v_req ->> 'pilot')::boolean then
+      -- taken AFTER the credit account lock (the order tw4_recurring_revoke uses: account, then authorization), so begin and a revocation cannot deadlock;
+      -- a revocation cannot slip in between the check and the attempt
+      perform 1 from public.studio_sms_recurring_authorizations ra where ra.legal_entity_id = v_entity and ra.studio_id = o.studio_id and ra.kind = (v_req -> 'components' -> 1 ->> 'kind') and ra.status = 'active' for share;
+      if not found then
+        raise exception 'no active recurring authorization for the campaign monthly fee' using errcode = 'TW033';
+      end if;
+    end if;
     if v_prev.id is not null then
       update public.studio_sms_prov_operations set superseded_at = clock_timestamp() where id = v_prev.id and superseded_at is null;
     end if;
@@ -796,6 +800,9 @@ begin
   if o.lease_owner is not null and o.lease_expires_at > now() then
     raise exception 'a run holds the lease; resolve after it finishes' using errcode = '55P03';
   end if;
+  if r.fee_bearing and p_resolution = 'not_created' and r.started_at > clock_timestamp() - interval '20 minutes' then
+    raise exception 'a fee operation cannot be declared not created within 20 minutes of its attempt' using errcode = '22023';
+  end if;
   if p_resolution = 'created' and (p_provider_sid is null or p_provider_sid !~ case r.op_kind when 'messaging_service' then '^MG[0-9a-fA-F]{32}$' else '^QE[0-9a-fA-F]{32}$' end) then
     raise exception 'the resource sid found at the provider is required' using errcode = '22023';
   end if;
@@ -856,6 +863,45 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
+-- settle_admin: the one way to close a reservation of a SUCCEEDED (or abandoned) operation that provider evidence never settled (a mismatch that
+-- stays, a wrong typed SID, a cancelled onboarding). The generic credit resolver refuses provisioning reservations on purpose.
+-- ---------------------------------------------------------------------------------------------------------------
+create or replace function public.tw4_prov_settle_admin(p_operation_id uuid, p_actor uuid, p_kind text, p_outcome text, p_note text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  r public.studio_sms_prov_operations;
+  o public.studio_sms_onboarding;
+begin
+  if not public._tw4_r1_is_platform_admin(p_actor) then
+    raise exception 'actor must be a platform admin' using errcode = '42501';
+  end if;
+  if p_outcome is null or p_outcome not in ('captured', 'released') or p_note is null or char_length(btrim(p_note)) not between 10 and 500 then
+    raise exception 'an outcome and a written reason (10-500 characters) are required' using errcode = '22023';
+  end if;
+  select * into r from public.studio_sms_prov_operations x where x.id = p_operation_id;
+  if r.id is null or p_kind is null or not (p_kind = any (r.fee_kinds)) then
+    raise exception 'unknown operation or fee kind' using errcode = '22023';
+  end if;
+  select * into o from public.studio_sms_onboarding x where x.id = r.onboarding_id for update;
+  if o.lease_owner is not null and o.lease_expires_at > now() then
+    raise exception 'a run holds the lease' using errcode = '55P03';
+  end if;
+  if r.status not in ('succeeded', 'abandoned') then
+    raise exception 'an unresolved operation is closed through tw4_prov_resolve' using errcode = '22023';
+  end if;
+  perform 1 from public.studio_sms_legal_entities le where le.id = r.legal_entity_id for no key update;
+  if not exists (select 1 from public.studio_sms_spend_events se join public.studio_sms_credit_reservations cr on cr.id = se.credit_reservation_id
+                  where se.reservation_key = 'prov:' || r.id::text || ':' || p_kind and cr.status = 'reserved') then
+    raise exception 'no reservation is held for this operation and fee' using errcode = '22023';
+  end if;
+  perform public._tw4prov_settle(r.id, p_kind, p_outcome, 'admin');
+  perform public._tw4_r1_audit(o, p_actor, 'prov_resolved', o.state, o.state, 'op=' || r.id || ';kind=' || p_kind || ';settled=' || p_outcome || ';' || left(btrim(p_note), 150));
+  return jsonb_build_object('status', p_outcome);
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
 -- reads (platform admin)
 -- ---------------------------------------------------------------------------------------------------------------
 create or replace function public.tw4_prov_status(p_studio_id uuid, p_actor uuid)
@@ -895,9 +941,9 @@ revoke all on function public.tw4_credit_resolve_reservation(uuid, text, uuid, t
 grant execute on function public.tw4_credit_resolve_reservation(uuid, text, uuid, text) to service_role;
 revoke all on function public.tw4_prov_claim(uuid, uuid, text, integer, text), public.tw4_prov_context(uuid, text), public.tw4_prov_begin(uuid, text, text, text, text, jsonb, uuid),
   public.tw4_prov_finish(uuid, text, uuid, text, text, text, text), public.tw4_prov_observe(uuid, text, uuid, jsonb, text, text, text),
-  public.tw4_prov_resolve(uuid, uuid, text, text, text), public.tw4_prov_reopen(uuid, uuid, text), public.tw4_prov_status(uuid, uuid) from public, anon, authenticated;
+  public.tw4_prov_resolve(uuid, uuid, text, text, text), public.tw4_prov_reopen(uuid, uuid, text), public.tw4_prov_settle_admin(uuid, uuid, text, text, text), public.tw4_prov_status(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.tw4_prov_claim(uuid, uuid, text, integer, text), public.tw4_prov_context(uuid, text), public.tw4_prov_begin(uuid, text, text, text, text, jsonb, uuid),
   public.tw4_prov_finish(uuid, text, uuid, text, text, text, text), public.tw4_prov_observe(uuid, text, uuid, jsonb, text, text, text),
-  public.tw4_prov_resolve(uuid, uuid, text, text, text), public.tw4_prov_reopen(uuid, uuid, text), public.tw4_prov_status(uuid, uuid) to service_role;
+  public.tw4_prov_resolve(uuid, uuid, text, text, text), public.tw4_prov_reopen(uuid, uuid, text), public.tw4_prov_settle_admin(uuid, uuid, text, text, text), public.tw4_prov_status(uuid, uuid) to service_role;
 
 commit;

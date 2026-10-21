@@ -446,8 +446,14 @@ export class RealProvisioningAdapter extends TwilioRest<IsvConfig> implements Is
     super(config, fetchImpl);
   }
 
-  static forAccount(config: IsvConfig, fetchImpl: FetchLike): RealProvisioningAdapter {
-    return new RealProvisioningAdapter(config, fetchImpl);
+  /** The only way to build one: the provisioning gate and the subaccount checks are enforced here. */
+  static forAccount(config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined>, fetchImpl: FetchLike): RealProvisioningAdapter {
+    const gate = provisioningCallsAllowed(env);
+    if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+    if (!PROVISION_ACCOUNT_SID.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
+    if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
+    // the parent's API key is dropped on purpose: it must never sign a subaccount call
+    return new RealProvisioningAdapter({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl);
   }
 
   get accountSid(): string {
@@ -515,9 +521,5 @@ export class RealProvisioningAdapter extends TwilioRest<IsvConfig> implements Is
 export function createScopedProvisioningAdapter(
   config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
 ): RealProvisioningAdapter {
-  const gate = provisioningCallsAllowed(env);
-  if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
-  if (!PROVISION_ACCOUNT_SID.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
-  if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
-  return RealProvisioningAdapter.forAccount({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl ?? ((url, init) => fetch(url, init)));
+  return RealProvisioningAdapter.forAccount(config, accountSid, authToken, env, fetchImpl ?? ((url, init) => fetch(url, init)));
 }

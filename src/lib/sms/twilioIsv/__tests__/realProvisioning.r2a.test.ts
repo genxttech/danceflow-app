@@ -45,6 +45,14 @@ describe("provisioning gate", () => {
     expect(provisioningCallsAllowed({}).allowed).toBe(false);
   });
 
+  it("the gate also holds for the static factory (there is no ungated way to build the real adapter)", async () => {
+    const { RealProvisioningAdapter } = await import("../real");
+    const stub = fetchStub([]);
+    expect(() => RealProvisioningAdapter.forAccount(config, SUB, "t", {}, stub.impl)).toThrow(IsvApiError);
+    expect(() => RealProvisioningAdapter.forAccount(config, PARENT, "t", PROD, stub.impl)).toThrow(/not a subaccount/);
+    expect(RealProvisioningAdapter.forAccount(config, SUB, "t", PROD, stub.impl).evidenceSource).toBe("provider_read");
+  });
+
   it("refuses to build outside the gate, for the parent's SID, or without a credential", () => {
     const stub = fetchStub([]);
     expect(() => createScopedProvisioningAdapter(config, SUB, "t", { ...PROD, TW4_PROVISIONING_REAL_CALLS: undefined }, stub.impl)).toThrow(IsvApiError);

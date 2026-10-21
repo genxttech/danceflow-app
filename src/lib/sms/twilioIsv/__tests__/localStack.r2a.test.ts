@@ -487,10 +487,13 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       // an unknown FEE outcome is never closed as failed by the runner, and a fee is released only on a definite provider refusal
       const lease = `t-${RUN}`;
       await store.claim(SD1, U.padmin, lease);
-      for (const [errorCode, status] of [["api", "failed"], ["unclear_outcome", "failed"]] as const) {
-        expect((await rpc("tw4_prov_finish", { p_onboarding_id: OD1, p_lease_owner: lease, p_operation_id: id, p_status: status, p_provider_sid: null, p_error_code: errorCode, p_error_detail: null })).error?.code, errorCode).toBe("TW034");
+      for (const errorCode of ["api", "unclear_outcome"]) {
+        expect((await rpc("tw4_prov_finish", { p_onboarding_id: OD1, p_lease_owner: lease, p_operation_id: id, p_status: "failed", p_provider_sid: null, p_error_code: errorCode, p_error_detail: null })).error?.code, errorCode).toBe("TW034");
       }
+      // not created within 20 minutes of the attempt: even an admin cannot declare it so
       await store.release(OD1, lease);
+      expect((await rpc("tw4_prov_resolve", { p_operation_id: id, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "fixture: too early to say" })).error?.code).toBe("22023");
+      aged(`update public.studio_sms_prov_operations set started_at = started_at - interval '30 minutes' where id = '${id}'`);
       expect((await rpc("tw4_prov_resolve", { p_operation_id: id, p_actor: U.owner_a, p_resolution: "not_created", p_provider_sid: null, p_note: "fixture: checked the console" })).error?.code).toBe("42501");
       expect((await rpc("tw4_prov_resolve", { p_operation_id: id, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "short" })).error?.code).toBe("22023");
       expect((await rpc("tw4_prov_resolve", { p_operation_id: id, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "fixture: checked the console, no campaign exists" })).error).toBeNull();
@@ -569,6 +572,17 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(reservations(EC, "campaign_vetting")).toBe(`captured:${PRICE.vetting}:pilot`);
       // only the non-refundable vetting fee is spent by a submission; the first month waits for the provider's approval
       expect(reservations(EC, "monthly")).toBe(`reserved:${PRICE.monthly}:pilot`);
+      const pilotOp = opId(SC1, "campaign");
+      expect((await rpc("tw4_prov_settle_admin", { p_operation_id: pilotOp, p_actor: U.owner_a, p_kind: "monthly", p_outcome: "released", p_note: "fixture: not an admin" })).error?.code).toBe("42501");
+      expect((await rpc("tw4_prov_settle_admin", { p_operation_id: pilotOp, p_actor: U.padmin, p_kind: "monthly", p_outcome: "released", p_note: "short" })).error?.code).toBe("22023");
+      expect((await rpc("tw4_prov_settle_admin", { p_operation_id: pilotOp, p_actor: U.padmin, p_kind: "campaign_vetting", p_outcome: "released", p_note: "fixture: the vetting fee is already captured" })).error?.code).toBe("22023");
+      // the admin settlement releases a held first month (contained in a rolled-back transaction here: the scenario continues below)
+      const contained = psqlError(`begin;
+        select public.tw4_prov_settle_admin('${pilotOp}', '${U.padmin}', 'monthly', 'released', 'fixture: mismatch stays, release the held first month');
+        do $$ begin if (select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${pilotOp}:monthly') <> 'released' then raise exception 'not released'; end if; end $$;
+        rollback;`);
+      expect(contained).toBe("");
+      expect(reservations(EC, "monthly")).toBe(`reserved:${PRICE.monthly}:pilot`);
       const qe = [...c.campaigns.keys()][0];
       c.setCampaignStatus(qe, "VERIFIED");
       expect((await refresh(SC1, c)).outcome).toBe("campaign_verified");
@@ -617,6 +631,16 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
     expect(psqlError(`truncate public.studio_sms_prov_operations;`)).not.toBe("");
     expect(psqlError(`update public.studio_sms_prov_resources set provider_sid = 'MG${"0".repeat(32)}' where operation_id = '${id}';`)).toMatch(/identity of a resource is fixed/);
     expect(psqlError(`update public.studio_sms_prov_operations set status = 'failed' where id = '${id}';`)).toMatch(/closed operation is final/);
+  });
+
+  it("rollback parses and completes where there is no evidence (executed in a transaction that is rolled back)", () => {
+    const sql = readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261207090000_twilio_r2a_messaging_service_campaign_rollback.sql"), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "rollback;");
+    const out = psqlError(`begin; set local session_replication_role = replica;
+      delete from public.studio_sms_prov_resources; delete from public.studio_sms_prov_operations; delete from public.studio_sms_onboarding_audit where action like 'prov\\_%';
+      set local session_replication_role = origin;
+      ${sql}`);
+    expect(out).toBe("");
+    expect(psql(`select to_regclass('public.studio_sms_prov_operations') is not null and to_regprocedure('public.tw4_prov_settle_admin(uuid,uuid,text,text,text)') is not null`)).toBe("t");
   });
 
   it("rollback refuses once provisioning evidence exists (executed in a transaction that is rolled back)", () => {
