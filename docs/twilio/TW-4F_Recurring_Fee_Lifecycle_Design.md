@@ -76,6 +76,17 @@ The $150 ceiling is unchanged and cumulative: `tw4_rfl_pilot_cover` authorizes t
 - R2a's `studio_sms_prov_resources` / operation ids are referenced only through `source_operation_id` (no foreign key). The migration extends the approval-reference constraints ADDITIVELY from their live definitions, so it applies before or after R2b's `20261208` (which adds `number_selection`) without losing either source; **R2b's own migration still rebuilds those constraints from a fixed list and must adopt the same additive pattern** (otherwise applying it AFTER this one drops `cancellation`, or fails when cancellation rows exist). No file of R2a / R2b is edited here.
 - R2c's panel reads `tw4_rfl_admin_overview(actor)` and drives the store methods in `src/lib/sms/providerFeeLifecycle.ts`.
 
+### Exact SQL interaction with R2b's `20261208090000` (tested 2026-10-21 on scratch databases cloned from a schema carrying R2a only)
+
+Both migrations rewrite the same two constraints on `studio_sms_approval_refs` (`..._source_check`, `..._shape`). R2b (head f4c5f4d9) drops and re-adds them from a FIXED list (`spend_authorization`, `pilot_exception`, `number_selection`). This migration reads the live definitions and appends `cancellation` (source list and one shape clause).
+
+| Order | Result |
+|---|---|
+| **20261208 (R2b) then 20261209 (this)** (normal numeric order) | Both migrations apply; `number_selection` AND `cancellation` are present in both constraints. Rolling this one back removes only `cancellation` (tested, including with a simulated sibling source); it re-applies cleanly. |
+| 20261209 (this) then 20261208 (R2b) | R2b applies and **silently drops `cancellation`** (or fails if any `cancellation` row exists, because its fixed list excludes it). Cancellations would then fail with a check violation (fail closed, no money moves). |
+
+Conclusion: in numeric order (which every migration note in this repo requires) no R2b correction is needed for this migration to be safe. A coordinated R2b change (extend the two constraints from their live definitions, as this migration and the audit-vocabulary blocks already do) is **recommended** so the result is order-independent, and **mandatory** if hosted application order can ever invert. Rolling back: this migration BEFORE R2b's (reverse numeric order). No file of R2b is modified by this PR.
+
 ### R2b integration requirements (PR #254; verified against its branch, nothing in its worktree changed)
 
 1. Call `tw4_rfl_register` (platform-administrator actor: the runner's lease context has none today) in the SAME transaction as the provider-ownership observation of the number; pilot business: pass the `prov:` purchase reservation as `p_initial_reservation` (otherwise `tw4_rfl_pilot_cover` would consume the ceiling twice for the registration month); credit businesses pass none.
