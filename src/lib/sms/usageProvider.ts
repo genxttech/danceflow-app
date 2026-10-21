@@ -68,6 +68,8 @@ export type InboundListWindow = {
   maxPages: number;
   /** only texts received by this number (Twilio's To filter); the subaccount's other traffic is never listed */
   to?: string;
+  /** only texts sent by this number (Twilio's From filter): a texter's own later keywords, for consent ordering */
+  from?: string;
   /** epoch ms: no further page is requested after it (complete = false) */
   deadline?: number;
 };
@@ -301,13 +303,14 @@ export class RealBilledSmsProvider implements BilledSmsProvider, InboundMessageL
   async listInbound(accountSid: string, window: InboundListWindow): Promise<{ messages: InboundMessageEvidence[]; complete: boolean }> {
     if (!this.allowRead) throw new Error("usage_evidence_reads_disabled");
     if (!ACCOUNT_SID.test(String(accountSid)) || !(window.since instanceof Date) || !(window.until instanceof Date) || window.until < window.since
-        || (window.to !== undefined && !US_NUMBER.test(String(window.to)))) {
+        || (window.to !== undefined && !US_NUMBER.test(String(window.to))) || (window.from !== undefined && !/^\+[1-9][0-9]{9,14}$/.test(String(window.from)))) {
       throw new Error("usage_evidence_invalid_input");
     }
     const base = `/2010-04-01/Accounts/${accountSid}/Messages.json`;
     // Twilio's inclusive date-time filters ("DateSent>" = on or after, "DateSent<" = on or before), a second of margin each side; the caller filters exactly
     const query = new URLSearchParams();
     if (window.to) query.set("To", window.to);
+    if (window.from) query.set("From", window.from);
     query.set("DateSent>", utcSecond(new Date(window.since.getTime() - 1000)));
     query.set("DateSent<", utcSecond(new Date(window.until.getTime() + 1000)));
     query.set("PageSize", String(LIST_PAGE_SIZE));
@@ -416,7 +419,7 @@ export class FakeBilledSmsProvider implements BilledSmsProvider, InboundMessageL
   /** the fake list honours the To filter (a message with no To is listed for every number, like an unfiltered read) */
   async listInbound(accountSid: string, window: InboundListWindow): Promise<{ messages: InboundMessageEvidence[]; complete: boolean }> {
     if (this.failingList.has(accountSid)) throw new Error("usage_evidence_unreadable");
-    const all = (this.inbound.get(accountSid) ?? []).filter((m) => window.to === undefined || m.to === null || m.to === window.to);
+    const all = (this.inbound.get(accountSid) ?? []).filter((m) => (window.to === undefined || m.to === null || m.to === window.to) && (window.from === undefined || m.from === window.from));
     return { messages: all.map((m) => ({ ...m })), complete: true };
   }
 

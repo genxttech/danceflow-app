@@ -80,11 +80,20 @@ create table public.studio_sms_inbound_recoveries (
   webhook_seen boolean not null,
   -- an opt-out keyword: whether its consent effect (the canonical STOP) was applied by the recovery (null for anything else)
   consent_applied boolean null,
+  -- how the opt-out was decided against the texter's LATER keywords, by Twilio's own message times (null for anything else):
+  --   applied                    the provider's record shows no later START from that number (or a later STOP)
+  --   applied_order_unverified   the order could not be established (no usable time, the lookup failed or was incomplete, a same-second tie):
+  --                              applied (fail closed) and listed for a person
+  --   not_applied_newer_start    the provider's record shows a later START from that number: the person's newer choice stands
+  --   not_applied_no_number      no usable sender number: nothing to apply to
+  consent_note text null check (consent_note is null or consent_note in ('applied', 'applied_order_unverified', 'not_applied_newer_start', 'not_applied_no_number')),
   -- an uncertain text containing an opt-out word ("please stop texting"): not applied (the webhook would not have either), listed for a person
   possible_opt_out boolean not null default false,
   charged_cents int not null check (charged_cents >= 0),
   recovered_at timestamptz not null default clock_timestamp(),
   constraint studio_sms_inbound_recoveries_basis check ((classification = 'ordinary') = (basis = 'ordinary')),
+  constraint studio_sms_inbound_recoveries_consent check ((consent_note is null) = (consent_applied is null)
+                                                         and (consent_note is null or consent_applied = (consent_note like 'applied%'))),
   constraint studio_sms_inbound_recoveries_location foreign key (studio_id, legal_entity_id) references public.studio_sms_entity_studios (studio_id, legal_entity_id)
 );
 create index studio_sms_inbound_recoveries_recent on public.studio_sms_inbound_recoveries (recovered_at desc);
@@ -540,6 +549,9 @@ declare
   v_kind text := case when coalesce(p_evidence->>'keyword', '') = 'true' and p_evidence->>'keyword_kind' in ('stop', 'start', 'help') then p_evidence->>'keyword_kind' end;
   v_from text := nullif(btrim(coalesce(p_evidence->>'from', '')), '');
   v_applied boolean;
+  v_note text;
+  v_later text := p_evidence->>'later_keyword';
+  v_contact_start timestamptz;
   v_possible boolean := coalesce(p_evidence->>'possible_opt_out', '') = 'true';
   v_basis text;
   v_class text;
@@ -596,25 +608,50 @@ begin
   if coalesce((r->>'recorded')::boolean, false) is not true then
     return jsonb_build_object('outcome', 'not_recorded', 'reason', coalesce(r->>'reason', 'unknown'));
   end if;
-  -- fail closed on consent: a recovered opt-out is applied (idempotent if the webhook already applied it; the webhook records usage only after a
-  -- successful consent change, so a STOP whose consent change failed is recovered here). Not applied, and listed for a person (consent_applied = false):
-  -- no usable sender number, or the same number already texted START LATER than this STOP and the webhook processed it (re-blocking would undo a
-  -- newer opt-in that Twilio honoured).
+  -- Consent, ordered by TWILIO'S OWN message times, never by when recovery runs or by database clocks. For a recovered STOP the app reads (read-only, the
+  -- subaccount's credentials) the same texter's later messages to that number and reports the latest later STOP/START keyword (later_keyword:
+  -- 'start' | 'stop' | 'none', or 'unknown' when the lookup failed, was incomplete or tied in the same second):
+  --   a later START           -> not applied: the person's newer choice stands (listed)
+  --   no later keyword / STOP -> applied (idempotent if the webhook already applied it; the webhook records usage only after a successful consent change,
+  --                              so a STOP whose consent change failed is recovered here)
+  --   anything unproven       -> applied (fail closed) and listed for a person (missing or implausible STOP time, failed lookup, tie)
+  -- DanceFlow's own record of a CONTACT-originated opt-in is a second, independent signal (it also catches custom Advanced Opt-Out opt-in keywords the
+  -- provider lookup cannot recognise, and a START the provider list does not show yet): an inbound START in the consent history or an inbound 'start'
+  -- message logged by the webhook, for this studio and number. Those times are the database's clock when the webhook ran, so more than 2 minutes after
+  -- the STOP's own time is newer; within 2 minutes the order is not provable (applied, listed).
+  -- Staff and public opt-ins never override a texted STOP (TW-2: only the contact can resubscribe; a web form never reverses an opt-out), so they are
+  -- not consulted. A recovered START is never applied. Without a usable sender number nothing can be applied (listed).
   if v_kind = 'stop' then
+    if v_from is not null and v_from ~ '^\+[1-9][0-9]{9,14}$' and v_received is not null then
+      select max(t.at) into v_contact_start from (
+        select h.changed_at at from public.sms_consent_history h where h.studio_id = v_studio and h.phone_e164 = v_from and h.event_type = 'inbound_start'
+                                                                   and h.changed_at >= v_received - interval '2 minutes'
+        union all
+        select l.sent_at from public.sms_message_logs l where l.studio_id = v_studio and l.phone_e164 = v_from and l.direction = 'inbound' and l.message_type = 'start'
+                                                        and l.sent_at >= v_received - interval '2 minutes') t;
+    end if;
     if v_from is null or v_from !~ '^\+[1-9][0-9]{9,14}$' then
-      v_applied := false;
-    elsif v_received is not null and exists (select 1 from public.sms_consent_history h
-                                              where h.studio_id = v_studio and h.phone_e164 = v_from and h.event_type = 'inbound_start' and h.changed_at > v_received) then
-      v_applied := false;
+      v_note := 'not_applied_no_number';
+    elsif v_received is null then
+      v_note := 'applied_order_unverified';
+    elsif v_later = 'start' or v_contact_start > v_received + interval '2 minutes' then
+      v_note := 'not_applied_newer_start';
+    elsif v_contact_start is not null then
+      v_note := 'applied_order_unverified';
+    elsif v_later in ('none', 'stop') then
+      v_note := 'applied';
     else
+      v_note := 'applied_order_unverified';
+    end if;
+    v_applied := v_note like 'applied%';
+    if v_applied then
       perform public.record_sms_inbound_opt_event(v_studio, v_from, 'stop');
-      v_applied := true;
     end if;
   end if;
   insert into public.studio_sms_inbound_recoveries (provider_sid, account_sid, legal_entity_id, studio_id, run_id, classification, basis, webhook_seen, consent_applied,
-                                                    possible_opt_out, charged_cents)
-  values (v_sid, p_account_sid, v_entity, v_studio, p_run_id, v_class, v_basis, v_seen, v_applied, v_possible and v_kind is null, coalesce((r->>'charged_cents')::int, 0));
-  return jsonb_build_object('outcome', 'recovered', 'classification', v_class, 'basis', v_basis, 'webhook_seen', v_seen, 'keyword_kind', v_kind, 'consent_applied', v_applied,
+                                                    consent_note, possible_opt_out, charged_cents)
+  values (v_sid, p_account_sid, v_entity, v_studio, p_run_id, v_class, v_basis, v_seen, v_applied, v_note, v_possible and v_kind is null, coalesce((r->>'charged_cents')::int, 0));
+  return jsonb_build_object('outcome', 'recovered', 'classification', v_class, 'basis', v_basis, 'webhook_seen', v_seen, 'keyword_kind', v_kind, 'consent_applied', v_applied, 'consent_note', v_note,
                             'charged_cents', coalesce((r->>'charged_cents')::int, 0), 'uncollected_cents', coalesce((r->>'uncollected_cents')::int, 0));
 end $$;
 
@@ -726,7 +763,7 @@ begin
       'recovered_7d', coalesce((select jsonb_object_agg(q.basis, q.n) from (select basis, count(*) n from public.studio_sms_inbound_recoveries where recovered_at >= now() - interval '7 days' group by basis) q), '{}'::jsonb),
       -- a STOP/START/HELP the webhook did not record: its consent effect may NOT have been applied by DanceFlow (never seen, or the webhook stopped after
       -- its receipt). Twilio Advanced Opt-Out still blocks at the carrier. Needs a person.
-      'keywords_unseen', coalesce((select jsonb_agg(jsonb_build_object('provider_sid', k.provider_sid, 'studio_id', k.studio_id, 'recovered_at', k.recovered_at, 'webhook_seen', k.webhook_seen, 'consent_applied', k.consent_applied) order by k.recovered_at desc)
+      'keywords_unseen', coalesce((select jsonb_agg(jsonb_build_object('provider_sid', k.provider_sid, 'studio_id', k.studio_id, 'recovered_at', k.recovered_at, 'webhook_seen', k.webhook_seen, 'consent_applied', k.consent_applied, 'consent_note', k.consent_note) order by k.recovered_at desc)
                                      from (select * from public.studio_sms_inbound_recoveries x where x.basis = 'keyword' order by x.recovered_at desc limit v_limit) k), '[]'::jsonb),
       -- uncertain texts with an opt-out word: no consent change was made; a person decides
       'possible_opt_outs', coalesce((select jsonb_agg(jsonb_build_object('provider_sid', k.provider_sid, 'studio_id', k.studio_id, 'recovered_at', k.recovered_at) order by k.recovered_at desc)

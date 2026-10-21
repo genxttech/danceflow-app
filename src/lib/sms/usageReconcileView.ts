@@ -15,7 +15,7 @@ const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
 export const SUMMARY_KEYS = [
   "released_unsent", "settled", "charged_cents", "pending", "review", "retrying", "errors", "escalated",
-  "inbound_recovered", "inbound_unrouted", "inbound_keywords_unseen", "inbound_refused", "inbound_stalled", "truncated", "evidence_read",
+  "inbound_recovered", "inbound_unrouted", "inbound_keywords_unseen", "inbound_refused", "inbound_stalled", "inbound_opt_outs_applied", "inbound_opt_outs_unverified", "truncated", "evidence_read",
 ] as const;
 export type ReconcileSummaryKey = (typeof SUMMARY_KEYS)[number];
 
@@ -45,7 +45,7 @@ export type ReconcileException = {
   callbackStatus: string | null;
 };
 export type InboundCursor = { accountSid: string; scannedThrough: string | null; lagMinutes: number };
-export type KeywordUnseen = { providerSid: string; studioId: string | null; recoveredAt: string | null; webhookSeen: boolean; consentApplied: boolean | null };
+export type KeywordUnseen = { providerSid: string; studioId: string | null; recoveredAt: string | null; webhookSeen: boolean; consentApplied: boolean | null; consentNote: string | null };
 export type InboundUnresolved = { providerSid: string; accountSid: string | null; reason: string; code: string | null; notedAt: string | null };
 export type ReconcileOverview = {
   switchOn: boolean;
@@ -123,7 +123,7 @@ export function parseReconcileOverview(data: unknown): ReconcileOverview {
       recovered7d: counts(inbound.recovered_7d),
       keywordsUnseen: list(inbound.keywords_unseen).flatMap((row) => {
         const k = obj(row);
-        return typeof k.provider_sid === "string" ? [{ providerSid: k.provider_sid, studioId: str(k.studio_id), recoveredAt: str(k.recovered_at), webhookSeen: k.webhook_seen === true, consentApplied: typeof k.consent_applied === "boolean" ? k.consent_applied : null }] : [];
+        return typeof k.provider_sid === "string" ? [{ providerSid: k.provider_sid, studioId: str(k.studio_id), recoveredAt: str(k.recovered_at), webhookSeen: k.webhook_seen === true, consentApplied: typeof k.consent_applied === "boolean" ? k.consent_applied : null, consentNote: str(k.consent_note) }] : [];
       }),
       possibleOptOuts: list(inbound.possible_opt_outs).flatMap((row) => {
         const k = obj(row);

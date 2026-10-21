@@ -6,6 +6,7 @@ import {
   INBOUND_GRACE_MS,
   classifyEvidenceFailure,
   classifyRecoveredBody,
+  laterKeywordFor,
   reconcileSmsUsage,
   recoverInboundUsage,
   runScheduledUsageReconciliation,
@@ -143,7 +144,8 @@ describe("inbound recovery", () => {
       tw4_inbound_scan_advance: () => ({ data: {} }),
     });
     const summary = await recoverInboundUsage(admin, lister, { runId: RUN, now });
-    expect(spy.mock.calls.map((c) => c[1].to)).toEqual([NUM]);   // the other number's text is never listed
+    expect(spy.mock.calls.filter((c) => c[1].from === undefined).map((c) => c[1].to)).toEqual([NUM]);   // the other number's text is never listed
+    expect(spy.mock.calls.filter((c) => c[1].from !== undefined).map((c) => c[1].from)).toEqual(["+15125550142"]);   // one ordering lookup, for the STOP
     expect(summary).toMatchObject({ accounts: 1, scanned: 3, recovered: 2, recoveredOrdinary: 1, keywordsUnseen: 1, alreadyRecorded: 1, errors: 0 });
     const sent = calls.filter((c) => c.fn === "tw4_inbound_recover").map((c) => c.args?.p_evidence as Record<string, unknown>);
     expect(sent.map((e) => e.sid)).toEqual([sidOf(2), sidOf(1)]);   // oldest first
@@ -329,6 +331,9 @@ describe("provider: identity evidence and the inbound list", () => {
     const byNumber = make(() => ({ status: 200, body: { messages: [] } }));
     await byNumber.provider.listInbound(ACCOUNT, { since, until, maxPages: 1, to: "+15125550100" });
     expect(decodeURIComponent(byNumber.seen[0])).toContain("To=+15125550100");
+    await byNumber.provider.listInbound(ACCOUNT, { since, until, maxPages: 1, to: "+15125550100", from: "+15125550142" });
+    expect(decodeURIComponent(byNumber.seen[1])).toContain("From=+15125550142");
+    await expect(byNumber.provider.listInbound(ACCOUNT, { since, until, maxPages: 1, from: "5125550142" })).rejects.toThrow("usage_evidence_invalid_input");
     await expect(byNumber.provider.listInbound(ACCOUNT, { since, until, maxPages: 1, to: "5125550100" })).rejects.toThrow("usage_evidence_invalid_input");
     // no further page after the deadline
     const late = make(() => ({ status: 200, body: { messages: [], next_page_uri: page2 } }));
@@ -343,5 +348,59 @@ describe("provider: identity evidence and the inbound list", () => {
     expect((await capped.listInbound(ACCOUNT, { since, until, maxPages: 1 })).complete).toBe(false);
     await expect(make(() => ({ status: 200, body: {} }), false).provider.listInbound(ACCOUNT, { since, until, maxPages: 1 })).rejects.toThrow("usage_evidence_reads_disabled");
     await expect(make(() => ({ status: 500, body: {} })).provider.listInbound(ACCOUNT, { since, until, maxPages: 1 })).rejects.toThrow("usage_evidence_http_500");
+  });
+});
+
+describe("consent ordering of a recovered STOP (Twilio's own times)", () => {
+  const texter = "+15125550142";
+  const at = Date.parse("2026-10-20T10:00:00.000Z");
+  const msg = (n: number, body: string, iso: string, from = texter) => inbound(n, { body, from, date_created: iso });
+  const lookup = (messages: InboundMessageEvidence[] | Error | { messages: InboundMessageEvidence[]; complete: boolean }) => {
+    const listInbound = vi.fn(async () => {
+      if (messages instanceof Error) throw messages;
+      return Array.isArray(messages) ? { messages, complete: true } : messages;
+    });
+    return { listInbound, run: () => laterKeywordFor({ listInbound }, { accountSid: ACCOUNT, to: "+15125550100", from: texter, sid: sidOf(1), at, until: new Date(at + 86_400_000) }) };
+  };
+
+  it("reads only this texter's messages to this number after the STOP, and the latest later keyword decides", async () => {
+    const l = lookup([msg(1, "STOP", "2026-10-20T10:00:00Z"), msg(2, "START", "2026-10-20T11:00:00Z"), msg(3, "hello there friends", "2026-10-20T12:00:00Z")]);
+    expect(await l.run()).toBe("start");
+    expect((l.listInbound.mock.calls[0] as unknown as [string, Record<string, unknown>])[1]).toMatchObject({ from: texter, to: "+15125550100", since: new Date(at) });
+    expect(await lookup([msg(2, "START", "2026-10-20T11:00:00Z"), msg(3, "stop", "2026-10-20T12:00:00Z")]).run()).toBe("stop");
+    expect(await lookup([msg(3, "see you tonight then", "2026-10-20T12:00:00Z")]).run()).toBe("none");
+    expect(await lookup([msg(2, "START", "2026-10-20T09:00:00Z")]).run()).toBe("none");   // an older START does not count
+    expect(await lookup([msg(2, "START", "2026-10-20T11:00:00Z", "+15125550999")]).run()).toBe("none");   // another texter
+    // an opt-in only as strictly as the webhook fallback honours it; an opt-out loosely (fail closed)
+    for (const loose of ["Yes!", "YES 🙂", "start please", "yes please"]) expect(await lookup([msg(2, loose, "2026-10-20T11:00:00Z")]).run(), loose).toBe("none");
+    expect(await lookup([msg(2, "START", "2026-10-20T11:00:00Z"), msg(3, "Stop!!", "2026-10-20T12:00:00Z")]).run()).toBe("stop");
+  });
+
+  it("anything unproven is 'unknown' (the database then applies the STOP and lists it)", async () => {
+    expect(await lookup(new Error("usage_evidence_timeout")).run()).toBe("unknown");
+    const noTo = vi.fn();
+    expect(await laterKeywordFor({ listInbound: noTo }, { accountSid: ACCOUNT, to: null, from: texter, sid: sidOf(1), at, until: new Date(at + 1) })).toBe("unknown");   // without the receiving number
+    expect(noTo).not.toHaveBeenCalled();
+    expect(await lookup({ messages: [], complete: false }).run()).toBe("unknown");
+    expect(await lookup([msg(2, "START", "2026-10-20T10:00:00.400Z")]).run()).toBe("unknown");   // same second as the STOP
+    expect(await lookup([inbound(2, { body: "START", from: texter, date_created: null, date_sent: null })]).run()).toBe("unknown");
+    expect(await lookup([msg(2, "START", "2026-10-20T11:00:00Z"), msg(3, "STOP", "2026-10-20T11:00:00Z")]).run()).toBe("unknown");   // tie
+  });
+
+  it("recovery passes the result for a STOP only", async () => {
+    const now = new Date();
+    const iso = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+    const later = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+    const lister = new FakeBilledSmsProvider().setInbound(ACCOUNT, [inbound(1, { body: "STOP", date_created: iso }), inbound(2, { body: "START", date_created: later }), inbound(3, { date_created: iso })]);
+    const { admin, calls } = fakeRpc({
+      tw4_inbound_scan_targets: () => ({ data: [{ account_sid: ACCOUNT, legal_entity_id: "e", scanned_through: new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString(), numbers: ["+15125550100"] }] }),
+      tw4_inbound_unrecorded: (args) => ({ data: (args?.p_sids as string[]).filter((sid) => sid !== sidOf(2)) }),
+      tw4_inbound_recover: () => ({ data: { outcome: "recovered", basis: "keyword" } }),
+      tw4_inbound_scan_advance: () => ({ data: {} }),
+    });
+    await recoverInboundUsage(admin, lister, { runId: RUN, now });
+    const sent = calls.filter((c) => c.fn === "tw4_inbound_recover").map((c) => c.args?.p_evidence as Record<string, unknown>);
+    expect(sent.find((e) => e.sid === sidOf(1))).toMatchObject({ keyword_kind: "stop", later_keyword: "start" });
+    expect(sent.find((e) => e.sid === sidOf(3))).not.toHaveProperty("later_keyword");
   });
 });

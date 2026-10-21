@@ -18,8 +18,15 @@ const ERRORS: Record<string, string> = {
 const SUMMARY_LABELS: [ReconcileSummaryKey, string][] = [
   ["released_unsent", "released unsent"], ["settled", "settled"], ["charged_cents", "charged"], ["pending", "pending"], ["review", "review"],
   ["retrying", "retrying"], ["errors", "errors"], ["escalated", "escalated"], ["inbound_recovered", "inbound recovered"],
-  ["inbound_unrouted", "inbound unrouted"], ["inbound_keywords_unseen", "keywords unseen"], ["inbound_refused", "inbound refused"], ["inbound_stalled", "inbound stalled"], ["truncated", "truncated"], ["evidence_read", "evidence read"],
+  ["inbound_unrouted", "inbound unrouted"], ["inbound_keywords_unseen", "keywords unseen"], ["inbound_refused", "inbound refused"], ["inbound_stalled", "inbound stalled"], ["inbound_opt_outs_applied", "opt-outs applied"], ["inbound_opt_outs_unverified", "opt-outs unverified"], ["truncated", "truncated"], ["evidence_read", "evidence read"],
 ];
+
+const CONSENT_NOTE: Record<string, string> = {
+  applied: "opt-out applied",
+  applied_order_unverified: "opt-out applied, but whether the person texted START later could not be checked: review",
+  not_applied_newer_start: "consent not applied: the person texted START later",
+  not_applied_no_number: "consent not applied: no sender number",
+};
 
 const stamp = (iso: string | null) => (iso ? iso.slice(0, 16).replace("T", " ") + "Z" : "never");
 
@@ -163,7 +170,7 @@ export default function UsageReconciliation({ overview, notice = false, error = 
                 <ul className="mt-1 text-xs">
                   {o.inbound.keywordsUnseen.map((k) => (
                     <li key={k.providerSid}>{k.providerSid} · recovered {stamp(k.recoveredAt)} · {k.webhookSeen ? "webhook received it but did not finish" : "webhook never saw it"}
-                      {k.consentApplied === true ? " · opt-out applied" : k.consentApplied === false ? " · consent not applied" : ""}</li>
+                      {k.consentNote ? ` · ${CONSENT_NOTE[k.consentNote] ?? k.consentNote}` : ""}</li>
                   ))}
                 </ul>
               </div>

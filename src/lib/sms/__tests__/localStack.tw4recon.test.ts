@@ -911,23 +911,109 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
       expect(psql(`select count(*) from public.studio_sms_inbound_usage where studio_id = '${SA}' and classification = 'compliance' and charged_cents > 0`)).toBe("0");
     });
 
-    it("R6 a recovered STOP older than a START the webhook already processed does not re-block; a text with an opt-out word is listed, not applied", async () => {
+    it("R6 a recovered STOP followed by a later START from the same texter (by Twilio's own times) is not applied, even when that START changed nothing in DanceFlow", async () => {
       await ready(EA, SA);
       const texter = "+15125550178";
-      aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'`);
-      // the webhook processed STOP then START (both now); the recovered STOP was received two hours ago, before that START
-      psql(`select public.record_sms_inbound_opt_event('${SA}', '${texter}', 'stop'); select public.record_sms_inbound_opt_event('${SA}', '${texter}', 'start')`);
-      const stopsBefore = psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}' and event_type in ('inbound_stop', 'unknown_phone_stop')`);
-      const old = inboundMsg({ body: "STOP" });
-      const r = await withRun((runId) => rpc("tw4_inbound_recover", { p_run_id: runId, p_account_sid: ACC_A, p_evidence: { ...old, body: undefined, classification: "compliance", keyword: true, keyword_kind: "stop", from: texter } }));
-      expect(r.data).toMatchObject({ outcome: "recovered", consent_applied: false });
-      expect(psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}' and event_type in ('inbound_stop', 'unknown_phone_stop')`)).toBe(stopsBefore);
-      // an opt-out word inside a longer text: compliance (never charged), no consent change, listed for a person
+      aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'; delete from public.studio_sms_inbound_scan_cursors where account_sid in ('${ACC_A}', '${ACC_B}')`);
+      const stops = () => Number(psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}' and event_type in ('inbound_stop', 'unknown_phone_stop')`));
+      // the webhook missed the STOP, so DanceFlow never blocked the number; the person's later START was processed by the webhook and changed NOTHING
+      // (no history row: nothing was opted out). Only Twilio's record shows the order.
+      const stopAt = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+      const startAt = new Date(Date.now() - 35 * 60 * 60 * 1000).toISOString();
+      const stop = inboundMsg({ body: "STOP", from: texter, date_created: stopAt });
+      const start = inboundMsg({ body: "START", from: texter, date_created: startAt });
+      expect((await rpc("tw4_inbound_record", { p_studio_id: SA, p_signer_account: ACC_A, p_provider_sid: start.sid, p_segments: 1, p_media: 0, p_classification: "compliance", p_reply_body: null, p_received_at: null, p_source: "webhook" })).error).toBeNull();
+      const fake = new FakeBilledSmsProvider().setInbound(ACC_A, [stop, start]).setInbound(ACC_B, []);
+      const summary = await withRun((runId) => recoverInboundUsage(admin, ownLister(fake), { runId }));
+      expect(summary).toMatchObject({ recovered: 1, optOutsApplied: 0 });
+      expect(psql(`select consent_note || ':' || consent_applied from public.studio_sms_inbound_recoveries where provider_sid = '${stop.sid}'`)).toBe("not_applied_newer_start:false");
+      expect(stops()).toBe(0);
+      // a text with an opt-out word inside a longer text: compliance (never charged), no consent change, listed for a person
       const vague = inboundMsg({ body: "please stop texting me" });
       const v = await withRun((runId) => rpc("tw4_inbound_recover", { p_run_id: runId, p_account_sid: ACC_A, p_evidence: { ...vague, body: undefined, classification: "uncertain", keyword: false, possible_opt_out: true } }));
       expect(v.data).toMatchObject({ outcome: "recovered", classification: "compliance", basis: "uncertain" });
       const o = (await rpc("tw4_usage_reconcile_overview", { p_actor: U.padmin, p_limit: 200 })).data as { inbound: { possible_opt_outs: Array<{ provider_sid: string }> } };
       expect(o.inbound.possible_opt_outs.some((x) => x.provider_sid === vague.sid)).toBe(true);
+    });
+
+    it("R7 consent order: staff / public opt-ins never override a texted STOP; a later STOP or none applies; anything unproven applies (fail closed) and is listed", async () => {
+      await ready(EA, SA);
+      const texter = "+15125550179";
+      const stops = () => Number(psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}' and event_type in ('inbound_stop', 'unknown_phone_stop')`));
+      const reset = () => aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'`);
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const recoverStop = async (later: string | undefined, dateCreated: string | null = twoHoursAgo) =>
+        ((await withRun((runId) => rpc("tw4_inbound_recover", {
+          p_run_id: runId, p_account_sid: ACC_A,
+          p_evidence: { ...inboundMsg({ body: "STOP", date_created: dateCreated }), body: undefined, classification: "compliance", keyword: true, keyword_kind: "stop", from: texter,
+                        ...(later ? { later_keyword: later } : {}) },
+        }))).data ?? {}) as { consent_applied?: boolean; consent_note?: string };
+
+      // a staff or public opt-in recorded after the STOP's time does NOT keep the number sendable (TW-2: only the contact can resubscribe)
+      for (const eventType of ["public_opt_in", "staff_opt_in", "staff_consent_update"]) {
+        reset();
+        aged(`insert into public.sms_consent_history (studio_id, phone_e164, previous_consent_status, new_consent_status, event_type, changed_at)
+              values ('${SA}', '${texter}', 'unknown', 'opted_in', '${eventType}', now() - interval '30 minutes')`);
+        expect(await recoverStop("none"), eventType).toMatchObject({ consent_applied: true, consent_note: "applied" });
+        expect(stops(), eventType).toBe(1);
+      }
+      reset();
+      expect(await recoverStop("stop")).toMatchObject({ consent_applied: true, consent_note: "applied" });   // a later STOP: the opt-out stands
+      reset();
+      expect(await recoverStop("start")).toMatchObject({ consent_applied: false, consent_note: "not_applied_newer_start" });
+      expect(stops()).toBe(0);
+      // unproven order: the lookup failed or tied, no lookup at all, or the STOP's own time is missing / implausible / not ISO -> applied (fail closed), listed
+      for (const [later, when] of [["unknown", twoHoursAgo], [undefined, twoHoursAgo], ["start", null], ["none", new Date(Date.now() + 60 * 60 * 1000).toISOString()], ["none", "Tue, 20 Oct 2026 12:00:00 +0000"]] as const) {
+        reset();
+        expect(await recoverStop(later, when), `${later} ${when}`).toMatchObject({ consent_applied: true, consent_note: "applied_order_unverified" });
+        expect(stops()).toBe(1);
+      }
+      // the stored decision cannot contradict itself
+      expect(psqlError(`insert into public.studio_sms_inbound_recoveries (provider_sid, account_sid, legal_entity_id, studio_id, run_id, classification, basis, webhook_seen, consent_applied, consent_note, charged_cents)
+                        select 'SM${randomBytes(16).toString("hex")}', '${ACC_A}', '${EA}', '${SA}', id, 'compliance', 'keyword', false, true, 'not_applied_newer_start', 0 from public.studio_sms_reconcile_runs limit 1`)).toContain("studio_sms_inbound_recoveries_consent");
+      const o = (await rpc("tw4_usage_reconcile_overview", { p_actor: U.padmin, p_limit: 200 })).data as { inbound: { keywords_unseen: Array<{ consent_note: string | null }> } };
+      expect(o.inbound.keywords_unseen.some((k) => k.consent_note === "applied_order_unverified")).toBe(true);
+      expect(JSON.stringify(o)).not.toContain(texter);
+    });
+
+    it("R8 DanceFlow's own record of a contact-originated START also suppresses an older recovered STOP (custom opt-in keywords the provider lookup cannot read)", async () => {
+      await ready(EA, SA);
+      const texter = "+15125550180";
+      const reset = () => aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'; delete from public.sms_message_logs where studio_id = '${SA}' and direction = 'inbound'`);
+      const stops = () => Number(psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}' and event_type in ('inbound_stop', 'unknown_phone_stop')`));
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const recoverStop = async () =>
+        ((await withRun((runId) => rpc("tw4_inbound_recover", {
+          p_run_id: runId, p_account_sid: ACC_A,
+          p_evidence: { ...inboundMsg({ body: "STOP", date_created: twoHoursAgo }), body: undefined, classification: "compliance", keyword: true, keyword_kind: "stop", from: texter, later_keyword: "none" },
+        }))).data ?? {}) as { consent_applied?: boolean; consent_note?: string };
+      // the webhook handled a custom Advanced Opt-Out opt-in (OptOutType START) an hour later: it logged an inbound 'start' message for the contact
+      reset();
+      aged(`insert into public.sms_message_logs (studio_id, phone_e164, direction, message_type, body, segment_count, status, provider, sent_at)
+            values ('${SA}', '${texter}', 'inbound', 'start', 'REJOINDRE', 1, 'received', 'twilio', now() - interval '1 hour')`);
+      expect(await recoverStop()).toMatchObject({ consent_applied: false, consent_note: "not_applied_newer_start" });
+      expect(stops()).toBe(0);
+      // an inbound START in the consent history after the STOP: same
+      reset();
+      aged(`insert into public.sms_consent_history (studio_id, phone_e164, previous_consent_status, new_consent_status, event_type, changed_at)
+            values ('${SA}', '${texter}', 'opted_out', 'opted_in', 'inbound_start', now() - interval '1 hour')`);
+      expect(await recoverStop()).toMatchObject({ consent_note: "not_applied_newer_start" });
+      // within 2 minutes of the STOP's own time: not provable -> applied, listed
+      reset();
+      aged(`insert into public.sms_message_logs (studio_id, phone_e164, direction, message_type, body, segment_count, status, provider, sent_at)
+            values ('${SA}', '${texter}', 'inbound', 'start', 'START', 1, 'received', 'twilio', '${twoHoursAgo}'::timestamptz + interval '60 seconds')`);
+      expect(await recoverStop()).toMatchObject({ consent_applied: true, consent_note: "applied_order_unverified" });
+      // a START logged BEFORE the STOP does not suppress it
+      reset();
+      aged(`insert into public.sms_message_logs (studio_id, phone_e164, direction, message_type, body, segment_count, status, provider, sent_at)
+            values ('${SA}', '${texter}', 'inbound', 'start', 'START', 1, 'received', 'twilio', now() - interval '5 hours')`);
+      expect(await recoverStop()).toMatchObject({ consent_applied: true, consent_note: "applied" });
+      // another studio's START never counts
+      reset();
+      aged(`insert into public.sms_consent_history (studio_id, phone_e164, previous_consent_status, new_consent_status, event_type, changed_at)
+            values ('${SB}', '${texter}', 'opted_out', 'opted_in', 'inbound_start', now() - interval '1 hour')`);
+      expect(await recoverStop()).toMatchObject({ consent_note: "applied" });
+      aged(`delete from public.sms_consent_history where studio_id = '${SB}'`);
     });
 
     it("R4 a repeated read that learns nothing new adds no history row", async () => {

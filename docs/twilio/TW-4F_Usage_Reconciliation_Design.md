@@ -107,7 +107,22 @@ The review found that a STOP the webhook missed left the number sendable on Danc
 - The texter's number is sent to the database **only** for an opt-out, and only into the consent tables, as the webhook does. Recovery rows, the panel and run summaries still hold no number (tested).
 - A recovered **START is never applied**, so consent is never restored by recovery. The person texts START again.
 - An opt-out with no usable sender number is recorded with `consent_applied = false` and listed on the panel for a person.
-- A recovered STOP older than a START the webhook already processed (`sms_consent_history` `inbound_start` after the STOP was received) is **not** re-applied: `consent_applied = false`, listed for a person.
+- **Ordering (final merge gate), by Twilio's own message times.** Recovery never orders by when it runs, and never by DanceFlow's database clock. For each recovered STOP the reconciler reads the same texter's later messages to the same number from the provider (read-only, the subaccount's credentials, `To` + `From` filters, at most 3 pages). The latest later STOP/START keyword decides. This also covers a START that changed nothing in DanceFlow and left no history row: the common case, since a missed STOP means DanceFlow never blocked the number. The outcome is stored in `consent_note`, constrained to agree with `consent_applied`, and shown on the panel:
+
+| Situation | Result |
+|---|---|
+| A later START from that texter in the provider's record (strict START/YES/UNSTOP, as the webhook fallback honours it), **or** in DanceFlow's own record of a contact-originated START (an `inbound_start` consent-history row or an inbound `start` message logged by the webhook, which also catches custom Advanced Opt-Out opt-in keywords) more than 2 min after the STOP's own time | **not applied**: the person's newer choice stands (`not_applied_newer_start`) |
+| No later keyword, or a later STOP | **applied** (`applied`) |
+| Unproven: the lookup failed or was incomplete, there was no receiving number, a keyword in the same second or a tie, a DanceFlow START within ±2 min, or the STOP's own time missing, implausible (future, older than 400 days) or not ISO | **applied, fails closed**, listed (`applied_order_unverified`) |
+| No usable sender number | not applied, listed (`not_applied_no_number`) |
+
+  - Staff and public opt-ins are **not** consulted. Under TW-2 only the contact can resubscribe, and a web form never reverses an opt-out. Had the webhook processed the STOP, those opt-ins would have been refused, so recovery gives the same answer.
+  - Opt-outs are read loosely (fail closed) and opt-ins strictly. "Yes!" or "start please" is not a later START.
+  - The lookup reads up to the moment it runs, not the run's start.
+  - The run summary counts `inbound_opt_outs_applied` and `inbound_opt_outs_unverified` separately.
+  - Remaining, fails closed: a custom opt-in keyword that changed nothing in DanceFlow and was not logged as a contact message, because the texter had no client or contact record. The STOP is then applied and listed as `applied`, and the person texts START again.
+  - Remaining (rare): DanceFlow's own START signal carries the time the webhook processed it. A START sent before the STOP but delivered more than 2 minutes after it would suppress the STOP. Twilio's own lookup orders by message time, and the panel lists every keyword recovery.
+  - The asymmetry is deliberate. Wrongly blocking costs one START text from the person. Wrongly sending after a STOP is a compliance violation. Where the order cannot be proven, the STOP wins and a person is told.
 - **The webhook records usage only after a successful consent change.** If its STOP/START update fails, nothing is recorded, so the reconciler recovers the text after the grace period and applies the STOP. A refused opt-out recovery is kept as unresolved evidence with code `<errcode>_stop`.
 - A text that only mentions an opt-out word ("please stop texting") is not applied, because the webhook would not apply it either. It is compliance (never charged) and listed on the panel as a possible opt-out.
 - The consent history row a recovery writes looks like a webhook STOP. Its time is the recovery's, not the message's: the canonical function is unchanged. The recovery row in `studio_sms_inbound_recoveries` carries the message's time and the link.

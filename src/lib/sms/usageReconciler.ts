@@ -201,8 +201,10 @@ export type InboundRecoverySummary = {
   unrouted: number;
   keywordsUnseen: number;
   incomplete: number;
-  /** recovered opt-outs whose canonical STOP was applied (consent fails closed) */
+  /** recovered opt-outs whose canonical STOP was applied with the order proven */
   optOutsApplied: number;
+  /** recovered opt-outs applied although the order against a later START could not be proven (fail closed; listed for a person) */
+  optOutsUnverified: number;
   /** permanently refused by the database: kept as unresolved evidence, never blocking the checkpoint */
   refused: number;
   /** a subaccount whose listing could not be completed even for a one-hour window (very high volume): its checkpoint did not move */
@@ -232,6 +234,40 @@ export const INBOUND_NARROW_WINDOW_MS = 60 * 60 * 1000;
 export const INBOUND_ACCOUNT_BUDGET_MS = 15_000;
 
 const PERMANENT = new Set(["22023", "42501"]);
+
+/**
+ * Consent ordering for a recovered STOP, by Twilio's own message times: the same texter's LATER messages to the same number, read from the provider
+ * (read-only, the subaccount's credentials). The latest later STOP/START keyword decides; 'unknown' when it cannot be established (the read failed or was
+ * incomplete, or a keyword shares the STOP's second), and the database then applies the STOP and lists it (fail closed).
+ */
+export async function laterKeywordFor(
+  lister: InboundMessageLister,
+  input: { accountSid: string; to: string | null; from: string; sid: string; at: number; until: Date; deadline?: number },
+): Promise<"start" | "stop" | "none" | "unknown"> {
+  // without the receiving number the texter's messages to OTHER locations would count: not provable
+  if (!input.to || !/^\+1[2-9][0-9]{9}$/.test(input.to)) return "unknown";
+  let listed: { messages: InboundMessageEvidence[]; complete: boolean };
+  try {
+    listed = await lister.listInbound(input.accountSid, { since: new Date(input.at), until: input.until, maxPages: 3, from: input.from, to: input.to, deadline: input.deadline });
+  } catch {
+    return "unknown";
+  }
+  if (!listed.complete) return "unknown";
+  let latest: { at: number; kind: "stop" | "start" } | null = null;
+  for (const m of listed.messages) {
+    if (m.sid === input.sid || (m.from !== null && m.from !== input.from)) continue;
+    const at = messageTime(m);
+    if (!Number.isFinite(at)) return "unknown";
+    // an opt-out is read loosely (fail closed); an opt-in only as strictly as the webhook's fallback would honour it ("Yes!" is not a START)
+    const keywordKind: "stop" | "start" | null = classifyRecoveredBody(m.body).keywordKind === "stop" ? "stop" : m.body !== null && classifyInboundKeywordBody(m.body) === "start" ? "start" : null;
+    if (keywordKind === null) continue;
+    if (Math.floor(at / 1000) === Math.floor(input.at / 1000)) return "unknown";   // same second as the STOP: order not provable
+    if (at < input.at) continue;
+    if (!latest || at > latest.at) latest = { at, kind: keywordKind };
+    else if (at === latest.at && keywordKind !== latest.kind) return "unknown";
+  }
+  return latest ? latest.kind : "none";
+}
 const messageTime = (m: InboundMessageEvidence) => Date.parse(m.date_created ?? m.date_sent ?? "");
 
 function shuffled<T>(items: T[]): T[] {
@@ -249,7 +285,7 @@ export async function recoverInboundUsage(
   options: { runId: string; now?: Date; deadline?: number; maxAccounts?: number; maxPages?: number },
 ): Promise<InboundRecoverySummary> {
   const summary: InboundRecoverySummary = {
-    accounts: 0, scanned: 0, recovered: 0, recoveredOrdinary: 0, alreadyRecorded: 0, unrouted: 0, keywordsUnseen: 0, optOutsApplied: 0, incomplete: 0, refused: 0, stalled: 0, errors: 0, truncated: false,
+    accounts: 0, scanned: 0, recovered: 0, recoveredOrdinary: 0, alreadyRecorded: 0, unrouted: 0, keywordsUnseen: 0, optOutsApplied: 0, optOutsUnverified: 0, incomplete: 0, refused: 0, stalled: 0, errors: 0, truncated: false,
   };
   const runDeadline = options.deadline ?? Number.POSITIVE_INFINITY;
   const now = options.now ?? new Date();
@@ -347,6 +383,10 @@ export async function recoverInboundUsage(
       }
       const sender = normalizeSmsPhone(String(m.from ?? ""));
       const { classification, keyword, keywordKind, possibleOptOut } = classifyRecoveredBody(m.body, sender !== null);
+      // a recovered STOP is ordered against the texter's later keywords by Twilio's own times (a START that changed nothing leaves no history in DanceFlow)
+      const laterKeyword = keywordKind === "stop" && sender && Number.isFinite(messageTime(m))
+        ? await laterKeywordFor(lister, { accountSid: target.account_sid, to: m.to, from: sender, sid: m.sid, at: messageTime(m), until: new Date(), deadline })
+        : undefined;
       const { data, error } = await admin.rpc("tw4_inbound_recover", {
         p_run_id: options.runId,
         p_account_sid: target.account_sid,
@@ -357,6 +397,7 @@ export async function recoverInboundUsage(
           ...(keywordKind ? { keyword_kind: keywordKind } : {}),
           ...(possibleOptOut ? { possible_opt_out: true } : {}),
           ...(keywordKind === "stop" && sender ? { from: sender } : {}),
+          ...(laterKeyword ? { later_keyword: laterKeyword } : {}),
         },
       });
       if (error) {
@@ -375,13 +416,14 @@ export async function recoverInboundUsage(
         processedThrough = at - 1000;   // transient: this text and everything after it is read again next run (idempotent per SID)
         break;
       }
-      const d = (data ?? {}) as { outcome?: unknown; classification?: unknown; basis?: unknown; webhook_seen?: unknown; consent_applied?: unknown };
+      const d = (data ?? {}) as { outcome?: unknown; classification?: unknown; basis?: unknown; webhook_seen?: unknown; consent_note?: unknown };
       if (d.outcome === "recovered") {
         summary.recovered += 1;
         if (d.classification === "ordinary") summary.recoveredOrdinary += 1;
         if (d.basis === "incomplete") summary.incomplete += 1;
         if (d.basis === "keyword") summary.keywordsUnseen += 1;
-        if (d.consent_applied === true) summary.optOutsApplied += 1;
+        if (d.consent_note === "applied") summary.optOutsApplied += 1;
+        else if (d.consent_note === "applied_order_unverified") summary.optOutsUnverified += 1;
       } else if (d.outcome === "already_recorded") summary.alreadyRecorded += 1;
       else if (d.outcome === "unrouted") summary.unrouted += 1;   // kept as unresolved evidence by the database; never attributed to a guess
       else if (d.outcome !== "skipped") {
@@ -447,7 +489,7 @@ export async function runScheduledUsageReconciliation(
     truncated: outbound.truncated || (inbound?.truncated ?? false), escalated,
     inbound_accounts: inbound?.accounts ?? 0, inbound_scanned: inbound?.scanned ?? 0, inbound_recovered: inbound?.recovered ?? 0,
     inbound_recovered_ordinary: inbound?.recoveredOrdinary ?? 0, inbound_already_recorded: inbound?.alreadyRecorded ?? 0, inbound_unrouted: inbound?.unrouted ?? 0,
-    inbound_keywords_unseen: inbound?.keywordsUnseen ?? 0, inbound_incomplete: inbound?.incomplete ?? 0, inbound_refused: inbound?.refused ?? 0, inbound_opt_outs_applied: inbound?.optOutsApplied ?? 0, inbound_stalled: inbound?.stalled ?? 0, duration_ms: Date.now() - started,
+    inbound_keywords_unseen: inbound?.keywordsUnseen ?? 0, inbound_incomplete: inbound?.incomplete ?? 0, inbound_refused: inbound?.refused ?? 0, inbound_opt_outs_applied: inbound?.optOutsApplied ?? 0, inbound_opt_outs_unverified: inbound?.optOutsUnverified ?? 0, inbound_stalled: inbound?.stalled ?? 0, duration_ms: Date.now() - started,
   };
   try {
     await admin.rpc("tw4_reconcile_run_finish", { p_run_id: runId, p_status: failure ? "failed" : "completed", p_summary: summary, p_error: failure });

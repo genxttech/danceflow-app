@@ -83,7 +83,7 @@ describe("parseReconcileOverview: inbound recovery evidence", () => {
         unresolved: [{ provider_sid: "SMb", account_sid: "ACx", reason: "refused", code: "42501", noted_at: "2026-10-20T11:00:00Z" }, null, { reason: "unrouted" }],
       },
     });
-    expect(o.inbound.keywordsUnseen).toEqual([{ providerSid: "SMa", studioId: "s1", recoveredAt: "2026-10-20T10:00:00Z", webhookSeen: true, consentApplied: false }]);
+    expect(o.inbound.keywordsUnseen).toEqual([{ providerSid: "SMa", studioId: "s1", recoveredAt: "2026-10-20T10:00:00Z", webhookSeen: true, consentApplied: false, consentNote: null }]);
     expect(o.inbound.unresolved7d).toEqual({ unrouted: 2, refused: 1 });
     expect(o.inbound.unresolved).toEqual([{ providerSid: "SMb", accountSid: "ACx", reason: "refused", code: "42501", notedAt: "2026-10-20T11:00:00Z" }]);
   });
