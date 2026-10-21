@@ -1,5 +1,5 @@
 import type { RedactedSecret, SubaccountTokenProvider } from "./account";
-import { IsvApiError, type IsvAdapter } from "./types";
+import { IsvApiError } from "./types";
 
 /**
  * TW-4F provider integration: a subaccount registration adapter that survives an Auth Token rotation (Twilio ticket #29647095, answer 5: no
@@ -11,19 +11,19 @@ import { IsvApiError, type IsvAdapter } from "./types";
  * credential that really does not work stops the run (kind "account"), it is never retried in a loop and never replaced by parent credentials.
  */
 
-type Build = (accountSid: string, token: RedactedSecret) => IsvAdapter;
+type Build<T extends { readonly accountSid: string }> = (accountSid: string, token: RedactedSecret) => T;
 
 function isAuthRejection(error: unknown): boolean {
   return error instanceof IsvApiError && error.kind === "account" && error.httpStatus === 401;
 }
 
-export async function rotatingSubaccountAdapter(accountSid: string, tokens: Pick<SubaccountTokenProvider, "tokenFor" | "refresh">, build: Build): Promise<IsvAdapter> {
+export async function rotatingSubaccountAdapter<T extends { readonly accountSid: string }>(accountSid: string, tokens: Pick<SubaccountTokenProvider, "tokenFor" | "refresh">, build: Build<T>): Promise<T> {
   let token = await tokens.tokenFor(accountSid);
   let current = build(accountSid, token);
   if (current.accountSid !== accountSid) throw new IsvApiError("account", null, null, "adapter account differs");
 
-  const call = async <K extends keyof IsvAdapter>(method: K, args: unknown[]): Promise<unknown> => {
-    const invoke = () => (current[method] as unknown as (...a: unknown[]) => Promise<unknown>).apply(current, args);
+  const call = async (method: string, args: unknown[]): Promise<unknown> => {
+    const invoke = () => ((current as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[method]).apply(current, args);
     try {
       return await invoke();
     } catch (error) {
@@ -42,11 +42,11 @@ export async function rotatingSubaccountAdapter(accountSid: string, tokens: Pick
     }
   };
 
-  return new Proxy({} as IsvAdapter, {
+  return new Proxy({} as T, {
     get(_target, property) {
       if (property === "accountSid") return accountSid;
       if (typeof property !== "string" || typeof (current as unknown as Record<string, unknown>)[property] !== "function") return undefined;
-      return (...args: unknown[]) => call(property as keyof IsvAdapter, args);
+      return (...args: unknown[]) => call(property, args);
     },
   });
 }

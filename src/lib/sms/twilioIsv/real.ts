@@ -45,7 +45,7 @@ function classify(status: number): IsvApiError["kind"] {
 type Credentials = Pick<IsvConfig, "accountSid" | "authToken" | "apiKeySid" | "apiKeySecret">;
 
 /** The HTTP machinery shared by the registration adapter (one account) and the parent account-management client. It exposes no Twilio operation itself. */
-abstract class TwilioRest<C extends Credentials> {
+export abstract class TwilioRest<C extends Credentials> {
   constructor(protected readonly config: C, protected readonly fetchImpl: FetchLike) {
     // A key SID without its secret would sign every request with an empty password. Fail loudly here instead (never fall back to the token).
     if (config.apiKeySid && !config.apiKeySecret) throw new IsvApiError("account", null, null, "an API key SID is configured without its secret");
@@ -62,10 +62,16 @@ abstract class TwilioRest<C extends Credentials> {
     return `Basic ${Buffer.from(pair).toString("base64")}`;
   }
 
-  protected async request(method: "GET" | "POST", url: string, form?: Record<string, string | undefined>): Promise<Record<string, unknown>> {
-    const body = form
-      ? new URLSearchParams(Object.entries(form).filter((entry): entry is [string, string] => entry[1] !== undefined)).toString()
-      : undefined;
+  protected async request(method: "GET" | "POST", url: string, form?: Record<string, string | string[] | undefined>): Promise<Record<string, unknown>> {
+    let body: string | undefined;
+    if (form) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(form)) {
+        if (Array.isArray(value)) for (const item of value) params.append(key, item); // Twilio repeats the key for a list (MessageSamples, OptInKeywords, ...)
+        else if (value !== undefined) params.append(key, value);
+      }
+      body = params.toString();
+    }
     let status: number;
     let raw: string;
     try {
@@ -106,12 +112,14 @@ abstract class TwilioRest<C extends Credentials> {
   }
 
   /** GET a list, following Twilio's own next-page links (host-checked) for a bounded number of pages. */
-  protected async listAll(firstUrl: string, host: string, rowsKey: "results" | "data"): Promise<Record<string, unknown>[]> {
+  protected async listAll(firstUrl: string, host: string, rowsKey: string): Promise<Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = [];
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_PAGES && url; page += 1) {
       const json: Record<string, unknown> = await this.request("GET", url);
-      const list = Array.isArray(json[rowsKey]) ? (json[rowsKey] as Record<string, unknown>[]) : Array.isArray(json.results) ? (json.results as Record<string, unknown>[]) : Array.isArray(json.data) ? (json.data as Record<string, unknown>[]) : [];
+      // a list whose named collection is missing (a renamed key, an error shape) must not read as "nothing exists": these lookups guard duplicate creates
+      if (rowsKey !== "results" && rowsKey !== "data" && !Array.isArray(json[rowsKey])) throw new IsvApiError("transient", null, null, "list response carried no collection");
+      const list =Array.isArray(json[rowsKey]) ? (json[rowsKey] as Record<string, unknown>[]) : Array.isArray(json.results) ? (json.results as Record<string, unknown>[]) : Array.isArray(json.data) ? (json.data as Record<string, unknown>[]) : [];
       rows.push(...list);
       const meta = (json.meta ?? {}) as Record<string, unknown>;
       url = typeof meta.next_page_url === "string" && meta.next_page_url.startsWith(host) ? meta.next_page_url : null;
