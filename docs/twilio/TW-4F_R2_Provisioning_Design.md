@@ -94,3 +94,35 @@ Accepted and documented (not changed):
 Fixed: the rollback script's resolver body now parses (and a contained test runs the whole rollback where no evidence exists); the token-rotation proxy passes `evidenceSource` through (a run through it is tested); the recurring authorization is read `FOR SHARE` only after the credit account lock is held (the order `tw4_recurring_revoke` uses, so no deadlock); the real adapter's only factory (`forAccount`) enforces the provisioning gate; a fee operation cannot be declared "not created" within 20 minutes of its attempt, whatever its status.
 New: `tw4_prov_settle_admin(operation, actor, kind, outcome, reason)` is the one ledger-aware way to close a reservation of a SUCCEEDED or abandoned operation that provider evidence never settled (a mismatch that stays, a wrongly typed SID, a cancelled onboarding). It refuses while a run holds the lease, when nothing is held, or for an unresolved operation (use `tw4_prov_resolve`). The generic credit resolver still refuses `prov:` reservations.
 Tests: the TW034 rule is exercised on the unknown fee operation; the 20-minute floor, the admin settlement refusals and a contained success are pinned.
+
+## 6. Mandatory pre-activation controls (merge-readiness record, 2026-10-21)
+
+None of these changes R2a code. R2a is dark; each item below is either enforced today (with its pinning test) or is a BLOCKER that must exist before any studio is activated for real sending. The activation checklist (R2b) must refuse `ready_for_activation` / `active` while a blocker is unmet.
+
+### 6.1 Recurring-fee exposure after the owner's authorization ends (BLOCKER before activation)
+
+Twilio keeps billing a live campaign (and number) to the subaccount whether or not the owner's recurring authorization is still active. After expiry or revocation DanceFlow would silently absorb the fee. Required before activation:
+
+1. **Gate.** Activation (R2b) re-checks, in the database, an ACTIVE recurring authorization of the right kind and price with a safe remaining term for the campaign and the number. R2a already refuses to START a campaign with 28 days or less left.
+2. **Monitoring.** A scheduled job (an activation gate, like the usage reconciler and the sender re-verification) lists every live campaign / number whose business has no active authorization, or whose authorization ends within 35 days, and alerts platform admins. A recurring charge that is `unfunded`, `held` or `refused` for a live campaign raises the same alert.
+3. **Owner reauthorization.** The owner is told at least 35 days before the end (what ends, what it costs, how to reauthorize in their settings: `tw4_recurring_authorize`). Reauthorization is always the owner's explicit act at the then-current published price.
+4. **Lapse procedure (platform admin, written reason each step).** (a) Revoke the location's sender (`tw4_sender_revoke`) so nothing is sent; (b) hold the credit account if funds are the cause; (c) if the owner does not reauthorize within the agreed grace period, cancel/suspend the campaign, the number and the Messaging Service at Twilio (manual console step; DanceFlow deletes nothing at the provider), record it, and close any held reservation with `tw4_prov_settle_admin` / `tw4_prov_resolve`; (d) any fee Twilio billed in the meantime is recorded as a provider-cost variance, never charged to the studio without authorization.
+5. **Runbook** (docs/twilio) with these steps and the alert wording ships with the scheduler.
+
+### 6.2 ConfiDance month two and later (enforced + BLOCKER before pilot activation)
+
+Enforced today: the pilot business cannot hold a standing recurring authorization (`tw4_recurring_authorize` refuses it, TW011; a pre-existing one makes R2a refuse the campaign with `pilot_conflict`, tested). No scheduler charges the pilot business. The $150 ceiling is not credit: every reservation needs its own written approval with a permanent reference (reserved + captured pilot reservations count cumulatively), and R2a has NO month-two operation, so nothing can fund a later month silently.
+
+Therefore the pilot's campaign and number rent for month two onward have no funding path unless the owner records a new explicit approval. BLOCKER: before the pilot is activated, define the month-two operation (its own approval per fee and per month, inside the cumulative ceiling, never a standing authorization) and the escalation: 35 days before the end of each paid month the owner is asked; without a recorded approval the lapse procedure in 6.1(4) runs. Until then the pilot may not go live.
+
+### 6.3 A second location of the same legal business (enforced)
+
+`tw4_prov_begin` refuses any Messaging Service or campaign when another location of the SAME legal business already has a live one (TW031 / `entity_resource_exists`); nothing is created, shared or adopted (tested for the service; the campaign path is the same guard). Sharing is not implemented. When it is, it must be an explicit platform-admin decision that verifies the second location's verified link to the business (`studio_sms_entity_studios`), the same subaccount, the same brand, and a compatible use case / registration path, and each location keeps its OWN number.
+
+### 6.4 Unknown fee-bearing outcomes (enforced)
+
+A fee operation whose outcome is unknown stays `unknown_outcome`; the runner never repeats it (tested: three further runs, one create), the database refuses to close it as failed unless the provider definitively refused (`api`), the generic credit resolver cannot touch its reservation, `tw4_prov_resolve('not_created')` needs a written reason and 20 minutes since the attempt, and `resolve('created')` captures nothing until a provider read confirms the resource.
+
+### 6.5 Verification notes
+
+The R2a database suite runs only against the local QA stack. Other local-stack suites on that shared database are contaminated and are not R2a regressions: `localStack.tw4sender` (main's version) fails 8 tests because the shared database already carries PR #251's migration (#251's own version passes 18/18 with R2a installed); `localStack.tw4r1` contains a test that segfaults the local Postgres (signal 11, "API roles cannot call runner functions"), after which `tw4r1` and `tw4a` fail with PGRST002 / recovery mode.
