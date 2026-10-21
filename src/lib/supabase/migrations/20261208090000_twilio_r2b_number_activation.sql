@@ -258,6 +258,12 @@ create table public.studio_sms_num_inventory_checks (
   legal_entity_id uuid not null,
   listed_count int not null check (listed_count >= 0),
   unknown_count int not null check (unknown_count >= 0),
+  -- ledger-owned numbers of this business that the provider's listing did NOT show (an empty or partial listing proves nothing)
+  missing_count int not null default 0 check (missing_count >= 0),
+  twilio_account_sid text not null check (twilio_account_sid ~ '^AC[0-9a-fA-F]{32}$'),
+  source text not null check (source in ('provider_read', 'fake')),
+  -- when the caller started LISTING (not when the row landed): checks are ordered by it, so a slow older listing cannot mask a newer one
+  listed_at timestamptz not null,
   created_at timestamptz not null default clock_timestamp()
 );
 create index studio_sms_num_inventory_checks_lease on public.studio_sms_num_inventory_checks (onboarding_id, lease_owner, created_at desc);
@@ -459,8 +465,8 @@ declare
   v_ms public.studio_sms_prov_operations;
   v_qe public.studio_sms_prov_operations;
 begin
-  if not exists (select 1 from public.studio_sms_num_operations o where o.studio_id = p_studio_id) then
-    return public._tw4sr_ready_core(p_studio_id);   -- not an R2b location: PR #249 behaviour exactly
+  if not exists (select 1 from public.studio_sms_num_operations o where o.studio_id = p_studio_id) and not exists (select 1 from public.studio_sms_prov_operations o where o.studio_id = p_studio_id) then
+    return public._tw4sr_ready_core(p_studio_id);   -- neither R2a nor R2b touched this location: PR #249 behaviour exactly
   end if;
   -- an R2b location sends only while ACTIVE ...
   if not exists (select 1 from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state = 'active') then
@@ -932,6 +938,7 @@ declare
   v_mode text;
   v_price int;
   v_auth public.studio_sms_recurring_authorizations;
+  v_rfl_live boolean;
   v_kinds text[] := '{}';
   v_attempt int;
   v_id uuid := gen_random_uuid();
@@ -996,8 +1003,22 @@ begin
     v_mode := v_req ->> 'funding_mode';
     v_price := (v_req ->> 'price_cents')::int;
     -- the provider inventory of this subaccount must have been reconciled with the ledger UNDER THIS LEASE, a moment ago, with nothing unknown: enforced here, for every caller
-    if not exists (select 1 from public.studio_sms_num_inventory_checks c where c.onboarding_id = o.id and c.lease_owner = p_lease_owner and c.unknown_count = 0 and c.created_at > clock_timestamp() - interval '5 minutes') then
+    if not exists (select 1 from public.studio_sms_num_inventory_checks c where c.onboarding_id = o.id and c.lease_owner = p_lease_owner and c.unknown_count = 0 and c.missing_count = 0 and c.twilio_account_sid = v_account and c.created_at > clock_timestamp() - interval '5 minutes') then
       raise exception 'the provider number inventory was not reconciled with the ledger' using errcode = 'TW045';
+    end if;
+    -- the recurring provider-fee lifecycle (when installed) allows ONE live number per location and no purchase beside an open cancellation: refused BEFORE anything is bought,
+    -- so registering the new number there cannot fail after a real purchase
+    if to_regclass('public.studio_sms_provider_resources') is not null then
+      execute format('select exists (select 1 from public.studio_sms_provider_resources r where r.studio_id = %L and r.resource_kind = ''number'' and r.provider_state = ''active'')', o.studio_id) into v_rfl_live;
+      if v_rfl_live then
+        raise exception 'this location already has a live number in the recurring-fee inventory: cancel it through the lifecycle first' using errcode = 'TW046';
+      end if;
+    end if;
+    if to_regclass('public.studio_sms_provider_cancel_ops') is not null then
+      execute format('select exists (select 1 from public.studio_sms_provider_cancel_ops c where c.studio_id = %L and c.status in (''authorized'', ''in_flight'', ''unknown_outcome''))', o.studio_id) into v_rfl_live;
+      if v_rfl_live then
+        raise exception 'a provider cancellation is open for this location' using errcode = 'TW046';
+      end if;
     end if;
     select * into v_sel from public.studio_sms_number_selections s where s.id = (v_req ->> 'selection_id')::uuid and s.studio_id = o.studio_id and s.status = 'approved' for update;
     if v_sel.id is null or v_sel.expires_at <= now() or v_sel.twilio_account_sid <> v_account or v_sel.legal_entity_id <> v_entity then
@@ -1232,6 +1253,9 @@ begin
   if p_resolution = 'created' and (p_provider_sid is null or p_provider_sid !~ '^PN[0-9a-fA-F]{32}$') then
     raise exception 'the number sid found at the provider is required' using errcode = '22023';
   end if;
+  if p_resolution = 'not_created' and r.fee_bearing and exists (select 1 from public.studio_sms_num_inventory_acks a where a.legal_entity_id = r.legal_entity_id and a.created_at >= r.started_at) then
+    raise exception 'a number was acknowledged after this attempt started: investigate it before declaring the purchase not created' using errcode = 'TW034';
+  end if;
   update public.studio_sms_num_operations set status = case when p_resolution = 'created' then 'succeeded' else 'abandoned' end,
     provider_sid = case when p_resolution = 'created' then p_provider_sid else provider_sid end, finished_at = clock_timestamp(),
     resolved_by = p_actor, resolved_at = clock_timestamp(), resolution_note = btrim(p_note), error_code = coalesce(error_code, 'resolved') where id = r.id;
@@ -1325,7 +1349,8 @@ declare
   v_purchase public.studio_sms_num_operations;
   v_latest public.studio_sms_billed_senders;
   v_from_state text;
-  v_rfl_live boolean;
+  v_rfl_state text;
+  v_entity uuid;
 begin
   if not public._tw4_r1_is_platform_admin(p_actor) then
     raise exception 'actor must be a platform admin' using errcode = '42501';
@@ -1333,6 +1358,9 @@ begin
   if p_note is null or char_length(btrim(p_note)) not between 10 and 300 then
     raise exception 'a written reason that confirms the number was released at the provider (10-300 characters) is required' using errcode = '22023';
   end if;
+  -- the lock order every lifecycle function uses: location link, then the legal business, then (below) the onboarding and ledger rows
+  v_entity := public._tw4sr_lock(p_studio_id);
+  perform 1 from public.studio_sms_legal_entities le where le.id = v_entity for no key update;
   select * into o from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state <> 'cancelled' for update;
   if o.id is null then
     raise exception 'there is no onboarding' using errcode = '22023';
@@ -1353,8 +1381,11 @@ begin
   end if;
   -- the recurring provider-fee lifecycle holds the cancellation evidence: while it still lists this number as live at the provider, the ledger does not retire it
   if to_regclass('public.studio_sms_provider_resources') is not null then
-    execute format('select exists (select 1 from public.studio_sms_provider_resources r where r.provider_sid = %L and r.provider_state = ''active'')', v_purchase.provider_sid) into v_rfl_live;
-    if v_rfl_live then
+    execute format('select r.provider_state from public.studio_sms_provider_resources r where r.provider_sid = %L', v_purchase.provider_sid) into v_rfl_state;
+    -- registered and not cancelled: refused. Not registered at all but ever an approved sender: also refused (register it and cancel it with evidence; a ledger retire must not hide a number
+    -- the lifecycle never saw)
+    if (v_rfl_state is not null and v_rfl_state <> 'cancelled')
+       or (v_rfl_state is null and exists (select 1 from public.studio_sms_billed_senders s where s.studio_id = p_studio_id and s.phone_number_sid = v_purchase.provider_sid and s.status = 'approved')) then
       raise exception 'cancel this number through the recurring-fee lifecycle (with evidence) before retiring it' using errcode = 'TW034';
     end if;
   end if;
@@ -1610,15 +1641,20 @@ declare
   v_att_ok boolean;
   v_cmp_ok boolean;
   v_rfl jsonb := null;
+  v_rfl_match boolean := false;
   v_inv public.studio_sms_num_inventory_checks;
   v_entity uuid;
 begin
   select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
   -- the recurring provider-fee lifecycle (PR #259, 20261209): resolved dynamically so this migration applies without it, and the checklist then FAILS CLOSED
   if to_regprocedure('public.tw4_rfl_studio_ready(uuid)') is not null then
-    execute format('select public.tw4_rfl_studio_ready(%L::uuid)', p_studio_id) into v_rfl;
+    begin
+      execute format('select public.tw4_rfl_studio_ready(%L::uuid)', p_studio_id) into v_rfl;
+    exception when others then
+      v_rfl := jsonb_build_object('ready', false, 'blockers', jsonb_build_array('rfl_error'));   -- an unreadable lifecycle is not a ready one
+    end;
   end if;
-  select * into v_inv from public.studio_sms_num_inventory_checks c where c.legal_entity_id = v_entity order by c.created_at desc limit 1;
+  select * into v_inv from public.studio_sms_num_inventory_checks c where c.legal_entity_id = v_entity order by c.listed_at desc, c.created_at desc, c.id limit 1;
   select * into v_p from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_purchase' and x.status = 'succeeded' and x.superseded_at is null and x.twilio_account_sid = v_account;
   select * into v_a from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_attach' and x.status = 'succeeded' and x.superseded_at is null and x.twilio_account_sid = v_account;
   v_ready := public._tw4sr_ready_core(p_studio_id);   -- the PR #249 readiness: the activation checklist cannot depend on being active already
@@ -1632,6 +1668,16 @@ begin
   v_cmp_ok := v_cmp.id is not null and v_cmp.outcome = 'passed' and v_cmp.created_at > now() - interval '24 hours' and v_cmp.twilio_account_sid = v_account
     and v_cmp.messaging_service_sid = v_ms.provider_sid and v_cmp.campaign_sid = v_qe.provider_sid
     and v_cmp.expected_inbound = (select pn.origin || '/api/sms/twilio/inbound' from public.studio_sms_inbound_route_pins pn order by pn.id desc limit 1);   -- judged against the CURRENT pin
+  -- "ready" is not enough: the lifecycle's inventory must hold THIS ledger's number and campaign (its own check only needs some live number and some live campaign)
+  if v_rfl is not null and v_rfl -> 'ready' = 'true'::jsonb then
+    begin
+      execute format('select exists (select 1 from public.studio_sms_provider_resources r where r.studio_id = %L and r.resource_kind = ''number'' and r.provider_state = ''active'' and r.provider_sid = %L and r.e164 = %L and r.twilio_account_sid = %L)
+                          and exists (select 1 from public.studio_sms_provider_resources r where r.studio_id = %L and r.resource_kind = ''campaign'' and r.provider_state = ''active'' and r.provider_sid = %L)',
+        p_studio_id, v_p.provider_sid, v_p.e164, v_account, p_studio_id, v_qe.provider_sid) into v_rfl_match;
+    exception when others then
+      v_rfl_match := false;
+    end;
+  end if;
   return jsonb_build_array(
     jsonb_build_object('id', 'subaccount_active', 'ok', v_account is not null, 'detail', case when v_account is null then 'no_active_subaccount' else 'ok' end),
     jsonb_build_object('id', 'service_ready', 'ok', v_ms.id is not null, 'detail', case when v_ms.id is null then 'service_not_ready' else 'ok' end),
@@ -1644,11 +1690,13 @@ begin
     jsonb_build_object('id', 'opt_out_attested', 'ok', coalesce(v_att_ok, false), 'detail', case when coalesce(v_att_ok, false) then 'ok' else 'attestation_missing_or_stale' end),
     jsonb_build_object('id', 'compliance_passed', 'ok', coalesce(v_cmp_ok, false), 'detail', case when coalesce(v_cmp_ok, false) then 'ok' when v_cmp.id is null then 'no_compliance_check' else 'compliance_failed_or_stale' end),
     -- exposure monitoring and provider-fee cover: the recurring-fee lifecycle must be installed, the number and campaign registered in its inventory, every period covered, nothing open
-    jsonb_build_object('id', 'rfl_ready', 'ok', coalesce((v_rfl ->> 'ready')::boolean, false),
-      'detail', case when v_rfl is null then 'rfl_not_installed' when (v_rfl ->> 'ready')::boolean then 'ok' else 'rfl_blockers:' || coalesce((v_rfl -> 'blockers')::text, '?') end),
+    jsonb_build_object('id', 'rfl_ready', 'ok', coalesce(v_rfl -> 'ready' = 'true'::jsonb, false) and v_rfl_match,
+      'detail', case when v_rfl is null then 'rfl_not_installed' when not coalesce(v_rfl -> 'ready' = 'true'::jsonb, false) then 'rfl_blockers:' || coalesce((v_rfl -> 'blockers')::text, '?')
+                     when not v_rfl_match then 'rfl_inventory_differs_from_ledger' else 'ok' end),
     -- inventory reconciliation: the provider's inventory of this business was reconciled with the ledger, clean, within 24 hours (the runner's refreshInventory records it)
-    jsonb_build_object('id', 'inventory_reconciled', 'ok', v_inv.id is not null and v_inv.unknown_count = 0 and v_inv.created_at > now() - interval '24 hours',
-      'detail', case when v_inv.id is null then 'no_inventory_check' when v_inv.unknown_count > 0 then 'inventory_has_unknown_numbers' when v_inv.created_at <= now() - interval '24 hours' then 'inventory_check_stale' else 'ok' end),
+    jsonb_build_object('id', 'inventory_reconciled', 'ok', v_inv.id is not null and v_inv.unknown_count = 0 and v_inv.missing_count = 0 and v_inv.twilio_account_sid is not distinct from v_account and v_inv.listed_at > now() - interval '24 hours',
+      'detail', case when v_inv.id is null then 'no_inventory_check' when v_inv.unknown_count > 0 then 'inventory_has_unknown_numbers' when v_inv.missing_count > 0 then 'inventory_missing_ledger_numbers'
+                     when v_inv.twilio_account_sid is distinct from v_account then 'inventory_account_differs' when v_inv.listed_at <= now() - interval '24 hours' then 'inventory_check_stale' else 'ok' end),
     jsonb_build_object('id', 'inbound_route_pinned', 'ok', exists (select 1 from public.studio_sms_inbound_route_pins), 'detail', case when exists (select 1 from public.studio_sms_inbound_route_pins) then 'ok' else 'inbound_route_not_pinned' end),
     jsonb_build_object('id', 'funding_continuity', 'ok', (v_fund ->> 'ok')::boolean, 'detail', v_fund ->> 'detail'));
 end $$;
@@ -1878,25 +1926,43 @@ begin
   return jsonb_build_object('origin', p_origin);
 end $$;
 
-create or replace function public.tw4_num_inventory_observe(p_onboarding_id uuid, p_lease_owner text, p_sids text[])
+create or replace function public.tw4_num_inventory_observe(p_onboarding_id uuid, p_lease_owner text, p_sids text[], p_source text, p_listed_at timestamptz)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
   o public.studio_sms_onboarding;
   v_entity uuid;
+  v_account text;
   v_known text[];
   v_unknown int;
+  v_missing int;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
   if p_sids is null or cardinality(p_sids) > 1000 or exists (select 1 from unnest(p_sids) x where x is null or x !~ '^PN[0-9a-fA-F]{32}$') then
     raise exception 'an inventory of number sids is required' using errcode = '22023';
   end if;
+  if p_source is null or p_source not in ('provider_read', 'fake') or p_listed_at is null or p_listed_at > clock_timestamp() + interval '30 seconds' or p_listed_at < clock_timestamp() - interval '10 minutes' then
+    raise exception 'invalid inventory observation' using errcode = '22023';
+  end if;
+  if p_source = 'fake' and not public._tw4sr_fake_allowed() then
+    raise exception 'fake evidence is not accepted here' using errcode = '42501';
+  end if;
   select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = o.studio_id;
+  v_account := public._tw4num_account(o.studio_id);
+  if v_entity is null or v_account is null then
+    raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
+  end if;
   v_known := public._tw4num_known(v_entity);
   select count(*) into v_unknown from unnest(p_sids) x where not (x = any (v_known));
-  insert into public.studio_sms_num_inventory_checks (onboarding_id, lease_owner, legal_entity_id, listed_count, unknown_count) values (o.id, p_lease_owner, v_entity, cardinality(p_sids), v_unknown);
-  return jsonb_build_object('listed', cardinality(p_sids), 'unknown', v_unknown);
+  select count(*) into v_missing from (
+    select p.provider_sid sid from public.studio_sms_num_operations p
+     where p.legal_entity_id = v_entity and p.op_kind = 'number_purchase' and p.status = 'succeeded' and p.superseded_at is null and p.twilio_account_sid = v_account
+       and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = p.id and r.status = 'owned')) l
+   where not (l.sid = any (p_sids));
+  insert into public.studio_sms_num_inventory_checks (onboarding_id, lease_owner, legal_entity_id, listed_count, unknown_count, missing_count, twilio_account_sid, source, listed_at)
+  values (o.id, p_lease_owner, v_entity, cardinality(p_sids), v_unknown, v_missing, v_account, p_source, p_listed_at);
+  return jsonb_build_object('listed', cardinality(p_sids), 'unknown', v_unknown, 'missing', v_missing);
 end $$;
 
 create or replace function public.tw4_num_inventory_ack(p_studio_id uuid, p_actor uuid, p_phone_number_sid text, p_e164 text, p_note text)
@@ -1921,7 +1987,7 @@ begin
   -- Fail closed: the database cannot tell WHICH number a lost purchase produced (an abandoned operation has no provider sid, and the e164 typed here is the caller's word), so while the
   -- business has ANY purchase declared not created, nothing is acknowledged for it: the late-found number must be investigated first. A number tied to a failed or retired purchase
   -- (by sid or e164) is refused as well.
-  if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.status = 'abandoned')
+  if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.status in ('abandoned', 'in_flight', 'unknown_outcome'))
      or exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and (x.status = 'failed' or x.superseded_at is not null)
                   and (x.e164 = p_e164 or x.provider_sid = p_phone_number_sid)) then
     raise exception 'this business has a purchase declared not created, or this number belongs to a failed or retired purchase: investigate it, do not acknowledge it' using errcode = 'TW034';
@@ -2019,7 +2085,7 @@ revoke all on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, json
   public.tw4_num_status(uuid, uuid), public.tw4_act_attest(uuid, uuid, jsonb, text), public.tw4_act_compliance_record(uuid, uuid, jsonb, text, text, text),
   public.tw4_act_verify_sender(uuid, uuid, uuid, jsonb, text), public.tw4_act_check(uuid, uuid), public.tw4_act_mark_ready(uuid, uuid, text), public.tw4_act_activate(uuid, uuid, text),
   public.tw4_act_suspend(uuid, uuid, text), public.tw4_act_exposure(uuid), public.tw4_inbound_route_pin_set(uuid, text, text), public.tw4_num_inventory_ack(uuid, uuid, text, text, text),
-  public.tw4_num_rent_basis(uuid), public.tw4_num_registration_facts(uuid), public._tw4num_rent_basis_core(uuid), public.tw4_num_inventory_observe(uuid, text, text[]), public._tw4num_known(uuid), public.tw4_num_select_as_owner(uuid, uuid, text, int), public.tw4_num_withdraw_as_owner(uuid, uuid, text) from public, anon, authenticated, service_role;
+  public.tw4_num_rent_basis(uuid), public.tw4_num_registration_facts(uuid), public._tw4num_rent_basis_core(uuid), public.tw4_num_inventory_observe(uuid, text, text[], text, timestamptz), public._tw4num_known(uuid), public.tw4_num_select_as_owner(uuid, uuid, text, int), public.tw4_num_withdraw_as_owner(uuid, uuid, text) from public, anon, authenticated, service_role;
 grant execute on function public.tw4_num_rent_basis(uuid) to service_role;
 grant execute on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, jsonb, text, text), public.tw4_num_select(uuid, uuid, uuid, text, int, text), public.tw4_num_withdraw(uuid, uuid, uuid, text),
   public.tw4_num_claim(uuid, uuid, text, integer, text), public.tw4_num_context(uuid, text), public.tw4_num_begin(uuid, text, text, text, text, jsonb, uuid),
@@ -2028,7 +2094,7 @@ grant execute on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, j
   public.tw4_num_status(uuid, uuid), public.tw4_act_attest(uuid, uuid, jsonb, text), public.tw4_act_compliance_record(uuid, uuid, jsonb, text, text, text),
   public.tw4_act_verify_sender(uuid, uuid, uuid, jsonb, text), public.tw4_act_check(uuid, uuid), public.tw4_act_mark_ready(uuid, uuid, text), public.tw4_act_activate(uuid, uuid, text),
   public.tw4_act_suspend(uuid, uuid, text), public.tw4_act_exposure(uuid), public.tw4_inbound_route_pin_set(uuid, text, text), public.tw4_num_inventory_ack(uuid, uuid, text, text, text),
-  public.tw4_num_rent_basis(uuid), public.tw4_num_registration_facts(uuid), public.tw4_num_inventory_observe(uuid, text, text[]) to service_role;
+  public.tw4_num_rent_basis(uuid), public.tw4_num_registration_facts(uuid), public.tw4_num_inventory_observe(uuid, text, text[], text, timestamptz) to service_role;
 -- the two owner entry points are the ONLY R2b functions an authenticated user can run; each derives the actor from auth.uid()
 grant execute on function public.tw4_num_select_as_owner(uuid, uuid, text, int), public.tw4_num_withdraw_as_owner(uuid, uuid, text) to authenticated;
 

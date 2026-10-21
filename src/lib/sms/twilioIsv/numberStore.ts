@@ -55,7 +55,7 @@ export interface NumberStore {
   observe(onboardingId: string, leaseOwner: string, operationId: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<NumObserveResult>;
   transition(onboardingId: string, leaseOwner: string, to: RunnerTransitionState, step: string, errorCode: string | null): Promise<string>;
   /** The provider inventory seen under this lease; the DATABASE judges it against the numbers it accounts for and tw4_num_begin(number_purchase) requires a clean stamp. */
-  inventoryObserve(onboardingId: string, leaseOwner: string, sids: string[]): Promise<{ listed: number; unknown: number }>;
+  inventoryObserve(onboardingId: string, leaseOwner: string, sids: string[], source: "provider_read" | "fake", listedAt: string): Promise<{ listed: number; unknown: number; missing: number }>;
   recordOffer(studioId: string, actorId: string, accountSid: string, search: Record<string, unknown>, candidates: unknown[], source: "provider_read" | "fake", digest: string): Promise<OfferRecorded>;
 }
 
@@ -115,9 +115,12 @@ export class SupabaseNumberStore implements NumberStore {
     return String(row?.state ?? "");
   }
 
-  async inventoryObserve(onboardingId: string, leaseOwner: string, sids: string[]): Promise<{ listed: number; unknown: number }> {
-    const row = await this.call<{ listed: number; unknown: number }>("tw4_num_inventory_observe", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_sids: sids });
-    return { listed: Number(row?.listed ?? 0), unknown: Number(row?.unknown ?? Number.MAX_SAFE_INTEGER) };
+  async inventoryObserve(onboardingId: string, leaseOwner: string, sids: string[], source: "provider_read" | "fake", listedAt: string): Promise<{ listed: number; unknown: number; missing: number }> {
+    const row = await this.call<{ listed: number; unknown: number; missing: number }>("tw4_num_inventory_observe", {
+      p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_sids: sids, p_source: source, p_listed_at: listedAt,
+    });
+    // an answer the database did not give is never read as clean
+    return { listed: Number(row?.listed ?? 0), unknown: Number(row?.unknown ?? Number.MAX_SAFE_INTEGER), missing: Number(row?.missing ?? Number.MAX_SAFE_INTEGER) };
   }
 
   async recordOffer(studioId: string, actorId: string, accountSid: string, search: Record<string, unknown>, candidates: unknown[], source: "provider_read" | "fake", digest: string): Promise<OfferRecorded> {

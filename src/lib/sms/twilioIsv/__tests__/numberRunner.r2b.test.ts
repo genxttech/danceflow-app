@@ -67,10 +67,11 @@ class ScriptedStore implements NumberStore {
     return to;
   }
   inventories: string[][] = [];
-  async inventoryObserve(_o: string, _l: string, sids: string[]) {
+  missing = 0;
+  async inventoryObserve(_o: string, _l: string, sids: string[], _source?: string, _listedAt?: string) {
     this.log.push("inventory");
     this.inventories.push(sids);
-    return { listed: sids.length, unknown: sids.filter((sid) => !this.ctx.known_numbers.includes(sid)).length };
+    return { listed: sids.length, unknown: sids.filter((sid) => !this.ctx.known_numbers.includes(sid)).length, missing: this.missing };
   }
   async recordOffer(_s: string, _a: string, accountSid: string, _search: Record<string, unknown>, candidates: unknown[]): Promise<OfferRecorded> {
     this.log.push(`offer:${accountSid}`);

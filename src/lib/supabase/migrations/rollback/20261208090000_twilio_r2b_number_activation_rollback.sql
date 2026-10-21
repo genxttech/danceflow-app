@@ -72,7 +72,7 @@ drop function if exists public._tw4sr_ready_core(uuid);
 drop function if exists public._tw4act_lock_funding(uuid);
 drop function if exists public._tw4num_credit_funded(uuid, uuid);
 
-drop function if exists public.tw4_num_inventory_observe(uuid, text, text[]);
+drop function if exists public.tw4_num_inventory_observe(uuid, text, text[], text, timestamptz);
 drop function if exists public._tw4num_known(uuid);
 drop function if exists public.tw4_num_registration_facts(uuid);
 drop function if exists public.tw4_num_rent_basis(uuid);

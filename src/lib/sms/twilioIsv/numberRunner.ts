@@ -127,6 +127,7 @@ function beginRefusal(error: unknown, kind: NumKind): { outcome: NumberOutcome; 
     case "TW032": return { outcome: "prerequisite_missing", detail };
     case "TW033": return { outcome: "recurring_missing", detail };
     case "TW040": return { outcome: "no_selection", detail };
+    case "TW046": return { outcome: "prerequisite_missing", detail: `${kind}:lifecycle_inventory` };
     case "TW045": return { outcome: "prerequisite_missing", detail: `${kind}:inventory_not_reconciled` };
     case "23505": return { outcome: "number_taken", detail };
     default: return { outcome: "exception", detail: `begin:${detail}` };
@@ -356,7 +357,9 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
       // INVENTORY RECONCILIATION before anything is recorded or bought: every number the provider shows in this subaccount must be one the system accounts for. A number it
       // does not know (bought by hand, a hung purchase an admin declared not created) may be billed to DanceFlow forever: a human acknowledges it, nothing proceeds.
       let inventory;
+      let listedAt = new Date().toISOString();
       try {
+        listedAt = new Date().toISOString();
         inventory = await adapter.listIncomingNumbers();
       } catch (error) {
         return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state };
@@ -364,13 +367,13 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
       let seen;
       try {
         // the DATABASE compares the provider's inventory with the numbers it accounts for, and its stamp (this lease, a moment ago, nothing unknown) is what the purchase requires
-        seen = await store.inventoryObserve(onboardingId, leaseOwner, inventory.map((n) => n.sid));
+        seen = await store.inventoryObserve(onboardingId, leaseOwner, inventory.map((n) => n.sid), adapter.evidenceSource, listedAt);
       } catch (error) {
         return { outcome: "retry_later", steps, detail: `inventory_record:${storeCode(error)}`, state };
       }
-      if (seen.unknown > 0) {
+      if (seen.unknown > 0 || seen.missing > 0) {
         await toException("num_inventory_unknown");
-        return { outcome: "exception", steps, detail: `inventory_unrecorded:${seen.unknown}`, state };
+        return { outcome: "exception", steps, detail: seen.unknown > 0 ? `inventory_unrecorded:${seen.unknown}` : `inventory_missing:${seen.missing}`, state };
       }
     }
     if (!e164 || (!livePurchase && !ctx.requirements.selection_id)) return { outcome: "no_selection", steps, state };
@@ -511,15 +514,17 @@ export async function refreshInventory(input: { store: NumberStore; adapter: Isv
     const refused = await accountRefusal(store, adapter, claim.onboarding_id, leaseOwner, claim.state);
     if (refused) return refused;
     let inventory;
+    let listedAt = new Date().toISOString();
     try {
+      listedAt = new Date().toISOString();
       inventory = await adapter.listIncomingNumbers();
     } catch (error) {
       return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state: claim.state };
     }
     try {
-      const seen = await store.inventoryObserve(claim.onboarding_id, leaseOwner, inventory.map((n) => n.sid));
-      return seen.unknown > 0
-        ? { outcome: "inventory_unknown", steps, detail: `inventory_unrecorded:${seen.unknown}`, state: claim.state }
+      const seen = await store.inventoryObserve(claim.onboarding_id, leaseOwner, inventory.map((n) => n.sid), adapter.evidenceSource, listedAt);
+      return seen.unknown > 0 || seen.missing > 0
+        ? { outcome: "inventory_unknown", steps, detail: seen.unknown > 0 ? `inventory_unrecorded:${seen.unknown}` : `inventory_missing:${seen.missing}`, state: claim.state }
         : { outcome: "inventory_clean", steps, state: claim.state };
     } catch (error) {
       return { outcome: "retry_later", steps, detail: `inventory_record:${storeCode(error)}`, state: claim.state };

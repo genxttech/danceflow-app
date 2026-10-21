@@ -101,8 +101,12 @@ const STUDIOS = `'${SA1}', '${SA2}', '${SB1}', '${SC1}', '${SD1}'`;
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
-drop function if exists public.tw4_rfl_studio_ready(uuid);
-do $$ begin if (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'studio_sms_provider_resources') = 2 then drop table public.studio_sms_provider_resources; end if; end $$;
+do $$ begin
+  if exists (select 1 from pg_proc where proname = 'tw4_rfl_studio_ready' and pronamespace = 'public'::regnamespace and prosrc like '%tw4_r2b_stub%') then drop function public.tw4_rfl_studio_ready(uuid); end if;
+  if to_regclass('public.studio_sms_provider_resources') is not null then
+    if coalesce(obj_description(to_regclass('public.studio_sms_provider_resources'), 'pg_class'), '') = 'tw4_r2b_stub' then drop table public.studio_sms_provider_resources; end if;
+  end if;
+end $$;
 delete from public.studio_sms_inbound_route_pins where set_by = '${U.padmin}';
 delete from public.studio_sms_num_inventory_checks where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_num_inventory_acks where legal_entity_id in (${ENTITIES});
@@ -273,6 +277,9 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
 
   beforeAll(async () => {
     expect(psql(`select to_regclass('public.studio_sms_num_operations') is not null`)).toBe("t");
+    // never run against a database that carries the REAL recurring-fee lifecycle: this suite installs and drops stand-ins of its function and table
+    expect(psql("select count(*) from pg_proc where proname = 'tw4_rfl_studio_ready' and prosrc not like '%tw4_r2b_stub%'"), "use an isolated database without the real recurring-fee lifecycle").toBe("0");
+    expect(psql("select to_regclass('public.studio_sms_provider_resources') is not null and coalesce(obj_description(to_regclass('public.studio_sms_provider_resources'), 'pg_class'), '') <> 'tw4_r2b_stub'")).toBe("f");
     psqlFile(FIXTURES);
     admin = mkClient(serviceKey());
     credits = new SupabaseCreditStore(admin);
@@ -622,6 +629,8 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(ops(SD1, "number_purchase")).toMatch(/2:unknown_outcome:false$/);
       // the database refuses to close a fee operation as failed on its own say-so, and an admin may not declare "not created" within 20 minutes
       const op = opId(SD1, "number_purchase", 2);
+      // while a purchase is unresolved nothing can be acknowledged for the business: the late-found number must stay visible
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: `PN${"7".repeat(32)}`, p_e164: "+12025550166", p_note: "bought by hand before the system" })).error?.code).toBe("TW034");
       expect((await rpc("tw4_num_finish", { p_onboarding_id: OD1, p_lease_owner: "x", p_operation_id: op, p_status: "failed", p_provider_sid: null, p_error_code: "reconciled_absent", p_error_detail: null })).error?.code).toBe("55P03");
       expect((await rpc("tw4_num_resolve", { p_operation_id: op, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "checked the console, no such number" })).error?.code).toBe("22023");
       aged(`update public.studio_sms_num_operations set started_at = now() - interval '30 minutes' where id = '${op}'`);
@@ -718,6 +727,23 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       const parentLike = new FakeNumberAdapter(`AC${"9".repeat(32)}`);
       expect((await run(SA1, parentLike)).outcome).toBe("account_mismatch");
       expect(parentLike.calls).toHaveLength(0);
+    });
+
+    it("a location that only went through R2a (no R2b operation) does NOT send from a hand-recorded sender: the PR #249 readiness says ready, the R2b gate says no", async () => {
+      const sender = "b2b00000-0000-4000-8000-0000000009a1";
+      const verification = "b2b00000-0000-4000-8000-0000000009a2";
+      const pn = `PN${"6".repeat(32)}`;
+      psqlFile(`begin; set local session_replication_role = replica;
+        insert into public.studio_sms_billed_senders (id, legal_entity_id, studio_id, account_sid, messaging_service_sid, sender_e164, status, set_by, reason, campaign_sid, phone_number_sid)
+          values ('${sender}', '${EA}', '${SA2}', '${ACC.A}', '${MG.A2}', '+12025550188', 'approved', '${U.padmin}', 'fixture: hand-recorded sender', '${QE.A2}', '${pn}');
+        insert into public.studio_sms_sender_verifications (id, legal_entity_id, studio_id, sender_id, account_sid, messaging_service_sid, campaign_sid, phone_number_sid, sender_e164, source, outcome, evidence, attested_opt_out, actor)
+          values ('${verification}', '${EA}', '${SA2}', '${sender}', '${ACC.A}', '${MG.A2}', '${QE.A2}', '${pn}', '+12025550188', 'fake', 'verified', '{"campaign": {"us_app_to_person_usecase": "MIXED"}}'::jsonb, true, '${U.padmin}');
+        update public.studio_sms_billed_senders set verification_id = '${verification}' where id = '${sender}';
+        commit;`);
+      expect(psql(`select (public._tw4sr_ready_core('${SA2}')).id is not null`)).toBe("t");
+      expect(psql(`select (public._tw4sr_ready('${SA2}')).id is not null`)).toBe("f");
+      expect(psql(`select count(*) from public.studio_sms_num_operations where studio_id = '${SA2}'`)).toBe("0");
+      aged(`delete from public.studio_sms_sender_verifications where studio_id = '${SA2}'; delete from public.studio_sms_billed_senders where studio_id = '${SA2}'`); // leave the location as it was
     });
 
     it("the Messaging Service, campaign and number a purchase attaches to must be the studio's own verified ones", async () => {
@@ -929,25 +955,40 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(before.inventory_reconciled).toMatchObject({ ok: false, detail: "no_inventory_check" });
       expect(await markReady(admin, SA1, U.padmin, "attempt without the lifecycle or inventory")).toMatchObject({ ok: false, code: "TW042" });
       // the lifecycle is installed but reports blockers (an uncovered period, a number missing from its inventory)
-      psqlFile("create or replace function public.tw4_rfl_studio_ready(uuid) returns jsonb language sql as $$ select '{\"ready\": false, \"blockers\": [\"number_not_in_inventory\"]}'::jsonb $$; -- tw4_r2b_stub");
+      const stub = (body: string) => psqlFile(`create or replace function public.tw4_rfl_studio_ready(uuid) returns jsonb language sql as $$ select ${body} /* tw4_r2b_stub */ $$;`);
+      stub("'{\"ready\": false, \"blockers\": [\"number_not_in_inventory\"]}'::jsonb");
       expect((await items()).rfl_ready).toMatchObject({ ok: false });
       expect((await items()).rfl_ready.detail).toContain("number_not_in_inventory");
+      // a lifecycle that raises is not a ready one
+      stub("(1 / 0)::text::jsonb");
+      expect((await items()).rfl_ready.detail).toContain("rfl_error");
+      // "ready" is not enough: its inventory must hold THIS ledger's number and campaign (the lifecycle only needs some live number and some live campaign)
+      stub("'{\"ready\": true, \"blockers\": []}'::jsonb");
+      psqlFile(`create table public.studio_sms_provider_resources (studio_id uuid, resource_kind text, provider_sid text, e164 text, twilio_account_sid text, provider_state text); comment on table public.studio_sms_provider_resources is 'tw4_r2b_stub';
+        insert into public.studio_sms_provider_resources values ('${SA1}', 'number', 'PN${"8".repeat(32)}', '${NUM.a1}', '${ACC.A}', 'active'), ('${SA1}', 'campaign', '${QE.A1}', null, '${ACC.A}', 'active');`);
+      expect((await items()).rfl_ready).toMatchObject({ ok: false, detail: "rfl_inventory_differs_from_ledger" }); // a ready lifecycle holding ANOTHER number
+      psqlFile(`update public.studio_sms_provider_resources set provider_sid = '${numberSid}', e164 = '${NUM.a1c}' where resource_kind = 'number'`);
+      expect((await items()).rfl_ready).toMatchObject({ ok: true });
       // a provider inventory with a number the system does not account for blocks activation too (and stamps nothing clean)
       const a = adapterOf(ACC.A);
       const stray = a.seedOwned("+12025550177");
       expect(await refreshInventory({ store, adapter: a, studioId: SA1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_unknown" });
       expect((await items()).inventory_reconciled).toMatchObject({ ok: false, detail: "inventory_has_unknown_numbers" });
       a.universe.owned.delete(stray);
+      // a listing that does not show a number the ledger owns proves nothing (an empty or partial listing cannot stamp clean)
+      const owned = a.universe.owned.get(numberSid)!;
+      a.universe.owned.delete(numberSid);
+      expect(await refreshInventory({ store, adapter: a, studioId: SA1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_unknown", detail: expect.stringContaining("inventory_missing") });
+      expect((await items()).inventory_reconciled).toMatchObject({ ok: false, detail: "inventory_missing_ledger_numbers" });
+      a.universe.owned.set(numberSid, owned);
       expect(await refreshInventory({ store, adapter: a, studioId: SA1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
-      // a clean check goes stale after 24 hours
       expect((await items()).inventory_reconciled).toMatchObject({ ok: true });
-      aged(`delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${EA}' and unknown_count > 0`);
-      aged(`update public.studio_sms_num_inventory_checks set created_at = now() - interval '25 hours' where legal_entity_id = '${EA}'`);
+      // a clean check goes stale after 24 hours (ordered by when the LISTING started)
+      aged(`delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${EA}' and (unknown_count > 0 or missing_count > 0)`);
+      aged(`update public.studio_sms_num_inventory_checks set created_at = now() - interval '25 hours', listed_at = now() - interval '25 hours' where legal_entity_id = '${EA}'`);
       expect((await items()).inventory_reconciled).toMatchObject({ ok: false, detail: "inventory_check_stale" });
       expect(await refreshInventory({ store, adapter: a, studioId: SA1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
-      // the lifecycle is ready
-      psqlFile("create or replace function public.tw4_rfl_studio_ready(uuid) returns jsonb language sql as $$ select '{\"ready\": true, \"blockers\": []}'::jsonb $$; -- tw4_r2b_stub");
-      expect((await items()).rfl_ready).toMatchObject({ ok: true });
+      expect((await items()).inventory_reconciled).toMatchObject({ ok: true });
     });
 
     it("ready for activation only when every item passes; each lapse (authorization, verification age, attestation age, compliance age) blocks activation again, and nothing activates by itself", async () => {
@@ -1021,14 +1062,14 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     it("a location past the number step can still replace its number: retire sends it through exception and reopen returns it to the number step; a number mismatch at the provider stops it at once", async () => {
       // the sender is already revoked by the suspension; release it, then the admin confirms the provider release
       expect((await rpc("tw4_sender_revoke", { p_studio_id: SA1, p_actor: U.padmin, p_reason: "fixture: location releases its number", p_release: true })).error).toBeNull();
-      // the recurring-fee lifecycle holds the cancellation evidence: while it still lists the number as live at the provider the ledger does not retire it (a stand-in with the two
-      // columns the guard reads, created only where the real lifecycle table does not exist)
-      const standIn = psql("select to_regclass('public.studio_sms_provider_resources') is null") === "t";
+      // the recurring-fee lifecycle holds the cancellation evidence: while it lists the number as live (or never saw an approved sender's number) the ledger does not retire it
+      const standIn = psql("select coalesce(obj_description('public.studio_sms_provider_resources'::regclass, 'pg_class'), '') = 'tw4_r2b_stub'") === "t";
       if (standIn) {
-        psqlFile(`create table public.studio_sms_provider_resources (provider_sid text, provider_state text); insert into public.studio_sms_provider_resources values ('${numberSid}', 'active');`);
         consoleRelease(ACC.A, NUM.a1c);
-        expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error?.code).toBe("TW034");
-        psqlFile(`update public.studio_sms_provider_resources set provider_state = 'cancelled'`);
+        expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error?.code).toBe("TW034"); // registered, still active
+        psqlFile(`delete from public.studio_sms_provider_resources where provider_sid = '${numberSid}'`);
+        expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error?.code).toBe("TW034"); // never registered but an approved sender
+        psqlFile(`insert into public.studio_sms_provider_resources values ('${SA1}', 'number', '${numberSid}', '${NUM.a1c}', '${ACC.A}', 'cancelled')`);
       }
       consoleRelease(ACC.A, NUM.a1c);
       expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error).toBeNull();
@@ -1042,6 +1083,16 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     it("a number the provider no longer has is evidence: the next status check judges a mismatch, the sender is revoked and the location goes to exception", async () => {
       const a = adapterOf(ACC.A);
       await choose(SA1, U.owner_a, a, NUM.a1b);
+      // a live number in the lifecycle inventory (or an open cancellation) refuses the purchase BEFORE anything is bought
+      if (psql("select coalesce(obj_description('public.studio_sms_provider_resources'::regclass, 'pg_class'), '') = 'tw4_r2b_stub'") === "t") {
+        psqlFile(`update public.studio_sms_provider_resources set provider_state = 'active' where resource_kind = 'number' and studio_id = '${SA1}'`);
+        const buys = a.count("purchaseNumber");
+        const refusedBuy = await run(SA1, a);
+        expect(refusedBuy).toMatchObject({ outcome: "prerequisite_missing" });
+        expect(refusedBuy.detail).toContain("lifecycle_inventory");
+        expect(a.count("purchaseNumber")).toBe(buys);
+        psqlFile(`update public.studio_sms_provider_resources set provider_state = 'cancelled' where resource_kind = 'number' and studio_id = '${SA1}'`);
+      }
       const bought = await run(SA1, a);
       expect(bought.outcome).toBe("number_ready");
       expect((await recordSenderFromLedger(admin, SA1, U.padmin)).ok).toBe(true);
