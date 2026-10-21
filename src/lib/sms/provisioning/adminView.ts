@@ -11,7 +11,26 @@ import type { OnboardingDisplayState } from "@/lib/sms/onboarding/stateMachine";
 
 export type OperationKind = "messaging_service" | "campaign" | "number" | "number_attach";
 export type OperationStatus = "in_flight" | "succeeded" | "failed" | "unknown_outcome" | "abandoned";
-export type ProvisioningOperationView = { id: string; kind: OperationKind | string; status: OperationStatus | string; feeBearing: boolean; attemptedAt: string | null; errorCode: string | null };
+export type ProvisioningResourceView = { status: string | null; mismatchCode: string | null; providerStatus: string | null; failureReasons: string | null; observedAt: string | null; source: string | null };
+export type ProvisioningOperationView = {
+  id: string;
+  kind: OperationKind | string;
+  /** The ledger's own status. An unrecognized value is kept verbatim and treated as needing investigation, never as success or failure. */
+  status: OperationStatus | string;
+  feeBearing: boolean;
+  attemptedAt: string | null;
+  errorCode: string | null;
+  // platform-admin-only detail (the ledger read is admin-only; none of this is ever sent to a studio owner)
+  attempt?: number | null;
+  providerSid?: string | null;
+  feeKinds?: string[];
+  errorDetail?: string | null;
+  finishedAt?: string | null;
+  superseded?: boolean;
+  resolutionNote?: string | null;
+  resolved?: boolean;
+  resource?: ProvisioningResourceView | null;
+};
 
 export type AdminProvisioningInput = {
   studioId: string;
@@ -19,7 +38,10 @@ export type AdminProvisioningInput = {
   accessEnabled: boolean;
   evidence: RunnerStatus | undefined;
   sender: SenderOverviewRow | null;
+  /** null = the ledger is not loaded for this studio. */
   operations: ProvisioningOperationView[] | null;
+  /** True when the ledger read was attempted and failed: shown as unreadable, never as "no operations". */
+  ledgerUnreadable?: boolean;
   /** False when the sender overview could not be loaded: sender chips then say "Not loaded" rather than "none recorded". Defaults to true. */
   sendersLoaded?: boolean;
 };
@@ -56,8 +78,11 @@ export function buildAdminProvisioningView(input: AdminProvisioningInput): Admin
   const campaignOp = ops.filter((o) => o.kind === "campaign").slice(-1)[0] ?? null;
 
   const blockers: string[] = [];
+  if (input.ledgerUnreadable) blockers.push("The provisioning ledger could not be read. Do not assume nothing is in flight.");
+  const unrecognized = ops.filter((o) => !["in_flight", "succeeded", "failed", "unknown_outcome", "abandoned"].includes(o.status));
+  if (unrecognized.length) blockers.push(`${unrecognized.length} operation${unrecognized.length > 1 ? "s have" : " has"} a status this console does not recognize. Investigate before any action.`);
   if (!input.accessEnabled) blockers.push("Pilot access is off for this studio.");
-  if (operations === null && ["service_setup", "campaign_pending", "ready_for_activation"].includes(String(state))) blockers.push("The provisioning ledger is not connected in this build; operations cannot be tracked here.");
+  if (operations === null && !input.ledgerUnreadable && ["service_setup", "campaign_pending", "ready_for_activation"].includes(String(state))) blockers.push("The provisioning ledger is not loaded for this studio; operations cannot be tracked here.");
   if (unknownOutcomes.length) blockers.push(`${unknownOutcomes.length} provider operation${unknownOutcomes.length > 1 ? "s have" : " has"} an unknown outcome. Nothing further runs until a person resolves it.`);
   if (failed.some((o) => o.feeBearing)) blockers.push("A fee-bearing operation failed. A new explicit owner approval is needed before any retry.");
   if (evidence && evidence.steps.some((s) => s.status === "failed")) blockers.push("A registration step failed; see the run evidence below.");
@@ -67,7 +92,8 @@ export function buildAdminProvisioningView(input: AdminProvisioningInput): Admin
   const anchor = `#onboarding-row-${input.studioId}`;
   if (!input.accessEnabled) next = { kind: "act", title: "Switch pilot access on", detail: "The studio cannot see its setup page until access is enabled.", href: "#onboarding-pilot" };
   else if (state == null || STUDIO_WAIT.has(String(state))) next = { kind: "wait_studio", title: "Waiting for the studio owner", detail: "The owner needs to finish or correct their information. Nothing for you to do.", href: null };
-  else if (unknownOutcomes.length) next = { kind: "investigate", title: "Resolve the unknown provider outcome", detail: "Look the resource up at the provider, then record whether it was created. Resolution is not wired into this panel yet.", href: null };
+  else if (input.ledgerUnreadable) next = { kind: "investigate", title: "Reload: the provisioning ledger could not be read", detail: "Nothing can be resolved or started from here until the ledger reads cleanly.", href: null };
+  else if (unknownOutcomes.length) next = { kind: "investigate", title: "Resolve the unknown provider outcome", detail: "Look the resource up at the provider (Twilio console), then record whether it was created. The provider may or may not hold it; nothing is assumed.", href: `#ledger-${input.studioId}` };
   else if (TROUBLE.has(String(state))) next = { kind: "investigate", title: "Investigate this onboarding", detail: "The setup is blocked, in exception or suspended. Review the evidence before any action.", href: anchor };
   else if (REVIEW.has(String(state))) next = { kind: "act", title: "Run the registration steps", detail: "Open the fee gate and run the next steps from the studio row.", href: anchor };
   else if (state === "brand_pending") next = { kind: "wait_provider", title: "Brand is under carrier review", detail: "Use Check status to read Twilio. Nothing is submitted or charged by a status check.", href: anchor };
