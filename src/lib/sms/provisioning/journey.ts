@@ -33,6 +33,10 @@ export type FinanceFacts = {
   campaignMonthlyKind: "monthly" | "monthly_low_volume" | null;
   hasActiveAuthorization: boolean;
   prices: { kind: string; customerPriceCents: number }[];
+  /** Fail-closed switches for the owner's own controls: a link to a control is offered only when that control is actually usable. */
+  purchasesOpen: boolean;
+  /** The recurring-authorization panel is rendered AND its feature is on. */
+  authorizationOpen: boolean;
 };
 
 export type StageKey = "business" | "eligibility" | "approvals" | "provider" | "number" | "sender" | "compliance" | "activation";
@@ -57,6 +61,8 @@ export type JourneyInput = {
   isOwner: boolean;
   finance: FinanceFacts | null;
   provisioning: ProvisioningFacts | null;
+  /** The setup form is rendered and editable for this viewer (the #sms-setup target exists). */
+  canEditForm: boolean;
 };
 
 export type Journey = { stages: Stage[]; next: NextAction };
@@ -81,7 +87,7 @@ export function chargeLines(finance: FinanceFacts | null): ChargeLine[] {
   ];
   return rows.map((row) => {
     const pathDependent = row.key === "brand" || row.key === "monthly";
-    if (finance && finance.campaignMonthlyKind == null && pathDependent) return { key: row.key, label: row.label, amount: "Confirmed after DanceFlow verifies your registration path", when: row.when };
+    if (finance && finance.campaignMonthlyKind == null && pathDependent) return { key: row.key, label: row.label, amount: "Depends on your registration path", when: row.when };
     const cents = price(finance, row.kind);
     return { key: row.key, label: row.label, amount: cents == null ? "Price not published yet" : usd(cents), when: row.when };
   });
@@ -117,7 +123,7 @@ function financeStage(input: JourneyInput): Stage {
     if (!finance.hasActiveAuthorization && price(finance, finance.campaignMonthlyKind === "monthly_low_volume" ? "monthly_low_volume" : "monthly") == null) return { key: "approvals", label, status: "unavailable", detail: "The monthly price is not published for your registration path yet, so nothing can be authorized." };
     return finance.hasActiveAuthorization
       ? { key: "approvals", label, status: "done", detail: "Fees for this step are approved and the monthly service is authorized." }
-      : { key: "approvals", label, status: "current", detail: "Authorize the monthly texting service so the campaign can be submitted. You see every charge first." };
+      : { key: "approvals", label, status: "current", detail: state === "brand_pending" || state === "service_setup" ? "Authorize the monthly texting service so the campaign can be submitted. You see every charge first." : "No active monthly texting service authorization is on file. Reauthorize to keep texting set up; you see every charge first." };
   }
   if (need == null) return { key: "approvals", label, status: "unavailable", detail: "Fee prices are not published for your registration path yet, so nothing can be approved." };
   if (finance.availableCents < need) {
@@ -200,6 +206,7 @@ function pickNext(input: JourneyInput, stages: Stage[]): NextAction {
   if (state === "cancelled") return { stage: "business", kind: "stopped", title: "This setup was cancelled", detail: "Contact DanceFlow if you want to start again.", cta: null };
   if (paused) return { stage: "business", kind: "stopped", title: "Texting setup is paused", detail: "Your information is kept. Nothing is needed from you right now.", cta: null };
   if (input.textingOn || state === "active") return { stage: "activation", kind: "complete", title: "Texting is on", detail: "Appointment texts are being sent to clients who opted in.", cta: null };
+  if (state === "suspended") return { stage: "activation", kind: "blocked", title: "Texting is paused", detail: "DanceFlow will contact you if anything is needed.", cta: null };
   if (state === "blocked" || state === "exception") return { stage: "eligibility", kind: "blocked", title: "DanceFlow is looking into this", detail: "You do not need to do anything. We will reach out if we need you.", cta: null };
 
   // while DanceFlow checks the business, a funding shortfall is still the owner's to fix and outranks the wait
@@ -211,11 +218,15 @@ function pickNext(input: JourneyInput, stages: Stage[]): NextAction {
 
   switch (first.key) {
     case "business":
-      return notOwner({ stage: "business", kind: "owner", title: state === "needs_info" ? "Review your information and submit again" : state === "not_started" ? "Start your texting setup" : "Finish your information and submit", detail: first.detail, cta: ownerOnly({ label: state === "needs_info" ? "Review answers" : "Open the form", href: "#sms-setup" }) });
+      return notOwner({ stage: "business", kind: "owner", title: state === "needs_info" ? "Review your information and submit again" : state === "not_started" ? "Start your texting setup" : "Finish your information and submit", detail: first.detail, cta: ownerOnly(input.canEditForm ? { label: state === "needs_info" ? "Review answers" : "Open the form", href: "#sms-setup" } : null) });
     case "eligibility":
       return { stage: "eligibility", kind: "waiting", title: "DanceFlow is checking your business", detail: first.detail, cta: null };
     case "approvals": {
-      if (first.status === "current") return notOwner({ stage: "approvals", kind: "owner", title: "Authorize the monthly texting service", detail: first.detail, cta: ownerOnly({ label: "Review charges", href: "#sms-recurring" }) });
+      if (first.status === "current") {
+        if (!input.finance?.authorizationOpen) return { stage: "approvals", kind: "unavailable", title: "Authorizing the monthly service is not open yet", detail: first.detail, cta: null };
+        return notOwner({ stage: "approvals", kind: "owner", title: "Authorize the monthly texting service", detail: first.detail, cta: ownerOnly({ label: "Review charges", href: "#sms-recurring" }) });
+      }
+      if (first.status === "attention" && input.finance?.legalBusiness && !input.finance.onHold && !input.finance.purchasesOpen) return { stage: "approvals", kind: "unavailable", title: "Adding funds is not open yet", detail: first.detail, cta: null };
       if (first.status === "attention" && input.finance?.legalBusiness && !input.finance.onHold) return notOwner({ stage: "approvals", kind: "owner", title: "Add funds to continue", detail: first.detail, cta: ownerOnly({ label: "Add funds", href: "#sms-credit" }) });
       if (first.status === "attention") return { stage: "approvals", kind: "blocked", title: "Fees cannot be approved yet", detail: first.detail, cta: null };
       if (first.status === "unavailable") return { stage: "approvals", kind: "unavailable", title: "Fee approval is not available yet", detail: first.detail, cta: null };

@@ -111,6 +111,8 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
         campaignMonthlyKind: campaignKind,
         hasActiveAuthorization: hasLiveCampaignAuthorization(recurringView?.authorizations, campaignKind),
         prices: creditView.prices.map((p) => ({ kind: p.kind, customerPriceCents: p.customerPriceCents })),
+        purchasesOpen: smsCreditPurchasesEnabled(),
+        authorizationOpen: smsRecurringAuthorizationEnabled() && recurringView != null,
       }
     : null;
 
@@ -156,6 +158,7 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
         paused={paused}
         isOwner={isOwner}
         finance={finance}
+        canEditForm={canEdit}
         // R2a/R2b owner-safe reads are not connected in this build: the number, sender and compliance steps say "not available yet" and offer no action
         provisioning={null}
       />

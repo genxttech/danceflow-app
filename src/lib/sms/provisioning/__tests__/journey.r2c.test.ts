@@ -13,8 +13,8 @@ const PRICES = [
   { kind: "monthly", customerPriceCents: 1000 },
   { kind: "number", customerPriceCents: 200 },
 ];
-const finance = (over: Partial<FinanceFacts> = {}): FinanceFacts => ({ legalBusiness: true, availableCents: 10000, onHold: false, pilotBusiness: false, campaignMonthlyKind: "monthly", hasActiveAuthorization: true, prices: PRICES, ...over });
-const input = (over: Partial<JourneyInput> = {}): JourneyInput => ({ state: "brand_pending", textingOn: false, paused: false, isOwner: true, finance: finance(), provisioning: null, ...over });
+const finance = (over: Partial<FinanceFacts> = {}): FinanceFacts => ({ legalBusiness: true, availableCents: 10000, onHold: false, pilotBusiness: false, campaignMonthlyKind: "monthly", hasActiveAuthorization: true, prices: PRICES, purchasesOpen: true, authorizationOpen: true, ...over });
+const input = (over: Partial<JourneyInput> = {}): JourneyInput => ({ state: "brand_pending", textingOn: false, paused: false, isOwner: true, finance: finance(), provisioning: null, canEditForm: true, ...over });
 const facts = (over: Partial<ProvisioningFacts> = {}): ProvisioningFacts => ({ campaign: { status: "approved" }, number: { status: "not_started" }, sender: { status: "not_ready" }, compliance: { status: "pending" }, ...over });
 const stage = (j: ReturnType<typeof buildJourney>, key: string) => j.stages.find((s) => s.key === key)!;
 
@@ -148,7 +148,7 @@ describe("review regressions", () => {
   });
   it("unset registration path: no guessed prices and no funding demand", () => {
     const f = finance({ campaignMonthlyKind: null });
-    expect(chargeLines(f).find((l) => l.key === "brand")!.amount).toMatch(/Confirmed after/);
+    expect(chargeLines(f).find((l) => l.key === "brand")!.amount).toMatch(/Depends on your/);
     expect(requiredFundingCents(f)).toBeNull();
     const j = buildJourney(input({ state: "profile_review", finance: f }));
     expect(stage(j, "approvals").status).toBe("upcoming");
@@ -163,6 +163,31 @@ describe("review regressions", () => {
     expect(v.sender.label).toBe("Not loaded");
     expect(v.next.href).toBeNull();
     expect(buildAdminProvisioningView(adminIn({ state: "profile_review" })).next.href).toBe("#onboarding-row-s1");
+  });
+});
+
+describe("final review regressions", () => {
+  it("expired authorization after the campaign exists is not described as 'so the campaign can be submitted'", () => {
+    const j = buildJourney(input({ state: "ready_for_activation", finance: finance({ hasActiveAuthorization: false }) }));
+    expect(j.next.detail).not.toMatch(/campaign can be submitted/);
+    expect(j.next.detail).toMatch(/Reauthorize/);
+  });
+  it("suspended is stated as paused, not as a missing-number step", () => {
+    const j = buildJourney(input({ state: "suspended" }));
+    expect(j.next.title).toBe("Texting is paused");
+    expect(j.next.cta).toBeNull();
+  });
+  it("add-funds link is dropped when purchases are closed; review-charges link when authorization is closed", () => {
+    const funds = buildJourney(input({ state: "profile_review", finance: finance({ availableCents: 0, hasActiveAuthorization: false, purchasesOpen: false }) }));
+    expect(funds.next.kind).toBe("unavailable");
+    expect(funds.next.cta).toBeNull();
+    const auth = buildJourney(input({ state: "brand_pending", finance: finance({ hasActiveAuthorization: false, authorizationOpen: false }) }));
+    expect(auth.next.kind).toBe("unavailable");
+    expect(auth.next.cta).toBeNull();
+  });
+  it("setup-form link is dropped when the form is not editable for this viewer", () => {
+    const j = buildJourney(input({ state: "draft", canEditForm: false }));
+    expect(j.next.cta).toBeNull();
   });
 });
 
