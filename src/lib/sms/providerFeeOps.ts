@@ -67,6 +67,8 @@ export type RflResource = {
   currentPeriod: string | null;
   nextPeriod: string | null;
   openCancelOperation: CancelStatus | null;
+  /** The open operation's id (newer databases only; null when absent, and the operator then types it). */
+  openCancelOperationId: string | null;
   /** The business is the pilot business (it has no standing authorization: every period needs its own written approval). Derived from the cover states. */
   pilot: boolean;
 };
@@ -118,6 +120,9 @@ export type RflDualRequest = {
   legalEntityId: string | null;
   studioId: string | null;
   resourceId: string;
+  resourceKind: ResourceKind | null;
+  /** The written reference a number-cancellation request is bound to (null for an absorb request). */
+  approvalRef: string | null;
   periodKey: string | null;
   reason: string;
   expectedProviderCents: number | null;
@@ -182,6 +187,7 @@ export function parseOverview(raw: unknown): RflOverview | null {
       currentPeriod: current,
       nextPeriod: next,
       openCancelOperation: pick(r.open_cancel_operation, CANCEL_STATUSES),
+      openCancelOperationId: uuid(r.open_cancel_operation_id),
       pilot: (current !== null && PILOT_COVER.has(current)) || (next !== null && PILOT_COVER.has(next)),
     });
   }
@@ -254,6 +260,8 @@ export function parseDual(raw: unknown): RflDualRequest[] | null {
       requestId, action, resourceId, requestedBy, status,
       legalEntityId: uuid(d.legal_entity_id),
       studioId: uuid(d.studio_id),
+      resourceKind: pick(d.resource_kind, RESOURCE_KINDS),
+      approvalRef: str(d.approval_ref),
       periodKey: str(d.period_key),
       reason: str(d.reason) ?? "",
       expectedProviderCents: int(d.expected_provider_cents),

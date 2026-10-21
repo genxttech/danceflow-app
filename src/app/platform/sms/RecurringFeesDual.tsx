@@ -35,10 +35,11 @@ export default function RecurringFeesDual({ dual, overview, adminId }: { dual: R
           return (
             <li key={d.requestId} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
               <p className="text-slate-900">
-                {ACTION_TEXT[d.action]} · {d.status === "approved" ? "APPROVED, not yet used" : "waiting for approval"} · resource {shortId(d.resourceId)}
+                {ACTION_TEXT[d.action]}{d.resourceKind ? ` (${d.resourceKind.replace("_", " ")})` : ""} · {d.status === "approved" ? "APPROVED, not yet used" : "waiting for approval"} · resource {shortId(d.resourceId)}
                 {d.periodKey ? ` · period ${d.periodKey}` : ""} · business {shortId(d.legalEntityId)}
               </p>
               {d.action === "absorb_exposure" ? <p className="text-xs text-slate-700">Expected {dollars(d.expectedProviderCents)} · billed {dollars(d.providerBilledCents)}</p> : null}
+              {d.approvalRef ? <p className="text-xs text-slate-700">Written approval reference this request is bound to: {d.approvalRef}</p> : null}
               <p className="text-xs text-slate-700">Reason: {d.reason}</p>
               <p className="text-xs text-slate-600">Requested {stamp(d.requestedAt)} by {mine ? "you" : `administrator ${shortId(d.requestedBy)}`} · expires {stamp(d.expiresAt)}</p>
               {d.status === "pending" ? (

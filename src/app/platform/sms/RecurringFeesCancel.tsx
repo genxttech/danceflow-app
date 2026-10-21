@@ -11,11 +11,18 @@ import { buttonClass, dangerButtonClass, Disclosure, inputClass, KIND_TEXT, labe
  * dual-control request first. The safety suspension stops DanceFlow sending only; it never waits for a second administrator.
  */
 
-const OperationId = () => (
+const OperationId = ({ value = null }: { value?: string | null }) => (
+  value ? (
+    <div className={labelClass}>
+      Cancellation operation <span className="font-mono font-normal">{value.slice(0, 8)}</span>
+      <input type="hidden" name="operationId" value={value} />
+    </div>
+  ) : (
   <label className={labelClass}>
     Cancellation operation id
     <input name="operationId" required pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" className={`${inputClass} font-mono`} />
   </label>
+  )
 );
 
 const Note = ({ label = "Note (10 to 500 characters)" }: { label?: string }) => (
@@ -68,7 +75,8 @@ export default function RecurringFeesCancel({ overview, dual }: { overview: RflO
           {live.map((r) => {
             const op = r.openCancelOperation;
             const needsDual = r.kind === "number";
-            const approved = Boolean(dual?.some((d) => d.action === "cancel_number" && d.status === "approved" && d.resourceId === r.resourceId));
+            const approvedRequest = dual?.find((d) => d.action === "cancel_number" && d.status === "approved" && d.resourceId === r.resourceId) ?? null;
+            const approved = approvedRequest !== null;
             return (
               <li key={r.resourceId} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
                 <p className="text-slate-900">
@@ -76,7 +84,7 @@ export default function RecurringFeesCancel({ overview, dual }: { overview: RflO
                   {op ? ` · cancellation ${op.replace("_", " ")}` : ""}
                 </p>
                 {!op && !needsDual ? <Authorize resourceId={r.resourceId} /> : null}
-                {!op && needsDual && approved ? <Authorize resourceId={r.resourceId} dualApproved /> : null}
+                {!op && needsDual && approved ? <Authorize resourceId={r.resourceId} dualApproved approvedRequest={approvedRequest} /> : null}
                 {!op && needsDual && !approved ? (
                   <p className="text-xs text-slate-700">A number needs an approved dual-control request before a cancellation can be authorized. Request it under Dual-control requests.</p>
                 ) : null}
@@ -84,18 +92,18 @@ export default function RecurringFeesCancel({ overview, dual }: { overview: RflO
                   <div className="grid gap-3 sm:grid-cols-2">
                     <form action={rflCancelBeginAction} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
                       <p className="text-xs text-slate-700">Begin records the single claim. DanceFlow still cancels nothing: you perform the console step.</p>
-                      <OperationId />
+                      <OperationId value={r.openCancelOperationId} />
                       <button type="submit" className={buttonClass}>Begin cancellation claim</button>
                     </form>
                     <form action={rflCancelWithdrawAction} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
-                      <OperationId />
+                      <OperationId value={r.openCancelOperationId} />
                       <Note label="Withdrawal note (10 to 500 characters)" />
                       <button type="submit" className={buttonClass}>Withdraw authorization</button>
                     </form>
                   </div>
                 ) : null}
-                {op === "in_flight" ? <Finish /> : null}
-                {op === "unknown_outcome" ? <Resolve /> : null}
+                {op === "in_flight" ? <Finish operationId={r.openCancelOperationId} /> : null}
+                {op === "unknown_outcome" ? <Resolve operationId={r.openCancelOperationId} /> : null}
               </li>
             );
           })}
@@ -105,15 +113,15 @@ export default function RecurringFeesCancel({ overview, dual }: { overview: RflO
   );
 }
 
-function Authorize({ resourceId, dualApproved = false }: { resourceId: string; dualApproved?: boolean }) {
+function Authorize({ resourceId, dualApproved = false, approvedRequest = null }: { resourceId: string; dualApproved?: boolean; approvedRequest?: RflDualRequest | null }) {
   return (
     <Disclosure title="Authorize a cancellation" summary={dualApproved ? "dual-control approved" : "written reference required"}>
       <form action={rflCancelAuthorizeAction} className="space-y-2">
         <input type="hidden" name="resourceId" value={resourceId} />
-        {dualApproved ? <p className="text-xs text-emerald-900">An approved second-administrator request exists. Use the identical reference and reason; the approval is consumed once.</p> : null}
+        {dualApproved ? <p className="text-xs text-emerald-900">An approved second-administrator request exists. The reference and reason below are filled in from the approved request and must stay identical; the approval is consumed once.</p> : null}
         <label className={labelClass}>
           Written approval reference (10 to 200 characters)
-          <input name="approvalRef" required minLength={10} maxLength={200} className={inputClass} />
+          <input name="approvalRef" required minLength={10} maxLength={200} defaultValue={approvedRequest?.approvalRef ?? undefined} className={inputClass} />
         </label>
         <label className={labelClass}>
           Decision type
@@ -125,7 +133,7 @@ function Authorize({ resourceId, dualApproved = false }: { resourceId: string; d
         </label>
         <label className={labelClass}>
           Reason (10 to 500 characters)
-          <textarea name="reason" required minLength={10} maxLength={500} rows={2} className={inputClass} />
+          <textarea name="reason" required minLength={10} maxLength={500} rows={2} defaultValue={approvedRequest?.reason} className={inputClass} />
         </label>
         <label className="flex items-start gap-2 text-xs text-slate-700">
           <input type="checkbox" name="irreversibleAck" value="yes" required className="mt-0.5" />
@@ -137,11 +145,11 @@ function Authorize({ resourceId, dualApproved = false }: { resourceId: string; d
   );
 }
 
-function Finish() {
+function Finish({ operationId }: { operationId: string | null }) {
   return (
     <form action={rflCancelFinishAction} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
       <p className="text-xs text-slate-700">After the console step, record what happened. Nothing was cancelled by DanceFlow.</p>
-      <OperationId />
+      <OperationId value={operationId} />
       <label className={labelClass}>
         Outcome
         <select name="outcome" required className={inputClass}>
@@ -163,11 +171,11 @@ function Finish() {
   );
 }
 
-function Resolve() {
+function Resolve({ operationId }: { operationId: string | null }) {
   return (
     <form action={rflCancelResolveAction} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
       <p className="text-xs text-slate-700">The earlier outcome is unknown. Look the resource up in the Twilio console first, then record what you found.</p>
-      <OperationId />
+      <OperationId value={operationId} />
       <label className={labelClass}>
         Resolution
         <select name="resolution" required className={inputClass}>

@@ -11,6 +11,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
 
 import { parseDual, parseExposures, parseHealth, parseOverview, parseVariances, type RflOps } from "@/lib/sms/providerFeeOps";
 import RecurringFees from "../RecurringFees";
+import { Disclosure } from "../RecurringFeesDisclosure";
 
 const U = (n: number) => `c${String(n).padStart(7, "0")}-0000-4000-8000-000000000001`;
 const ME = U(90);
@@ -61,9 +62,9 @@ describe("RecurringFees panel", () => {
     expect(count(html, "Press to collapse")).toBe(details);
     expect(html).toContain("Expanded. Press to collapse Scheduler readiness and alerts.");
     // attention sections start open; quiet ones start closed
-    expect(html).toMatch(/<details open="" class="group[^"]*">\s*<summary[^>]*>[^]*?Scheduler readiness and alerts/);
+    expect(html).toMatch(/<details open="" class="[^"]*">\s*<summary[^>]*>(?:(?!<details)[^])*?Scheduler readiness and alerts/);
     const quiet = render(ops({ health: { scan_switch: true, delivery_switch: true, stale: false, last_run_at: "2026-10-21T01:00:00Z", last_success_at: "2026-10-21T01:00:00Z" }, exposures: [], variances: [], dual: [] }));
-    expect(quiet).not.toMatch(/<details open=""[^>]*>\s*<summary[^>]*>[^]*?Scheduler readiness/);
+    expect(quiet).not.toMatch(/<details open=""[^>]*>\s*<summary[^>]*>(?:(?!<details)[^])*?Scheduler readiness/);
   });
 
   it("shows the scheduler heartbeat, the stale warning and the alert counts; switches need a reason and a confirmation", () => {
@@ -199,5 +200,42 @@ describe("RecurringFees panel", () => {
   it("shows the flash banners", () => {
     expect(render(ops(), { notice: "Saved." })).toContain('role="status"');
     expect(render(ops(), { error: "Nope." })).toContain('role="alert"');
+  });
+});
+
+describe("disclosure indicators and prefill (review fixes)", () => {
+  it("a closed section nested in an open one carries no open-state classes tied to its ancestors", () => {
+    const html = renderToStaticMarkup(createElement(Disclosure, { title: "Outer", open: true }, createElement(Disclosure, { title: "Inner" }, createElement("p", null, "x"))));
+    expect(html).not.toContain("group-open");
+    expect(html).not.toMatch(/\bgroup\b/);
+    expect(html.match(/<details open=""/g)).toHaveLength(1);
+    expect(html.match(/<details class=/g)).toHaveLength(1);
+    // every state marker is scoped to its OWN summary (child combinators), so an open ancestor cannot flip it
+    expect(count(html, "[details[open]&gt;summary&gt;&amp;]:")).toBe(12);
+  });
+
+  it("the approver sees the written reference and kind; the authorize form is prefilled from the approved request", () => {
+    const html = render(ops({ dual: [{ request_id: U(42), action: "cancel_number", resource_id: NUM, resource_kind: "number", approval_ref: "OWNER-EMAIL-2026-10-21", requested_by: OTHER, status: "approved", reason: "Retire the unused number." }] }));
+    expect(html).toContain("Written approval reference this request is bound to: OWNER-EMAIL-2026-10-21");
+    expect(html).toContain("Cancel provider number (number)");
+    expect(html).toContain('value="OWNER-EMAIL-2026-10-21"');
+    expect(html).toMatch(/<textarea name="reason"[^>]*>Retire the unused number\.<\/textarea>/);
+  });
+
+  it("the open operation id prefills the follow-up forms, and falls back to typed input when absent", () => {
+    const withId = render(ops({ overview: { resources: [resource(CAMP, "campaign", { open_cancel_operation: "authorized", open_cancel_operation_id: U(50) })], cancel_operations_open: 1 }, dual: [] }));
+    expect(withId).toContain('name="operationId" value="' + U(50) + '"');
+    expect(withId).not.toMatch(/<input required=""[^>]*name="operationId"/);
+    const without = render(ops({ overview: { resources: [resource(CAMP, "campaign", { open_cancel_operation: "in_flight" })], cancel_operations_open: 1 }, dual: [] }));
+    expect(without).toMatch(/<input required=""[^>]*name="operationId"/);
+  });
+
+  it("the pilot period is never pre-selected and the form says the database enforces the business month", () => {
+    const html = renderToStaticMarkup(createElement(RecurringFees, { ops: ops({ overview: { resources: [resource(NUM, "number", { current_period: "uncovered:no_pilot_approval", next_period: "uncovered:no_pilot_approval" })], cancel_operations_open: 0 } }), adminId: ME, now: NOW }));
+    expect(html).toContain("database enforces the business");
+    expect(html).toMatch(/<option value="" disabled="" selected="">Choose a period<\/option>/);
+    expect(html).toContain('<option value="2026-10">2026-10</option>');
+    expect(html).toContain('<option value="2026-11">2026-11</option>');
+    expect(html).not.toMatch(/<option value="2026-1\d"[^>]*selected/);
   });
 });

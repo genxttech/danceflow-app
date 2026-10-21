@@ -242,7 +242,7 @@ export async function rflCancelBeginAction(formData: FormData) {
     if (!operationId) return fail("Enter the cancellation operation id. Nothing changed.");
     const out = await lifecycle().beginCancel(operationId, admin.id);
     if (out.action === "execute") {
-      return done(`Claim recorded (the ${out.resourceKind.replace("_", " ")} ending ${out.providerSid.slice(-4)}). DanceFlow has NOT cancelled anything: perform the console step yourself now, then record the evidence.`);
+      return done(`Claim recorded (${out.resourceKind.replace("_", " ")}, operation ${operationId.slice(0, 8)}). DanceFlow has NOT cancelled anything: perform the console step yourself now, then record the evidence.`);
     }
     if (out.action === "reconcile") return done("An earlier outcome is unknown: look the resource up in the Twilio console first, then resolve the operation. Nothing was cancelled by DanceFlow.");
     if (out.action === "in_progress") return done("This operation is already claimed. Record the evidence when the console step is done.");

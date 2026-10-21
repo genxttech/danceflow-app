@@ -5,18 +5,18 @@ import type { ReactNode } from "react";
  * and is ALSO shown by an unmistakable visible marker ("[+] Show" / "[-] Hide") plus screen-reader text, so a collapsed section never looks empty.
  */
 
-export function Disclosure({ title, summary, open = false, children, tone = "default" }: { title: string; summary?: ReactNode; open?: boolean; children: ReactNode; tone?: "default" | "attention" }) {
+export function Disclosure({ title, summary, open = false, children, tone = "default" }: { title: string; summary?: ReactNode; open?: boolean; children?: ReactNode; tone?: "default" | "attention" }) {
   return (
-    <details open={open} className={`group rounded-xl border ${tone === "attention" ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}>
+    <details open={open} className={`rounded-xl border ${tone === "attention" ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}>
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 text-sm">
-        <span aria-hidden="true" className="inline-block w-6 font-mono font-bold text-violet-800 group-open:hidden">[+]</span>
-        <span aria-hidden="true" className="hidden w-6 font-mono font-bold text-violet-800 group-open:inline-block">[-]</span>
+        <span aria-hidden="true" className="inline-block w-6 font-mono font-bold text-violet-800 [details[open]>summary>&]:hidden">[+]</span>
+        <span aria-hidden="true" className="hidden w-6 font-mono font-bold text-violet-800 [details[open]>summary>&]:inline-block">[-]</span>
         <span className="font-semibold text-violet-900">{title}</span>
         {summary ? <span className="text-xs text-slate-600">{summary}</span> : null}
-        <span className="sr-only group-open:hidden">{`Collapsed. Press to expand ${title}.`}</span>
-        <span className="sr-only hidden group-open:inline">{`Expanded. Press to collapse ${title}.`}</span>
-        <span aria-hidden="true" className="ml-auto text-xs font-semibold text-violet-800 group-open:hidden">Show</span>
-        <span aria-hidden="true" className="ml-auto hidden text-xs font-semibold text-violet-800 group-open:inline">Hide</span>
+        <span className="sr-only [details[open]>summary>&]:hidden">{`Collapsed. Press to expand ${title}.`}</span>
+        <span className="sr-only hidden [details[open]>summary>&]:inline">{`Expanded. Press to collapse ${title}.`}</span>
+        <span aria-hidden="true" className="ml-auto text-xs font-semibold text-violet-800 [details[open]>summary>&]:hidden">Show</span>
+        <span aria-hidden="true" className="ml-auto hidden text-xs font-semibold text-violet-800 [details[open]>summary>&]:inline">Hide</span>
       </summary>
       <div className="space-y-3 border-t border-slate-200 px-3 py-3 text-sm text-slate-800">{children}</div>
     </details>

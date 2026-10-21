@@ -260,7 +260,9 @@ describe("cancellation steps and safety suspension", () => {
     replies.tw4_rfl_cancel_begin = { data: { action: "execute", provider_sid: "PN0123456789abcdef0123456789abcdef", resource_kind: "number" } };
     const r = await run(rflCancelBeginAction, { operationId: OP });
     expect(r.message).not.toContain("PN0123456789abcdef0123456789abcdef");
-    expect(r.message).toContain("cdef");
+    expect(r.message).not.toContain("cdef");
+    expect(r.message).not.toContain("0123456789");
+    expect(r.message).toContain("number, operation " + OP.slice(0, 8));
     expect(r.message).toContain("NOT cancelled anything");
   });
 

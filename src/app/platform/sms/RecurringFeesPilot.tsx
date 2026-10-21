@@ -42,10 +42,12 @@ export default function RecurringFeesPilot({ overview, now }: { overview: RflOve
                   <input type="hidden" name="resourceId" value={r.resourceId} />
                   <label className={labelClass}>
                     Period
-                    <select name="periodKey" required className={inputClass}>
+                    <select name="periodKey" required defaultValue="" className={inputClass}>
+                      <option value="" disabled>Choose a period</option>
                       {periods.map((p) => <option key={p.key} value={p.key}>{p.key}</option>)}
                     </select>
                   </label>
+                  <p className="text-xs text-slate-600">These months are shown in UTC. The database enforces the business&apos;s own month (its time zone), and refuses a period outside the current or next one.</p>
                   <label className={labelClass}>
                     Written approval reference (10 to 200 characters)
                     <input name="approvalRef" required minLength={10} maxLength={200} className={inputClass} />
