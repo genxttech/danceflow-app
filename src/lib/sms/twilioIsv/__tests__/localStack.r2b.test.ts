@@ -297,6 +297,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       if (!probe.error || probe.error.code) break;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
+    for (let i = 0; i < 4; i += 1) await admin.rpc("tw4_num_status", { p_studio_id: SA1, p_actor: U.padmin });
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     for (const [kind, customer, provider] of [["number", PRICE.number, 115], ["monthly", PRICE.monthly, 1000], ["campaign_vetting", PRICE.vetting, 1500]] as const) {
       expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: customer, p_provider_cents: provider, p_description: `fixture ${kind}`, p_actor: U.padmin })).error).toBeNull();
@@ -643,6 +644,8 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await rpc("tw4_num_resolve", { p_operation_id: op, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "short" })).error?.code).toBe("22023");
       const selId = psql(`select selection_id from public.studio_sms_num_operations where id = '${op}'`);
       expect(selStatus(selId)).toBe("consumed");
+      // a typed sid is not evidence of creation either: the provider's identity read of that sid and E.164 after the attempt is required
+      expect((await rpc("tw4_num_resolve", { p_operation_id: op, p_actor: U.padmin, p_resolution: "created", p_provider_sid: `PN${"9".repeat(32)}`, p_note: "found it in the console" })).error?.code).toBe("TW048");
       // an administrator's word is not evidence: without a clean provider listing taken AFTER the attempt nothing is declared not created and nothing is released
       const absence = () => psql(`select coalesce(public._tw4num_absence_evidence(o), 'sufficient') from public.studio_sms_num_operations o where o.id = '${op}'`);
       const declare = () => rpc("tw4_num_resolve", { p_operation_id: op, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "checked the console: no such number" });
@@ -699,12 +702,26 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await observeNumberIdentity({ store, adapter: d, studioId: SD1, actorId: U.padmin, phoneNumberSid: late })).outcome).toBe("identity_recorded");
       expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: late, p_note: "bought by hand before the system" })).error?.code).toBe("TW034");
       expect(psql(`select count(*) from public.studio_sms_num_inventory_acks where legal_entity_id = '${ED}'`)).toBe("0");
+      // an abandoned purchase no longer blocks an UNRELATED hand-bought number: only its own E.164 is refused
+      const unrelated = d.seedOwned("+12025550188");
+      expect((await observeNumberIdentity({ store, adapter: d, studioId: SD1, actorId: U.padmin, phoneNumberSid: unrelated })).outcome).toBe("identity_recorded");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: unrelated, p_note: "bought by hand before the system" })).error).toBeNull();
+      // a ledger purchase's E.164 under ANOTHER sid (a wrongly recorded one) is refused whatever its status
+      {
+        const wrong = `PN${"4".repeat(32)}`;
+        d.universe.owned.set(wrong, { ...d.universe.owned.get(unrelated)!, sid: wrong, phone_number: NUM.d1 });
+        expect((await observeNumberIdentity({ store, adapter: d, studioId: SD1, actorId: U.padmin, phoneNumberSid: wrong })).outcome).toBe("identity_recorded");
+        expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: wrong, p_note: "bought by hand before the system" })).error?.code).toBe("TW034");
+        d.universe.owned.delete(wrong);
+      }
       const result = await run(SD1, d);
       expect(result.outcome).toBe("exception");
       // the inventory reconciliation stops it BEFORE anything is recorded or bought
       expect(result.detail).toContain("inventory_unrecorded:1");
       expect(d.count("purchaseNumber")).toBe(before);
       expect(code(SD1)).toBe("num_inventory_unknown");
+      // the number step's own exception does not lock out the GET-only evidence an admin needs
+      expect(await refreshInventory({ store, adapter: d, studioId: SD1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_unknown" });
       expect(ops(SD1, "number_purchase")).toMatch(/^1:succeeded:true,2:abandoned:false$/);
       expect(psql(`select count(*) from public.studio_sms_num_operations where studio_id = '${SD1}' and op_kind = 'number_purchase' and attempt = 3`)).toBe("0");
       // a number-step exception is reopened by an admin with a reason; nothing else moves it
@@ -746,6 +763,33 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SA2, p_actor: U.padmin, p_phone_number_sid: goodFacts.sid, p_note: "bought by hand before the system" })).error?.code).toBe("TW048");
       // no API role can read or write the evidence table
       expect(psql("select count(*) from information_schema.role_table_grants where table_name = 'studio_sms_num_identity_reads' and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')")).toBe("0");
+    });
+
+    it("absence evidence is refused when the listing shows the operation's own sid, or a number was typed in elsewhere since the attempt", async () => {
+      const b = adapterOf(ACC.B);
+      const stray = b.seedOwned("+12025550141");
+      aged(`insert into public.studio_sms_num_inventory_acks (legal_entity_id, twilio_account_sid, phone_number_sid, e164, acked_by, note) values ('${EB}', '${ACC.B}', '${stray}', '+12025550141', '${U.padmin}', 'fixture: foreign number'); update public.studio_sms_num_inventory_acks set created_at = now() - interval '1 hour' where legal_entity_id = '${EB}'`);
+      expect(await refreshInventory({ store, adapter: b, studioId: SB1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+      const synthetic = (over: Record<string, unknown>) => psql(`select coalesce(public._tw4num_absence_evidence(jsonb_populate_record(null::public.studio_sms_num_operations,
+        jsonb_build_object('id', gen_random_uuid(), 'studio_id', '${SB1}', 'legal_entity_id', '${EB}', 'twilio_account_sid', '${ACC.B}', 'e164', '+12025550142', 'started_at', now() - interval '10 minutes') || '${JSON.stringify(over)}'::jsonb)), 'sufficient')`);
+      expect(synthetic({})).toBe("sufficient");
+      // the listing SHOWS the sid the operation recorded (a recorded sid is known, so the unknown count alone would call it clean)
+      expect(synthetic({ provider_sid: stray })).toBe("the_number_is_in_the_listing");
+      expect(synthetic({ provider_sid: stray.toLowerCase().replace("pn", "PN") })).toBe("the_number_is_in_the_listing");
+      // a sender typed in for the business since the attempt, not backed by a ledger purchase
+      const typed = `PN${"3".repeat(32)}`;
+      aged(`insert into public.studio_sms_billed_senders (id, legal_entity_id, studio_id, account_sid, messaging_service_sid, sender_e164, status, set_by, reason, campaign_sid, phone_number_sid, created_at)
+        values ('b2b00000-0000-4000-8000-0000000009c1', '${EB}', '${SB1}', '${ACC.B}', '${MG.B1}', '+12025550143', 'approved', '${U.padmin}', 'fixture: typed sender', '${QE.B1}', '${typed}', now() - interval '5 minutes')`);
+      try {
+        expect(synthetic({})).toBe("a_number_was_recorded_since_the_attempt");
+      } finally {
+        aged("delete from public.studio_sms_billed_senders where id = 'b2b00000-0000-4000-8000-0000000009c1'");
+      }
+      // an acknowledgement made since the attempt
+      aged(`update public.studio_sms_num_inventory_acks set created_at = now() - interval '5 minutes' where legal_entity_id = '${EB}'`);
+      expect(synthetic({})).toBe("a_number_was_recorded_since_the_attempt");
+      aged(`update public.studio_sms_num_inventory_acks set created_at = now() - interval '1 hour' where legal_entity_id = '${EB}'`);
+      expect(synthetic({})).toBe("sufficient");
     });
 
     it("a definite provider refusal closes the attempt, consumes the approval for good (a retry needs a NEW approval) and leaves no reservation", async () => {
@@ -874,6 +918,9 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(reservations(EC, "number")).toBe("captured:200:pilot");
       expect(psql(`select status from public.studio_sms_spend_events where approval_ref = $q$${ref("pilot-number-1")}$q$`)).toBe("reserved");
       expect((await authorize(EC, SC1, "number", PRICE.number, ref("pilot-number-1"), "pilot")).error?.code).toBe("TW019"); // a spent reference stays spent
+      // the fee of a provider-confirmed number cannot be released by an administrator, and the ceiling headroom does not return
+      expect((await rpc("tw4_num_settle_admin", { p_operation_id: opId(SC1, "number_purchase", 1), p_actor: U.padmin, p_outcome: "released", p_note: "trying to release a confirmed number" })).error).not.toBeNull();
+      expect(reservations(EC, "number")).toBe("captured:200:pilot");
     });
 
     it("the cumulative ceiling is enforced: nothing is reserved when the number would exceed it", async () => {

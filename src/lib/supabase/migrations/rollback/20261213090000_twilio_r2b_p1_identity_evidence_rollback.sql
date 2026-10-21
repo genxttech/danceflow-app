@@ -17,6 +17,7 @@ drop function if exists public.tw4_num_identity_observe(uuid, text, jsonb, text,
 drop function if exists public.tw4_num_inventory_ack(uuid, uuid, text, text);
 drop function if exists public._tw4num_absence_evidence(public.studio_sms_num_operations);
 drop table public.studio_sms_num_identity_reads;
+alter table public.studio_sms_num_inventory_checks drop column listed_sids;
 drop function if exists public._tw4p1_guard();
 
 -- the R2b (20261208) bodies
@@ -138,6 +139,82 @@ begin
   insert into public.studio_sms_num_inventory_acks (legal_entity_id, twilio_account_sid, phone_number_sid, e164, acked_by, note)
   values (v_entity, v_account, p_phone_number_sid, p_e164, p_actor, btrim(p_note)) on conflict (twilio_account_sid, phone_number_sid) do nothing;
   return jsonb_build_object('acknowledged', p_phone_number_sid);
+end $$;
+
+create or replace function public.tw4_num_inventory_observe(p_onboarding_id uuid, p_lease_owner text, p_sids text[], p_source text, p_listed_at timestamptz)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  o public.studio_sms_onboarding;
+  v_entity uuid;
+  v_account text;
+  v_known text[];
+  v_unknown int;
+  v_missing int;
+begin
+  o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
+  if p_sids is null or cardinality(p_sids) > 1000 or exists (select 1 from unnest(p_sids) x where x is null or x !~ '^PN[0-9a-fA-F]{32}$') then
+    raise exception 'an inventory of number sids is required' using errcode = '22023';
+  end if;
+  if p_source is null or p_source not in ('provider_read', 'fake') or p_listed_at is null or p_listed_at > clock_timestamp() + interval '30 seconds' or p_listed_at < clock_timestamp() - interval '10 minutes' then
+    raise exception 'invalid inventory observation' using errcode = '22023';
+  end if;
+  if p_source = 'fake' and not public._tw4sr_fake_allowed() then
+    raise exception 'fake evidence is not accepted here' using errcode = '42501';
+  end if;
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = o.studio_id;
+  v_account := public._tw4num_account(o.studio_id);
+  if v_entity is null or v_account is null then
+    raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
+  end if;
+  v_known := public._tw4num_known(v_entity);
+  select count(*) into v_unknown from unnest(p_sids) x where not (x = any (v_known));
+  select count(*) into v_missing from (
+    select p.provider_sid sid from public.studio_sms_num_operations p
+     where p.legal_entity_id = v_entity and p.op_kind = 'number_purchase' and p.status = 'succeeded' and p.superseded_at is null and p.twilio_account_sid = v_account
+       and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = p.id and r.status = 'owned')) l
+   where not (l.sid = any (p_sids));
+  insert into public.studio_sms_num_inventory_checks (onboarding_id, lease_owner, legal_entity_id, listed_count, unknown_count, missing_count, twilio_account_sid, source, listed_at)
+  values (o.id, p_lease_owner, v_entity, cardinality(p_sids), v_unknown, v_missing, v_account, p_source, p_listed_at);
+  return jsonb_build_object('listed', cardinality(p_sids), 'unknown', v_unknown, 'missing', v_missing);
+end $$;
+
+create or replace function public.tw4_num_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer default 300, p_mode text default 'run')
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  o public.studio_sms_onboarding;
+begin
+  if not public._tw4_r1_is_platform_admin(p_actor) then
+    raise exception 'actor must be a platform admin' using errcode = '42501';
+  end if;
+  if p_lease_owner is null or char_length(p_lease_owner) not between 1 and 64 or p_lease_seconds is null or p_lease_seconds not between 30 and 900
+     or p_mode is null or p_mode not in ('run', 'refresh') then
+    raise exception 'invalid lease' using errcode = '22023';
+  end if;
+  if not public._sms_onb_access_enabled(p_studio_id) then
+    raise exception 'not available for this studio' using errcode = '42501';
+  end if;
+  if p_mode = 'run' and not exists (select 1 from public.studio_sms_runner_windows w where w.studio_id = p_studio_id and w.expires_at > now()) then
+    raise exception 'the runner window for this studio is closed' using errcode = 'TW001';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('sms_onboarding:' || p_studio_id::text, 0));
+  select * into o from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state <> 'cancelled' for update;
+  if o.id is null then
+    raise exception 'there is no onboarding to run' using errcode = '22023';
+  end if;
+  if o.state <> 'campaign_pending' and not (p_mode = 'refresh' and o.state in ('ready_for_activation', 'active', 'suspended')) then
+    raise exception 'onboarding state % is not at the number step', o.state using errcode = 'TW030';
+  end if;
+  if o.lease_owner is not null and o.lease_expires_at > now() and o.lease_owner <> p_lease_owner then
+    raise exception 'another run holds the lease' using errcode = '55P03';
+  end if;
+  update public.studio_sms_onboarding set lease_owner = p_lease_owner, lease_expires_at = now() + make_interval(secs => p_lease_seconds)
+  where id = o.id returning * into o;
+  perform public._tw4_r1_audit(o, p_actor, 'runner_lease', o.state, o.state, 'claimed number ' || p_mode);
+  return jsonb_build_object('onboarding_id', o.id, 'studio_id', o.studio_id, 'state', o.state, 'submission_seq', o.submission_seq);
 end $$;
 
 revoke all on function public.tw4_num_inventory_ack(uuid, uuid, text, text, text) from public, anon, authenticated;

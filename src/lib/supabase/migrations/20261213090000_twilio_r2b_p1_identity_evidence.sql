@@ -8,7 +8,7 @@
 --     same-account, provider-read inventory listing taken AFTER the attempt and fresh now; an administrator's note is never evidence.
 -- Nothing here calls Twilio, buys, charges, reserves or captures anything; it only tightens when a held reservation may be released. Fee authorizations, the one-live /
 -- e164-once indexes, the TW045 purchase stamp and the ConfiDance cumulative ceiling are untouched.
--- Requires 20261208090000 (R2b). Independent of 20261209 (RFL) / 20261210 (R2c-I2) / 20261211 (RFL ops) / 20261212 (R2a fee-resolution evidence). Rollback: rollback/20261213090000_twilio_r2b_p1_identity_evidence_rollback.sql.
+-- Requires 20261208090000 (R2b). Independent of 20261209 (RFL) / 20261210 (R2c-I2) / 20261211 (RFL ops). Rollback: rollback/20261213090000_twilio_r2b_p1_identity_evidence_rollback.sql.
 -- NOT APPLIED to any shared environment by this file's authoring.
 
 begin;
@@ -31,6 +31,10 @@ begin
      or position('declared not created' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_ack(uuid,uuid,text,text,text)'::regprocedure)) = 0 then
     raise exception 'R2b-P1 precondition failed: tw4_num_resolve / settle_admin / inventory_ack differ from 20261208090000';
   end if;
+  if position('missing_count' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_observe(uuid,text,text[],text,timestamptz)'::regprocedure)) = 0
+     or position('is not at the number step' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_claim(uuid,uuid,text,integer,text)'::regprocedure)) = 0 then
+    raise exception 'R2b-P1 precondition failed: tw4_num_inventory_observe / tw4_num_claim differ from 20261208090000';
+  end if;
 end $$;
 
 -- audit vocabulary: the live list plus the new actions (extended, not replaced)
@@ -48,6 +52,9 @@ begin
   alter table public.studio_sms_onboarding_audit drop constraint studio_sms_onboarding_audit_action_check;
   execute format('alter table public.studio_sms_onboarding_audit add constraint studio_sms_onboarding_audit_action_check check (action = any (%L::text[]))', v_actions);
 end $$;
+
+-- the SIDs a listing showed (not only counts): a listing that shows the very number an operation is about is not evidence of its absence
+alter table public.studio_sms_num_inventory_checks add column listed_sids text[] not null default '{}';
 
 create table public.studio_sms_num_identity_reads (
   id uuid primary key default gen_random_uuid(),
@@ -145,19 +152,22 @@ begin
   -- the identity is what the PROVIDER said, recently, about THIS business's subaccount
   select * into i from public.studio_sms_num_identity_reads x where x.twilio_account_sid = v_account and x.phone_number_sid = p_phone_number_sid and x.legal_entity_id = v_entity
    order by x.observed_at desc, x.id limit 1;
-  if i.id is null or i.observed_at < clock_timestamp() - interval '30 minutes' then
+  if i.id is null or i.observed_at < clock_timestamp() - interval '30 minutes' or (i.source <> 'provider_read' and not public._tw4sr_fake_allowed()) then
     raise exception 'a provider identity read of this number (within 30 minutes) is required before it is acknowledged' using errcode = 'TW048';
   end if;
   -- the ledger already knows this sid under ANOTHER number: the provider and the ledger contradict each other
-  if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.provider_sid = p_phone_number_sid and x.e164 <> i.e164) then
+  if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and upper(x.provider_sid) = upper(p_phone_number_sid) and x.e164 <> i.e164) then
     raise exception 'the provider and the ledger disagree about this number: investigate it, do not acknowledge it' using errcode = 'TW034';
   end if;
   -- a number that a purchase declared "not created" (or left unresolved) turned up: a paid number the ledger got wrong, not a foreign one. Fail closed as in R2b: while the business
   -- has ANY lost or unresolved purchase nothing is acknowledged for it; a number tied to a failed or retired purchase (by provider-read E.164 or sid) is refused as well.
-  if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.status in ('abandoned', 'in_flight', 'unknown_outcome'))
+  if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.status in ('in_flight', 'unknown_outcome'))
+     -- the provider-read E.164 belongs to a purchase of this business under ANY status, with another sid or none (a lost, wrongly resolved, failed or retired purchase): it is that purchase's number
+     or exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.e164 = i.e164
+                  and (x.provider_sid is null or upper(x.provider_sid) <> upper(p_phone_number_sid)))
      or exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and (x.status = 'failed' or x.superseded_at is not null)
-                  and (x.e164 = i.e164 or x.provider_sid = p_phone_number_sid)) then
-    raise exception 'this business has a purchase declared not created, or this number belongs to a failed or retired purchase: investigate it, do not acknowledge it' using errcode = 'TW034';
+                  and upper(x.provider_sid) = upper(p_phone_number_sid)) then
+    raise exception 'this number belongs to a purchase that is unresolved, lost, failed or retired: investigate it, do not acknowledge it' using errcode = 'TW034';
   end if;
   insert into public.studio_sms_num_inventory_acks (legal_entity_id, twilio_account_sid, phone_number_sid, e164, acked_by, note)
   values (v_entity, v_account, p_phone_number_sid, i.e164, p_actor, btrim(p_note)) on conflict (twilio_account_sid, phone_number_sid) do nothing;
@@ -183,10 +193,21 @@ begin
    order by x.listed_at desc, x.created_at desc, x.id limit 1;
   if c.id is null then return 'no_inventory_check'; end if;
   if c.source <> 'provider_read' and not public._tw4sr_fake_allowed() then return 'untrusted_evidence_source'; end if;
-  if c.listed_at < r.started_at + interval '2 minutes' then return 'listing_predates_the_attempt'; end if;
+  -- both the caller's clock and the database's must be after the attempt (the caller-supplied listed_at may run up to 30 seconds ahead)
+  if c.listed_at < r.started_at + interval '2 minutes' or c.created_at < r.started_at + interval '2 minutes' then return 'listing_predates_the_attempt'; end if;
   if c.listed_at < clock_timestamp() - interval '30 minutes' then return 'listing_is_stale'; end if;
   if c.unknown_count > 0 then return 'listing_shows_unknown_numbers'; end if;
   if c.missing_count > 0 then return 'listing_is_incomplete'; end if;
+  -- the listing SHOWS the number this operation recorded (a recorded sid is "known", so the count alone would call it clean)
+  if r.provider_sid is not null and exists (select 1 from unnest(c.listed_sids) x where upper(x) = upper(r.provider_sid)) then return 'the_number_is_in_the_listing'; end if;
+  -- a sender or acknowledgement was recorded since the attempt began that the ledger does not back: the number the attempt may have bought was typed in somewhere else
+  if exists (select 1 from public.studio_sms_num_inventory_acks a where a.legal_entity_id = r.legal_entity_id and a.created_at >= r.started_at)
+     or exists (select 1 from public.studio_sms_entity_studios es join public.studio_sms_billed_senders b on b.studio_id = es.studio_id
+                 where es.legal_entity_id = r.legal_entity_id and b.created_at >= r.started_at and b.status <> 'released'
+                   and not exists (select 1 from public.studio_sms_num_operations o2 where o2.legal_entity_id = r.legal_entity_id and o2.op_kind = 'number_purchase' and o2.status = 'succeeded'
+                                      and upper(o2.provider_sid) = upper(b.phone_number_sid) and o2.e164 = b.sender_e164 and o2.id <> r.id)) then
+    return 'a_number_was_recorded_since_the_attempt';
+  end if;
   -- the provider has shown a number with this very E.164 in this subaccount since the attempt began
   if exists (select 1 from public.studio_sms_num_identity_reads i where i.legal_entity_id = r.legal_entity_id and i.twilio_account_sid = r.twilio_account_sid and i.e164 = r.e164
               and i.observed_at >= r.started_at) then
@@ -231,9 +252,15 @@ begin
   if p_resolution = 'not_created' and r.fee_bearing and exists (select 1 from public.studio_sms_num_inventory_acks a where a.legal_entity_id = r.legal_entity_id and a.created_at >= r.started_at) then
     raise exception 'a number was acknowledged after this attempt started: investigate it before declaring the purchase not created' using errcode = 'TW034';
   end if;
+  -- a purchase declared CREATED needs the provider's own identity read after the attempt: the typed sid is only a claim, and a wrong one would hide the real number
+  if p_resolution = 'created' and not exists (select 1 from public.studio_sms_num_identity_reads x where x.twilio_account_sid = r.twilio_account_sid and x.legal_entity_id = r.legal_entity_id
+       and upper(x.phone_number_sid) = upper(p_provider_sid) and x.e164 = r.e164 and x.observed_at >= r.started_at and (x.source = 'provider_read' or public._tw4sr_fake_allowed())) then
+    raise exception 'a provider identity read of this sid and E.164 after the attempt is required before a purchase is declared created' using errcode = 'TW048';
+  end if;
   -- A number purchase (fee-bearing or credit-funded: either way it carries provider rent and the duplicate-purchase risk) is declared NOT CREATED only on authoritative, post-attempt, clean provider evidence (a complete inventory listing of THIS subaccount taken after the attempt
   -- with nothing unknown or missing, and no provider-read number with this E.164). An administrator's note alone never releases a fee or frees the approval.
   if p_resolution = 'not_created' and r.op_kind = 'number_purchase' then
+    perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || r.twilio_account_sid, 0));   -- a listing committing concurrently is seen, never raced
     v_reason := public._tw4num_absence_evidence(r);
     if v_reason is not null then
       raise exception 'post-attempt provider inventory evidence is required before a purchase is declared not created: %', v_reason using errcode = 'TW047';
@@ -282,6 +309,7 @@ begin
   end if;
   -- a fee is released only on provider evidence that the number is absent (never on the administrator's attestation)
   if p_outcome = 'released' then
+    perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || r.twilio_account_sid, 0));
     v_reason := public._tw4num_absence_evidence(r);
     if v_reason is not null then
       raise exception 'post-attempt provider inventory evidence is required before a fee is released: %', v_reason using errcode = 'TW047';
@@ -298,6 +326,82 @@ begin
   perform public._tw4prov_settle(r.id, 'number', p_outcome, 'admin');
   perform public._tw4_r1_audit(o, p_actor, 'num_resolved', o.state, o.state, 'op=' || r.id || ';settled=' || p_outcome || ';' || left(btrim(p_note), 150));
   return jsonb_build_object('status', p_outcome);
+end $$;
+
+create or replace function public.tw4_num_inventory_observe(p_onboarding_id uuid, p_lease_owner text, p_sids text[], p_source text, p_listed_at timestamptz)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  o public.studio_sms_onboarding;
+  v_entity uuid;
+  v_account text;
+  v_known text[];
+  v_unknown int;
+  v_missing int;
+begin
+  o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
+  if p_sids is null or cardinality(p_sids) > 1000 or exists (select 1 from unnest(p_sids) x where x is null or x !~ '^PN[0-9a-fA-F]{32}$') then
+    raise exception 'an inventory of number sids is required' using errcode = '22023';
+  end if;
+  if p_source is null or p_source not in ('provider_read', 'fake') or p_listed_at is null or p_listed_at > clock_timestamp() + interval '30 seconds' or p_listed_at < clock_timestamp() - interval '10 minutes' then
+    raise exception 'invalid inventory observation' using errcode = '22023';
+  end if;
+  if p_source = 'fake' and not public._tw4sr_fake_allowed() then
+    raise exception 'fake evidence is not accepted here' using errcode = '42501';
+  end if;
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = o.studio_id;
+  v_account := public._tw4num_account(o.studio_id);
+  if v_entity is null or v_account is null then
+    raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
+  end if;
+  v_known := public._tw4num_known(v_entity);
+  select count(*) into v_unknown from unnest(p_sids) x where not (x = any (v_known));
+  select count(*) into v_missing from (
+    select p.provider_sid sid from public.studio_sms_num_operations p
+     where p.legal_entity_id = v_entity and p.op_kind = 'number_purchase' and p.status = 'succeeded' and p.superseded_at is null and p.twilio_account_sid = v_account
+       and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = p.id and r.status = 'owned')) l
+   where not (l.sid = any (p_sids));
+  insert into public.studio_sms_num_inventory_checks (onboarding_id, lease_owner, legal_entity_id, listed_count, unknown_count, missing_count, twilio_account_sid, source, listed_at, listed_sids)
+  values (o.id, p_lease_owner, v_entity, cardinality(p_sids), v_unknown, v_missing, v_account, p_source, p_listed_at, p_sids);
+  return jsonb_build_object('listed', cardinality(p_sids), 'unknown', v_unknown, 'missing', v_missing);
+end $$;
+
+create or replace function public.tw4_num_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer default 300, p_mode text default 'run')
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  o public.studio_sms_onboarding;
+begin
+  if not public._tw4_r1_is_platform_admin(p_actor) then
+    raise exception 'actor must be a platform admin' using errcode = '42501';
+  end if;
+  if p_lease_owner is null or char_length(p_lease_owner) not between 1 and 64 or p_lease_seconds is null or p_lease_seconds not between 30 and 900
+     or p_mode is null or p_mode not in ('run', 'refresh') then
+    raise exception 'invalid lease' using errcode = '22023';
+  end if;
+  if not public._sms_onb_access_enabled(p_studio_id) then
+    raise exception 'not available for this studio' using errcode = '42501';
+  end if;
+  if p_mode = 'run' and not exists (select 1 from public.studio_sms_runner_windows w where w.studio_id = p_studio_id and w.expires_at > now()) then
+    raise exception 'the runner window for this studio is closed' using errcode = 'TW001';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('sms_onboarding:' || p_studio_id::text, 0));
+  select * into o from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state <> 'cancelled' for update;
+  if o.id is null then
+    raise exception 'there is no onboarding to run' using errcode = '22023';
+  end if;
+  if o.state <> 'campaign_pending' and not (p_mode = 'refresh' and (o.state in ('ready_for_activation', 'active', 'suspended') or (o.state = 'exception' and coalesce(o.last_error_code, '') like 'num\_%'))) then
+    raise exception 'onboarding state % is not at the number step', o.state using errcode = 'TW030';
+  end if;
+  if o.lease_owner is not null and o.lease_expires_at > now() and o.lease_owner <> p_lease_owner then
+    raise exception 'another run holds the lease' using errcode = '55P03';
+  end if;
+  update public.studio_sms_onboarding set lease_owner = p_lease_owner, lease_expires_at = now() + make_interval(secs => p_lease_seconds)
+  where id = o.id returning * into o;
+  perform public._tw4_r1_audit(o, p_actor, 'runner_lease', o.state, o.state, 'claimed number ' || p_mode);
+  return jsonb_build_object('onboarding_id', o.id, 'studio_id', o.studio_id, 'state', o.state, 'submission_seq', o.submission_seq);
 end $$;
 
 revoke all on function public._tw4p1_guard(), public._tw4num_absence_evidence(public.studio_sms_num_operations) from public, anon, authenticated, service_role;
