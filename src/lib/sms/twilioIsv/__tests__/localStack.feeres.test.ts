@@ -20,7 +20,7 @@ vi.setConfig({ testTimeout: 180_000, hookTimeout: 600_000 });
 import { SupabaseCreditStore } from "../creditStore";
 import { FakeProvisioningAdapter, FakeProvisioningHub } from "../fakeProvisioning";
 import { SupabaseProvisionStore } from "../provisionStore";
-import { refreshProvisioning, runProvisioning, type ProvisionInput } from "../provisionRunner";
+import { runProvisioning, type ProvisionInput } from "../provisionRunner";
 import { ProvisionEvidenceStore, checkCampaignAbsence, listingDigest, type ListingFacts } from "../provisionEvidence";
 
 
@@ -178,7 +178,6 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
   let credits: SupabaseCreditStore;
   let store: SupabaseProvisionStore;
   let snapshotActivePrices: string[] = [];
-  let pilotUsable = true;
   const hub = new FakeProvisioningHub();
   let n = 0;
   const rpc = async (fn: string, args: Record<string, unknown> = {}) => (await admin.rpc(fn, args)) as { data: unknown; error: { code?: string; message?: string } | null };
@@ -203,17 +202,8 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
     if (process.env.R2A_DEBUG) console.log("run", studio.slice(-2), JSON.stringify(result));
     return result;
   };
-  const refresh = async (studio: string, adapter: FakeProvisioningAdapter) => {
-    const result = await refreshProvisioning({ ...input(studio, adapter), confirmFee: undefined } as never);
-    if (process.env.R2A_DEBUG) console.log("refresh", studio.slice(-2), JSON.stringify(result));
-    return result;
-  };
-  const state = (studio: string) => psql(`select state from public.studio_sms_onboarding where studio_id = '${studio}'`);
-  const code = (studio: string) => psql(`select coalesce(last_error_code, '') from public.studio_sms_onboarding where studio_id = '${studio}'`);
   const ops = (studio: string, kind: string) => psql(`select string_agg(attempt || ':' || status || ':' || (superseded_at is not null), ',' order by attempt) from public.studio_sms_prov_operations where studio_id = '${studio}' and op_kind = '${kind}'`);
   const opId = (studio: string, kind: string, attempt = 1) => psql(`select id from public.studio_sms_prov_operations where studio_id = '${studio}' and op_kind = '${kind}' and attempt = ${attempt}`);
-  const reserved = (entity: string) => Number(psql(`select coalesce((select reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entity}'), 0)`));
-  const spendStatus = (approvalRef: string) => psql(`select status from public.studio_sms_spend_events where approval_ref = $q$${approvalRef}$q$`);
   const reservations = (entity: string, kind: string) => psql(`select string_agg(status || ':' || amount_cents || ':' || funding, ',' order by created_at) from public.studio_sms_credit_reservations where legal_entity_id = '${entity}' and kind = '${kind}'`);
 
   beforeAll(async () => {
@@ -229,7 +219,6 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: customer, p_provider_cents: provider, p_description: `fixture ${kind}`, p_actor: U.padmin })).error).toBeNull();
     }
     for (const s of [SA1, SA2, SB1, SC1, SD1]) await window(s);
-    pilotUsable = psql(`select count(*) from public.studio_sms_pilot_exceptions`) === "0";
   });
 
   afterAll(() => {
@@ -248,7 +237,6 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
   // ---------------------------------------------------------------------------------------------------------------------------------------------
   const evidence = () => new ProvisionEvidenceStore(admin);
   const msSid = (studio: string) => psql(`select provider_sid from public.studio_sms_prov_operations where studio_id = '${studio}' and op_kind = 'messaging_service' and status = 'succeeded' and superseded_at is null`);
-  const onboardingOf = (studio: string) => psql(`select id from public.studio_sms_onboarding where studio_id = '${studio}' and state <> 'cancelled'`);
   const listingRows = (studio: string) => psql(`select coalesce(string_agg(verdict, ',' order by observed_at, id), '') from public.studio_sms_prov_listings where studio_id = '${studio}'`);
   /** Shifts every recorded listing of a studio into the past (the database clock decides every rule; tests move the evidence, never the rules). */
   const ageListings = (studio: string, minutes: number) =>
