@@ -74,6 +74,7 @@ drop function if exists public._tw4num_credit_funded(uuid, uuid);
 
 drop function if exists public.tw4_num_inventory_observe(uuid, text, text[]);
 drop function if exists public._tw4num_known(uuid);
+drop function if exists public.tw4_num_registration_facts(uuid);
 drop function if exists public.tw4_num_rent_basis(uuid);
 drop function if exists public._tw4num_rent_basis_core(uuid);
 drop function if exists public.tw4_num_inventory_ack(uuid, uuid, text, text, text);
@@ -133,12 +134,19 @@ begin
     raise exception 'R2b rollback refused: number approval references exist' using errcode = '55000';
   end if;
 end $$;
-alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_source_check;
-alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_source_check check (source in ('spend_authorization', 'pilot_exception'));
-alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_shape;
-alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_shape check (
-  (source = 'spend_authorization' and spend_event_id is not null and kind is not null and amount_cents is not null and funding is not null)
-  or (source = 'pilot_exception' and spend_event_id is null and kind is null and amount_cents is null and funding is null and studio_id is null));
+do $$
+declare
+  v_src text;
+  v_sources text[];
+begin
+  select pg_get_constraintdef(c.oid) into v_src from pg_constraint c where c.conrelid = 'public.studio_sms_approval_refs'::regclass and c.conname = 'studio_sms_approval_refs_source_check';
+  select array_agg(distinct m[1] order by m[1]) into v_sources from regexp_matches(substring(v_src from 'ANY \((.*)\)'), '([a-z_]+)', 'g') m where m[1] not in ('text', 'array', 'number_selection');
+  if v_sources is null or cardinality(v_sources) < 2 then
+    raise exception 'could not read the approval-reference sources from %', v_src;
+  end if;
+  alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_source_check;
+  execute format('alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_source_check check (source = any (%L::text[]))', v_sources);
+end $$;
 
 -- audit vocabulary without the R2b actions (the live list minus ours)
 do $$

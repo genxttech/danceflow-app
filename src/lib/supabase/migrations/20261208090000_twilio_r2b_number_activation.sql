@@ -57,13 +57,27 @@ begin
 end $$;
 
 -- the shared approval-reference registry (20261202) learns a third source: an admin-recorded number approval. One written approval then authorizes one operation, once, in EVERY direction.
-alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_source_check;
-alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_source_check check (source in ('spend_authorization', 'pilot_exception', 'number_selection'));
-alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_shape;
-alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_shape check (
-  (source = 'spend_authorization' and spend_event_id is not null and kind is not null and amount_cents is not null and funding is not null)
-  or (source = 'pilot_exception' and spend_event_id is null and kind is null and amount_cents is null and funding is null and studio_id is null)
-  or (source = 'number_selection' and spend_event_id is null and kind is null and amount_cents is null and funding is null and studio_id is not null));
+do $$
+declare
+  v_src text;
+  v_shape text;
+  v_sources text[];
+begin
+  select pg_get_constraintdef(c.oid) into v_src from pg_constraint c where c.conrelid = 'public.studio_sms_approval_refs'::regclass and c.conname = 'studio_sms_approval_refs_source_check';
+  select pg_get_constraintdef(c.oid) into v_shape from pg_constraint c where c.conrelid = 'public.studio_sms_approval_refs'::regclass and c.conname = 'studio_sms_approval_refs_shape';
+  select array_agg(distinct m[1] order by m[1]) into v_sources from regexp_matches(substring(v_src from 'ANY \((.*)\)'), '([a-z_]+)', 'g') m where m[1] not in ('text', 'array');
+  if v_sources is null or cardinality(v_sources) < 2 then
+    raise exception 'could not read the approval-reference sources from %', v_src;
+  end if;
+  v_sources := (select array_agg(distinct x order by x) from unnest(v_sources || array['number_selection']) x);
+  alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_source_check;
+  execute format('alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_source_check check (source = any (%L::text[]))', v_sources);
+  if position('number_selection' in v_shape) = 0 then
+    alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_shape;
+    execute 'alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_shape ' || left(v_shape, length(v_shape) - 1)
+      || ' OR (source = ''number_selection''::text AND spend_event_id IS NULL AND kind IS NULL AND amount_cents IS NULL AND funding IS NULL AND studio_id IS NOT NULL))';
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- tables (no API-role privileges; everything goes through the functions below)
@@ -1311,6 +1325,7 @@ declare
   v_purchase public.studio_sms_num_operations;
   v_latest public.studio_sms_billed_senders;
   v_from_state text;
+  v_rfl_live boolean;
 begin
   if not public._tw4_r1_is_platform_admin(p_actor) then
     raise exception 'actor must be a platform admin' using errcode = '42501';
@@ -1335,6 +1350,13 @@ begin
   v_latest := public._tw4sr_latest(p_studio_id);
   if v_latest.id is not null and v_latest.status <> 'released' and v_latest.phone_number_sid = v_purchase.provider_sid then
     raise exception 'release the sender row first (tw4_sender_revoke with release)' using errcode = 'TW022';
+  end if;
+  -- the recurring provider-fee lifecycle holds the cancellation evidence: while it still lists this number as live at the provider, the ledger does not retire it
+  if to_regclass('public.studio_sms_provider_resources') is not null then
+    execute format('select exists (select 1 from public.studio_sms_provider_resources r where r.provider_sid = %L and r.provider_state = ''active'')', v_purchase.provider_sid) into v_rfl_live;
+    if v_rfl_live then
+      raise exception 'cancel this number through the recurring-fee lifecycle (with evidence) before retiring it' using errcode = 'TW034';
+    end if;
   end if;
   v_from_state := o.state;
   update public.studio_sms_num_operations set superseded_at = clock_timestamp() where studio_id = p_studio_id and op_kind in ('number_purchase', 'number_attach') and status = 'succeeded' and superseded_at is null;
@@ -1587,7 +1609,16 @@ declare
   v_sender_ok boolean;
   v_att_ok boolean;
   v_cmp_ok boolean;
+  v_rfl jsonb := null;
+  v_inv public.studio_sms_num_inventory_checks;
+  v_entity uuid;
 begin
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
+  -- the recurring provider-fee lifecycle (PR #259, 20261209): resolved dynamically so this migration applies without it, and the checklist then FAILS CLOSED
+  if to_regprocedure('public.tw4_rfl_studio_ready(uuid)') is not null then
+    execute format('select public.tw4_rfl_studio_ready(%L::uuid)', p_studio_id) into v_rfl;
+  end if;
+  select * into v_inv from public.studio_sms_num_inventory_checks c where c.legal_entity_id = v_entity order by c.created_at desc limit 1;
   select * into v_p from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_purchase' and x.status = 'succeeded' and x.superseded_at is null and x.twilio_account_sid = v_account;
   select * into v_a from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_attach' and x.status = 'succeeded' and x.superseded_at is null and x.twilio_account_sid = v_account;
   v_ready := public._tw4sr_ready_core(p_studio_id);   -- the PR #249 readiness: the activation checklist cannot depend on being active already
@@ -1612,6 +1643,12 @@ begin
     jsonb_build_object('id', 'sender_ready', 'ok', coalesce(v_sender_ok, false), 'detail', case when coalesce(v_sender_ok, false) then 'ok' when v_ready.id is null then 'sender_not_verified_or_stale' else 'sender_differs_from_ledger' end),
     jsonb_build_object('id', 'opt_out_attested', 'ok', coalesce(v_att_ok, false), 'detail', case when coalesce(v_att_ok, false) then 'ok' else 'attestation_missing_or_stale' end),
     jsonb_build_object('id', 'compliance_passed', 'ok', coalesce(v_cmp_ok, false), 'detail', case when coalesce(v_cmp_ok, false) then 'ok' when v_cmp.id is null then 'no_compliance_check' else 'compliance_failed_or_stale' end),
+    -- exposure monitoring and provider-fee cover: the recurring-fee lifecycle must be installed, the number and campaign registered in its inventory, every period covered, nothing open
+    jsonb_build_object('id', 'rfl_ready', 'ok', coalesce((v_rfl ->> 'ready')::boolean, false),
+      'detail', case when v_rfl is null then 'rfl_not_installed' when (v_rfl ->> 'ready')::boolean then 'ok' else 'rfl_blockers:' || coalesce((v_rfl -> 'blockers')::text, '?') end),
+    -- inventory reconciliation: the provider's inventory of this business was reconciled with the ledger, clean, within 24 hours (the runner's refreshInventory records it)
+    jsonb_build_object('id', 'inventory_reconciled', 'ok', v_inv.id is not null and v_inv.unknown_count = 0 and v_inv.created_at > now() - interval '24 hours',
+      'detail', case when v_inv.id is null then 'no_inventory_check' when v_inv.unknown_count > 0 then 'inventory_has_unknown_numbers' when v_inv.created_at <= now() - interval '24 hours' then 'inventory_check_stale' else 'ok' end),
     jsonb_build_object('id', 'inbound_route_pinned', 'ok', exists (select 1 from public.studio_sms_inbound_route_pins), 'detail', case when exists (select 1 from public.studio_sms_inbound_route_pins) then 'ok' else 'inbound_route_not_pinned' end),
     jsonb_build_object('id', 'funding_continuity', 'ok', (v_fund ->> 'ok')::boolean, 'detail', v_fund ->> 'detail'));
 end $$;
@@ -1953,6 +1990,22 @@ as $$ select public._tw4num_rent_basis_core(p_studio_id) || jsonb_build_object('
   select 1 from public.studio_sms_billed_senders s where s.studio_id = p_studio_id and s.phone_number_sid is not null
      and not exists (select 1 from public.studio_sms_num_operations o where o.provider_sid = s.phone_number_sid))); $$;
 
+-- the arguments of tw4_rfl_register for this location's number, read from the LEDGER (provider-read confirmed ownership, active subaccount): the caller types nothing
+create or replace function public.tw4_num_registration_facts(p_studio_id uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  p public.studio_sms_num_operations;
+begin
+  select * into p from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_purchase' and x.status = 'succeeded' and x.superseded_at is null
+     and x.twilio_account_sid = public._tw4num_account(p_studio_id) and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = x.id and r.status = 'owned');
+  if p.id is null then
+    return jsonb_build_object('registrable', false);
+  end if;
+  return jsonb_build_object('registrable', true, 'kind', 'number', 'provider_sid', p.provider_sid, 'account_sid', p.twilio_account_sid, 'e164', p.e164, 'source', 'r2b', 'source_operation', p.id);
+end $$;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
@@ -1966,7 +2019,7 @@ revoke all on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, json
   public.tw4_num_status(uuid, uuid), public.tw4_act_attest(uuid, uuid, jsonb, text), public.tw4_act_compliance_record(uuid, uuid, jsonb, text, text, text),
   public.tw4_act_verify_sender(uuid, uuid, uuid, jsonb, text), public.tw4_act_check(uuid, uuid), public.tw4_act_mark_ready(uuid, uuid, text), public.tw4_act_activate(uuid, uuid, text),
   public.tw4_act_suspend(uuid, uuid, text), public.tw4_act_exposure(uuid), public.tw4_inbound_route_pin_set(uuid, text, text), public.tw4_num_inventory_ack(uuid, uuid, text, text, text),
-  public.tw4_num_rent_basis(uuid), public._tw4num_rent_basis_core(uuid), public.tw4_num_inventory_observe(uuid, text, text[]), public._tw4num_known(uuid), public.tw4_num_select_as_owner(uuid, uuid, text, int), public.tw4_num_withdraw_as_owner(uuid, uuid, text) from public, anon, authenticated, service_role;
+  public.tw4_num_rent_basis(uuid), public.tw4_num_registration_facts(uuid), public._tw4num_rent_basis_core(uuid), public.tw4_num_inventory_observe(uuid, text, text[]), public._tw4num_known(uuid), public.tw4_num_select_as_owner(uuid, uuid, text, int), public.tw4_num_withdraw_as_owner(uuid, uuid, text) from public, anon, authenticated, service_role;
 grant execute on function public.tw4_num_rent_basis(uuid) to service_role;
 grant execute on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, jsonb, text, text), public.tw4_num_select(uuid, uuid, uuid, text, int, text), public.tw4_num_withdraw(uuid, uuid, uuid, text),
   public.tw4_num_claim(uuid, uuid, text, integer, text), public.tw4_num_context(uuid, text), public.tw4_num_begin(uuid, text, text, text, text, jsonb, uuid),
@@ -1975,7 +2028,7 @@ grant execute on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, j
   public.tw4_num_status(uuid, uuid), public.tw4_act_attest(uuid, uuid, jsonb, text), public.tw4_act_compliance_record(uuid, uuid, jsonb, text, text, text),
   public.tw4_act_verify_sender(uuid, uuid, uuid, jsonb, text), public.tw4_act_check(uuid, uuid), public.tw4_act_mark_ready(uuid, uuid, text), public.tw4_act_activate(uuid, uuid, text),
   public.tw4_act_suspend(uuid, uuid, text), public.tw4_act_exposure(uuid), public.tw4_inbound_route_pin_set(uuid, text, text), public.tw4_num_inventory_ack(uuid, uuid, text, text, text),
-  public.tw4_num_rent_basis(uuid), public.tw4_num_inventory_observe(uuid, text, text[]) to service_role;
+  public.tw4_num_rent_basis(uuid), public.tw4_num_registration_facts(uuid), public.tw4_num_inventory_observe(uuid, text, text[]) to service_role;
 -- the two owner entry points are the ONLY R2b functions an authenticated user can run; each derives the actor from auth.uid()
 grant execute on function public.tw4_num_select_as_owner(uuid, uuid, text, int), public.tw4_num_withdraw_as_owner(uuid, uuid, text) to authenticated;
 

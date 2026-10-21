@@ -169,3 +169,30 @@ Independent Opus assessment (2026-10-21): no P0/P1; **GO for a Git-only merge, N
 * What does not: the pilot reservation is released when an operation is resolved "not created" (ceiling headroom is returned and cannot be recovered: an `abandoned` operation is final); rent basis reads `not_billable` and exposure does not list the orphan; on the credit path exposure mislabels it `authorization_without_number`. Cost: Twilio bills the DanceFlow parent the number's monthly rent (about one dollar; not checked against the live price list) until released at the console. DanceFlow bears it, never the studio.
 * Corrected in this PR after the assessment: the acknowledgement could be bypassed with a NULL or wrong e164; it now refuses everything for a business with a lost purchase. The inventory listing now actually fails closed (the round-3 change to `real.ts` had not been applied).
 * **Live-activation blockers:** L1 take the number's e164 from a provider read, not from the caller; L2 `tw4_num_resolve('not_created')` on a fee operation must require a clean provider-inventory check recorded after the attempt; L3 an admin adoption path (provider-read evidence, a new linked operation, fee re-reserved inside the pilot ceiling or recorded as DanceFlow-borne, rent basis not `not_billable`); L4 scheduled inventory reconciliation per subaccount, unknown SIDs stored and listed in exposure, and rent basis `indeterminate` while a business has an uninvestigated abandoned fee operation.
+
+## 14. Final merge preflight (2026-10-21): RFL (PR #259) compatibility, fail-closed activation gates, blocker ownership
+
+**Activation now fails closed on three more conditions** (checklist items evaluated by `tw4_act_mark_ready` / `tw4_act_activate` in the same transaction):
+
+* `rfl_ready`: the recurring provider-fee lifecycle (`tw4_rfl_studio_ready`, migration 20261209) must be installed (resolved dynamically, so R2b applies without it) and report ready: the location's number and campaign registered in its inventory, every service period covered, no open exposure, no pending cancellation. **Not installed = not ready** (`rfl_not_installed`).
+* `inventory_reconciled`: a clean provider-inventory check for the business within 24 hours (`refreshInventory` in `numberRunner.ts`, GET-only, database-judged). **No check, a stale check, or an unknown number = not ready.**
+* The pilot business still fails `funding_continuity` (`pilot_month_two_undefined`) until the month-two approval operation exists.
+
+**RFL integration points (no code in PR #259 changed; R2b changes only):**
+
+| Topic | State |
+|---|---|
+| `tw4_num_rent_basis` | RFL does not call it yet (soft link). It is the contract RFL must gate `number` rent on. Not wired: a documented dependency, fail-closed at activation through `rfl_ready`. |
+| `tw4_rfl_register` | Admin-typed facts. R2b now provides `tw4_num_registration_facts(studio)`: the exact arguments (provider sid, account, e164, `source = 'r2b'`, `source_operation`) from the ledger, and only for a provider-confirmed, owned, active-subaccount number. RFL's own checks (active subaccount, one live resource per location and kind, pilot rules) remain authoritative. |
+| Cancellation and retirement | Order: release the sender row, cancel the number through the lifecycle (with evidence), then `tw4_num_retire`. `tw4_num_retire` now refuses (`TW034`) while the lifecycle still lists the number as live (`provider_state = 'active'`) when the lifecycle is installed. RFL's cancel already refuses a live sender. |
+| Activation readiness | `rfl_ready` above. |
+| Approval-source constraint | Both migrations now extend the LIVE `studio_sms_approval_refs` constraint definitions, so the union `{cancellation, number_selection, pilot_exception, spend_authorization}` results in either apply order (verified), and R2b's rollback removes only its own source (a sibling's survives, verified in the wrong rollback order too). |
+
+**Migration order.** 20261208 (R2b) applies before 20261209 (RFL): verified on isolated databases built from the QA stack, in numeric order and in reverse. Rollback in numeric reverse: RFL, then R2b (verified); R2b-first rollback also preserves RFL's source. RFL's recurring-fee suite ran against a database with R2b applied: 79 passed, 0 failed (the run was cut by my own 560 s timeout before its last 8 tests).
+
+**Blocker ownership (pre-activation).** All four are R2b-owned and none is required for a Git-only merge (the code is dark):
+* **L1** provider-derived E.164 identity: R2b. Partly closed: registration arguments come from the ledger; `tw4_num_inventory_ack` still takes a typed e164 and is refused outright for a business with a lost purchase. Remaining: read the e164 from a provider `getNumber` before any acknowledgement.
+* **L2** a post-attempt clean inventory before `not_created` may be resolved: R2b (`tw4_num_resolve`). Not built.
+* **L3** orphan adoption (provider-read evidence, new linked operation, fee re-reserved inside the pilot ceiling or recorded as DanceFlow-borne, rent basis, RFL registration): R2b, coordinating with RFL for the registration. Not built.
+* **L4** scheduled inventory reconciliation with unknown SIDs stored and exposed: R2b owns the job; RFL's monitoring consumes it. `refreshInventory` + the `inventory_reconciled` item are the manual stand-in. Not built.
+Until L1-L4 exist, activation of any location needs the manual `refreshInventory` within 24 hours and an operator who has investigated any `not_created` resolution.

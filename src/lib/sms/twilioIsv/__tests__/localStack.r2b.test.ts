@@ -22,7 +22,7 @@ import { FakeSenderReadProvider } from "../../senderVerification";
 import { SupabaseCreditStore } from "../creditStore";
 import { FakeNumberAdapter, FakeNumberHub } from "../fakeNumbers";
 import { SupabaseNumberStore } from "../numberStore";
-import { offerNumbers, refreshNumber, runNumberAcquisition } from "../numberRunner";
+import { offerNumbers, refreshInventory, refreshNumber, runNumberAcquisition } from "../numberRunner";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -101,6 +101,8 @@ const STUDIOS = `'${SA1}', '${SA2}', '${SB1}', '${SC1}', '${SD1}'`;
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
+drop function if exists public.tw4_rfl_studio_ready(uuid);
+do $$ begin if (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'studio_sms_provider_resources') = 2 then drop table public.studio_sms_provider_resources; end if; end $$;
 delete from public.studio_sms_inbound_route_pins where set_by = '${U.padmin}';
 delete from public.studio_sms_num_inventory_checks where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_num_inventory_acks where legal_entity_id in (${ENTITIES});
@@ -534,6 +536,11 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // the contract the recurring-fee lifecycle asks before it charges number rent: a purchase confirmed by the provider, in the active subaccount, not retired
       expect(await basis(SA1)).toMatchObject({ state: "billable", live: true, reason: "ok", pilot: false });
       expect(await basis(SB1)).toMatchObject({ state: "not_billable", live: false, reason: "no_live_purchase", managed: true });
+      // the lifecycle inventory registration arguments come from the LEDGER (nothing typed): only a provider-confirmed, owned, active-subaccount number is registrable
+      const facts = (await rpc("tw4_num_registration_facts", { p_studio_id: SA1 })).data as Record<string, unknown>;
+      expect(facts).toMatchObject({ registrable: true, kind: "number", e164: NUM.a1, account_sid: ACC.A, source: "r2b" });
+      expect(facts.provider_sid).toBe(psql(`select provider_sid from public.studio_sms_num_operations where studio_id = '${SA1}' and op_kind = 'number_purchase' and attempt = 1`));
+      expect(await rpc("tw4_num_registration_facts", { p_studio_id: SB1 })).toMatchObject({ data: { registrable: false } });
       expect(await basis(SA1)).toMatchObject({ managed: true });
       const again = await run(SA1, a);
       expect(again.outcome).toBe("number_ready");
@@ -912,6 +919,37 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await items()).funding_continuity.ok).toBe(true);
     });
 
+    it("the activation checklist FAILS CLOSED without the recurring-fee lifecycle, without a fresh clean provider inventory, and with an open lifecycle blocker", async () => {
+      // never overwrite a real lifecycle function: the stub exists only in a database that does not have it
+      expect(psql("select to_regprocedure('public.tw4_rfl_studio_ready(uuid)') is null"), "an isolated database without the real recurring-fee lifecycle is required").toBe("t");
+      // earlier purchases stamped clean inventory checks: start from none
+      aged(`delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${EA}'`);
+      const before = await items();
+      expect(before.rfl_ready).toMatchObject({ ok: false, detail: "rfl_not_installed" });
+      expect(before.inventory_reconciled).toMatchObject({ ok: false, detail: "no_inventory_check" });
+      expect(await markReady(admin, SA1, U.padmin, "attempt without the lifecycle or inventory")).toMatchObject({ ok: false, code: "TW042" });
+      // the lifecycle is installed but reports blockers (an uncovered period, a number missing from its inventory)
+      psqlFile("create or replace function public.tw4_rfl_studio_ready(uuid) returns jsonb language sql as $$ select '{\"ready\": false, \"blockers\": [\"number_not_in_inventory\"]}'::jsonb $$; -- tw4_r2b_stub");
+      expect((await items()).rfl_ready).toMatchObject({ ok: false });
+      expect((await items()).rfl_ready.detail).toContain("number_not_in_inventory");
+      // a provider inventory with a number the system does not account for blocks activation too (and stamps nothing clean)
+      const a = adapterOf(ACC.A);
+      const stray = a.seedOwned("+12025550177");
+      expect(await refreshInventory({ store, adapter: a, studioId: SA1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_unknown" });
+      expect((await items()).inventory_reconciled).toMatchObject({ ok: false, detail: "inventory_has_unknown_numbers" });
+      a.universe.owned.delete(stray);
+      expect(await refreshInventory({ store, adapter: a, studioId: SA1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+      // a clean check goes stale after 24 hours
+      expect((await items()).inventory_reconciled).toMatchObject({ ok: true });
+      aged(`delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${EA}' and unknown_count > 0`);
+      aged(`update public.studio_sms_num_inventory_checks set created_at = now() - interval '25 hours' where legal_entity_id = '${EA}'`);
+      expect((await items()).inventory_reconciled).toMatchObject({ ok: false, detail: "inventory_check_stale" });
+      expect(await refreshInventory({ store, adapter: a, studioId: SA1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+      // the lifecycle is ready
+      psqlFile("create or replace function public.tw4_rfl_studio_ready(uuid) returns jsonb language sql as $$ select '{\"ready\": true, \"blockers\": []}'::jsonb $$; -- tw4_r2b_stub");
+      expect((await items()).rfl_ready).toMatchObject({ ok: true });
+    });
+
     it("ready for activation only when every item passes; each lapse (authorization, verification age, attestation age, compliance age) blocks activation again, and nothing activates by itself", async () => {
       expect(state(SA1)).toBe("campaign_pending");
       expect((await markReady(admin, SA1, U.padmin, "short")).ok).toBe(false);
@@ -983,6 +1021,15 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     it("a location past the number step can still replace its number: retire sends it through exception and reopen returns it to the number step; a number mismatch at the provider stops it at once", async () => {
       // the sender is already revoked by the suspension; release it, then the admin confirms the provider release
       expect((await rpc("tw4_sender_revoke", { p_studio_id: SA1, p_actor: U.padmin, p_reason: "fixture: location releases its number", p_release: true })).error).toBeNull();
+      // the recurring-fee lifecycle holds the cancellation evidence: while it still lists the number as live at the provider the ledger does not retire it (a stand-in with the two
+      // columns the guard reads, created only where the real lifecycle table does not exist)
+      const standIn = psql("select to_regclass('public.studio_sms_provider_resources') is null") === "t";
+      if (standIn) {
+        psqlFile(`create table public.studio_sms_provider_resources (provider_sid text, provider_state text); insert into public.studio_sms_provider_resources values ('${numberSid}', 'active');`);
+        consoleRelease(ACC.A, NUM.a1c);
+        expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error?.code).toBe("TW034");
+        psqlFile(`update public.studio_sms_provider_resources set provider_state = 'cancelled'`);
+      }
       consoleRelease(ACC.A, NUM.a1c);
       expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error).toBeNull();
       expect(state(SA1)).toBe("exception");

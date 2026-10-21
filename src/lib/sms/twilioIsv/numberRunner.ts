@@ -51,6 +51,8 @@ export type NumberOutcome =
   | "suspended"
   | "record_failed"
   | "search_refused"
+  | "inventory_clean"
+  | "inventory_unknown"
   | "nothing_to_check";
 
 export type NumberResult = { outcome: NumberOutcome; steps: NumKind[]; detail?: string; state?: string; offer?: { offerId: string; count: number; expiresAt: string; candidates: { e164: string; locality: string | null; region: string | null }[] } };
@@ -484,6 +486,47 @@ export async function refreshNumber(input: Omit<NumberInput, "confirmFee">): Pro
   } finally {
     try {
       await store.release(onboardingId, leaseOwner);
+    } catch {
+      /* the lease expires by itself */
+    }
+  }
+}
+
+/**
+ * Reconciles the provider's inventory of this business's subaccount with the ledger WITHOUT buying anything (a refresh lease: GET-only). The database judges it and stamps the
+ * result; the activation checklist (`inventory_reconciled`) needs a clean stamp from the last 24 hours. Until a scheduled reconciliation exists this is the manual path.
+ */
+export async function refreshInventory(input: { store: NumberStore; adapter: IsvNumberAdapter; studioId: string; actorId: string }): Promise<NumberResult> {
+  const { store, adapter, studioId, actorId } = input;
+  const leaseOwner = `num-inv-${randomUUID().slice(0, 8)}`;
+  const steps: NumKind[] = [];
+  let claim;
+  try {
+    claim = await store.claim(studioId, actorId, leaseOwner, 120, "refresh");
+  } catch (error) {
+    const code = storeCode(error);
+    return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", steps, detail: code };
+  }
+  try {
+    const refused = await accountRefusal(store, adapter, claim.onboarding_id, leaseOwner, claim.state);
+    if (refused) return refused;
+    let inventory;
+    try {
+      inventory = await adapter.listIncomingNumbers();
+    } catch (error) {
+      return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state: claim.state };
+    }
+    try {
+      const seen = await store.inventoryObserve(claim.onboarding_id, leaseOwner, inventory.map((n) => n.sid));
+      return seen.unknown > 0
+        ? { outcome: "inventory_unknown", steps, detail: `inventory_unrecorded:${seen.unknown}`, state: claim.state }
+        : { outcome: "inventory_clean", steps, state: claim.state };
+    } catch (error) {
+      return { outcome: "retry_later", steps, detail: `inventory_record:${storeCode(error)}`, state: claim.state };
+    }
+  } finally {
+    try {
+      await store.release(claim.onboarding_id, leaseOwner);
     } catch {
       /* the lease expires by itself */
     }
