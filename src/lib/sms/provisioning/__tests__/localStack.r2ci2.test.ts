@@ -229,9 +229,14 @@ describe.skipIf(!enabled)("TW-4F R2c-I2: get_studio_sms_provisioning (real schem
     setOps(S1, O1, E1, ACC[1], [{ kind: "campaign", op: "succeeded", res: "failed", failure: dirty }]);
     const c = (await campaign(asUser(U.owner1))).campaign;
     expect(c.rejection_summary).not.toMatch(/QE[0-9a-f]{32}|https|@|5035550123/);
-    expect(c.rejection_summary).toContain("[id]");
+    expect(c.rejection_summary).toContain("(id)");
     expect(c.rejection_summary!.length).toBeLessThanOrEqual(200);
     expect(c.checked_at).not.toBeNull();
+    // review findings: an underscore-adjacent SID, a SID fragment and provider error-code JSON must not get through
+    setOps(S1, O1, E1, ACC[1], [{ kind: "campaign", op: "succeeded", res: "failed", failure: `[{"code": 30896, "message": "Opt-in flow missing, ref campaign_QE${"c".repeat(32)} frag ${"d".repeat(26)}", "fields": []}]` }]);
+    const j = (await campaign(asUser(U.owner1))).campaign.rejection_summary!;
+    expect(j).not.toMatch(/30896|QE[0-9a-f]{8}|d{12}|[{}[\]"]/);
+    expect(j).toContain("Opt-in flow missing");
     setOps(S1, O1, E1, ACC[1], [{ kind: "campaign", op: "unknown_outcome" }]);
     expect((await campaign(asUser(U.owner1))).campaign).toMatchObject({ rejection_summary: null, checked_at: null });
   });

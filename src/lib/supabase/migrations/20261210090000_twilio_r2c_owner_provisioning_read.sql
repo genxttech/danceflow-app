@@ -3,8 +3,8 @@
 --   * public.get_studio_sms_provisioning(p_studio_id): derives the caller from auth.uid(), never from an argument. Allowed: an ACTIVE studio_owner or studio_admin
 --     of THAT studio, or a platform admin (read-only support view). Front desk, another studio's staff, anyone unauthenticated and the service role are refused (42501).
 --   * Returns ONLY coarse enums: messaging_service {not_started|in_progress|ready|attention} and campaign {not_started|preparing|pending|approved|rejected|attention},
---     a bounded, redacted rejection summary (only when the provider read says FAILED) and the time of the last provider read.
---   * Never returns a Twilio SID, an operation id, an error code or detail, fee data, an account, or anything about another studio.
+--     a bounded, redacted rejection summary (only when the provider read says FAILED; identifiers, links, addresses, digit runs and JSON structure removed, so no error-code values) and the time of the last provider read.
+--   * Never returns a Twilio SID, an operation id, an error code value or detail, fee data, an account, or anything about another studio.
 --   * Status follows PROVIDER EVIDENCE (studio_sms_prov_resources, written only by tw4_prov_observe from provider reads), never a submission response or an admin's typed claim:
 --     'pending' needs a provider-read resource row; 'approved' needs the database's own VERIFIED verdict; an operation with an unknown outcome is 'preparing', not 'submitted'.
 --   * Read-only: no table is written, nothing calls Twilio.
@@ -87,13 +87,16 @@ begin
   end;
 
   if v_cp = 'rejected' then
-    -- bounded and redacted: provider text can carry identifiers, links, addresses and long numbers
-    v_reason := nullif(btrim(left(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(coalesce(cp.failure_reasons, ''),
+    -- bounded and redacted: provider text can carry identifiers, links, addresses, error codes and phone numbers. Order matters: printable only; any long
+    -- alphanumeric token (a SID, even next to an underscore, or a fragment of one) -> [id]; links; addresses; every run of 3+ digits (error codes, phone
+    -- numbers) -> [number]; the structural characters of the provider's JSON are removed.
+    v_reason := nullif(btrim(left(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(coalesce(cp.failure_reasons, ''),
       '[^\x20-\x7e]', '', 'g'),
-      '\m[A-Za-z]{2}[0-9a-fA-F]{32}\M', '[id]', 'g'),
-      'https?://\S+', '[link]', 'g'),
-      '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+', '[email]', 'g'),
-      '[0-9]{6,}', '[number]', 'g'), 200)), '');
+      '[A-Za-z0-9]{24,}', '(id)', 'g'),
+      'https?://\S+', '(link)', 'g'),
+      '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+', '(email)', 'g'),
+      '[0-9]{3,}', '(number)', 'g'),
+      '[{}\[\]"]', '', 'g'), 200)), '');
   end if;
 
   return jsonb_build_object(

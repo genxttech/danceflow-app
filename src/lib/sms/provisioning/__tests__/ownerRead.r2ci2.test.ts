@@ -33,6 +33,13 @@ describe("parseOwnerProvisioning: strict and fail-closed", () => {
     expect(out).not.toMatch(/QE[0-9a-f]{32}|https|@|5035550123|\u0007/);
     expect(out.length).toBeLessThanOrEqual(200);
     expect(scrubSummary("")).toBeNull();
+    // review findings: a SID next to an underscore, a long fragment, and provider error-code JSON must not get through
+    expect(scrubSummary(`campaign_QE${"a".repeat(32)} bad`)).not.toMatch(/QE[0-9a-f]{8}/);
+    expect(scrubSummary(`x ${"b".repeat(26)} y`)).toBe("x (id) y");
+    const json = scrubSummary('[{"code": 30896, "message": "Opt-in flow missing", "fields": []}]')!;
+    expect(json).not.toMatch(/30896|[{}[\]"]/);
+    expect(json).toContain("Opt-in flow missing");
+    expect(scrubSummary("call (555) 123-4567")).not.toMatch(/\d{3}/);
     expect(scrubSummary(42)).toBeNull();
   });
 });
