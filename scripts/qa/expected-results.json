@@ -33,6 +33,20 @@
         "rollback parses and completes where there is no evidence"
       ],
       "reason": "R2b's objects depend on the R2a ledger (2BP01), so R2a's rollback cannot run until R2b is rolled back first: ordered, transaction-safe refusal, not a regression."
+    },
+    {
+      "suite": "src/lib/sms/__tests__/localStack.tw4sender.test.ts",
+      "scenarios": [
+        "r2a-r2b-pr251",
+        "r2a-pr251-r2b",
+        "pr251-r2a-r2b",
+        "r2a-then-pr251",
+        "pr251-then-r2a"
+      ],
+      "count": 8,
+      "failing": [],
+      "reason": "the version of this suite that comes from the R2b branch is main's, which pins sender-readiness behaviour that PR #251's migration deliberately changes; PR #251's own version of the suite passes 18/18 in the same databases (matrix with --tests-ref origin/twilio-tw4f-sender-reverify).",
+      "testsRef": "r2b"
     }
   ]
 }

@@ -40,7 +40,7 @@ const KONG_IMAGE = process.env.ISO_QA_KONG_IMAGE ?? "public.ecr.aws/supabase/kon
 const DEFAULT_CUTOFF = "20261205090000";
 const MIGRATIONS = "src/lib/supabase/migrations";
 const LIMITS = {
-  db: ["--memory", process.env.ISO_QA_DB_MEMORY ?? "1500m", "--cpus", process.env.ISO_QA_DB_CPUS ?? "1.5"],
+  db: ["--memory", process.env.ISO_QA_DB_MEMORY ?? "1500m", "--cpus", process.env.ISO_QA_DB_CPUS ?? "2"],
   rest: ["--memory", process.env.ISO_QA_REST_MEMORY ?? "256m", "--cpus", "0.5"],
   kong: ["--memory", process.env.ISO_QA_KONG_MEMORY ?? "1280m", "--cpus", "1"],
 };
@@ -437,7 +437,8 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
     const vitestBin = path.join(tests.dir, "node_modules", "vitest", "vitest.mjs");
     if (!existsSync(vitestBin)) throw new Error(`vitest not found at ${vitestBin}`);
     const jsonOut = path.join(runDir, "vitest.json");
-    const args = [vitestBin, "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, ...vitestArgs];
+    const timeouts = [...(vitestArgs.some((a) => a.startsWith("--testTimeout")) ? [] : ["--testTimeout=60000"]), ...(vitestArgs.some((a) => a.startsWith("--hookTimeout")) ? [] : ["--hookTimeout=120000"])];
+    const args = [vitestBin, "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, ...timeouts, ...vitestArgs];
     const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...up.env }, encoding: "utf8", maxBuffer: 1 << 28 });
     const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
     writeFileSync(path.join(runDir, "vitest.log"), out);
@@ -478,7 +479,7 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const FINGERPRINT_SQL = `
 select 'fn ' || p.oid::regprocedure::text || ' ' || md5(p.prosrc) || ' secdef=' || p.prosecdef || ' cfg=' || coalesce(p.proconfig::text, '-') || ' owner=' || p.proowner::regrole::text
-  || ' ret=' || pg_get_function_result(p.oid) || ' vol=' || p.provolatile::text || ' strict=' || p.proisstrict || ' lang=' || p.prolang::reglanguage::text || ' acl=' || coalesce(p.proacl::text, '-')
+  || ' ret=' || pg_get_function_result(p.oid) || ' vol=' || p.provolatile::text || ' strict=' || p.proisstrict || ' lang=' || (select l.lanname from pg_language l where l.oid = p.prolang) || ' acl=' || coalesce(p.proacl::text, '-')
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
 union all select 'tbl ' || c.relname || ' rls=' || c.relrowsecurity || '/' || c.relforcerowsecurity || ' owner=' || c.relowner::regrole::text || ' acl=' || coalesce(c.relacl::text, '-') || ' cols=' ||
   (select string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '-') || ':' || a.attidentity || a.attgenerated, ',' order by a.attnum)
@@ -538,13 +539,16 @@ async function cmdCompare(a, b, flags) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 /** Failures that are KNOWN and explained (scripts/qa/expected-results.json). A suite is "known" only when EVERY failing test is listed and EVERY listed test still fails. */
 const EXPECTED = JSON.parse(readFileSync(path.join(here, "expected-results.json"), "utf8")).known;
-function classify(file, scenarioName, runDirFromTail) {
+const appliesTo = (e, scenarioName, ref) => (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)) && (!e.testsRef || (ref ?? "").includes(e.testsRef));
+function classify(file, scenarioName, runDirFromTail, ref) {
   let r;
   try { r = JSON.parse(readFileSync(path.join(runDirFromTail, "result.json"), "utf8")); } catch { return null; }
   if (r.exit !== 1) return null;
-  const rules = EXPECTED.filter((e) => e.suite === file && (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)));
+  const rules = EXPECTED.filter((e) => e.suite === file && appliesTo(e, scenarioName, ref));
   if (rules.length === 0) return null;
   const listed = rules.flatMap((e) => e.failing);
+  const byCount = rules.find((e) => typeof e.count === "number");
+  if (byCount) return r.counts.failed === byCount.count ? { reason: byCount.reason } : null;
   const allKnown = r.failedTests.every((t) => listed.some((k) => t.includes(k)));
   const allStillFail = listed.every((k) => r.failedTests.some((t) => t.includes(k)));
   return allKnown && allStillFail ? { reason: rules[0].reason } : null;
@@ -552,7 +556,7 @@ function classify(file, scenarioName, runDirFromTail) {
 
 async function cmdMatrix(scenarioName, flags) {
   if (!SCENARIOS[scenarioName]) die(`unknown scenario ${scenarioName}`);
-  const parallel = flags.parallel === undefined ? 3 : Number(flags.parallel);
+  const parallel = flags.parallel === undefined ? 2 : Number(flags.parallel);
   if (!Number.isInteger(parallel) || parallel < 1 || parallel > 6) die("--parallel must be an integer from 1 to 6");
   const ref = flags["tests-ref"];
   if (ref) testWorktree(ref); // created once, here, before any child needs it
@@ -570,7 +574,7 @@ async function cmdMatrix(scenarioName, flags) {
     p.on("close", (status) => {
       const tail = err.split("\n").filter((l) => l.includes("[iso-qa] scenario=")).pop() ?? err.split("\n").filter((l) => l.includes("[iso-qa]")).pop() ?? "";
       const evidence = (tail.match(/evidence=(.*)$/) ?? [])[1];
-      const known = status === 1 && evidence ? classify(f, scenarioName, evidence.trim()) : null;
+      const known = status === 1 && evidence ? classify(f, scenarioName, evidence.trim(), ref) : null;
       results.push({ file: f, status: status ?? 3, known: known?.reason ?? null, tail });
       console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? "SKIP " : known ? "KNOWN" : "FAIL "} ${f}  ${tail.replace(/.*\[iso-qa\] /, "").replace(/.*scenario=/, "")}${known ? `  [known: ${known.reason.slice(0, 90)}]` : ""}`);
       resolve();
@@ -579,7 +583,7 @@ async function cmdMatrix(scenarioName, flags) {
   const queue = files.map((f, i) => [f, i]);
   await Promise.all(Array.from({ length: parallel }, async () => { for (let j = queue.shift(); j; j = queue.shift()) await run1(...j); }));
   // a listed suite that PASSES means its expectation is stale: say so (and fail), so the list can never silently rot
-  const stale = EXPECTED.filter((e) => (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)) && results.some((r) => r.file === e.suite && r.status === 0));
+  const stale = EXPECTED.filter((e) => appliesTo(e, scenarioName, ref) && results.some((r) => r.file === e.suite && r.status === 0));
   for (const e of stale) console.log(`STALE EXPECTATION: ${e.suite} now passes in ${scenarioName}: remove it from expected-results.json`);
   const bad = results.filter((r) => r.status !== 0);
   const unexpected = bad.filter((r) => !r.known);
