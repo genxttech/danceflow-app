@@ -20,7 +20,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { loadLedgers, parseLedger, ProvisioningLedgerStore, type LedgerSnapshot } from "../provisionLedger";
-import { CONFIRM_PHRASE, RESOLVE_WAIT_MS, reopenProvisioning, resolveOperation, type LedgerPort } from "../provisionCommands";
+import { CONFIRM_PHRASE, FEE_RELEASE_MESSAGE, RESOLVE_WAIT_MS, reopenProvisioning, resolveOperation, type LedgerPort } from "../provisionCommands";
 import { buildAdminProvisioningView } from "../adminView";
 import { reopenProvisioningAction, resolveProvisioningOperationAction } from "@/app/platform/sms/provisioningActions";
 import ProvisioningLedger from "@/app/platform/sms/ProvisioningLedger";
@@ -85,13 +85,14 @@ describe("ledger wrapper: strict, fail-closed parsing", () => {
     expect(v.blockers.join(" ")).toMatch(/does not recognize/);
   });
   it("store forwards exactly the documented rpc arguments, with the caller-supplied actor only", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    const rpc = vi.fn(async (fn: string) => ({ data: fn === "tw4_prov_status" ? rawLedger([rawOp()]) : null, error: null }));
     const store = new ProvisioningLedgerStore({ rpc } as never);
     await store.status(S1, ADMIN);
-    await store.resolve({ operationId: OP_CAMPAIGN, actorId: ADMIN, resolution: "created", providerSid: QE, note: "found it in the console" });
+    await store.resolve({ studioId: S1, operationId: OP_CAMPAIGN, actorId: ADMIN, resolution: "created", providerSid: QE, note: "found it in the console" });
     await store.reopen(S1, ADMIN, "campaign corrected and reviewed");
     expect(rpc.mock.calls).toEqual([
       ["tw4_prov_status", { p_studio_id: S1, p_actor: ADMIN }],
+      ["tw4_prov_status", { p_studio_id: S1, p_actor: ADMIN }], // resolve re-reads the studio's ledger itself before forwarding
       ["tw4_prov_resolve", { p_operation_id: OP_CAMPAIGN, p_actor: ADMIN, p_resolution: "created", p_provider_sid: QE, p_note: "found it in the console" }],
       ["tw4_prov_reopen", { p_studio_id: S1, p_actor: ADMIN, p_reason: "campaign corrected and reviewed" }],
     ]);
@@ -113,13 +114,39 @@ describe("ledger wrapper: strict, fail-closed parsing", () => {
 });
 
 describe("resolveOperation: validation, replay and cross-studio refusal", () => {
-  it("happy path (fee op, 'not created', 2h old): calls resolve once, with the session admin, and says the fee was released", async () => {
-    const { p, calls } = port(rawLedger([rawOp()]));
-    const r = await resolveOperation(p, ADMIN, form(good()), NOW);
-    expect(r.ok).toBe(true);
-    expect(r.message).toMatch(/released/);
+  it("happy path (free op, 'not created', 2h old): calls resolve once, with the session admin and the studio", async () => {
+    const { p, calls } = port(rawLedger([rawOp({ fee_bearing: false, fee_kinds: [] })]));
+    const r = await resolveOperation(p, ADMIN, form(good({ phrase: "" })), NOW);
+    expect(r).toMatchObject({ ok: true, message: "Recorded as not created." });
     expect(calls.resolve).toHaveBeenCalledTimes(1);
-    expect(calls.resolve).toHaveBeenCalledWith({ operationId: OP_CAMPAIGN, actorId: ADMIN, resolution: "not_created", providerSid: null, note: "Checked the Twilio console: no campaign exists" });
+    expect(calls.resolve).toHaveBeenCalledWith({ studioId: S1, operationId: OP_CAMPAIGN, actorId: ADMIN, resolution: "not_created", providerSid: null, note: "Checked the Twilio console: no campaign exists" });
+  });
+  it("FEE RELEASE IS OFF: a fee-bearing operation can never be resolved as not created, whatever its age, confirmation or phrase; nothing reaches resolve", async () => {
+    for (const started_at of [OLD, "2026-10-20T00:00:00Z", FRESH]) {
+      const { p, calls } = port(rawLedger([rawOp({ started_at })]));
+      const r = await resolveOperation(p, ADMIN, form(good()), NOW);
+      expect(r).toEqual({ ok: false, message: FEE_RELEASE_MESSAGE });
+      expect(calls.resolve).not.toHaveBeenCalled();
+    }
+    const inflightOld = port(rawLedger([rawOp({ status: "in_flight", started_at: OLD })]));
+    expect((await resolveOperation(inflightOld.p, ADMIN, form(good()), NOW)).message).toBe(FEE_RELEASE_MESSAGE);
+  });
+  it("FEE RELEASE IS OFF below the command too: the ledger wrapper itself refuses, so no caller (or tampered port) can release a fee", async () => {
+    const rpc = vi.fn(async (fn: string) => ({ data: fn === "tw4_prov_status" ? rawLedger([rawOp(), rawOp({ id: OP_MS, kind: "messaging_service", fee_bearing: false, fee_kinds: [] })]) : {}, error: null }));
+    const store = new ProvisioningLedgerStore({ rpc } as never);
+    await expect(store.resolve({ studioId: S1, operationId: OP_CAMPAIGN, actorId: ADMIN, resolution: "not_created", providerSid: null, note: "attempt via the wrapper directly" })).rejects.toMatchObject({ code: "fee_release_disabled" });
+    expect(rpc.mock.calls.some((c) => c[0] === "tw4_prov_resolve")).toBe(false);
+    // an operation from another studio's ledger is refused too (the wrapper re-reads this studio's ledger)
+    await expect(store.resolve({ studioId: S1, operationId: OP_OTHER, actorId: ADMIN, resolution: "created", providerSid: QE, note: "foreign operation id" })).rejects.toMatchObject({ code: "not_in_ledger" });
+    // a free operation and a fee-bearing 'created' still go through to the database
+    await store.resolve({ studioId: S1, operationId: OP_MS, actorId: ADMIN, resolution: "not_created", providerSid: null, note: "free operation, checked the console" });
+    await store.resolve({ studioId: S1, operationId: OP_CAMPAIGN, actorId: ADMIN, resolution: "created", providerSid: QE, note: "found it in the Twilio console" });
+    expect(rpc.mock.calls.filter((c) => c[0] === "tw4_prov_resolve")).toHaveLength(2);
+  });
+  it("a fee-bearing 'created' (nothing is released or captured by it) is still allowed with the typed phrase", async () => {
+    const { p, calls } = port(rawLedger([rawOp()]));
+    expect((await resolveOperation(p, ADMIN, form(good({ resolution: "created", providerSid: QE })), NOW)).ok).toBe(true);
+    expect(calls.resolve).toHaveBeenCalledTimes(1);
   });
   it("'created' needs the right SID shape for the operation kind and captures nothing by itself", async () => {
     const { p, calls } = port(rawLedger([rawOp()]));
@@ -161,24 +188,23 @@ describe("resolveOperation: validation, replay and cross-studio refusal", () => 
     let status = "unknown_outcome";
     const calls = vi.fn();
     const p: LedgerPort = {
-      status: async () => parseLedger(rawLedger([rawOp({ status })])),
+      status: async () => parseLedger(rawLedger([rawOp({ status, ...{ fee_bearing: false, fee_kinds: [] } })])),
       resolve: async (a) => { calls(a); status = "abandoned"; },
       reopen: async () => {},
     };
-    expect((await resolveOperation(p, ADMIN, form(good()), NOW)).ok).toBe(true);
-    expect((await resolveOperation(p, ADMIN, form(good()), NOW)).ok).toBe(false);
+    expect((await resolveOperation(p, ADMIN, form(good({ phrase: "" })), NOW)).ok).toBe(true);
+    expect((await resolveOperation(p, ADMIN, form(good({ phrase: "" })), NOW)).ok).toBe(false);
     expect(calls).toHaveBeenCalledTimes(1);
   });
   it("financial rules: a fee operation cannot be declared not created within 20 minutes; an in-flight attempt waits 20 minutes", async () => {
     const fresh = port(rawLedger([rawOp({ started_at: FRESH })]));
     const r = await resolveOperation(fresh.p, ADMIN, form(good()), NOW);
     expect(r.ok).toBe(false);
-    expect(r.message).toMatch(/20 minutes/);
     expect(fresh.calls.resolve).not.toHaveBeenCalled();
     const inflight = port(rawLedger([rawOp({ status: "in_flight", started_at: FRESH })]));
     expect((await resolveOperation(inflight.p, ADMIN, form(good({ resolution: "created", providerSid: QE })), NOW)).ok).toBe(false);
-    const oldInflight = port(rawLedger([rawOp({ status: "in_flight", started_at: OLD })]));
-    expect((await resolveOperation(oldInflight.p, ADMIN, form(good()), NOW)).ok).toBe(true);
+    const oldInflight = port(rawLedger([rawOp({ status: "in_flight", started_at: OLD, ...{ fee_bearing: false, fee_kinds: [] } })]));
+    expect((await resolveOperation(oldInflight.p, ADMIN, form(good({ phrase: "" })), NOW)).ok).toBe(true);
     expect(RESOLVE_WAIT_MS).toBe(1_200_000);
   });
   it("a missing or unparseable attempt time fails closed", async () => {
@@ -213,8 +239,8 @@ describe("resolveOperation: validation, replay and cross-studio refusal", () => 
     }
   });
   it("a caller-supplied admin id in the form is ignored: the actor is always the argument", async () => {
-    const { p, calls } = port(rawLedger([rawOp()]));
-    await resolveOperation(p, ADMIN, form({ ...good(), actor: "00000000-0000-4000-8000-000000000000", p_actor: "x", actorId: "y" }), NOW);
+    const { p, calls } = port(rawLedger([rawOp({ fee_bearing: false, fee_kinds: [] })]));
+    await resolveOperation(p, ADMIN, form({ ...good({ phrase: "" }), actor: "00000000-0000-4000-8000-000000000000", p_actor: "x", actorId: "y" }), NOW);
     expect(calls.resolve.mock.calls[0][0].actorId).toBe(ADMIN);
     expect(calls.status.mock.calls[0][1]).toBe(ADMIN);
   });
@@ -256,8 +282,8 @@ describe("server actions: platform-admin only, identity from the session", () =>
     nav.cookieSet.mockReset();
     nav.redirect.mockReset();
   });
-  const ledgerRpc = (status: string) => async (fn: string) => {
-    if (fn === "tw4_prov_status") return { data: rawLedger([rawOp({ status })]), error: null };
+  const ledgerRpc = (status: string, over: Record<string, unknown> = {}) => async (fn: string) => {
+    if (fn === "tw4_prov_status") return { data: rawLedger([rawOp({ status, ...over })]), error: null };
     return { data: {}, error: null };
   };
 
@@ -273,8 +299,8 @@ describe("server actions: platform-admin only, identity from the session", () =>
 
   it("an admin's resolution uses the SESSION admin id and ignores any actor in the form; the result travels in a cookie, not the URL", async () => {
     platform.requirePlatformAdmin.mockResolvedValue({ id: ADMIN });
-    admin.rpc.mockImplementation(ledgerRpc("unknown_outcome"));
-    await expect(resolveProvisioningOperationAction(form({ ...good({ resolution: "not_created" }), actor: "evil", p_actor: "evil" }))).rejects.toThrow(/NEXT_REDIRECT:\/platform\/sms\?prov=1#ledger-/);
+    admin.rpc.mockImplementation(ledgerRpc("unknown_outcome", { fee_bearing: false, fee_kinds: [] }));
+    await expect(resolveProvisioningOperationAction(form({ ...good({ resolution: "not_created", phrase: "" }), actor: "evil", p_actor: "evil" }))).rejects.toThrow(/NEXT_REDIRECT:\/platform\/sms\?prov=1#ledger-/);
     const resolveCall = admin.rpc.mock.calls.find((c) => c[0] === "tw4_prov_resolve")!;
     expect(resolveCall[1]).toMatchObject({ p_actor: ADMIN, p_operation_id: OP_CAMPAIGN, p_resolution: "not_created" });
     expect(JSON.stringify(admin.rpc.mock.calls)).not.toContain("evil");
@@ -282,6 +308,14 @@ describe("server actions: platform-admin only, identity from the session", () =>
     expect(name).toBe("tw4_prov_flash");
     expect(JSON.parse(value)).toMatchObject({ ok: true });
     expect(nav.redirect.mock.calls[0][0]).not.toMatch(/released|fee/i);
+  });
+
+  it("an action cannot release a fee: a fee-bearing 'not created' ends in an error banner and never calls tw4_prov_resolve", async () => {
+    platform.requirePlatformAdmin.mockResolvedValue({ id: ADMIN });
+    admin.rpc.mockImplementation(ledgerRpc("unknown_outcome"));
+    await expect(resolveProvisioningOperationAction(form(good()))).rejects.toThrow(/prov_error=1/);
+    expect(admin.rpc.mock.calls.some((c) => c[0] === "tw4_prov_resolve")).toBe(false);
+    expect(JSON.parse(nav.cookieSet.mock.calls[0][1])).toMatchObject({ ok: false, message: FEE_RELEASE_MESSAGE });
   });
 
   it("a refused resolution redirects with an error flag and no resolve call", async () => {
@@ -310,6 +344,16 @@ describe("ProvisioningLedger rendering", () => {
     expect(html).toContain("lucide-chevron-down");
     expect(html).toContain(`Type ${CONFIRM_PHRASE} to confirm`);
     expect(html).toContain(`id="ledger-${S1}"`);
+  });
+  it("a fee-bearing operation offers no 'does not exist' choice and explains why; a free one still does", () => {
+    const fee = renderToStaticMarkup(createElement(ProvisioningLedger, { studioId: S1, ledger: snap([rawOp()]) }));
+    expect(fee).toContain("fee-release-disabled");
+    expect(fee).not.toContain('value="not_created"');
+    expect(fee).toContain('value="created"');
+    expect(fee).not.toMatch(/releases the set-aside/);
+    const free = renderToStaticMarkup(createElement(ProvisioningLedger, { studioId: S1, ledger: snap([rawOp({ fee_bearing: false, fee_kinds: [] })]) }));
+    expect(free).toContain('value="not_created"');
+    expect(free).not.toContain("fee-release-disabled");
   });
   it("a free operation has no phrase field; a resolved operation has no form and no held-fee notice", () => {
     const free = renderToStaticMarkup(createElement(ProvisioningLedger, { studioId: S1, ledger: snap([rawOp({ id: OP_MS, kind: "messaging_service", fee_bearing: false, fee_kinds: [] })]) }));

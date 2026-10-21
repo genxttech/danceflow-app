@@ -1,4 +1,4 @@
-import type { LedgerError, LedgerResolution, LedgerSnapshot } from "./provisionLedger";
+import { FEE_RELEASE_ENABLED, type LedgerError, type LedgerResolution, type LedgerSnapshot } from "./provisionLedger";
 
 /**
  * TW-4F R2c-I1: validation and pre-checks for the two platform-admin ledger commands. Pure over an injected store so every refusal is testable; the
@@ -15,7 +15,7 @@ export type CommandResult = { ok: boolean; message: string };
 
 export type LedgerPort = {
   status(studioId: string, actorId: string): Promise<LedgerSnapshot | null>;
-  resolve(args: { operationId: string; actorId: string; resolution: LedgerResolution; providerSid: string | null; note: string }): Promise<void>;
+  resolve(args: { studioId: string; operationId: string; actorId: string; resolution: LedgerResolution; providerSid: string | null; note: string }): Promise<void>;
   reopen(studioId: string, actorId: string, reason: string): Promise<void>;
 };
 
@@ -24,6 +24,7 @@ const SID = { messaging_service: /^MG[0-9a-fA-F]{32}$/, campaign: /^QE[0-9a-fA-F
 /** The database requires 20 minutes before an in-flight attempt, or a fee operation declared "not created", can be closed (R2a). Mirrored for early, clear refusal only. */
 export const RESOLVE_WAIT_MS = 20 * 60 * 1000;
 export const CONFIRM_PHRASE = "RESOLVE";
+export const FEE_RELEASE_MESSAGE = "Releasing a held fee by declaring a fee operation not created is switched off until a provider-backed check exists. The fee stays held and nothing was changed. DanceFlow engineering will handle it.";
 
 const field = (form: FormData, name: string) => {
   const v = form.get(name);
@@ -41,6 +42,8 @@ export function ledgerErrorMessage(error: unknown): string {
     case "55P03": return "A run is working on this studio right now. Try again when it finishes.";
     case "22023": return "The database refused the resolution. Someone else may have just resolved it; otherwise check the reason, the resource SID and the 20-minute waiting rules. Nothing was changed.";
     case "TW030": return "There is no provisioning exception to reopen. Nothing was changed.";
+    case "fee_release_disabled": return FEE_RELEASE_MESSAGE;
+    case "not_in_ledger": return "That operation is not part of this studio's ledger. Nothing was changed.";
     case "TW034": return "Resolve the unknown outcome first. Nothing was changed.";
     default: return "The change could not be made. Nothing was changed.";
   }
@@ -74,6 +77,7 @@ export async function resolveOperation(store: LedgerPort, actorId: string, form:
   const age = Number.isFinite(started) ? now - started : NaN;
   if (!Number.isFinite(age)) return bad("The attempt time is unknown, so the waiting rule cannot be verified. Nothing was changed.");
   if (op.status === "in_flight" && age < RESOLVE_WAIT_MS) return bad("This attempt is still in flight. It can be resolved 20 minutes after it started.");
+  if (op.feeBearing && resolution === "not_created" && !FEE_RELEASE_ENABLED) return bad(FEE_RELEASE_MESSAGE);
   if (op.feeBearing && resolution === "not_created" && age < RESOLVE_WAIT_MS) return bad("A fee operation cannot be declared not created within 20 minutes of its attempt.");
 
   if (resolution === "created") {
@@ -86,7 +90,7 @@ export async function resolveOperation(store: LedgerPort, actorId: string, form:
   if (op.feeBearing && field(form, "phrase") !== CONFIRM_PHRASE) return bad(`This operation involves a fee. Type ${CONFIRM_PHRASE} to confirm.`);
 
   try {
-    await store.resolve({ operationId, actorId, resolution, providerSid: resolution === "created" ? providerSid : null, note });
+    await store.resolve({ studioId, operationId, actorId, resolution, providerSid: resolution === "created" ? providerSid : null, note });
   } catch (error) {
     return bad(ledgerErrorMessage(error));
   }

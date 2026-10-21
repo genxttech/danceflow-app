@@ -73,6 +73,12 @@ export function parseLedger(raw: unknown): LedgerSnapshot | null {
   return { onboardingId: id, state, step: str(o.step), lastErrorCode: str(o.last_error_code), leased: o.leased === true, windowOpen: o.window_open === true, operations };
 }
 
+/**
+ * Releasing a held fee by declaring a fee-bearing operation "not created" rests on the administrator's attestation only. OFF until a provider-backed
+ * safeguard exists in the backend (owner decision, 2026-10-21). Typed as boolean so the guard is a real runtime check, not dead code.
+ */
+export const FEE_RELEASE_ENABLED: boolean = false;
+
 export class ProvisioningLedgerStore {
   constructor(private readonly admin: Client) {}
 
@@ -86,8 +92,17 @@ export class ProvisioningLedgerStore {
     return parseLedger(await this.call("tw4_prov_status", { p_studio_id: studioId, p_actor: actorId }));
   }
 
-  /** Closes an unknown outcome. The database owns every rule (time windows, SID shape, lease, reservations); this only forwards. */
-  async resolve(args: { operationId: string; actorId: string; resolution: LedgerResolution; providerSid: string | null; note: string }): Promise<void> {
+  /**
+   * Closes an unknown outcome. The database owns every rule (time windows, SID shape, lease, reservations); this forwards, after TWO server-side checks that
+   * do not depend on any UI or on the calling command: the operation must be in the named studio's ledger as the database reports it now, and while
+   * `FEE_RELEASE_ENABLED` is false a FEE-BEARING operation can never be resolved as "not created". That choice releases a held fee on an administrator's word
+   * alone (R2a has no provider-backed proof of absence), so it stays off here until a separate backend hardening slice supplies one.
+   */
+  async resolve(args: { studioId: string; operationId: string; actorId: string; resolution: LedgerResolution; providerSid: string | null; note: string }): Promise<void> {
+    const ledger = await this.status(args.studioId, args.actorId);
+    const op = ledger?.operations.find((o) => o.id === args.operationId);
+    if (!ledger || !op) throw new LedgerError("not_in_ledger");
+    if (op.feeBearing && args.resolution === "not_created" && !FEE_RELEASE_ENABLED) throw new LedgerError("fee_release_disabled");
     await this.call("tw4_prov_resolve", { p_operation_id: args.operationId, p_actor: args.actorId, p_resolution: args.resolution, p_provider_sid: args.providerSid, p_note: args.note });
   }
 

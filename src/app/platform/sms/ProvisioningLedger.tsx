@@ -1,7 +1,8 @@
 import { ChevronDown } from "lucide-react";
 import type { LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
 import type { ProvisioningOperationView } from "@/lib/sms/provisioning/adminView";
-import { CONFIRM_PHRASE } from "@/lib/sms/provisioning/provisionCommands";
+import { CONFIRM_PHRASE, FEE_RELEASE_MESSAGE } from "@/lib/sms/provisioning/provisionCommands";
+import { FEE_RELEASE_ENABLED } from "@/lib/sms/provisioning/provisionLedger";
 import { reopenProvisioningAction, resolveProvisioningOperationAction } from "./provisioningActions";
 
 /**
@@ -39,7 +40,7 @@ function ResolveForm({ studioId, op }: { studioId: string; op: ProvisioningOpera
         <fieldset className="grid gap-1 text-xs text-slate-800">
           <legend className="font-semibold">What did you find?</legend>
           <label className="flex items-center gap-2"><input type="radio" name="resolution" value="created" required /> It exists at the provider (enter its SID)</label>
-          <label className="flex items-center gap-2"><input type="radio" name="resolution" value="not_created" /> It does not exist at the provider</label>
+          {op.feeBearing && !FEE_RELEASE_ENABLED ? null : <label className="flex items-center gap-2"><input type="radio" name="resolution" value="not_created" /> It does not exist at the provider</label>}
         </fieldset>
         <label className="text-xs font-medium text-slate-800">Resource SID (only if it exists)
           <input name="providerSid" autoComplete="off" pattern={op.kind === "campaign" ? "QE[0-9a-fA-F]{32}" : "MG[0-9a-fA-F]{32}"} className={input} />
@@ -47,9 +48,12 @@ function ResolveForm({ studioId, op }: { studioId: string; op: ProvisioningOpera
         <label className="text-xs font-medium text-slate-800">What you checked (10-500 characters)
           <input name="note" required minLength={10} maxLength={500} className={input} />
         </label>
+        {op.feeBearing && !FEE_RELEASE_ENABLED ? (
+          <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900" data-testid="fee-release-disabled">{FEE_RELEASE_MESSAGE} You can still record that it exists at the provider.</p>
+        ) : null}
         {op.feeBearing ? (
           <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-            This operation involves a fee ({(op.feeKinds ?? []).join(", ") || "fee"}). &ldquo;Does not exist&rdquo; releases the set-aside amount. &ldquo;Exists&rdquo; captures nothing until a provider read confirms it. Either choice is recorded with your name.
+            This operation involves a fee ({(op.feeKinds ?? []).join(", ") || "fee"}).{FEE_RELEASE_ENABLED ? " “Does not exist” releases the set-aside amount." : ""} &ldquo;Exists&rdquo; captures nothing until a provider read confirms it. Your choice is recorded with your name.
           </p>
         ) : null}
         <label className="flex items-center gap-2 text-xs text-slate-800"><input type="checkbox" name="confirm" required /> I checked the provider myself</label>

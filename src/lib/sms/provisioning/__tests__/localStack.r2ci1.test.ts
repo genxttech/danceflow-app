@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
 import { LedgerError, ProvisioningLedgerStore } from "../provisionLedger";
-import { CONFIRM_PHRASE, resolveOperation, reopenProvisioning } from "../provisionCommands";
+import { CONFIRM_PHRASE, FEE_RELEASE_MESSAGE, resolveOperation, reopenProvisioning } from "../provisionCommands";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -37,6 +37,7 @@ const O2 = "01c10000-0000-4000-8000-0000000000b1";
 const OP1 = "c1c10000-0000-4000-8000-0000000000a1"; // studio 1, free, unknown, old
 const OP1_FRESH = "c1c10000-0000-4000-8000-0000000000a2"; // studio 1, campaign (fee), unknown, just now
 const OP2 = "c1c10000-0000-4000-8000-0000000000b1"; // studio 2, free, unknown, old
+const OP2_FEE = "c1c10000-0000-4000-8000-0000000000b2"; // studio 2, campaign (fee), unknown, old: past every 20-minute rule
 const ADMIN = "a1c10000-0000-4000-8000-000000000401";
 const PLAIN = "a1c10000-0000-4000-8000-000000000101";
 const ACC = { 1: `AC${"a1".repeat(16)}`, 2: `AC${"b1".repeat(16)}` };
@@ -93,7 +94,8 @@ insert into public.studio_sms_onboarding (id, studio_id, state, legal_name, enti
 insert into public.studio_sms_prov_operations (id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, attempt, submission_seq, status, friendly_name, request_digest, fee_bearing, fee_kinds, started_by, started_at, error_code) values
   ${op(OP1, O1, S1, E1, ACC[1], "messaging_service", 1, false, "3 hours")},
   ${op(OP1_FRESH, O1, S1, E1, ACC[1], "campaign", 1, true, "1 minute")},
-  ${op(OP2, O2, S2, E2, ACC[2], "messaging_service", 1, false, "3 hours")};
+  ${op(OP2, O2, S2, E2, ACC[2], "messaging_service", 1, false, "3 hours")},
+  ${op(OP2_FEE, O2, S2, E2, ACC[2], "campaign", 1, true, "3 hours")};
 commit;`;
 
 describe.skipIf(!enabled)("TW-4F R2c-I1: ledger wrapper and resolution against the real R2a schema", () => {
@@ -122,13 +124,13 @@ describe.skipIf(!enabled)("TW-4F R2c-I1: ledger wrapper and resolution against t
     expect(one.operations.every((o) => o.status === "unknown_outcome")).toBe(true);
     expect(one.operations.find((o) => o.id === OP1_FRESH)).toMatchObject({ feeBearing: true, feeKinds: ["campaign_vetting"] });
     const two = (await store.status(S2, ADMIN))!;
-    expect(two.operations.map((o) => o.id)).toEqual([OP2]);
+    expect(two.operations.map((o) => o.id).sort()).toEqual([OP2, OP2_FEE].sort());
     expect(await store.status("a1c10000-0000-4000-8000-0000000000ff", ADMIN)).toBeNull();
   });
 
   it("a non-admin actor is refused by the database for every function (42501), so a wrong session id can never read or write", async () => {
     await expect(store.status(S1, PLAIN)).rejects.toMatchObject({ code: "42501" });
-    await expect(store.resolve({ operationId: OP1, actorId: PLAIN, resolution: "not_created", providerSid: null, note: "attempted by a non admin" })).rejects.toBeInstanceOf(LedgerError);
+    await expect(store.resolve({ studioId: S1, operationId: OP1, actorId: PLAIN, resolution: "not_created", providerSid: null, note: "attempted by a non admin" })).rejects.toBeInstanceOf(LedgerError);
     await expect(store.reopen(S1, PLAIN, "attempted by a non admin")).rejects.toMatchObject({ code: "42501" });
     expect(status(OP1)).toBe("unknown_outcome");
   });
@@ -147,15 +149,27 @@ describe.skipIf(!enabled)("TW-4F R2c-I1: ledger wrapper and resolution against t
   it("a fee operation younger than 20 minutes cannot be declared not created: refused before and (independently) by the database", async () => {
     const r = await resolveOperation(store, ADMIN, form({ studioId: S1, operationId: OP1_FRESH, resolution: "not_created", note: "Checked the Twilio console: nothing there", confirm: "on", phrase: CONFIRM_PHRASE }));
     expect(r.ok).toBe(false);
-    await expect(store.resolve({ operationId: OP1_FRESH, actorId: ADMIN, resolution: "not_created", providerSid: null, note: "bypassing the pre-check on purpose" })).rejects.toMatchObject({ code: "22023" });
+    // the wrapper refuses a fee release before the database (see the FEE RELEASE test); the database's own 20-minute rule is proven by calling it directly
+    const raw = await client.rpc("tw4_prov_resolve", { p_operation_id: OP1_FRESH, p_actor: ADMIN, p_resolution: "not_created", p_provider_sid: null, p_note: "bypassing the pre-check on purpose" });
+    expect(raw.error?.code).toBe("22023");
     expect(status(OP1_FRESH)).toBe("unknown_outcome");
+  });
+
+  it("FEE RELEASE IS OFF against the real schema: an old fee-bearing unknown operation cannot be released through the command or the wrapper; it stays unknown and its row is untouched", async () => {
+    const before = psql(`select status || ':' || coalesce(resolved_by::text, '-') || ':' || fee_bearing::text from public.studio_sms_prov_operations where id = '${OP2_FEE}'`);
+    expect(before).toBe("unknown_outcome:-:true");
+    const r = await resolveOperation(store, ADMIN, form({ studioId: S2, operationId: OP2_FEE, resolution: "not_created", note: "Checked the Twilio console: nothing there", confirm: "on", phrase: CONFIRM_PHRASE }));
+    expect(r).toEqual({ ok: false, message: FEE_RELEASE_MESSAGE });
+    await expect(store.resolve({ studioId: S2, operationId: OP2_FEE, actorId: ADMIN, resolution: "not_created", providerSid: null, note: "attempt via the wrapper directly" })).rejects.toMatchObject({ code: "fee_release_disabled" });
+    expect(psql(`select status || ':' || coalesce(resolved_by::text, '-') || ':' || fee_bearing::text from public.studio_sms_prov_operations where id = '${OP2_FEE}'`)).toBe(before);
+    expect(Number(psql(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${S2}' and action = 'prov_resolved'`))).toBe(0);
   });
 
   it("created needs the provider's SID shape; a wrong-kind SID is refused by the command and by the database", async () => {
     const wrong = `MG${"c".repeat(32)}`.replace("MG", "QE"); // a campaign-shaped SID for a Messaging Service operation
     const r = await resolveOperation(store, ADMIN, form({ studioId: S1, operationId: OP1, resolution: "created", providerSid: wrong, note: "Found it in the Twilio console", confirm: "on" }));
     expect(r.ok).toBe(false);
-    await expect(store.resolve({ operationId: OP1, actorId: ADMIN, resolution: "created", providerSid: wrong, note: "bypassing the pre-check on purpose" })).rejects.toMatchObject({ code: "22023" });
+    await expect(store.resolve({ studioId: S1, operationId: OP1, actorId: ADMIN, resolution: "created", providerSid: wrong, note: "bypassing the pre-check on purpose" })).rejects.toMatchObject({ code: "22023" });
     expect(status(OP1)).toBe("unknown_outcome");
   });
 
