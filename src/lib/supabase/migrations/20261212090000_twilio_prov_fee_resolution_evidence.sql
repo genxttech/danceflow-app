@@ -12,7 +12,10 @@
 --   * tw4_prov_settle_admin('released') no longer releases on a note alone: an abandoned operation needs its recorded verified-absence disposition; a SUCCEEDED operation (it
 --     exists at the provider) is not releasable at all until a provider-verified cancellation exists (the lifecycle's cancellation digest is administrator-typed, so it is not proof);
 --     never for the pilot business (judged by the exception OR by the operation's own pilot-funded reservations).
---   * tw4_prov_evidence_claim: an evidence-only lease for any non-cancelled onboarding (an unknown fee outcome parks the onboarding in 'exception', which the runner's claim refuses).
+--   * tw4_prov_evidence_claim: a lease for any non-cancelled onboarding (an unknown fee outcome parks the onboarding in 'exception', which the runner's claim refuses). It is the SAME
+--     onboarding lease (the lease-gated functions have no purpose flag), taken only by the service-role evidence recorder; it changes no state and does not open the runner window.
+--   * The absence proof also fails closed while the business has an open orphan or ANY listing of the scope since the attempt shows a resource the ledger does not account for.
+--   * A closed orphan that reappears is a NEW orphan (partial unique index), with a new block and new alerts.
 --   * Every settlement of a prov: reservation, by any path, leaves a disposition row (trigger); a "refusal" is refused while a provider listing shows a resource for the operation.
 --   * studio_sms_prov_dispositions: append-only record of HOW a fee reservation was disposed (provider_refusal | verified_absence | created_claim | settled_released | settled_captured),
 --     with the listing ids that justify it.
@@ -108,13 +111,14 @@ create table public.studio_sms_prov_orphans (
   closed_by uuid null,
   closed_at timestamptz null,
   close_note text null check (close_note is null or char_length(close_note) between 10 and 500),
-  constraint studio_sms_prov_orphans_sid unique (provider_sid),
   constraint studio_sms_prov_orphans_shape check (
     (status = 'open' and registered_at is null and closed_at is null)
     or (status = 'registered' and registered_at is not null and rfl_resource_id is not null and closed_at is null)
     or (status = 'closed' and closed_at is not null and close_note is not null))
 );
 create index studio_sms_prov_orphans_entity on public.studio_sms_prov_orphans (legal_entity_id) where status <> 'closed';
+-- one LIVE orphan per provider resource; a closed one that reappears (listings are eventually consistent) is a NEW orphan: new block, new alerts
+create unique index studio_sms_prov_orphans_live_sid on public.studio_sms_prov_orphans (provider_sid) where status <> 'closed';
 
 create table public.studio_sms_prov_dispositions (
   id uuid primary key default gen_random_uuid(),
@@ -227,6 +231,16 @@ begin
   -- nothing but clean absences between the two (an inconclusive read in between breaks the chain)
   if exists (select 1 from public.studio_sms_prov_listings l where l.operation_id = p_op and l.observed_at >= v_a1.observed_at and l.verdict not in ('absent')) then
     return jsonb_build_object('ok', false, 'reason', 'chain_broken');
+  end if;
+  -- a resource the ledger does not account for, seen by ANY listing of this scope since the attempt (for example while reading another operation of the studio), or an open
+  -- orphan of the business, means the picture is not clean even though this operation's own listings were: fail closed
+  if exists (select 1 from public.studio_sms_prov_orphans x where x.legal_entity_id = r.legal_entity_id and x.status <> 'closed') then
+    return jsonb_build_object('ok', false, 'reason', 'orphan_open');
+  end if;
+  if exists (select 1 from public.studio_sms_prov_listings l, unnest(l.listed_sids) s
+              where l.studio_id = r.studio_id and l.scope_sid = v_last.scope_sid and l.observed_at >= r.started_at
+                and s <> all (coalesce((select array_agg(o.provider_sid) from public.studio_sms_prov_operations o where o.legal_entity_id = r.legal_entity_id and o.provider_sid is not null), '{}'))) then
+    return jsonb_build_object('ok', false, 'reason', 'unaccounted_resource_seen');
   end if;
   return jsonb_build_object('ok', true, 'reason', 'verified_absence', 'listing_ids', jsonb_build_array(v_a1.id, v_last.id));
 end $$;
@@ -410,7 +424,7 @@ begin
         v_inserted := null;
         insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id)
         values (r.legal_entity_id, r.studio_id, r.twilio_account_sid, 'campaign', v_sid, v_ms.provider_sid, v_row.id, r.id)
-        on conflict (provider_sid) do nothing returning id into v_inserted;
+        on conflict (provider_sid) where status <> 'closed' do nothing returning id into v_inserted;
         if v_inserted is not null then
           v_orphans := v_orphans + 1;
           -- idempotent alerts through the lifecycle's own queue: no identifier, no amount in the owner text; never a charge
@@ -643,14 +657,13 @@ begin
   end if;
   -- it stays exposure until ONE of these database-checked facts holds (never an administrator's word):
   --   (a) the ledger now accounts for the SID (an operation of the business owns it: the "orphan" was the resource of a later attempt);
-  --   (b) two complete provider listings of its own scope, recorded after it was found, at least 10 minutes apart, the latest within 60 minutes, neither listing it (it is gone);
-  --   (c) the lifecycle shows the registered resource cancelled with its cancellation evidence.
+  --   (b) two complete provider listings of its own scope, recorded after it was found, at least 10 minutes apart, the latest within 60 minutes, neither listing it (it is gone).
+  -- The lifecycle's cancellation digest is administrator-typed and is NOT accepted here (see tw4_prov_settle_admin): the provider's own listings are the evidence.
   if not (
     exists (select 1 from public.studio_sms_prov_operations o where o.provider_sid = x.provider_sid and o.legal_entity_id = x.legal_entity_id and o.status = 'succeeded')
     or public._tw4prov2_orphan_gone(x.id)
-    or (x.status = 'registered' and exists (select 1 from public.studio_sms_provider_resources pr where pr.id = x.rfl_resource_id and pr.provider_state = 'cancelled' and pr.cancel_evidence_digest is not null))
   ) then
-    raise exception 'an orphan is closed only when the ledger accounts for it, provider listings show it gone, or the lifecycle shows it cancelled with evidence' using errcode = 'TW046';
+    raise exception 'an orphan is closed only when the ledger accounts for it or provider listings show it gone' using errcode = 'TW046';
   end if;
   update public.studio_sms_prov_orphans set status = 'closed', closed_by = p_actor, closed_at = clock_timestamp(), close_note = btrim(p_note) where id = x.id;
   return jsonb_build_object('status', 'closed', 'replayed', false);

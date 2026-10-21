@@ -544,13 +544,37 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(view.orphans.map((o) => `${o.id}:${o.status}`)).toEqual([`${orphanId}:registered`]);
     });
 
-    it("it closes only after the lifecycle shows the resource cancelled with provider evidence; the block then lifts", async () => {
+    it("the lifecycle's administrator-typed cancellation digest does NOT close it; two later provider listings that no longer show it do, and the block then lifts", async () => {
       aged(`update public.studio_sms_provider_resources set provider_state = 'cancelled', cancelled_at = now(), cancel_evidence_digest = '${"ab".repeat(32)}' where id = (select rfl_resource_id from public.studio_sms_prov_orphans where id = '${orphanId}')`);
-      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanId, p_actor: U.owner_a, p_note: "fixture: not an administrator" })).error?.code).toBe("42501");
+      const note = "fixture: the provider listings no longer show it";
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanId, p_actor: U.padmin, p_note: note })).error?.code).toBe("TW046");
+      // the provider no longer lists it (two complete reads, 15 minutes apart, both after it was found)
+      const a = hub.adapterFor(ACC.A);
+      const sid = psql(`select provider_sid from public.studio_sms_prov_orphans where id = '${orphanId}'`);
+      a.campaigns.delete(sid);
+      aged(`update public.studio_sms_prov_orphans set discovered_at = discovered_at - interval '3 hours' where id = '${orphanId}'`);
+      ageListings(SA1, 40);
+      expect((await check(SA1, a)).outcome).toBe("recorded");
+      ageListings(SA1, 15);
+      expect((await check(SA1, a)).outcome).toBe("recorded");
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanId, p_actor: U.owner_a, p_note: note })).error?.code).toBe("42501");
       expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanId, p_actor: U.padmin, p_note: "short" })).error?.code).toBe("22023");
-      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanId, p_actor: U.padmin, p_note: "fixture: the lifecycle shows the cancellation evidence" })).error).toBeNull();
-      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanId, p_actor: U.padmin, p_note: "fixture: the lifecycle shows the cancellation evidence" })).data).toMatchObject({ replayed: true });
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanId, p_actor: U.padmin, p_note: note })).error).toBeNull();
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanId, p_actor: U.padmin, p_note: note })).data).toMatchObject({ replayed: true });
       expect(psql(`select count(*) from public.studio_sms_prov_orphans where legal_entity_id = '${EA}' and status <> 'closed'`)).toBe("0");
+    });
+
+    it("a closed orphan that REAPPEARS (listings are eventually consistent) is a new orphan: new block, new alerts", async () => {
+      const a = hub.adapterFor(ACC.A);
+      const sid = psql(`select provider_sid from public.studio_sms_prov_orphans where id = '${orphanId}'`);
+      a.campaigns.set(sid, { sid, account_sid: ACC.A, messaging_service_sid: msSid(SA1) } as never);
+      ageListings(SA1, 5);
+      expect((await check(SA1, a)).outcome).toBe("recorded");
+      expect(psql(`select string_agg(status, ',' order by discovered_at) from public.studio_sms_prov_orphans where provider_sid = '${sid}'`)).toBe("closed,open");
+      const fresh = psql(`select id from public.studio_sms_prov_orphans where provider_sid = '${sid}' and status = 'open'`);
+      expect(psql(`select count(*) from public.studio_sms_provider_alerts where dedupe_key like 'prov_orphan:${fresh}:%'`)).toBe("2");
+      expect(psql(`select count(*) from public.studio_sms_prov_orphans where legal_entity_id = '${EA}' and status <> 'closed'`)).toBe("1");
+      a.campaigns.delete(sid);
     });
   });
 
@@ -793,6 +817,29 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
           rollback;`);
       expect(attempt(true)).toMatch(/TW046/);
       expect(attempt(false)).toBe("");
+    });
+
+    it("the proof fails closed when ANY listing of the scope since the attempt shows a resource the ledger does not account for, even one recorded for ANOTHER operation (a partial recorder run cannot hide it)", () => {
+      const ids = psql(`select string_agg(id::text, ',' order by attempt) from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'campaign'`).split(",");
+      expect(ids.length).toBeGreaterThanOrEqual(2);
+      const [other, target] = [ids[0], ids[ids.length - 1]];
+      const ms = msSid(SD1);
+      const listing = (op: string, verdict: string, listed: string, minsAgo: number) =>
+        `insert into public.studio_sms_prov_listings (operation_id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, scope_sid, read_id, read_started_at, observed_at, source, complete, listed_sids, evidence_digest, verdict, recorded_by_lease)
+           select o.id, o.onboarding_id, o.studio_id, o.legal_entity_id, o.twilio_account_sid, 'campaign', '${ms}', gen_random_uuid(), now() - interval '${minsAgo} minutes', now() - interval '${minsAgo} minutes', 'fake', true, ${listed}, md5(random()::text) || md5(random()::text), '${verdict}', 'fixture'
+             from public.studio_sms_prov_operations o where o.id = '${op}';`;
+      const proofIs = (expected: string, withUnaccounted: boolean) =>
+        psqlError(`begin; set local session_replication_role = replica;
+          update public.studio_sms_prov_operations set started_at = now() - interval '3 hours' where id in ('${target}', '${other}');
+          delete from public.studio_sms_prov_listings where operation_id in ('${target}', '${other}');
+          delete from public.studio_sms_prov_orphans where legal_entity_id = '${ED}';
+          ${listing(target, "absent", "'{}'::text[]", 40)} ${listing(target, "absent", "'{}'::text[]", 15)}
+          ${withUnaccounted ? listing(other, "present", `array['QE' || repeat('7', 32)]`, 30) : ""}
+          set local session_replication_role = origin;
+          do $$ begin if (public._tw4prov2_proof('${target}') ->> 'reason') <> '${expected}' then raise exception 'unexpected %', public._tw4prov2_proof('${target}')::text; end if; end $$;
+          rollback;`);
+      expect(proofIs("unaccounted_resource_seen", true)).toBe("");
+      expect(proofIs("verified_absence", false)).toBe("");
     });
 
     it("the new evidence tables have row-level security enabled (no policies: no API role can read them)", () => {
