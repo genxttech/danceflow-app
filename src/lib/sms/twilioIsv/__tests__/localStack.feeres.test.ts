@@ -700,42 +700,52 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         expect(out.outcome).toBe("recorded");
         expect(psql(`select state from public.studio_sms_onboarding where studio_id = '${SC1}'`)).toBe("exception"); // the evidence lease changed no state
         expect(psql(`select coalesce(lease_owner, '') from public.studio_sms_onboarding where studio_id = '${SC1}'`)).toBe(""); // and released the lease
+        // only a platform administrator can take it, and a held lease excludes it
+        expect((await rpc("tw4_prov_evidence_claim", { p_studio_id: SC1, p_actor: U.owner_a, p_lease_owner: "x", p_lease_seconds: 60 })).error?.code).toBe("42501");
+        expect((await rpc("tw4_prov_evidence_claim", { p_studio_id: SC1, p_actor: U.padmin, p_lease_owner: `held-${RUN}`, p_lease_seconds: 60 })).error).toBeNull();
+        expect((await rpc("tw4_prov_evidence_claim", { p_studio_id: SC1, p_actor: U.padmin, p_lease_owner: "other", p_lease_seconds: 60 })).error?.code).toBe("55P03");
+        const recorded = await checkCampaignAbsence({ store, evidence: evidence(), adapter: c, studioId: SC1, actorId: U.padmin });
+        expect(recorded.outcome).toBe("lease_busy"); // a held lease excludes the recorder too
+        await store.release(psql(`select id from public.studio_sms_onboarding where studio_id = '${SC1}' and state <> 'cancelled'`), `held-${RUN}`);
       } finally {
-        aged(`update public.studio_sms_onboarding set state = '${prior}', last_error_code = null where studio_id = '${SC1}'`);
+        aged(`update public.studio_sms_onboarding set state = '${prior}', last_error_code = null, lease_owner = null, lease_expires_at = null where studio_id = '${SC1}'`);
       }
-      // only a platform administrator can take it, and a held lease excludes it
-      expect((await rpc("tw4_prov_evidence_claim", { p_studio_id: SC1, p_actor: U.owner_a, p_lease_owner: "x", p_lease_seconds: 60 })).error?.code).toBe("42501");
-      const held = await store.claim(SC1, U.padmin, `held-${RUN}`, 60, "refresh");
-      expect((await rpc("tw4_prov_evidence_claim", { p_studio_id: SC1, p_actor: U.padmin, p_lease_owner: "other", p_lease_seconds: 60 })).error?.code).toBe("55P03");
-      await store.release(held.onboarding_id, `held-${RUN}`);
     });
 
-    it("a still-open attempt's own resource is NOT filed as an orphan (the runner adopts it); more candidates than open attempts are all recorded", async () => {
+    it("a still-open attempt's own resource is NOT filed as an orphan (the runner adopts it); more candidates than open attempts are all recorded; the ledger accounting for one closes it", async () => {
       const b = hub.adapterFor(ACC.B);
-      // business B has no open attempt (its operation was closed in the concurrency test): a found campaign is an orphan
+      // business B gets a NEW open attempt (unknown outcome): authorization, then a request that never reaches Twilio
+      expect((await authorize(EB, SB1, "campaign_vetting", PRICE.vetting, ref("vetting-b1-open"))).error).toBeNull();
+      b.failNext("createCampaign", { kind: "transient" });
+      expect((await run(SB1, b)).outcome).toBe("retry_later");
+      expect((await run(SB1, b)).outcome).toBe("unknown_outcome");
+      const openId = opId(SB1, "campaign", 2);
+      b.campaigns.clear();
       const ms = msSid(SB1);
-      const sid1 = await b.createCampaign(anyCampaign(ms, BRAND.B1));
+      // ONE candidate for ONE open attempt: it is that attempt's own resource, not an orphan (and the older closed operation's listing does not turn it into one either)
+      const own = await b.createCampaign(anyCampaign(ms, BRAND.B1));
+      expect((await check(SB1, b)).outcome).toBe("recorded");
+      expect(psql(`select count(*) from public.studio_sms_prov_orphans where studio_id = '${SB1}'`)).toBe("0");
+      expect(psql(`select count(*) from public.studio_sms_prov_listings where operation_id = '${openId}' and verdict = 'present'`)).toBe("1");
+      // a SECOND campaign: more candidates than open attempts are ambiguous, so every unaccounted one is recorded
+      b.campaigns.set(`QE${"9".repeat(32)}`, { sid: `QE${"9".repeat(32)}`, account_sid: ACC.B, messaging_service_sid: ms } as never);
       ageListings(SB1, 20);
       expect((await check(SB1, b)).outcome).toBe("recorded");
-      expect(psql(`select provider_sid from public.studio_sms_prov_orphans where studio_id = '${SB1}'`)).toBe(sid1);
-      // with the ledger now accounting for it, the orphan closes without any administrator claim; before that it cannot
-      const orphan = psql(`select id from public.studio_sms_prov_orphans where studio_id = '${SB1}'`);
-      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphan, p_actor: U.padmin, p_note: "fixture: the resource is really ours, I say" })).error?.code).toBe("TW046");
-      // pilot business: one open attempt, one found campaign = the attempt's own resource, no orphan
-      const c = hub.adapterFor(ACC.C);
-      const cSid = await c.createCampaign(anyCampaign(msSid(SC1), BRAND.C1));
-      expect((await check(SC1, c)).outcome).toBe("recorded");
-      expect(psql(`select count(*) from public.studio_sms_prov_orphans where studio_id = '${SC1}'`)).toBe("0");
-      expect(listingRows(SC1)).toMatch(/present$/);
-      c.campaigns.delete(cSid);
-      // the ledger comes to account for the first orphan's SID: it closes (database-checked), idempotently
-      aged(`update public.studio_sms_prov_operations set provider_sid = '${sid1}', status = 'succeeded' where id = (select id from public.studio_sms_prov_operations where studio_id = '${SB1}' and op_kind = 'campaign' order by attempt desc limit 1)`);
-      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphan, p_actor: U.padmin, p_note: "fixture: the ledger now accounts for this resource" })).error).toBeNull();
-      expect(psql(`select status from public.studio_sms_prov_orphans where id = '${orphan}'`)).toBe("closed");
+      expect(psql(`select count(*) from public.studio_sms_prov_orphans where studio_id = '${SB1}'`)).toBe("2");
+      expect(psql(`select count(*) from public.studio_sms_provider_alerts where dedupe_key in (select 'prov_orphan:' || id || ':owner' from public.studio_sms_prov_orphans where studio_id = '${SB1}')`)).toBe("2");
+      // an orphan cannot be closed on an administrator's say-so
+      const orphanOwn = psql(`select id from public.studio_sms_prov_orphans where provider_sid = '${own}'`);
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanOwn, p_actor: U.padmin, p_note: "fixture: the resource is really ours, I say" })).error?.code).toBe("TW046");
+      // once the ledger accounts for the SID (the open attempt is adopted as that resource), the orphan closes by itself, idempotently; the other one stays
+      aged(`update public.studio_sms_prov_operations set provider_sid = '${own}', status = 'succeeded' where id = '${openId}'`);
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanOwn, p_actor: U.padmin, p_note: "fixture: the ledger now accounts for this resource" })).error).toBeNull();
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanOwn, p_actor: U.padmin, p_note: "fixture: the ledger now accounts for this resource" })).data).toMatchObject({ replayed: true });
+      expect(psql(`select count(*) from public.studio_sms_prov_orphans where studio_id = '${SB1}' and status <> 'closed'`)).toBe("1");
     });
 
     it("an orphan also closes when two later complete provider listings, 10+ minutes apart, no longer show it; one listing, or a listing that still shows it, does not", async () => {
       const a = hub.adapterFor(ACC.A);
+      a.campaigns.clear(); // the fake provider allows one campaign per service
       const ms = msSid(SA1);
       const gone = await a.createCampaign(anyCampaign(ms, BRAND.A1));
       ageListings(SA1, 120);
@@ -773,7 +783,11 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       const attempt = (withPresent: boolean) =>
         psqlError(`begin; set local session_replication_role = replica;
           update public.studio_sms_prov_operations set status = 'in_flight', superseded_at = null where id = '${id}';
-          ${withPresent ? "" : `delete from public.studio_sms_prov_listings where operation_id = '${id}' and verdict = 'present';`}
+          ${withPresent
+            ? `insert into public.studio_sms_prov_listings (operation_id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, scope_sid, read_id, read_started_at, source, complete, listed_sids, evidence_digest, verdict, recorded_by_lease)
+               select o.id, o.onboarding_id, o.studio_id, o.legal_entity_id, o.twilio_account_sid, 'campaign', 'MG' || repeat('1', 32), gen_random_uuid(), now(), 'fake', true, array['QE' || repeat('1', 32)], repeat('ab', 32), 'present', 'fixture'
+                 from public.studio_sms_prov_operations o where o.id = '${id}';`
+            : `delete from public.studio_sms_prov_listings where operation_id = '${id}' and verdict = 'present';`}
           set local session_replication_role = origin;
           update public.studio_sms_prov_operations set status = 'failed', error_code = 'api' where id = '${id}';
           rollback;`);
