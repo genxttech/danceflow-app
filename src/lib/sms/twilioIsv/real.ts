@@ -592,8 +592,11 @@ export class RealNumberAdapter extends TwilioRest<IsvConfig> implements IsvNumbe
     // an inventory that stopped with pages still to read cannot prove the account holds nothing else
     if (typeof json.next_page_uri === "string" && json.next_page_uri) throw new IsvApiError("transient", null, null, "list too long to search safely");
     return rows
-      .filter((row) => row.account_sid === this.accountSid && typeof row.sid === "string" && PHONE_NUMBER_SID.test(row.sid))
-      .map((row) => ({ sid: String(row.sid), phone_number: provStr(row.phone_number) }));
+      // fail closed: every row the account's listing returns counts, whatever its account_sid says; a row without a valid sid makes the inventory unreadable
+      .map((row) => {
+        if (typeof row.sid !== "string" || !PHONE_NUMBER_SID.test(row.sid)) throw new IsvApiError("transient", null, null, "inventory row without a valid sid");
+        return { sid: row.sid, phone_number: provStr(row.phone_number) };
+      });
   }
 
   async findOwnedNumbers(e164: string): Promise<string[]> {

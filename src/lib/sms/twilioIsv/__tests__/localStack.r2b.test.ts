@@ -631,17 +631,22 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     it("a number the subaccount already owns that the ledger never recorded is NOT adopted: a human decides, nothing is bought, nothing is spent; an acknowledged foreign number does not block", async () => {
       const d = adapterOf(ACC.D);
       const before = d.count("purchaseNumber");
-      // a number bought by hand before the system existed: an admin acknowledges it once (nothing is bought, released or charged by that)
-      const foreignSid = d.seedOwned("+12025550113");
-      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.stranger, p_phone_number_sid: foreignSid, p_e164: "+12025550113", p_note: "bought by hand before the system" })).error?.code).toBe("42501");
-      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: foreignSid, p_e164: "+12025550113", p_note: "short" })).error?.code).toBe("22023");
-      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: foreignSid, p_e164: "+12025550113", p_note: "bought by hand before the system" })).error).toBeNull();
-      // a number that turns up for the E.164 of a purchase this ledger declared "not created" is NOT foreign: it is investigated, never acknowledged away
+      // a number bought by hand before the system existed: an admin acknowledges it once (nothing is bought, released or charged by that) -- on business B, which has no lost purchase
+      const b = adapterOf(ACC.B);
+      const foreignB = b.seedOwned("+12025550114");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SB1, p_actor: U.stranger, p_phone_number_sid: foreignB, p_e164: "+12025550114", p_note: "bought by hand before the system" })).error?.code).toBe("42501");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SB1, p_actor: U.padmin, p_phone_number_sid: foreignB, p_e164: "+12025550114", p_note: "short" })).error?.code).toBe("22023");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SB1, p_actor: U.padmin, p_phone_number_sid: foreignB, p_e164: "+12025550114", p_note: "bought by hand before the system" })).error).toBeNull();
+      expect(psql(`select '${foreignB}' = any (public._tw4num_known('${EB}'))`)).toBe("t");
+      // business D has a purchase this ledger declared "not created": a number that turns up is NOT foreign. NOTHING is acknowledged for D -- not with the matching e164, not with a NULL or a wrong one
       const late = d.seedOwned(NUM.d2);
-      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: late, p_e164: NUM.d2, p_note: "bought by hand before the system" })).error?.code).toBe("TW034");
+      for (const e164 of [NUM.d2, null, "+12025550199"]) {
+        expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: late, p_e164: e164, p_note: "bought by hand before the system" })).error?.code, String(e164)).toBe("TW034");
+      }
+      expect(psql(`select count(*) from public.studio_sms_num_inventory_acks where legal_entity_id = '${ED}'`)).toBe("0");
       const result = await run(SD1, d);
       expect(result.outcome).toBe("exception");
-      // the inventory reconciliation stops it BEFORE anything is recorded or bought; only the late number counts (the acknowledged one does not)
+      // the inventory reconciliation stops it BEFORE anything is recorded or bought
       expect(result.detail).toContain("inventory_unrecorded:1");
       expect(d.count("purchaseNumber")).toBe(before);
       expect(code(SD1)).toBe("num_inventory_unknown");
@@ -659,7 +664,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // make room: the colliding owned number is gone, the earlier approval is withdrawn
       const open = psql(`select id from public.studio_sms_number_selections where studio_id = '${SD1}' and status = 'approved'`);
       expect((await withdraw(SD1, U.owner_a, open, "fixture")).error).toBeNull();
-      for (const phone of [NUM.d2, "+12025550113"]) d.universe.owned.delete([...d.universe.owned.values()].find((r) => r.phone_number === phone)!.sid);
+      for (const phone of [NUM.d2]) d.universe.owned.delete([...d.universe.owned.values()].find((r) => r.phone_number === phone)!.sid);
       const selId = await choose(SD1, U.owner_a, d, NUM.d3);
       d.failNext("purchaseNumber", { kind: "validation", code: "21452" });
       const refused = await run(SD1, d);

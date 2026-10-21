@@ -1881,8 +1881,13 @@ begin
     raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
   end if;
   -- a number that a purchase declared "not created" turned up: that is a paid number the ledger got wrong, not a foreign one. It is investigated, never acknowledged away.
-  if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.status = 'abandoned' and (x.e164 = p_e164 or x.provider_sid = p_phone_number_sid)) then
-    raise exception 'this number belongs to a purchase that was declared not created: investigate it, do not acknowledge it' using errcode = 'TW034';
+  -- Fail closed: the database cannot tell WHICH number a lost purchase produced (an abandoned operation has no provider sid, and the e164 typed here is the caller's word), so while the
+  -- business has ANY purchase declared not created, nothing is acknowledged for it: the late-found number must be investigated first. A number tied to a failed or retired purchase
+  -- (by sid or e164) is refused as well.
+  if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.status = 'abandoned')
+     or exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and (x.status = 'failed' or x.superseded_at is not null)
+                  and (x.e164 = p_e164 or x.provider_sid = p_phone_number_sid)) then
+    raise exception 'this business has a purchase declared not created, or this number belongs to a failed or retired purchase: investigate it, do not acknowledge it' using errcode = 'TW034';
   end if;
   insert into public.studio_sms_num_inventory_acks (legal_entity_id, twilio_account_sid, phone_number_sid, e164, acked_by, note)
   values (v_entity, v_account, p_phone_number_sid, p_e164, p_actor, btrim(p_note)) on conflict (twilio_account_sid, phone_number_sid) do nothing;
