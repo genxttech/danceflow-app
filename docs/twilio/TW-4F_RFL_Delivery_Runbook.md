@@ -48,6 +48,7 @@ Admin-addressed rows are queued under a studio (the queue requires one) but are 
 ## 5. Dedupe and replay
 
 - Queue dedupe key: `rfl:<alert-id>:<recipient-ref>`. The queue's unique conflict returns `duplicate`, so a replay, a retry, or two concurrent workers produce exactly one queued email per recipient. A `duplicate` counts as reached.
+- A `duplicate` from the queue is trusted only after the service role looks up the existing `outbound_deliveries` row by dedupe key: it must have `related_table = 'studio_sms_provider_alerts'`, `related_id` = the alert id and the exact template key this recipient would get. The dedupe namespace is global, so a pre-inserted (squatted) key is NOT counted as reached: nothing is recorded for that recipient, the alert fails, is retried and, after 5 attempts, escalated. An unreadable lookup is treated the same way.
 - Delivery records are unique per (alert, recipient reference) in the database; a replay is `replayed:true`.
 - `recorded:false` means the claim token is no longer current: the sink stops at once and throws (`RflAlert_claim_lost`); the runner's finish is refused by the database too. No further email is sent.
 
@@ -61,7 +62,8 @@ An alert marked delivered in the outbox means every reachable recipient's email 
 - A failing recipient does not block the others; recipients already queued are not repeated on retry (dedupe), only the missing ones are.
 - One failing alert never blocks the others in the pass. A business scan failure never stops the other businesses.
 - After 5 failed attempts `tw4_rfl_escalate_delivery` (every pass) raises one `alert_delivery_exhausted` administrator alert; `tw4_rfl_health` reports `alerts_exhausted` and `stale` runs.
-- Time and size budget: alerts are claimed in batches of 5, at most 8 batches (40 alerts) per pass, and no new batch is claimed more than 40 s after the pass started (the route's maxDuration is 60 s). The run still finishes its heartbeat. Whatever is left stays pending for the next pass; the summary field `deferred` is 1 when delivery stopped early with a full last batch (more may remain), else 0. Deferral is not an error.
+- Once per pass, once per alert: the runner makes ONE `tw4_rfl_alerts_claim` per pass (at most 20 alerts, oldest first) and attempts each alert id at most once. The database counts an attempt at claim time and re-claims `failed` rows immediately, so a second claim in the same pass would burn the attempts of alerts that just failed and starve newer ones. Retries therefore happen on later passes: a failing alert gains exactly one attempt per pass.
+- Time budget: an alert not started within 40 s of the start of the pass (the route's maxDuration is 60 s) is released as failed with error `deferred` (it costs that attempt, and is retried next pass) and counted in the summary's numeric `deferred`; it is not an error. The run still finishes its heartbeat.
 - Heartbeat summary: `tw4_rfl_scan_finish` accepts only a flat object of numbers, so the finish summary is numeric only (booleans as 0/1, no strings); a unit test fake rejects anything else exactly as the SQL does.
 - The route returns counts only (`ran`, `ranReason`, entities, opened, closed, alertsCreated, inventoryGaps, escalated, delivered, failed, errors, deliveryEnabled, truncated, deferred). A heartbeat refusal is a clean 200; any error is a 500.
 

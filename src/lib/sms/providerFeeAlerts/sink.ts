@@ -20,11 +20,19 @@ import { renderRflAlertEmail } from "./templates";
  */
 export type RflAlertQueue = (params: Parameters<typeof queueOutboundDelivery>[0]) => Promise<{ queued: boolean; skipped: boolean; reason?: string }>;
 export type StudioNameLookup = (studioId: string) => Promise<string | null>;
+/** The existing outbound_deliveries row for a dedupe key (service role), or null. */
+export type ExistingDelivery = { related_table: string | null; related_id: string | null; template_key: string | null };
+export type DeliveryByDedupeKey = (dedupeKey: string) => Promise<ExistingDelivery | null>;
 
 export type ProviderFeeAlertSinkDeps = {
   ops: Pick<ProviderFeeOpsRpc, "alertRecipients" | "recordDelivery">;
   queue?: RflAlertQueue;
   studioName?: StudioNameLookup;
+  /**
+   * Verifies a `duplicate` queue result. The dedupe namespace is global, so staff could pre-insert a row under a guessed `rfl:<alert>:<ref>` key. A duplicate
+   * counts as reached ONLY if the existing row is this alert's RFL row (related_table, related_id and the exact template key for this recipient).
+   */
+  lookupDelivery: DeliveryByDedupeKey;
 };
 
 export class ProviderFeeAlertDeliveryError extends Error {
@@ -32,6 +40,17 @@ export class ProviderFeeAlertDeliveryError extends Error {
     super(`rfl alert delivery: ${code}`);
     this.name = `RflAlert_${code}`;
   }
+}
+
+/** Existing delivery by dedupe key through an admin client. Any read error propagates (the caller treats the recipient as not reached). */
+export function deliveryByDedupeKeyFromAdmin(admin: { from: (table: string) => unknown }): DeliveryByDedupeKey {
+  return async (dedupeKey) => {
+    const q = (admin.from("outbound_deliveries") as { select: (c: string) => { eq: (c: string, v: string) => { maybeSingle: () => Promise<{ data: ExistingDelivery | null; error: unknown }> } } })
+      .select("related_table, related_id, template_key").eq("dedupe_key", dedupeKey).maybeSingle();
+    const { data, error } = await q;
+    if (error) throw new Error("lookup_failed");
+    return data ?? null;
+  };
 }
 
 export const rflRecipientRef = (kind: AlertRecipientKind, userId: string) => `${kind}:${userId}`;
@@ -111,7 +130,14 @@ export function createProviderFeeAlertSink(deps: ProviderFeeAlertSinkDeps): Prov
             relatedTable: "studio_sms_provider_alerts", relatedId: alert.id, dedupeKey: rflDedupeKey(alert.id, ref),
           });
           if (result.queued) outcome = "queued";
-          else if (result.reason === "duplicate") outcome = "duplicate";
+          else if (result.reason === "duplicate") {
+            const existing = await deps.lookupDelivery(rflDedupeKey(alert.id, ref));
+            if (existing && existing.related_table === "studio_sms_provider_alerts" && existing.related_id === alert.id && existing.template_key === mail.templateKey) outcome = "duplicate";
+            else {
+              failures += 1;   // squatted (or unreadable) key: NOT reached, nothing recorded; the alert fails, is retried and escalated
+              continue;
+            }
+          }
           else if (result.reason === "missing_email") outcome = "invalid_recipient";
           else {
             failures += 1;

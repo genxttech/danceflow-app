@@ -32,6 +32,7 @@ vi.mock("@/lib/sms/providerFeeAlerts", () => ({
   },
   createProviderFeeAlertSink: () => ({ marker: "sink" }),
   studioNameFromAdmin: () => async () => null,
+  deliveryByDedupeKeyFromAdmin: () => async () => null,
 }));
 
 import { GET, POST } from "../route";

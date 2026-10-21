@@ -184,17 +184,16 @@ export type ScanSummary = {
   deliveryEnabled: boolean;
   /** businesses beyond the per-run cap: counted as an error so a scan that cannot cover everyone is never silent */
   truncated: number;
-  /** 1 when delivery stopped early (time budget or per-pass alert cap) with more alerts possibly still pending for the next pass, else 0. Not an error. */
+  /** claimed alerts not attempted because the time budget was spent; released as failed("deferred") and retried next pass. Not an error. */
   deferred: number;
 };
 
 const MAX_ENTITIES = 500;
-const ALERT_BATCH = 5;
-/** Per-pass alert cap (8 x 5): each alert can queue up to 15 emails, and the route has maxDuration 60. */
-const MAX_ALERT_BATCHES = 8;
-/** Stop claiming new alerts this long after the start of the pass; the run still finishes and finishes its heartbeat. */
+/** Per-pass alert cap: each alert can queue up to 15 emails, and the route has maxDuration 60. */
+const MAX_ALERTS_PER_PASS = 20;
+/** Alerts not started this long after the start of the pass are released as deferred; the run still finishes and finishes its heartbeat. */
 export const DELIVERY_TIME_BUDGET_MS = 40_000;
-export type ScanRunOptions = { now?: () => number; budgetMs?: number; maxBatches?: number };
+export type ScanRunOptions = { now?: () => number; budgetMs?: number; maxAlerts?: number };
 export const SCAN_RUNNER_NAME = "sms-provider-fee-lifecycle";
 
 type RunOps = Pick<ProviderFeeOpsRpc, "scanBegin" | "scanFinish" | "escalateDelivery">;
@@ -229,7 +228,7 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   }
   summary.ran = true;
   try {
-    await scanAndDeliver(store, sink, ops, summary, { now, startedAt, budgetMs: options.budgetMs ?? DELIVERY_TIME_BUDGET_MS, maxBatches: options.maxBatches ?? MAX_ALERT_BATCHES });
+    await scanAndDeliver(store, sink, ops, summary, { now, startedAt, budgetMs: options.budgetMs ?? DELIVERY_TIME_BUDGET_MS, maxAlerts: options.maxAlerts ?? MAX_ALERTS_PER_PASS });
   } catch {
     summary.errors += 1;
   }
@@ -247,7 +246,7 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   return summary;
 }
 
-type Budget = { now: () => number; startedAt: number; budgetMs: number; maxBatches: number };
+type Budget = { now: () => number; startedAt: number; budgetMs: number; maxAlerts: number };
 
 async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null, ops: RunOps, summary: ScanSummary, budget: Budget): Promise<void> {
   let entities: string[] = [];
@@ -281,39 +280,43 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
     summary.errors += 1;
   }
   if (!sink) return;
-  for (let batch = 0; batch < budget.maxBatches; batch += 1) {
-    if (batch > 0 && budget.now() - budget.startedAt >= budget.budgetMs) {
-      summary.deferred = 1;   // out of time: what is left stays pending for the next pass
-      break;
-    }
-    let alerts: ProviderFeeAlert[] = [];
-    try {
-      alerts = await store.claimAlerts(ALERT_BATCH);
-    } catch {
-      summary.errors += 1;
-      break;
-    }
-    if (alerts.length === 0) break;
-    for (const alert of alerts) {
-      let delivered = false;
-      let error: string | null = null;
+  // ONE claim per pass. tw4_rfl_alerts_claim counts an attempt at claim time and re-claims `failed` rows immediately (no backoff), so a second claim in the
+  // same pass would burn the attempts of the alerts that just failed and starve newer ones. Each alert is therefore attempted AT MOST ONCE per pass (ids
+  // already seen are skipped); retries happen on later passes. Claiming oldest-first, a pass covers up to maxAlerts alerts.
+  let alerts: ProviderFeeAlert[] = [];
+  try {
+    alerts = await store.claimAlerts(budget.maxAlerts);
+  } catch {
+    summary.errors += 1;
+    return;
+  }
+  const seen = new Set<string>();
+  for (const alert of alerts) {
+    if (seen.has(alert.id)) continue;
+    seen.add(alert.id);
+    // out of time: release the claim as failed ("deferred") so the next pass retries it instead of leaving it 'sending' for 15 minutes
+    const outOfTime = budget.now() - budget.startedAt >= budget.budgetMs;
+    let delivered = false;
+    let error: string | null = null;
+    if (outOfTime) {
+      error = "deferred";
+      summary.deferred += 1;
+    } else {
       try {
         await sink.deliver(alert);
         delivered = true;
       } catch (e) {
         error = e instanceof Error ? e.name.slice(0, 60) : "delivery_failed";
       }
-      try {
-        const updated = await store.finishAlert(alert.id, alert.claimToken, delivered, error);
-        if (updated) {
-          if (delivered) summary.delivered += 1;
-          else summary.failed += 1;
-        }
-      } catch {
-        summary.errors += 1;
-      }
     }
-    if (alerts.length < ALERT_BATCH) break;
-    if (batch === budget.maxBatches - 1) summary.deferred = 1;   // per-pass cap reached with a full last batch
+    try {
+      const updated = await store.finishAlert(alert.id, alert.claimToken, delivered, error);
+      if (updated && !outOfTime) {
+        if (delivered) summary.delivered += 1;
+        else summary.failed += 1;
+      }
+    } catch {
+      summary.errors += 1;
+    }
   }
 }

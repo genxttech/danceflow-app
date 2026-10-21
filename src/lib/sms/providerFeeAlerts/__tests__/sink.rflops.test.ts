@@ -18,7 +18,7 @@ const alert = (over: Partial<ProviderFeeAlert> = {}): ProviderFeeAlert => ({
 /** A fake of the database + queue contract: unique dedupe keys, claim-token-checked delivery records unique per (alert, ref). */
 function harness(opts: { recipients?: AlertRecipient[]; currentToken?: () => string } = {}) {
   const queued: Array<Parameters<RflAlertQueue>[0]> = [];
-  const dedupe = new Set<string>();
+  const dedupe = new Map<string, { related_table: string | null; related_id: string | null; template_key: string | null }>();
   const records = new Map<string, DeliveryOutcome>();
   const recordCalls: Array<{ ref: string; kind: string; outcome: DeliveryOutcome; token: string }> = [];
   const state = { queueThrowsFor: new Set<string>(), recipients: opts.recipients ?? [owner(1), admin(1)], currentToken: opts.currentToken ?? (() => "tok1"), recipientCalls: 0 };
@@ -26,7 +26,7 @@ function harness(opts: { recipients?: AlertRecipient[]; currentToken?: () => str
     if (state.queueThrowsFor.has(p.recipientEmail ?? "")) throw new Error(`smtp down for ${p.recipientEmail}`);
     await Promise.resolve();   // yield: lets concurrent workers interleave like real I/O
     if (p.dedupeKey && dedupe.has(p.dedupeKey)) return { queued: false, skipped: true, reason: "duplicate" };
-    if (p.dedupeKey) dedupe.add(p.dedupeKey);
+    if (p.dedupeKey) dedupe.set(p.dedupeKey, { related_table: p.relatedTable ?? null, related_id: p.relatedId ?? null, template_key: p.templateKey });
     queued.push(p);
     return { queued: true, skipped: false };
   };
@@ -41,7 +41,7 @@ function harness(opts: { recipients?: AlertRecipient[]; currentToken?: () => str
       return { recorded: true, replayed };
     }),
   };
-  const sink = createProviderFeeAlertSink({ ops: ops as never, queue, studioName: async () => "Rhythm Studio" });
+  const sink = createProviderFeeAlertSink({ ops: ops as never, queue, studioName: async () => "Rhythm Studio", lookupDelivery: async (key) => dedupe.get(key) ?? null });
   return { sink, queued, records, recordCalls, state, ops, dedupe };
 }
 
@@ -82,6 +82,40 @@ describe("createProviderFeeAlertSink", () => {
         expect(part).not.toMatch(/\$|cents|token|balance/i);
       }
     }
+  });
+
+  it("a legitimate duplicate (the existing row is this alert's RFL row for this recipient) counts as reached", async () => {
+    const h = harness({ recipients: [owner(1)] });
+    await h.sink.deliver(alert());
+    await expect(h.sink.deliver(alert())).resolves.toBeUndefined();
+    expect(h.recordCalls.map((r) => r.outcome)).toEqual(["queued", "duplicate"]);
+  });
+
+  it("a squatted dedupe key (a staff-made row under rfl:<alert>:<ref>) is NOT reached: nothing recorded for it, the alert fails, others still go out", async () => {
+    const squats: Array<{ related_table: string | null; related_id: string | null; template_key: string | null }> = [
+      { related_table: null, related_id: null, template_key: "appointment_confirmed" },
+      { related_table: "studio_sms_provider_alerts", related_id: "other-alert", template_key: "platform_rfl_authorization_expiring" },
+      { related_table: "studio_sms_provider_alerts", related_id: "alert1", template_key: "platform_rfl_admin_authorization_expiring" },   // wrong template for an owner
+      { related_table: "clients", related_id: "alert1", template_key: "platform_rfl_authorization_expiring" },
+    ];
+    for (const row of squats) {
+      const h = harness({ recipients: [owner(1), owner(2)] });
+      h.dedupe.set("rfl:alert1:owner:o1", row);
+      const err = await h.sink.deliver(alert()).catch((e) => e);
+      expect(err.name).toBe("RflAlert_queue_failed");
+      expect(h.recordCalls.map((r) => r.ref)).toEqual(["owner:o2"]);   // nothing recorded for the squatted recipient
+      expect(h.queued.map((q) => q.dedupeKey)).toEqual(["rfl:alert1:owner:o2"]);
+    }
+  });
+
+  it("an unreadable existing row (lookup error or missing) is also not reached", async () => {
+    const h = harness({ recipients: [owner(1)] });
+    h.dedupe.set("rfl:alert1:owner:o1", { related_table: "studio_sms_provider_alerts", related_id: "alert1", template_key: "platform_rfl_authorization_expiring" });
+    const sink = createProviderFeeAlertSink({ ops: h.ops as never, queue: async () => ({ queued: false, skipped: true, reason: "duplicate" }), lookupDelivery: async () => { throw new Error("db"); } });
+    expect((await sink.deliver(alert()).catch((e) => e)).name).toBe("RflAlert_queue_failed");
+    const missing = createProviderFeeAlertSink({ ops: h.ops as never, queue: async () => ({ queued: false, skipped: true, reason: "duplicate" }), lookupDelivery: async () => null });
+    expect((await missing.deliver(alert()).catch((e) => e)).name).toBe("RflAlert_queue_failed");
+    expect(h.recordCalls).toHaveLength(0);
   });
 
   it("replaying the same alert (another claim) queues nothing new: duplicates are recorded, replays are harmless", async () => {

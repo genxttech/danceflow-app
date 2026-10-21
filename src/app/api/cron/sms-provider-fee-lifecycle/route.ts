@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCronAuthFailure } from "@/lib/security/cron";
 import { ProviderFeeLifecycleStore, runProviderFeeLifecycleScan } from "@/lib/sms/providerFeeLifecycle";
-import { ProviderFeeOpsRpc, createProviderFeeAlertSink, studioNameFromAdmin } from "@/lib/sms/providerFeeAlerts";
+import { ProviderFeeOpsRpc, createProviderFeeAlertSink, deliveryByDedupeKeyFromAdmin, studioNameFromAdmin } from "@/lib/sms/providerFeeAlerts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -21,7 +21,7 @@ async function deliverySinkOrNull(ops: ProviderFeeOpsRpc, admin: ReturnType<type
   } catch {
     return null;   // fail closed
   }
-  return createProviderFeeAlertSink({ ops, studioName: studioNameFromAdmin(admin) });
+  return createProviderFeeAlertSink({ ops, studioName: studioNameFromAdmin(admin), lookupDelivery: deliveryByDedupeKeyFromAdmin(admin) });
 }
 
 async function run(request: Request) {

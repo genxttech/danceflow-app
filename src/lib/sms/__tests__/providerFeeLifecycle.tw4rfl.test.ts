@@ -131,12 +131,6 @@ describe("runProviderFeeLifecycleScan", () => {
     expect(out).toMatchObject({ entities: 500, truncated: 3, errors: 1 });
   });
 
-  it("alert delivery is bounded: at most 8 batches per run", async () => {
-    const claim = vi.fn(async () => Array.from({ length: 25 }, (_, i) => a(i)));
-    const { store } = makeStore({ claimAlerts: claim });
-    await runProviderFeeLifecycleScan(store, { deliver: async () => {} }, makeOps().ops);
-    expect(claim).toHaveBeenCalledTimes(8);
-  });
 
   it("runs in contract order and ALWAYS finishes the heartbeat with counts only (completed when clean)", async () => {
     const order: string[] = [];
@@ -227,27 +221,84 @@ describe("runProviderFeeLifecycleScan", () => {
     expect(out.errors).toBe(1);   // only the failing business e2, not a rejected finish
   });
 
-  it("time budget: stops claiming new alerts once the budget is spent, still finishes the heartbeat, and reports deferred", async () => {
-    let t = 0;
-    const claim = vi.fn(async () => { t += 15_000; return Array.from({ length: 5 }, (_, i) => a(i)); });
-    const { store } = makeStore({ scanEntities: vi.fn(async () => []), claimAlerts: claim });
-    const { ops, finishes } = makeOps();
-    const out = await runProviderFeeLifecycleScan(store, { deliver: async () => {} }, ops, { now: () => t, budgetMs: 40_000 });
-    expect(claim).toHaveBeenCalledTimes(3);   // 15s, 30s, 45s: the fourth claim is refused by the budget
-    expect(out).toMatchObject({ deferred: 1, errors: 0, ran: true });
-    expect(finishes).toHaveLength(1);
-    expect(finishes[0]).toMatchObject({ status: "completed" });
-    expect(finishes[0].summary.deferred).toBe(1);
+  it("alert delivery is bounded: ONE claim per pass, capped at 20 alerts", async () => {
+    const claim = vi.fn(async () => Array.from({ length: 20 }, (_, i) => a(i)));
+    const { store } = makeStore({ claimAlerts: claim });
+    const out = await runProviderFeeLifecycleScan(store, { deliver: async () => {} }, makeOps().ops);
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(claim).toHaveBeenCalledWith(20);
+    expect(out.delivered).toBe(20);
   });
 
-  it("per-pass alert cap: at most 8 batches of 5 (40 alerts); a full last batch is reported as deferred, a short one is not", async () => {
-    const full = vi.fn(async () => Array.from({ length: 5 }, (_, i) => a(i)));
-    const r1 = await runProviderFeeLifecycleScan(makeStore({ claimAlerts: full }).store, { deliver: async () => {} }, makeOps().ops);
-    expect(full).toHaveBeenCalledTimes(8);
-    expect(r1.deferred).toBe(1);
-    let n = 0;
-    const draining = vi.fn(async () => (n++ < 2 ? Array.from({ length: 5 }, (_, i) => a(i)) : [a(1)]));
-    const r2 = await runProviderFeeLifecycleScan(makeStore({ claimAlerts: draining }).store, { deliver: async () => {} }, makeOps().ops);
-    expect(r2.deferred).toBe(0);
+  it("time budget: alerts not started within the budget are released as failed 'deferred' (counted in deferred, not delivered/failed), and the heartbeat still finishes", async () => {
+    let t = 0;
+    const finished: Array<{ id: string; delivered: boolean; error: string | null }> = [];
+    const { store } = makeStore({
+      scanEntities: vi.fn(async () => []),
+      claimAlerts: vi.fn(async () => [a(1), a(2), a(3), a(4), a(5)]),
+      finishAlert: vi.fn(async (id: string, _t: string, delivered: boolean, error: string | null) => { finished.push({ id, delivered, error }); return true; }),
+    });
+    const { ops, finishes } = makeOps();
+    const out = await runProviderFeeLifecycleScan(store, { deliver: async () => { t += 15_000; } }, ops, { now: () => t, budgetMs: 40_000 });
+    expect(out).toMatchObject({ delivered: 3, failed: 0, deferred: 2, errors: 0, ran: true });
+    expect(finished.slice(3)).toEqual([{ id: "a4", delivered: false, error: "deferred" }, { id: "a5", delivered: false, error: "deferred" }]);
+    expect(finishes).toHaveLength(1);
+    expect(finishes[0]).toMatchObject({ status: "completed" });
+    expect(finishes[0].summary.deferred).toBe(2);
+  });
+
+  describe("each alert is attempted at most once per pass (claim burns an attempt and re-offers failed rows immediately)", () => {
+    /** A database fake like tw4_rfl_alerts_claim: oldest first, claim increments attempts, failed rows are re-claimable at once, attempts < 5. */
+    function db(count: number) {
+      const rows = Array.from({ length: count }, (_, i) => ({ id: `a${i}`, attempts: 0, status: "pending", token: "" }));
+      let n = 0;
+      const store = {
+        scanEntities: async () => [], scanEntity: vi.fn(), inventoryGaps: async () => 0,
+        claimAlerts: vi.fn(async (limit: number) => {
+          const picked = rows.filter((r) => (r.status === "pending" || r.status === "failed") && r.attempts < 5).slice(0, limit);
+          return picked.map((r) => { r.status = "sending"; r.attempts += 1; r.token = `t${n++}`; return { ...a(0), id: r.id, claimToken: r.token }; });
+        }),
+        finishAlert: vi.fn(async (id: string, token: string, delivered: boolean) => {
+          const r = rows.find((x) => x.id === id)!;
+          if (r.token !== token) return false;
+          r.status = delivered ? "delivered" : "failed";
+          return true;
+        }),
+      };
+      return { rows, store: store as unknown as ProviderFeeLifecycleStore, raw: store };
+    }
+
+    it("a failing sink adds exactly 1 attempt per alert per pass, however many alerts exist", async () => {
+      const d = db(12);
+      const failing = { deliver: async () => { throw new Error("down"); } };
+      await runProviderFeeLifecycleScan(d.store, failing, makeOps().ops);
+      expect(d.rows.map((r) => r.attempts)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+      await runProviderFeeLifecycleScan(d.store, failing, makeOps().ops);
+      expect(d.rows.every((r) => r.attempts === 2)).toBe(true);
+      expect(d.raw.claimAlerts).toHaveBeenCalledTimes(2);
+    });
+
+    it("newer alerts are not starved: with more failing old alerts than one pass covers, later passes still go on, and a recovered sink delivers everything", async () => {
+      const d = db(25);
+      let failing = true;
+      const sink = { deliver: async () => { if (failing) throw new Error("down"); } };
+      await runProviderFeeLifecycleScan(d.store, sink, makeOps().ops, { maxAlerts: 20 });
+      expect(d.rows.slice(0, 20).every((r) => r.attempts === 1)).toBe(true);
+      expect(d.rows.slice(20).every((r) => r.attempts === 0)).toBe(true);   // beyond this pass's cap: untouched
+      failing = false;
+      const out = await runProviderFeeLifecycleScan(d.store, sink, makeOps().ops, { maxAlerts: 20 });
+      expect(out.delivered).toBe(20);
+      await runProviderFeeLifecycleScan(d.store, sink, makeOps().ops, { maxAlerts: 20 });
+      expect(d.rows.every((r) => r.status === "delivered")).toBe(true);
+      expect(d.rows.every((r) => r.attempts <= 2)).toBe(true);
+    });
+
+    it("an id offered twice by a claim is attempted once", async () => {
+      const deliver = vi.fn(async () => {});
+      const { store } = makeStore({ claimAlerts: vi.fn(async () => [a(1), a(1), a(2)]) });
+      const out = await runProviderFeeLifecycleScan(store, { deliver }, makeOps().ops);
+      expect(deliver).toHaveBeenCalledTimes(2);
+      expect(out.delivered).toBe(2);
+    });
   });
 });
