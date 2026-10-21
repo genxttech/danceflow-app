@@ -10,6 +10,7 @@
  *   node scripts/qa/iso-qa.mjs matrix <scenario> [--parallel 3]          every local-stack suite, each in its OWN fresh database, with a pass / fail / infrastructure summary
  *   node scripts/qa/iso-qa.mjs compare <scenarioA> <scenarioB>            catalog fingerprint diff: does the migration order change the resulting schema?
  *   node scripts/qa/iso-qa.mjs down <scenario> | down --all | list
+ *   node scripts/qa/iso-qa.mjs selftest                                    negative controls: skipped suite, no tests, failing test, crashed database, bad / duplicate migration, concurrent starts
  *   node scripts/qa/iso-qa.mjs repro                                       re-run the preserved minimal SQL case that segfaults image 17.6.1.106 (and show 17.11.0.004 / the workaround survive)
  *   node scripts/qa/iso-qa.mjs scenarios                                  list the built-in scenarios
  *
@@ -22,7 +23,7 @@
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,9 +42,9 @@ const MIGRATIONS = "src/lib/supabase/migrations";
 const LIMITS = {
   db: ["--memory", process.env.ISO_QA_DB_MEMORY ?? "1500m", "--cpus", process.env.ISO_QA_DB_CPUS ?? "1.5"],
   rest: ["--memory", process.env.ISO_QA_REST_MEMORY ?? "256m", "--cpus", "0.5"],
-  kong: ["--memory", process.env.ISO_QA_KONG_MEMORY ?? "512m", "--cpus", "0.5"],
+  kong: ["--memory", process.env.ISO_QA_KONG_MEMORY ?? "1280m", "--cpus", "1"],
 };
-const PG_ARGS = ["postgres", "-D", "/etc/postgresql", "-c", "supautils.hint_roles="];
+const PG_ARGS = process.env.ISO_QA_UNMITIGATED === "1" ? ["postgres", "-D", "/etc/postgresql"] : ["postgres", "-D", "/etc/postgresql", "-c", "supautils.hint_roles="];
 
 process.env.MSYS_NO_PATHCONV = "1"; // Git Bash must not rewrite /etc/... container paths
 
@@ -70,7 +71,7 @@ const SCENARIOS = Object.fromEntries(Object.entries(MANIFEST.scenarios).map(([k,
 
 function migrationFileAt(ref, version) {
   const names = git("ls-tree", "--name-only", `${ref}:${MIGRATIONS}`).split("\n").filter((n) => n.startsWith(`${version}`) && n.endsWith(".sql"));
-  if (names.length !== 1) die(`expected exactly one migration ${version}* at ${ref}, found ${names.length}`);
+  if (names.length !== 1) throw new Error(`expected exactly one migration ${version}* at ${ref}, found ${names.length}`);
   return names[0];
 }
 const migrationSql = (ref, file) => git("show", `${ref}:${MIGRATIONS}/${file}`);
@@ -94,7 +95,7 @@ const psqlIn = (container, sql, { user = "postgres", okOnError = false, extra = 
   const r = spawnSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", container, "psql", "-U", user, "-d", "postgres", "-q", "-v", okOnError ? "ON_ERROR_STOP=0" : "ON_ERROR_STOP=1", ...extra], { input: sql, encoding: "utf8", maxBuffer: 1 << 28 });
   return { code: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 };
-async function waitReady(container, timeoutMs = 240_000) {
+async function waitReady(container, timeoutMs = 600_000) {
   const t0 = Date.now();
   let ok = 0;
   while (Date.now() - t0 < timeoutMs) {
@@ -107,6 +108,54 @@ async function waitReady(container, timeoutMs = 240_000) {
   throw new Error(`${container} did not become ready`);
 }
 const crashCount = (container) => (dockerLogs(container).match(/terminated by signal|server process .* was terminated/g) ?? []).length;
+/** Cross-process mutex (a directory is created atomically). Held only while ports are chosen and bound, never while migrations run. */
+async function withStartLock(fn) {
+  const lock = path.join(QA_HOME, "start.lock");
+  mkdirSync(QA_HOME, { recursive: true });
+  const t0 = Date.now();
+  for (;;) {
+    try { mkdirSync(lock); break; } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      try { if (Date.now() - statSync(lock).mtimeMs > 120_000) rmSync(lock, { recursive: true, force: true }); } catch { /* raced */ }
+      if (Date.now() - t0 > 180_000) throw new Error("could not acquire the start lock");
+      await sleep(400);
+    }
+  }
+  try { return await fn(); } finally { rmSync(lock, { recursive: true, force: true }); }
+}
+
+const CLAIMS = () => path.join(QA_HOME, "port-claims.json");
+const readClaims = () => { try { return JSON.parse(readFileSync(CLAIMS(), "utf8")); } catch { return {}; } };
+const writeClaims = (c) => writeFileSync(CLAIMS(), JSON.stringify(c, null, 2));
+/** Chooses the API host port for an instance under the cross-process lock and records the claim (stale claims, older than 30 minutes, are ignored). */
+async function claimPort(instance) {
+  return withStartLock(async () => {
+    const now = Date.now();
+    const claims = Object.fromEntries(Object.entries(readClaims()).filter(([, v]) => now - v.at < 30 * 60_000));
+    const taken = usedHostPorts();
+    for (const v of Object.values(claims)) taken.add(v.port);
+    const port = await freePort(56600, taken);
+    claims[instance] = { port, at: now, pid: process.pid };
+    writeClaims(claims);
+    return port;
+  });
+}
+/** Synchronous (so it also runs on the way to process.exit): the same directory mutex, spun with a short blocking wait. */
+function releasePort(instance) {
+  const lock = path.join(QA_HOME, "start.lock");
+  const nap = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+  const t0 = Date.now();
+  for (;;) {
+    try { mkdirSync(lock); break; } catch (e) {
+      if (e.code !== "EEXIST") return;
+      try { if (Date.now() - statSync(lock).mtimeMs > 120_000) rmSync(lock, { recursive: true, force: true }); } catch { /* raced */ }
+      if (Date.now() - t0 > 30_000) return;
+      nap();
+    }
+  }
+  try { const c = readClaims(); delete c[instance]; writeClaims(c); } finally { rmSync(lock, { recursive: true, force: true }); }
+}
+
 function freePort(start, taken) {
   return new Promise((resolve, reject) => {
     const tryPort = (p) => {
@@ -143,7 +192,7 @@ grant execute on function auth.jwt() to anon, authenticated, service_role;
 async function startDb(name, port, image = PG_IMAGE) {
   ensureNetwork();
   dockerTry("rm", "-f", name);
-  docker("run", "-d", "--name", name, "--label", LABEL, "--network", NET, ...LIMITS.db, "-p", `127.0.0.1:${port}:5432`, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
+  docker("run", "-d", "--name", name, "--label", LABEL, "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
   await waitReady(name);
 }
 
@@ -181,6 +230,8 @@ async function cmdBaseline(flags) {
   docker("stop", builder);
   docker("commit", "--change", 'ENTRYPOINT ["docker-entrypoint.sh"]', "--change", 'CMD ["postgres","-D","/etc/postgresql"]', "--change", `LABEL df.isoqa.ref=${ref}@${head}`, "--change", `LABEL df.isoqa.cutoff=${cutoff}`, builder, tag);
   docker("rm", "-f", builder);
+  const labels = docker("image", "inspect", tag, "--format", "{{json .Config.Labels}}");
+  if (/desktop\.docker\.io\/ports/.test(labels)) throw new Error(`the baseline image carries Docker Desktop port labels (${labels.slice(0, 200)}): it would publish a host port for every stack`);
   log(`baseline image ${tag} built: ${applied} migrations applied, ${failed.length} known-unreplayable skipped (${ref}@${head})`);
 }
 
@@ -202,6 +253,7 @@ services:
 }
 
 async function cmdUp(scenarioName, flags, instance = scenarioName) {
+  const noApi = Boolean(flags["no-api"]);
   const extra = flags.migration ?? [];
   const preset = SCENARIOS[scenarioName];
   const list = [...(preset ? preset.migrations : []), ...extra.map((m) => { const i = m.indexOf(":"); return [m.slice(0, i), m.slice(i + 1)]; })];
@@ -209,14 +261,14 @@ async function cmdUp(scenarioName, flags, instance = scenarioName) {
   const image = `df-isoqa/base:${cutoff}`;
   if (!dockerTry("image", "inspect", image).ok) die(`baseline image ${image} not found: run \`snapshot\` and \`baseline\` first`);
   const n = names(instance);
-  const taken = usedHostPorts();
-  const dbPort = await freePort(56600, taken);
-  taken.add(dbPort);
-  const apiPort = await freePort(dbPort + 1, taken);
   const jwt = randomBytes(24).toString("hex");
   ensureNetwork();
+  const ymlPath = path.join(QA_HOME, `kong-${instance}.yml`);
+  mkdirSync(QA_HOME, { recursive: true });
+  writeFileSync(ymlPath, kongYml(n.rest));
+  const apiPort = noApi ? 0 : await claimPort(instance);
   for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); docker("rm", "-f", c); }
-  docker("run", "-d", "--name", n.db, "--label", LABEL, "--network", NET, ...LIMITS.db, "-p", `127.0.0.1:${dbPort}:5432`, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
+  docker("run", "-d", "--name", n.db, "--label", LABEL, "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
   await waitReady(n.db);
   // the migrations, in order, each in its own transaction scope exactly as the repo's files are written (they carry their own begin/commit)
   for (const [ref, version] of list) {
@@ -226,6 +278,13 @@ async function cmdUp(scenarioName, flags, instance = scenarioName) {
     if (r.code !== 0 || /(^|\n)(psql: )?(ERROR|FATAL):/.test(r.out)) throw new Error(`migration ${file} failed:\n${r.out.slice(0, 800)}`);
     if (/(^|\n)WARNING:/.test(r.out)) log(`  warnings from ${file}: ${r.out.split('\n').filter((l) => /WARNING:/.test(l)).slice(0, 3).join(' | ')}`);
   }
+  if (noApi) {
+    const env = { TW4A_LOCAL_DB_CONTAINER: n.db, ISO_QA_SCENARIO: scenarioName, ISO_QA_INSTANCE: instance };
+    if (crashCount(n.db) > 0) throw new Error(`the database crashed while applying migrations (${n.db})`);
+    const got = docker("inspect", n.db, "--format", "{{json .HostConfig.PortBindings}}");
+    if (got !== "{}") throw new Error(`unexpected host port bindings on ${n.db}: ${got}`);
+    return env;
+  }
   // the API role the PostgREST container logs in as (the bare image carries no password for it)
   const pw = psqlIn(n.db, "alter role authenticator with password 'postgres';", { user: "supabase_admin" });
   if (pw.code !== 0) throw new Error(`could not set the API role password: ${pw.out.slice(0, 300)}`);
@@ -233,18 +292,19 @@ async function cmdUp(scenarioName, flags, instance = scenarioName) {
     "-e", `PGRST_DB_URI=postgres://authenticator:postgres@${n.db}:5432/postgres`, "-e", "PGRST_DB_SCHEMAS=public", "-e", "PGRST_DB_ANON_ROLE=anon",
     "-e", `PGRST_JWT_SECRET=${jwt}`, "-e", "PGRST_DB_USE_LEGACY_GUCS=false", REST_IMAGE);
   docker("create", "--name", n.kong, "--label", LABEL, "--network", NET, ...LIMITS.kong, "-p", `127.0.0.1:${apiPort}:8000`,
-    "-e", "KONG_DATABASE=off", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
-  const ymlPath = path.join(QA_HOME, `kong-${instance}.yml`);
-  mkdirSync(QA_HOME, { recursive: true });
-  writeFileSync(ymlPath, kongYml(n.rest));
+    "-e", "KONG_DATABASE=off", "-e", "KONG_NGINX_WORKER_PROCESSES=1", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
   docker("cp", ymlPath, `${n.kong}:/home/kong/kong.yml`);
   docker("start", n.kong);
+  for (const [c, want] of [[n.db, "{}"], [n.rest, "{}"], [n.kong, `{"8000/tcp":[{"HostIp":"127.0.0.1","HostPort":"${apiPort}"}]}`]]) {
+    const got = docker("inspect", c, "--format", "{{json .HostConfig.PortBindings}}");
+    if (got !== want) throw new Error(`unexpected host port bindings on ${c}: ${got} (expected ${want})`);
+  }
   const env = { TW4A_LOCAL_URL: `http://127.0.0.1:${apiPort}`, TW4A_LOCAL_DB_CONTAINER: n.db, TW4A_LOCAL_JWT_SECRET: jwt, TW4_ISO_QA: "1", ISO_QA_SCENARIO: scenarioName, ISO_QA_INSTANCE: instance };
   // wait for the API to answer through Kong
   const t0 = Date.now();
   for (;;) {
     try { const res = await fetch(`${env.TW4A_LOCAL_URL}/rest/v1/`, { headers: { apikey: "x" } }); if (res.status < 500) break; } catch { /* not yet */ }
-    if (Date.now() - t0 > 90_000) throw new Error("the API did not come up");
+    if (Date.now() - t0 > 240_000) throw new Error("the API did not come up");
     await sleep(1500);
   }
   writeFileSync(path.join(QA_HOME, `env-${instance}.json`), JSON.stringify(env, null, 2));
@@ -252,6 +312,7 @@ async function cmdUp(scenarioName, flags, instance = scenarioName) {
 }
 
 function cmdDown(scenarioName) {
+  releasePort(scenarioName);
   const n = names(scenarioName);
   for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); docker("rm", "-f", c); }
 }
@@ -331,12 +392,26 @@ order by 1;`;
 const fingerprint = (db) => psqlIn(db, FINGERPRINT_SQL, { extra: ["-At"] }).out.split("\n").filter(Boolean);
 
 async function cmdCompare(a, b, flags) {
-  const fa = await cmdUp(a, flags, `cmp-a`).then(() => fingerprint(names("cmp-a").db));
-  const fb = await cmdUp(b, flags, `cmp-b`).then(() => fingerprint(names("cmp-b").db));
-  cmdDown("cmp-a"); cmdDown("cmp-b");
+  const inst = [`cmp-a-${process.pid}`, `cmp-b-${process.pid}`];
+  const prints = [];
+  try {
+    for (const [i, sc] of [a, b].entries()) {
+      if (!SCENARIOS[sc]) die(`unknown scenario ${sc}`);
+      await cmdUp(sc, { ...flags, "no-api": true }, inst[i]);
+      const fp = fingerprint(names(inst[i]).db);
+      if (fp.length < 1000) { log(`INCOMPLETE COMPARISON: only ${fp.length} catalog entries read for ${sc} (a healthy schema has thousands)`); process.exit(3); }
+      if (crashCount(names(inst[i]).db) > 0) { log(`INFRASTRUCTURE FAILURE: the database of ${sc} crashed`); process.exit(3); }
+      prints.push(fp);
+    }
+  } finally {
+    for (const i of inst) cmdDown(i);
+  }
+  const [fa, fb] = prints;
   const sa = new Set(fa), sb = new Set(fb);
   const onlyA = fa.filter((x) => !sb.has(x)), onlyB = fb.filter((x) => !sa.has(x));
   console.log(`${a}: ${fa.length} catalog entries   ${b}: ${fb.length}   only-in-${a}: ${onlyA.length}   only-in-${b}: ${onlyB.length}`);
+  const kinds = (arr) => arr.reduce((m, x) => { const k = x.split(" ")[0]; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+  console.log(`compared: ${JSON.stringify(kinds(fa))} (function bodies by md5 and ACL, table columns and ACL, constraint definitions, triggers)`);
   for (const x of onlyA.slice(0, 40)) console.log(`  < ${x.slice(0, 200)}`);
   for (const x of onlyB.slice(0, 40)) console.log(`  > ${x.slice(0, 200)}`);
   process.exit(onlyA.length + onlyB.length === 0 ? 0 : 1);
@@ -402,6 +477,48 @@ async function cmdRepro() {
   process.exit(bad === 0 ? 0 : 1);
 }
 
+/** Negative controls for the harness itself: every way a run could be mistaken for a pass must be reported as a failure with the documented exit code. */
+async function cmdSelftest() {
+  const self = fileURLToPath(import.meta.url);
+  const cfg = ["--config", "scripts/qa/selftest/vitest.config.mts"];
+  const run = (name, scenario, env, extra, expectCode) => new Promise((resolve) => {
+    const p = spawn("node", [self, "run", scenario, "--name", `st-${name}`, ...extra], { env: { ...process.env, ...env }, stdio: ["ignore", "ignore", "pipe"], cwd: REPO });
+    let err = "";
+    p.stderr.on("data", (d) => { err += d; });
+    p.on("close", (code) => resolve({ name, code, expectCode, ok: code === expectCode, note: (err.split("\n").filter((l) => l.includes("[iso-qa]")).pop() ?? "").replace(/.*\[iso-qa\] /, "").slice(0, 150) }));
+  });
+  const cases = [
+    () => run("pass", "baseline", {}, ["--", ...cfg, "scripts/qa/selftest/pass.test.ts"], 0),
+    () => run("fail", "baseline", {}, ["--", ...cfg, "scripts/qa/selftest/fail.test.ts"], 1),
+    () => run("skip", "baseline", {}, ["--", ...cfg, "scripts/qa/selftest/skipped.test.ts"], 4),
+    () => run("none", "baseline", {}, ["--", ...cfg, "scripts/qa/selftest/does-not-exist.test.ts"], 4),
+    () => run("crash", "baseline", { ISO_QA_UNMITIGATED: "1" }, ["--", ...cfg, "scripts/qa/selftest/crash.test.ts"], 3),
+    () => run("badmig", "baseline", {}, ["--migration", `${REF_MAIN}:99999999`, "--", ...cfg, "scripts/qa/selftest/pass.test.ts"], 3),
+    () => run("dupmig", "baseline", {}, ["--migration", `${REF_MAIN}:20261207`, "--migration", `${REF_MAIN}:20261207`, "--", ...cfg, "scripts/qa/selftest/pass.test.ts"], 3),
+  ];
+  // three stacks at a time (each database is limited to 1.5 GB); the first wave starts simultaneously and proves the port claims
+  const results = [];
+  const portsAcrossWaves = new Set();
+  let portsUniqueEver = true;
+  for (let i = 0; i < cases.length; i += 3) {
+    const wave = cases.slice(i, i + 3).map((f) => f());
+    const sampler = setInterval(() => { const ps = Object.values(readClaims()).map((v) => v.port); if (new Set(ps).size !== ps.length) portsUniqueEver = false; for (const p of ps) portsAcrossWaves.add(p); }, 500);
+    results.push(...(await Promise.all(wave)));
+    clearInterval(sampler);
+  }
+
+  // concurrency: the cases above start together; every instance must have had its own API port and container set
+  const portsUnique = portsUniqueEver;
+  const ports = [...portsAcrossWaves];
+  for (const r of results) console.log(`${r.ok ? "ok  " : "BAD "} ${r.name}: exit ${r.code} (expected ${r.expectCode}) ${r.note}`);
+  const leftovers = dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--filter", "name=df-isoqa-st-", "--format", "{{.Names}}").out.split("\n").filter(Boolean);
+  console.log(`${leftovers.length === 0 ? "ok  " : "BAD "} cleanup: ${leftovers.length} self-test container(s) left${leftovers.length ? `: ${leftovers.join(", ")}` : ""}`);
+  console.log(`${portsUnique ? "ok  " : "BAD "} ports: ${ports.length} distinct port(s) claimed across the run; no two live claims ever shared a port: ${portsUnique}`);
+  const good = results.every((r) => r.ok) && leftovers.length === 0 && portsUnique;
+  console.log(good ? "\nself-test passed: no false pass is possible through the tested paths" : "\nSELF-TEST FAILED");
+  process.exit(good ? 0 : 1);
+}
+
 function cmdList() {
   console.log(dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}\t{{.Status}}\t{{.Ports}}").out);
 }
@@ -416,7 +533,7 @@ function parse(argv) {
   for (let i = 0; i < head.length; i += 1) {
     const a = head[i];
     if (a === "--migration") (flags.migration ??= []).push(head[++i]);
-    else if (a === "--keep" || a === "--all") flags[a.slice(2)] = true;
+    else if (a === "--keep" || a === "--all" || a === "--no-api") flags[a.slice(2)] = true;
     else if (a.startsWith("--")) flags[a.slice(2)] = head[++i];
     else rest.push(a);
   }
@@ -427,11 +544,12 @@ const { flags, rest, tail } = parse(process.argv.slice(2));
 const [cmd, scenario] = rest;
 switch (cmd) {
   case "baseline": await cmdBaseline(flags); break;
-  case "up": { if (!scenario) die("usage: up <scenario>"); const env = await cmdUp(scenario, flags); console.log(JSON.stringify(env, null, 2)); break; }
+  case "up": { if (!scenario) die("usage: up <scenario>"); const env = await cmdUp(scenario, flags, flags.name ?? scenario); console.log(JSON.stringify(env, null, 2)); break; }
   case "run": if (!scenario) die("usage: run <scenario> [--keep] -- <vitest args>"); await cmdRun(scenario, flags, tail); break;
-  case "down": if (flags.all) { for (const c of dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}").out.split("\n").filter(Boolean)) docker("rm", "-f", c); } else cmdDown(scenario); break;
+  case "down": if (flags.all) { for (const c of dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}").out.split("\n").filter(Boolean)) docker("rm", "-f", c); } else cmdDown(flags.name ?? scenario); break;
   case "list": cmdList(); break;
   case "repro": await cmdRepro(); break;
+  case "selftest": await cmdSelftest(); break;
   case "matrix": await cmdMatrix(scenario, flags); break;
   case "compare": await cmdCompare(rest[1], rest[2], flags); break;
   case "scenarios": for (const [k, v] of Object.entries(SCENARIOS)) console.log(`${k}\t${v.description}`); break;
