@@ -191,7 +191,14 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
     expect((await rpc("tw4_usage_submitted", { p_attempt_id: b.attempt_id, p_provider_sid: s })).error).toBeNull();
     return { ...b, sid: s };
   };
-  const evidence = (account: string, s: string, over: Record<string, unknown> = {}) => ({ sid: s, account_sid: account, status: "delivered", num_segments: "1", num_media: "0", price: "-0.00790", price_unit: "USD", ...over });
+  // 20261205: settlement also checks the evidence's identity and time, so the fixture evidence carries what Twilio's Message resource would for this text
+  const identity = (s: string) => {
+    const row = psql(`select coalesce(a.messaging_service_sid, '') || '|' || coalesce(a.sender_e164, '') || '|' || coalesce(l.phone_e164, '') from public.studio_sms_usage_attempts a
+                       join public.sms_message_logs l on l.id = a.message_log_id where a.provider_sid = '${s}'`);
+    const [mg, from, to] = row ? row.split("|") : ["", "", ""];
+    return { direction: "outbound-api", messaging_service_sid: mg || null, from: from || null, to: to || null, date_created: new Date().toISOString() };
+  };
+  const evidence = (account: string, s: string, over: Record<string, unknown> = {}) => ({ sid: s, account_sid: account, status: "delivered", num_segments: "1", num_media: "0", price: "-0.00790", price_unit: "USD", ...identity(s), ...over });
   const settle = (attemptId: string, ev: Record<string, unknown>) => rpc("tw4_usage_settle", { p_attempt_id: attemptId, p_evidence: ev });
   const callback = (attemptId: string | null, s: string, signer: string | null, status: string) =>
     rpc("tw4_usage_record_callback", { p_attempt_id: attemptId, p_provider_sid: s, p_signer_account: signer, p_status: status, p_error_code: null });
@@ -236,7 +243,7 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
       expect(psql(`select has_function_privilege('anon', 'public.${fn}', 'execute') or has_function_privilege('authenticated', 'public.${fn}', 'execute') or has_function_privilege('service_role', 'public.${fn}', 'execute')`), fn).toBe("f");
     }
     expect(psqlError("update public.studio_sms_usage_attempts set state = 'settled'")).toBe(""); // no rows yet: nothing to refuse
-    expect(psqlError("truncate public.studio_sms_usage_attempts")).toContain("never truncated");
+    expect(psqlError("truncate public.studio_sms_usage_attempts")).toMatch(/never truncated|cannot truncate a table referenced/); // 20261205: the transition history references it
     // 20261204: the old unverified setter is no longer callable by anyone
     expect(psql("select has_function_privilege('service_role', 'public.tw4_usage_billed_sender_set(uuid, uuid, text, text, text, text)', 'execute')")).toBe("f");
   });
@@ -454,8 +461,8 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
       }
       // 'sent' with no receipt for 72 hours is charged
       const old = await submitted(PA1);
-      aged(`update public.studio_sms_usage_attempts set submitted_at = now() - interval '73 hours' where id = '${old.attempt_id}'`);
-      expect((await settle(old.attempt_id, evidence(ACC_A, old.sid, { status: "sent" }))).data).toMatchObject({ outcome: "settled", charged_cents: price() });
+      aged(`update public.studio_sms_usage_attempts set submitted_at = now() - interval '73 hours', submitting_at = now() - interval '73 hours', created_at = now() - interval '73 hours' where id = '${old.attempt_id}'`);
+      expect((await settle(old.attempt_id, evidence(ACC_A, old.sid, { status: "sent", date_created: new Date(Date.now() - 73 * 3_600_000).toISOString() }))).data).toMatchObject({ outcome: "settled", charged_cents: price() });
       // an MM SID is a multimedia message: review
       const mm = await begun(PA1);
       await rpc("tw4_usage_dispatching", { p_attempt_id: mm.attempt_id });

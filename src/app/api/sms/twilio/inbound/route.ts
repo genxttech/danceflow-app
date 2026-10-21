@@ -228,8 +228,10 @@ export async function POST(request: Request) {
   // business's negative-balance ceiling. A failure is logged (code only) and recovered later by the reconciler from the provider's records.
   const counts = parseInboundCounts(String(formData.get("NumSegments") ?? ""), String(formData.get("NumMedia") ?? ""));
   const isCompliance = keyword === "stop" || keyword === "start" || keyword === "help";
+  // a STOP / START whose consent change failed is NOT recorded here: the reconciler then recovers it and applies the opt-out (fail closed)
+  let consentFailed = false;
   const finish = async (response: Response, replyBody: string | null) => {
-    if (/^(SM|MM)[0-9a-fA-F]{32}$/.test(messageSid)) {
+    if (!consentFailed && /^(SM|MM)[0-9a-fA-F]{32}$/.test(messageSid)) {
       const recorded = await recordInboundUsage(supabase, {
         studioId,
         signerAccountSid,
@@ -268,6 +270,7 @@ export async function POST(request: Request) {
     if (consentError) {
       // Code only. Twilio Advanced Opt-Out still enforces the carrier-level block.
       console.error("sms_inbound_consent_update_failed", consentError.code ?? "unknown");
+      consentFailed = true;
     }
 
     if (keyword === "stop") {
