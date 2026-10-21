@@ -9,7 +9,7 @@ import type { AvailableNumber, CampaignComplianceFacts, IsvNumberAdapter, OwnedN
  */
 
 type Method = keyof IsvNumberAdapter;
-type Failure = { kind: "validation" | "transient" | "account" | "unexpected"; lostResponse?: boolean; code?: string };
+type Failure = { kind: "validation" | "transient" | "account" | "unexpected"; lostResponse?: boolean; code?: string; status?: number };
 
 let sidCounter = 0;
 export const DEFAULT_FAKE_NUMBER_ACCOUNT = `AC${"3".repeat(32)}`;
@@ -55,7 +55,7 @@ export class FakeNumberAdapter implements IsvNumberAdapter {
 
   private throwFor(failure: Failure): never {
     if (failure.kind === "unexpected") throw new Error("fake unexpected failure");
-    const status = failure.kind === "validation" ? 400 : failure.kind === "account" ? 401 : 503;
+    const status = failure.status ?? (failure.kind === "validation" ? 400 : failure.kind === "account" ? 401 : 503);
     throw new IsvApiError(failure.kind, status, failure.code ?? null, `fake ${failure.kind} failure`);
   }
 

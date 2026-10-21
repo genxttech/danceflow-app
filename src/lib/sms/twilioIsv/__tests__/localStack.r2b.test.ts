@@ -430,6 +430,12 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await run(SA1, a)).outcome).toBe("insufficient_credit");
       expect((await rpc("tw4_credit_set_hold", { p_entity_id: EA, p_hold: false, p_reason: "fixture: release", p_actor: U.padmin })).error).toBeNull();
       noRunnerWork(a);
+      // the first month's set-aside is gone (released) and nothing was charged for this month: the rent is not funded, whatever the authorization says
+      const commit = psql(`select commitment_reservation_id from public.studio_sms_recurring_authorizations where studio_id = '${SA1}' and kind = 'number' and status = 'active'`);
+      aged(`update public.studio_sms_credit_reservations set status = 'released', closed_at = now() where id = '${commit}'`);
+      expect((await run(SA1, a)).outcome).toBe("insufficient_credit");
+      noRunnerWork(a);
+      aged(`update public.studio_sms_credit_reservations set status = 'reserved', closed_at = null where id = '${commit}'`);
       // the published price moved: the approval was for the old price
       expect((await rpc("tw4_price_set", { p_kind: "number", p_customer_cents: PRICE.number + 50, p_provider_cents: 115, p_description: "fixture: price moved", p_actor: U.padmin })).error).toBeNull();
       expect((await run(SA1, a)).outcome).toBe("price_unavailable");
@@ -708,6 +714,8 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       provider.script("number", numberSid, { sid: numberSid, account_sid: ACC.A, phone_number: NUM.a1c, sms_capable: true, status: "in-use", sms_url: null });
       provider.script("service_number", numberSid, { sid: numberSid, service_sid: MG.A1, account_sid: ACC.A });
     };
+    // the PR #249 readiness (which sender may send) and the R2b send gate on top of it (only an ACTIVE onboarding sends)
+    const readyCore = () => psql(`select (public._tw4sr_ready_core('${SA1}')).id is not null`);
     const ready = () => psql(`select (public._tw4sr_ready('${SA1}')).id is not null`);
     const items = async () => {
       const check = await activationCheck(admin, SA1, U.padmin);
@@ -781,10 +789,13 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     });
 
     it("with both in place the sender is verified from provider reads (PR #249's judge) and becomes ready", async () => {
-      expect(await ready()).toBe("f");
+      expect(await readyCore()).toBe("f");
       const verified = await verify();
       expect(verified).toMatchObject({ ok: true, data: { outcome: "verified" } });
-      expect(await ready()).toBe("t");
+      expect(await readyCore()).toBe("t");
+      // verified is not activated: the location does not send before the activation checklist and the state change (the send gate)
+      expect(await ready()).toBe("f");
+      expect(state(SA1)).toBe("campaign_pending");
       expect(psql(`select attested_opt_out from public.studio_sms_sender_verifications where studio_id = '${SA1}' order by seq desc limit 1`)).toBe("t");
     });
 
@@ -860,6 +871,32 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       const exposure = await rpc("tw4_act_exposure", { p_actor: U.padmin });
       expect(exposure.error).toBeNull();
       expect(Array.isArray(exposure.data)).toBe(true);
+    });
+
+    it("a location past the number step can still replace its number: retire sends it through exception and reopen returns it to the number step; a number mismatch at the provider stops it at once", async () => {
+      // the sender is already revoked by the suspension; release it, then the admin confirms the provider release
+      expect((await rpc("tw4_sender_revoke", { p_studio_id: SA1, p_actor: U.padmin, p_reason: "fixture: location releases its number", p_release: true })).error).toBeNull();
+      expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error).toBeNull();
+      expect(state(SA1)).toBe("exception");
+      expect(code(SA1)).toBe("num_retired");
+      expect((await rpc("tw4_num_reopen", { p_studio_id: SA1, p_actor: U.padmin, p_reason: "the replacement number will be bought" })).error).toBeNull();
+      expect(state(SA1)).toBe("campaign_pending");
+      expect(await ready()).toBe("f");
+    });
+
+    it("a number the provider no longer has is evidence: the next status check judges a mismatch, the sender is revoked and the location goes to exception", async () => {
+      const a = adapterOf(ACC.A);
+      await choose(SA1, U.owner_a, a, NUM.a1b);
+      const bought = await run(SA1, a);
+      expect(bought.outcome).toBe("number_ready");
+      expect((await recordSenderFromLedger(admin, SA1, U.padmin)).ok).toBe(true);
+      const sid = psql(`select provider_sid from public.studio_sms_num_operations where studio_id = '${SA1}' and op_kind = 'number_purchase' and superseded_at is null`);
+      a.universe.owned.delete(sid); // released at the console
+      const refreshed = await refreshNumber({ store, adapter: a, studioId: SA1, actorId: U.padmin, envName: "test" });
+      expect(refreshed.outcome).toBe("exception");
+      expect(state(SA1)).toBe("exception");
+      expect(code(SA1)).toBe("num_mismatch");
+      expect(psql(`select status from (select * from public.studio_sms_billed_senders where studio_id = '${SA1}' order by seq desc limit 1) s`)).toBe("revoked");
     });
   });
 

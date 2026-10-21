@@ -176,6 +176,31 @@ describe("number runner decisions", () => {
     expect(adapter.count("purchaseNumber")).toBe(1);
   });
 
+  it("a 4xx WITHOUT Twilio's own error code, or a proxy-style 408/409/499, on the paid call is an unknown outcome, never a definite refusal", async () => {
+    for (const failure of [{ kind: "validation" as const }, { kind: "validation" as const, code: undefined }]) {
+      const store = new ScriptedStore();
+      const adapter = world();
+      adapter.failNext("purchaseNumber", failure);
+      const result = await runNumberAcquisition(base(store, adapter));
+      expect(result.outcome).toBe("retry_later");
+      expect(store.finishes[0].outcome).toMatchObject({ status: "unknown_outcome" });
+      expect(store.transitions).toEqual([]);
+    }
+  });
+
+  it("a number the provider no longer has (404) is judged as evidence by the database, not retried forever", async () => {
+    const store = new ScriptedStore();
+    const adapter = world();
+    adapter.failNext("getNumber", { kind: "validation", code: "20404", status: 404 });
+    store.observeResults = [{ status: "mismatch", code: "sid_mismatch", state: "exception" }];
+    const seen: Record<string, unknown>[] = [];
+    const original = store.observe.bind(store);
+    store.observe = async (o, l, id, facts, source, digest) => { seen.push(facts); return original(o, l, id, facts, source, digest); };
+    const result = await runNumberAcquisition(base(store, adapter));
+    expect(result.outcome).toBe("exception");
+    expect(seen[0]).toMatchObject({ not_found: true, sid: null });
+  });
+
   it("a network error, a timeout, a 5xx or a lost response is an UNKNOWN outcome: recorded as such, never closed as failed, never repeated by the same run", async () => {
     for (const failure of [{ kind: "transient" as const }, { kind: "transient" as const, lostResponse: true }, { kind: "unexpected" as const }]) {
       const store = new ScriptedStore();

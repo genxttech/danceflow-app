@@ -24,6 +24,11 @@ begin
   if to_regclass('public.studio_sms_num_operations') is not null then
     raise exception 'R2b precondition failed: already applied';
   end if;
+  -- the readiness function replaced below must still be the 20261204 version
+  if position('the location''s path may have changed since' in (select p.prosrc from pg_proc p where p.oid = 'public._tw4sr_ready(uuid)'::regprocedure)) = 0
+     or position('num_operations' in (select p.prosrc from pg_proc p where p.oid = 'public._tw4sr_ready(uuid)'::regprocedure)) > 0 then
+    raise exception 'R2b precondition failed: _tw4sr_ready differs from 20261204090000';
+  end if;
   -- the generic resolver must still refuse provisioning reservations (R2b reservations use the same prov: key prefix and rely on it)
   if position('resolved only through tw4_prov_resolve' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_resolve_reservation(uuid,text,uuid,text)'::regprocedure)) = 0 then
     raise exception 'R2b precondition failed: tw4_credit_resolve_reservation does not refuse provisioning reservations (R2a)';
@@ -94,7 +99,7 @@ create table public.studio_sms_number_selections (
 -- one open selection per location; a number is selected by one location at a time (and never again once consumed); an approval reference is used once
 create unique index studio_sms_number_selections_open on public.studio_sms_number_selections (studio_id) where status = 'approved';
 create unique index studio_sms_number_selections_e164 on public.studio_sms_number_selections (e164) where status in ('approved', 'consumed');
-create unique index studio_sms_number_selections_ref on public.studio_sms_number_selections (lower(btrim(approval_ref)));
+create unique index studio_sms_number_selections_ref on public.studio_sms_number_selections (public._tw4fi_ref_norm(approval_ref));
 
 create table public.studio_sms_num_operations (
   id uuid primary key default gen_random_uuid(),
@@ -244,6 +249,12 @@ begin
     if old.status in ('succeeded', 'failed', 'abandoned') and new.status is distinct from old.status then
       raise exception 'studio_sms_num_operations: a closed operation is final' using errcode = '42501';
     end if;
+    if old.status = 'unknown_outcome' and new.status = 'in_flight' then
+      raise exception 'studio_sms_num_operations: an unknown outcome is never reopened' using errcode = '42501';
+    end if;
+    if old.superseded_at is not null and new.superseded_at is distinct from old.superseded_at then
+      raise exception 'studio_sms_num_operations: superseding is one-way' using errcode = '42501';
+    end if;
   else
     if new.id is distinct from old.id or new.operation_id is distinct from old.operation_id or new.legal_entity_id is distinct from old.legal_entity_id
        or new.studio_id is distinct from old.studio_id or new.twilio_account_sid is distinct from old.twilio_account_sid
@@ -298,7 +309,7 @@ as $$
    where x.studio_id = p_studio_id and x.op_kind = 'campaign' and x.status = 'succeeded' and x.superseded_at is null
      and r.status = 'verified' and r.twilio_account_sid = x.twilio_account_sid and x.twilio_account_sid = public._tw4num_account(p_studio_id)
      and r.parent_sid = (select (public._tw4num_service(p_studio_id)).provider_sid)
-     and r.use_case is not distinct from public._tw4prov_use_case(public._tw4fi_location_path_nolock(p_studio_id));
+     and r.use_case = public._tw4prov_use_case(public._tw4fi_location_path_nolock(p_studio_id));
 $$;
 
 -- the number rent kind and the campaign monthly kind this location pays; the published price of a kind
@@ -318,6 +329,61 @@ as $$
       or exists (select 1 from public.studio_sms_number_selections s where s.e164 = p_e164 and s.status in ('approved', 'consumed') and s.studio_id <> p_studio_id);
 $$;
 
+-- SEND GATE. The PR #249 readiness (kept as the core, unchanged) says WHICH sender may send; R2b adds WHEN: a location whose number is managed by this ledger sends
+-- only while its onboarding is ACTIVE. So a verified sender never sends before activation (checklist, attestation, compliance, funding continuity), and
+-- suspended / exception / ready-for-activation locations stop at once. A location with no R2b operation keeps the PR #249 behaviour exactly.
+create or replace function public._tw4sr_ready_core(p_studio_id uuid)
+returns public.studio_sms_billed_senders language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  s public.studio_sms_billed_senders;
+  v public.studio_sms_sender_verifications;
+  v_entity uuid;
+  v_account text;
+  none public.studio_sms_billed_senders;
+begin
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
+  s := public._tw4sr_latest(p_studio_id);
+  if v_entity is null or s.id is null or s.status <> 'approved' or s.legal_entity_id <> v_entity
+     or s.campaign_sid is null or s.phone_number_sid is null or s.sender_e164 is null or s.verification_id is null then
+    return none;
+  end if;
+  select t.twilio_account_sid into v_account from public.studio_sms_twilio_accounts t where t.legal_entity_id = v_entity and t.status = 'active';
+  if v_account is null or v_account <> s.account_sid then
+    return none;
+  end if;
+  -- the latest DECISIVE verification of this studio (an inconclusive re-read changes nothing)
+  select * into v from public.studio_sms_sender_verifications x where x.studio_id = p_studio_id and x.outcome in ('verified', 'failed') order by x.seq desc limit 1;
+  if v.id is null or v.outcome <> 'verified' or v.created_at < now() - interval '24 hours'
+     or (v.source = 'fake' and not public._tw4sr_fake_allowed()) or v.source = 'callback'
+     or v.account_sid <> s.account_sid or v.messaging_service_sid <> s.messaging_service_sid or v.campaign_sid is distinct from s.campaign_sid
+     or v.phone_number_sid is distinct from s.phone_number_sid or v.sender_e164 is distinct from s.sender_e164 then
+    return none;
+  end if;
+  -- the location's path may have changed since: the verified campaign's use case must still be the one its CURRENT path requires
+  if v.evidence->'campaign'->>'us_app_to_person_usecase' is distinct from
+     (case public._tw4fi_location_path_nolock(p_studio_id) when 'standard' then 'MIXED' when 'low_volume_standard' then 'LOW_VOLUME' end) then
+    return none;
+  end if;
+  return s;
+end $$;
+revoke all on function public._tw4sr_ready_core(uuid) from public, anon, authenticated, service_role;
+
+create or replace function public._tw4sr_ready(p_studio_id uuid)
+returns public.studio_sms_billed_senders language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  none public.studio_sms_billed_senders;
+begin
+  if exists (select 1 from public.studio_sms_num_operations o where o.studio_id = p_studio_id)
+     and not exists (select 1 from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state = 'active') then
+    return none;
+  end if;
+  return public._tw4sr_ready_core(p_studio_id);
+end $$;
+
 -- fee reservation for the pilot business's number: the _tw4prov_reserve logic (20261207 body) fixed to the `number` kind and keyed by the OPERATION
 create or replace function public._tw4num_reserve(p_o public.studio_sms_onboarding, p_op uuid, p_expected_cents int)
 returns jsonb language plpgsql security definer
@@ -336,7 +402,7 @@ begin
   if v_entity is null then
     raise exception 'the studio has no legal entity' using errcode = 'TW004';
   end if;
-  select * into s from public.studio_sms_spend_events x where x.legal_entity_id = v_entity and x.kind = 'number' and x.status = 'authorized' and x.funding = 'pilot'
+  select * into s from public.studio_sms_spend_events x where x.legal_entity_id = v_entity and x.kind = 'number' and x.status = 'authorized' and x.funding = 'pilot' and x.amount_cents = p_expected_cents
      and (x.studio_id is null or x.studio_id = p_o.studio_id) order by (x.studio_id is null), x.authorized_at limit 1 for update;
   if s.id is null then
     raise exception 'no authorized pilot spend for number' using errcode = 'TW004';
@@ -359,6 +425,32 @@ begin
   return jsonb_build_object('spend_event_id', s.id, 'amount_cents', s.amount_cents, 'credit_reservation_id', v_res, 'funding', 'pilot');
 end $$;
 
+-- credit funding of a number, evaluated now: the account is not on hold or negative, AND either the first month's set-aside is still reserved and the balance covers it,
+-- or the current service month of this authorization has been charged. A charge that was `unfunded` / `held` is NOT funding, and a missing set-aside is not funding.
+create or replace function public._tw4num_credit_funded(p_entity uuid, p_auth uuid)
+returns boolean language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  a public.studio_sms_credit_accounts;
+  v_auth public.studio_sms_recurring_authorizations;
+  v_res public.studio_sms_credit_reservations;
+begin
+  select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = p_entity;
+  if a.legal_entity_id is null or a.hold or a.balance_cents < 0 then
+    return false;
+  end if;
+  select * into v_auth from public.studio_sms_recurring_authorizations x where x.id = p_auth;
+  if v_auth.id is null then
+    return false;
+  end if;
+  select * into v_res from public.studio_sms_credit_reservations cr where cr.id = v_auth.commitment_reservation_id;
+  if v_res.id is not null and v_res.status = 'reserved' and a.balance_cents >= v_res.amount_cents then
+    return true;
+  end if;
+  return exists (select 1 from public.studio_sms_recurring_charges c where c.authorization_id = v_auth.id and c.status = 'charged' and c.period_key = public._tw4ml_month_key(p_entity, now()));
+end $$;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- what a purchase needs before it may start, read-only (tw4_num_begin is the authority and re-checks everything under its locks)
 -- blocker: null | campaign_not_verified | unpriced | release_current_number_first | no_selection | selection_expired | price_changed | selection_stale
@@ -376,7 +468,6 @@ declare
   v_latest public.studio_sms_billed_senders := public._tw4sr_latest(p_studio_id);
   a public.studio_sms_credit_accounts;
   v_auth public.studio_sms_recurring_authorizations;
-  v_res public.studio_sms_credit_reservations;
   v_used bigint;
   v_blocker text := null;
   v_mode text;
@@ -413,11 +504,8 @@ begin
         v_blocker := 'awaiting_recurring';
       elsif a.legal_entity_id is null or a.hold or a.balance_cents < 0 then
         v_blocker := 'on_hold';
-      else
-        select * into v_res from public.studio_sms_credit_reservations cr where cr.id = v_auth.commitment_reservation_id;
-        if not (v_res.status = 'reserved' or exists (select 1 from public.studio_sms_recurring_charges c where c.authorization_id = v_auth.id and c.status = 'charged')) then
-          v_blocker := 'awaiting_funding';
-        end if;
+      elsif not public._tw4num_credit_funded(v_entity, v_auth.id) then
+        v_blocker := 'awaiting_funding';
       end if;
     else
       if exists (select 1 from public.studio_sms_recurring_authorizations r where r.legal_entity_id = v_entity and r.status = 'active') then
@@ -455,7 +543,7 @@ declare
 begin
   perform public._tw4c_admin(p_actor);
   if p_source is null or p_source not in ('provider_read', 'fake') or p_digest is null or p_digest !~ '^[0-9a-f]{64}$' or p_candidates is null or jsonb_typeof(p_candidates) <> 'array'
-     or p_search is null or jsonb_typeof(p_search) <> 'object' or pg_column_size(p_candidates) > 65536 then
+     or p_search is null or jsonb_typeof(p_search) <> 'object' or pg_column_size(p_candidates) > 65536 or jsonb_array_length(p_candidates) > 50 then
     raise exception 'invalid number search result' using errcode = '22023';
   end if;
   if p_source = 'fake' and not public._tw4sr_fake_allowed() then
@@ -530,8 +618,11 @@ begin
     if p_approval_ref is null or char_length(public._tw4fi_ref_norm(p_approval_ref)) < 10 then
       raise exception 'a reference to the owner''s written approval (10+ characters) is required' using errcode = '22023';
     end if;
-    if exists (select 1 from public.studio_sms_approval_refs r where r.ref_norm = public._tw4fi_ref_norm(p_approval_ref)) then
-      raise exception 'this approval reference was already used for a spend approval' using errcode = '23505';
+    -- the same namespace the fee approvals use: one written approval authorizes one operation, once (taken under the same advisory lock)
+    perform pg_advisory_xact_lock(hashtextextended('tw4fi_ref:' || public._tw4fi_ref_norm(p_approval_ref), 0));
+    if exists (select 1 from public.studio_sms_approval_refs r where r.ref_norm = public._tw4fi_ref_norm(p_approval_ref))
+       or exists (select 1 from public.studio_sms_limit_ceilings c where public._tw4fi_ref_norm(c.approval_ref) = public._tw4fi_ref_norm(p_approval_ref)) then
+      raise exception 'this approval reference was already used for a spend or spending-limit approval' using errcode = '23505';
     end if;
     v_ref := btrim(p_approval_ref);
   else
@@ -722,6 +813,7 @@ declare
   v_req jsonb;
   v_mode text;
   v_price int;
+  v_auth public.studio_sms_recurring_authorizations;
   v_kinds text[] := '{}';
   v_attempt int;
   v_id uuid := gen_random_uuid();
@@ -800,10 +892,14 @@ begin
       if a.hold or a.balance_cents < 0 then
         raise exception 'the credit account is on hold' using errcode = 'TW007';
       end if;
-      perform 1 from public.studio_sms_recurring_authorizations ra where ra.legal_entity_id = v_entity and ra.studio_id = o.studio_id and ra.kind = 'number' and ra.status = 'active'
+      select * into v_auth from public.studio_sms_recurring_authorizations ra where ra.legal_entity_id = v_entity and ra.studio_id = o.studio_id and ra.kind = 'number' and ra.status = 'active'
          and ra.expires_at > now() + interval '28 days' and ra.price_cents = v_sel.price_cents for share;
-      if not found then
+      if v_auth.id is null then
         raise exception 'no active recurring authorization for number rent' using errcode = 'TW033';
+      end if;
+      -- the funding condition is decided HERE, under the locks (the earlier read was a preview): an unpaid current month or a missing set-aside is not funding
+      if not public._tw4num_credit_funded(v_entity, v_auth.id) then
+        raise exception 'the number rent is not funded for this month' using errcode = 'TW007';
       end if;
     end if;
     v_kinds := array['number'];
@@ -898,6 +994,8 @@ declare
   v_status text;
   v_code text := null;
   v_kind text;
+  v_from_state text;
+  v_sender public.studio_sms_billed_senders;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
   if p_source is null or p_source not in ('provider_read', 'fake') or p_digest is null or p_digest !~ '^[0-9a-f]{64}$' or p_facts is null or jsonb_typeof(p_facts) <> 'object'
@@ -960,8 +1058,16 @@ begin
     perform public._tw4num_settle_if_held(r.id, 'captured', r.provider_sid);
   end if;
   if v_status = 'mismatch' and public._sms_onb_transition_allowed(o.state, 'exception') then
+    v_from_state := o.state;
+    -- a location that was ready, active or suspended stops sending at once: the sender is revoked (the exception state alone would not stop PR #249 readiness)
+    perform public._tw4sr_lock(r.studio_id);
+    v_sender := public._tw4sr_latest(r.studio_id);
+    if v_sender.id is not null and v_sender.status in ('pending', 'approved') then
+      perform public._tw4sr_append(v_sender, 'revoked', null, 'number read-back mismatch', null);
+      perform public._tw4sr_audit(r.studio_id, null, 'sender_revoked', 'sender=' || v_sender.id || ';number read-back mismatch');
+    end if;
     update public.studio_sms_onboarding set state = 'exception', step = 'N9', last_error_code = 'num_mismatch', last_error_field = null where id = o.id returning * into o;
-    perform public._tw4_r1_audit(o, null, 'state_changed', 'campaign_pending', 'exception', 'number read-back mismatch');
+    perform public._tw4_r1_audit(o, null, 'state_changed', v_from_state, 'exception', 'number read-back mismatch');
   elsif v_status = 'owned' and o.state = 'campaign_pending' then
     update public.studio_sms_onboarding set step = 'N2', last_error_code = null where id = o.id returning * into o;
   elsif v_status = 'attached' and o.state = 'campaign_pending' then
@@ -1042,6 +1148,9 @@ begin
   if r.status not in ('succeeded', 'abandoned') then
     raise exception 'an unresolved operation is closed through tw4_num_resolve' using errcode = '22023';
   end if;
+  if r.status = 'abandoned' and p_outcome = 'captured' then
+    raise exception 'an operation declared not created cannot capture a fee' using errcode = '22023';
+  end if;
   perform 1 from public.studio_sms_legal_entities le where le.id = r.legal_entity_id for no key update;
   if not exists (select 1 from public.studio_sms_spend_events se join public.studio_sms_credit_reservations cr on cr.id = se.credit_reservation_id
                   where se.reservation_key = 'prov:' || r.id::text || ':number' and cr.status = 'reserved') then
@@ -1090,6 +1199,7 @@ declare
   o public.studio_sms_onboarding;
   v_purchase public.studio_sms_num_operations;
   v_latest public.studio_sms_billed_senders;
+  v_from_state text;
 begin
   if not public._tw4_r1_is_platform_admin(p_actor) then
     raise exception 'actor must be a platform admin' using errcode = '42501';
@@ -1104,6 +1214,9 @@ begin
   if o.lease_owner is not null and o.lease_expires_at > now() then
     raise exception 'a run holds the lease' using errcode = '55P03';
   end if;
+  if exists (select 1 from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.status in ('in_flight', 'unknown_outcome') and x.superseded_at is null) then
+    raise exception 'resolve the unknown outcome first' using errcode = 'TW034';
+  end if;
   select * into v_purchase from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_purchase' and x.status = 'succeeded' and x.superseded_at is null for update;
   if v_purchase.id is null then
     raise exception 'there is no live number purchase to retire' using errcode = '22023';
@@ -1112,8 +1225,14 @@ begin
   if v_latest.id is not null and v_latest.status <> 'released' and v_latest.phone_number_sid = v_purchase.provider_sid then
     raise exception 'release the sender row first (tw4_sender_revoke with release)' using errcode = 'TW022';
   end if;
+  v_from_state := o.state;
   update public.studio_sms_num_operations set superseded_at = clock_timestamp() where studio_id = p_studio_id and op_kind in ('number_purchase', 'number_attach') and status = 'succeeded' and superseded_at is null;
   perform public._tw4_r1_audit(o, p_actor, 'num_retired', o.state, o.state, 'op=' || v_purchase.id || ';number=' || v_purchase.e164 || ';' || left(btrim(p_note), 150));
+  -- a location that was ready, active or suspended cannot take the number steps again from there: it goes back through exception (tw4_num_reopen returns it to the number step)
+  if o.state in ('ready_for_activation', 'active', 'suspended') then
+    update public.studio_sms_onboarding set state = 'exception', step = 'N9', last_error_code = 'num_retired', last_error_field = null where id = o.id returning * into o;
+    perform public._tw4_r1_audit(o, p_actor, 'state_changed', v_from_state, 'exception', 'number retired');
+  end if;
   return jsonb_build_object('retired', v_purchase.provider_sid);
 end $$;
 
@@ -1134,9 +1253,9 @@ begin
   v_ms := public._tw4num_service(p_studio_id);
   v_qe := public._tw4num_campaign(p_studio_id);
   select * into v_p from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_purchase' and x.status = 'succeeded' and x.superseded_at is null
-     and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = x.id and r.status = 'owned');
+     and x.twilio_account_sid = v_ms.twilio_account_sid and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = x.id and r.status = 'owned' and r.twilio_account_sid = x.twilio_account_sid);
   select * into v_a from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_attach' and x.status = 'succeeded' and x.superseded_at is null
-     and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = x.id and r.status = 'attached');
+     and x.twilio_account_sid = v_ms.twilio_account_sid and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = x.id and r.status = 'attached' and r.messaging_service_sid = v_ms.provider_sid);
   if v_ms.id is null or v_qe.id is null or v_p.id is null or v_a.id is null or v_a.provider_sid is distinct from v_p.provider_sid then
     raise exception 'the service, campaign, purchase and attachment are not all confirmed by the provider' using errcode = 'TW032';
   end if;
@@ -1228,7 +1347,7 @@ declare
 begin
   perform public._tw4c_admin(p_actor);
   if p_source is null or p_source not in ('provider_read', 'fake') or p_digest is null or p_digest !~ '^[0-9a-f]{64}$' or p_facts is null or jsonb_typeof(p_facts) <> 'object'
-     or pg_column_size(p_facts) > 8192 or p_expected_inbound is null or p_expected_inbound !~ '^https://[^\s]+/api/sms/twilio/inbound$' then
+     or pg_column_size(p_facts) > 8192 or p_expected_inbound is null or p_expected_inbound !~ '^https://[A-Za-z0-9.-]+(:[0-9]{2,5})?/api/sms/twilio/inbound$' then
     raise exception 'invalid compliance observation' using errcode = '22023';
   end if;
   if p_source = 'fake' and not public._tw4sr_fake_allowed() then
@@ -1328,6 +1447,8 @@ begin
   if v_c.id is null then return jsonb_build_object('ok', false, 'detail', 'campaign_authorization_short_or_missing'); end if;
   if v_n.id is null then return jsonb_build_object('ok', false, 'detail', 'number_authorization_short_or_missing'); end if;
   if a.legal_entity_id is null or a.hold or a.balance_cents < 0 then return jsonb_build_object('ok', false, 'detail', 'credit_on_hold'); end if;
+  if not public._tw4num_credit_funded(v_entity, v_c.id) then return jsonb_build_object('ok', false, 'detail', 'campaign_rent_unfunded'); end if;
+  if not public._tw4num_credit_funded(v_entity, v_n.id) then return jsonb_build_object('ok', false, 'detail', 'number_rent_unfunded'); end if;
   return jsonb_build_object('ok', true, 'detail', 'ok', 'campaign_expires_at', v_c.expires_at, 'number_expires_at', v_n.expires_at);
 end $$;
 
@@ -1351,9 +1472,9 @@ declare
   v_att_ok boolean;
   v_cmp_ok boolean;
 begin
-  select * into v_p from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_purchase' and x.status = 'succeeded' and x.superseded_at is null;
-  select * into v_a from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_attach' and x.status = 'succeeded' and x.superseded_at is null;
-  v_ready := public._tw4sr_ready(p_studio_id);
+  select * into v_p from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_purchase' and x.status = 'succeeded' and x.superseded_at is null and x.twilio_account_sid = v_account;
+  select * into v_a from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind = 'number_attach' and x.status = 'succeeded' and x.superseded_at is null and x.twilio_account_sid = v_account;
+  v_ready := public._tw4sr_ready_core(p_studio_id);   -- the PR #249 readiness: the activation checklist cannot depend on being active already
   v_sender_ok := v_ready.id is not null and v_ms.id is not null and v_qe.id is not null and v_p.id is not null
     and v_ready.account_sid = v_account and v_ready.messaging_service_sid = v_ms.provider_sid and v_ready.campaign_sid = v_qe.provider_sid
     and v_ready.phone_number_sid = v_p.provider_sid and v_ready.sender_e164 = v_p.e164;
@@ -1399,6 +1520,23 @@ begin
       'sender_id', case when v_s.id is not null and v_s.status in ('pending', 'approved') then v_s.id end));
 end $$;
 
+-- the order begin and tw4_recurring_revoke use: entity row, then the credit account, then the authorizations: a revocation or a hold cannot commit between the read and the state change
+create or replace function public._tw4act_lock_funding(p_studio_id uuid)
+returns void language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_entity uuid;
+begin
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
+  if v_entity is null then
+    return;
+  end if;
+  perform 1 from public.studio_sms_legal_entities le where le.id = v_entity for no key update;
+  perform public._tw4c_lock(v_entity);
+  perform 1 from public.studio_sms_recurring_authorizations ra where ra.legal_entity_id = v_entity and ra.studio_id = p_studio_id and ra.status = 'active' for share;
+end $$;
+
 create or replace function public._tw4act_require(p_studio_id uuid)
 returns void language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
@@ -1434,6 +1572,7 @@ begin
   if o.lease_owner is not null and o.lease_expires_at > now() then
     raise exception 'a run holds the lease' using errcode = '55P03';
   end if;
+  perform public._tw4act_lock_funding(p_studio_id);
   perform public._tw4act_require(p_studio_id);
   update public.studio_sms_onboarding set state = 'ready_for_activation', step = 'A1', last_error_code = null, last_error_field = null where id = o.id returning * into o;
   perform public._tw4_r1_audit(o, p_actor, 'state_changed', 'campaign_pending', 'ready_for_activation', left(btrim(p_note), 250));
@@ -1465,6 +1604,7 @@ begin
     raise exception 'a run holds the lease' using errcode = '55P03';
   end if;
   -- everything is re-evaluated NOW, in the same transaction as the state change (a verification, attestation or authorization that lapsed since "ready" blocks it)
+  perform public._tw4act_lock_funding(p_studio_id);
   perform public._tw4act_require(p_studio_id);
   v_from := o.state;
   update public.studio_sms_onboarding set state = 'active', step = 'A2', last_error_code = null, last_error_field = null where id = o.id returning * into o;
@@ -1508,9 +1648,25 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 begin
   perform public._tw4c_admin(p_actor);
-  return coalesce((select jsonb_agg(jsonb_build_object('studio_id', o.studio_id, 'state', o.state, 'funding', public._tw4act_funding(o.studio_id)) order by o.studio_id)
-    from public.studio_sms_onboarding o
-    where o.state in ('ready_for_activation', 'active', 'suspended') and (public._tw4act_funding(o.studio_id) ->> 'ok')::boolean is not true), '[]'::jsonb);
+  return coalesce((select jsonb_agg(x.j order by x.sid) from (
+      select o.studio_id sid, jsonb_build_object('studio_id', o.studio_id, 'state', o.state, 'reason', 'funding_continuity', 'funding', public._tw4act_funding(o.studio_id)) j
+        from public.studio_sms_onboarding o
+       where o.state in ('ready_for_activation', 'active', 'suspended') and (public._tw4act_funding(o.studio_id) ->> 'ok')::boolean is not true
+      union all
+      -- a live number with no active rent authorization (revoked after the purchase: DanceFlow pays Twilio and nothing is collected)
+      select p.studio_id, jsonb_build_object('studio_id', p.studio_id, 'state', 'n/a', 'reason', 'number_without_authorization', 'number', p.e164)
+        from public.studio_sms_num_operations p
+       where p.op_kind = 'number_purchase' and p.status = 'succeeded' and p.superseded_at is null
+         and not exists (select 1 from public.studio_sms_pilot_exceptions y where y.legal_entity_id = p.legal_entity_id)
+         and not exists (select 1 from public.studio_sms_recurring_authorizations a where a.studio_id = p.studio_id and a.kind = 'number' and a.status = 'active' and a.expires_at > now())
+      union all
+      -- an active rent authorization with no live number (rent would be charged for nothing)
+      select a.studio_id, jsonb_build_object('studio_id', a.studio_id, 'state', 'n/a', 'reason', 'authorization_without_number', 'authorization', a.id)
+        from public.studio_sms_recurring_authorizations a
+       where a.kind = 'number' and a.status = 'active' and a.expires_at > now()
+         and not exists (select 1 from public.studio_sms_num_operations p where p.studio_id = a.studio_id and p.op_kind = 'number_purchase' and p.status in ('in_flight', 'unknown_outcome', 'succeeded') and p.superseded_at is null)
+         and exists (select 1 from public.studio_sms_num_operations q where q.studio_id = a.studio_id)
+    ) x), '[]'::jsonb);
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -1518,7 +1674,7 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 revoke all on function public._tw4num_guard(), public._tw4num_account(uuid), public._tw4num_service(uuid), public._tw4num_campaign(uuid), public._tw4num_price(text),
   public._tw4num_taken(text, uuid), public._tw4num_reserve(public.studio_sms_onboarding, uuid, int), public._tw4num_requirements(uuid), public._tw4num_settle_if_held(uuid, text, text),
-  public._tw4num_free_selection(uuid, uuid, text), public._tw4act_funding(uuid), public._tw4act_items(uuid), public._tw4act_require(uuid) from public, anon, authenticated, service_role;
+  public._tw4num_free_selection(uuid, uuid, text), public._tw4act_funding(uuid), public._tw4act_items(uuid), public._tw4act_require(uuid), public._tw4act_lock_funding(uuid), public._tw4num_credit_funded(uuid, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_num_offer_record(uuid, uuid, text, jsonb, jsonb, text, text), public.tw4_num_select(uuid, uuid, uuid, text, int, text), public.tw4_num_withdraw(uuid, uuid, uuid, text),
   public.tw4_num_claim(uuid, uuid, text, integer, text), public.tw4_num_context(uuid, text), public.tw4_num_begin(uuid, text, text, text, text, jsonb, uuid),
   public.tw4_num_finish(uuid, text, uuid, text, text, text, text), public.tw4_num_observe(uuid, text, uuid, jsonb, text, text), public.tw4_num_resolve(uuid, uuid, text, text, text),

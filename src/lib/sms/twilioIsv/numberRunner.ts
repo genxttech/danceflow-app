@@ -71,7 +71,16 @@ const sanitized = (error: unknown): string => {
   return "unexpected";
 };
 const storeCode = (error: unknown): string => (error instanceof RunnerStoreError ? error.code : "unknown");
-const definiteRefusal = (error: unknown): boolean => error instanceof IsvApiError && (error.kind === "validation" || error.kind === "account");
+/**
+ * A definite refusal is Twilio saying NO to the request itself. For a FEE call it must be a 4xx that carries Twilio's own error code and is not a status a proxy or
+ * timeout produces (408/409/425/499): anything else may have been applied, and is an unknown outcome. A free call keeps the broader rule.
+ */
+const definiteRefusal = (error: unknown, fee: boolean): boolean => {
+  if (!(error instanceof IsvApiError) || (error.kind !== "validation" && error.kind !== "account")) return false;
+  if (!fee) return true;
+  if (error.kind === "account") return true; // 401/403: refused before anything was done (the rotation proxy already retried a stale token once)
+  return Boolean(error.twilioCode) && ![408, 409, 425, 499].includes(error.httpStatus ?? 0);
+};
 
 export function numberFriendlyName(envName: string, studioId: string, submissionSeq: number): string {
   return `df:${envName}:${studioId}:pn:${submissionSeq}`.slice(0, 128);
@@ -248,6 +257,11 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
       }
       if (begun.action === "skip") return { done: true, operationId: begun.operation_id, sid: begun.provider_sid, created: false };
       const operationId = begun.operation_id;
+      // the account the ledger stamped on the attempt must be the adapter's: nothing is created in any other account
+      if (begun.action === "execute" && begun.account_sid !== adapter.accountSid) {
+        try { await store.finish(onboardingId, leaseOwner, operationId, { status: "unknown_outcome", errorCode: "account_changed", errorDetail: "ledger account differs from adapter" }); } catch { /* stays open */ }
+        return stop({ outcome: "account_mismatch", steps, detail: `${kind}:ledger_account_differs` });
+      }
 
       // 3. An open attempt from an earlier run: its outcome is reconciled against the provider, never guessed.
       if (begun.action === "reconcile") {
@@ -302,7 +316,7 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
           sid = await spec.create();
         } catch (error) {
           const detail = sanitized(error);
-          if (definiteRefusal(error)) {
+          if (definiteRefusal(error, spec.fee)) {
             // Twilio refused the request itself: nothing was created, any reservation is released. Another attempt needs a NEW owner approval.
             try {
               await store.finish(onboardingId, leaseOwner, operationId, { status: "failed", errorCode: "api", errorDetail: detail });
@@ -389,7 +403,12 @@ async function observeNumber(input: NumberInput, onboardingId: string, leaseOwne
   try {
     facts = kind === "number_purchase" ? { ...(await adapter.getNumber(sid)) } : { ...(await adapter.getServiceNumbers(messagingServiceSid)) };
   } catch (error) {
-    return { kind: "retry", detail: `observe:${kind}:${sanitized(error)}` };
+    // the provider says the number / service is not there (released at the console, moved, or never existed in this account): that IS evidence, judged as a mismatch
+    if (error instanceof IsvApiError && error.httpStatus === 404) {
+      facts = { sid: null, account_sid: null, phone_number: null, sms_capable: null, service_sid: null, number_sids: [], not_found: true };
+    } else {
+      return { kind: "retry", detail: `observe:${kind}:${sanitized(error)}` };
+    }
   }
   try {
     const result = await store.observe(onboardingId, leaseOwner, operationId, facts, adapter.evidenceSource, requestDigest(facts));

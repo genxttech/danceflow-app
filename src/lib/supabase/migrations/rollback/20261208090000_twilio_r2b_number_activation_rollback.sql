@@ -19,6 +19,47 @@ begin
   end if;
 end $$;
 
+-- the PR #249 readiness as of 20261204090000 (the R2b send gate goes away with R2b)
+create or replace function public._tw4sr_ready(p_studio_id uuid)
+returns public.studio_sms_billed_senders language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  s public.studio_sms_billed_senders;
+  v public.studio_sms_sender_verifications;
+  v_entity uuid;
+  v_account text;
+  none public.studio_sms_billed_senders;
+begin
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
+  s := public._tw4sr_latest(p_studio_id);
+  if v_entity is null or s.id is null or s.status <> 'approved' or s.legal_entity_id <> v_entity
+     or s.campaign_sid is null or s.phone_number_sid is null or s.sender_e164 is null or s.verification_id is null then
+    return none;
+  end if;
+  select t.twilio_account_sid into v_account from public.studio_sms_twilio_accounts t where t.legal_entity_id = v_entity and t.status = 'active';
+  if v_account is null or v_account <> s.account_sid then
+    return none;
+  end if;
+  -- the latest DECISIVE verification of this studio (an inconclusive re-read changes nothing)
+  select * into v from public.studio_sms_sender_verifications x where x.studio_id = p_studio_id and x.outcome in ('verified', 'failed') order by x.seq desc limit 1;
+  if v.id is null or v.outcome <> 'verified' or v.created_at < now() - interval '24 hours'
+     or (v.source = 'fake' and not public._tw4sr_fake_allowed()) or v.source = 'callback'
+     or v.account_sid <> s.account_sid or v.messaging_service_sid <> s.messaging_service_sid or v.campaign_sid is distinct from s.campaign_sid
+     or v.phone_number_sid is distinct from s.phone_number_sid or v.sender_e164 is distinct from s.sender_e164 then
+    return none;
+  end if;
+  -- the location's path may have changed since: the verified campaign's use case must still be the one its CURRENT path requires
+  if v.evidence->'campaign'->>'us_app_to_person_usecase' is distinct from
+     (case public._tw4fi_location_path_nolock(p_studio_id) when 'standard' then 'MIXED' when 'low_volume_standard' then 'LOW_VOLUME' end) then
+    return none;
+  end if;
+  return s;
+end $$;
+drop function if exists public._tw4sr_ready_core(uuid);
+drop function if exists public._tw4act_lock_funding(uuid);
+drop function if exists public._tw4num_credit_funded(uuid, uuid);
+
 drop function if exists public.tw4_act_exposure(uuid);
 drop function if exists public.tw4_act_suspend(uuid, uuid, text);
 drop function if exists public.tw4_act_activate(uuid, uuid, text);
