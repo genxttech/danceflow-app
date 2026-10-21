@@ -315,6 +315,84 @@ end $$;
 create trigger studio_sms_credit_reservations_prov_disposition after update of status on public.studio_sms_credit_reservations for each row execute function public._tw4prov2_reservation_disposition();
 
 -- ---------------------------------------------------------------------------------------------------------------
+-- orphan detection (shared by the recorder and by the closing of an attempt)
+-- ---------------------------------------------------------------------------------------------------------------
+-- Anything a listing of the studio's scope showed since this operation began that NO operation of the business accounts for is an orphan. Each STILL-OPEN fee-bearing
+-- attempt of the studio may own one such resource (the runner adopts it by lookup), so up to that many candidates are adoption candidates, not orphans; more candidates than
+-- open attempts are ambiguous and are ALL recorded (visibility over convenience). Cumulative over the listings, so an exemption is re-evaluated whenever an attempt closes.
+-- Returns the number of NEW orphans. Idempotent (partial unique index); alerts are deduplicated by (kind, key); owner text carries no identifier and no amount.
+create or replace function public._tw4prov2_orphan_scan(p_op uuid)
+returns int language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  r public.studio_sms_prov_operations;
+  o public.studio_sms_onboarding;
+  v_scope text;
+  v_known text[];
+  v_cand text[];
+  v_open int;
+  v_sid text;
+  v_listing uuid;
+  v_inserted uuid;
+  v_count int := 0;
+begin
+  select * into r from public.studio_sms_prov_operations x where x.id = p_op;
+  if r.id is null then
+    return 0;
+  end if;
+  select x.provider_sid into v_scope from public.studio_sms_prov_operations x where x.studio_id = r.studio_id and x.op_kind = 'messaging_service' and x.status = 'succeeded' and x.superseded_at is null;
+  if v_scope is null then
+    return 0;
+  end if;
+  select coalesce(array_agg(distinct x.provider_sid), '{}') into v_known from public.studio_sms_prov_operations x where x.legal_entity_id = r.legal_entity_id and x.provider_sid is not null;
+  select coalesce(array_agg(distinct s), '{}') into v_cand
+    from public.studio_sms_prov_listings l, unnest(l.listed_sids) s
+   where l.studio_id = r.studio_id and l.scope_sid = v_scope and l.twilio_account_sid = r.twilio_account_sid and l.observed_at >= r.started_at
+     and s <> all (v_known)
+     and not exists (select 1 from public.studio_sms_prov_orphans y where y.provider_sid = s and y.status <> 'closed');
+  select count(*) into v_open from public.studio_sms_prov_operations x
+   where x.studio_id = r.studio_id and x.op_kind = 'campaign' and x.fee_bearing and x.status in ('in_flight', 'unknown_outcome') and x.superseded_at is null;
+  if cardinality(v_cand) = 0 or cardinality(v_cand) <= v_open then
+    return 0;
+  end if;
+  perform 1 from public.studio_sms_legal_entities le where le.id = r.legal_entity_id for no key update;   -- the order tw4_prov_begin uses: onboarding, then the entity
+  select * into o from public.studio_sms_onboarding y where y.id = r.onboarding_id;
+  foreach v_sid in array v_cand loop
+    select l.id into v_listing from public.studio_sms_prov_listings l
+     where l.studio_id = r.studio_id and l.scope_sid = v_scope and l.observed_at >= r.started_at and v_sid = any (l.listed_sids) order by l.observed_at limit 1;
+    v_inserted := null;
+    insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id)
+    values (r.legal_entity_id, r.studio_id, r.twilio_account_sid, 'campaign', v_sid, v_scope, v_listing, r.id)
+    on conflict (provider_sid) where status <> 'closed' do nothing returning id into v_inserted;
+    if v_inserted is not null then
+      v_count := v_count + 1;
+      perform public._tw4rfl_alert(r.legal_entity_id, r.studio_id, null, 'inventory_gap', 'prov_orphan:' || v_inserted || ':owner', 'owner', 'warning',
+        'DanceFlow found a texting registration on your account that it did not expect and is looking into it. You do not need to do anything.');
+      perform public._tw4rfl_alert(r.legal_entity_id, r.studio_id, null, 'inventory_gap', 'prov_orphan:' || v_inserted || ':admin', 'admin', 'critical',
+        'A provider campaign not accounted for by the ledger was found for this business (orphan ' || v_inserted || '). Fee-bearing provisioning is blocked until it is reconciled.');
+      if o.id is not null then
+        perform public._tw4_r1_audit(o, null, 'prov_orphan', o.state, o.state, 'orphan=' || v_inserted || ';op=' || r.id || ';listing=' || v_listing);
+      end if;
+    end if;
+  end loop;
+  return v_count;
+end $$;
+
+-- when a fee-bearing attempt stops being open (refused, adopted, resolved), the candidates it exempted are judged again
+create or replace function public._tw4prov2_close_scan()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if new.op_kind = 'campaign' and new.fee_bearing and old.status in ('in_flight', 'unknown_outcome') and new.status not in ('in_flight', 'unknown_outcome') then
+    perform public._tw4prov2_orphan_scan(new.id);
+  end if;
+  return new;
+end $$;
+create trigger studio_sms_prov_operations_close_scan after update of status on public.studio_sms_prov_operations for each row execute function public._tw4prov2_close_scan();
+
+-- ---------------------------------------------------------------------------------------------------------------
 -- recording a provider listing (the ONLY way evidence enters)
 -- ---------------------------------------------------------------------------------------------------------------
 create or replace function public.tw4_prov_listing_record(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_facts jsonb, p_source text, p_digest text)
@@ -333,12 +411,7 @@ declare
   v_complete boolean;
   v_listed text[];
   v_verdict text;
-  v_known text[];
-  v_new text[];
-  v_sid text;
-  v_inserted uuid;
   v_orphans int := 0;
-  v_open int;
   v_active text;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
@@ -376,6 +449,11 @@ begin
   if exists (select 1 from unnest(v_listed) s where s !~ '^QE[0-9a-fA-F]{32}$') or cardinality(v_listed) > 50 then
     raise exception 'invalid listing facts' using errcode = '22023';
   end if;
+  -- a campaign that ANOTHER operation of the business already owns (for example an earlier, provider-failed attempt that the service still lists) is not evidence about THIS
+  -- operation: it is left out of what is recorded, so it can neither read as a resource of this attempt nor keep a genuine refusal from releasing
+  select coalesce(array_agg(s), '{}') into v_listed from unnest(v_listed) s
+   where s <> all (coalesce((select array_agg(x.provider_sid) from public.studio_sms_prov_operations x
+                              where x.legal_entity_id = r.legal_entity_id and x.id <> r.id and x.provider_sid is not null), '{}'));
   -- a replay of the same provider read changes nothing
   select * into v_row from public.studio_sms_prov_listings l where l.operation_id = r.id and l.read_id = v_read_id;
   if v_row.id is not null then
@@ -411,31 +489,7 @@ begin
   returning * into v_row;
 
   if v_verdict = 'present' then
-    -- anything listed that no operation of the business accounts for is an orphan. Each STILL-OPEN fee-bearing attempt of this studio (any, not only the one listed)
-    -- may own one such resource: the runner adopts it by lookup, so up to that many candidates are adoption candidates, not orphans. More candidates than open attempts
-    -- are ambiguous and are ALL recorded (visibility over convenience; `tw4_prov_orphan_close` clears one the ledger turns out to account for).
-    select coalesce(array_agg(distinct x.provider_sid), '{}') into v_known from public.studio_sms_prov_operations x where x.legal_entity_id = r.legal_entity_id and x.provider_sid is not null;
-    select coalesce(array_agg(s), '{}') into v_new from unnest(v_listed) s where s <> all (v_known);
-    select count(*) into v_open from public.studio_sms_prov_operations x
-     where x.studio_id = r.studio_id and x.op_kind = 'campaign' and x.fee_bearing and x.status in ('in_flight', 'unknown_outcome') and x.superseded_at is null;
-    if cardinality(v_new) > v_open then
-      perform 1 from public.studio_sms_legal_entities le where le.id = r.legal_entity_id for no key update;   -- the order tw4_prov_begin uses: onboarding, then the entity
-      foreach v_sid in array v_new loop
-        v_inserted := null;
-        insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id)
-        values (r.legal_entity_id, r.studio_id, r.twilio_account_sid, 'campaign', v_sid, v_ms.provider_sid, v_row.id, r.id)
-        on conflict (provider_sid) where status <> 'closed' do nothing returning id into v_inserted;
-        if v_inserted is not null then
-          v_orphans := v_orphans + 1;
-          -- idempotent alerts through the lifecycle's own queue: no identifier, no amount in the owner text; never a charge
-          perform public._tw4rfl_alert(r.legal_entity_id, r.studio_id, null, 'inventory_gap', 'prov_orphan:' || v_inserted || ':owner', 'owner', 'warning',
-            'DanceFlow found a texting registration on your account that it did not expect and is looking into it. You do not need to do anything. You will not be charged for it.');
-          perform public._tw4rfl_alert(r.legal_entity_id, r.studio_id, null, 'inventory_gap', 'prov_orphan:' || v_inserted || ':admin', 'admin', 'critical',
-            'A provider campaign not accounted for by the ledger was found for this business (orphan ' || v_inserted || '). Fee-bearing provisioning is blocked until it is reconciled.');
-          perform public._tw4_r1_audit(o, null, 'prov_orphan', o.state, o.state, 'orphan=' || v_inserted || ';op=' || r.id || ';listing=' || v_row.id);
-        end if;
-      end loop;
-    end if;
+    v_orphans := public._tw4prov2_orphan_scan(r.id);
   end if;
   perform public._tw4_r1_audit(o, null, 'prov_listing', o.state, o.state, 'op=' || r.id || ';listing=' || v_row.id || ';verdict=' || v_verdict || ';listed=' || cardinality(v_listed));
   return jsonb_build_object('listing_id', v_row.id, 'verdict', v_verdict, 'replayed', false, 'orphans', v_orphans);
@@ -656,11 +710,14 @@ begin
     return jsonb_build_object('status', 'closed', 'replayed', true);
   end if;
   -- it stays exposure until ONE of these database-checked facts holds (never an administrator's word):
-  --   (a) the ledger now accounts for the SID (an operation of the business owns it: the "orphan" was the resource of a later attempt);
+  --   (a) the ledger now accounts for the SID WITH A PROVIDER READ (a succeeded operation of the business owns it and its resource row was judged from a provider read: an
+  --       administrator-typed SID alone is never enough);
   --   (b) two complete provider listings of its own scope, recorded after it was found, at least 10 minutes apart, the latest within 60 minutes, neither listing it (it is gone).
   -- The lifecycle's cancellation digest is administrator-typed and is NOT accepted here (see tw4_prov_settle_admin): the provider's own listings are the evidence.
   if not (
-    exists (select 1 from public.studio_sms_prov_operations o where o.provider_sid = x.provider_sid and o.legal_entity_id = x.legal_entity_id and o.status = 'succeeded')
+    exists (select 1 from public.studio_sms_prov_operations o join public.studio_sms_prov_resources pr on pr.operation_id = o.id
+             where o.provider_sid = x.provider_sid and o.legal_entity_id = x.legal_entity_id and o.status = 'succeeded' and pr.provider_sid = x.provider_sid
+               and pr.status in ('pending', 'ready', 'verified') and (pr.source = 'provider_read' or public._tw4sr_fake_allowed()))
     or public._tw4prov2_orphan_gone(x.id)
   ) then
     raise exception 'an orphan is closed only when the ledger accounts for it or provider listings show it gone' using errcode = 'TW046';
@@ -727,7 +784,7 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4prov2_guard(), public._tw4prov2_is_pilot(uuid), public._tw4prov2_is_pilot_op(uuid, uuid), public._tw4prov2_proof(uuid), public._tw4prov2_orphan_gone(uuid), public._tw4prov2_orphan_block(),
+revoke all on function public._tw4prov2_guard(), public._tw4prov2_is_pilot(uuid), public._tw4prov2_is_pilot_op(uuid, uuid), public._tw4prov2_proof(uuid), public._tw4prov2_orphan_gone(uuid), public._tw4prov2_orphan_scan(uuid), public._tw4prov2_close_scan(), public._tw4prov2_orphan_block(),
   public._tw4prov2_refusal_disposition(), public._tw4prov2_refusal_guard(), public._tw4prov2_reservation_disposition() from public, anon, authenticated, service_role;
 revoke all on function public.tw4_prov_listing_record(uuid, text, uuid, jsonb, text, text), public.tw4_prov_orphan_register(uuid, uuid), public.tw4_prov_orphan_close(uuid, uuid, text),
   public.tw4_prov_evidence(uuid, uuid), public.tw4_prov_evidence_claim(uuid, uuid, text, integer) from public, anon, authenticated;

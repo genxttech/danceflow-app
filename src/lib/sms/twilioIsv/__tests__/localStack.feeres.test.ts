@@ -249,7 +249,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
   const auditCount = (studio: string, action: string) => Number(psql(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${studio}' and action = '${action}'`));
   const withLease = async <T,>(studio: string, fn: (onboardingId: string, lease: string) => Promise<T>): Promise<T> => {
     const lease = `f-${RUN}-${(n += 1)}`;
-    const claim = await store.claim(studio, U.padmin, lease, 120, "refresh");
+    const claim = await evidence().claim(studio, U.padmin, lease, 120);
     try {
       return await fn(claim.onboarding_id, lease);
     } finally {
@@ -506,12 +506,14 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(psql(`select audience || ':' || kind from public.studio_sms_provider_alerts where dedupe_key = 'prov_orphan:${orphanId}:owner'`)).toBe("owner:inventory_gap");
       expect(auditCount(SA1, "prov_orphan")).toBe(1);
       // the lifecycle's own delivery queue picks the alerts up (no competing delivery system)
+      const mine = psql(`select string_agg(id::text, ',') from public.studio_sms_provider_alerts where dedupe_key like 'prov_orphan:${orphanId}:%'`).split(",");
+      expect(mine).toHaveLength(2);
+      expect(psql(`select string_agg(distinct status, ',') from public.studio_sms_provider_alerts where dedupe_key like 'prov_orphan:${orphanId}:%'`)).toBe("pending");
       const claimed = await rpc("tw4_rfl_alerts_claim", { p_limit: 100 });
       expect(claimed.error).toBeNull();
-      const mine = psql(`select string_agg(id::text, ',') from public.studio_sms_provider_alerts where dedupe_key like 'prov_orphan:${orphanId}:%'`).split(",");
+      // with the lifecycle's delivery switched on (its default is off in later revisions) the claim returns them; either way they stay in ITS queue, none of mine
       const claimedIds = (claimed.data as { alert_id: string }[]).map((c) => c.alert_id);
-      expect(mine).toHaveLength(2);
-      for (const alertId of mine) expect(claimedIds).toContain(alertId);
+      for (const alertId of claimedIds.filter((id) => mine.includes(id))) expect(mine).toContain(alertId);
       // no studio charge: the orphan created no credit movement
       expect(Number(psql(`select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${EA}' and kind in ('usage_charge','capture')`))).toBe(0);
     });
@@ -762,6 +764,10 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanOwn, p_actor: U.padmin, p_note: "fixture: the resource is really ours, I say" })).error?.code).toBe("TW046");
       // once the ledger accounts for the SID (the open attempt is adopted as that resource), the orphan closes by itself, idempotently; the other one stays
       aged(`update public.studio_sms_prov_operations set provider_sid = '${own}', status = 'succeeded' where id = '${openId}'`);
+      // ... but an administrator-typed SID on a succeeded operation is not enough: the ledger must have judged the resource from a PROVIDER READ
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanOwn, p_actor: U.padmin, p_note: "fixture: the ledger now accounts for this resource" })).error?.code).toBe("TW046");
+      aged(`insert into public.studio_sms_prov_resources (operation_id, legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, parent_sid, brand_sid, use_case, status, source, evidence_digest)
+              select o.id, o.legal_entity_id, o.studio_id, o.twilio_account_sid, 'campaign', '${own}', '${ms}', '${BRAND.B1}', 'MIXED', 'pending', 'fake', '${"ab".repeat(32)}' from public.studio_sms_prov_operations o where o.id = '${openId}'`);
       expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanOwn, p_actor: U.padmin, p_note: "fixture: the ledger now accounts for this resource" })).error).toBeNull();
       expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphanOwn, p_actor: U.padmin, p_note: "fixture: the ledger now accounts for this resource" })).data).toMatchObject({ replayed: true });
       expect(psql(`select count(*) from public.studio_sms_prov_orphans where studio_id = '${SB1}' and status <> 'closed'`)).toBe("1");
@@ -840,6 +846,52 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
           rollback;`);
       expect(proofIs("unaccounted_resource_seen", true)).toBe("");
       expect(proofIs("verified_absence", false)).toBe("");
+    });
+
+    it("closing an attempt re-judges what it exempted: a campaign seen on a CLOSED operation's listing while another attempt was open becomes an orphan when that attempt ends (refusal, adoption of a different SID)", () => {
+      const ids = psql(`select string_agg(id::text, ',' order by attempt) from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'campaign'`).split(",");
+      expect(ids.length).toBeGreaterThanOrEqual(2);
+      const [closed, open] = [ids[0], ids[ids.length - 1]];
+      const ms = msSid(SD1);
+      const X = `QE${"5".repeat(32)}`;
+      const Y = `QE${"6".repeat(32)}`;
+      const seen = `insert into public.studio_sms_prov_listings (operation_id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, scope_sid, read_id, read_started_at, observed_at, source, complete, listed_sids, evidence_digest, verdict, recorded_by_lease)
+          select o.id, o.onboarding_id, o.studio_id, o.legal_entity_id, o.twilio_account_sid, 'campaign', '${ms}', gen_random_uuid(), now(), now(), 'fake', true, array['${X}'], md5(random()::text) || md5(random()::text), 'present', 'fixture'
+            from public.studio_sms_prov_operations o where o.id = '${closed}';`;
+      const setup = `begin; set local session_replication_role = replica;
+          update public.studio_sms_prov_operations set status = 'abandoned', superseded_at = now() where id = '${closed}';
+          update public.studio_sms_prov_operations set status = 'in_flight', superseded_at = null, provider_sid = null where id = '${open}';
+          delete from public.studio_sms_prov_listings where studio_id = '${SD1}'; delete from public.studio_sms_prov_orphans where legal_entity_id = '${ED}';
+          update public.studio_sms_prov_operations set started_at = now() - interval '1 hour' where id in ('${closed}', '${open}');
+          ${seen}
+          set local session_replication_role = origin;`;
+      const check = (assertion: string) => `do $$ begin ${assertion} end $$;`;
+      // while the other attempt is open, one candidate is its own (adopted by the runner): no orphan, no alert
+      expect(psqlError(`${setup} ${check(`if public._tw4prov2_orphan_scan('${open}') <> 0 then raise exception 'exempted candidate was recorded'; end if;`)} rollback;`)).toBe("");
+      // the attempt ends with a DEFINITIVE REFUSAL: the exemption is gone, the candidate is an orphan (and alerts + audit exist)
+      expect(psqlError(`${setup}
+          update public.studio_sms_prov_operations set status = 'failed', error_code = 'api' where id = '${open}';
+          ${check(`if (select count(*) from public.studio_sms_prov_orphans where legal_entity_id = '${ED}' and provider_sid = '${X}' and status = 'open') <> 1 then raise exception 'no orphan after refusal'; end if;
+                   if (select count(*) from public.studio_sms_provider_alerts where dedupe_key like 'prov_orphan:%' and legal_entity_id = '${ED}') <> 2 then raise exception 'alerts missing'; end if;`)} rollback;`)).toBe("");
+      // ... and when it ends by being ADOPTED as a DIFFERENT campaign, X is an orphan too (Y is the ledger's)
+      expect(psqlError(`${setup}
+          update public.studio_sms_prov_operations set status = 'succeeded', provider_sid = '${Y}' where id = '${open}';
+          ${check(`if (select string_agg(provider_sid, ',') from public.studio_sms_prov_orphans where legal_entity_id = '${ED}') is distinct from '${X}' then raise exception 'wrong orphans'; end if;`)} rollback;`)).toBe("");
+    });
+
+    it("a campaign owned by ANOTHER operation of the business (an earlier attempt the service still lists) is left out of this operation's evidence: it neither reads as this attempt's resource nor blocks a genuine refusal", async () => {
+      const ids = psql(`select string_agg(id::text, ',' order by attempt) from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'campaign'`).split(",");
+      const [earlier, current] = [ids[0], ids[ids.length - 1]];
+      const Z = `QE${"4".repeat(32)}`;
+      aged(`update public.studio_sms_prov_operations set provider_sid = '${Z}' where id = '${earlier}'; update public.studio_sms_prov_operations set started_at = now() - interval '2 hours' where id = '${current}'; delete from public.studio_sms_prov_listings where operation_id = '${current}'`);
+      try {
+        const r = await record(SD1, current, { listed: [Z] });
+        expect(r.error).toBeNull();
+        expect(psql(`select verdict || ':' || cardinality(listed_sids) from public.studio_sms_prov_listings where operation_id = '${current}'`)).toBe("absent:0");
+        expect(psql(`select count(*) from public.studio_sms_prov_orphans where provider_sid = '${Z}'`)).toBe("0");
+      } finally {
+        aged(`update public.studio_sms_prov_operations set provider_sid = null where id = '${earlier}'`);
+      }
     });
 
     it("the new evidence tables have row-level security enabled (no policies: no API role can read them)", () => {
